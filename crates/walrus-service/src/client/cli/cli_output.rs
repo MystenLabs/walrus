@@ -185,10 +185,11 @@ impl CliOutput for BlobStatusOutput {
                     "".to_string()
                 };
                 println!(
-                "Blob ID {blob_str} is registered on Walrus but only as deletable Blob objects:\n\
+                    "Blob ID {blob_str} is registered on Walrus, but only in one or more \
+                    deletable Blob objects:\n\
                     Total number of certified objects: {count_deletable_certified} (of \
                     {count_deletable_total} registered{initial_certified_str})"
-            )
+                )
             }
             BlobStatus::Invalid { .. } => println!("Blob ID {blob_str} is invalid."),
             BlobStatus::Permanent {
@@ -220,11 +221,19 @@ impl CliOutput for BlobStatusOutput {
                         {initial_certified_str}",
                     format_event_id(&status_event)
                 );
-                if count_deletable_certified > 0 {
-                    println!(
-                        "There are also {count_deletable_certified} certified deletable Blob \
+                match count_deletable_certified {
+                    2..=u32::MAX => {
+                        println!(
+                            "There are also {count_deletable_certified} certified deletable Blob \
                             objects for this blob ID."
-                    )
+                        )
+                    }
+                    1 => {
+                        println!(
+                            "There is also 1 certified deletable Blob object for this blob ID."
+                        )
+                    }
+                    0 => {}
                 }
             }
         }
@@ -446,7 +455,7 @@ impl CliOutput for DeleteOutput {
 
 fn removed_instance_string(blob_status: &BlobStatus) -> String {
     const STILL_AVAILABLE: &str =
-        "The above blob instances were removed, but the blob still exist on Walrus.";
+        "The above blob objects were removed, but the blob still exist on Walrus.";
     match blob_status {
         BlobStatus::Nonexistent => "The blob was completely removed from Walrus.".to_owned(),
         BlobStatus::Invalid { .. } => "The blob was marked as invalid.".to_owned(),
@@ -456,7 +465,7 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
             ..
         } => {
             format!(
-                "{} There are still {} permanent instances {}available.",
+                "{} There are still one or more {} permanent instances {}available.",
                 STILL_AVAILABLE,
                 if *is_certified {
                     "certified"
@@ -465,7 +474,7 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
                 },
                 if deletable_counts.count_deletable_total > 0 {
                     format!(
-                        "and deletable instance(s) ({})",
+                        "and deletable instances ({})",
                         deletable_counts_summary(deletable_counts)
                     )
                 } else {
@@ -477,7 +486,7 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
             deletable_counts, ..
         } => {
             format!(
-                "{} There are still deletable instances ({}) available.",
+                "{} There are still one or more deletable instances ({}) available.",
                 STILL_AVAILABLE,
                 deletable_counts_summary(deletable_counts)
             )
