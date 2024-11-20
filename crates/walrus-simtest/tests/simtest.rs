@@ -13,7 +13,8 @@ mod tests {
     use rand::Rng;
     use sui_macros::register_fail_points;
     use sui_protocol_config::ProtocolConfig;
-    use tokio::time::Instant;
+    use sui_simulator::configs::{env_config, uniform_latency_ms};
+    use tokio::{task::JoinHandle, time::Instant};
     use walrus_core::encoding::{Primary, Secondary};
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
@@ -25,6 +26,18 @@ mod tests {
     use walrus_test_utils::WithTempDir;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
+    const DB_FAIL_POINTS: &[&str] = &[
+        "batch-write-before",
+        "batch-write-after",
+        "put-cf-before",
+        "put-cf-after",
+        "delete-cf-before",
+        "delete-cf-after",
+    ];
+
+    fn latency_config() -> sui_simulator::SimConfig {
+        env_config(uniform_latency_ms(10..30), [])
+    }
 
     // Helper function to write a random blob, read it back and check that it is the same.
     // If `write_only` is true, only write the blob and do not read it back.
@@ -76,6 +89,27 @@ mod tests {
         assert_eq!(read_blob, blob);
 
         Ok(())
+    }
+
+    fn start_background_workload(
+        client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
+        write_only: bool,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut data_length = 64;
+            loop {
+                tracing::info!("writing data with size {}", data_length);
+
+                // TODO(#995): use stress client for better coverage of the workload.
+                write_read_and_check_random_blob(client_clone.as_ref(), data_length, write_only)
+                    .await
+                    .expect("workload should not fail");
+
+                tracing::info!("finish writing data with size {}", data_length);
+
+                data_length += 1;
+            }
+        })
     }
 
     // Tests that we can create a Walrus cluster with a Sui cluster and run basic
@@ -137,23 +171,13 @@ mod tests {
         do_not_fail_nodes.insert(sui_cluster.sim_node_handle().id());
 
         let fail_triggered_clone = fail_triggered.clone();
-        register_fail_points(
-            &[
-                "batch-write-before",
-                "batch-write-after",
-                "put-cf-before",
-                "put-cf-after",
-                "delete-cf-before",
-                "delete-cf-after",
-            ],
-            move || {
-                handle_failpoint(
-                    do_not_fail_nodes.clone(),
-                    fail_triggered_clone.clone(),
-                    FAILURE_TRIGGER_PROBABILITY,
-                );
-            },
-        );
+        register_fail_points(DB_FAIL_POINTS, move || {
+            handle_failpoint(
+                do_not_fail_nodes.clone(),
+                fail_triggered_clone.clone(),
+                FAILURE_TRIGGER_PROBABILITY,
+            );
+        });
 
         // Run workload and wait until a crash is triggered.
         let mut data_length = 31415;
@@ -275,25 +299,10 @@ mod tests {
             .unwrap();
 
         let client_arc = Arc::new(client);
-        let client_clone = client_arc.clone();
 
         // Starts a background workload that a client keeps writing and retrieving data.
         // All requests should succeed even if a node crashes.
-        let workload_handle = tokio::spawn(async move {
-            let mut data_length = 64;
-            loop {
-                tracing::info!("writing data with size {}", data_length);
-
-                // TODO(#995): use stress client for better coverage of the workload.
-                write_read_and_check_random_blob(client_clone.as_ref(), data_length, false)
-                    .await
-                    .expect("workload should not fail");
-
-                tracing::info!("finish writing data with size {}", data_length);
-
-                data_length += 64;
-            }
-        });
+        let workload_handle = start_background_workload(client_arc.clone(), false);
 
         // Running the workload for 60 seconds to get some data in the system.
         tokio::time::sleep(Duration::from_secs(60)).await;
@@ -304,19 +313,9 @@ mod tests {
         let fail_triggered_clone = fail_triggered.clone();
 
         // Trigger node crash during some DB access.
-        register_fail_points(
-            &[
-                "batch-write-before",
-                "batch-write-after",
-                "put-cf-before",
-                "put-cf-after",
-                "delete-cf-before",
-                "delete-cf-after",
-            ],
-            move || {
-                crash_target_node(target_fail_node_id, fail_triggered_clone.clone());
-            },
-        );
+        register_fail_points(DB_FAIL_POINTS, move || {
+            crash_target_node(target_fail_node_id, fail_triggered_clone.clone());
+        });
 
         // Changes the stake of the crashed node so that it will gain some shards after the next
         // epoch change. Note that the expectation is the node will be back only after more than
@@ -466,23 +465,13 @@ mod tests {
         let crash_end_time = Instant::now() + Duration::from_secs(2 * 60);
 
         // Trigger node crash during some DB access.
-        register_fail_points(
-            &[
-                "batch-write-before",
-                "batch-write-after",
-                "put-cf-before",
-                "put-cf-after",
-                "delete-cf-before",
-                "delete-cf-after",
-            ],
-            move || {
-                repeatedly_crash_target_node(
-                    target_fail_node_id,
-                    next_fail_triggered_clone.clone(),
-                    crash_end_time,
-                );
-            },
-        );
+        register_fail_points(DB_FAIL_POINTS, move || {
+            repeatedly_crash_target_node(
+                target_fail_node_id,
+                next_fail_triggered_clone.clone(),
+                crash_end_time,
+            );
+        });
 
         // We probabilistically trigger a shard move to the crashed node to test the recovery.
         // The additional stake assigned are randomly chosen between 2 and 5 times of the original
@@ -542,5 +531,56 @@ mod tests {
                 .node_status,
             "Active"
         );
+    }
+
+    // This test simulates a scenario where a node is repeatedly moving shards among storage nodes,
+    // and a workload is running concurrently.
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest(config = "latency_config()")]
+    async fn test_repeated_shard_move_with_workload() {
+        // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
+        // changes in the test.
+        let (_sui_cluster, walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(60),
+                &[1, 2, 3, 3, 4],
+                true,
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+        let workload_handle = start_background_workload(client_arc.clone(), true);
+
+        // Run the workload for 60 seconds to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Repeatedly move shards among storage nodes.
+        for _i in 0..3 {
+            let node_to_move_shard_into = rand::thread_rng().gen_range(0..=4);
+            let shard_move_weight = rand::thread_rng().gen_range(1..=5);
+            tracing::info!(
+                "Triggering shard move with stake weight {} to node {}",
+                shard_move_weight,
+                node_to_move_shard_into
+            );
+            client_arc
+                .as_ref()
+                .as_ref()
+                .stake_with_node_pool(
+                    walrus_cluster.nodes[node_to_move_shard_into]
+                        .storage_node_capability
+                        .as_ref()
+                        .unwrap()
+                        .node_id,
+                    test_cluster::FROST_PER_NODE_WEIGHT * shard_move_weight,
+                )
+                .await
+                .expect("stake with node pool should not fail");
+
+            tokio::time::sleep(Duration::from_secs(120)).await;
+        }
+
+        workload_handle.abort();
     }
 }
