@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{io::stdout, path::PathBuf};
+use std::{io::stdout, num::NonZeroU16, path::PathBuf};
 
 use anyhow::Result;
 use colored::Colorize;
@@ -35,6 +35,7 @@ use crate::client::{
         InfoOutput,
         ReadOutput,
         StakeOutput,
+        StorageNodeInfo,
         WalletOutput,
     },
     string_prefix,
@@ -250,7 +251,8 @@ impl CliOutput for InfoOutput {
     fn print_cli_output(&self) {
         let Self {
             storage_unit_size: unit_size,
-            price_per_unit_size,
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
             current_epoch,
             n_shards,
             n_nodes,
@@ -259,6 +261,8 @@ impl CliOutput for InfoOutput {
             marginal_size,
             marginal_price,
             example_blobs,
+            epoch_duration,
+            max_epochs_ahead,
             dev_info,
         } = self;
 
@@ -267,10 +271,14 @@ impl CliOutput for InfoOutput {
             "
 
             {top_heading}
+
+            {epoch_heading}
             Current epoch: {current_epoch}
+            Epoch duration: {hr_epoch_duration}
+            Blobs can be stored for at most {max_epochs_ahead} epochs in the future.
 
             {storage_heading}
-            Number of nodes: {n_nodes}
+            Number of storage nodes: {n_nodes}
             Number of shards: {n_shards}
 
             {size_heading}
@@ -278,7 +286,9 @@ impl CliOutput for InfoOutput {
             Storage unit: {hr_storage_unit}
 
             {price_heading}
-            Price per encoded storage unit: {hr_price_per_unit_size}
+            (Conversion rate: 1 WAL = 1,000,000,000 FROST)
+            Price per encoded storage unit: {hr_storage_price_per_unit_size}
+            Additional price for each write: {hr_write_price_per_unit_size}
             Price to store metadata: {metadata_price}
             Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
 
@@ -286,13 +296,16 @@ impl CliOutput for InfoOutput {
             {example_blob_output}
             ",
             top_heading = "Walrus system information".bold(),
+            epoch_heading = "Epochs and storage duration".bold().green(),
+            hr_epoch_duration = humantime::format_duration(*epoch_duration),
             storage_heading = "Storage nodes".bold().green(),
             size_heading = "Blob size".bold().green(),
             hr_max_blob = HumanReadableBytes(*max_blob_size),
             hr_storage_unit = HumanReadableBytes(*unit_size),
             max_blob_size_sep = thousands_separator(*max_blob_size),
             price_heading = "Approximate storage prices per epoch".bold().green(),
-            hr_price_per_unit_size = HumanReadableFrost::from(*price_per_unit_size),
+            hr_storage_price_per_unit_size = HumanReadableFrost::from(*storage_price_per_unit_size),
+            hr_write_price_per_unit_size = HumanReadableFrost::from(*write_price_per_unit_size),
             metadata_price = HumanReadableFrost::from(*metadata_price),
             marginal_size = HumanReadableBytes(*marginal_size),
             marginal_price = HumanReadableFrost::from(*marginal_price),
@@ -314,6 +327,7 @@ impl CliOutput for InfoOutput {
             min_correct_shards,
             quorum_threshold,
             storage_nodes,
+            next_storage_nodes,
             committee,
         }) = dev_info
         else {
@@ -352,22 +366,38 @@ impl CliOutput for InfoOutput {
                 .yellow()
         );
 
-        let mut table = Table::new();
-        table.set_format(default_table_format());
-        table.set_titles(row![b->"Idx", b->"# Shards", b->"Pk prefix", b->"Address", b->"Shards"]);
-        for (i, node) in storage_nodes.iter().enumerate() {
-            let n_owned = node.n_shards;
-            let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
-            table.add_row(row![
-                bFg->format!("{i}"),
-                format!("{} ({:.2}%)", n_owned, n_owned_percent),
-                string_prefix(&node.public_key),
-                node.network_address,
-                DisplayShardList(&node.shard_ids),
-            ]);
-        }
-        table.printstd();
+        print_storage_node_table(n_shards, storage_nodes);
+        if let Some(storage_nodes) = next_storage_nodes.as_ref() {
+            println!(
+                "{}",
+                "\n(dev) Next committee: Storage node details and shard distribution\n"
+                    .bold()
+                    .yellow()
+            );
+            print_storage_node_table(n_shards, storage_nodes);
+        };
     }
+}
+
+fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeInfo]) {
+    let mut table = Table::new();
+    table.set_format(default_table_format());
+    table.set_titles(
+        row![b->"Idx", b->"Name", b->"# Shards", b->"Pk prefix", b->"Address", b->"Shards"],
+    );
+    for (i, node) in storage_nodes.iter().enumerate() {
+        let n_owned = node.n_shards;
+        let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
+        table.add_row(row![
+            bFg->format!("{i}"),
+            node.name,
+            format!("{} ({:.2}%)", n_owned, n_owned_percent),
+            string_prefix(&node.public_key),
+            node.network_address,
+            DisplayShardList(&node.shard_ids),
+        ]);
+    }
+    table.printstd();
 }
 
 struct DisplayShardList<'a>(&'a [ShardIndex]);

@@ -7,6 +7,7 @@ use std::{
     fmt::Display,
     num::NonZeroU16,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -222,12 +223,15 @@ pub(crate) struct InfoOutput {
     pub(crate) n_shards: NonZeroU16,
     pub(crate) n_nodes: usize,
     pub(crate) storage_unit_size: u64,
-    pub(crate) price_per_unit_size: u64,
+    pub(crate) storage_price_per_unit_size: u64,
+    pub(crate) write_price_per_unit_size: u64,
     pub(crate) max_blob_size: u64,
     pub(crate) marginal_size: u64,
     pub(crate) metadata_price: u64,
     pub(crate) marginal_price: u64,
     pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+    pub(crate) epoch_duration: Duration,
+    pub(crate) max_epochs_ahead: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) dev_info: Option<InfoDevOutput>,
 }
@@ -245,6 +249,7 @@ pub(crate) struct InfoDevOutput {
     pub(crate) min_correct_shards: u16,
     pub(crate) quorum_threshold: u16,
     pub(crate) storage_nodes: Vec<StorageNodeInfo>,
+    pub(crate) next_storage_nodes: Option<Vec<StorageNodeInfo>>,
     #[serde(skip_serializing)]
     pub(crate) committee: Committee,
 }
@@ -326,7 +331,11 @@ impl InfoOutput {
         dev: bool,
     ) -> anyhow::Result<Self> {
         let committee = sui_read_client.current_committee().await?;
-        let price_per_unit_size = sui_read_client.storage_price_per_unit_size().await?;
+        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
+        let fixed_params = sui_read_client.fixed_system_parameters().await?;
+        let next_committee = sui_read_client.next_committee().await?;
 
         let current_epoch = committee.epoch;
         let n_shards = committee.n_shards();
@@ -338,7 +347,8 @@ impl InfoOutput {
 
         let metadata_storage_size =
             (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
-        let metadata_price = storage_units_from_size(metadata_storage_size) * price_per_unit_size;
+        let metadata_price =
+            storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
 
         // Make sure our marginal size can actually be encoded.
         let mut marginal_size = 1024 * 1024; // Start with 1 MiB.
@@ -348,14 +358,14 @@ impl InfoOutput {
         let marginal_price = storage_units_from_size(
             encoded_slivers_length_for_n_shards(n_shards, marginal_size)
                 .expect("we can encode 1 MiB"),
-        ) * price_per_unit_size;
+        ) * storage_price_per_unit_size;
 
         let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
         let example_blob_1 = example_blob_0 * 32;
         let example_blobs = [example_blob_0, example_blob_1, max_blob_size]
             .into_iter()
             .map(|unencoded_size| {
-                ExampleBlobInfo::new(unencoded_size, n_shards, price_per_unit_size)
+                ExampleBlobInfo::new(unencoded_size, n_shards, storage_price_per_unit_size)
                     .expect("we can encode the given examples")
             })
             .collect();
@@ -371,6 +381,16 @@ impl InfoOutput {
                 .cloned()
                 .map(StorageNodeInfo::from)
                 .collect();
+
+            let next_storage_nodes = next_committee.as_ref().map(|next_committee| {
+                next_committee
+                    .members()
+                    .iter()
+                    .cloned()
+                    .map(StorageNodeInfo::from)
+                    .collect()
+            });
+
             InfoDevOutput {
                 n_primary_source_symbols,
                 n_secondary_source_symbols,
@@ -381,13 +401,15 @@ impl InfoOutput {
                 min_correct_shards: n_shards.get() - f,
                 quorum_threshold: 2 * f + 1,
                 storage_nodes,
+                next_storage_nodes,
                 committee,
             }
         });
 
         Ok(Self {
             storage_unit_size: BYTES_PER_UNIT_SIZE,
-            price_per_unit_size,
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
             current_epoch,
             n_shards,
             n_nodes,
@@ -396,6 +418,8 @@ impl InfoOutput {
             marginal_size,
             marginal_price,
             example_blobs,
+            epoch_duration: fixed_params.epoch_duration,
+            max_epochs_ahead: fixed_params.max_epochs_ahead,
             dev_info,
         })
     }
