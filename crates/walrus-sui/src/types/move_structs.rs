@@ -202,9 +202,9 @@ pub(crate) struct StakingPool {
     #[cfg(feature = "mainnet-contracts")]
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(feature = "mainnet-contracts")]
     /// Pending commission rate changes indexed by epoch.
-    pending_commission_rate_changes: Vec<(Epoch, u64)>,
+    pending_commission_rate: Vec<(Epoch, u64)>,
     #[cfg(not(feature = "mainnet-contracts"))]
     /// The commission rate for the pool.
     commission_rate: u64,
@@ -218,7 +218,7 @@ pub(crate) struct StakingPool {
     pending_stake: Vec<(Epoch, u64)>,
     /// The rewards that the pool has received.
     rewards: u64,
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(feature = "mainnet-contracts")]
     /// Collected commission.
     commission: u64,
     #[cfg(feature = "mainnet-contracts")]
