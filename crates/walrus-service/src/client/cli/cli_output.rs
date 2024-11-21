@@ -295,20 +295,20 @@ impl CliOutput for InfoOutput {
             {example_blob_output}
             ",
             top_heading = "Walrus system information".bold(),
-            epoch_heading = "Epochs and storage duration".bold().green(),
+            epoch_heading = "Epochs and storage duration".bold().cyan(),
             hr_epoch_duration = humantime::format_duration(*epoch_duration),
-            storage_heading = "Storage nodes".bold().green(),
-            size_heading = "Blob size".bold().green(),
+            storage_heading = "Storage nodes".bold().cyan(),
+            size_heading = "Blob size".bold().cyan(),
             hr_max_blob = HumanReadableBytes(*max_blob_size),
             hr_storage_unit = HumanReadableBytes(*unit_size),
             max_blob_size_sep = thousands_separator(*max_blob_size),
-            price_heading = "Approximate storage prices per epoch".bold().green(),
+            price_heading = "Approximate storage prices per epoch".bold().cyan(),
             hr_storage_price_per_unit_size = HumanReadableFrost::from(*storage_price_per_unit_size),
             hr_write_price_per_unit_size = HumanReadableFrost::from(*write_price_per_unit_size),
             metadata_price = HumanReadableFrost::from(*metadata_price),
             marginal_size = HumanReadableBytes(*marginal_size),
             marginal_price = HumanReadableFrost::from(*marginal_price),
-            price_examples_heading = "Total price for example blob sizes".bold().green(),
+            price_examples_heading = "Total price for example blob sizes".bold().cyan(),
             example_blob_output = example_blobs
                 .iter()
                 .map(ExampleBlobInfo::cli_output)
@@ -352,17 +352,17 @@ impl CliOutput for InfoOutput {
 
             {node_heading}
             ",
-            encoding_heading = "(dev) Encoding parameters and sizes".bold().yellow(),
+            encoding_heading = "(dev) Encoding parameters and sizes".bold().magenta(),
             hr_metadata = HumanReadableBytes(*metadata_storage_size),
             metadata_storage_size_sep = thousands_separator(*metadata_storage_size),
             hr_sliver = HumanReadableBytes(*max_sliver_size),
             max_sliver_size_sep = thousands_separator(*max_sliver_size),
             hr_encoded = HumanReadableBytes(*max_encoded_blob_size),
             max_encoded_blob_size_sep = thousands_separator(*max_encoded_blob_size),
-            bft_heading = "(dev) BFT system information".bold().yellow(),
+            bft_heading = "(dev) BFT system information".bold().magenta(),
             node_heading = "(dev) Storage node details and shard distribution"
                 .bold()
-                .yellow()
+                .magenta()
         );
 
         print_storage_node_table(n_shards, storage_nodes);
@@ -371,7 +371,7 @@ impl CliOutput for InfoOutput {
                 "{}",
                 "\n(dev) Next committee: Storage node details and shard distribution"
                     .bold()
-                    .yellow()
+                    .magenta()
             );
             print_storage_node_table(n_shards, storage_nodes);
         };
@@ -392,7 +392,7 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
         let n_owned = node.n_shards;
         let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
         table.add_row(row![
-            bFg->format!("{i}"),
+            bFc->format!("{i}"),
             node.name,
             r->format!("{} ({:.2}%)", n_owned, n_owned_percent),
             r->HumanReadableFrost::from(node.stake),
@@ -482,7 +482,7 @@ impl CliOutput for DeleteOutput {
             if let Some(post_deletion_status) = self.post_deletion_status {
                 let status_output = removed_instance_string(&post_deletion_status);
 
-                println!("{} {}", "Note:".bold().yellow(), status_output);
+                println!("{} {}", "Note:".bold().magenta(), status_output);
             }
         }
     }

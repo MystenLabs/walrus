@@ -8,10 +8,12 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context, Result};
 use colored::{ColoredString, Colorize};
+use indicatif::{ProgressBar, ProgressStyle};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
@@ -152,7 +154,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
 
 /// Returns the string `Success:` colored in green for terminal output.
 pub fn success() -> ColoredString {
-    "Success:".bold().green()
+    "Success:".bold().cyan()
 }
 
 /// Returns the string `Error:` colored in red for terminal output.
@@ -439,6 +441,32 @@ impl Display for BlobIdDecimal {
     }
 }
 
+/// Returns a progress bar with the given length and stlyle already applied
+pub(crate) fn styled_progress_bar(length: u64) -> ProgressBar {
+    let pb = ProgressBar::new(length);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "{msg} [{elapsed_precise}] [{wide_bar:.cyan/magenta}] {pos}/{len} ({eta})",
+        )
+        .expect("the template is valid")
+        .tick_chars("•◉◎○◌○◎◉")
+        .progress_chars("#>-"),
+    );
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
+}
+
+/// Returns a pre-configured spinner.
+pub(crate) fn styled_spinner() -> ProgressBar {
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::with_template(" {spinner:.cyan} {msg} [{elapsed_precise}]")
+            .expect("the template is valid")
+            .tick_chars("•◉◎○◌○◎◉"),
+    );
+    spinner.enable_steady_tick(Duration::from_millis(100));
+    spinner
+}
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;

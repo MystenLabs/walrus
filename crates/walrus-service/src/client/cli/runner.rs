@@ -66,6 +66,7 @@ use crate::{
             StakeOutput,
             WalletOutput,
         },
+        styled_spinner,
         Client,
         ClientDaemon,
         Config,
@@ -416,9 +417,12 @@ impl ClientCommandRunner {
         };
 
         tracing::debug!(%n_shards, "encoding the blob");
+        let spinner = styled_spinner();
+        spinner.set_message("computing the blob ID");
         let metadata = EncodingConfig::new(n_shards)
             .get_blob_encoder(&read_blob_from_file(&file)?)?
             .compute_metadata();
+        spinner.finish_with_message("blob ID computed");
 
         BlobIdOutput::new(&file, &metadata).print_output(self.json)
     }
