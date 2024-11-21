@@ -456,7 +456,7 @@ mod tests {
 
             tracing::info!("finish writing data with size {}", data_length);
 
-            data_length += 64;
+            data_length += 1;
         }
 
         let next_fail_triggered = Arc::new(Mutex::new(tokio::time::Instant::now()));
