@@ -11,7 +11,7 @@ This setup launches:
 
 Make sure you're under `walrus/docker/local-testbed`
 
-1. ./build-local-image.sh
+1. `./build-local-image.sh`
    1. only if you want to run containers built from local repo
    2. takes about 10 min on M2 Pro Macbook
    3. be sure assign 16GB+ to docker process for image building process
