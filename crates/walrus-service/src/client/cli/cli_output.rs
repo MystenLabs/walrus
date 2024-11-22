@@ -223,7 +223,7 @@ impl CliOutput for BlobStatusOutput {
                     format_event_id(&status_event)
                 );
                 match count_deletable_certified {
-                    2..=u32::MAX => {
+                    2.. => {
                         println!(
                             "There are also {count_deletable_certified} certified deletable Blob \
                             objects for this blob ID."
@@ -511,7 +511,7 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
                 },
                 if deletable_counts.count_deletable_total > 0 {
                     format!(
-                        "and deletable instances ({})",
+                        "and deletable instances ({}) ",
                         deletable_counts_summary(deletable_counts)
                     )
                 } else {

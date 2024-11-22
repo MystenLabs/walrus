@@ -270,7 +270,7 @@ pub(crate) struct StorageNodeInfo {
 }
 
 impl StorageNodeInfo {
-    fn from_nodes_and_stake(value: StorageNode, stake: u64) -> Self {
+    fn from_node_and_stake(value: StorageNode, stake: u64) -> Self {
         let StorageNode {
             name,
             node_id: object_id,

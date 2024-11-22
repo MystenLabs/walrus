@@ -276,7 +276,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         target: FileOrBlobIdOrObjectId,
         /// Proceed to delete the blob without confirmation.
-        #[clap(short, long)]
+        #[clap(short, long, action)]
         yes: bool,
     },
     /// Stake with storage node.
