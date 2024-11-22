@@ -25,7 +25,7 @@ use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument, Span};
-use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
+use typed_store::{rocks::MetricConf, TypedStoreError};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
     ensure,
@@ -286,8 +286,6 @@ impl StorageNodeBuilder {
         config: &StorageNodeConfig,
         metrics_registry: Registry,
     ) -> Result<StorageNode, anyhow::Error> {
-        DBMetrics::init(&metrics_registry);
-
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
