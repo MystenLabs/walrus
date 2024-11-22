@@ -71,6 +71,10 @@ pub struct TestbedNodeConfig {
     /// The network key of the node.
     #[serde_as(as = "Base64")]
     pub network_keypair: NetworkKeyPair,
+    #[cfg(feature = "mainnet-contracts")]
+    /// The commission rate of the storage node.
+    pub commission_rate: u16,
+    #[cfg(not(feature = "mainnet-contracts"))]
     /// The commission rate of the storage node.
     pub commission_rate: u64,
     /// The vote for the storage price per unit.
