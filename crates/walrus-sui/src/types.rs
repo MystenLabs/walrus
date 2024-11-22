@@ -99,6 +99,7 @@ pub struct NodeRegistrationParams {
     /// The commission rate of the storage node.
     pub commission_rate: u64,
     #[cfg(feature = "mainnet-contracts")]
+    /// The commission rate of the storage node.
     pub commission_rate: u16,
     /// The vote for the storage price per unit.
     pub storage_price: u64,
