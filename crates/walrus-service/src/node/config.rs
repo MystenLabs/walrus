@@ -101,6 +101,7 @@ pub struct StorageNodeConfig {
     #[cfg(not(feature = "mainnet-contracts"))]
     #[serde(default)]
     pub commission_rate: u64,
+    /// The commission rate of the storage node, in basis points.
     #[cfg(feature = "mainnet-contracts")]
     #[serde(default)]
     pub commission_rate: u16,
