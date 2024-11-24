@@ -13,7 +13,7 @@ mainnet-contracts = ["walrus-sui/mainnet-contracts"]
 [dependencies]
 aws-config = "1.5.10"
 aws-runtime = "1.3.0"
-aws-sdk-ec2 = "1.88.0"
+aws-sdk-ec2 = "1.92.0"
 clap.workspace = true
 color-eyre = "0.6.3"
 crossterm = "0.28.1"
