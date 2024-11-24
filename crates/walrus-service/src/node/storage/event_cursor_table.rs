@@ -1,7 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+    Mutex,
+};
 
 use rocksdb::{MergeOperands, Options};
 use sui_types::event::EventID;
@@ -39,6 +43,9 @@ impl From<EventProgress> for walrus_sdk::api::EventProgress {
 pub(super) struct EventCursorTable {
     inner: DBMap<[u8; 6], EventIdWithProgress>,
     event_queue: Arc<Mutex<EventSequencer>>,
+    // Store the number of events that have been persisted and pending separately for fast access.
+    persisted_event_count: Arc<AtomicU64>,
+    pending_event_count: Arc<AtomicU64>,
 }
 
 impl EventCursorTable {
@@ -53,9 +60,13 @@ impl EventCursorTable {
         let this = Self {
             inner,
             event_queue: Arc::default(),
+            persisted_event_count: Arc::new(AtomicU64::new(0)),
+            pending_event_count: Arc::new(AtomicU64::new(0)),
         };
 
         let next_index = this.get_sequentially_processed_event_count()?;
+        this.persisted_event_count
+            .store(next_index, Ordering::SeqCst);
         *this.event_queue.lock().unwrap() =
             EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
 
@@ -115,6 +126,11 @@ impl EventCursorTable {
             self.get_sequentially_processed_event_count()?
         );
 
+        self.persisted_event_count
+            .store(event_queue.head_index() as u64, Ordering::SeqCst);
+        self.pending_event_count
+            .store(event_queue.remaining(), Ordering::SeqCst);
+
         Ok(EventProgress {
             persisted: event_queue.head_index() as u64,
             pending: event_queue.remaining(),
@@ -123,10 +139,9 @@ impl EventCursorTable {
 
     /// Returns the current event cursor.
     pub fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
-        let event_queue = self.event_queue.lock().unwrap();
         Ok(EventProgress {
-            persisted: event_queue.head_index() as u64,
-            pending: event_queue.remaining(),
+            persisted: self.persisted_event_count.load(Ordering::SeqCst),
+            pending: self.pending_event_count.load(Ordering::SeqCst),
         })
     }
 }

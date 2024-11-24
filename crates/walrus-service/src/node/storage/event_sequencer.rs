@@ -30,6 +30,8 @@ impl EventSequencer {
         }
     }
 
+    /// The index of the next event to be observed. This is also the number of events that have been
+    /// persisted.
     pub fn head_index(&self) -> usize {
         self.head_index
     }
