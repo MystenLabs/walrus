@@ -30,6 +30,10 @@ impl EventSequencer {
         }
     }
 
+    pub fn head_index(&self) -> usize {
+        self.head_index
+    }
+
     /// Adds the provided (index, EventID) pair to those observed.
     ///
     /// # Panics

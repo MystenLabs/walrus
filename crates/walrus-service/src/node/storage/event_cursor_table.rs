@@ -109,18 +109,24 @@ impl EventCursorTable {
             event_queue.advance();
         }
 
+        // In debug mode, assert that the number of events processed matches the number of events.
+        debug_assert_eq!(
+            event_queue.head_index() as u64,
+            self.get_sequentially_processed_event_count()?
+        );
+
         Ok(EventProgress {
-            persisted: count,
+            persisted: event_queue.head_index() as u64,
             pending: event_queue.remaining(),
         })
     }
 
     /// Returns the current event cursor.
     pub fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
-        let count = self.get_sequentially_processed_event_count()?;
+        let event_queue = self.event_queue.lock().unwrap();
         Ok(EventProgress {
-            persisted: count,
-            pending: self.event_queue.lock().unwrap().remaining(),
+            persisted: event_queue.head_index() as u64,
+            pending: event_queue.remaining(),
         })
     }
 }

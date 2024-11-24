@@ -1149,7 +1149,7 @@ impl StorageNodeInner {
             .maybe_advance_event_cursor(event_index, cursor)?;
 
         let event_cursor_progress = &self.metrics.event_cursor_progress;
-        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
+        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).set(persisted);
         metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
 
         Ok(())
@@ -1708,7 +1708,7 @@ mod tests {
     use walrus_core::{
         encoding::{Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
-        test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        test_utils::{generate_config_metadata_and_valid_recovery_symbols, random_blob_id},
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::client::Client;
@@ -2337,7 +2337,7 @@ mod tests {
     async fn cluster_at_epoch1_without_blobs(
         assignment: &[&[u16]],
     ) -> TestResult<(TestCluster, Sender<ContractEvent>)> {
-        let events = Sender::new(48);
+        let events = Sender::new(10000);
 
         let cluster = {
             // Lock to avoid race conditions.
@@ -2835,6 +2835,46 @@ mod tests {
             .get_event_cursor_and_next_index()?
             .map(|(cursor, _)| cursor);
         assert_eq!(latest_cursor, Some(blob2_registered_event.event_id));
+
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn event_cursor_benchmark() -> TestResult {
+        let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
+
+        let blob1 = (0..80u8).collect::<Vec<_>>();
+
+        let (cluster, events, _blob1_details) =
+            cluster_with_partially_stored_blob(shards, &blob1, |_, _| true).await?;
+
+        let events_clone = events.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) =
+                    events_clone.send(BlobRegistered::for_testing(random_blob_id()).into())
+                {
+                    panic!("Failed to send blob registered event: {}", e);
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        });
+
+        for _i in 0..20 {
+            let start = Instant::now();
+            let progress = cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .get_event_cursor_progress()
+                .unwrap();
+            println!(
+                "get_event_cursor_progress latency {:?} {:?}",
+                start.elapsed(),
+                progress
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
 
         Ok(())
     }
