@@ -26,7 +26,9 @@ type ProgressMergeOperand = (EventID, u64);
 
 #[derive(Debug, Copy, Clone, Default)]
 pub(crate) struct EventProgress {
+    /// The number of events that have been persisted.
     pub persisted: u64,
+    /// The number of events that are pending to be persisted in the event sequencer.
     pub pending: u64,
 }
 
@@ -120,21 +122,20 @@ impl EventCursorTable {
             event_queue.advance();
         }
 
+        let persisted: u64 = event_queue
+            .head_index()
+            .try_into()
+            .expect("64-bit architecture");
+        let pending = event_queue.remaining();
+
         // In debug mode, assert that the number of events processed matches the number of events.
-        debug_assert_eq!(
-            event_queue.head_index() as u64,
-            self.get_sequentially_processed_event_count()?
-        );
+        debug_assert_eq!(persisted, self.get_sequentially_processed_event_count()?);
 
         self.persisted_event_count
-            .store(event_queue.head_index() as u64, Ordering::SeqCst);
-        self.pending_event_count
-            .store(event_queue.remaining(), Ordering::SeqCst);
+            .store(persisted, Ordering::SeqCst);
+        self.pending_event_count.store(pending, Ordering::SeqCst);
 
-        Ok(EventProgress {
-            persisted: event_queue.head_index() as u64,
-            pending: event_queue.remaining(),
-        })
+        Ok(EventProgress { persisted, pending })
     }
 
     /// Returns the current event cursor.
