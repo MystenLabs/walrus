@@ -300,19 +300,22 @@ impl<'a> NodeWriteCommunication<'a> {
                 .store_metadata_with_retries(metadata)
                 .await
                 .map_err(StoreError::Metadata)?;
-            tracing::debug!(?metadata_status, "finished storing metadata on node");
+            tracing::debug!(node = %self.node.public_key, ?metadata_status,
+                "finished storing metadata on node");
 
             let n_stored_slivers = self
                 .store_pairs(metadata.blob_id(), &metadata_status, pairs)
                 .await?;
-            tracing::debug!(n_stored_slivers, "finished storing slivers on node");
+            tracing::debug!(node = %self.node.public_key, n_stored_slivers,
+                "finished storing slivers on node");
 
             self.get_confirmation_with_retries_inner(metadata.blob_id(), self.committee_epoch)
                 .await
                 .map_err(StoreError::Confirmation)
         }
         .await;
-        tracing::debug!("successfully stored metadata and sliver pairs");
+        tracing::debug!(node = %self.node.public_key, ?result,
+            "storing metadata and sliver pairs finished");
         self.to_node_result_with_n_shards(result)
     }
 

@@ -123,7 +123,7 @@ impl ClientCommunicationConfig {
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
         #[cfg(msim)]
-        let max_retries = Some(5);
+        let max_retries = Some(3);
         #[cfg(not(msim))]
         let max_retries = Some(1);
         ClientCommunicationConfig {
@@ -137,6 +137,15 @@ impl ClientCommunicationConfig {
             },
             ..Default::default()
         }
+    }
+
+    /// Provides a config with lower number of retries and a custom timeout to speed up integration
+    /// testing.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn default_for_test_with_reqwest_timeout(timeout: Duration) -> Self {
+        let mut config = Self::default_for_test();
+        config.reqwest_config.total_timeout = timeout;
+        config
     }
 }
 

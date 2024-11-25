@@ -19,7 +19,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
-        client::{responses::BlobStoreResult, Client, StoreWhen},
+        client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
         test_utils::{test_cluster, SimStorageNodeHandle},
     };
     use walrus_sui::client::{BlobPersistence, SuiContractClient};
@@ -129,6 +129,7 @@ mod tests {
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
                 true,
+                ClientCommunicationConfig::default_for_test(),
             )
             .await
             .unwrap();
@@ -154,6 +155,7 @@ mod tests {
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
                 true,
+                ClientCommunicationConfig::default_for_test(),
             )
             .await
             .unwrap();
@@ -294,6 +296,9 @@ mod tests {
                 Duration::from_secs(30),
                 &[1, 2, 3, 3, 4],
                 true,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
             )
             .await
             .unwrap();
@@ -431,6 +436,9 @@ mod tests {
                 Duration::from_secs(10),
                 &[1, 2, 3, 3, 4],
                 true,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(1),
+                ),
             )
             .await
             .unwrap();
@@ -545,6 +553,9 @@ mod tests {
                 Duration::from_secs(60),
                 &[1, 2, 3, 3, 4],
                 true,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(5),
+                ),
             )
             .await
             .unwrap();

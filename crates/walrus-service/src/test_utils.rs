@@ -1772,6 +1772,7 @@ pub mod test_cluster {
             epoch_duration,
             &node_weights,
             true,
+            ClientCommunicationConfig::default_for_test(),
         )
         .await
     }
@@ -1782,6 +1783,7 @@ pub mod test_cluster {
         epoch_duration: Duration,
         node_weights: &[u16],
         use_legacy_event_processor: bool,
+        communication_config: ClientCommunicationConfig,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1930,7 +1932,7 @@ pub mod test_cluster {
             staking_object: system_ctx.staking_object,
             exchange_object: None,
             wallet_config: None,
-            communication_config: ClientCommunicationConfig::default_for_test(),
+            communication_config,
         };
 
         let client = sui_contract_client

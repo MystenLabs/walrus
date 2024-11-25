@@ -187,7 +187,7 @@ impl BlobSyncHandler {
         match in_progress.entry(blob_id) {
             Entry::Vacant(entry) => {
                 let spawned_trace = info_span!(
-                    parent: None,
+                    parent: &Span::current(),
                     "blob_sync",
                     "otel.kind" = "CONSUMER",
                     "otel.status_code" = field::Empty,
