@@ -99,7 +99,7 @@ impl BlobSyncHandler {
                         if let Some(sync_handle) = &handle.blob_sync_handle {
                             if sync_handle.is_finished() {
                                 tracing::info!(
-                                    blob_id = %blob_id,
+                                    %blob_id,
                                     "blob sync monitor observed blob sync finished"
                                 );
                                 if let Some(join_handle) = handle.blob_sync_handle.take() {
@@ -121,8 +121,10 @@ impl BlobSyncHandler {
                     match handle.await {
                         Ok(Ok(_)) => {
                             // Normal completion. This should not happen.
+                            // The blob sync handler should have removed the handle after the sync
+                            // finished. So technically the sync handle should not be in the map.
                             tracing::warn!(
-                                blob_id = %blob_id,
+                                %blob_id,
                                 "Blob sync finished with success, but still exists in \
                                 BlobSyncHandler"
                             );
@@ -136,14 +138,14 @@ impl BlobSyncHandler {
                             );
                         }
                         Err(e) => {
+                            tracing::error!(
+                                %blob_id,
+                                error = ?e,
+                                "Blob sync task exited with error"
+                            );
                             if e.is_panic() {
                                 std::panic::resume_unwind(e.into_panic());
                             }
-                            tracing::warn!(
-                                blob_id = %blob_id,
-                                error = %e,
-                                "Blob sync task panicked"
-                            );
                         }
                     }
                 }

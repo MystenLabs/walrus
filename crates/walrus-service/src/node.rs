@@ -2638,13 +2638,15 @@ mod tests {
                 .unwrap();
 
         // Delete shard data to force a panic in the blob sync task.
+        // Note that this only deletes the storage for the shard. Storage still has an entry for the
+        // shard, so it thinks it still owns the shard.
         cluster.nodes[0]
             .storage_node
             .inner
             .storage
             .shard_storage(test_shard)
             .unwrap()
-            .delete_shard()
+            .delete_shard_storage()
             .unwrap();
 
         // Start a sync to trigger the blob sync task.
