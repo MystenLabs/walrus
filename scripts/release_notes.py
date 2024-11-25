@@ -197,7 +197,7 @@ def do_check(pr):
     area is known.
 
     """
-    
+
     pr, notes = extract_notes_for_pr(pr)
     issues = []
     for impacted, note in notes.items():
