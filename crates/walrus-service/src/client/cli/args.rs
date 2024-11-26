@@ -157,7 +157,7 @@ pub enum CliCommands {
     /// - if the above fails, it purchase a new storage resource and register the blob.
     ///
     /// If the `--force` flag is used, this operation always creates a new certification for the
-    /// blob possibly reusing storage resources or uncertified but registered blobs).
+    /// blob (possibly reusing storage resources or uncertified but registered blobs).
     #[clap(alias("write"))]
     Store {
         /// The file containing the blob to be published to Walrus.
