@@ -42,7 +42,6 @@ jobs:
       isRust: ${{ steps.diff.outputs.isRust }}
       isMove: ${{ steps.diff.outputs.isMove }}
       relevantForE2eTests: ${{ steps.diff.outputs.relevantForE2eTests }}
-      isReleaseNotesEligible: ${{ steps.diff.outputs.isReleaseNotesEligible }} 
     steps:
       - uses: actions/checkout@v4
       - name: Detect Changes
@@ -62,12 +61,6 @@ jobs:
               - 'deny.toml'
               - '.github/workflows/code.yml'
               - '.config/nextest.toml'
-            isReleaseNotesEligible:
-              - 'contracts/**'
-              - 'crates/**'
-              - 'docker/**'
-              - 'docs/**'
-              - 'testnet-contracts/**'
 
   dependencies:
     name: Check dependencies
