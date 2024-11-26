@@ -163,10 +163,7 @@ impl ClientCommandRunner {
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
-            CliCommands::Delete { target, yes } => {
-                self.delete(target, UserConfirmation::from_yes_flag(yes))
-                    .await
-            }
+            CliCommands::Delete { target, yes } => self.delete(target, yes).await,
 
             CliCommands::Stake { node_id, amount } => {
                 self.stake_with_node_pool(node_id, amount).await

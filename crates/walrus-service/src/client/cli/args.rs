@@ -277,7 +277,8 @@ pub enum CliCommands {
         target: FileOrBlobIdOrObjectId,
         /// Proceed to delete the blob without confirmation.
         #[clap(short, long, action)]
-        yes: bool,
+        #[clap(value_parser = clap::value_parser!(bool))]
+        yes: UserConfirmation,
     },
     /// Stake with storage node.
     Stake {
@@ -740,30 +741,35 @@ mod tests {
     }
 }
 
-/// Specifies if an action requires explicit confirmation from the user or not.
-#[derive(Debug, Clone, Default)]
+/// Specifies whether the user has granted the confirmation for the action, or if it is required.
+#[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize)]
 pub enum UserConfirmation {
     // The user needs to confirm the action.
     #[default]
     Required,
     // The action can proceed without confirmation from the user.
-    Automatic,
+    Granted,
 }
 
-impl UserConfirmation {
-    /// Converts a boolean flag to an `ActionConfirmation`.
-    ///
-    /// If `yes` is `true`, the action is automatic; otherwise, the action requires confirmation.
-    pub(crate) fn from_yes_flag(yes: bool) -> Self {
+impl From<&bool> for UserConfirmation {
+    fn from(yes: &bool) -> Self {
+        Self::from(*yes)
+    }
+}
+
+impl From<bool> for UserConfirmation {
+    fn from(yes: bool) -> Self {
         if yes {
-            UserConfirmation::Automatic
+            UserConfirmation::Granted
         } else {
             UserConfirmation::Required
         }
     }
+}
 
-    /// Checks if the action requires confirmation from the user.
-    pub(crate) fn is_required(&self) -> bool {
+impl UserConfirmation {
+    /// Checks if the user confirmation is required.
+    pub fn is_required(&self) -> bool {
         matches!(self, UserConfirmation::Required)
     }
 }

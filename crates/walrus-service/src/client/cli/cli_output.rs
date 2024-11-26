@@ -494,7 +494,11 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
     const STILL_AVAILABLE: &str =
         "The above blob objects were removed, but the blob still exist on Walrus.";
     match blob_status {
-        BlobStatus::Nonexistent => "The blob was completely removed from Walrus.".to_owned(),
+        BlobStatus::Nonexistent => {
+            "The blob was removed from Walrus (note that the data may still be publicly \
+            available, i.e., if someone has downloaded it before deletion)."
+                .to_owned()
+        }
         BlobStatus::Invalid { .. } => "The blob was marked as invalid.".to_owned(),
         BlobStatus::Permanent {
             is_certified,
@@ -504,11 +508,7 @@ fn removed_instance_string(blob_status: &BlobStatus) -> String {
             format!(
                 "{} There are still one or more {} permanent instances {}available.",
                 STILL_AVAILABLE,
-                if *is_certified {
-                    "certified"
-                } else {
-                    "registered"
-                },
+                is_certified.then_some("certified").unwrap_or("registered"),
                 if deletable_counts.count_deletable_total > 0 {
                     format!(
                         "and deletable instances ({}) ",

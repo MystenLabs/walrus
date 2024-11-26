@@ -4,6 +4,7 @@
 //! Structures of client results returned by the daemon or through the JSON API.
 
 use std::{
+    collections::HashMap,
     fmt::Display,
     num::NonZeroU16,
     path::{Path, PathBuf},
@@ -265,7 +266,7 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) network_public_key: NetworkPublicKey,
     pub(crate) n_shards: usize,
     pub(crate) shard_ids: Vec<ShardIndex>,
-    pub(crate) object_id: ObjectID,
+    pub(crate) node_id: ObjectID,
     pub(crate) stake: u64,
 }
 
@@ -288,7 +289,7 @@ impl StorageNodeInfo {
             network_public_key,
             n_shards: shard_ids.len(),
             shard_ids,
-            object_id,
+            node_id: object_id,
             stake,
         }
     }
@@ -298,17 +299,18 @@ fn merge_nodes_and_stake(
     committee: &Committee,
     stake_assignment: &[(ObjectID, u64)],
 ) -> Vec<StorageNodeInfo> {
+    // Build a map from node ID to stake.
+    let node_to_stake: HashMap<_, _> = stake_assignment.iter().cloned().collect();
+
     committee
         .members()
         .iter()
         .cloned()
         .map(|node| {
-            let stake = stake_assignment
-                .iter()
-                .find(|(object_id, _)| object_id == &node.node_id)
-                .map(|(_, stake)| *stake)
+            let stake = *node_to_stake
+                .get(&node.node_id)
                 .expect("a node in the committee must have stake");
-            StorageNodeInfo::from_nodes_and_stake(node, stake)
+            StorageNodeInfo::from_node_and_stake(node, stake)
         })
         .collect()
 }
@@ -353,6 +355,8 @@ impl InfoOutput {
         sui_read_client: &impl ReadClient,
         dev: bool,
     ) -> anyhow::Result<Self> {
+        // TODO(giac): reduce the number of RPC calls by exposing the system and staking objects
+        // directly (#1222).
         let committee = sui_read_client.current_committee().await?;
         let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
             .storage_and_write_price_per_unit_size()
