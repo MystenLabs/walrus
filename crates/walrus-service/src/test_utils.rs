@@ -289,7 +289,7 @@ impl SimStorageNodeHandle {
                     .public()
             ))
             .init(move || {
-                tracing::info!(ip, "starting simulator node");
+                tracing::info!(?ip, "starting simulator node");
 
                 let config = config.clone();
                 let cancel_token = cancel_token.clone();
