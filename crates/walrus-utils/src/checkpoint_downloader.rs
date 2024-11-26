@@ -367,14 +367,14 @@ impl ParallelCheckpointDownloaderInner {
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
-        tracing::info!("starting checkpoint download worker {}", worker_id);
+        tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
             checkpoint_sender.send(entry).await?;
         }
-        tracing::info!("checkpoint download worker {} shutting down", worker_id);
+        tracing::info!(worker_id, "checkpoint download worker shutting down");
         Ok(())
     }
 

@@ -113,7 +113,7 @@ impl WalletCoinRefill {
     }
 
     async fn send_gas(&self, address: SuiAddress) -> Result<()> {
-        tracing::debug!("sending gas to {address}");
+        tracing::debug!(%address, "sending gas to sub-wallet");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
@@ -131,7 +131,7 @@ impl WalletCoinRefill {
     }
 
     async fn send_wal(&self, address: SuiAddress) -> Result<()> {
-        tracing::debug!("sending WAL to {address}");
+        tracing::debug!(%address, "sending WAL to sub-wallet");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
@@ -188,7 +188,7 @@ impl NetworkOrWallet {
                 SuiContractClient::new(wallet, system_object, staking_object, gas_budget).await?;
             Ok(Self::new_wallet(sui_client, gas_budget)?)
         } else {
-            tracing::info!("created gas refill station from faucet: {:?}", &sui_network);
+            tracing::info!(?sui_network, "created gas refill station from faucet");
             Ok(Self::new_faucet(sui_network))
         }
     }

@@ -442,7 +442,7 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
-        tracing::info!("syncing shard to before epoch {}", epoch);
+        tracing::info!(walrus.epoch = epoch, "syncing shard");
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
         }

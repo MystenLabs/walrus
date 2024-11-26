@@ -1165,7 +1165,7 @@ pub(super) fn merge_blob_info(
         let Some(operand) = deserialize_from_db::<BlobInfoMergeOperand>(operand_bytes) else {
             continue;
         };
-        tracing::debug!("updating {current_val:?} with {operand:?}");
+        tracing::debug!(?current_val, ?operand, "updating blob info");
 
         current_val = BlobInfo::merge(current_val, operand);
     }

@@ -1032,7 +1032,7 @@ impl ContractClient for SuiContractClient {
         exchange_id: ObjectID,
         amount: u64,
     ) -> SuiClientResult<()> {
-        tracing::debug!("exchanging {amount} MIST for WAL/FROST");
+        tracing::debug!(amount, "exchanging SUI/MIST for WAL/FROST");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.

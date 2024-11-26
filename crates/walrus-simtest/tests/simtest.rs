@@ -282,7 +282,7 @@ mod tests {
             return;
         }
 
-        tracing::warn!("crashing node {} for 120 seconds", current_node,);
+        tracing::warn!("crashing node {current_node} for 120 seconds");
         fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
         sui_simulator::task::kill_current_node(Some(Duration::from_secs(120)));
     }
