@@ -47,7 +47,7 @@ jobs:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
       - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # pin@v5.0.0
         with:
-          python-version: 3.10.10
+           python-version: "3.12"
       - name: Validate PR's release notes
         shell: bash
         run: |

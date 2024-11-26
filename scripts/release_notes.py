@@ -167,6 +167,7 @@ def extract_notes_for_pr(pr):
     # Execute the curl command
     result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     json_data = json.loads(result.stdout)
+    print(f"DEBUG: json_data={json_data}, type={type(json_data)}")
     notes = json_data.get("body")
     return parse_notes(pr, notes)
 
