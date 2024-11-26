@@ -546,15 +546,15 @@ mod tests {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest(config = "latency_config()")]
     async fn test_repeated_shard_move_with_workload() {
-        // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
+        // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(60),
+                Duration::from_secs(30),
                 &[1, 2, 3, 3, 4],
                 true,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(5),
+                    Duration::from_secs(2),
                 ),
             )
             .await
@@ -589,7 +589,7 @@ mod tests {
                 .await
                 .expect("stake with node pool should not fail");
 
-            tokio::time::sleep(Duration::from_secs(120)).await;
+            tokio::time::sleep(Duration::from_secs(70)).await;
         }
 
         workload_handle.abort();
