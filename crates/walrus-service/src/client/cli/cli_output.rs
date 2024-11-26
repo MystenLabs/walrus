@@ -370,7 +370,7 @@ impl CliOutput for InfoOutput {
         if let Some(storage_nodes) = next_storage_nodes.as_ref() {
             println!(
                 "{}",
-                "\n(dev) Next committee: Storage node details and shard distribution\n"
+                "\n(dev) Next committee: Storage node details and shard distribution"
                     .bold()
                     .yellow()
             );
@@ -385,6 +385,7 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
     table.set_titles(row![
         b->"Idx",
         b->"Name",
+        b->"Node ID",
         b->"# Shards",
         b->"Stake",
         b->"Pk prefix",
@@ -397,6 +398,7 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
         table.add_row(row![
             bFg->format!("{i}"),
             node.name,
+            node.node_id,
             format!("{} ({:.2}%)", n_owned, n_owned_percent),
             HumanReadableFrost::from(node.stake),
             string_prefix(&node.public_key),

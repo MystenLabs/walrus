@@ -4,6 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use std::{
+    collections::HashMap,
     fmt::{self, Debug},
     future::Future,
     num::NonZeroU16,
@@ -160,10 +161,10 @@ pub trait ReadClient: Send + Sync {
         &self,
     ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
 
-    /// Returns the mapping between object IDs and stake in the staking object.
+    /// Returns the mapping between node IDs and stake in the staking object.
     fn stake_assignment(
         &self,
-    ) -> impl Future<Output = SuiClientResult<Vec<(ObjectID, u64)>>> + Send;
+    ) -> impl Future<Output = SuiClientResult<HashMap<ObjectID, u64>>> + Send;
 }
 
 /// The mutability of a shared object.
@@ -624,9 +625,9 @@ impl ReadClient for SuiReadClient {
         })
     }
 
-    async fn stake_assignment(&self) -> SuiClientResult<Vec<(ObjectID, u64)>> {
+    async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
         let staking_object = self.get_staking_object().await?.inner;
-        Ok(staking_object.active_set.nodes)
+        Ok(staking_object.active_set.nodes.into_iter().collect())
     }
 }
 

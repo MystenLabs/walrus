@@ -274,7 +274,7 @@ impl StorageNodeInfo {
     fn from_node_and_stake(value: StorageNode, stake: u64) -> Self {
         let StorageNode {
             name,
-            node_id: object_id,
+            node_id,
             network_address,
             public_key,
             next_epoch_public_key,
@@ -289,7 +289,7 @@ impl StorageNodeInfo {
             network_public_key,
             n_shards: shard_ids.len(),
             shard_ids,
-            node_id: object_id,
+            node_id,
             stake,
         }
     }
@@ -297,17 +297,14 @@ impl StorageNodeInfo {
 
 fn merge_nodes_and_stake(
     committee: &Committee,
-    stake_assignment: &[(ObjectID, u64)],
+    stake_assignment: &HashMap<ObjectID, u64>,
 ) -> Vec<StorageNodeInfo> {
-    // Build a map from node ID to stake.
-    let node_to_stake: HashMap<_, _> = stake_assignment.iter().cloned().collect();
-
     committee
         .members()
         .iter()
         .cloned()
         .map(|node| {
-            let stake = *node_to_stake
+            let stake = *stake_assignment
                 .get(&node.node_id)
                 .expect("a node in the committee must have stake");
             StorageNodeInfo::from_node_and_stake(node, stake)

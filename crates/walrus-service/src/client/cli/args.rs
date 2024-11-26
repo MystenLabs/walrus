@@ -277,8 +277,13 @@ pub enum CliCommands {
         target: FileOrBlobIdOrObjectId,
         /// Proceed to delete the blob without confirmation.
         #[clap(short, long, action)]
-        #[clap(value_parser = clap::value_parser!(bool))]
-        yes: UserConfirmation,
+        #[serde(default)]
+        yes: bool,
+        /// Disable checking the status of the blob after deletion.
+        ///
+        /// Checking the status adds delay and requires additional requests.
+        #[clap(long, action)]
+        no_status_check: bool,
     },
     /// Stake with storage node.
     Stake {

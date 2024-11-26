@@ -163,7 +163,11 @@ impl ClientCommandRunner {
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
-            CliCommands::Delete { target, yes } => self.delete(target, yes).await,
+            CliCommands::Delete {
+                target,
+                yes,
+                no_status_check,
+            } => self.delete(target, yes.into(), no_status_check).await,
 
             CliCommands::Stake { node_id, amount } => {
                 self.stake_with_node_pool(node_id, amount).await
@@ -505,6 +509,7 @@ impl ClientCommandRunner {
         self,
         target: FileOrBlobIdOrObjectId,
         confirmation: UserConfirmation,
+        no_status_check: bool,
     ) -> Result<()> {
         // Check that the target is valid.
         target.exactly_one_is_some()?;
@@ -558,16 +563,17 @@ impl ClientCommandRunner {
                 unreachable!("we checked that either file, blob ID or object ID are be provided");
             };
 
-        let post_deletion_status = if let Some(deleted_blob_id) = blob_id {
-            // Wait to ensure that the information on the deletion is propagated.
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            Some(
-                client
-                    .get_blob_status_with_retries(&deleted_blob_id, client.sui_client())
-                    .await?,
-            )
-        } else {
-            None
+        let post_deletion_status = match (no_status_check, blob_id) {
+            (false, Some(deleted_blob_id)) => {
+                // Wait to ensure that the deletion information is propagated.
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Some(
+                    client
+                        .get_blob_status_with_retries(&deleted_blob_id, client.sui_client())
+                        .await?,
+                )
+            }
+            _ => None,
         };
 
         DeleteOutput {
