@@ -19,4 +19,3 @@ runs:
           - 'crates/**'
           - 'docker/**'
           - 'docs/**'
-          - 'testnet-contracts/**'
