@@ -150,10 +150,15 @@ def extract_notes_for_pr(pr):
 
     """
 
+    gh_token = os.getenv('WALRUS_REPO_TOKEN')
+    if not gh_token:
+        raise ValueError("The environment variable WALRUS_REPO_TOKEN is not set!")
+
     url = f"https://api.github.com/repos/MystenLabs/walrus/pulls/{pr}"
     curl_command = [
         "curl", "-s",
         "-H", "Accept: application/vnd.github.groot-preview+json",
+        "-H", f"Authorization: Bearer {gh_token}",
         url
     ]
 
@@ -196,7 +201,6 @@ def do_check(pr):
     area is known.
 
     """
-
     pr, notes = extract_notes_for_pr(pr)
     issues = []
     for impacted, note in notes.items():
