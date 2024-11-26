@@ -98,14 +98,14 @@ mod tests {
         tokio::spawn(async move {
             let mut data_length = 64;
             loop {
-                tracing::info!("writing data with size {}", data_length);
+                tracing::info!("writing data with size {data_length}");
 
                 // TODO(#995): use stress client for better coverage of the workload.
                 write_read_and_check_random_blob(client_clone.as_ref(), data_length, write_only)
                     .await
                     .expect("workload should not fail");
 
-                tracing::info!("finish writing data with size {}", data_length);
+                tracing::info!("finished writing data with size {data_length}");
 
                 data_length += 1;
             }
@@ -454,14 +454,14 @@ mod tests {
                 tracing::info!("generated 60s of data; stopping workload");
                 break;
             }
-            tracing::info!("writing data with size {}", data_length);
+            tracing::info!("writing data with size {data_length}");
 
             // TODO(#995): use stress client for better coverage of the workload.
             write_read_and_check_random_blob(client_clone.as_ref(), data_length, true)
                 .await
                 .expect("workload should not fail");
 
-            tracing::info!("finish writing data with size {}", data_length);
+            tracing::info!("finished writing data with size {data_length}");
 
             data_length += 1;
         }
@@ -570,9 +570,8 @@ mod tests {
             let node_to_move_shard_into = rand::thread_rng().gen_range(0..=4);
             let shard_move_weight = rand::thread_rng().gen_range(1..=5);
             tracing::info!(
-                "Triggering shard move with stake weight {} to node {}",
-                shard_move_weight,
-                node_to_move_shard_into
+                "triggering shard move with stake weight {shard_move_weight} to node \
+                {node_to_move_shard_into}"
             );
             client_arc
                 .as_ref()

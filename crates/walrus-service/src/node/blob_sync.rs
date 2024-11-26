@@ -99,7 +99,7 @@ impl BlobSyncHandler {
                         if let Some(sync_handle) = &handle.blob_sync_handle {
                             if sync_handle.is_finished() {
                                 tracing::info!(
-                                    %blob_id,
+                                    walrus.blob_id = %blob_id,
                                     "blob sync monitor observed blob sync finished"
                                 );
                                 if let Some(join_handle) = handle.blob_sync_handle.take() {
@@ -124,27 +124,27 @@ impl BlobSyncHandler {
                             // The blob sync handler should have removed the handle after the sync
                             // finished. So technically the sync handle should not be in the map.
                             tracing::warn!(
-                                %blob_id,
-                                "Blob sync finished with success, but still exists in \
+                                walrus.blob_id = %blob_id,
+                                "blob sync finished with success, but still exists in \
                                 BlobSyncHandler"
                             );
                         }
-                        Ok(Err(e)) => {
+                        Ok(Err(error)) => {
                             // This case is also unexpected.
                             tracing::warn!(
-                                blob_id = %blob_id,
-                                error = %e,
-                                "Blob sync failed with error, and still exists in BlobSyncHandler"
+                                walrus.blob_id = %blob_id,
+                                ?error,
+                                "blob sync failed with error, but still exists in BlobSyncHandler"
                             );
                         }
-                        Err(e) => {
+                        Err(error) => {
                             tracing::error!(
-                                %blob_id,
-                                error = ?e,
-                                "Blob sync task exited with error"
+                                walrus.blob_id = %blob_id,
+                                ?error,
+                                "blob sync task exited with error"
                             );
-                            if e.is_panic() {
-                                std::panic::resume_unwind(e.into_panic());
+                            if error.is_panic() {
+                                std::panic::resume_unwind(error.into_panic());
                             }
                         }
                     }

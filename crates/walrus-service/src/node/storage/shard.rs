@@ -654,7 +654,7 @@ impl ShardStorage {
     ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
-                %blob_id,
+                walrus.blob_id = %blob_id,
                 epoch,
                 %sliver_type,
                 "synced blob",
@@ -806,7 +806,7 @@ impl ShardStorage {
     ) -> Result<(), TypedStoreError> {
         let _guard = semaphore.acquire().await;
         tracing::info!(
-            %blob_id,
+            walrus.blob_id = %blob_id,
             walrus.shard_index = %self.id,
             "start recovering missing blob"
         );

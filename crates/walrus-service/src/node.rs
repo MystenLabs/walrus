@@ -801,7 +801,10 @@ impl StorageNode {
                 // self.inner.storage.delete_blob(&event.blob_id, true)?;
             }
         } else {
-            tracing::warn!(%blob_id, "handling `BlobDeleted` event for and untracked blob");
+            tracing::warn!(
+                walrus.blob_id = %blob_id,
+                "handling `BlobDeleted` event for an untracked blob"
+            );
         }
 
         self.inner

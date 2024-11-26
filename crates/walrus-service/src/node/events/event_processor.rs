@@ -369,7 +369,7 @@ impl EventProcessor {
                     .map(|(event, _)| event)
                     .enumerate()
                 {
-                    tracing::debug!("Received event: {:?}", tx_event);
+                    tracing::trace!(?tx_event, "event received");
                     let move_type_layout = self
                         .package_resolver
                         .type_layout(move_core_types::language_storage::TypeTag::Struct(
