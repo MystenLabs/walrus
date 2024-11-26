@@ -855,6 +855,7 @@ impl StorageNode {
                     event_epoch = %event.epoch,
                     committee_epoch = %self.inner.current_epoch(),
                     "epoch change start event reaches new epoch that is still lagging" );
+                event_handle.mark_as_complete();
             }
 
             return Ok(());
