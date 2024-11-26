@@ -3426,7 +3426,6 @@ mod tests {
     mod failure_injection_tests {
         use sui_macros::{
             clear_fail_point,
-            register_fail_point,
             register_fail_point_arg,
             register_fail_point_async,
             register_fail_point_if,
