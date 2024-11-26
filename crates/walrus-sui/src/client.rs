@@ -3,11 +3,11 @@
 
 //! Client to call Walrus move functions from rust.
 
-use core::{fmt, str::FromStr};
+use core::fmt;
 use std::{future::Future, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use fastcrypto::traits::ToFromBytes;
+use read_client::CoinType;
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -15,27 +15,17 @@ use sui_sdk::{
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
-    types::{
-        base_types::{ObjectID, ObjectRef},
-        programmable_transaction_builder::ProgrammableTransactionBuilder,
-        transaction::CallArg,
-    },
+    types::base_types::{ObjectID, ObjectRef},
     wallet_context::WalletContext,
     SuiClient,
 };
-use sui_types::{
-    base_types::SuiAddress,
-    event::EventID,
-    transaction::{Argument, Command, ProgrammableTransaction},
-    Identifier,
-    SUI_CLOCK_OBJECT_ID,
-    SUI_CLOCK_OBJECT_SHARED_VERSION,
-};
+use sui_types::{base_types::SuiAddress, event::EventID, transaction::ProgrammableTransaction};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
+use transaction_builder::WalrusPtbBuilder;
 use walrus_core::{
     ensure,
-    merkle::DIGEST_LEN,
+    merkle::Node as MerkleNode,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     metadata::BlobMetadataWithId,
     BlobId,
@@ -45,7 +35,7 @@ use walrus_core::{
 };
 
 use crate::{
-    contracts::{self, FunctionTag},
+    contracts,
     types::{
         move_structs::EpochState,
         Blob,
@@ -62,9 +52,7 @@ use crate::{
         get_created_sui_object_ids_by_type,
         get_owned_objects,
         get_sui_object,
-        price_for_encoded_length,
         sign_and_send_ptb,
-        write_price_for_encoded_length,
     },
 };
 
@@ -77,11 +65,7 @@ pub use read_client::{
     SuiReadClient,
 };
 
-const CLOCK_CALL_ARG: CallArg = CallArg::Object(sui_types::transaction::ObjectArg::SharedObject {
-    id: SUI_CLOCK_OBJECT_ID,
-    initial_shared_version: SUI_CLOCK_OBJECT_SHARED_VERSION,
-    mutable: false,
-});
+pub mod transaction_builder;
 
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
@@ -96,11 +80,11 @@ pub enum SuiClientError {
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(String),
     /// No matching WAL coin found for the transaction.
-    #[error("could not find a WAL coin with sufficient balance")]
-    NoCompatibleWalCoin,
+    #[error("could not find WAL coins with sufficient balance")]
+    NoCompatibleWalCoins,
     /// No matching gas coin found for the transaction.
-    #[error("could not find gas coins with sufficient balance: {0}")]
-    NoCompatibleGasCoins(anyhow::Error),
+    #[error("could not find gas coins with sufficient balance")]
+    NoCompatibleGasCoins,
     /// The Walrus system object does not exist.
     #[error(
         "the specified Walrus system object {0} does not exist or is incompatible with this binary;\
@@ -126,6 +110,39 @@ pub enum SuiClientError {
         object ID: {0}"
     )]
     CapabilityObjectAlreadyExists(StorageNodeCap),
+}
+
+/// Metadata for a blob object on Sui.
+#[derive(Debug, Clone)]
+pub struct BlobObjectMetadata {
+    /// The ID of the blob.
+    pub blob_id: BlobId,
+    /// The root hash of the blob.
+    pub root_hash: MerkleNode,
+    /// The unencoded size of the blob.
+    pub unencoded_size: u64,
+    /// The encoded size of the blob.
+    pub encoded_size: u64,
+    /// The encoding type of the blob.
+    pub encoding_type: EncodingType,
+}
+
+impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
+    type Error = SuiClientError;
+
+    fn try_from(metadata: &BlobMetadataWithId<V>) -> Result<Self, Self::Error> {
+        let encoded_size = metadata
+            .metadata()
+            .encoded_size()
+            .context("cannot compute encoded size")?;
+        Ok(Self {
+            blob_id: *metadata.blob_id(),
+            root_hash: metadata.metadata().compute_root_hash(),
+            unencoded_size: metadata.metadata().unencoded_length,
+            encoded_size,
+            encoding_type: metadata.metadata().encoding_type,
+        })
+    }
 }
 
 /// Represents the persistence state of a blob on Walrus.
@@ -177,10 +194,7 @@ pub trait ContractClient: ReadClient + Send + Sync {
     fn register_blob(
         &self,
         storage: &StorageResource,
-        blob_id: BlobId,
-        root_digest: [u8; DIGEST_LEN],
-        blob_size: u64,
-        encoding_type: EncodingType,
+        blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
@@ -189,10 +203,10 @@ pub trait ContractClient: ReadClient + Send + Sync {
     ///
     /// This combines the [`reserve_space`][Self::reserve_space] and
     /// [`register_blob`][Self::register_blob] functions in one atomic transaction.
-    fn reserve_and_register_blob<const V: bool>(
+    fn reserve_and_register_blob(
         &self,
         epochs_ahead: EpochCount,
-        blob_metadata: &BlobMetadataWithId<V>,
+        blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> impl Future<Output = SuiClientResult<Blob>> + Send;
 
@@ -327,55 +341,14 @@ impl SuiContractClient {
         })
     }
 
-    /// Executes the move call to `function` with `call_args` and transfers all outputs
-    /// (if any) to the sender.
-    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock
-    // before taking the object references. This ensures that no race conditions occur. We could
-    // consider a more ergonomic approach, where this function takes `&mut self`, and the whole
-    // client needs to be locked. (#1023).
-    #[tracing::instrument(err, skip(self, wallet))]
-    async fn move_call_and_transfer<'a>(
-        &self,
-        wallet: &WalletContext,
-        function: FunctionTag<'a>,
-        call_args: Vec<CallArg>,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
-        let arguments = call_args
-            .iter()
-            .map(|arg| pt_builder.input(arg.to_owned()))
-            .collect::<Result<Vec<_>>>()?;
-        let n_object_outputs = function.n_object_outputs;
-        let result_index = self.add_move_call_to_ptb(&mut pt_builder, function, arguments)?;
-        for i in 0..n_object_outputs {
-            pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, i));
-        }
-
-        self.sign_and_send_ptb(wallet, pt_builder.finish(), None)
-            .await
+    /// Returns a new [`WalrusPtbBuilder`] for the client.
+    pub fn transaction_builder(&self) -> WalrusPtbBuilder {
+        WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address)
     }
 
     /// Returns a reference to the inner wallet context.
     pub async fn wallet(&self) -> tokio::sync::MutexGuard<'_, WalletContext> {
         self.wallet.lock().await
-    }
-
-    fn add_move_call_to_ptb(
-        &self,
-        pt_builder: &mut ProgrammableTransactionBuilder,
-        function: FunctionTag<'_>,
-        arguments: Vec<Argument>,
-    ) -> SuiClientResult<u16> {
-        let Argument::Result(result_index) = pt_builder.programmable_move_call(
-            self.read_client.system_pkg_id,
-            Identifier::from_str(function.module)?,
-            Identifier::from_str(function.name)?,
-            function.type_params,
-            arguments,
-        ) else {
-            unreachable!("the result of `programmable_move_call` is always an Argument::Result");
-        };
-        Ok(result_index)
     }
 
     async fn get_compatible_gas_coins(
@@ -386,11 +359,11 @@ impl SuiContractClient {
             .read_client
             .get_coins_with_total_balance(
                 self.wallet_address,
-                None,
+                CoinType::Sui,
                 min_balance.unwrap_or(self.gas_budget),
+                vec![],
             )
-            .await
-            .map_err(SuiClientError::NoCompatibleGasCoins)?
+            .await?
             .iter()
             .map(Coin::object_ref)
             .collect())
@@ -431,94 +404,6 @@ impl SuiContractClient {
     /// Returns the active address of the client.
     pub fn address(&self) -> SuiAddress {
         self.wallet_address
-    }
-
-    async fn storage_price_for_encoded_length(
-        &self,
-        encoded_size: u64,
-        epochs_ahead: EpochCount,
-    ) -> SuiClientResult<u64> {
-        Ok(price_for_encoded_length(
-            encoded_size,
-            self.read_client.storage_price_per_unit_size().await?,
-            epochs_ahead,
-        ))
-    }
-
-    async fn write_price_for_encoded_length(&self, encoded_size: u64) -> SuiClientResult<u64> {
-        Ok(write_price_for_encoded_length(
-            encoded_size,
-            self.read_client.write_price_per_unit_size().await?,
-        ))
-    }
-
-    /// Returns a WAL coin with a balance of at least `min_balance`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SuiClientError::NoCompatibleWalCoin`] if no WAL coin with sufficient balance can
-    /// be found.
-    pub async fn get_wal_coin(&self, min_balance: u64) -> SuiClientResult<Coin> {
-        tracing::debug!(coin_type=?self.read_client.coin_type());
-        self.read_client
-            .get_coin_with_balance(
-                self.wallet_address,
-                Some(self.read_client.coin_type()),
-                min_balance,
-                Default::default(),
-            )
-            .await
-            .map_err(|_| SuiClientError::NoCompatibleWalCoin)
-    }
-
-    /// Adds a WAL coin with a balance of at least `min_balance` as an input to the PTB and returns
-    /// the corresponding [`Argument`].
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SuiClientError::NoCompatibleWalCoin`] if no WAL coin with sufficient balance can
-    /// be found.
-    async fn add_wal_coin_to_ptb(
-        &self,
-        pt_builder: &mut ProgrammableTransactionBuilder,
-        min_balance: u64,
-    ) -> anyhow::Result<Argument> {
-        pt_builder.input(self.get_wal_coin(min_balance).await?.object_ref().into())
-    }
-
-    /// Adds a call to `reserve_space` to the `pt_builder` and returns the result index.
-    pub async fn add_reserve_transaction(
-        &self,
-        pt_builder: &mut ProgrammableTransactionBuilder,
-        encoded_size: u64,
-        epochs_ahead: EpochCount,
-        payment_coin: Option<Argument>,
-    ) -> SuiClientResult<u16> {
-        let system_object_arg = self.read_client.call_arg_from_system_obj(true).await?;
-
-        let payment_coin_arg = match payment_coin {
-            Some(arg) => arg,
-            None => {
-                let price = self
-                    .storage_price_for_encoded_length(encoded_size, epochs_ahead)
-                    .await?;
-                self.add_wal_coin_to_ptb(pt_builder, price).await?
-            }
-        };
-
-        let reserve_arguments = vec![
-            pt_builder.input(system_object_arg.clone())?,
-            pt_builder.input(encoded_size.into())?,
-            pt_builder.input(epochs_ahead.into())?,
-            payment_coin_arg,
-        ];
-        let reserve_result_index = self.add_move_call_to_ptb(
-            pt_builder,
-            contracts::system::reserve_space,
-            reserve_arguments,
-        )?;
-
-        Ok(reserve_result_index)
     }
 
     /// Returns the gas budget used by the client.
@@ -597,23 +482,14 @@ impl ContractClient for SuiContractClient {
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
         tracing::debug!(encoded_size, "starting to reserve storage for blob");
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let reserve_result_index = self
-            .add_reserve_transaction(&mut pt_builder, encoded_size, epochs_ahead, None)
-            .await?;
-        // Transfer the created storage resource.
-        pt_builder.transfer_arg(
-            self.wallet_address,
-            Argument::NestedResult(reserve_result_index, 0),
-        );
-
-        let res = self
-            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
-            .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.reserve_space(encoded_size, epochs_ahead).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
@@ -631,35 +507,18 @@ impl ContractClient for SuiContractClient {
     async fn register_blob(
         &self,
         storage: &StorageResource,
-        blob_id: BlobId,
-        root_digest: [u8; DIGEST_LEN],
-        blob_size: u64,
-        encoding_type: EncodingType,
+        blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Blob> {
-        let price = self
-            .write_price_for_encoded_length(storage.storage_size)
-            .await?;
-
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let res = self
-            .move_call_and_transfer(
-                &wallet,
-                contracts::system::register_blob,
-                vec![
-                    self.read_client.call_arg_from_system_obj(true).await?,
-                    self.read_client.get_object_ref(storage.id).await?.into(),
-                    call_arg_pure!(&blob_id),
-                    call_arg_pure!(&root_digest),
-                    blob_size.into(),
-                    u8::from(encoding_type).into(),
-                    persistence.is_deletable().into(),
-                    self.get_wal_coin(price).await?.object_ref().into(),
-                ],
-            )
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder
+            .register_blob(storage.id.into(), blob_metadata, persistence)
             .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
@@ -673,65 +532,30 @@ impl ContractClient for SuiContractClient {
         get_sui_object(&self.read_client.sui_client, blob_obj_id[0]).await
     }
 
-    async fn reserve_and_register_blob<const V: bool>(
+    async fn reserve_and_register_blob(
         &self,
         epochs_ahead: EpochCount,
-        blob_metadata: &BlobMetadataWithId<V>,
+        blob_metadata: BlobObjectMetadata,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Blob> {
-        let encoded_size = blob_metadata
-            .metadata()
-            .encoded_size()
-            .context("cannot compute encoded size")?;
-        tracing::debug!(encoded_size, "starting to reserve and register blob");
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
+        tracing::debug!(
+            blob_metadata.encoded_size,
+            "starting to reserve and register blob"
+        );
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
-            .await?
-            + self.write_price_for_encoded_length(encoded_size).await?;
-        let payment_coin = self.add_wal_coin_to_ptb(&mut pt_builder, price).await?;
-
-        let reserve_result_index = self
-            .add_reserve_transaction(
-                &mut pt_builder,
-                encoded_size,
-                epochs_ahead,
-                Some(payment_coin),
-            )
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let storage_arg = pt_builder
+            .reserve_space(blob_metadata.encoded_size, epochs_ahead)
             .await?;
-
-        let register_arguments = vec![
-            pt_builder.input(self.read_client.call_arg_from_system_obj(true).await?)?,
-            Argument::NestedResult(reserve_result_index, 0),
-            pt_builder.input(call_arg_pure!(blob_metadata.blob_id()))?,
-            pt_builder.input(call_arg_pure!(&blob_metadata
-                .metadata()
-                .compute_root_hash()
-                .bytes()))?,
-            pt_builder.input(blob_metadata.metadata().unencoded_length.into())?,
-            pt_builder.input(u8::from(blob_metadata.metadata().encoding_type).into())?,
-            pt_builder.input(persistence.is_deletable().into())?,
-            payment_coin,
-        ];
-        let register_result_index = self.add_move_call_to_ptb(
-            &mut pt_builder,
-            contracts::system::register_blob,
-            register_arguments,
-        )?;
-        for i in 0..contracts::system::register_blob.n_object_outputs {
-            pt_builder.transfer_arg(
-                self.wallet_address,
-                Argument::NestedResult(register_result_index, i),
-            );
-        }
-
-        let res = self
-            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
+        // Blob is transferred automatically in the call to `finish`.
+        pt_builder
+            .register_blob(storage_arg.into(), blob_metadata, persistence)
             .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
@@ -750,27 +574,13 @@ impl ContractClient for SuiContractClient {
         blob: Blob,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
-        // Sort the list of signers, since the move contract requires them to be in
-        // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
-        let mut signers = certificate.signers.clone();
-        signers.sort_unstable();
-
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let res = self
-            .move_call_and_transfer(
-                &wallet,
-                contracts::system::certify_blob,
-                vec![
-                    self.read_client.call_arg_from_system_obj(true).await?,
-                    self.read_client.get_object_ref(blob.id).await?.into(),
-                    call_arg_pure!(certificate.signature.as_bytes()),
-                    call_arg_pure!(&signers),
-                    (&certificate.serialized_message).into(),
-                ],
-            )
-            .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.certify_blob(blob.id.into(), certificate).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         if res.errors.is_empty() {
             Ok(())
         } else {
@@ -782,25 +592,13 @@ impl ContractClient for SuiContractClient {
         &self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        // Sort the list of signers, since the move contract requires them to be in
-        // ascending order (see `walrus::system::bls_aggregate::verify_certificate`)
-        let mut signers = certificate.signers.clone();
-        signers.sort_unstable();
-
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        self.move_call_and_transfer(
-            &wallet,
-            contracts::system::invalidate_blob_id,
-            vec![
-                self.read_client.call_arg_from_system_obj(true).await?,
-                call_arg_pure!(certificate.signature.as_bytes()),
-                call_arg_pure!(&signers),
-                (&certificate.serialized_message).into(),
-            ],
-        )
-        .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.invalidate_blob_id(certificate).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
     }
 
@@ -838,24 +636,12 @@ impl ContractClient for SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let res = self
-            .move_call_and_transfer(
-                &wallet,
-                contracts::staking::register_candidate,
-                vec![
-                    self.read_client.call_arg_from_staking_obj(true).await?,
-                    call_arg_pure!(&node_parameters.name),
-                    call_arg_pure!(&node_parameters.network_address.to_string()),
-                    call_arg_pure!(node_parameters.public_key.as_bytes()),
-                    call_arg_pure!(node_parameters.network_public_key.as_bytes()),
-                    call_arg_pure!(proof_of_possession.signature.as_bytes()),
-                    node_parameters.commission_rate.into(),
-                    node_parameters.storage_price.into(),
-                    node_parameters.write_price.into(),
-                    node_parameters.node_capacity.into(),
-                ],
-            )
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder
+            .register_candidate(node_parameters, proof_of_possession)
             .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let cap_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_node::StorageNodeCap
@@ -875,44 +661,13 @@ impl ContractClient for SuiContractClient {
         amount_to_stake: u64,
         node_id: ObjectID,
     ) -> SuiClientResult<StakedWal> {
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
-
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let staking_object_arg = self.read_client.call_arg_from_staking_obj(true).await?;
-
-        let input_coin_arg = self
-            .add_wal_coin_to_ptb(&mut pt_builder, amount_to_stake)
-            .await?;
-
-        // TODO: split coin, does this work?
-        let amount_to_stake_arg = pt_builder.pure(amount_to_stake)?;
-        let stake_coin_arg = pt_builder.command(Command::SplitCoins(
-            input_coin_arg,
-            vec![amount_to_stake_arg],
-        ));
-
-        let stake_arguments = vec![
-            pt_builder.input(staking_object_arg.clone())?,
-            stake_coin_arg,
-            pt_builder.pure(node_id)?,
-        ];
-        let stake_result_index = self.add_move_call_to_ptb(
-            &mut pt_builder,
-            contracts::staking::stake_with_pool,
-            stake_arguments,
-        )?;
-
-        // Transfer the created StakedWal object.
-        pt_builder.transfer_arg(
-            self.wallet_address,
-            Argument::NestedResult(stake_result_index, 0),
-        );
-
-        let res = self
-            .sign_and_send_ptb(&wallet, pt_builder.finish(), None)
-            .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.stake_with_pool(amount_to_stake, node_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
 
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
@@ -932,32 +687,20 @@ impl ContractClient for SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        self.move_call_and_transfer(
-            &wallet,
-            contracts::staking::voting_end,
-            vec![
-                self.read_client.call_arg_from_staking_obj(true).await?,
-                CLOCK_CALL_ARG,
-            ],
-        )
-        .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.voting_end().await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
     }
 
     async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-
-        self.move_call_and_transfer(
-            &wallet,
-            contracts::staking::initiate_epoch_change,
-            vec![
-                self.read_client.call_arg_from_staking_obj(true).await?,
-                self.read_client.call_arg_from_system_obj(true).await?,
-                CLOCK_CALL_ARG,
-            ],
-        )
-        .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.initiate_epoch_change().await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
     }
 
@@ -978,19 +721,13 @@ impl ContractClient for SuiContractClient {
         let wallet = self.wallet().await;
 
         tracing::debug!("calling epoch_sync_done {:?}", node_capability.node_id);
-        let cap_obj_ref = wallet.get_object_ref(node_capability.id).await?;
 
-        self.move_call_and_transfer(
-            &wallet,
-            contracts::staking::epoch_sync_done,
-            vec![
-                self.read_client.call_arg_from_staking_obj(true).await?,
-                cap_obj_ref.into(),
-                epoch.into(),
-                CLOCK_CALL_ARG,
-            ],
-        )
-        .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder
+            .epoch_sync_done(node_capability.id.into(), epoch)
+            .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
     }
 
@@ -1000,17 +737,10 @@ impl ContractClient for SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let res = self
-            .move_call_and_transfer(
-                &wallet,
-                contracts::wal_exchange::new_funded,
-                vec![
-                    self.get_wal_coin(amount).await?.object_ref().into(),
-                    call_arg_pure!(&amount),
-                ],
-            )
-            .await?;
-
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.create_and_fund_exchange(amount).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::wal_exchange::Exchange
@@ -1030,35 +760,14 @@ impl ContractClient for SuiContractClient {
         amount: u64,
     ) -> SuiClientResult<()> {
         tracing::debug!("exchanging {amount} MIST for WAL/FROST");
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-
-        let amount_argument = pt_builder.input(call_arg_pure!(&amount))?;
-        let Argument::Result(split_result_index) = pt_builder.command(Command::SplitCoins(
-            Argument::GasCoin,
-            vec![amount_argument],
-        )) else {
-            unreachable!("this always returns an `Argument::Result`")
-        };
-        let sui_coin_arg = Argument::NestedResult(split_result_index, 0);
-        let exchange_arg = pt_builder.input(
-            self.read_client
-                .call_arg_for_shared_obj(exchange_id, true)
-                .await?,
-        )?;
-
-        let result_index = self.add_move_call_to_ptb(
-            &mut pt_builder,
-            contracts::wal_exchange::exchange_all_for_wal,
-            vec![exchange_arg, sui_coin_arg],
-        )?;
-        pt_builder.transfer_arg(self.wallet_address, Argument::NestedResult(result_index, 0));
-
-        self.sign_and_send_ptb(&wallet, pt_builder.finish(), Some(self.gas_budget + amount))
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.exchange_sui_for_wal(exchange_id, amount).await?;
+        let (ptb, sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, Some(self.gas_budget + sui_cost))
             .await?;
-
         Ok(())
     }
 
@@ -1113,19 +822,10 @@ impl ContractClient for SuiContractClient {
     async fn delete_blob(&self, blob_object_id: ObjectID) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-
-        self.move_call_and_transfer(
-            &wallet,
-            contracts::system::delete_blob,
-            vec![
-                self.read_client.call_arg_from_system_obj(true).await?,
-                self.read_client
-                    .get_object_ref(blob_object_id)
-                    .await?
-                    .into(),
-            ],
-        )
-        .await?;
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        pt_builder.delete_blob(blob_object_id.into()).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
     }
 }

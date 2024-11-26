@@ -8,7 +8,7 @@ use std::unit_test::assert_eq;
 use walrus::{e2e_runner, staking_pool, test_node, test_utils};
 use sui::test_scenario;
 
-const COMMISSION: u64 = 1;
+const COMMISSION_RATE: u16 = 0;
 const STORAGE_PRICE: u64 = 5;
 const WRITE_PRICE: u64 = 1;
 const NODE_CAPACITY: u64 = 1_000_000_000;
@@ -39,7 +39,7 @@ fun test_init_and_first_epoch_change() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                COMMISSION_RATE,
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -141,7 +141,7 @@ fun test_stake_after_committee_selection() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                COMMISSION_RATE,
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -247,7 +247,7 @@ fun node_voting_parameters() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                COMMISSION_RATE,
                 i * 1000,
                 i * 1000,
                 i * 1000,
@@ -316,7 +316,7 @@ fun test_first_epoch_too_soon_fail() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                COMMISSION_RATE,
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -341,7 +341,7 @@ fun test_first_epoch_too_soon_fail() {
 }
 
 #[test]
-fun test_epoch_change_with_rewards() {
+fun test_epoch_change_with_rewards_and_commission() {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = e2e_runner::prepare(admin)
@@ -360,7 +360,7 @@ fun test_epoch_change_with_rewards() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                10_00, // 10.00% commission
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -445,6 +445,16 @@ fun test_epoch_change_with_rewards() {
 
     runner.tx!(admin, |staking, _, _| assert!(staking.is_epoch_sync_done()));
 
+    // === check rewards for each node ===
+
+    // each node is getting 470 in rewards, 10% of that is - 47 - commission
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let commission = staking.collect_commission(node.cap(), ctx);
+            assert_eq!(commission.burn_for_testing(), 47);
+        })
+    });
+
     // === cleanup ===
 
     nodes.destroy!(|node| node.destroy());
@@ -472,7 +482,7 @@ fun test_register_invalid_pop_epoch() {
             node.bls_pk(),
             node.network_key(),
             node.create_proof_of_possession(epoch),
-            COMMISSION,
+            COMMISSION_RATE,
             STORAGE_PRICE,
             WRITE_PRICE,
             NODE_CAPACITY,
@@ -507,7 +517,7 @@ fun test_register_invalid_pop_signer() {
             node.bls_pk(),
             node.network_key(),
             pop,
-            COMMISSION,
+            COMMISSION_RATE,
             STORAGE_PRICE,
             WRITE_PRICE,
             NODE_CAPACITY,
@@ -541,7 +551,7 @@ fun withdraw_rewards_before_joining_committee() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                COMMISSION,
+                COMMISSION_RATE,
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,

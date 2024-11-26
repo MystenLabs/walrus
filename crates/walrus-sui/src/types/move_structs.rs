@@ -202,15 +202,28 @@ pub(crate) struct StakingPool {
     #[cfg(feature = "mainnet-contracts")]
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
+    #[cfg(feature = "mainnet-contracts")]
+    /// Pending commission rate changes indexed by epoch.
+    pending_commission_rate: Vec<(Epoch, u64)>,
+    #[cfg(not(feature = "mainnet-contracts"))]
     /// The commission rate for the pool.
     commission_rate: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    /// The commission rate for the pool.
+    commission_rate: u16,
     /// Exchange rates table ID.
-    #[serde(deserialize_with = "deserialize_table")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     exchange_rates: ObjectID,
     /// The amount of stake that will be added to the `active_stake` in the given epoch.
     pending_stake: Vec<(Epoch, u64)>,
     /// The rewards that the pool has received.
     rewards: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    /// Collected commission.
+    commission: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
+    extra_fields: ObjectID,
 }
 
 impl AssociatedContractStruct for StakingPool {
@@ -353,7 +366,7 @@ pub(crate) struct StakingInnerV1 {
     /// first epoch can be started.
     pub(crate) first_epoch_start: u64,
     /// Object ID of the object table storing the staking pools.
-    #[serde(deserialize_with = "deserialize_table")]
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
     pub(crate) pools: ObjectID,
     /// The current epoch of the Walrus system.
     pub(crate) epoch: Epoch,
@@ -444,7 +457,7 @@ impl AssociatedContractStruct for SystemStateInnerV1 {
 }
 
 #[instrument(err, skip_all)]
-fn deserialize_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
+fn deserialize_bag_or_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -516,5 +529,33 @@ impl Display for StakedWal {
         writeln!(f, "    node_id: {},", self.node_id)?;
         writeln!(f, "    principal: {},", self.principal)?;
         writeln!(f, "    activation_epoch: {}", self.activation_epoch)
+    }
+}
+
+/// Sui type for an exchange rate: `wal` WAL = `sui` SUI.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct ExchangeRate {
+    wal: u64,
+    sui: u64,
+}
+
+/// Sui type for an exchange that allows exchanging SUI for WAL at a fixed exchange rate.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct WalExchange {
+    id: ObjectID,
+    wal_balance: u64,
+    sui_balance: u64,
+    pub exchange_rate: ExchangeRate,
+    admin: ObjectID,
+}
+
+impl AssociatedContractStruct for WalExchange {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::wal_exchange::Exchange;
+}
+
+impl ExchangeRate {
+    /// Converts an amount of SUI to WAL.
+    pub fn sui_to_wal(&self, amount: u64) -> u64 {
+        amount * self.wal / self.sui
     }
 }

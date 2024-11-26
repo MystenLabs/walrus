@@ -3,10 +3,11 @@
 
 //! Event processor for processing events from the full node.
 
-use std::{fmt::Debug, path::Path, sync::Arc, time::Duration};
+use std::{collections::HashMap, fmt::Debug, path::Path, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
+use futures_util::future::try_join_all;
 use move_core_types::{
     account_address::AccountAddress,
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
@@ -36,10 +37,14 @@ use sui_types::{
     full_checkpoint_content::CheckpointData,
     message_envelope::Message,
     messages_checkpoint::{TrustedCheckpoint, VerifiedCheckpoint},
-    object::Object,
+    object::{Data, Object},
     SYSTEM_PACKAGE_ADDRESSES,
 };
-use tokio::{select, sync::Mutex, time::sleep};
+use tokio::{
+    select,
+    sync::{Mutex, RwLock},
+    time::sleep,
+};
 use tokio_util::sync::CancellationToken;
 use typed_store::{
     rocks,
@@ -84,6 +89,8 @@ pub struct LocalDBPackageStore {
     package_store_table: DBMap<ObjectID, Object>,
     /// The full node REST client.
     fallback_client: Client,
+    /// Cache for original package ids.
+    original_id_cache: Arc<RwLock<HashMap<AccountAddress, ObjectID>>>,
 }
 
 /// Metrics for the event processor.
@@ -122,6 +129,8 @@ pub struct EventProcessor {
     pub metrics: EventProcessorMetrics,
     /// Pipelined checkpoint downloader.
     pub checkpoint_downloader: ParallelCheckpointDownloader,
+    /// Local package store.
+    pub package_store: LocalDBPackageStore,
 }
 
 impl Debug for LocalDBPackageStore {
@@ -201,12 +210,13 @@ impl EventProcessor {
             // walrus package but all its transitive dependencies as well. While it is possible
             // to get the transitive dependencies for a package, it is more efficient to just
             // track all packages as we are not expecting a large number of packages.
-            if object.is_package() {
-                write_batch.insert_batch(
-                    &self.walrus_package_store,
-                    std::iter::once((object.id(), object)),
-                )?;
+            if !object.is_package() {
+                continue;
             }
+            write_batch.insert_batch(
+                &self.walrus_package_store,
+                std::iter::once((object.id(), object)),
+            )?;
         }
         write_batch.write()?;
         Ok(())
@@ -347,12 +357,21 @@ impl EventProcessor {
                 self.update_package_store(&tx.output_objects)
                     .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
+                let original_package_ids: Vec<_> =
+                    try_join_all(tx_events.data.iter().map(|event| {
+                        self.package_store
+                            .get_original_package_id(event.package_id.into())
+                    }))
+                    .await?;
                 for (seq, tx_event) in tx_events
                     .data
                     .into_iter()
-                    .filter(|event| event.package_id == self.system_pkg_id)
+                    .zip(original_package_ids)
+                    .filter(|(_, original_id)| *original_id == self.system_pkg_id)
+                    .map(|(event, _)| event)
                     .enumerate()
                 {
+                    tracing::debug!("Received event: {:?}", tx_event);
                     let move_type_layout = self
                         .package_resolver
                         .type_layout(move_core_types::language_storage::TypeTag::Struct(
@@ -510,6 +529,10 @@ impl EventProcessor {
         )?;
 
         let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
+        let original_system_package_id = package_store
+            .get_original_package_id(system_pkg_id.into())
+            .await?;
+
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
             client.clone(),
             checkpoint_store.clone(),
@@ -523,13 +546,14 @@ impl EventProcessor {
             checkpoint_store,
             committee_store,
             event_store,
-            system_pkg_id,
+            system_pkg_id: original_system_package_id,
             event_polling_interval,
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_interval: config.pruning_interval,
-            package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
+            package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store.clone()))),
             metrics: EventProcessorMetrics::new(registry),
             checkpoint_downloader,
+            package_store,
         };
 
         if event_processor.checkpoint_store.is_empty() {
@@ -560,6 +584,7 @@ impl LocalDBPackageStore {
         Self {
             package_store_table,
             fallback_client: client,
+            original_id_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -601,6 +626,24 @@ impl LocalDBPackageStore {
             object
         };
         Ok(object)
+    }
+
+    /// Gets the original package id for the given package id.
+    pub async fn get_original_package_id(&self, id: AccountAddress) -> Result<ObjectID> {
+        if let Some(&original_id) = self.original_id_cache.read().await.get(&id) {
+            return Ok(original_id);
+        }
+
+        let object = self.get(id).await?;
+        let Data::Package(package) = &object.data else {
+            return Err(anyhow!("Object is not a package"));
+        };
+
+        let original_id = package.original_package_id();
+
+        self.original_id_cache.write().await.insert(id, original_id);
+
+        Ok(original_id)
     }
 }
 
@@ -707,9 +750,10 @@ mod tests {
             event_store_commit_index: Arc::new(Mutex::new(0)),
             pruning_interval: Duration::from_secs(10),
             event_polling_interval: Duration::from_secs(1),
-            package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store))),
+            package_resolver: Arc::new(Resolver::new(PackageCache::new(package_store.clone()))),
             metrics: EventProcessorMetrics::new(&Registry::default()),
             checkpoint_downloader,
+            package_store,
         })
     }
 

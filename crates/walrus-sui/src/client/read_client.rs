@@ -4,7 +4,6 @@
 //! Client to call Walrus move functions from rust.
 
 use std::{
-    collections::BTreeSet,
     fmt::{self, Debug},
     future::Future,
     num::NonZeroU16,
@@ -17,7 +16,7 @@ use chrono::{DateTime, Utc};
 use sui_sdk::{
     apis::EventApi,
     rpc_types::{Coin, EventFilter, SuiEvent, SuiObjectDataOptions},
-    types::{base_types::ObjectID, transaction::CallArg},
+    types::base_types::ObjectID,
     SuiClient,
     SuiClientBuilder,
 };
@@ -25,6 +24,7 @@ use sui_types::{
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
     object::Owner,
+    transaction::ObjectArg,
     Identifier,
 };
 use tokio::sync::{mpsc, OnceCell};
@@ -52,12 +52,17 @@ use crate::{
         get_package_id_from_object_response,
         get_sui_object,
         get_sui_object_from_object_response,
-        handle_pagination,
     },
 };
 
 const EVENT_MODULE: &str = "events";
 const MULTI_GET_OBJ_LIMIT: usize = 50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CoinType {
+    Wal,
+    Sui,
+}
 
 /// The current, previous, and next committee, and the current epoch state.
 ///
@@ -151,6 +156,31 @@ pub trait ReadClient: Send + Sync {
     ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
 }
 
+/// The mutability of a shared object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mutability {
+    /// The object is mutable.
+    Mutable,
+    /// The object is immutable.
+    Immutable,
+}
+
+impl From<bool> for Mutability {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Mutable
+        } else {
+            Self::Immutable
+        }
+    }
+}
+
+impl From<Mutability> for bool {
+    fn from(value: Mutability) -> Self {
+        matches!(value, Mutability::Mutable)
+    }
+}
+
 /// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
@@ -194,30 +224,29 @@ impl SuiReadClient {
         Self::new(client, system_object, staking_object).await
     }
 
-    pub(crate) async fn call_arg_for_shared_obj(
+    pub(crate) async fn object_arg_for_shared_obj(
         &self,
         object_id: ObjectID,
-        mutable: bool,
-    ) -> SuiClientResult<CallArg> {
+        mutable: Mutability,
+    ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.get_shared_object_initial_version(object_id).await?;
-        Ok(CallArg::Object(
-            sui_types::transaction::ObjectArg::SharedObject {
-                id: object_id,
-                initial_shared_version,
-                mutable,
-            },
-        ))
+        Ok(ObjectArg::SharedObject {
+            id: object_id,
+            initial_shared_version,
+            mutable: mutable.into(),
+        })
     }
 
-    pub(crate) async fn call_arg_from_system_obj(&self, mutable: bool) -> SuiClientResult<CallArg> {
+    pub(crate) async fn object_arg_for_system_obj(
+        &self,
+        mutable: Mutability,
+    ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.system_object_initial_version().await?;
-        Ok(CallArg::Object(
-            sui_types::transaction::ObjectArg::SharedObject {
-                id: self.system_object_id,
-                initial_shared_version,
-                mutable,
-            },
-        ))
+        Ok(ObjectArg::SharedObject {
+            id: self.system_object_id,
+            initial_shared_version,
+            mutable: mutable.into(),
+        })
     }
 
     async fn system_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
@@ -228,18 +257,16 @@ impl SuiReadClient {
         Ok(*initial_shared_version)
     }
 
-    pub(crate) async fn call_arg_from_staking_obj(
+    pub(crate) async fn object_arg_for_staking_obj(
         &self,
-        mutable: bool,
-    ) -> SuiClientResult<CallArg> {
+        mutable: Mutability,
+    ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.staking_object_initial_version().await?;
-        Ok(CallArg::Object(
-            sui_types::transaction::ObjectArg::SharedObject {
-                id: self.staking_object_id,
-                initial_shared_version,
-                mutable,
-            },
-        ))
+        Ok(ObjectArg::SharedObject {
+            id: self.staking_object_id,
+            initial_shared_version,
+            mutable: mutable.into(),
+        })
     }
 
     async fn staking_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
@@ -273,64 +300,43 @@ impl SuiReadClient {
         self.system_pkg_id
     }
 
-    pub(crate) async fn get_coins_of_type(
-        &self,
-        owner_address: SuiAddress,
-        coin_type: Option<String>,
-    ) -> Result<impl Iterator<Item = Coin> + '_, sui_sdk::error::Error> {
-        handle_pagination(move |cursor| {
-            self.sui_client.coin_read_api().get_coins(
-                owner_address,
-                coin_type.clone(),
-                cursor,
-                None,
-            )
-        })
-        .await
-    }
-
     /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
     ///
-    /// Returns `None` if no coins of sufficient total balance are found.
+    /// Returns a [`SuiClientError::NoCompatibleGasCoins`] or
+    /// [`SuiClientError::NoCompatibleWalCoins`] error if no coins of sufficient total balance are
+    /// found.
     pub(crate) async fn get_coins_with_total_balance(
         &self,
         owner_address: SuiAddress,
-        coin_type: Option<String>,
-        balance: u64,
-    ) -> Result<Vec<Coin>> {
-        let mut coins_iter = self.get_coins_of_type(owner_address, coin_type).await?;
-
-        let mut coins = vec![];
-        let mut total_balance = 0;
-        while total_balance < balance {
-            let coin = coins_iter.next().context("insufficient total balance")?;
-            total_balance += coin.balance;
-            coins.push(coin);
-        }
-        Ok(coins)
-    }
-
-    /// Returns a coin of provided `coin_type` whose balance is at least `balance`.
-    ///
-    /// Filters out any coin objects included in the `forbidden_objects` set.
-    ///
-    /// Returns `None` if no coin of sufficient balance is found.
-    pub(crate) async fn get_coin_with_balance(
-        &self,
-        owner_address: SuiAddress,
-        coin_type: Option<String>,
-        balance: u64,
-        forbidden_objects: BTreeSet<ObjectID>,
-    ) -> Result<Coin> {
-        self.get_coins_of_type(owner_address, coin_type)
-            .await?
-            .filter(|coin| !forbidden_objects.contains(&coin.object_ref().0))
-            .find(|coin| coin.balance >= balance)
-            .context("no coin with sufficient balance exists")
+        coin_type: CoinType,
+        min_balance: u64,
+        exclude: Vec<ObjectID>,
+    ) -> SuiClientResult<Vec<Coin>> {
+        let coin_type_option = match coin_type {
+            CoinType::Wal => Some(self.coin_type()),
+            CoinType::Sui => None,
+        };
+        self.sui_client
+            .coin_read_api()
+            .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
+            .await
+            .map_err(|err| match err {
+                sui_sdk::error::Error::InsufficientFund {
+                    address: _,
+                    amount: _,
+                } => match coin_type {
+                    CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
+                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins,
+                },
+                err => SuiClientError::from(err),
+            })
     }
 
     /// Get the latest object reference given an [`ObjectID`].
-    pub async fn get_object_ref(&self, object_id: ObjectID) -> Result<ObjectRef, anyhow::Error> {
+    pub(crate) async fn get_object_ref(
+        &self,
+        object_id: ObjectID,
+    ) -> Result<ObjectRef, anyhow::Error> {
         Ok(self
             .sui_client
             .read_api()
@@ -338,6 +344,15 @@ impl SuiReadClient {
             .await?
             .into_object()?
             .object_ref())
+    }
+
+    pub(crate) async fn object_arg_for_object(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<ObjectArg> {
+        Ok(ObjectArg::ImmOrOwnedObject(
+            self.get_object_ref(object_id).await?,
+        ))
     }
 
     pub(crate) fn coin_type(&self) -> String {

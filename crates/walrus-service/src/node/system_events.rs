@@ -88,7 +88,7 @@ impl EventHandle {
             .expect("DB operations should succeed");
 
         let event_cursor_progress = &self.node.metrics.event_cursor_progress;
-        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
+        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).set(persisted);
         metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
         self.can_be_dropped = true;
     }

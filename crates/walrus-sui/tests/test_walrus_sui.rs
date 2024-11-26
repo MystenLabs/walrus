@@ -15,7 +15,14 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient, SuiClientError, SuiContractClient},
+    client::{
+        BlobObjectMetadata,
+        BlobPersistence,
+        ContractClient,
+        ReadClient,
+        SuiClientError,
+        SuiContractClient,
+    },
     test_utils::{
         self,
         get_default_blob_certificate,
@@ -103,16 +110,17 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     ];
 
     let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_metadata = BlobObjectMetadata {
+        blob_id,
+        root_hash: Node::from(root_hash),
+        unencoded_size: size,
+        encoded_size: resource_size,
+        encoding_type: EncodingType::RedStuff,
+    };
+
     let blob_obj = walrus_client
         .as_ref()
-        .register_blob(
-            &storage_resource,
-            blob_id,
-            root_hash,
-            size,
-            EncodingType::RedStuff,
-            BlobPersistence::Permanent,
-        )
+        .register_blob(&storage_resource, blob_metadata, BlobPersistence::Permanent)
         .await?;
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.size, size);
@@ -183,17 +191,17 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         1, 2, 3, 4, 5, 6, 7, 0,
     ];
     let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_metadata = BlobObjectMetadata {
+        blob_id,
+        root_hash: Node::from(root_hash),
+        unencoded_size: size,
+        encoded_size: resource_size,
+        encoding_type: EncodingType::RedStuff,
+    };
 
     let blob_obj = walrus_client
         .as_ref()
-        .register_blob(
-            &storage_resource,
-            blob_id,
-            root_hash,
-            size,
-            EncodingType::RedStuff,
-            BlobPersistence::Permanent,
-        )
+        .register_blob(&storage_resource, blob_metadata, BlobPersistence::Permanent)
         .await?;
 
     // Make sure that we got the expected event

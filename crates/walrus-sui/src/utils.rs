@@ -520,11 +520,3 @@ pub async fn get_address_capability_object(
         None => Ok(None),
     }
 }
-
-// Macros
-
-macro_rules! call_arg_pure {
-    ($value:expr) => {
-        CallArg::Pure(bcs::to_bytes($value).map_err(|e| anyhow!("bcs conversion failed: {e:?}"))?)
-    };
-}

@@ -588,23 +588,24 @@ fun test_advance_pool_epoch() {
     // create pool with commission rate 1000.
     let (wctx, ctx) = test.current();
     let mut pool = pool()
-        .commission_rate(1000)
+        .commission_rate(1_00)
         .write_price(1)
         .storage_price(1)
         .node_capacity(1)
         .build(&wctx, ctx);
 
     assert_eq!(pool.wal_balance(), 0);
-    assert_eq!(pool.commission_rate(), 1000);
+    assert_eq!(pool.commission_rate(), 1_00);
     assert_eq!(pool.write_price(), 1);
     assert_eq!(pool.storage_price(), 1);
     assert_eq!(pool.node_capacity(), 1);
 
-    // pool changes commission rate to 100 in epoch E+1
-    pool.set_next_commission(100);
     pool.set_next_node_capacity(1000);
     pool.set_next_storage_price(100);
     pool.set_next_write_price(100);
+
+    // pool changes commission rate to 10% in epoch E+2
+    pool.set_next_commission(10_00, &wctx);
 
     // TODO: commission rate should be applied in E+2
     //_eq assert!(pool.commission_rate(), 1000);
@@ -629,7 +630,7 @@ fun test_advance_pool_epoch() {
     pool.advance_epoch(mint_balance(0), &wctx);
 
     assert_eq!(pool.wal_balance(), 1000);
-    assert_eq!(pool.commission_rate(), 100);
+    assert_eq!(pool.commission_rate(), 1_00); // still the old value
     assert_eq!(pool.node_capacity(), 1000);
     assert_eq!(pool.write_price(), 100);
     assert_eq!(pool.storage_price(), 100);
@@ -645,6 +646,7 @@ fun test_advance_pool_epoch() {
     pool.advance_epoch(mint_balance(0), &wctx);
     assert_eq!(pool.wal_balance(), 2000);
     assert_eq!(pool.write_price(), 1000);
+    assert_eq!(pool.commission_rate(), 10_00);
 
     destroy(pool);
     destroy(sw1);

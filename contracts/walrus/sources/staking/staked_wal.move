@@ -39,9 +39,6 @@ public enum StakedWalState has store, copy, drop {
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
 /// `u64` to represent the staked amount. Behaves similarly to `Balance` and
 /// `Coin` providing methods to `split` and `join`.
-///
-/// TODO: consider adding a `version` field to the struct to allow public API
-///       upgrades in the future.
 public struct StakedWal has key, store {
     id: UID,
     /// Whether the staked WAL is active or withdrawing.

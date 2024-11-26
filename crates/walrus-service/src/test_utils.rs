@@ -184,6 +184,8 @@ pub struct StorageNodeHandle {
     pub client: Client,
     /// The storage capability object of the node.
     pub storage_node_capability: Option<StorageNodeCap>,
+    /// The handle to the node runtime.
+    pub node_runtime_handle: Option<JoinHandle<()>>,
 }
 
 impl StorageNodeHandleTrait for StorageNodeHandle {
@@ -730,11 +732,11 @@ impl StorageNodeHandleBuilder {
             );
         }
 
-        if self.run_node {
+        let node_runtime_handle = if self.run_node {
             let node = node.clone();
             let cancel_token = cancel_token.clone();
 
-            tokio::task::spawn(
+            Some(tokio::task::spawn(
                 async move {
                     let status = node.run(cancel_token).await;
                     if let Err(error) = status {
@@ -745,8 +747,10 @@ impl StorageNodeHandleBuilder {
                 .instrument(
                     tracing::info_span!("cluster-node", address = %config.rest_api_address),
                 ),
-            );
-        }
+            ))
+        } else {
+            None
+        };
 
         let client = Client::builder()
             .authenticate_with_public_key(network_public_key.clone())
@@ -770,6 +774,7 @@ impl StorageNodeHandleBuilder {
             cancel: cancel_token,
             client,
             storage_node_capability: self.storage_node_capability,
+            node_runtime_handle,
         })
     }
 
@@ -1772,6 +1777,7 @@ pub mod test_cluster {
             epoch_duration,
             &node_weights,
             true,
+            ClientCommunicationConfig::default_for_test(),
         )
         .await
     }
@@ -1782,6 +1788,7 @@ pub mod test_cluster {
         epoch_duration: Duration,
         node_weights: &[u16],
         use_legacy_event_processor: bool,
+        communication_config: ClientCommunicationConfig,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1930,7 +1937,7 @@ pub mod test_cluster {
             staking_object: system_ctx.staking_object,
             exchange_object: None,
             wallet_config: None,
-            communication_config: ClientCommunicationConfig::default_for_test(),
+            communication_config,
         };
 
         let client = sui_contract_client

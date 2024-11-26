@@ -1,7 +1,11 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+    Mutex,
+};
 
 use rocksdb::{MergeOperands, Options};
 use sui_types::event::EventID;
@@ -22,7 +26,9 @@ type ProgressMergeOperand = (EventID, u64);
 
 #[derive(Debug, Copy, Clone, Default)]
 pub(crate) struct EventProgress {
+    /// The number of events that have been persisted.
     pub persisted: u64,
+    /// The number of events that are pending to be persisted in the event sequencer.
     pub pending: u64,
 }
 
@@ -39,6 +45,9 @@ impl From<EventProgress> for walrus_sdk::api::EventProgress {
 pub(super) struct EventCursorTable {
     inner: DBMap<[u8; 6], EventIdWithProgress>,
     event_queue: Arc<Mutex<EventSequencer>>,
+    // Store the number of events that have been persisted and pending separately for fast access.
+    persisted_event_count: Arc<AtomicU64>,
+    pending_event_count: Arc<AtomicU64>,
 }
 
 impl EventCursorTable {
@@ -53,9 +62,13 @@ impl EventCursorTable {
         let this = Self {
             inner,
             event_queue: Arc::default(),
+            persisted_event_count: Arc::new(AtomicU64::new(0)),
+            pending_event_count: Arc::new(AtomicU64::new(0)),
         };
 
         let next_index = this.get_sequentially_processed_event_count()?;
+        this.persisted_event_count
+            .store(next_index, Ordering::SeqCst);
         *this.event_queue.lock().unwrap() =
             EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
 
@@ -109,18 +122,27 @@ impl EventCursorTable {
             event_queue.advance();
         }
 
-        Ok(EventProgress {
-            persisted: count,
-            pending: event_queue.remaining(),
-        })
+        let persisted: u64 = event_queue
+            .head_index()
+            .try_into()
+            .expect("64-bit architecture");
+        let pending = event_queue.remaining();
+
+        // In debug mode, assert that the number of events processed matches the number of events.
+        debug_assert_eq!(persisted, self.get_sequentially_processed_event_count()?);
+
+        self.persisted_event_count
+            .store(persisted, Ordering::SeqCst);
+        self.pending_event_count.store(pending, Ordering::SeqCst);
+
+        Ok(EventProgress { persisted, pending })
     }
 
     /// Returns the current event cursor.
     pub fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
-        let count = self.get_sequentially_processed_event_count()?;
         Ok(EventProgress {
-            persisted: count,
-            pending: self.event_queue.lock().unwrap().remaining(),
+            persisted: self.persisted_event_count.load(Ordering::SeqCst),
+            pending: self.pending_event_count.load(Ordering::SeqCst),
         })
     }
 }

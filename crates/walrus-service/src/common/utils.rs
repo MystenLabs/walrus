@@ -50,6 +50,7 @@ use tracing_subscriber::{
     EnvFilter,
     Layer,
 };
+use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{PublicKey, ShardIndex};
 use walrus_sui::utils::SuiNetwork;
@@ -286,6 +287,9 @@ impl MetricsAndLoggingRuntime {
             .with_prom_registry(&walrus_registry)
             .with_json()
             .init();
+
+        // Initialize metrics to track db usage before we create any db instances.
+        DBMetrics::init(&walrus_registry);
 
         Ok(Self {
             runtime,

@@ -92,6 +92,11 @@ impl BlobStatus {
             _ => None,
         }
     }
+
+    /// Returns true iff the blob is registered within Walrus.
+    pub fn is_registered(&self) -> bool {
+        matches!(self, Self::Deletable { .. } | Self::Permanent { .. })
+    }
 }
 
 /// Contains counts of all and certified deletable `Blob` objects.

@@ -867,7 +867,8 @@ impl ShardStorage {
         self.pending_recover_slivers.remove(&(sliver_type, blob_id))
     }
 
-    pub fn delete_shard(&self) -> Result<(), TypedStoreError> {
+    /// Deletes the storage for the shard.
+    pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
         let rocksdb = self.primary_slivers.rocksdb.clone();
         rocksdb
             .drop_cf(&shard_status_column_family_name(self.id()))
