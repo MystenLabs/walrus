@@ -17,6 +17,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     client::{
         responses::BlobStoreResult,
+        ClientCommunicationConfig,
         ClientError,
         ClientErrorKind::{
             self,
@@ -528,6 +529,7 @@ async fn test_repeated_shard_move() -> TestResult {
             Duration::from_secs(20),
             &[1, 1],
             true,
+            ClientCommunicationConfig::default_for_test(),
         )
         .await?;
 

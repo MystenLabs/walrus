@@ -86,7 +86,11 @@ fun test_parameter_changes() {
     let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
-    let pool_id = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_id = test::pool()
+        .commission_rate(0)
+        .name(b"pool_1".to_string())
+        .register(&mut staking, ctx);
+
     let cap = storage_node::new_cap(pool_id, ctx);
 
     staking.set_next_commission(&cap, 10000);
@@ -98,10 +102,14 @@ fun test_parameter_changes() {
     // TODO: this should be triggered via a system api
     staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(1, false));
 
-    assert!(staking[pool_id].storage_price() == 100000000);
-    assert!(staking[pool_id].write_price() == 100000000);
-    assert!(staking[pool_id].node_capacity() == 10000000000000);
-    assert!(staking[pool_id].commission_rate() == 10000);
+    assert_eq!(staking[pool_id].storage_price(), 100000000);
+    assert_eq!(staking[pool_id].write_price(), 100000000);
+    assert_eq!(staking[pool_id].node_capacity(), 10000000000000);
+    assert_eq!(staking[pool_id].commission_rate(), 0); // still old commission rate
+
+    staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(2, false));
+
+    assert_eq!(staking[pool_id].commission_rate(), 10000); // new commission rate
 
     destroy(staking);
     destroy(cap);

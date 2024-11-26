@@ -16,6 +16,7 @@ public struct PendingValues(VecMap<u32, u64>) has store, drop, copy;
 /// Create a new empty `PendingValues` instance.
 public(package) fun empty(): PendingValues { PendingValues(vec_map::empty()) }
 
+/// Insert a new pending value for the given epoch, or add to the existing value.
 public(package) fun insert_or_add(self: &mut PendingValues, epoch: u32, value: u64) {
     let map = &mut self.0;
     if (!map.contains(&epoch)) {
@@ -23,6 +24,16 @@ public(package) fun insert_or_add(self: &mut PendingValues, epoch: u32, value: u
     } else {
         let curr = map[&epoch];
         *&mut map[&epoch] = curr + value;
+    };
+}
+
+/// Insert a new pending value for the given epoch, or replace the existing.
+public(package) fun insert_or_replace(self: &mut PendingValues, epoch: u32, value: u64) {
+    let map = &mut self.0;
+    if (!map.contains(&epoch)) {
+        map.insert(epoch, value);
+    } else {
+        *&mut map[&epoch] = value;
     };
 }
 
@@ -55,6 +66,12 @@ public(package) fun flush(self: &mut PendingValues, to_epoch: u32): u64 {
     });
     value
 }
+
+/// Get a reference to the inner `VecMap<u32, u64>`.
+public(package) fun inner(self: &PendingValues): &VecMap<u32, u64> { &self.0 }
+
+/// Get a mutable reference to the inner `VecMap<u32, u64>`.
+public(package) fun inner_mut(self: &mut PendingValues): &mut VecMap<u32, u64> { &mut self.0 }
 
 /// Unwrap the `PendingValues` into a `VecMap<u32, u64>`.
 public(package) fun unwrap(self: PendingValues): VecMap<u32, u64> {

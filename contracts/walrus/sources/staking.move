@@ -62,7 +62,7 @@ public fun register_candidate(
     network_public_key: vector<u8>,
     proof_of_possession: vector<u8>,
     // voting parameters
-    commission_rate: u64,
+    commission_rate: u16,
     storage_price: u64,
     write_price: u64,
     node_capacity: u64,
@@ -100,13 +100,17 @@ public fun withdraw_node(staking: &mut Staking, cap: &mut StorageNodeCap) {
 
 /// Sets next_commission in the staking pool, which will then take effect as commission rate
 /// one epoch after setting the value (to allow stakers to react to setting this).
-public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, commission_rate: u64) {
+public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, commission_rate: u16) {
     staking.inner_mut().set_next_commission(cap, commission_rate);
 }
 
 /// Returns the accumulated commission for the storage node.
-public fun collect_commission(staking: &mut Staking, cap: &StorageNodeCap): Coin<WAL> {
-    staking.inner_mut().collect_commission(cap)
+public fun collect_commission(
+    staking: &mut Staking,
+    cap: &StorageNodeCap,
+    ctx: &mut TxContext,
+): Coin<WAL> {
+    staking.inner_mut().collect_commission(cap).into_coin(ctx)
 }
 
 // === Voting ===

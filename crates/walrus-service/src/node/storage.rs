@@ -240,7 +240,7 @@ impl Storage {
                 shards.remove(shard_index)
             } {
                 // Do not hold the `shards` lock when deleting column families.
-                shard_storage.delete_shard()?;
+                shard_storage.delete_shard_storage()?;
             }
             tracing::info!(
                 walrus.shard_index = %shard_index,

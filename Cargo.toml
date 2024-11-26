@@ -55,8 +55,8 @@ rcgen = "0.13.1"
 regex = "1"
 reqwest = { version = "0.12.9", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.17", default-features = false, features = ["logging", "ring", "tls12"] }
-rustls-native-certs = "0.8.0"
+rustls = { version = "0.23.18", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls-native-certs = "0.8.1"
 serde = { version = "1.0.213", features = ["derive"] }
 serde_json = "1.0.133"
 serde_test = "1.0.177"
@@ -89,7 +89,7 @@ tracing = "0.1.40"
 tracing-opentelemetry = { version = "0.26", default-features = false }
 tracing-subscriber = { version = "0.3.18", default-features = false, features = ["fmt"] }
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.38.0" }
-url = "2.5.2"
+url = "2.5.4"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
 uuid = { version = "1.11.0", features = ["fast-rng", "macro-diagnostics", "v7"] }

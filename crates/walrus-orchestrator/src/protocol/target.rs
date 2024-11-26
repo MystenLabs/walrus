@@ -94,7 +94,11 @@ mod default_node_parameters {
     }
 
     pub fn default_contract_path() -> PathBuf {
-        PathBuf::from("./contracts/walrus")
+        if cfg!(feature = "mainnet-contracts") {
+            PathBuf::from("./contracts/walrus")
+        } else {
+            PathBuf::from("./testnet-contracts/walrus")
+        }
     }
 }
 

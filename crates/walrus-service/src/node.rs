@@ -25,7 +25,7 @@ use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
-use typed_store::{rocks::MetricConf, DBMetrics, TypedStoreError};
+use typed_store::{rocks::MetricConf, TypedStoreError};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
     ensure,
@@ -286,8 +286,6 @@ impl StorageNodeBuilder {
         config: &StorageNodeConfig,
         metrics_registry: Registry,
     ) -> Result<StorageNode, anyhow::Error> {
-        DBMetrics::init(&metrics_registry);
-
         let protocol_key_pair = config
             .protocol_key_pair
             .get()
@@ -506,6 +504,17 @@ impl StorageNode {
             _ = cancel_token.cancelled() => {
                 self.blob_sync_handler.cancel_all().await?;
             },
+            blob_sync_result = self.blob_sync_handler.spawn_task_monitor() => {
+                match blob_sync_result {
+                    Ok(()) => unreachable!("blob sync task monitor never returns"),
+                    Err(e) => {
+                        if e.is_panic() {
+                            std::panic::resume_unwind(e.into_panic());
+                        }
+                        return Err(e.into());
+                    },
+                }
+            }
         }
 
         Ok(())
@@ -1145,7 +1154,7 @@ impl StorageNodeInner {
             .maybe_advance_event_cursor(event_index, cursor)?;
 
         let event_cursor_progress = &self.metrics.event_cursor_progress;
-        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).add(persisted);
+        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).set(persisted);
         metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
 
         Ok(())
@@ -2611,6 +2620,46 @@ mod tests {
         Ok(())
     }
 
+    // Tests that a panic thrown by a blob sync task is propagated to the node runtime.
+    #[tokio::test]
+    async fn blob_sync_panic_thrown() {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+        let test_shard = ShardIndex(1);
+
+        let (mut cluster, _events, blob) =
+            cluster_with_partially_stored_blob(shards, BLOB, |&shard, _| shard != test_shard)
+                .await
+                .unwrap();
+
+        // Delete shard data to force a panic in the blob sync task.
+        // Note that this only deletes the storage for the shard. Storage still has an entry for the
+        // shard, so it thinks it still owns the shard.
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(test_shard)
+            .unwrap()
+            .delete_shard_storage()
+            .unwrap();
+
+        // Start a sync to trigger the blob sync task.
+        cluster.nodes[0]
+            .storage_node
+            .blob_sync_handler
+            .start_sync(*blob.blob_id(), 1, None, Instant::now())
+            .await
+            .unwrap();
+
+        // Wait for the node runtime to finish, and check that a panic was thrown.
+        let result = cluster.nodes[0].node_runtime_handle.as_mut().unwrap().await;
+        if let Err(e) = result {
+            assert!(e.is_panic());
+        } else {
+            panic!("expected panic");
+        }
+    }
+
     #[walrus_simtest]
     async fn cancel_expired_blob_sync_upon_epoch_change() -> TestResult {
         let _ = tracing_subscriber::fmt::try_init();
@@ -3401,6 +3450,7 @@ mod tests {
     mod failure_injection_tests {
         use sui_macros::{
             clear_fail_point,
+            register_fail_point,
             register_fail_point_arg,
             register_fail_point_async,
             register_fail_point_if,
