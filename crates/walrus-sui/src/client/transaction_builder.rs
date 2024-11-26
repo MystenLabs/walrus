@@ -254,7 +254,7 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Adds a call to `certify_blob` to the `pt_builder` and returns the result [`Argument`].
+    /// Adds a call to `certify_blob` to the `pt_builder`.
     pub async fn certify_blob(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
