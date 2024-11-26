@@ -58,6 +58,12 @@ use crate::{
 const EVENT_MODULE: &str = "events";
 const MULTI_GET_OBJ_LIMIT: usize = 50;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CoinType {
+    Wal,
+    Sui,
+}
+
 /// The current, previous, and next committee, and the current epoch state.
 ///
 /// This struct is only used to pass the information on committees and state. No invariants are
@@ -150,6 +156,31 @@ pub trait ReadClient: Send + Sync {
     ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
 }
 
+/// The mutability of a shared object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mutability {
+    /// The object is mutable.
+    Mutable,
+    /// The object is immutable.
+    Immutable,
+}
+
+impl From<bool> for Mutability {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Mutable
+        } else {
+            Self::Immutable
+        }
+    }
+}
+
+impl From<Mutability> for bool {
+    fn from(value: Mutability) -> Self {
+        matches!(value, Mutability::Mutable)
+    }
+}
+
 /// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
@@ -196,25 +227,25 @@ impl SuiReadClient {
     pub(crate) async fn object_arg_for_shared_obj(
         &self,
         object_id: ObjectID,
-        mutable: bool,
+        mutable: Mutability,
     ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.get_shared_object_initial_version(object_id).await?;
         Ok(ObjectArg::SharedObject {
             id: object_id,
             initial_shared_version,
-            mutable,
+            mutable: mutable.into(),
         })
     }
 
-    pub(crate) async fn object_arg_from_system_obj(
+    pub(crate) async fn object_arg_for_system_obj(
         &self,
-        mutable: bool,
+        mutable: Mutability,
     ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.system_object_initial_version().await?;
         Ok(ObjectArg::SharedObject {
             id: self.system_object_id,
             initial_shared_version,
-            mutable,
+            mutable: mutable.into(),
         })
     }
 
@@ -226,15 +257,15 @@ impl SuiReadClient {
         Ok(*initial_shared_version)
     }
 
-    pub(crate) async fn object_arg_from_staking_obj(
+    pub(crate) async fn object_arg_for_staking_obj(
         &self,
-        mutable: bool,
+        mutable: Mutability,
     ) -> SuiClientResult<ObjectArg> {
         let initial_shared_version = self.staking_object_initial_version().await?;
         Ok(ObjectArg::SharedObject {
             id: self.staking_object_id,
             initial_shared_version,
-            mutable,
+            mutable: mutable.into(),
         })
     }
 
@@ -271,23 +302,32 @@ impl SuiReadClient {
 
     /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
     ///
-    /// Returns `None` if no coins of sufficient total balance are found.
+    /// Returns a [`SuiClientError::NoCompatibleGasCoins`] or
+    /// [`SuiClientError::NoCompatibleWalCoins`] error if no coins of sufficient total balance are
+    /// found.
     pub(crate) async fn get_coins_with_total_balance(
         &self,
         owner_address: SuiAddress,
-        coin_type: Option<String>,
+        coin_type: CoinType,
         min_balance: u64,
         exclude: Vec<ObjectID>,
     ) -> SuiClientResult<Vec<Coin>> {
+        let coin_type_option = match coin_type {
+            CoinType::Wal => Some(self.coin_type()),
+            CoinType::Sui => None,
+        };
         self.sui_client
             .coin_read_api()
-            .select_coins(owner_address, coin_type, min_balance.into(), exclude)
+            .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
             .await
             .map_err(|err| match err {
                 sui_sdk::error::Error::InsufficientFund {
                     address: _,
                     amount: _,
-                } => SuiClientError::NoCompatibleWalCoins,
+                } => match coin_type {
+                    CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
+                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins,
+                },
                 err => SuiClientError::from(err),
             })
     }
@@ -306,7 +346,7 @@ impl SuiReadClient {
             .object_ref())
     }
 
-    pub(crate) async fn object_arg_from_object(
+    pub(crate) async fn object_arg_for_object(
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<ObjectArg> {

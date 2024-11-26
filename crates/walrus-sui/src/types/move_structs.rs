@@ -525,6 +525,7 @@ pub struct ExchangeRate {
     wal: u64,
     sui: u64,
 }
+
 /// Sui type for an exchange that allows exchanging SUI for WAL at a fixed exchange rate.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub(crate) struct WalExchange {

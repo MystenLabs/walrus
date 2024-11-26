@@ -86,7 +86,7 @@ impl From<SuiClientError> for ClientError {
     fn from(value: SuiClientError) -> Self {
         let kind = match value {
             SuiClientError::NoCompatibleWalCoins => ClientErrorKind::NoCompatiblePaymentCoin,
-            SuiClientError::NoCompatibleGasCoins(_) => ClientErrorKind::NoCompatibleGasCoins,
+            SuiClientError::NoCompatibleGasCoins => ClientErrorKind::NoCompatibleGasCoins,
             error => ClientErrorKind::Other(error.into()),
         };
         Self { kind }

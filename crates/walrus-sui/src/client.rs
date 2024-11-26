@@ -7,6 +7,7 @@ use core::fmt;
 use std::{future::Future, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use read_client::CoinType;
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -82,8 +83,8 @@ pub enum SuiClientError {
     #[error("could not find WAL coins with sufficient balance")]
     NoCompatibleWalCoins,
     /// No matching gas coin found for the transaction.
-    #[error("could not find gas coins with sufficient balance: {0}")]
-    NoCompatibleGasCoins(anyhow::Error),
+    #[error("could not find gas coins with sufficient balance")]
+    NoCompatibleGasCoins,
     /// The Walrus system object does not exist.
     #[error(
         "the specified Walrus system object {0} does not exist or is incompatible with this binary;\
@@ -358,7 +359,7 @@ impl SuiContractClient {
             .read_client
             .get_coins_with_total_balance(
                 self.wallet_address,
-                None,
+                CoinType::Sui,
                 min_balance.unwrap_or(self.gas_budget),
                 vec![],
             )
@@ -549,7 +550,7 @@ impl ContractClient for SuiContractClient {
         let storage_arg = pt_builder
             .reserve_space(blob_metadata.encoded_size, epochs_ahead)
             .await?;
-        // Blob is transferred automatically in the call to `finish`
+        // Blob is transferred automatically in the call to `finish`.
         pt_builder
             .register_blob(storage_arg.into(), blob_metadata, persistence)
             .await?;
