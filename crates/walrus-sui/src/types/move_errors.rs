@@ -9,15 +9,10 @@ use move_core_types::account_address::AccountAddress;
 use sui_types::base_types::ObjectID;
 use thiserror;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("could not convert the raw move error: {0}")]
 /// Error occurs when converting a RawMoveError to its corresponding error kind.
 pub struct ConversionError(RawMoveError);
-
-#[derive(Debug, thiserror::Error)]
-#[error("could not convert the str to a raw move error")]
-/// Error occurs when converting a string to a RawMoveError.
-pub struct MoveParseError;
 
 macro_rules! move_error_kind {
     (
@@ -31,7 +26,7 @@ macro_rules! move_error_kind {
         pub enum $errorname {
             $(
                 #[doc=stringify!(Error kind for the move error $errortype)]
-                $errortype(RawMoveError)
+                $errortype(Box<RawMoveError>)
             ),*
         }
 
@@ -60,7 +55,7 @@ macro_rules! move_error_kind {
 
             fn try_from(value: RawMoveError) -> Result<Self, Self::Error> {
                 match value.error_code {
-                    $($errorcode => Ok(Self::$errortype(value))),* ,
+                    $($errorcode => Ok(Self::$errortype(Box::new(value)))),* ,
                     _ => Err(ConversionError(value)),
                 }
             }
@@ -211,11 +206,11 @@ impl From<RawMoveError> for MoveExecutionError {
     }
 }
 
-impl From<String> for MoveExecutionError {
-    fn from(value: String) -> Self {
-        RawMoveError::from_str(&value)
+impl From<&str> for MoveExecutionError {
+    fn from(value: &str) -> Self {
+        RawMoveError::from_str(value)
             .map(Self::from)
-            .unwrap_or_else(|_| Self::NotParsable(value))
+            .unwrap_or_else(|_| Self::NotParsable(value.to_owned()))
     }
 }
 
@@ -413,7 +408,7 @@ mod tests {
             "Not matching",
         ];
 
-        match error_strings[0].to_owned().into() {
+        match error_strings[0].into() {
             MoveExecutionError::StakingPool(StakingPoolError::EInvalidProofOfPossession(raw)) => {
                 assert!(raw.function == "new");
                 assert!(raw.command_index == 0);
@@ -422,7 +417,7 @@ mod tests {
         }
 
         // Second error does not match a know type
-        match error_strings[1].to_owned().into() {
+        match error_strings[1].into() {
             MoveExecutionError::OtherMoveModule(raw) => {
                 assert!(raw.function == "new");
                 assert!(raw.command_index == 1);
@@ -430,7 +425,7 @@ mod tests {
             _ => panic!("wrong error"),
         }
 
-        match error_strings[2].to_owned().into() {
+        match error_strings[2].into() {
             MoveExecutionError::StakingInner(StakingInnerError::EInvalidSyncEpoch(raw)) => {
                 assert!(raw.function == "epoch_sync_done");
                 assert!(raw.command_index == 0);
@@ -438,7 +433,7 @@ mod tests {
             _ => panic!("wrong error"),
         }
 
-        match error_strings[3].to_owned().into() {
+        match error_strings[3].into() {
             MoveExecutionError::NotParsable(_) => {}
             _ => panic!("wrong error"),
         }

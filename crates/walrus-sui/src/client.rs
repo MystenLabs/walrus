@@ -37,6 +37,7 @@ use walrus_core::{
 use crate::{
     contracts,
     types::{
+        move_errors::MoveExecutionError,
         move_structs::EpochState,
         Blob,
         BlobEvent,
@@ -78,7 +79,7 @@ pub enum SuiClientError {
     SuiSdkError(#[from] sui_sdk::error::Error),
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
-    TransactionExecutionError(String),
+    TransactionExecutionError(MoveExecutionError),
     /// No matching WAL coin found for the transaction.
     #[error("could not find WAL coins with sufficient balance")]
     NoCompatibleWalCoins,
@@ -395,9 +396,9 @@ impl SuiContractClient {
             .status()
         {
             SuiExecutionStatus::Success => Ok(response),
-            SuiExecutionStatus::Failure { error } => {
-                Err(SuiClientError::TransactionExecutionError(error.into()))
-            }
+            SuiExecutionStatus::Failure { error } => Err(
+                SuiClientError::TransactionExecutionError(error.as_str().into()),
+            ),
         }
     }
 
