@@ -422,7 +422,7 @@ impl ClientCommandRunner {
         let metadata = EncodingConfig::new(n_shards)
             .get_blob_encoder(&read_blob_from_file(&file)?)?
             .compute_metadata();
-        spinner.finish_with_message("blob ID computed");
+        spinner.finish_with_message(format!("blob ID computed: {}", metadata.blob_id()));
 
         BlobIdOutput::new(&file, &metadata).print_output(self.json)
     }

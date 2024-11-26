@@ -72,7 +72,7 @@ futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
 humantime.workspace = true
-indicatif = "0.17.9"
+indicatif.workspace = true
 indoc = { workspace = true, optional = true }
 integer-encoding.workspace = true
 itertools.workspace = true

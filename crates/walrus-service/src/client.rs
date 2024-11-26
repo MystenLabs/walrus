@@ -388,7 +388,7 @@ impl<T: ContractClient> Client<T> {
             ?duration,
             "encoded sliver pairs and metadata"
         );
-        spinner.finish_with_message("blob encoded");
+        spinner.finish_with_message(format!("blob encoded; blob ID: {}", metadata.blob_id()));
 
         Ok((pairs, metadata))
     }
@@ -608,8 +608,9 @@ impl<T> Client<T> {
             .communication_factory
             .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
 
-        let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
-        pb.set_message("sending slivers");
+        let progress_bar =
+            styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
+        progress_bar.set_message("sending slivers");
 
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
@@ -619,10 +620,10 @@ impl<T> Client<T> {
                     .expect("there are shards for each node"),
             )
             .inspect({
-                let value = pb.clone();
+                let value = progress_bar.clone();
                 move |result| {
                     if result.is_ok() && !value.is_finished() {
-                        value.inc(n.n_owned_shards().get().into())
+                        value.inc(result.1.try_into().expect("the weight fits a usize"))
                     }
                 }
             })
@@ -656,7 +657,7 @@ impl<T> Client<T> {
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
 
-        pb.finish_with_message("slivers sent");
+        progress_bar.finish_with_message("slivers sent");
 
         let extra_time = self
             .config
@@ -799,9 +800,9 @@ impl<T> Client<T> {
         let committees = self.committees.read().await;
 
         // Create a progress bar to track the progress of the sliver retrieval.
-        // TODO: this will be moved will need a flag to check if we are running in CLI mode.
-        let pb = styled_progress_bar(self.encoding_config.n_source_symbols::<U>().get().into());
-        pb.set_message("requesting slivers");
+        let progress_bar =
+            styled_progress_bar(self.encoding_config.n_source_symbols::<U>().get().into());
+        progress_bar.set_message("requesting slivers");
 
         let comms = self
             .communication_factory
@@ -815,7 +816,7 @@ impl<T> Client<T> {
                     .instrument(n.span.clone())
                     // Increment the progress bar if the sliver is successfully retrieved.
                     .inspect({
-                        let value = pb.clone();
+                        let value = progress_bar.clone();
                         move |result| {
                             if result.is_ok() {
                                 value.inc(1)
@@ -843,7 +844,7 @@ impl<T> Client<T> {
             )
             .await;
 
-        pb.finish_with_message("slivers received");
+        progress_bar.finish_with_message("slivers received");
 
         let mut n_not_found = 0; // Counts the number of "not found" status codes received.
         let slivers = requests
