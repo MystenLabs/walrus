@@ -162,7 +162,7 @@ def extract_notes_for_pr(pr):
         "-H", auth_header,
         url
     ]
-    
+
     # Execute the curl command
     result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     json_data = json.loads(result.stdout)
