@@ -38,7 +38,6 @@ use crate::client::{
         StorageNodeInfo,
         WalletOutput,
     },
-    string_prefix,
     BlobStoreResult,
 };
 
@@ -385,12 +384,9 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
     table.set_titles(row![
         b->"Idx",
         b->"Name",
-        b->"Node ID",
         b->"# Shards",
         b->"Stake",
-        b->"Pk prefix",
         b->"Address",
-        b->"Shards"
     ]);
     for (i, node) in storage_nodes.iter().enumerate() {
         let n_owned = node.n_shards;
@@ -398,15 +394,15 @@ fn print_storage_node_table(n_shards: &NonZeroU16, storage_nodes: &[StorageNodeI
         table.add_row(row![
             bFg->format!("{i}"),
             node.name,
-            node.node_id,
-            format!("{} ({:.2}%)", n_owned, n_owned_percent),
-            HumanReadableFrost::from(node.stake),
-            string_prefix(&node.public_key),
+            r->format!("{} ({:.2}%)", n_owned, n_owned_percent),
+            r->HumanReadableFrost::from(node.stake),
             node.network_address,
-            DisplayShardList(&node.shard_ids),
         ]);
     }
     table.printstd();
+    for (i, node) in storage_nodes.iter().enumerate() {
+        print_storage_node_info(node, i, n_shards);
+    }
 }
 
 struct DisplayShardList<'a>(&'a [ShardIndex]);
@@ -588,4 +584,31 @@ fn blob_and_file_str(blob_id: &BlobId, file: &Option<PathBuf>) -> String {
     } else {
         format!("{}", blob_id)
     }
+}
+
+/// Print the full information of the storage node to stdoud.
+fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &NonZeroU16) {
+    let n_owned = node.n_shards;
+    let n_owned_percent = (n_owned as f64) / (n_shards.get() as f64) * 100.0;
+    printdoc!(
+        "
+
+        {heading}
+        Owned shards: {n_owned} ({n_owned_percent:.2} %)
+        Total stake: {stake}
+        Node address: {network_address}
+        Node ID: {node_id}
+        Public key: {public_key}
+        Network public key: {network_public_key}
+        Owned shards:
+        {shards}
+        ",
+        heading = format!("{}: {}", node_idx, node.name).bold().magenta(),
+        stake = HumanReadableFrost::from(node.stake),
+        network_address = node.network_address,
+        node_id = node.node_id,
+        public_key = node.public_key,
+        network_public_key = node.network_public_key,
+        shards = DisplayShardList(&node.shard_ids),
+    );
 }
