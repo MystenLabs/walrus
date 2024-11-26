@@ -12,6 +12,7 @@ use futures_util::stream;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::time::MissedTickBehavior;
 use tokio_stream::Stream;
+use tracing::Level;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
 use super::{config::SuiConfig, metrics, StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
@@ -95,7 +96,7 @@ impl EventHandle {
 }
 
 impl Drop for EventHandle {
-    #[tracing::instrument]
+    #[tracing::instrument(level = Level::ERROR)]
     fn drop(&mut self) {
         if self.can_be_dropped {
             return;
