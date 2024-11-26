@@ -162,6 +162,8 @@ def extract_notes_for_pr(pr):
         url
     ]
 
+    print(f"DEBUG: curl_command={curl_command}, type={type(curl_command)}")
+
     # Execute the curl command
     result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     json_data = json.loads(result.stdout)
