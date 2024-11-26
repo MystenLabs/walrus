@@ -153,13 +153,13 @@ def extract_notes_for_pr(pr):
     gh_token = os.getenv('WALRUS_REPO_TOKEN')
     if not gh_token:
         raise ValueError("The environment variable WALRUS_REPO_TOKEN is not set!")
-    gh_token = "Bearer " + gh_token
+    auth_header = f"Authorization: Bearer {gh_token}"
 
     url = f"https://api.github.com/repos/MystenLabs/walrus/pulls/{pr}"
     curl_command = [
         "curl", "-s",
         "-H", "Accept: application/vnd.github.groot-preview+json",
-        "-H", f"Authorization: {gh_token}",
+        "-H", auth_header,
         url
     ]
 
