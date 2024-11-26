@@ -7,7 +7,6 @@ on:
       - 'devnet'
       - 'testnet'
       - 'mainnet'
-      - 'releases/sui-*-release'
   pull_request:
     types: [ opened, synchronize, reopened, edited, ready_for_review ]
   workflow_dispatch:
@@ -34,7 +33,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.sui_repo_ref || github.ref }}
       - name: Detect Changes
-        uses: './.github/actions/diffs'
+        uses: ./.github/workflows/code.yml
         id: diff
 
   release-notes-description-check:
