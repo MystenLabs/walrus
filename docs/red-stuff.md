@@ -4,6 +4,8 @@ The RedStuff encoding algorithm used in Walrus is an adaptation of the _Twin-Cod
 
 ## Goals & Overview
 
+## Test Change
+
 The goal of the Walrus system is to provide a distributed storage infrastructure, where a decentralized set of entities—the _storage
 nodes_—collaborate to store and serve files ("blobs" of data). When it comes to storage properties, Walrus has a three key goals:
 
