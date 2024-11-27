@@ -2,12 +2,13 @@
 out = ["Html", "Xml"]
 packages = [
   "walrus-core",
-  "walrus-event",
+  "walrus-e2e-tests",
   "walrus-sdk",
   "walrus-service",
   "walrus-sui",
+  "walrus-utils",
 ]
-run-types = ["Doctests", "Lib", "Tests"]
+run-types = ["Lib", "Tests"]
 skip-clean = true
 # Use separate target directory to avoid interference with other builds.
 target-dir = "target/tarpaulin"
