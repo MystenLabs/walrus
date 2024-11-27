@@ -26,24 +26,46 @@ This repository contains all Walrus-related code, tools, and documentation:
 - [`contracts`](contracts) contains all smart contracts used by Walrus for coordination and governance.
 - [`crates`](crates) contains all Rust crates related to Walrus including binaries for storage nodes
   and clients. See [below](#rust-crates) for further information about those.
+- [`docker`](docker) contains Dockerfiles and docker-compose setups for building and running Walrus.
 - [`docs`](docs) contains high-level technical and design documentation about Walrus.
 - [`scripts`](docs) contains tools used for evaluating and testing the code. In particular, this
   contains a script to run a local testbed, see [below](#run-a-local-walrus-testbed).
+- [`testnet-contracts`](testnet-contracts) contains the Walrus contracts deployed for Walrus Testnet.
 
 ### Rust crates
 
-Our Rust code is split into several crates with different responsibilities:
+Our Rust code is split into several crates with different responsibilities. The main code for Walrus
+is contained in the following crates:
 
 - [walrus-core](crates/walrus-core/) contains core types and functionality, including encoding and
   authentication mechanisms.
-- [walrus-sui](crates/walrus-sui/) contains all types and interactions with the Sui smart contracts.
 - [walrus-sdk](crates/walrus-sdk/) contains (client) interactions with storage nodes.
 - [walrus-service](crates/walrus-service/) contains client and server functionality including the
-  storage backend. This crate also contains all binaries, in particular `walrus` and `walrus-node`.
+  storage backend. This crate also contains all main binaries, in particular `walrus` and
+  `walrus-node`.
+- [walrus-sui](crates/walrus-sui/) contains all types and interactions with the Sui smart contracts.
+- [walrus-utils](crates/walrus-utils/) contains utility functions used in multiple crates.
+
+The following crates contain additional tools that are not part of the main functionality of Walrus
+and more extensive tests:
+
+- [walrus-e2e-tests](crates/walrus-e2e-tests/) contains end-to-end tests, some of which are also
+  run as simulation tests.
+- [walrus-orchestrator](crates/walrus-orchestrator/) contains tools to deploy and benchmark
+  distributed Walrus networks. This crate is not a default member of the workspace and therefore
+  needs to be built explicitly by adding `-p walrus-orchestrator` or `--workspace` to the cargo
+  commands.
+- [walrus-proc-macros](crates/walrus-proc-macros/) contains procedural macros used in the other
+  crates, notably to define simulation tests.
+- [walrus-proxy](crates/walrus-proxy/) contains a metrics proxy that authenticates storage nodes and
+  collects metrics from them. This crate is not a default member of the workspace and therefore
+  needs to be built explicitly by adding `-p walrus-proxy` or `--workspace` to the cargo commands.
+- [walrus-simtest](crates/walrus-simtest/) contains simulation tests to ensure that Walrus works
+  correctly for all interleavings of concurrent operations and in the presence of crashes.
+- [walrus-stress](crates/walrus-stress/) contains a stress client, which is used to put load on
+  storage nodes.
 - [walrus-test-utils](crates/walrus-test-utils/) contains test macros and other utilities used in
   the other crates.
-- [walrus-orchestrator](crates/walrus-orchestrator/) contains tools to deploy and benchmark
-  distributed Walrus networks.
 
 ## Using the Walrus client
 
@@ -58,80 +80,14 @@ In general, you can build and run the Walrus client as follows:
 cargo run --bin walrus -- <commands and arguments>
 ```
 
-Detailed usage information is available through
+Detailed usage information is available through the `--help` flag:
 
 ```sh
 cargo run --bin walrus -- --help
 ```
 
-Storing and reading blobs from Walrus can be achieved through the following commands:
-
-```sh
-CONFIG=working_dir/client_config.yaml # adjust for your configuration file
-cargo run --bin walrus -- -c $CONFIG store <some file> # store a file
-cargo run --bin walrus -- -c $CONFIG read <some blob ID> # read a blob
-```
-
-### Daemon mode
-
-In addition to the CLI mode, the Walrus client offers a *daemon mode*. In this mode, it runs a
-simple web server offering HTTP interfaces to store and read blobs. You can run the daemon with
-different sets of API endpoints through one of the following commands:
-
-```sh
-ADDRESS="127.0.0.1:31415" # bind the daemon to localhost and port 31415
-cargo run --bin walrus -- -c $CONFIG aggregator -b $ADDRESS # run an aggregator to read blobs
-cargo run --bin walrus -- -c $CONFIG publisher -b $ADDRESS # run a publisher to store blobs
-cargo run --bin walrus -- -c $CONFIG daemon -b $ADDRESS # run a daemon combining an aggregator and a publisher
-```
-
-You can then interact with the daemon through simple HTTP requests. For example, with
-[cURL](https://curl.se), you can store and read blobs as follows:
-
-```sh
-curl -X PUT "http://$ADDRESS/v1/store" -d "some string" # store the string `some string` for 1 storage epoch
-curl -X PUT "http://$ADDRESS/v1/store?epochs=5" -d @"some/file" # store file `some/file` for 5 storage epochs
-curl "http://$ADDRESS/v1/<some blob ID>" # read a blob from Walrus (with aggregator or daemon)
-```
-
-### JSON mode
-
-All Walrus client commands are available in JSON mode. In this mode, all the command line flags of
-the original CLI command can be specified in JSON format. The JSON mode therefore simplifies
-programmatic access to the CLI.
-
-For example, to store a blob, run:
-
-```sh
-cargo run --bin walrus -- json \
-    '{
-        "config": "working_dir/client_config.yaml",
-        "command": {
-            "store": {
-                "file": "README.md"
-            }
-        }
-    }'
-```
-
-or, to read a blob knowing the blob ID:
-
-```sh
-cargo run --bin walrus -- json \
-    '{
-        "config": "working_dir/client_config.yaml",
-        "command": {
-            "read": {
-                "blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"
-            }
-        }
-    }'
-```
-
-The `json` command also accepts input from `stdin`.
-
-The output of a `json` command will itself be JSON-formatted, again to simplify parsing the results in a programmatic way.
-For example, the JSON output can be piped to the `jq` command for parsing and manually extracting relevant fields.
+Further information is available in the [public
+documentation](https://docs.walrus.site/usage/interacting.html).
 
 ## Run a local Walrus testbed
 
