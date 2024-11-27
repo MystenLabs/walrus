@@ -13,7 +13,6 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
-use tokio::sync::oneshot;
 use walrus_core::EpochCount;
 use walrus_service::{
     node::config::{
@@ -309,38 +308,6 @@ mod commands {
         }
 
         Ok(())
-    }
-}
-
-/// Wait for SIGINT and SIGTERM (unix only).
-#[tokio::main(flavor = "current_thread")]
-#[tracing::instrument(skip_all)]
-async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
-    #[cfg(not(unix))]
-    async fn wait_for_other_signals() {
-        // Disables this branch in the select statement.
-        std::future::pending().await
-    }
-
-    #[cfg(unix)]
-    async fn wait_for_other_signals() {
-        use tokio::signal::unix;
-
-        unix::signal(unix::SignalKind::terminate())
-            .expect("unable to register for SIGTERM signals")
-            .recv()
-            .await;
-        tracing::info!("received SIGTERM")
-    }
-
-    tokio::select! {
-        biased;
-        _ = wait_for_other_signals() => (),
-        _ = tokio::signal::ctrl_c() => tracing::info!("received SIGINT"),
-        exit_or_dropped = &mut exit_listener => match exit_or_dropped {
-            Err(_) => tracing::info!("exit notification sender was dropped"),
-            Ok(_) => tracing::info!("exit notification received"),
-        }
     }
 }
 
