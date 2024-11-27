@@ -876,6 +876,9 @@ impl StorageNode {
     }
 
     /// Starts the node recovery process.
+    ///
+    /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
+    /// event as completed.
     async fn start_node_recovery(
         &self,
         event_handle: EventHandle,
@@ -1223,7 +1226,7 @@ impl StorageNodeInner {
     }
 
     fn shut_down(&self) {
-        self.is_shutting_down.store(true, Ordering::Relaxed)
+        self.is_shutting_down.store(true, Ordering::SeqCst)
     }
 
     fn is_shutting_down(&self) -> bool {

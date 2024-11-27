@@ -55,8 +55,8 @@ impl StartEpochChangeFinisher {
             let backoff = ExponentialBackoff::new_with_seed(
                 Duration::from_secs(10),
                 Duration::from_secs(300),
-                // Since this function is in charge of mark the event completed, we have to keep
-                // retrying until success. Otherwise, the event process is blocked anyway.
+                // Since this function is in charge of marking the event as completed, we have to
+                // keep retrying until success. Otherwise, the event process is blocked anyway.
                 None,
                 // Seed the backoff with the shard index.
                 shards.first().unwrap_or(&ShardIndex(0)).as_u64(),
@@ -64,7 +64,7 @@ impl StartEpochChangeFinisher {
 
             fail_point_async!("blocking_finishing_epoch_change_start");
 
-            let result = backoff::retry(backoff, || async {
+            if let Err(error) = backoff::retry(backoff, || async {
                 if !ongoing_shard_sync {
                     self_clone.epoch_sync_done(&committees, &event_clone).await;
                 }
@@ -73,19 +73,17 @@ impl StartEpochChangeFinisher {
                     .await?;
                 anyhow::Ok(())
             })
-            .await;
-
-            if let Err(err) = result {
-                // Question(mlegner): What should we do with the event in this case?
+            .await
+            {
+                // This should never happen as we don't have a max retry count.
                 tracing::error!(
-                    epoch = %event_clone.epoch,
-                    error = %err,
+                    walrus.epoch = %event_clone.epoch,
+                    %error,
                     "failed to finish epoch change start tasks",
                 );
-            } else {
-                event_handle.mark_as_complete();
             }
 
+            event_handle.mark_as_complete();
             self_clone
                 .task_handle
                 .lock()
