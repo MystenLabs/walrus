@@ -1,21 +1,47 @@
 name: Detect Changes
 description: Defines variables indicating the parts of the code that changed
 outputs:
+  isMove:
+    description: True when changes happened in Move code
+    value: "${{ steps.diff.outputs.isMove }}"
+  isRust:
+    description: True when changes happened in Rust code
+    value: "${{ steps.diff.outputs.isRust }}"
   isReleaseNotesEligible:
-    description: True when changes happened in Release Notes eligible paths
+    description: True when changes happened in paths eligible for release notes
     value: "${{ steps.diff.outputs.isReleaseNotesEligible }}"
+  isDenyConfig:
+    description: True when changes happened in the configuration for `cargo-deny`
+    value: "${{ steps.diff.outputs.isDenyConfig }}"
+  isTestConfig:
+    description: True when changes happened in the configuration for `nextest`
+    value: "${{ steps.diff.outputs.isTestConfig }}"
 
 runs:
   using: composite
   steps:
-  - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
-  - name: Detect Changes
-    uses: dorny/paths-filter@v3
-    id: diff
-    with:
-      filters: |
-        isReleaseNotesEligible:
-          - 'contracts/**'
-          - 'crates/**'
-          - 'docker/**'
-          - 'docs/**'
+    - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
+    - name: Detect Changes
+      uses: dorny/paths-filter@v3
+      id: diff
+      with:
+        filters: |
+          isMove:
+            - 'contracts/**'
+            - 'scripts/move_coverage.sh'
+            - '.github/workflows/code.yml'
+          isRust:
+            - 'crates/**'
+            - 'Cargo.toml'
+            - 'Cargo.lock'
+            - 'rust-toolchain.toml'
+            - '.github/workflows/code.yml'
+          isReleaseNotesEligible:
+            - 'contracts/**'
+            - 'crates/**'
+            - 'docker/**'
+            - 'docs/**'
+          isDenyConfig:
+            - 'deny.toml'
+          isTestConfig:
+            - '.config/nextest.toml'

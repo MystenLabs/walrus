@@ -41,31 +41,20 @@ jobs:
     outputs:
       isRust: ${{ steps.diff.outputs.isRust }}
       isMove: ${{ steps.diff.outputs.isMove }}
-      relevantForE2eTests: ${{ steps.diff.outputs.relevantForE2eTests }}
+      isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
+      isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
+      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+        == 'true' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
       - name: Detect Changes
-        uses: dorny/paths-filter@v3.0.2
+        uses: './.github/actions/diffs'
         id: diff
-        with:
-          filters: |
-            isMove:
-              - 'contracts/**'
-              - 'scripts/move_coverage.sh'
-              - '.github/workflows/code.yml'
-            isRust:
-              - 'crates/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - 'deny.toml'
-              - '.github/workflows/code.yml'
-              - '.config/nextest.toml'
 
   dependencies:
     name: Check dependencies
     needs: diff
-    if: ${{ needs.diff.outputs.isRust == 'true' }}
+    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isDenyConfig == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -112,7 +101,7 @@ jobs:
   test-mainnet:
     name: Test Rust code with mainnet contracts
     needs: diff
-    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
+    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
       - uses: taiki-e/install-action@v2.44.58
@@ -129,7 +118,7 @@ jobs:
   test:
     name: Test Rust code with testnet contracts
     needs: diff
-    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
+    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
       - uses: taiki-e/install-action@v2.44.58
@@ -164,7 +153,7 @@ jobs:
   simtests:
     name: Run all simtests with testnet contracts
     needs: diff
-    if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isMove == 'true' }}
+    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     continue-on-error: true
     env:
