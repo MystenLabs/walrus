@@ -93,6 +93,8 @@ For the second option, simply run:
 cargo nextest run --run-ignored ignored-only
 ```
 
+### External test cluster
+
 Integration tests that require a running Sui test cluster can use an external cluster. This requires a one-time setup:
 
 ```sh
