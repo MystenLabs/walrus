@@ -1,4 +1,16 @@
 [workspace]
+default-members = [
+  "crates/walrus-core",
+  "crates/walrus-e2e-tests",
+  "crates/walrus-proc-macros",
+  "crates/walrus-sdk",
+  "crates/walrus-service",
+  "crates/walrus-simtest",
+  "crates/walrus-stress",
+  "crates/walrus-sui",
+  "crates/walrus-test-utils",
+  "crates/walrus-utils",
+]
 members = ["crates/*"]
 resolver = "2"
 
@@ -21,7 +33,6 @@ bytes = { version = "1.5.0", features = ["serde"] }
 chrono = "0.4"
 clap = { version = "4.5.21", features = ["derive"] }
 colored = "2.1.0"
-const-str = "0.5.7"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "3366c26a746b72707572c4f3f05915e20d5c16c2" }
@@ -40,14 +51,11 @@ mockall = "0.12.1"
 move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.38.0" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.38.0" }
 num-bigint = { version = "0.4.5", default-features = false }
-once_cell = "1.18.0"
 opentelemetry = { version = "=0.25.0", default-features = false, features = ["trace"] }
 p256 = "0.13.2"
 pin-project = "1.1.7"
 prettytable = "0.10.0"
 prometheus = "0.13.4"
-prost = "0.13"
-protobuf = { version = "2.28", features = ["with-bytes"] }
 quote = "1.0"
 rand = "0.8.5"
 raptorq = "2.0.0"

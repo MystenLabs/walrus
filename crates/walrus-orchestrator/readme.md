@@ -8,6 +8,10 @@ by allowing benchmarking of (variants of) the codebase and analyzing performance
 This guide provides a step-by-step explanation of how to run geo-distributed benchmarks on either
 [Vultr](http://vultr.com) or [Amazon Web Services (AWS)](http://aws.amazon.com).
 
+**Important**: This crate is not included in the workspace's default members; if you want to build,
+test, or run it, you need to do that from *this* directory (`/crates/walrus-orchestrator`) or, when
+running from the root of the repository, add `-p walrus-orchestrator` to the `cargo` commands.
+
 ## Step 1. Set up cloud provider credentials
 
 To enable programmatic access to your cloud provider account from your local machine, you need to
@@ -63,13 +67,13 @@ settings file specifies 10 regions, as shown in the example above, a total of 20
 created):
 
 ```bash
-cargo run --bin walrus-orchestrator -- testbed deploy --instances 2
+cargo run -p walrus-orchestrator -- testbed deploy --instances 2
 ```
 
 To check the current status of the testbed instances, use the following command:
 
 ```bash
-cargo run --bin walrus-orchestrator -- testbed status
+cargo run -p walrus-orchestrator -- testbed status
 ```
 
 Instances listed with a green number are available and ready for use, while instances listed with a

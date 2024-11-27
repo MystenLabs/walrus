@@ -90,11 +90,11 @@ jobs:
           cargo fmt --all -- --check
           --config group_imports=StdExternalCrate,imports_granularity=Crate,imports_layout=HorizontalVertical
       - name: Lint using clippy (w/o tests)
-        run: cargo clippy --all-features --no-deps -- -D warnings
+        run: cargo clippy --workspace --all-features --no-deps -- -D warnings
       - name: Lint using clippy (w/ tests)
-        run: cargo clippy --all-features --tests --no-deps -- -D warnings
+        run: cargo clippy --workspace --all-features --tests --no-deps -- -D warnings
       - name: Check documentation
-        run: cargo doc --no-deps --workspace
+        run: cargo doc --workspace --no-deps
 
   build:
     name: Build Rust code
@@ -107,7 +107,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Build Rust code
-        run: cargo build --verbose
+        run: cargo build --workspace --verbose
 
   test-mainnet:
     name: Test Rust code with mainnet contracts
@@ -124,7 +124,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
       - name: Run tests
-        run: cargo nextest run --profile ci --run-ignored all --features mainnet-contracts
+        run: cargo nextest run --workspace --profile ci --run-ignored all --features mainnet-contracts
 
   test:
     name: Test Rust code with testnet contracts
@@ -141,7 +141,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
       - name: Run tests with testnet contracts
-        run: cargo nextest run --profile ci --run-ignored all
+        run: cargo nextest run --workspace --profile ci --run-ignored all
 
   test-coverage:
     name: Run all Rust tests and report coverage
