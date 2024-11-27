@@ -147,9 +147,6 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Returns the number of shards in the committee.
     fn get_shard_count(&self) -> NonZeroU16;
 
-    /// Returns the current committee used by the service.
-    fn committee(&self) -> Arc<Committee>;
-
     /// Returns the active committees.
     fn active_committees(&self) -> ActiveCommittees;
 

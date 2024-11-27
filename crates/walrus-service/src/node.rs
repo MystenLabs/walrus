@@ -24,6 +24,7 @@ use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
+use sui_macros::fail_point_async;
 use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -526,9 +527,9 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Returns the shards currently owned by the storage node.
-    pub fn shards(&self) -> Vec<ShardIndex> {
-        self.inner.storage.shards()
+    /// Returns the existing shards currently owned by the storage node.
+    pub fn existing_shards(&self) -> Vec<ShardIndex> {
+        self.inner.storage.existing_shards()
     }
 
     /// Wait for the storage node to be in at least the provided epoch.
@@ -713,6 +714,7 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
+                fail_point_async!("epoch_change_start_entry");
                 self.process_epoch_change_start_event(event_handle, &event)
                     .await?;
             }
@@ -748,7 +750,7 @@ impl StorageNode {
         let start = tokio::time::Instant::now();
         let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
 
-        if self.inner.storage.is_stored_at_all_shards(&event.blob_id)?
+        if self.inner.is_stored_at_all_shards(&event.blob_id)?
             || self.inner.storage.is_invalid(&event.blob_id)?
             || self.inner.current_epoch() >= event.end_epoch
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
@@ -889,7 +891,8 @@ impl StorageNode {
         let committees = self.inner.committee_service.active_committees();
 
         // Create storage for shards that are currently owned by the node in the latest epoch.
-        let shard_diff = ShardDiff::diff_previous(&committees, &storage.shards(), public_key);
+        let shard_diff =
+            ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
         self.inner
             .create_storage_for_shards_in_background(shard_diff.gained)
             .await?;
@@ -989,7 +992,8 @@ impl StorageNode {
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
 
-        let shard_diff = ShardDiff::diff_previous(&committees, &storage.shards(), public_key);
+        let shard_diff =
+            ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
 
         assert!(event.epoch <= committees.epoch());
 
@@ -1097,6 +1101,28 @@ impl StorageNodeInner {
         &self.encoding_config
     }
 
+    pub(crate) fn owned_shards(&self) -> Vec<ShardIndex> {
+        self.committee_service
+            .active_committees()
+            .current_committee()
+            .shards_for_node_public_key(self.protocol_key_pair.public())
+            .to_vec()
+    }
+
+    pub(crate) fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> anyhow::Result<bool> {
+        for shard in self.owned_shards() {
+            match self.storage.is_stored_at_shard(blob_id, shard) {
+                Ok(false) => return Ok(false),
+                Ok(true) => continue,
+                Err(e) => {
+                    tracing::warn!(?e, "failed to check if blob is stored at shard");
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
+    }
+
     pub(crate) fn storage(&self) -> &Storage {
         &self.storage
     }
@@ -1147,7 +1173,11 @@ impl StorageNodeInner {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.try_list_shard_status().unwrap_or_default();
-        let committee = self.committee_service.committee();
+        let committee = self
+            .committee_service
+            .active_committees()
+            .current_committee()
+            .clone();
         let owned_shards = committee.shards_for_node_public_key(self.public_key());
         let mut summary = ShardStatusSummary::default();
 
@@ -1516,8 +1546,7 @@ impl ServiceState for StorageNodeInner {
             ComputeStorageConfirmationError::NotCurrentlyRegistered,
         );
         ensure!(
-            self.storage
-                .is_stored_at_all_shards(blob_id)
+            self.is_stored_at_all_shards(blob_id)
                 .context("database error when storage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
         );
@@ -1873,6 +1902,44 @@ mod tests {
         Ok(())
     }
 
+    // Test that `is_stored_at_all_shards` uses the committee assignment to determine if the blob
+    // is stored at all shards.
+    async_param_test! {
+        is_stored_at_all_shards_uses_committee_assignment -> TestResult: [
+            shard_not_assigned_in_committee: (&[ShardIndex(0)], &[ShardIndex(1)], false),
+            shard_assigned_in_committee: (&[ShardIndex(0)], &[ShardIndex(0), ShardIndex(1)], true),
+        ]
+    }
+    async fn is_stored_at_all_shards_uses_committee_assignment(
+        shard_assignment: &[ShardIndex],
+        shards_in_storage: &[ShardIndex],
+        is_stored_at_all_shards: bool,
+    ) -> TestResult {
+        let node = StorageNodeHandle::builder()
+            .with_shard_assignment(shard_assignment)
+            .with_storage(populated_storage(
+                shards_in_storage
+                    .iter()
+                    .map(|shard| (*shard, vec![(BLOB_ID, WhichSlivers::Both)]))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )?)
+            .with_system_event_provider(vec![])
+            .with_node_started(true)
+            .build()
+            .await?;
+
+        assert_eq!(
+            node.storage_node
+                .inner
+                .is_stored_at_all_shards(&BLOB_ID)
+                .expect("error checking is stord at all shards"),
+            is_stored_at_all_shards
+        );
+
+        Ok(())
+    }
+
     async_param_test! {
         deletes_blob_data_on_event -> TestResult: [
             invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
@@ -1897,11 +1964,11 @@ mod tests {
             .with_node_started(true)
             .build()
             .await?;
-        let storage = &node.as_ref().inner.storage;
+        let inner = node.as_ref().inner.clone();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
+        assert!(inner.is_stored_at_all_shards(&BLOB_ID)?);
         events.send(
             BlobRegistered {
                 deletable: true,
@@ -1922,7 +1989,7 @@ mod tests {
         events.send(event.into())?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!storage.is_stored_at_all_shards(&BLOB_ID)?);
+        assert!(!inner.is_stored_at_all_shards(&BLOB_ID)?);
         Ok(())
     }
 
@@ -1951,11 +2018,11 @@ mod tests {
             .with_node_started(true)
             .build()
             .await?;
-        let storage = &node.as_ref().inner.storage;
+        let inner = &node.as_ref().inner.clone();
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
+        assert!(inner.is_stored_at_all_shards(&BLOB_ID)?);
         events.send(
             BlobRegistered {
                 deletable: true,
@@ -1976,7 +2043,7 @@ mod tests {
         events.send(event.into())?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(storage.is_stored_at_all_shards(&BLOB_ID)?);
+        assert!(inner.is_stored_at_all_shards(&BLOB_ID)?);
         Ok(())
     }
 
@@ -2278,7 +2345,7 @@ mod tests {
         let nodes_and_shards: Vec<_> = cluster
             .nodes
             .iter()
-            .flat_map(|node| std::iter::repeat(node).zip(node.storage_node().shards()))
+            .flat_map(|node| std::iter::repeat(node).zip(node.storage_node().existing_shards()))
             .collect();
 
         let mut metadata_stored = vec![];
@@ -3168,7 +3235,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compute_storage_confirmation_ignore_locked_shard() -> TestResult {
+    async fn compute_storage_confirmation_ignore_not_owned_shard() -> TestResult {
         let (cluster, _, blob) =
             cluster_with_partially_stored_blob(&[&[0, 1, 2]], BLOB, |index, _| index.get() != 0)
                 .await?;
@@ -3181,14 +3248,35 @@ mod tests {
             Err(ComputeStorageConfirmationError::NotFullyStored)
         ));
 
+        let lookup_service_handle = cluster
+            .lookup_service_handle
+            .as_ref()
+            .expect("should contain lookup service");
+
+        // Set up the committee in a way that shard 0 is removed from the first storage node in the
+        // contract.
+        let committees = lookup_service_handle.committees.lock().unwrap().clone();
+        let mut next_committee = (**committees.current_committee()).clone();
+        next_committee.epoch += 1;
+        next_committee.members_mut()[0].shard_ids.remove(0);
+        lookup_service_handle.set_next_epoch_committee(next_committee);
+
+        assert_eq!(
+            cluster
+                .lookup_service_handle
+                .as_ref()
+                .expect("should contain lookup service")
+                .advance_epoch(),
+            2
+        );
+
         cluster.nodes[0]
             .storage_node
             .inner
-            .storage
-            .shard_storage(ShardIndex(0))
-            .unwrap()
-            .lock_shard_for_epoch_change()
-            .expect("Lock shard failed.");
+            .committee_service
+            .begin_committee_change_to_latest_committee()
+            .await
+            .unwrap();
 
         assert!(cluster.nodes[0]
             .storage_node

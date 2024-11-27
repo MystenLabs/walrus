@@ -438,7 +438,7 @@ impl BlobSynchronizer {
             .expect("database operations should not fail");
         let metadata = Arc::new(metadata);
 
-        let futures_iter = self.storage().shards().into_iter().flat_map(|shard| {
+        let futures_iter = self.node.owned_shards().into_iter().flat_map(|shard| {
             [
                 self.recover_sliver::<Primary>(shard, metadata.clone())
                     .observe(histograms.clone(), labels_from_sliver_result::<Primary>)

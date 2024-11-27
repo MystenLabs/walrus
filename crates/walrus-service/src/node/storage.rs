@@ -251,7 +251,7 @@ impl Storage {
     }
 
     /// Returns the indices of the shards managed by the storage.
-    pub fn shards(&self) -> Vec<ShardIndex> {
+    pub fn existing_shards(&self) -> Vec<ShardIndex> {
         self.shards
             .read()
             .expect("Should acquire the lock successfully")
@@ -261,7 +261,7 @@ impl Storage {
     }
 
     /// Returns an iterator over the shard storages managed by the storage.
-    pub fn shard_storages(&self) -> Vec<Arc<ShardStorage>> {
+    pub fn existing_shard_storages(&self) -> Vec<Arc<ShardStorage>> {
         self.shards
             .read()
             .expect("Should acquire the lock successfully")
@@ -439,27 +439,19 @@ impl Storage {
 
     /// Deletes the slivers on all shards for the provided [`BlobId`].
     fn delete_slivers(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        for shard in self.shard_storages() {
+        for shard in self.existing_shard_storages() {
             shard.delete_sliver_pair(batch, blob_id)?;
         }
         Ok(())
     }
 
-    /// Returns true if the sliver pairs for the provided blob-id is stored at
-    /// all of the storage's shards.
+    /// Returns true if the provided blob-id is stored at the specified shard.
     #[tracing::instrument(skip_all)]
-    pub fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        for shard in self.shard_storages() {
-            if !shard.status()?.is_owned_by_node() {
-                continue;
-            }
-
-            if !shard.is_sliver_pair_stored(blob_id)? {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
+    pub fn is_stored_at_shard(&self, blob_id: &BlobId, shard: ShardIndex) -> anyhow::Result<bool> {
+        Ok(self
+            .shard_storage(shard)
+            .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?
+            .is_sliver_pair_stored(blob_id)?)
     }
 
     /// Returns true if the provided blob-id is invalid.

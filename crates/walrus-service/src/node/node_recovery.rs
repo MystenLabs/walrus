@@ -60,8 +60,7 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
-                    if let Ok(stored_at_all_shards) = node.storage.is_stored_at_all_shards(&blob_id)
-                    {
+                    if let Ok(stored_at_all_shards) = node.is_stored_at_all_shards(&blob_id) {
                         if stored_at_all_shards {
                             tracing::debug!(
                                 walrus.blob_id = %blob_id,

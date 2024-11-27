@@ -546,8 +546,14 @@ async fn test_repeated_shard_move() -> TestResult {
         .await?;
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(4).await;
-    assert_eq!(walrus_cluster.nodes[0].storage_node.shards().len(), 0);
-    assert_eq!(walrus_cluster.nodes[1].storage_node.shards().len(), 2);
+    assert_eq!(
+        walrus_cluster.nodes[0].storage_node.existing_shards().len(),
+        0
+    );
+    assert_eq!(
+        walrus_cluster.nodes[1].storage_node.existing_shards().len(),
+        2
+    );
 
     client
         .as_ref()
@@ -562,8 +568,14 @@ async fn test_repeated_shard_move() -> TestResult {
         .await?;
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(7).await;
-    assert_eq!(walrus_cluster.nodes[0].storage_node.shards().len(), 2);
-    assert_eq!(walrus_cluster.nodes[1].storage_node.shards().len(), 0);
+    assert_eq!(
+        walrus_cluster.nodes[0].storage_node.existing_shards().len(),
+        2
+    );
+    assert_eq!(
+        walrus_cluster.nodes[1].storage_node.existing_shards().len(),
+        0
+    );
 
     Ok(())
 }

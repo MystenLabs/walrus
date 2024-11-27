@@ -659,7 +659,7 @@ impl StorageNodeHandleBuilder {
         let contract_service = self.contract_service.unwrap_or_else(|| {
             Box::new(StubContractService {
                 system_parameters: FixedSystemParameters {
-                    n_shards: committee_service.committee().n_shards(),
+                    n_shards: committee_service.active_committees().n_shards(),
                     max_epochs_ahead: 200,
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
@@ -1111,10 +1111,6 @@ impl CommitteeService for StubCommitteeService {
         _key_pair: &ProtocolKeyPair,
     ) -> Result<Vec<(BlobId, Sliver)>, SyncShardClientError> {
         std::future::pending().await
-    }
-
-    fn committee(&self) -> Arc<Committee> {
-        self.committee.clone()
     }
 
     fn active_committees(&self) -> ActiveCommittees {

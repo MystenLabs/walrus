@@ -486,15 +486,6 @@ where
         &self.inner.encoding_config
     }
 
-    fn committee(&self) -> Arc<Committee> {
-        self.inner
-            .committee_tracker
-            .borrow()
-            .committees()
-            .current_committee()
-            .clone()
-    }
-
     fn active_committees(&self) -> ActiveCommittees {
         self.inner.committee_tracker.borrow().committees().clone()
     }

@@ -10,8 +10,8 @@ mod tests {
     };
 
     use anyhow::Context;
-    use rand::Rng;
-    use sui_macros::register_fail_points;
+    use rand::{Rng, SeedableRng};
+    use sui_macros::{register_fail_point_async, register_fail_points};
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::{task::JoinHandle, time::Instant};
@@ -545,6 +545,15 @@ mod tests {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest(config = "latency_config()")]
     async fn test_repeated_shard_move_with_workload() {
+        // Adding jitter in the epoch change start event so that different nodes don't start the
+        // epoch change at the exact same time.
+        register_fail_point_async("epoch_change_start_entry", || async move {
+            tokio::time::sleep(Duration::from_millis(
+                rand::rngs::StdRng::from_entropy().gen_range(0..=100),
+            ))
+            .await;
+        });
+
         // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
         let (_sui_cluster, walrus_cluster, client) =
