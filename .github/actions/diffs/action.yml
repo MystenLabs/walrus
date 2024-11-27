@@ -1,0 +1,21 @@
+name: Detect Changes
+description: Defines variables indicating the parts of the code that changed
+outputs:
+  isReleaseNotesEligible:
+    description: True when changes happened in Release Notes eligible paths
+    value: "${{ steps.diff.outputs.isReleaseNotesEligible }}"
+
+runs:
+  using: composite
+  steps:
+  - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
+  - name: Detect Changes
+    uses: dorny/paths-filter@v3
+    id: diff
+    with:
+      filters: |
+        isReleaseNotesEligible:
+          - 'contracts/**'
+          - 'crates/**'
+          - 'docker/**'
+          - 'docs/**'

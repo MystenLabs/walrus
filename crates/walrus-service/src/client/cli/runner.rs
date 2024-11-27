@@ -13,10 +13,12 @@ use std::{
 use anyhow::{Context, Result};
 use prometheus::Registry;
 use rand::seq::SliceRandom;
+use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
+    ensure,
     BlobId,
     EpochCount,
 };
@@ -33,16 +35,19 @@ use super::args::{
     FileOrBlobIdOrObjectId,
     PublisherArgs,
     RpcArg,
+    UserConfirmation,
 };
 use crate::{
     client::{
         cli::{
+            self,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
             load_configuration,
             read_blob_from_file,
             success,
+            warning,
             BlobIdDecimal,
             CliOutput,
             HumanReadableMist,
@@ -158,7 +163,11 @@ impl ClientCommandRunner {
 
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
-            CliCommands::Delete { target } => self.delete(target).await,
+            CliCommands::Delete {
+                target,
+                yes,
+                no_status_check,
+            } => self.delete(target, yes.into(), no_status_check).await,
 
             CliCommands::Stake { node_id, amount } => {
                 self.stake_with_node_pool(node_id, amount).await
@@ -169,7 +178,27 @@ impl ClientCommandRunner {
                 sui_network,
                 faucet_timeout,
             } => {
-                self.generate_sui_wallet(&path, sui_network, faucet_timeout)
+                let wallet_path = if let Some(path) = path {
+                    path
+                } else {
+                    // Check if the Sui configuration directory exists.
+                    let config_dir = sui_config_dir()?;
+                    if config_dir.exists() {
+                        anyhow::bail!(
+                            "Sui configuration directory already exists; please specify a \
+                            different path using `--path` or manage the wallet using the Sui CLI."
+                        );
+                    } else {
+                        tracing::debug!(
+                            config_dir = ?config_dir.display(),
+                            "creating the Sui configuration directory"
+                        );
+                        std::fs::create_dir_all(&config_dir)?;
+                        config_dir.join(SUI_CLIENT_CONFIG)
+                    }
+                };
+
+                self.generate_sui_wallet(&wallet_path, sui_network, faucet_timeout)
                     .await
             }
 
@@ -260,12 +289,32 @@ impl ClientCommandRunner {
     pub(crate) async fn store(
         self,
         file: PathBuf,
-        epochs: EpochCount,
+        epochs: Option<EpochCount>,
         dry_run: bool,
         store_when: StoreWhen,
         persistence: BlobPersistence,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+
+        let epochs = epochs.unwrap_or_else(|| {
+            println!(
+                "{} The number of epochs for which to store the blob was not specified. \
+                Using the default value of 1 epoch. Use `--epochs` to store for a longer period.",
+                warning()
+            );
+            cli::args::default::epochs()
+        });
+
+        // Check that the number of epochs is lower than the number of epochs the blob can be stored
+        // for.
+        let fixed_params = client.sui_client().fixed_system_parameters().await?;
+
+        ensure!(
+            epochs <= fixed_params.max_epochs_ahead,
+            "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+            fixed_params.max_epochs_ahead,
+            epochs
+        );
 
         if dry_run {
             tracing::info!("Performing dry-run store for file {}", file.display());
@@ -456,7 +505,12 @@ impl ClientCommandRunner {
         BlobIdConversionOutput::from(blob_id_decimal).print_output(self.json)
     }
 
-    pub(crate) async fn delete(self, target: FileOrBlobIdOrObjectId) -> Result<()> {
+    pub(crate) async fn delete(
+        self,
+        target: FileOrBlobIdOrObjectId,
+        confirmation: UserConfirmation,
+        no_status_check: bool,
+    ) -> Result<()> {
         // Check that the target is valid.
         target.exactly_one_is_some()?;
 
@@ -476,11 +530,13 @@ impl ClientCommandRunner {
                         println!("No owned deletable blobs found for blob ID {blob_id}.");
                         return Ok(());
                     }
-                    println!("The following blobs with blob ID {blob_id} are deletable:");
-                    to_delete.print_output(self.json)?;
-                    if !ask_for_confirmation()? {
-                        println!("{} Aborting. No blobs were deleted.", success());
-                        return Ok(());
+                    if confirmation.is_required() {
+                        println!("The following blobs with blob ID {blob_id} are deletable:");
+                        to_delete.print_output(self.json)?;
+                        if !ask_for_confirmation()? {
+                            println!("{} Aborting. No blobs were deleted.", success());
+                            return Ok(());
+                        }
                     }
                     println!("Deleting blobs...");
                 }
@@ -507,11 +563,25 @@ impl ClientCommandRunner {
                 unreachable!("we checked that either file, blob ID or object ID are be provided");
             };
 
+        let post_deletion_status = match (no_status_check, blob_id) {
+            (false, Some(deleted_blob_id)) => {
+                // Wait to ensure that the deletion information is propagated.
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Some(
+                    client
+                        .get_blob_status_with_retries(&deleted_blob_id, client.sui_client())
+                        .await?,
+                )
+            }
+            _ => None,
+        };
+
         DeleteOutput {
             blob_id,
             file,
             object_id,
             deleted_blobs,
+            post_deletion_status,
         }
         .print_output(self.json)
     }

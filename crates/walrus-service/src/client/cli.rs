@@ -160,6 +160,11 @@ pub fn error() -> ColoredString {
     "Error:".bold().red()
 }
 
+/// Returns the string `Warning:` colored in yellow for terminal output.
+pub fn warning() -> ColoredString {
+    "Warning:".bold().yellow()
+}
+
 /// Type to help with formatting bytes as human-readable strings.
 ///
 /// Formatting of `HumanReadableBytes` works as follows:
@@ -260,7 +265,13 @@ impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
         }
         let digits = if ratio <= 100 { 3 } else { 4 };
         let sui = C::unit_to_superunit(self.0.value());
-        write!(f, "{sui:.digits$} {}", C::SUPERUNIT_NAME)
+
+        write!(
+            f,
+            "{} {}",
+            thousands_separator_float(sui, digits),
+            C::SUPERUNIT_NAME
+        )
     }
 }
 
@@ -319,6 +330,13 @@ fn thousands_separator(num: u64) -> String {
         .collect::<Result<Vec<&str>, _>>()
         .expect("going from utf8 to bytes and back always works")
         .join(",")
+}
+
+fn thousands_separator_float(num: f64, digits: u32) -> String {
+    let integer = num.floor() as u64;
+    let decimal = (num.fract() * 10u64.pow(digits) as f64).round() as u64;
+    let digits = digits as usize;
+    format!("{}.{:0digits$}", thousands_separator(integer), decimal)
 }
 
 /// Reads a blob from the filesystem or returns a helpful error message.
@@ -483,6 +501,17 @@ mod tests {
     }
     fn test_thousands_separator(num: u64, expected: &str) {
         assert_eq!(thousands_separator(num), expected);
+    }
+
+    param_test! {
+        test_thousands_separator_float: [
+            thousand: (1_000.0, 3, "1,000.000"),
+            million: (2_000_000.009, 3, "2,000,000.009"),
+            hundred_million: (123_456_789.123_49, 4, "123,456,789.1235"),
+        ]
+    }
+    fn test_thousands_separator_float(num: f64, digits: u32, expected: &str) {
+        assert_eq!(thousands_separator_float(num, digits), expected);
     }
 
     param_test! {

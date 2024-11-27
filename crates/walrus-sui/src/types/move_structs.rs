@@ -256,6 +256,11 @@ impl FutureAccountingRingBuffer {
             ring_buffer: vec![],
         }
     }
+
+    /// Returns the `length` field of the ring buffer.
+    pub fn length(&self) -> u32 {
+        self.length
+    }
 }
 
 /// Event blob.
@@ -303,7 +308,7 @@ impl AssociatedContractStruct for StakingObjectForDeserialization {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-struct ActiveSet {
+pub(crate) struct ActiveSet {
     /// The maximum number of storage nodes in the active set.
     /// Potentially remove this field.
     max_size: u16,
@@ -311,7 +316,7 @@ struct ActiveSet {
     /// determine if a storage node can be added to the active set.
     threshold_stake: u64,
     /// The amount of staked WAL for each storage node in the active set.
-    nodes: Vec<(ObjectID, u64)>,
+    pub(crate) nodes: Vec<(ObjectID, u64)>,
     /// The total amount of staked WAL in the active set.
     total_stake: u64,
 }
@@ -372,7 +377,7 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) epoch: Epoch,
     /// Stores the active set of storage nodes. Provides automatic sorting and
     /// tracks the total amount of staked WAL.
-    active_set: ActiveSet,
+    pub(crate) active_set: ActiveSet,
     /// The next committee in the system.
     pub(crate) next_committee: Option<CommitteeShardAssignment>,
     /// The current committee in the system.
