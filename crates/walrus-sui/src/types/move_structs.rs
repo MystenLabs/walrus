@@ -8,7 +8,6 @@ use std::{fmt::Display, num::NonZeroU16};
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
-use tracing::instrument;
 use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
 use super::NetworkAddress;
@@ -106,7 +105,7 @@ impl AssociatedContractStruct for StorageNode {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeInfo;
 }
 
-#[instrument(err, skip_all)]
+#[tracing::instrument(err, skip_all)]
 fn deserialize_public_key<'de, D, K>(deserializer: D) -> Result<K, D::Error>
 where
     D: Deserializer<'de>,
@@ -116,7 +115,7 @@ where
     K::from_bytes(&key).map_err(D::Error::custom)
 }
 
-#[instrument(err, skip_all)]
+#[tracing::instrument(err, skip_all)]
 fn deserialize_public_key_option<'de, D, K>(deserializer: D) -> Result<Option<K>, D::Error>
 where
     D: Deserializer<'de>,
@@ -461,7 +460,7 @@ impl AssociatedContractStruct for SystemStateInnerV1 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system_state_inner::SystemStateInnerV1;
 }
 
-#[instrument(err, skip_all)]
+#[tracing::instrument(err, skip_all)]
 fn deserialize_bag_or_table<'de, D>(deserializer: D) -> Result<ObjectID, D::Error>
 where
     D: Deserializer<'de>,

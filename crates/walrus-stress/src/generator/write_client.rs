@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
-use tracing::instrument;
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, CoinRefill, Config, Refiller, StoreWhen};
 use walrus_sui::{
@@ -24,7 +23,7 @@ pub(crate) struct WriteClient {
 }
 
 impl WriteClient {
-    #[instrument(err, skip_all)]
+    #[tracing::instrument(err, skip_all)]
     pub async fn new<G: CoinRefill + 'static>(
         config: &Config,
         network: &SuiNetwork,

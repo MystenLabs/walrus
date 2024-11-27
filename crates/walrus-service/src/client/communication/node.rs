@@ -214,7 +214,11 @@ impl<'a, W> NodeCommunication<'a, W> {
     where
         SliverData<A>: TryFrom<Sliver>,
     {
-        tracing::debug!(%shard_index, sliver_type = A::NAME, "retrieving verified sliver");
+        tracing::debug!(
+            walrus.shard_index = %shard_index,
+            sliver_type = A::NAME,
+            "retrieving verified sliver"
+        );
         let sliver_pair_index = shard_index.to_pair_index(self.n_shards(), metadata.blob_id());
         let sliver = self
             .client

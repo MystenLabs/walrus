@@ -21,7 +21,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{field, info_span, instrument, Instrument, Span};
+use tracing::{field, Instrument as _, Span};
 use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
@@ -91,7 +91,7 @@ impl BlobSyncHandler {
                         if let Some(sync_handle) = &handle.blob_sync_handle {
                             if sync_handle.is_finished() {
                                 tracing::info!(
-                                    %blob_id,
+                                    walrus.blob_id = %blob_id,
                                     "blob sync monitor observed blob sync finished"
                                 );
                                 if let Some(join_handle) = handle.blob_sync_handle.take() {
@@ -116,19 +116,19 @@ impl BlobSyncHandler {
                             // The blob sync handler should have removed the handle after the sync
                             // finished. So technically the sync handle should not be in the map.
                             tracing::warn!(
-                                %blob_id,
-                                "Blob sync finished with success, but still exists in \
+                                walrus.blob_id = %blob_id,
+                                "blob sync finished with success, but still exists in \
                                 BlobSyncHandler"
                             );
                         }
-                        Err(e) => {
+                        Err(error) => {
                             tracing::error!(
-                                %blob_id,
-                                error = ?e,
-                                "Blob sync task exited with error"
+                                walrus.blob_id = %blob_id,
+                                ?error,
+                                "blob sync task exited with error"
                             );
-                            if e.is_panic() {
-                                std::panic::resume_unwind(e.into_panic());
+                            if error.is_panic() {
+                                std::panic::resume_unwind(error.into_panic());
                             }
                         }
                     }
@@ -238,7 +238,7 @@ impl BlobSyncHandler {
         let finish_notify = Arc::new(Notify::new());
         match in_progress.entry(blob_id) {
             Entry::Vacant(entry) => {
-                let spawned_trace = info_span!(
+                let spawned_trace = tracing::info_span!(
                     parent: &Span::current(),
                     "blob_sync",
                     "otel.kind" = "CONSUMER",
@@ -524,7 +524,7 @@ impl BlobSynchronizer {
         Ok((true, metadata))
     }
 
-    #[instrument(
+    #[tracing::instrument(
         skip_all,
         fields(
             walrus.shard_index = %shard,
@@ -569,9 +569,11 @@ impl BlobSynchronizer {
                 }
             }
         }
-        .inspect_err(|err| match err {
-            RecoverSliverError::Inconsistent(_) => tracing::debug!(error = %err),
-            RecoverSliverError::Database(_) => tracing::error!(error = ?err),
+        .inspect_err(|error| match error {
+            RecoverSliverError::Inconsistent(_) => tracing::debug!(?error),
+            RecoverSliverError::Database(_) => {
+                tracing::error!(?error, "database error during sliver sync")
+            }
         })
     }
 

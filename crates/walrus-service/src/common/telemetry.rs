@@ -224,11 +224,11 @@ impl<B> OnResponse<B> for MakeHttpSpan {
 
             // If an `InternalError` extension is attached to the response then log it and add a
             // status message to the trace.
-            if let Some(InternalError(err)) = response.extensions().get::<InternalError>() {
+            if let Some(InternalError(error)) = response.extensions().get::<InternalError>() {
                 span.in_scope(|| {
-                    tracing::error!(error = ?err);
+                    tracing::error!(?error);
                 });
-                span.record("otel.status_message", field::display(err));
+                span.record("otel.status_message", field::display(error));
             }
         }
     }

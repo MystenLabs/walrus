@@ -8,10 +8,12 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context, Result};
-use colored::{ColoredString, Colorize};
+use colored::{Color, ColoredString, Colorize};
+use indicatif::{ProgressBar, ProgressStyle};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use sui_sdk::{wallet_context::WalletContext, SuiClientBuilder};
@@ -133,7 +135,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
             }
             Err(e) => {
                 if allow_fallback_to_default {
-                    tracing::info!("using default RPC URL {DEFAULT_RPC_URL}");
+                    tracing::info!("using default RPC URL '{DEFAULT_RPC_URL}'");
                     SuiClientBuilder::default()
                         .build(DEFAULT_RPC_URL)
                         .await
@@ -152,7 +154,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
 
 /// Returns the string `Success:` colored in green for terminal output.
 pub fn success() -> ColoredString {
-    "Success:".bold().green()
+    "Success:".bold().walrus_teal()
 }
 
 /// Returns the string `Error:` colored in red for terminal output.
@@ -163,6 +165,58 @@ pub fn error() -> ColoredString {
 /// Returns the string `Warning:` colored in yellow for terminal output.
 pub fn warning() -> ColoredString {
     "Warning:".bold().yellow()
+}
+
+// Custom colors to match the Walrus brand identity.
+
+/// The Walrus teal color.
+///
+/// The original walrus teal is `#99efe4`. However, to remain compatible with 256-color
+/// terminals, we use the closest color available in the 256-color palette, which is `122
+/// (#87ffd7)`.
+pub const WALRUS_TEAL: Color = Color::TrueColor {
+    r: 135,
+    g: 255,
+    b: 215,
+};
+/// The Walrus purple color.
+///
+/// The original walrus purple is `#c484f6 `. However, to remain compatible with 256-color
+/// terminals, we use the closest color available in the 256-color palette, which is `177
+/// (#d787ff)`.
+pub const WALRUS_PURPLE: Color = Color::TrueColor {
+    r: 215,
+    g: 135,
+    b: 255,
+};
+
+/// Trait to color strings with the Walrus brand colors.
+pub trait WalrusColors {
+    /// Colors the string in the Walrus teal color.
+    fn walrus_teal(self) -> ColoredString;
+
+    /// Colors the string in the Walrus purple color.
+    fn walrus_purple(self) -> ColoredString;
+}
+
+impl WalrusColors for ColoredString {
+    fn walrus_teal(self) -> ColoredString {
+        self.color(WALRUS_TEAL)
+    }
+
+    fn walrus_purple(self) -> ColoredString {
+        self.color(WALRUS_PURPLE)
+    }
+}
+
+impl<'a> WalrusColors for &'a str {
+    fn walrus_teal(self) -> ColoredString {
+        self.color(WALRUS_TEAL)
+    }
+
+    fn walrus_purple(self) -> ColoredString {
+        self.color(WALRUS_PURPLE)
+    }
 }
 
 /// Type to help with formatting bytes as human-readable strings.
@@ -439,6 +493,32 @@ impl Display for BlobIdDecimal {
     }
 }
 
+/// Returns a progress bar with the given length and stlyle already applied
+pub(crate) fn styled_progress_bar(length: u64) -> ProgressBar {
+    let pb = ProgressBar::new(length);
+    pb.set_style(
+        ProgressStyle::with_template(
+            " {spinner:.122} {msg} [{elapsed_precise}] [{wide_bar:.122/177}] {pos}/{len} ({eta})",
+        )
+        .expect("the template is valid")
+        .tick_chars("•◉◎○◌○◎◉")
+        .progress_chars("#>-"),
+    );
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
+}
+
+/// Returns a pre-configured spinner.
+pub(crate) fn styled_spinner() -> ProgressBar {
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::with_template(" {spinner:.122} {msg} [{elapsed_precise}]")
+            .expect("the template is valid")
+            .tick_chars("•◉◎○◌○◎◉"),
+    );
+    spinner.enable_steady_tick(Duration::from_millis(100));
+    spinner
+}
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;

@@ -50,8 +50,8 @@ impl ShardSyncHandler {
             .contains_key(&shard_index)
         {
             tracing::info!(
-                shard_index=%shard_index,
-                "shard is already being synced; skipping starting new shard sync",
+                walrus.shard_index = %shard_index,
+                "shard is already being synced; skipping starting new shard sync"
             );
             return Ok(());
         }
@@ -64,8 +64,8 @@ impl ShardSyncHandler {
                 // the epoch start event.
                 if shard_status == ShardStatus::Active {
                     tracing::info!(
-                        "Shard {} has already been synced. Skipping sync.",
-                        shard_index
+                        walrus.shard_index = %shard_index,
+                        "shard has already been synced; skipping sync"
                     );
                     return Ok(());
                 }
@@ -85,8 +85,7 @@ impl ShardSyncHandler {
             }
             None => {
                 tracing::error!(
-                    "Shard index: {} is not assigned to this node. Cannot start shard sync.",
-                    shard_index
+                    "{shard_index} is not assigned to this node; cannot start shard sync",
                 );
                 Err(ShardNotAssigned(shard_index, self.node.current_epoch()).into())
             }
@@ -114,8 +113,8 @@ impl ShardSyncHandler {
         let current_epoch = self.node.current_epoch();
 
         tracing::info!(
-            "Syncing shard index {} to the beginning of epoch {}",
-            shard_storage.id(),
+            walrus.shard_index = %shard_storage.id(),
+            "syncing shard to the beginning of epoch {}",
             current_epoch
         );
 
@@ -153,16 +152,14 @@ impl ShardSyncHandler {
                     )
                     .await;
 
-                if let Err(err) = sync_result {
+                if let Err(error) = sync_result {
                     metrics::with_label!(node_clone.metrics.shard_sync_total, "error").inc();
                     tracing::error!(
-                        "Failed to sync shard index: {} to before epoch: {}. Error: {:?}",
-                        shard_index,
-                        current_epoch,
-                        err
+                        ?error,
+                        "failed to sync {shard_index} to before epoch {current_epoch}"
                     );
 
-                    if let SyncShardClientError::RequestError(node_error) = err {
+                    if let SyncShardClientError::RequestError(node_error) = error {
                         if let Some(ServiceError::InvalidEpoch {
                             request_epoch,
                             server_epoch,
@@ -170,10 +167,9 @@ impl ShardSyncHandler {
                         {
                             if request_epoch > server_epoch {
                                 tracing::info!(
-                                    "Source storage node hasn't reached the epoch yet.
-                                Client epoch: {}, Server epoch: {}",
                                     request_epoch,
-                                    server_epoch
+                                    server_epoch,
+                                    "source storage node hasn't reached the epoch yet"
                                 );
                                 // Retry the sync after backoff.
                                 return false;
@@ -183,8 +179,8 @@ impl ShardSyncHandler {
                 } else {
                     metrics::with_label!(node_clone.metrics.shard_sync_total, "complete").inc();
                     tracing::info!(
-                        "Successfully synced shard index: {} to before epoch: {}",
-                        shard_index,
+                        walrus.shard_index = %shard_index,
+                        "successfully synced shard to before epoch {}",
                         current_epoch
                     );
                 }

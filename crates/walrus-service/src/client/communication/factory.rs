@@ -285,9 +285,9 @@ fn node_communications<'a, W>(
         .into_iter()
         .filter_map(|(index, result)| match result {
             Ok(maybe_communication) => maybe_communication,
-            Err(err) => {
+            Err(error) => {
                 tracing::warn!(
-                    node=index, %err, "unable to establish any connection to a storage node"
+                    node=index, %error, "unable to establish any connection to a storage node"
                 );
                 None
             }

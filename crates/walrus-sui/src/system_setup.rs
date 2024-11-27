@@ -31,7 +31,6 @@ use sui_types::{
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
 };
-use tracing::instrument;
 use walrus_core::{ensure, EpochCount};
 
 use crate::{
@@ -90,7 +89,7 @@ fn compile_package(package_path: &Path, for_test: bool) -> Arc<CompiledPackage> 
     }
 }
 
-#[instrument(err, skip(wallet, gas_budget))]
+#[tracing::instrument(err, skip(wallet, gas_budget))]
 pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
     package_path: PathBuf,
@@ -134,7 +133,7 @@ pub(crate) async fn publish_package(
 ///
 /// Returns the IDs of the walrus package and the `InitCap` as well as the `TreasuryCap`
 /// of the `WAL` coin.
-#[instrument(err, skip(wallet, gas_budget))]
+#[tracing::instrument(err, skip(wallet, gas_budget))]
 pub async fn publish_coin_and_system_package(
     wallet: &mut WalletContext,
     walrus_contract_path: PathBuf,

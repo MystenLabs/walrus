@@ -52,7 +52,11 @@ impl NodeRecoveryHandler {
                     if !blob_info.is_certified(epoch) {
                         // Skip blobs that are not certified in the given epoch. This
                         // includes blobs that are invalid or expired.
-                        tracing::debug!(%blob_id, %epoch, "skip non-certified blob");
+                        tracing::debug!(
+                            walrus.blob_id = %blob_id,
+                            walrus.epoch = epoch,
+                            "skip non-certified blob"
+                        );
                         continue;
                     }
 
@@ -60,18 +64,23 @@ impl NodeRecoveryHandler {
                     {
                         if stored_at_all_shards {
                             tracing::debug!(
-                                %blob_id,%epoch,"blob is stored at all shards; skip recovery"
+                                walrus.blob_id = %blob_id,
+                                walrus.epoch = %epoch,
+                                "blob is stored at all shards; skip recovery"
                             );
                             continue;
                         }
                     } else {
                         tracing::warn!(
-                            %blob_id,
+                            walrus.blob_id = %blob_id,
                             "failed to check if blob is stored at all shards; start blob sync"
                         );
                     }
 
-                    tracing::debug!(%blob_id, "start recovery sync for blob");
+                    tracing::debug!(
+                        walrus.blob_id = %blob_id,
+                        "start recovery sync for blob"
+                    );
                     // TODO: rate limit start sync to avoid OOM.
                     let start_sync_result = blob_sync_handler
                         .start_sync(
@@ -116,7 +125,7 @@ impl NodeRecoveryHandler {
             match node.set_node_status(NodeStatus::Active) {
                 Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
                 Err(error) => {
-                    tracing::error!(error = ?error, "failed to set node status to active");
+                    tracing::error!(?error, "failed to set node status to active");
                 }
             }
         });
@@ -133,9 +142,9 @@ impl NodeRecoveryHandler {
             } else {
                 assert!(recovering_epoch < self.node.current_epoch());
                 tracing::warn!(
-                    recovering_epoch = recovering_epoch,
+                    recovering_epoch,
                     current_epoch = self.node.current_epoch(),
-                    "recovery epoch mismatch; skip recovery restart; next epoch change start event
+                    "recovery epoch mismatch; skip recovery restart; next epoch change start event \
                     will bring node to the latest state"
                 );
                 self.node.set_node_status(NodeStatus::RecoveryCatchUp)?;

@@ -543,7 +543,7 @@ impl ContractClient for SuiContractClient {
         persistence: BlobPersistence,
     ) -> SuiClientResult<Blob> {
         tracing::debug!(
-            blob_metadata.encoded_size,
+            encoded_size = blob_metadata.encoded_size,
             "starting to reserve and register blob"
         );
 
@@ -724,7 +724,10 @@ impl ContractClient for SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        tracing::debug!("calling epoch_sync_done {:?}", node_capability.node_id);
+        tracing::debug!(
+            storage_node_cap = %node_capability.node_id,
+            "calling epoch_sync_done"
+        );
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
         pt_builder
@@ -763,7 +766,7 @@ impl ContractClient for SuiContractClient {
         exchange_id: ObjectID,
         amount: u64,
     ) -> SuiClientResult<()> {
-        tracing::debug!("exchanging {amount} MIST for WAL/FROST");
+        tracing::debug!(amount, "exchanging SUI/MIST for WAL/FROST");
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;

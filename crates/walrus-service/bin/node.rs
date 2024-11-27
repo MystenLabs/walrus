@@ -365,17 +365,17 @@ mod commands {
                 .unwrap();
         });
 
-        tracing::info!(version = VERSION, "walrus binary version");
+        tracing::info!(version = VERSION, "Walrus binary version");
         tracing::info!(
             walrus.node.public_key = %config.protocol_key_pair.load()?.as_ref().public(),
-            "walrus protocol public key",
+            "Walrus protocol public key",
         );
         // Load the network_key_pair so that it can be passed to the
         // MetricPushRuntime.
         let network_key_pair = config.network_key_pair.load()?;
         tracing::info!(
             walrus.node.network_key = %network_key_pair.as_ref().public(),
-            "walrus network key",
+            "Walrus network key",
         );
         tracing::info!(
             metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
@@ -462,18 +462,18 @@ mod commands {
                 }
                 tokio::select! {
                     _ = wait_until_terminated(exit_listener) => {
-                        tracing::info!("Received termination signal, shutting down...");
+                        tracing::info!("received termination signal, shutting down...");
                     }
                     _ = set.join_next() => {
-                        tracing::info!("Runtime stopped successfully");
+                        tracing::info!("runtime stopped successfully");
                     }
                 }
                 cancel_token.cancel();
-                tracing::info!("Cancellation token triggered, waiting for tasks to shut down...");
+                tracing::info!("cancellation token triggered, waiting for tasks to shut down...");
 
                 // Drain remaining runtimes
                 while set.join_next().await.is_some() {}
-                tracing::info!("All runtimes have shut down");
+                tracing::info!("all runtimes have shut down");
             })
             .await
         })?;
@@ -898,7 +898,7 @@ impl StorageNodeRuntime {
 
             result
         });
-        tracing::info!("Started REST API on {}", node_config.rest_api_address);
+        tracing::info!("started REST API on {}", node_config.rest_api_address);
 
         Ok(Self {
             runtime,

@@ -174,7 +174,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
     tracing::debug!(
-        "Shard index for inconsistent sliver: {}",
+        "shard index for inconsistent sliver: {}",
         SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id)
     );
     // Register blob.
@@ -216,7 +216,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let mut events = std::pin::pin!(events);
     tokio::time::timeout(Duration::from_secs(30), async {
         while let Some(event) = events.next().await {
-            tracing::debug!("Event: {:?}", event);
+            tracing::debug!("event: {event:?}");
             if let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(_)) = event {
                 return;
             }

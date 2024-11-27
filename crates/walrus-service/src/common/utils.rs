@@ -42,7 +42,7 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, subscriber::DefaultGuard};
+use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::{
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
@@ -344,22 +344,22 @@ impl MetricPushRuntime {
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
             let push_url = mp_config.config.push_url;
-            info!("starting metrics push to {}", &push_url);
+            tracing::info!("starting metrics push to '{push_url}'");
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        if let Err(e) = push_metrics(
+                        if let Err(error) = push_metrics(
                             mp_config.network_key_pair.clone(),
                             &client,
                             &push_url,
                             &registry,
                         ).await {
-                            error!("unable to push metrics: {e}");
+                            tracing::error!(?error, "unable to push metrics");
                             client = create_push_client();
                         }
                     }
                     _ = mp_config.cancel.cancelled() => {
-                        info!("received cancellation request, shutting down metrics push");
+                        tracing::info!("received cancellation request, shutting down metrics push");
                         return Ok(());
                     }
                 }
@@ -395,7 +395,7 @@ async fn push_metrics(
     push_url: &str,
     registry: &Registry,
 ) -> Result<(), anyhow::Error> {
-    info!(push_url =% push_url, "pushing metrics to remote");
+    tracing::info!(push_url, "pushing metrics to remote");
 
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()
@@ -415,9 +415,8 @@ async fn push_metrics(
     encoder.encode(&metric_families, &mut buf)?;
 
     let mut s = snap::raw::Encoder::new();
-    let compressed = s.compress_vec(&buf).map_err(|err| {
-        error!("unable to snappy encode; {err}");
-        err
+    let compressed = s.compress_vec(&buf).inspect_err(|error| {
+        tracing::error!(?error, "unable to snappy encode");
     })?;
 
     let uid = Uuid::now_v7();
@@ -449,7 +448,7 @@ async fn push_metrics(
             body
         ));
     }
-    debug!("successfully pushed metrics to {push_url}");
+    tracing::debug!("successfully pushed metrics to {push_url}");
     Ok(())
 }
 
@@ -561,8 +560,11 @@ pub async fn generate_sui_wallet(
     .await
     {
         Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
-        Ok(Err(e)) => {
-            tracing::warn!("an error occurred when trying to get SUI from the faucet: {e}")
+        Ok(Err(error)) => {
+            tracing::warn!(
+                ?error,
+                "an error occurred when trying to get SUI from the faucet"
+            )
         }
         Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
     }

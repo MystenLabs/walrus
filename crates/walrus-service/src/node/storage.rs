@@ -207,17 +207,17 @@ impl Storage {
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
         let mut locked_map = self.shards.write().unwrap();
-        for &shard in new_shards {
-            match locked_map.entry(shard) {
+        for &shard_index in new_shards {
+            match locked_map.entry(shard_index) {
                 Entry::Vacant(entry) => {
                     let shard_storage = Arc::new(ShardStorage::create_or_reopen(
-                        shard,
+                        shard_index,
                         &self.database,
                         &self.config,
                         Some(ShardStatus::None),
                     )?);
                     tracing::info!(
-                        walrus.shard_index = %shard,
+                        walrus.shard_index = %shard_index,
                         "successfully created storage for shard"
                     );
                     entry.insert(shard_storage);
@@ -233,16 +233,19 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        for shard in removed {
-            tracing::info!("removing storage for shard {}", shard);
+        for shard_index in removed {
+            tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = {
                 let mut shards = self.shards.write().expect("take lock shouldn't fail");
-                shards.remove(shard)
+                shards.remove(shard_index)
             } {
                 // Do not hold the `shards` lock when deleting column families.
                 shard_storage.delete_shard_storage()?;
             }
-            tracing::info!("removed storage for shard {} done", shard);
+            tracing::info!(
+                walrus.shard_index = %shard_index,
+                "successfully removed storage for shard"
+            );
         }
         Ok(())
     }

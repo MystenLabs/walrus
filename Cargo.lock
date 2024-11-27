@@ -11537,6 +11537,7 @@ dependencies = [
  "git-version",
  "home",
  "humantime",
+ "indicatif",
  "indoc",
  "integer-encoding 4.0.2",
  "itertools 0.13.0",

@@ -442,7 +442,7 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
-        tracing::info!("Syncing shard to before epoch: {}", epoch);
+        tracing::info!(walrus.epoch = epoch, "syncing shard");
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
         }
@@ -514,11 +514,7 @@ impl ShardStorage {
                     last_synced_blob_id,
                     sliver_type,
                 })) => {
-                    tracing::info!(
-                        "resuming shard sync from blob id: {}, sliver type: {}",
-                        last_synced_blob_id,
-                        sliver_type
-                    );
+                    tracing::info!(%last_synced_blob_id, %sliver_type, "resuming shard sync");
                     match sliver_type {
                         SliverType::Primary => ShardLastSyncStatus::Primary {
                             last_synced_blob_id: Some(last_synced_blob_id),
@@ -656,26 +652,31 @@ impl ShardStorage {
         blob_info_iter: &mut BlobInfoIterator,
         batch: &mut DBBatch,
     ) -> Result<Option<(BlobId, BlobInfo)>, SyncShardClientError> {
-        for blob in fetched_slivers.iter() {
-            tracing::debug!("synced blob id: {} to before epoch: {}.", blob.0, epoch);
+        for (blob_id, sliver) in fetched_slivers.iter() {
+            tracing::debug!(
+                walrus.blob_id = %blob_id,
+                epoch,
+                %sliver_type,
+                "synced blob",
+            );
             //TODO(#705): verify sliver validity.
             //  - blob is certified
             //  - metadata is correct
-            match &blob.1 {
+            match sliver {
                 Sliver::Primary(primary) => {
                     assert_eq!(sliver_type, SliverType::Primary);
-                    batch.insert_batch(&self.primary_slivers, [(blob.0, primary)])?;
+                    batch.insert_batch(&self.primary_slivers, [(blob_id, primary)])?;
                 }
                 Sliver::Secondary(secondary) => {
                     assert_eq!(sliver_type, SliverType::Secondary);
-                    batch.insert_batch(&self.secondary_slivers, [(blob.0, secondary)])?;
+                    batch.insert_batch(&self.secondary_slivers, [(blob_id, secondary)])?;
                 }
             }
 
             next_blob_info = self.check_and_record_missing_blobs(
                 blob_info_iter,
                 next_blob_info,
-                blob.0,
+                *blob_id,
                 sliver_type,
                 batch,
             )?;
@@ -742,7 +743,7 @@ impl ShardStorage {
             return Ok(());
         }
 
-        tracing::info!("shard sync is done. Still has missing blobs. Shard enters recovery mode.",);
+        tracing::info!("shard sync is done; still has missing blobs; shard enters recovery mode");
         self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
 
         #[cfg(msim)]
@@ -786,8 +787,8 @@ impl ShardStorage {
         }
 
         while let Some(result) = futures.next().await {
-            if let Err(err) = result {
-                tracing::error!(error = ?err, "error recovering missing blob sliver.");
+            if let Err(error) = result {
+                tracing::error!(?error, "error recovering missing blob sliver");
             }
         }
 
@@ -805,9 +806,9 @@ impl ShardStorage {
     ) -> Result<(), TypedStoreError> {
         let _guard = semaphore.acquire().await;
         tracing::info!(
-            "start recovering missing blob {} in shard {}",
-            blob_id,
-            self.id
+            walrus.blob_id = %blob_id,
+            walrus.shard_index = %self.id,
+            "start recovering missing blob"
         );
 
         let Some(metadata) = node.storage.get_metadata(&blob_id)? else {
@@ -995,10 +996,10 @@ fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow
         trigger_at,
     ): (SliverType, u64)| {
         tracing::info!(
-            fail_point = "fail_point_fetch_sliver",
-            trigger_sliver_type = ?trigger_sliver_type,
+            ?trigger_sliver_type,
             trigger_index = ?trigger_at,
-            blob_count = ?scan_count
+            blob_count = ?scan_count,
+            fail_point = "fail_point_fetch_sliver",
         );
         if trigger_sliver_type == sliver_type && trigger_at <= scan_count {
             injected_status = Err(anyhow!("fetch_sliver simulated sync failure"));

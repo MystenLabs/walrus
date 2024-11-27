@@ -257,7 +257,7 @@ mod commands {
         let testbed_config = TestbedConfig::load(testbed_config_path)?;
 
         if let Some(cooldown) = faucet_cooldown {
-            tracing::info!("sleeping for {} to let faucet cool down", cooldown);
+            tracing::info!("sleeping for {cooldown} to let faucet cool down");
             tokio::time::sleep(cooldown.into()).await;
         }
 

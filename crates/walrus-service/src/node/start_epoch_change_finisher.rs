@@ -78,7 +78,7 @@ impl StartEpochChangeFinisher {
                 // This should never happen as we don't have a max retry count.
                 tracing::error!(
                     walrus.epoch = %event_clone.epoch,
-                    %error,
+                    ?error,
                     "failed to finish epoch change start tasks",
                 );
             }
@@ -126,21 +126,21 @@ impl StartEpochChangeFinisher {
         event: EpochChangeStart,
         shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        for shard in shards {
-            tracing::info!(shard = %shard, "start removing shard from storage");
+        for shard_index in shards {
+            tracing::info!(walrus.shard_index = %shard_index, "start removing shard from storage");
             self.node
                 .storage
-                .remove_storage_for_shards(&[*shard])
-                .map_err(|err| {
+                .remove_storage_for_shards(&[*shard_index])
+                .map_err(|error| {
                     tracing::error!(
                         epoch = %event.epoch,
-                        shard = %shard,
-                        error = %err,
+                        walrus.shard_index = %shard_index,
+                        ?error,
                         "failed to remove storage for shard",
                     );
-                    err
+                    error
                 })?;
-            tracing::info!(shard = %shard, "removing shard storage successful");
+            tracing::info!(walrus.shard_index = %shard_index, "removing shard storage successful");
         }
 
         Ok(())

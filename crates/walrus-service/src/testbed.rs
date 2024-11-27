@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
-use tracing::instrument;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
@@ -433,7 +432,7 @@ pub async fn create_client_config(
 }
 
 /// Create storage node configurations for the testbed.
-#[instrument(err, skip_all)]
+#[tracing::instrument(err, skip_all)]
 #[allow(clippy::too_many_arguments)]
 pub async fn create_storage_node_configs(
     working_dir: &Path,
@@ -619,7 +618,7 @@ pub async fn create_storage_node_configs(
     Ok(storage_node_configs)
 }
 
-#[instrument(err)]
+#[tracing::instrument(err)]
 fn replace_keystore_path(wallet_path: &Path, new_directory: &Path) -> anyhow::Result<()> {
     let reader = std::fs::File::open(wallet_path)?;
     let mut wallet_contents: serde_yaml::Mapping = serde_yaml::from_reader(reader)?;

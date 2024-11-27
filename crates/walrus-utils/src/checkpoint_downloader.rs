@@ -367,14 +367,14 @@ impl ParallelCheckpointDownloaderInner {
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
     ) -> Result<()> {
-        tracing::info!("Starting checkpoint download worker {}", worker_id);
+        tracing::info!(worker_id, "starting checkpoint download worker");
         let mut rng = StdRng::from_entropy();
         while let Ok(WorkerMessage::Download(sequence_number)) = message_receiver.recv().await {
             let entry =
                 Self::download_with_retry(&client, sequence_number, &config, &mut rng).await;
             checkpoint_sender.send(entry).await?;
         }
-        tracing::info!("Checkpoint download worker {} shutting down", worker_id);
+        tracing::info!(worker_id, "checkpoint download worker shutting down");
         Ok(())
     }
 
@@ -392,7 +392,7 @@ impl ParallelCheckpointDownloaderInner {
         loop {
             tokio::select! {
                 _ = cancellation_token.cancelled() => {
-                    tracing::info!("Pool monitor shutting down");
+                    tracing::info!("pool monitor shutting down");
                     return Ok(());
                 }
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
@@ -403,7 +403,7 @@ impl ParallelCheckpointDownloaderInner {
 
                     let Ok(lag) = Self::current_checkpoint_lag(
                         &config.checkpoint_store, &config.client).await else {
-                        tracing::warn!("Failed to fetch current checkpoint lag");
+                        tracing::warn!("failed to fetch current checkpoint lag");
                         continue;
                     };
 
@@ -413,8 +413,12 @@ impl ParallelCheckpointDownloaderInner {
                     if lag > downloader_config.scale_up_lag_threshold &&
                         num_workers_before < downloader_config.max_workers {
                         num_workers_after = num_workers_before + 1;
-                        tracing::info!("Scaling up checkpoint workers from {} to {} due to high \
-                            lag {}",num_workers_before, num_workers_after, lag);
+                        tracing::info!(
+                            "scaling up checkpoint workers from {} to {} due to high lag ({})",
+                            num_workers_before,
+                            num_workers_after,
+                            lag
+                        );
                         let cloned_client = config.client.clone();
                         let cloned_receiver = channels.message_receiver.clone();
                         let cloned_checkpoint_sender = channels.checkpoint_sender.clone();
@@ -427,8 +431,12 @@ impl ParallelCheckpointDownloaderInner {
                     } else if lag < downloader_config.scale_down_lag_threshold &&
                             num_workers_before > downloader_config.min_workers {
                         num_workers_after = num_workers_before - 1;
-                        tracing::info!("Scaling down checkpoint workers from {} to {} due to low \
-                            lag {}", num_workers_before, num_workers_after, lag);
+                        tracing::info!(
+                            "scaling down checkpoint workers from {} to {} due to low lag ({})",
+                            num_workers_before,
+                            num_workers_after,
+                            lag
+                        );
                         channels.message_sender.send(WorkerMessage::Shutdown).await?;
                         *worker_count.write().await = num_workers_after;
                         last_scale = now;
@@ -464,7 +472,7 @@ impl ParallelCheckpointDownloaderInner {
                         .await
                         .is_err()
                     {
-                        tracing::error!("Failed to send job to workers - channel closed");
+                        tracing::error!("failed to send job to workers; channel closed");
                         return;
                     }
                     in_flight.insert(sequence_number);
@@ -484,7 +492,7 @@ impl ParallelCheckpointDownloaderInner {
                 }
 
                 if result_tx.send(entry).await.is_err() {
-                    tracing::info!("Result receiver dropped, stopping checkpoint fetcher");
+                    tracing::info!("result receiver dropped, stopping checkpoint fetcher");
                     break;
                 }
 
@@ -492,7 +500,7 @@ impl ParallelCheckpointDownloaderInner {
 
                 while let Some(checkpoint) = pending.remove(&next_expected) {
                     if result_tx.send(checkpoint).await.is_err() {
-                        tracing::debug!("Result receiver dropped, stopping checkpoint fetcher");
+                        tracing::debug!("result receiver dropped, stopping checkpoint fetcher");
                         return;
                     }
                     next_expected += 1;
@@ -586,11 +594,7 @@ fn handle_checkpoint_error(err: Option<&sdk::Error>, next_checkpoint: u64) {
             return;
         }
     }
-    tracing::warn!(
-        next_checkpoint,
-        %error,
-        "failed to read next checkpoint",
-    );
+    tracing::warn!(next_checkpoint, ?error, "failed to read next checkpoint",);
 }
 
 #[cfg(test)]

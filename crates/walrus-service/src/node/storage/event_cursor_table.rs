@@ -158,8 +158,8 @@ fn update_cursor_and_progress(
 
     for operand_bytes in operands {
         let (cursor, increment) = bcs::from_bytes::<ProgressMergeOperand>(operand_bytes)
-            .expect("merge operand to be decodable");
-        tracing::debug!("updating {current_val:?} with {cursor:?} (+{increment})");
+            .expect("merge operand should be decodable");
+        tracing::trace!(?current_val, ?cursor, increment, "updating event cursor");
 
         let updated_progress = current_val.map_or(0, |(_, progress)| progress) + increment;
 

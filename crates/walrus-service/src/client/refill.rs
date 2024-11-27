@@ -113,7 +113,7 @@ impl WalletCoinRefill {
     }
 
     async fn send_gas(&self, address: SuiAddress) -> Result<()> {
-        tracing::debug!("Sending gas to address: {:?}", &address);
+        tracing::debug!(%address, "sending gas to sub-wallet");
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
@@ -131,7 +131,7 @@ impl WalletCoinRefill {
     }
 
     async fn send_wal(&self, address: SuiAddress) -> Result<()> {
-        tracing::debug!("Sending wal to address: {:?}", &address);
+        tracing::debug!(%address, "sending WAL to sub-wallet");
         let mut pt_builder = self.sui_client.transaction_builder();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
@@ -175,15 +175,15 @@ impl NetworkOrWallet {
     ) -> Result<Self> {
         if let Some(wallet_path) = wallet_path {
             tracing::info!(
-                "Creating gas refill station from wallet: {:?}",
-                &wallet_path
+                "creating gas refill station from wallet at '{}'",
+                wallet_path.display()
             );
             let wallet = utils::load_wallet_context(&Some(wallet_path))?;
             let sui_client =
                 SuiContractClient::new(wallet, system_object, staking_object, gas_budget).await?;
             Ok(Self::new_wallet(sui_client, gas_budget)?)
         } else {
-            tracing::info!("Created gas refill station from faucet: {:?}", &sui_network);
+            tracing::info!(?sui_network, "created gas refill station from faucet");
             Ok(Self::new_faucet(sui_network))
         }
     }
@@ -288,7 +288,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
                 let metrics = metrics.clone();
                 async move {
                     refiller.send_gas_request(address).await?;
-                    tracing::debug!("Clients gas coins refilled");
+                    tracing::info!("clients gas coins refilled");
                     metrics.observe_gas_refill();
                     Ok(())
                 }
@@ -314,7 +314,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
                 let metrics = metrics.clone();
                 async move {
                     refiller.send_wal_request(address).await?;
-                    tracing::debug!("Clients wal coins refilled");
+                    tracing::info!("clients WAL coins refilled");
                     metrics.observe_wal_refill();
                     Ok(())
                 }
@@ -366,9 +366,10 @@ impl<G: CoinRefill + 'static> Refiller<G> {
                     }
                 }))
                 .await
-                .inspect_err(|e| {
+                .inspect_err(|error| {
                     tracing::error!(
-                        "error during periodic refill of coin type {:?}: {e}",
+                        ?error,
+                        "error during periodic refill of coin type {:?}",
                         coin_type
                     )
                 });

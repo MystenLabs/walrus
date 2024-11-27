@@ -6,9 +6,11 @@
 use std::{collections::HashMap, fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
+use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
 use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
-use futures::Future;
+use futures::{Future, FutureExt};
+use indicatif::HumanDuration;
 use metrics::ClientMetricSet;
 use prometheus::Registry;
 use resource::{PriceComputation, ResourceManager, StoreOp};
@@ -17,8 +19,10 @@ use tokio::{
     sync::{RwLock, Semaphore},
     time::Duration,
 };
-use tracing::{Instrument, Level};
+use tracing::{Instrument as _, Level};
+use utils::WeightedResult;
 use walrus_core::{
+    bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
     messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
@@ -363,6 +367,9 @@ impl<T: ContractClient> Client<T> {
         &self,
         blob: &[u8],
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
+        let spinner = styled_spinner();
+        spinner.set_message("encoding the blob");
+
         let encode_start_timer = Instant::now();
 
         let (pairs, metadata) = self
@@ -371,17 +378,17 @@ impl<T: ContractClient> Client<T> {
             .map_err(ClientError::other)?
             .encode_with_metadata();
 
-        let encode_duration = encode_start_timer.elapsed();
-
+        let duration = encode_start_timer.elapsed();
         let pair = pairs.first().expect("the encoding produces sliver pairs");
         let symbol_size = pair.primary.symbols.symbol_size().get();
         tracing::info!(
-            symbol_size=%symbol_size,
-            primary_sliver_size=%pair.primary.symbols.len() * usize::from(symbol_size),
-            secondary_sliver_size=%pair.secondary.symbols.len() * usize::from(symbol_size),
-            duration = ?encode_duration,
+            symbol_size,
+            primary_sliver_size = pair.primary.symbols.len() * usize::from(symbol_size),
+            secondary_sliver_size = pair.secondary.symbols.len() * usize::from(symbol_size),
+            ?duration,
             "encoded sliver pairs and metadata"
         );
+        spinner.finish_with_message(format!("blob encoded; blob ID: {}", metadata.blob_id()));
 
         Ok((pairs, metadata))
     }
@@ -449,12 +456,12 @@ impl<T: ContractClient> Client<T> {
                     let result = self
                         .send_blob_data_and_get_certificate(metadata, pairs)
                         .await?;
-                    let certify_duration = certify_start_timer.elapsed();
+                    let duration = certify_start_timer.elapsed();
                     let blob_size = blob_object.size;
                     tracing::info!(
-                        duration =  ?certify_duration,
-                        blob_size = blob_size,
-                        "finished sending blob data and collected certificate"
+                        ?duration,
+                        blob_size,
+                        "finished sending blob data and collecting certificate"
                     );
                     result
                 }
@@ -601,6 +608,10 @@ impl<T> Client<T> {
             .communication_factory
             .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
 
+        let progress_bar =
+            styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
+        progress_bar.set_message("sending slivers");
+
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
                 metadata,
@@ -608,6 +619,14 @@ impl<T> Client<T> {
                     .remove(&n.node_index)
                     .expect("there are shards for each node"),
             )
+            .inspect({
+                let value = progress_bar.clone();
+                move |result| {
+                    if result.is_ok() && !value.is_finished() {
+                        value.inc(result.1.try_into().expect("the weight fits a usize"))
+                    }
+                }
+            })
         }));
         let start = Instant::now();
 
@@ -638,6 +657,20 @@ impl<T> Client<T> {
             elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
         );
 
+        progress_bar.finish_with_message("slivers sent");
+
+        let extra_time = self
+            .config
+            .communication_config
+            .sliver_write_extra_time
+            .extra_time(start.elapsed());
+
+        let spinner = styled_spinner();
+        spinner.set_message(format!(
+            "waiting at most {} more, to store on additional nodes",
+            HumanDuration(extra_time)
+        ));
+
         // Allow extra time for the client to store the slivers.
         let completed_reason = requests
             .execute_time(
@@ -653,6 +686,8 @@ impl<T> Client<T> {
             %completed_reason,
             "stored metadata and slivers onto additional nodes"
         );
+
+        spinner.finish_with_message("additional slivers stored");
 
         let results = requests.into_results();
 
@@ -764,6 +799,11 @@ impl<T> Client<T> {
     {
         let committees = self.committees.read().await;
 
+        // Create a progress bar to track the progress of the sliver retrieval.
+        let progress_bar =
+            styled_progress_bar(self.encoding_config.n_source_symbols::<U>().get().into());
+        progress_bar.set_message("requesting slivers");
+
         let comms = self
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
@@ -774,6 +814,15 @@ impl<T> Client<T> {
             n.node.shard_ids.iter().cloned().map(|s| {
                 n.retrieve_verified_sliver::<U>(metadata, s)
                     .instrument(n.span.clone())
+                    // Increment the progress bar if the sliver is successfully retrieved.
+                    .inspect({
+                        let value = progress_bar.clone();
+                        move |result| {
+                            if result.is_ok() {
+                                value.inc(1)
+                            }
+                        }
+                    })
             })
         });
         let mut decoder = self
@@ -795,6 +844,8 @@ impl<T> Client<T> {
             )
             .await;
 
+        progress_bar.finish_with_message("slivers received");
+
         let mut n_not_found = 0; // Counts the number of "not found" status codes received.
         let slivers = requests
             .take_results()
@@ -802,7 +853,7 @@ impl<T> Client<T> {
             .filter_map(|NodeResult(_, _, node, result)| {
                 result
                     .map_err(|error| {
-                        tracing::info!(%node, %error, "retrieving sliver failed");
+                        tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
                         }
@@ -864,7 +915,7 @@ impl<T> Client<T> {
                     }
                 }
                 Err(error) => {
-                    tracing::info!(%node, %error, "retrieving sliver failed");
+                    tracing::debug!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() && {
                         n_not_found += 1;
                         self.committees.read().await.is_quorum(n_not_found)

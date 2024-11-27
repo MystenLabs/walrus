@@ -66,6 +66,7 @@ use crate::{
             StakeOutput,
             WalletOutput,
         },
+        styled_spinner,
         Client,
         ClientDaemon,
         Config,
@@ -273,7 +274,7 @@ impl ClientCommandRunner {
         let blob_size = blob.len();
         let elapsed = start_timer.elapsed();
 
-        tracing::info!(?blob_id, ?elapsed, blob_size, "read blob");
+        tracing::info!(%blob_id, ?elapsed, blob_size, "finished reading blob");
 
         match out.as_ref() {
             Some(path) => std::fs::write(path, &blob)?,
@@ -317,7 +318,7 @@ impl ClientCommandRunner {
         );
 
         if dry_run {
-            tracing::info!("Performing dry-run store for file {}", file.display());
+            tracing::info!("performing dry-run store for file '{}'", file.display());
             let encoding_config = client.encoding_config();
             tracing::debug!(n_shards = encoding_config.n_shards(), "encoding the blob");
             let metadata = encoding_config
@@ -337,7 +338,7 @@ impl ClientCommandRunner {
             }
             .print_output(self.json)
         } else {
-            tracing::info!("Storing file {} as blob on Walrus", file.display());
+            tracing::info!("storing file '{}' as blob on Walrus", file.display());
             let result = client
                 .reserve_and_store_blob_retry_epoch(
                     &read_blob_from_file(&file)?,
@@ -416,9 +417,12 @@ impl ClientCommandRunner {
         };
 
         tracing::debug!(%n_shards, "encoding the blob");
+        let spinner = styled_spinner();
+        spinner.set_message("computing the blob ID");
         let metadata = EncodingConfig::new(n_shards)
             .get_blob_encoder(&read_blob_from_file(&file)?)?
             .compute_metadata();
+        spinner.finish_with_message(format!("blob ID computed: {}", metadata.blob_id()));
 
         BlobIdOutput::new(&file, &metadata).print_output(self.json)
     }

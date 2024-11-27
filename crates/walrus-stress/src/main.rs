@@ -90,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
     let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
     let prometheus_registry = registry_service.default_registry();
     let metrics = Arc::new(ClientMetrics::new(&prometheus_registry));
-    tracing::info!("Starting metrics server on {metrics_address}");
+    tracing::info!("starting metrics server on {metrics_address}");
 
     // Start the write transaction generator.
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());

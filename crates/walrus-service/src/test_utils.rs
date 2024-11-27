@@ -25,7 +25,7 @@ use tempfile::TempDir;
 use tokio::{task::JoinHandle, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
-use tracing::Instrument;
+use tracing::Instrument as _;
 use typed_store::{rocks::MetricConf, Map};
 use walrus_core::{
     encoding::EncodingConfig,
@@ -289,7 +289,7 @@ impl SimStorageNodeHandle {
                     .public()
             ))
             .init(move || {
-                tracing::info!("Starting simulator node. Ip: {:?}", ip);
+                tracing::info!(?ip, "starting simulator node");
 
                 let config = config.clone();
                 let cancel_token = cancel_token.clone();
@@ -305,7 +305,7 @@ impl SimStorageNodeHandle {
 
                     tokio::select! {
                         _ = rest_api_handle => {
-                            tracing::info!("rest API stopped");
+                            tracing::info!("REST API stopped");
                         }
                         _ = node_handle => {
                             tracing::info!("node stopped");
@@ -724,7 +724,7 @@ impl StorageNodeHandleBuilder {
                 async move {
                     let status = rest_api_clone.run().await;
                     if let Err(error) = status {
-                        tracing::error!("rest api stopped with error: {:?}", error);
+                        tracing::error!(?error, "REST API stopped with an error");
                         std::process::exit(1);
                     }
                 }
@@ -742,7 +742,7 @@ impl StorageNodeHandleBuilder {
                 async move {
                     let status = node.run(cancel_token).await;
                     if let Err(error) = status {
-                        tracing::error!("node stopped with error: {:?}", error);
+                        tracing::error!(?error, "node stopped with an error");
                         std::process::exit(1);
                     }
                 }
@@ -907,7 +907,7 @@ fn spawn_event_processor(
         async move {
             let status = event_processor.start(cancellation_token).await;
             if let Err(error) = status {
-                tracing::error!("event processor stopped with error: {:?}", error);
+                tracing::error!(?error, "event processor stopped with anerror");
                 std::process::exit(1);
             }
         }
@@ -925,7 +925,7 @@ fn spawn_event_processor(
         async move {
             let status = event_processor.start(cancellation_token).await;
             if let Err(error) = status {
-                tracing::error!("event processor stopped with error: {:?}", error);
+                tracing::error!(?error, "event processor stopped with an error");
                 std::process::exit(1);
             }
         }

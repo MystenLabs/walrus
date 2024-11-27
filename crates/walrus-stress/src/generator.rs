@@ -110,9 +110,9 @@ impl LoadGenerator {
             write_client_pool_tx.send(write_client).await?;
         }
 
-        tracing::info!("Finished initializing clients and blobs.");
+        tracing::info!("finished initializing clients and blobs");
 
-        tracing::info!("Spawning gas refill task...");
+        tracing::info!("spawning gas refill task...");
 
         let _refill_handles = refiller.refill_gas_and_wal(
             addresses.clone(),
@@ -135,7 +135,7 @@ impl LoadGenerator {
         let mut client = match self.write_client_pool.try_recv() {
             Ok(client) => client,
             Err(TryRecvError::Empty) => {
-                tracing::warn!("No client available to submit write");
+                tracing::warn!("no client available to submit write");
                 return false;
             }
             Err(TryRecvError::Disconnected) => {
@@ -152,7 +152,7 @@ impl LoadGenerator {
             };
             match result {
                 Ok((_blob_id, elapsed)) => {
-                    tracing::info!("Write finished");
+                    tracing::info!("write finished");
                     metrics.observe_latency(metrics::WRITE_WORKLOAD, elapsed);
                 }
                 Err(error) => {
@@ -170,7 +170,7 @@ impl LoadGenerator {
                 .expect("write client channel should not be closed");
         });
 
-        tracing::info!("Submitted write operation");
+        tracing::info!("submitted write operation");
         self.metrics.observe_submitted(metrics::WRITE_WORKLOAD);
         true
     }
@@ -179,7 +179,7 @@ impl LoadGenerator {
         let client = match self.read_client_pool.try_recv() {
             Ok(client) => client,
             Err(TryRecvError::Empty) => {
-                tracing::warn!("No client available to submit write");
+                tracing::warn!("no client available to submit read");
                 return false;
             }
             Err(TryRecvError::Disconnected) => {
@@ -198,8 +198,8 @@ impl LoadGenerator {
                     tracing::info!("read finished");
                     metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
                 }
-                Err(e) => {
-                    tracing::error!(error=?e, "failed to read blob");
+                Err(error) => {
+                    tracing::error!(?error, "failed to read blob");
                     metrics.observe_error("failed to read blob");
                 }
             }
@@ -209,7 +209,7 @@ impl LoadGenerator {
                 .expect("read client channel should not be closed");
         });
 
-        tracing::info!("Submitted read operation");
+        tracing::info!("submitted read operation");
         self.metrics.observe_submitted(metrics::READ_WORKLOAD);
         true
     }
@@ -258,17 +258,17 @@ impl LoadGenerator {
         read_load: u64,
         inconsistent_blob_rate: f64,
     ) -> anyhow::Result<()> {
-        tracing::info!("Starting load generator...");
+        tracing::info!("starting load generator...");
 
         let (reads_per_burst, read_interval) = burst_load(read_load);
         let read_blob_id = if reads_per_burst != 0 {
-            tracing::info!("Submitting initial write...");
+            tracing::info!("submitting initial write...");
             let read_blob_id = self
                 .single_write()
                 .await
-                .inspect_err(|e| tracing::error!(error = ?e, "initial write failed"))?;
+                .inspect_err(|error| tracing::error!(?error, "initial write failed"))?;
             tracing::info!(
-                "Submitting {reads_per_burst} reads every {} ms",
+                "submitting {reads_per_burst} reads every {} ms",
                 read_interval.period().as_millis()
             );
             read_blob_id
@@ -282,7 +282,7 @@ impl LoadGenerator {
         tokio::pin!(write_interval);
         if writes_per_burst != 0 {
             tracing::info!(
-                "Submitting {writes_per_burst} writes every {} ms",
+                "submitting {writes_per_burst} writes every {} ms",
                 write_interval.period().as_millis()
             );
         }

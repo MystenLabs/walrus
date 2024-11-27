@@ -98,7 +98,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             }
             ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
             _ => {
-                tracing::error!(%error, "error retrieving blob");
+                tracing::error!(?error, "error retrieving blob");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
         },
@@ -149,7 +149,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             (status_code, Json(result)).into_response()
         }
         Err(error) => {
-            tracing::error!(%error, "error storing blob");
+            tracing::error!(?error, "error storing blob");
             match error.kind() {
                 ClientErrorKind::NotEnoughConfirmations(_, _) => {
                     StatusCode::GATEWAY_TIMEOUT.into_response()

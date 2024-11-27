@@ -30,7 +30,7 @@ use sui_types::{
 };
 use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-use tracing::{instrument, Instrument};
+use tracing::Instrument as _;
 use walrus_core::{ensure, Epoch};
 
 use super::{SuiClientError, SuiClientResult};
@@ -480,7 +480,7 @@ enum WhichCommittee {
 }
 
 impl ReadClient for SuiReadClient {
-    #[instrument(err, skip(self))]
+    #[tracing::instrument(err, skip(self))]
     async fn storage_price_per_unit_size(&self) -> SuiClientResult<u64> {
         Ok(self
             .get_system_object()
