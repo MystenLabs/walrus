@@ -14,6 +14,21 @@ COPY crates crates
 
 RUN cargo build --profile $PROFILE --bin walrus --bin walrus-node --bin walrus-deploy
 
+# Production Image for all binaries under walrus-service
+FROM debian:bullseye-slim AS walrus-service
+RUN apt-get update && apt-get install -y ca-certificates curl git
+ARG PROFILE=release
+WORKDIR "$WORKDIR/walrus"
+# Both bench and release profiles copy from release dir
+COPY --from=builder /walrus/target/release/walrus /opt/walrus/bin/walrus
+COPY --from=builder /walrus/target/release/walrus-node /opt/walrus/bin/walrus-node
+COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
+
+ARG BUILD_DATE
+ARG GIT_REVISION
+LABEL build-date=$BUILD_DATE
+LABEL git-revision=$GIT_REVISION
+
 # Production Image for walrus CLI
 FROM debian:bullseye-slim AS walrus-cli
 RUN apt-get update && apt-get install -y ca-certificates curl

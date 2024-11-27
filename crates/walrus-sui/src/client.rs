@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{future::Future, time::Duration};
+use std::{collections::HashMap, future::Future, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use read_client::CoinType;
@@ -472,6 +472,10 @@ impl ReadClient for SuiContractClient {
 
     async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
         self.read_client.fixed_system_parameters().await
+    }
+
+    async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
+        self.read_client.stake_assignment().await
     }
 }
 

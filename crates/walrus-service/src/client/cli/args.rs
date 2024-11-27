@@ -142,15 +142,30 @@ pub enum Commands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CliCommands {
     /// Store a new blob into Walrus.
+    ///
+    /// The store operation considers the Storage and Blob objects already owned by the active
+    /// wallet, trying to reuse them whenever possible to optimize the cost of storing the blob.
+    ///
+    /// First, the store operation checks the status of the blob ID on Walrus. If the blob is
+    /// already certified for the requested number of epochs, and the command is not run with the
+    /// `--force` flag, the store operation stops. Otherwise, the operation proceeds as follows:
+    ///
+    /// - check if the blob is registered (but not certified) in the current wallet for a sufficient
+    ///   duration, and if so reuse the registration to store the blob;
+    /// - otherwise, check if there is an appropriate storage resource (with sufficient space
+    ///   and for a sufficient duration) that can be used to register the blob; or
+    /// - if the above fails, it purchase a new storage resource and register the blob.
+    ///
+    /// If the `--force` flag is used, this operation always creates a new certification for the
+    /// blob (possibly reusing storage resources or uncertified but registered blobs).
     #[clap(alias("write"))]
     Store {
         /// The file containing the blob to be published to Walrus.
         #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
         file: PathBuf,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(short, long, default_value_t = default::epochs())]
-        #[serde(default = "default::epochs")]
-        epochs: EpochCount,
+        #[clap(short, long)]
+        epochs: Option<EpochCount>,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -260,6 +275,15 @@ pub enum CliCommands {
         #[clap(flatten)]
         #[serde(flatten)]
         target: FileOrBlobIdOrObjectId,
+        /// Proceed to delete the blob without confirmation.
+        #[clap(short, long, action)]
+        #[serde(default)]
+        yes: bool,
+        /// Disable checking the status of the blob after deletion.
+        ///
+        /// Checking the status adds delay and requires additional requests.
+        #[clap(long, action)]
+        no_status_check: bool,
     },
     /// Stake with storage node.
     Stake {
@@ -274,7 +298,12 @@ pub enum CliCommands {
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
         /// The path where the wallet configuration will be stored.
-        path: PathBuf,
+        ///
+        /// If not specified, the command will try to create the wallet configuration at the default
+        /// location `$HOME/.sui/sui_config/`. If the directory already exists, an error will be
+        /// returned specifying to use the Sui CLI to manage the existing wallets.
+        #[clap(long)]
+        path: Option<PathBuf>,
         /// Sui network for which the wallet is generated.
         ///
         /// Available options are `devnet`, `testnet`, and `localnet`.
@@ -555,7 +584,7 @@ impl FileOrBlobIdOrObjectId {
     }
 }
 
-mod default {
+pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
     use walrus_core::EpochCount;
@@ -658,7 +687,7 @@ mod tests {
     fn store_command() -> Commands {
         Commands::Cli(CliCommands::Store {
             file: PathBuf::from("README.md"),
-            epochs: 1,
+            epochs: None,
             dry_run: false,
             force: false,
             deletable: false,
@@ -714,5 +743,38 @@ mod tests {
         app.extract_json_command()?;
         assert_eq!(app.command, command);
         Ok(())
+    }
+}
+
+/// Specifies whether the user has granted the confirmation for the action, or if it is required.
+#[derive(Debug, Clone, Default, Eq, PartialEq, Deserialize)]
+pub enum UserConfirmation {
+    // The user needs to confirm the action.
+    #[default]
+    Required,
+    // The action can proceed without confirmation from the user.
+    Granted,
+}
+
+impl From<&bool> for UserConfirmation {
+    fn from(yes: &bool) -> Self {
+        Self::from(*yes)
+    }
+}
+
+impl From<bool> for UserConfirmation {
+    fn from(yes: bool) -> Self {
+        if yes {
+            UserConfirmation::Granted
+        } else {
+            UserConfirmation::Required
+        }
+    }
+}
+
+impl UserConfirmation {
+    /// Checks if the user confirmation is required.
+    pub fn is_required(&self) -> bool {
+        matches!(self, UserConfirmation::Required)
     }
 }

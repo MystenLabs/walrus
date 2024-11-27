@@ -659,6 +659,8 @@ impl StorageNodeHandleBuilder {
         let contract_service = self.contract_service.unwrap_or_else(|| {
             Box::new(StubContractService {
                 system_parameters: FixedSystemParameters {
+                    n_shards: committee_service.committee().n_shards(),
+                    max_epochs_ahead: 200,
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
                 },

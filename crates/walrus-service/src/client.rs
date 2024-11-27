@@ -713,7 +713,7 @@ impl<T> Client<T> {
                             .expect("the node index is computed from the vector of members"),
                     );
                 }
-                Err(error) => tracing::warn!(node, %error, "storing metadata and pairs failed"),
+                Err(error) => tracing::info!(node, %error, "storing metadata and pairs failed"),
             }
         }
 

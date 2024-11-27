@@ -3901,6 +3901,8 @@ mod tests {
             .expect_fixed_system_parameters()
             .returning(|| {
                 Ok(FixedSystemParameters {
+                    n_shards: NonZeroU16::new(1000).expect("1000 > 0"),
+                    max_epochs_ahead: 200,
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
                 })

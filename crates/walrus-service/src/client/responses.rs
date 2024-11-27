@@ -4,9 +4,11 @@
 //! Structures of client results returned by the daemon or through the JSON API.
 
 use std::{
+    collections::HashMap,
     fmt::Display,
     num::NonZeroU16,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
@@ -222,12 +224,15 @@ pub(crate) struct InfoOutput {
     pub(crate) n_shards: NonZeroU16,
     pub(crate) n_nodes: usize,
     pub(crate) storage_unit_size: u64,
-    pub(crate) price_per_unit_size: u64,
+    pub(crate) storage_price_per_unit_size: u64,
+    pub(crate) write_price_per_unit_size: u64,
     pub(crate) max_blob_size: u64,
     pub(crate) marginal_size: u64,
     pub(crate) metadata_price: u64,
     pub(crate) marginal_price: u64,
     pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+    pub(crate) epoch_duration: Duration,
+    pub(crate) max_epochs_ahead: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) dev_info: Option<InfoDevOutput>,
 }
@@ -245,6 +250,7 @@ pub(crate) struct InfoDevOutput {
     pub(crate) min_correct_shards: u16,
     pub(crate) quorum_threshold: u16,
     pub(crate) storage_nodes: Vec<StorageNodeInfo>,
+    pub(crate) next_storage_nodes: Option<Vec<StorageNodeInfo>>,
     #[serde(skip_serializing)]
     pub(crate) committee: Committee,
 }
@@ -260,6 +266,50 @@ pub(crate) struct StorageNodeInfo {
     pub(crate) network_public_key: NetworkPublicKey,
     pub(crate) n_shards: usize,
     pub(crate) shard_ids: Vec<ShardIndex>,
+    pub(crate) node_id: ObjectID,
+    pub(crate) stake: u64,
+}
+
+impl StorageNodeInfo {
+    fn from_node_and_stake(value: StorageNode, stake: u64) -> Self {
+        let StorageNode {
+            name,
+            node_id,
+            network_address,
+            public_key,
+            next_epoch_public_key,
+            network_public_key,
+            shard_ids,
+        } = value;
+        Self {
+            name,
+            network_address,
+            public_key,
+            next_epoch_public_key,
+            network_public_key,
+            n_shards: shard_ids.len(),
+            shard_ids,
+            node_id,
+            stake,
+        }
+    }
+}
+
+fn merge_nodes_and_stake(
+    committee: &Committee,
+    stake_assignment: &HashMap<ObjectID, u64>,
+) -> Vec<StorageNodeInfo> {
+    committee
+        .members()
+        .iter()
+        .cloned()
+        .map(|node| {
+            let stake = *stake_assignment
+                .get(&node.node_id)
+                .expect("a node in the committee must have stake");
+            StorageNodeInfo::from_node_and_stake(node, stake)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -295,29 +345,6 @@ impl ExampleBlobInfo {
     }
 }
 
-impl From<StorageNode> for StorageNodeInfo {
-    fn from(value: StorageNode) -> Self {
-        let StorageNode {
-            name,
-            node_id: _,
-            network_address,
-            public_key,
-            next_epoch_public_key,
-            network_public_key,
-            shard_ids,
-        } = value;
-        Self {
-            name,
-            network_address,
-            public_key,
-            next_epoch_public_key,
-            network_public_key,
-            n_shards: shard_ids.len(),
-            shard_ids,
-        }
-    }
-}
-
 impl InfoOutput {
     /// Computes the Walrus system information after reading relevant data from the Walrus system
     /// object on chain.
@@ -325,8 +352,15 @@ impl InfoOutput {
         sui_read_client: &impl ReadClient,
         dev: bool,
     ) -> anyhow::Result<Self> {
+        // TODO(giac): reduce the number of RPC calls by exposing the system and staking objects
+        // directly (#1222).
         let committee = sui_read_client.current_committee().await?;
-        let price_per_unit_size = sui_read_client.storage_price_per_unit_size().await?;
+        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
+        let fixed_params = sui_read_client.fixed_system_parameters().await?;
+        let next_committee = sui_read_client.next_committee().await?;
+        let stake_assignment = sui_read_client.stake_assignment().await?;
 
         let current_epoch = committee.epoch;
         let n_shards = committee.n_shards();
@@ -338,7 +372,8 @@ impl InfoOutput {
 
         let metadata_storage_size =
             (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
-        let metadata_price = storage_units_from_size(metadata_storage_size) * price_per_unit_size;
+        let metadata_price =
+            storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
 
         // Make sure our marginal size can actually be encoded.
         let mut marginal_size = 1024 * 1024; // Start with 1 MiB.
@@ -348,14 +383,14 @@ impl InfoOutput {
         let marginal_price = storage_units_from_size(
             encoded_slivers_length_for_n_shards(n_shards, marginal_size)
                 .expect("we can encode 1 MiB"),
-        ) * price_per_unit_size;
+        ) * storage_price_per_unit_size;
 
         let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
         let example_blob_1 = example_blob_0 * 32;
         let example_blobs = [example_blob_0, example_blob_1, max_blob_size]
             .into_iter()
             .map(|unencoded_size| {
-                ExampleBlobInfo::new(unencoded_size, n_shards, price_per_unit_size)
+                ExampleBlobInfo::new(unencoded_size, n_shards, storage_price_per_unit_size)
                     .expect("we can encode the given examples")
             })
             .collect();
@@ -365,12 +400,12 @@ impl InfoOutput {
             let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
                 .expect("we can compute the encoded length of the max blob size");
             let f = bft::max_n_faulty(n_shards);
-            let storage_nodes = committee
-                .members()
-                .iter()
-                .cloned()
-                .map(StorageNodeInfo::from)
-                .collect();
+            let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
+
+            let next_storage_nodes = next_committee
+                .as_ref()
+                .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
+
             InfoDevOutput {
                 n_primary_source_symbols,
                 n_secondary_source_symbols,
@@ -381,13 +416,15 @@ impl InfoOutput {
                 min_correct_shards: n_shards.get() - f,
                 quorum_threshold: 2 * f + 1,
                 storage_nodes,
+                next_storage_nodes,
                 committee,
             }
         });
 
         Ok(Self {
             storage_unit_size: BYTES_PER_UNIT_SIZE,
-            price_per_unit_size,
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
             current_epoch,
             n_shards,
             n_nodes,
@@ -396,6 +433,8 @@ impl InfoOutput {
             marginal_size,
             marginal_price,
             example_blobs,
+            epoch_duration: fixed_params.epoch_duration,
+            max_epochs_ahead: fixed_params.max_epochs_ahead,
             dev_info,
         })
     }
@@ -412,6 +451,7 @@ pub(crate) struct DeleteOutput {
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub(crate) object_id: Option<ObjectID>,
     pub(crate) deleted_blobs: Vec<Blob>,
+    pub(crate) post_deletion_status: Option<BlobStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
