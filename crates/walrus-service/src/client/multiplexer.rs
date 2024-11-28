@@ -327,11 +327,9 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
         let sui_coins: Vec<_> = sui_client
             .coin_read_api()
             .get_coins_stream(address, None)
-            .collect::<Vec<_>>()
-            .await
-            .iter()
-            .map(Coin::object_ref)
-            .collect();
+            .map(|coin| coin.object_ref())
+            .collect()
+            .await;
 
         let wal_coins: Vec<_> = sui_client
             .coin_read_api()
