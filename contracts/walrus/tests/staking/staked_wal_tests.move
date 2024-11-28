@@ -4,7 +4,7 @@
 module walrus::staked_wal_tests;
 
 use sui::test_utils::destroy;
-use walrus::{staked_wal, test_utils::mint_balance};
+use walrus::{staked_wal, test_utils::{assert_eq, mint_balance}};
 
 #[test]
 // Scenario: Test the staked WAL flow
@@ -42,34 +42,70 @@ fun test_staked_wal_flow() {
     destroy(principal);
 }
 
-#[test, expected_failure(abort_code = staked_wal::ECantSplitWithdrawing)]
-// Scenario: Try splitting a staked WAL in the withdrawing state
-// TODO: consider enabling this behavior in the future
-fun test_unable_to_split_withdrawing() {
+#[test]
+fun test_split_join_early_withdraw() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
-    let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
+    let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
 
-    staked_wal.set_withdrawing(2, option::some(100));
-    let _other = staked_wal.split(50, ctx);
+    sw1.set_withdrawing(2, option::none());
 
-    abort 1337
+    let sw2 = sw1.split(500, ctx);
+
+    assert_eq!(sw1.value(), 500);
+    assert_eq!(sw2.value(), 500);
+    assert!(sw1.pool_token_amount().is_none());
+    assert!(sw2.pool_token_amount().is_none());
+
+    sw1.join(sw2);
+
+    assert_eq!(sw1.value(), 1000);
+    assert!(sw1.pool_token_amount().is_none());
+
+    destroy(sw1);
 }
 
-#[test, expected_failure(abort_code = staked_wal::ECantJoinWithdrawing)]
-// Scenario: Try splitting a staked WAL in the withdrawing state
-// TODO: consider enabling this behavior in the future
-fun test_unable_to_join_withdrawing() {
+#[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
+fun test_try_join_early_withdraw_with_non_early() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
-    let mut staked_wal_a = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
-    let mut staked_wal_b = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
+    let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 0, ctx);
+    let mut sw2 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
 
-    staked_wal_a.set_withdrawing(2, option::some(100));
-    staked_wal_b.set_withdrawing(2, option::some(100));
-    staked_wal_a.join(staked_wal_b);
+    sw1.set_withdrawing(2, option::some(1000));
+    sw2.set_withdrawing(2, option::none());
 
-    abort 1337
+    sw1.join(sw2);
+
+    abort
+}
+
+#[test]
+fun test_split_join_withdrawing() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut sw1 = staked_wal::mint(node_id, mint_balance(2000), 1, ctx);
+
+    // set the staked WAL to withdrawing, 1000 pool tokens
+    sw1.set_withdrawing(2, option::some(1000));
+
+    let sw2 = sw1.split(500, ctx);
+
+    assert!(sw1.is_withdrawing());
+    assert_eq!(sw1.value(), 1500);
+    sw1.pool_token_amount().do!(|amt| assert_eq!(amt, 750)); // 3/4 of the pool tokens
+
+    assert!(sw2.is_withdrawing());
+    assert_eq!(sw2.value(), 500);
+    sw2.pool_token_amount().do!(|amt| assert_eq!(amt, 250)); // 1/4 of the pool tokens
+
+    sw1.join(sw2);
+
+    assert!(sw1.is_withdrawing());
+    assert_eq!(sw1.value(), 2000);
+    sw1.pool_token_amount().do!(|amt| assert_eq!(amt, 1000)); // all the pool tokens
+
+    destroy(sw1);
 }
 
 #[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]

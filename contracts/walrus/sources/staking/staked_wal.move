@@ -18,10 +18,6 @@ const ENotWithdrawing: u64 = 0;
 const EMetadataMismatch: u64 = 1;
 const EInvalidAmount: u64 = 2;
 const ENonZeroPrincipal: u64 = 3;
-// TODO: possibly enable this behavior in the future
-const ECantJoinWithdrawing: u64 = 4;
-// TODO: possibly enable this behavior in the future
-const ECantSplitWithdrawing: u64 = 5;
 /// Trying to mark stake as withdrawing when it is already marked as withdrawing.
 const EAlreadyWithdrawing: u64 = 6;
 
@@ -152,15 +148,42 @@ public fun pool_token_amount(sw: &StakedWal): Option<u64> {
 ///
 /// Aborts if the `node_id` or `activation_epoch` of the staked WALs do not match.
 public fun join(sw: &mut StakedWal, other: StakedWal) {
-    let StakedWal { id, state, node_id, activation_epoch, principal } = other;
-    assert!(sw.state == state, EMetadataMismatch);
-    assert!(sw.node_id == node_id, EMetadataMismatch);
-    assert!(!sw.is_withdrawing(), ECantJoinWithdrawing);
-    assert!(sw.activation_epoch == activation_epoch, EMetadataMismatch);
+    assert!(sw.node_id == other.node_id, EMetadataMismatch);
 
+    // Simple scenario - staked wal is in `Staked` state. We guarantee that the
+    // metadata is identical: same activation epoch and both are in the same state.
+    if (sw.is_staked()) {
+        assert!(other.is_staked(), EMetadataMismatch);
+        assert!(sw.activation_epoch == other.activation_epoch, EMetadataMismatch);
+
+        let StakedWal { id, principal, .. } = other;
+        sw.principal.join(principal);
+        id.delete();
+        return
+    };
+
+    // Withdrawing scenario - we no longer check that the activation epoch is
+    // the same, as the staked WAL is in the process of withdrawing. Instead,
+    // we make sure that the withdraw epoch is the same.
+    assert!(sw.is_withdrawing() && other.is_withdrawing(), EMetadataMismatch);
+    assert!(sw.withdraw_epoch() == other.withdraw_epoch(), EMetadataMismatch);
+
+    let pool_token_amount = other.pool_token_amount();
+    let StakedWal { id, principal, .. } = other;
+    sw.principal.join(principal);
     id.delete();
 
-    sw.principal.join(principal);
+    // Both either need to be set or unset.
+    assert!(pool_token_amount.is_some() == sw.pool_token_amount().is_some(), EMetadataMismatch);
+
+    pool_token_amount.do!(|amount| {
+        match (&mut sw.state) {
+            StakedWalState::Withdrawing { pool_token_amount: current_pool_token_amount, .. } => {
+                current_pool_token_amount.do_mut!(|current| *current = *current + amount);
+            },
+            _ => abort , // unreachable
+        }
+    });
 }
 
 /// Splits the staked WAL into two parts, one with the `amount` and the other
@@ -170,14 +193,45 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
 public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWal {
     assert!(sw.principal.value() >= amount, EInvalidAmount);
-    assert!(!sw.is_withdrawing(), ECantSplitWithdrawing);
 
-    StakedWal {
-        id: object::new(ctx),
-        state: sw.state, // state is preserved
-        node_id: sw.node_id,
-        principal: sw.principal.split(amount),
-        activation_epoch: sw.activation_epoch,
+    // Simple scenario - the staked WAL is not withdrawing.
+    if (!sw.is_withdrawing()) {
+        return StakedWal {
+            id: object::new(ctx),
+            state: sw.state, // state is preserved
+            node_id: sw.node_id,
+            principal: sw.principal.split(amount),
+            activation_epoch: sw.activation_epoch,
+        }
+    };
+
+    // If the staked WAL is withdrawing, we need to perform pool token amount
+    // calculation based on the amount being split. Needn't worry about the
+    // rounding errors as the value is always subtracted from the principal.
+    match (&mut sw.state) {
+        StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount } => {
+            // reclaculate the pool token amount if it is set, otherwise ignore
+            let new_pool_token_amount = if (pool_token_amount.is_some()) {
+                let pool_token_amount = pool_token_amount.borrow_mut();
+                let new_pool_token_amount = (*pool_token_amount * amount) / sw.principal.value();
+                *pool_token_amount = *pool_token_amount - new_pool_token_amount;
+                option::some(new_pool_token_amount)
+            } else {
+                option::none()
+            };
+
+            StakedWal {
+                id: object::new(ctx),
+                state: StakedWalState::Withdrawing {
+                    withdraw_epoch: *withdraw_epoch,
+                    pool_token_amount: new_pool_token_amount,
+                },
+                node_id: sw.node_id,
+                principal: sw.principal.split(amount),
+                activation_epoch: sw.activation_epoch,
+            }
+        },
+        _ => abort , // unreachable
     }
 }
 

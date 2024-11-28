@@ -652,3 +652,49 @@ fun test_advance_pool_epoch() {
     destroy(sw1);
     destroy(sw2);
 }
+
+#[test]
+// Scenario:
+// - E0: Alice stakes
+// - E1: Bob stakes
+// - E2: Nothing
+// - E3: Alice requests withdrawal, so does Bob
+// - E4+: Join staked wal, withdraw
+fun staked_wal_join_different_activation_epochs() {
+    let mut test = context_runner();
+
+    // E0
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+    let mut sw1 = pool.stake(mint_balance(1000), &wctx, ctx);
+
+    // E1
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+    let mut sw2 = pool.stake(mint_balance(1000), &wctx, ctx);
+
+    // E2, then E3
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    pool.request_withdraw_stake(&mut sw1, &wctx);
+    pool.request_withdraw_stake(&mut sw2, &wctx);
+
+    // E4
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    // Two different activation epochs, but the same withdraw epoch
+    assert!(sw1.activation_epoch() != sw2.activation_epoch());
+    assert_eq!(sw1.withdraw_epoch(), sw2.withdraw_epoch());
+    sw1.join(sw2);
+
+    // Make sure `join` works correctly
+    assert_eq!(sw1.value(), 2000);
+    sw1.pool_token_amount().do!(|amount| assert_eq!(amount, 2000));
+    assert_eq!(pool.withdraw_stake(sw1, &wctx).destroy_for_testing(), 2000);
+
+    destroy(pool);
+}
