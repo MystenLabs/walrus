@@ -34,7 +34,7 @@ use walrus_core::{
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient},
+    client::{BlobPersistence, ReadClient, SuiContractClient},
     types::{Blob, BlobEvent, StakedWal},
 };
 
@@ -308,9 +308,12 @@ impl<T: ReadClient> Client<T> {
     }
 }
 
-impl<T: ContractClient> Client<T> {
+impl Client<SuiContractClient> {
     /// Creates a new client starting from a config file.
-    pub async fn new_contract_client(config: Config, sui_client: T) -> ClientResult<Self> {
+    pub async fn new_contract_client(
+        config: Config,
+        sui_client: SuiContractClient,
+    ) -> ClientResult<Self> {
         Ok(Client::new(config, sui_client.read_client())
             .await?
             .with_client(sui_client)
@@ -491,7 +494,7 @@ impl<T: ContractClient> Client<T> {
     }
 
     /// Creates a resource manager for the client.
-    pub async fn resource_manager(&self) -> ResourceManager<T> {
+    pub async fn resource_manager(&self) -> ResourceManager {
         ResourceManager::new(
             &self.sui_client,
             self.committees.read().await.write_committee().epoch,

@@ -15,7 +15,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch};
 use walrus_sui::{
-    client::{ContractClient, FixedSystemParameters, SuiClientError, SuiContractClient},
+    client::{FixedSystemParameters, ReadClient as _, SuiClientError, SuiContractClient},
     types::move_structs::EpochState,
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -48,14 +48,14 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
 }
 
-/// A [`SystemContractService`] that uses a [`ContractClient`] for chain interactions.
+/// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
 #[derive(Debug)]
-pub struct SuiSystemContractService<T> {
-    contract_client: Arc<TokioMutex<T>>,
+pub struct SuiSystemContractService {
+    contract_client: Arc<TokioMutex<SuiContractClient>>,
     rng: Arc<StdMutex<StdRng>>,
 }
 
-impl<T> Clone for SuiSystemContractService<T> {
+impl Clone for SuiSystemContractService {
     fn clone(&self) -> Self {
         Self {
             contract_client: self.contract_client.clone(),
@@ -64,24 +64,19 @@ impl<T> Clone for SuiSystemContractService<T> {
     }
 }
 
-impl<T> SuiSystemContractService<T>
-where
-    T: ContractClient,
-{
-    /// Creates a new service with the supplied [`ContractClient`].
-    pub fn new(contract_client: T) -> Self {
+impl SuiSystemContractService {
+    /// Creates a new service with the supplied [`SuiContractClient`].
+    pub fn new(contract_client: SuiContractClient) -> Self {
         Self::new_with_seed(contract_client, rand::thread_rng().gen())
     }
 
-    fn new_with_seed(contract_client: T, seed: u64) -> Self {
+    fn new_with_seed(contract_client: SuiContractClient, seed: u64) -> Self {
         Self {
             contract_client: Arc::new(TokioMutex::new(contract_client)),
             rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(seed))),
         }
     }
-}
 
-impl SuiSystemContractService<SuiContractClient> {
     /// Creates a new provider with a [`SuiContractClient`] constructed from the config.
     pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
         Ok(Self::new(config.new_contract_client().await?))
@@ -89,10 +84,7 @@ impl SuiSystemContractService<SuiContractClient> {
 }
 
 #[async_trait]
-impl<T> SystemContractService for SuiSystemContractService<T>
-where
-    T: ContractClient + std::fmt::Debug + Sync + Send,
-{
+impl SystemContractService for SuiSystemContractService {
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
         let contract_client = self.contract_client.lock().await;
         contract_client

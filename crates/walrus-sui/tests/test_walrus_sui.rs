@@ -15,14 +15,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::{
-        BlobObjectMetadata,
-        BlobPersistence,
-        ContractClient,
-        ReadClient,
-        SuiClientError,
-        SuiContractClient,
-    },
+    client::{BlobObjectMetadata, BlobPersistence, ReadClient, SuiClientError, SuiContractClient},
     test_utils::{
         self,
         get_default_blob_certificate,

@@ -23,7 +23,7 @@ use walrus_core::{
     EpochCount,
 };
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient},
+    client::{BlobPersistence, ReadClient},
     utils::{price_for_encoded_length, SuiNetwork},
 };
 

@@ -31,7 +31,7 @@ use walrus_service::{
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient},
+    client::{BlobPersistence, ReadClient},
     types::{BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};

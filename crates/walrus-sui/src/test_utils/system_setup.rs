@@ -28,7 +28,7 @@ use walrus_core::{
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
-    client::{ContractClient, ReadClient, SuiClientError, SuiContractClient},
+    client::{ReadClient, SuiClientError, SuiContractClient},
     system_setup::{self, InitSystemParams},
     types::{NodeRegistrationParams, StorageNodeCap},
 };

@@ -28,7 +28,7 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{encoding::Primary, BlobId, EpochCount};
-use walrus_sui::client::{BlobPersistence, ContractClient, ReadClient};
+use walrus_sui::client::{BlobPersistence, ReadClient, SuiContractClient};
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan};
@@ -64,7 +64,7 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
     }
 }
 
-impl<T: ContractClient> WalrusWriteClient for Client<T> {
+impl WalrusWriteClient for Client<SuiContractClient> {
     async fn write_blob(
         &self,
         blob: &[u8],

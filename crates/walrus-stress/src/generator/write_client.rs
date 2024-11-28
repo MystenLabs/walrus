@@ -8,7 +8,7 @@ use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, CoinRefill, Config, Refiller, StoreWhen};
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient, ReadClient, SuiContractClient},
+    client::{BlobPersistence, ReadClient, SuiContractClient},
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
 };

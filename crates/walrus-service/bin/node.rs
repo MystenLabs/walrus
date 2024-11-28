@@ -53,11 +53,7 @@ use walrus_service::{
         MetricsAndLoggingRuntime,
     },
 };
-use walrus_sui::{
-    client::{ContractClient, SuiContractClient},
-    types::move_structs::VotingParams,
-    utils::SuiNetwork,
-};
+use walrus_sui::{client::SuiContractClient, types::move_structs::VotingParams, utils::SuiNetwork};
 
 const VERSION: &str = version!();
 

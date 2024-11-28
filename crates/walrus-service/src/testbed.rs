@@ -26,7 +26,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::{ContractClient as _, SuiContractClient},
+    client::SuiContractClient,
     system_setup::InitSystemParams,
     test_utils::{
         system_setup::{

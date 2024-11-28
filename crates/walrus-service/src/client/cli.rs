@@ -83,7 +83,8 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`Client<ContractClient>`] based on the provided [`Config`] with write access to Sui.
+/// Creates a [`Client<SuiContractClient>`] based on the provided [`Config`] with write access to
+/// Sui.
 pub async fn get_contract_client(
     config: Config,
     wallet: Result<WalletContext>,

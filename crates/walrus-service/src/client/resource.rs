@@ -10,7 +10,7 @@ use utoipa::ToSchema;
 use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, EpochCount};
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
-    client::{BlobPersistence, ContractClient},
+    client::{BlobPersistence, SuiContractClient},
     types::Blob,
     utils::price_for_encoded_length,
 };
@@ -109,14 +109,14 @@ pub enum StoreOp {
 
 /// Manages the storage and blob resources in the Wallet on behalf of the client.
 #[derive(Debug)]
-pub struct ResourceManager<'a, C> {
-    sui_client: &'a C,
+pub struct ResourceManager<'a> {
+    sui_client: &'a SuiContractClient,
     write_committee_epoch: Epoch,
 }
 
-impl<'a, C: ContractClient> ResourceManager<'a, C> {
+impl<'a> ResourceManager<'a> {
     /// Creates a new resource manager.
-    pub fn new(sui_client: &'a C, write_committee_epoch: Epoch) -> Self {
+    pub fn new(sui_client: &'a SuiContractClient, write_committee_epoch: Epoch) -> Self {
         Self {
             sui_client,
             write_committee_epoch,
