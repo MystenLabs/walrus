@@ -39,7 +39,7 @@ use walrus_service::{
             SuiConfig,
         },
         events::{event_processor::EventProcessor, EventProcessorConfig},
-        server::{UserServer, UserServerConfig},
+        server::{RestApiConfig, RestApiServer},
         system_events::{EventManager, SuiSystemEventProvider},
         StorageNode,
     },
@@ -877,10 +877,10 @@ impl StorageNodeRuntime {
             result
         });
 
-        let rest_api = UserServer::new(
+        let rest_api = RestApiServer::new(
             walrus_node,
             cancel_token.child_token(),
-            UserServerConfig::from(node_config),
+            RestApiConfig::from(node_config),
             &metrics_registry,
         );
         let mut rest_api_address = node_config.rest_api_address;

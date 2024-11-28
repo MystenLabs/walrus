@@ -47,7 +47,7 @@ const HEADROOM: usize = 128;
 
 /// Configuration for the rest API.
 #[derive(Debug)]
-pub struct UserServerConfig {
+pub struct RestApiConfig {
     /// The socket address on which the server should listen.
     pub bind_address: SocketAddr,
 
@@ -64,7 +64,7 @@ pub struct UserServerConfig {
     pub graceful_shutdown_period: Option<Duration>,
 }
 
-impl From<&StorageNodeConfig> for UserServerConfig {
+impl From<&StorageNodeConfig> for RestApiConfig {
     fn from(config: &StorageNodeConfig) -> Self {
         let tls_certificate = if config.tls.disable_tls {
             None
@@ -90,7 +90,7 @@ impl From<&StorageNodeConfig> for UserServerConfig {
             .unwrap_or(Some(defaults::REST_GRACEFUL_SHUTDOWN_PERIOD_SECS))
             .map(Duration::from_secs);
 
-        UserServerConfig {
+        RestApiConfig {
             bind_address: config.rest_api_address,
             tls_certificate,
             graceful_shutdown_period,
@@ -130,26 +130,25 @@ pub enum TlsCertificateSource {
     },
 }
 
-/// Represents a user server.
+/// Represents a server for the Walrus REST API.
 #[derive(Debug)]
-// TODO(jsmith):  Rename to something more appropriate (#710)
-pub struct UserServer<S> {
+pub struct RestApiServer<S> {
     state: Arc<S>,
-    config: UserServerConfig,
+    config: RestApiConfig,
     metrics: HistogramVec,
     cancel_token: CancellationToken,
     handle: Mutex<Option<Handle>>,
 }
 
-impl<S> UserServer<S>
+impl<S> RestApiServer<S>
 where
     S: ServiceState + Send + Sync + 'static,
 {
-    /// Creates a new user server.
+    /// Creates a new REST API server.
     pub fn new(
         state: Arc<S>,
         cancel_token: CancellationToken,
-        config: UserServerConfig,
+        config: RestApiConfig,
         registry: &Registry,
     ) -> Self {
         Self {
@@ -602,9 +601,9 @@ mod tests {
     async fn start_rest_api_with_config(
         config: &StorageNodeConfig,
     ) -> JoinHandle<Result<(), std::io::Error>> {
-        let rest_api_config = UserServerConfig::from(config);
+        let rest_api_config = RestApiConfig::from(config);
 
-        let server = UserServer::new(
+        let server = RestApiServer::new(
             Arc::new(MockServiceState),
             CancellationToken::new(),
             rest_api_config,
@@ -941,7 +940,7 @@ mod tests {
     async fn shutdown_server() {
         let cancel_token = CancellationToken::new();
         let config = test_utils::storage_node_config();
-        let server = UserServer::new(
+        let server = RestApiServer::new(
             Arc::new(MockServiceState),
             cancel_token.clone(),
             config.as_ref().into(),

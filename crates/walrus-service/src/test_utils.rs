@@ -82,7 +82,7 @@ use crate::{
             EventStreamCursor,
             IndexedStreamElement,
         },
-        server::{UserServer, UserServerConfig},
+        server::{RestApiConfig, RestApiServer},
         system_events::{EventManager, EventRetentionManager, SystemEventProvider},
         DatabaseConfig,
         Storage,
@@ -177,7 +177,7 @@ pub struct StorageNodeHandle {
     /// The address of the metric service.
     pub metrics_address: SocketAddr,
     /// Handle the REST API.
-    pub rest_api: Arc<UserServer<StorageNode>>,
+    pub rest_api: Arc<RestApiServer<StorageNode>>,
     /// Cancellation token for the REST API.
     pub cancel: CancellationToken,
     /// Client that can be used to communicate with the node.
@@ -409,10 +409,10 @@ impl SimStorageNodeHandle {
         let node = Arc::new(node);
 
         // Starts rest api and node threads.
-        let rest_api = Arc::new(UserServer::new(
+        let rest_api = Arc::new(RestApiServer::new(
             node.clone(),
             cancel_token.clone(),
-            UserServerConfig::from(&config),
+            RestApiConfig::from(&config),
             &metrics_registry,
         ));
 
@@ -710,10 +710,10 @@ impl StorageNodeHandleBuilder {
             .await?;
         let node = Arc::new(node);
 
-        let rest_api = Arc::new(UserServer::new(
+        let rest_api = Arc::new(RestApiServer::new(
             node.clone(),
             cancel_token.clone(),
-            UserServerConfig::from(&config),
+            RestApiConfig::from(&config),
             &metrics_registry,
         ));
 
