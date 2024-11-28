@@ -45,6 +45,7 @@ use walrus_core::{
 use walrus_test_utils::WithTempDir;
 
 use crate::{
+    client::SuiContractClient,
     types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
     utils::{create_wallet, request_sui_from_faucet, sign_and_send_ptb, SuiNetwork},
 };
@@ -357,6 +358,22 @@ pub async fn new_wallet_on_sui_test_cluster(
     let wallet = wallet_for_testing(&mut cluster_wallet).await?;
     drop(path_guard);
     Ok(wallet)
+}
+
+/// Returns a new `SuiContractClient` on the global Sui test cluster.
+pub async fn new_contract_client_on_sui_test_cluster(
+    sui_cluster_handle: Arc<TestClusterHandle>,
+    existing_client: &SuiContractClient,
+) -> anyhow::Result<WithTempDir<SuiContractClient>> {
+    let system_object = existing_client.read_client().get_system_object_id();
+    let staking_object = existing_client.read_client().get_staking_object_id();
+    let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
+        .await?
+        .and_then_async(|wallet| {
+            SuiContractClient::new(wallet, system_object, staking_object, DEFAULT_GAS_BUDGET)
+        })
+        .await?;
+    Ok(walrus_client)
 }
 
 /// Creates and returns a Sui test cluster.

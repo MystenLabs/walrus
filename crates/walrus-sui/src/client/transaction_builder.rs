@@ -332,9 +332,14 @@ impl WalrusPtbBuilder {
         )?;
         self.tx_sui_cost += amount;
         let amount_arg = self.pt_builder.pure(amount)?;
+
+        let split_coin = self
+            .pt_builder
+            .command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
+
         let result_arg = self.move_call(
             contracts::wal_exchange::exchange_all_for_wal,
-            vec![exchange_arg, amount_arg],
+            vec![exchange_arg, split_coin],
         )?;
         let wal_amount = exchange.exchange_rate.sui_to_wal(amount);
         self.tx_wal_balance += wal_amount;

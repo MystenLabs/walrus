@@ -15,11 +15,19 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::{BlobObjectMetadata, BlobPersistence, ReadClient, SuiClientError, SuiContractClient},
+    client::{
+        BlobObjectMetadata,
+        BlobPersistence,
+        CoinType,
+        ReadClient,
+        SuiClientError,
+        SuiContractClient,
+    },
     test_utils::{
         self,
         get_default_blob_certificate,
         get_default_invalid_certificate,
+        new_contract_client_on_sui_test_cluster,
         new_wallet_on_sui_test_cluster,
         system_setup::publish_with_default_system,
         TestClusterHandle,
@@ -338,5 +346,90 @@ async fn test_register_candidate() -> anyhow::Result<()> {
         Err(SuiClientError::CapabilityObjectAlreadyExists(_))
     ));
 
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+
+    let exchange_id = walrus_client
+        .as_ref()
+        .create_and_fund_exchange(1_000_000)
+        .await?;
+
+    let exchange_val = 100_000;
+    let pre_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    walrus_client
+        .as_ref()
+        .exchange_sui_for_wal(exchange_id, exchange_val)
+        .await?;
+
+    let post_balance = walrus_client.as_ref().balance(CoinType::Wal).await?;
+    assert_eq!(post_balance, pre_balance + exchange_val);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+    let (sui_cluster_handle, walrus_admin_client) = initialize_contract_and_wallet().await?;
+
+    let original_balance = walrus_admin_client.as_ref().balance(CoinType::Wal).await?;
+
+    let walrus_client = new_contract_client_on_sui_test_cluster(
+        sui_cluster_handle.clone(),
+        walrus_admin_client.as_ref(),
+    )
+    .await?;
+
+    let amount = 100_000;
+
+    // Fund the wallet with two separate WAL coins.
+    let wallet = walrus_admin_client.as_ref().wallet().await;
+    let mut tx_builder = walrus_admin_client.as_ref().transaction_builder();
+    tx_builder
+        .pay_wal(walrus_client.as_ref().address(), amount)
+        .await?;
+    walrus_admin_client
+        .as_ref()
+        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
+        .await?;
+    assert_eq!(walrus_client.as_ref().balance(CoinType::Wal).await?, amount);
+
+    // Second transaction.
+    let mut tx_builder = walrus_admin_client.as_ref().transaction_builder();
+    tx_builder
+        .pay_wal(walrus_client.as_ref().address(), amount)
+        .await?;
+    walrus_admin_client
+        .as_ref()
+        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
+        .await?;
+    drop(wallet);
+    assert_eq!(
+        walrus_client.as_ref().balance(CoinType::Wal).await?,
+        2 * amount
+    );
+
+    // Now send the full amount back, which should trigger the squashing.
+    let wallet = walrus_client.as_ref().wallet().await;
+    let mut tx_builder = walrus_client.as_ref().transaction_builder();
+    tx_builder
+        .pay_wal(walrus_admin_client.as_ref().address(), amount * 2)
+        .await?;
+    walrus_client
+        .as_ref()
+        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
+        .await?;
+    assert_eq!(walrus_client.as_ref().balance(CoinType::Wal).await?, 0);
+    assert_eq!(
+        walrus_admin_client.as_ref().balance(CoinType::Wal).await?,
+        original_balance
+    );
     Ok(())
 }

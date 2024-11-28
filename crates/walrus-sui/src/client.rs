@@ -7,7 +7,6 @@ use core::fmt;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use read_client::CoinType;
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -60,6 +59,7 @@ use crate::{
 mod read_client;
 pub use read_client::{
     get_system_package_id,
+    CoinType,
     CommitteesAndState,
     FixedSystemParameters,
     ReadClient,
@@ -237,6 +237,13 @@ impl SuiContractClient {
     /// Returns the gas budget used by the client.
     pub fn gas_budget(&self) -> u64 {
         self.gas_budget
+    }
+
+    /// Returns the balance of the owner for the given coin type.
+    pub async fn balance(&self, coin_type: CoinType) -> SuiClientResult<u64> {
+        self.read_client
+            .balance(self.wallet_address, coin_type)
+            .await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and an encoded
