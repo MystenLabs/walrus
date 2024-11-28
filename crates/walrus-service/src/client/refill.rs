@@ -3,14 +3,12 @@
 
 //! Utilities to refill gas for the stress clients.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, pin::pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use futures::{
-    future::{self, try_join_all},
-    StreamExt,
-};
+use futures::{future::try_join_all, Stream, StreamExt};
 use sui_sdk::{
+    rpc_types::Coin,
     types::{
         base_types::{ObjectID, SuiAddress},
         programmable_transaction_builder::ProgrammableTransactionBuilder,
@@ -307,7 +305,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
             addresses,
             period,
             sui_client,
-            Some(self.coin_type()),
+            Some(self.wal_coin_type()),
             MIN_COIN_VALUE,
             MIN_NUM_COINS,
             move |refiller, address| {
@@ -349,15 +347,14 @@ impl<G: CoinRefill + 'static> Refiller<G> {
                     let coin_type_inner = coin_type.clone();
                     let inner_fut = inner_action(refiller.clone(), address);
                     async move {
-                        if sui_client
-                            .coin_read_api()
-                            .get_coins_stream(address, coin_type_inner)
-                            .filter(|coin| future::ready(coin.balance >= min_coin_value))
-                            .take(min_num_coins)
-                            .collect::<Vec<_>>()
-                            .await
-                            .len()
-                            < min_num_coins
+                        if should_refill(
+                            sui_client,
+                            address,
+                            coin_type_inner.clone(),
+                            min_coin_value,
+                            min_num_coins,
+                        )
+                        .await
                         {
                             inner_fut.await
                         } else {
@@ -378,7 +375,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
     }
 
     /// The WAL coin type.
-    pub fn coin_type(&self) -> String {
+    pub fn wal_coin_type(&self) -> String {
         format!("{}::wal::WAL", self.system_pkg_id)
     }
 }
@@ -400,4 +397,123 @@ pub struct RefillHandles {
     pub _gas_refill_handle: JoinHandle<anyhow::Result<()>>,
     /// The handle for the WAL refill task.
     pub _wal_refill_handle: JoinHandle<anyhow::Result<()>>,
+}
+
+/// Checks if the wallet should be refilled.
+///
+/// The wallet should be refilled if it has less than `MIN_NUM_COINS` coins of value at least
+/// `MIN_COIN_VALUE`. _However_, if the RPC returns an error, we assume that the wallet has enough
+/// coins and we do not try to refill it, threfore returning `false`.
+pub async fn should_refill(
+    sui_client: &SuiClient,
+    address: SuiAddress,
+    coin_type_inner: Option<String>,
+    min_coin_value: u64,
+    min_num_coins: usize,
+) -> bool {
+    // Note that `!has_enough_coins_of_value => should_refill`.
+    !has_enough_coins_of_value(
+        sui_client,
+        address,
+        coin_type_inner.clone(),
+        min_coin_value,
+        min_num_coins,
+    )
+    .await
+    .inspect_err(|error| {
+        tracing::debug!(
+            ?error,
+            %address,
+            "failed checking the amount of coins owned by the address"
+        );
+    })
+    // If the returned value is an error, we assume that the RPC failed, the
+    // address has enough coins, and we do not try to refill.
+    .unwrap_or(true)
+}
+
+/// Checks if the given address has sufficient coins of a given type.
+///
+/// Specifically, ensures the address has `min_num_coins` coins of `coin_type` with a balance of at
+/// least `min_coin_value`.
+pub async fn has_enough_coins_of_value(
+    sui_client: &SuiClient,
+    address: SuiAddress,
+    coin_type: Option<String>,
+    min_coin_value: u64,
+    mut min_num_coins: usize,
+) -> Result<bool, sui_sdk::error::Error> {
+    if min_num_coins == 0 {
+        // Everyone has 0 coins :)
+        return Ok(true);
+    }
+
+    while let Some(result) = pin!(get_coins_stream_with_errors(
+        sui_client,
+        address,
+        coin_type.clone()
+    ))
+    .next()
+    .await
+    {
+        if result?.balance >= min_coin_value {
+            min_num_coins -= 1;
+            if min_num_coins == 0 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// Reimplements the `get_coins_stream` method from the Sui Coin read API, propagating the errors.
+///
+/// The original method does not propagate the errors, which may cause the caller to think that
+/// there are no coins (an empty stream is returned) when instead the RPC was just not replying.
+pub fn get_coins_stream_with_errors(
+    sui_client: &SuiClient,
+    address: SuiAddress,
+    coin_type: Option<String>,
+) -> impl Stream<Item = Result<Coin, sui_sdk::error::Error>> + '_ {
+    futures_util::stream::unfold(
+        (
+            vec![],
+            /* cursor */ None,
+            /* has_next_page */ true,
+            coin_type,
+        ),
+        move |(mut data, cursor, has_next_page, coin_type)| async move {
+            if let Some(item) = data.pop() {
+                Some((
+                    Ok(item),
+                    (data, cursor, /* has_next_page */ true, coin_type),
+                ))
+            } else if has_next_page {
+                let page_result = sui_client
+                    .coin_read_api()
+                    .get_coins(address, coin_type.clone(), cursor, Some(100))
+                    .await;
+                match page_result {
+                    Ok(page) => {
+                        let mut data = page.data;
+                        data.reverse();
+                        data.pop().map(|item| {
+                            (
+                                Ok(item),
+                                (data, page.next_cursor, page.has_next_page, coin_type),
+                            )
+                        })
+                    }
+                    Err(error) => {
+                        Some((
+                            Err(error),
+                            (data, cursor, /* has_next_page */ false, coin_type),
+                        ))
+                    }
+                }
+            } else {
+                None
+            }
+        },
+    )
 }

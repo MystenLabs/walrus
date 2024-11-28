@@ -9,22 +9,28 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
-    time::Duration,
 };
 
+use futures::StreamExt as _;
 use prometheus::Registry;
 use sui_sdk::{
+    rpc_types::Coin,
     sui_client_config::SuiEnv,
     types::base_types::SuiAddress,
     wallet_context::WalletContext,
 };
+use sui_types::{
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::Command,
+};
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{get_system_package_id, BlobPersistence, SuiContractClient, SuiReadClient},
-    utils::create_wallet,
+    utils::{create_wallet, sign_and_send_ptb},
 };
 
 use super::{
+    cli::PublisherArgs,
     daemon::{WalrusReadClient, WalrusWriteClient},
     metrics::ClientMetrics,
     refill::{CoinRefill, NetworkOrWallet, RefillHandles, Refiller},
@@ -33,7 +39,7 @@ use super::{
     ClientResult,
     StoreWhen,
 };
-use crate::client::Config;
+use crate::client::{refill::should_refill, Config};
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
@@ -43,13 +49,11 @@ pub struct ClientMultiplexer {
 
 impl ClientMultiplexer {
     pub async fn new(
-        n_clients: usize,
         wallet: WalletContext,
         config: &Config,
         gas_budget: u64,
-        refill_interval: Duration,
         prometheus_registry: &Registry,
-        sub_wallets_dir: &Path,
+        args: &PublisherArgs,
     ) -> anyhow::Result<Self> {
         let sui_env = wallet.config.get_active_env()?.clone();
         let contract_client = config.new_contract_client(wallet, gas_budget).await?;
@@ -65,19 +69,20 @@ impl ClientMultiplexer {
         );
 
         let client_pool = WriteClientPool::new(
-            n_clients,
+            args.n_clients,
             config,
             sui_env,
             gas_budget,
-            sub_wallets_dir,
+            &args.sub_wallets_dir,
             &refiller,
+            args.sub_wallets_initial_balance,
         )
         .await?;
 
         let metrics = Arc::new(ClientMetrics::new(prometheus_registry));
         let refill_handles = refiller.refill_gas_and_wal(
             client_pool.addresses(),
-            refill_interval,
+            args.refill_interval,
             metrics,
             sui_client,
         );
@@ -147,11 +152,19 @@ impl WriteClientPool {
         gas_budget: u64,
         sub_wallets_dir: &Path,
         refiller: &Refiller<G>,
+        initial_balance: u64,
     ) -> anyhow::Result<Self> {
         tracing::info!(%n_clients, "creating write client pool");
-        let pool = SubClientLoader::new(config, sub_wallets_dir, sui_env, gas_budget, refiller)
-            .create_or_load_sub_clients(n_clients)
-            .await?;
+        let pool = SubClientLoader::new(
+            config,
+            sub_wallets_dir,
+            sui_env,
+            gas_budget,
+            refiller,
+            initial_balance,
+        )
+        .create_or_load_sub_clients(n_clients)
+        .await?;
 
         Ok(Self {
             pool,
@@ -188,15 +201,18 @@ struct SubClientLoader<'a, G> {
     sui_env: SuiEnv,
     gas_budget: u64,
     refiller: &'a Refiller<G>,
+    /// The initial balance to top up the sub wallets with.
+    initial_balance: u64,
 }
 
-impl<'a, G: CoinRefill> SubClientLoader<'a, G> {
+impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
     fn new(
         config: &'a Config,
         sub_wallets_dir: &'a Path,
         sui_env: SuiEnv,
         gas_budget: u64,
         refiller: &'a Refiller<G>,
+        initial_balance: u64,
     ) -> Self {
         Self {
             config,
@@ -204,6 +220,7 @@ impl<'a, G: CoinRefill> SubClientLoader<'a, G> {
             sui_env,
             gas_budget,
             refiller,
+            initial_balance,
         }
     }
 
@@ -226,7 +243,9 @@ impl<'a, G: CoinRefill> SubClientLoader<'a, G> {
         sub_wallet_idx: usize,
     ) -> anyhow::Result<Client<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
-        self.refill_wallet(&mut wallet).await?;
+        self.top_up_if_necessary(&mut wallet, self.initial_balance)
+            .await?;
+        self.merge_coins(&mut wallet).await?;
 
         let sui_client = self
             .config
@@ -262,11 +281,95 @@ impl<'a, G: CoinRefill> SubClientLoader<'a, G> {
         }
     }
 
-    async fn refill_wallet(&self, wallet: &mut WalletContext) -> anyhow::Result<()> {
+    /// Ensures the wallet has at least 1 coin of at least`initial_balance` SUI and WAL.
+    async fn top_up_if_necessary(
+        &self,
+        wallet: &'a mut WalletContext,
+        initial_balance: u64,
+    ) -> anyhow::Result<()> {
+        let wal_coin_type = self.refiller.wal_coin_type();
+        //let pkg_id = self.refiller.system_pkg_id.clone();
+        //let wal_coin_type = format!("{}::wal::WAL", pkg_id);
         let address = wallet.active_address()?;
-        tracing::debug!(?address, "refilling sub-wallet with SUI and WAL");
-        self.refiller.send_gas_request(address).await?;
-        self.refiller.send_wal_request(address).await?;
+        tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
+        let sui_client = wallet.get_client().await?;
+
+        if should_refill(&sui_client, address, None, initial_balance, 1).await {
+            self.refiller.send_gas_request(address).await?;
+        } else {
+            tracing::debug!(%address, "sub-wallet has enough SUI, skipping refill");
+        }
+
+        if should_refill(
+            &sui_client,
+            address,
+            Some(wal_coin_type),
+            initial_balance,
+            1,
+        )
+        .await
+        {
+            self.refiller.send_wal_request(address).await?;
+        } else {
+            tracing::debug!(%address, "sub-wallet has enough WAL, skipping refill");
+        }
+
+        Ok(())
+    }
+
+    /// Merges the WAL and SUI coins in the wallet.
+    async fn merge_coins(&self, wallet: &mut WalletContext) -> anyhow::Result<()> {
+        let wal_coin_type = self.refiller.wal_coin_type();
+        let sui_client = wallet.get_client().await?;
+        let address = wallet.active_address()?;
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        let sui_coins: Vec<_> = sui_client
+            .coin_read_api()
+            .get_coins_stream(address, None)
+            .collect::<Vec<_>>()
+            .await
+            .iter()
+            .map(Coin::object_ref)
+            .collect();
+
+        let wal_coins: Vec<_> = sui_client
+            .coin_read_api()
+            .get_coins_stream(address, Some(wal_coin_type))
+            .collect()
+            .await;
+
+        if sui_coins.len() > 1 || sui_coins.len() > 1 {
+            tracing::debug!(
+                %address,
+                ?sui_coins,
+                ?wal_coins,
+                "merging SUI or WAL coins in sub-wallet"
+            );
+            Self::merge_coin_commands(wal_coins, &mut pt_builder).await?;
+            let ptb = pt_builder.finish();
+            // Even if there are no WAL coins, we do a no-op to smash the SUI gas coins.
+            sign_and_send_ptb(address, wallet, ptb, sui_coins, self.gas_budget).await?;
+        } else {
+            tracing::debug!(%address, "no coins to merge in sub-wallet");
+        }
+
+        Ok(())
+    }
+
+    /// Downloads the list of all coins of a type, and adds the commands to merge them to the ptb.
+    async fn merge_coin_commands(
+        coin_list: Vec<Coin>,
+        pt_builder: &mut ProgrammableTransactionBuilder,
+    ) -> anyhow::Result<()> {
+        if coin_list.len() > 1 {
+            let mut coin_args = coin_list
+                .into_iter()
+                .map(|coin| pt_builder.input(coin.object_ref().into()))
+                .collect::<Result<Vec<_>, _>>()?;
+            let main_coin = coin_args.pop().expect("the list of coins is not empty");
+            pt_builder.command(Command::MergeCoins(main_coin, coin_args));
+        }
         Ok(())
     }
 }

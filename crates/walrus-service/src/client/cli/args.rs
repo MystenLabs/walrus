@@ -377,9 +377,11 @@ impl DaemonCommands {
     }
 }
 
+/// The arguments for the publisher service.
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PublisherArgs {
+    /// The configuration for the daemon.
     #[clap(flatten)]
     #[serde(flatten)]
     pub daemon_args: DaemonArgs,
@@ -407,12 +409,16 @@ pub struct PublisherArgs {
     #[serde(default = "default::n_publisher_clients")]
     pub n_clients: usize,
     /// The interval of time between refilling the publisher's sub-clients' wallets.
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "1s" )]
+    #[clap(long, value_parser = humantime::parse_duration, default_value="1s")]
     #[serde(default = "default::refill_interval")]
     pub refill_interval: Duration,
     /// The directory where the publisher will store the sub-wallets used for client multiplexing.
     #[clap(long)]
     pub sub_wallets_dir: PathBuf,
+    /// The initial balance of the sub-wallets used for client multiplexing.
+    #[clap(long, default_value_t = default::sub_wallets_initial_balance())]
+    #[serde(default = "default::sub_wallets_initial_balance")]
+    pub sub_wallets_initial_balance: u64,
 }
 
 impl PublisherArgs {
@@ -603,7 +609,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn max_concurrent_requests() -> usize {
-        16
+        8
     }
 
     pub(crate) fn max_request_buffer_size() -> usize {
@@ -619,6 +625,10 @@ pub(crate) mod default {
         // Use the same number of clients as the number of concurrent requests. This way, the
         // publisher will have the lowest possible latency for every request.
         max_concurrent_requests()
+    }
+
+    pub(crate) fn sub_wallets_initial_balance() -> u64 {
+        500_000_000 // 0.5 SUI or WAL
     }
 
     pub(crate) fn refill_interval() -> Duration {
@@ -718,6 +728,7 @@ mod tests {
                 max_concurrent_requests: default::max_concurrent_requests(),
                 refill_interval: default::refill_interval(),
                 sub_wallets_dir: "/some/path".into(),
+                sub_wallets_initial_balance: default::sub_wallets_initial_balance(),
             },
         })
     }
