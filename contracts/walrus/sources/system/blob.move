@@ -3,18 +3,18 @@
 
 module walrus::blob;
 
-use sui::{bcs, dynamic_field, hash};
 use std::string::String;
+use sui::{bcs, dynamic_field, hash};
 use walrus::{
     encoding,
     events::{emit_blob_registered, emit_blob_certified, emit_blob_deleted},
     messages::CertifiedBlobMessage,
     metadata::Metadata,
-    storage_resource::Storage,
+    storage_resource::Storage
 };
 
 // Error codes
-// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const ENotCertified: u64 = 0;
 const EBlobNotDeletable: u64 = 1;
 const EResourceBounds: u64 = 2;

@@ -3,12 +3,15 @@
 
 module walrus::bls_aggregate;
 
-use sui::bls12381::{Self, bls12381_min_pk_verify, G1};
-use sui::group_ops::{Self, Element};
-use sui::vec_map::{Self, VecMap};
+use sui::{
+    bls12381::{Self, bls12381_min_pk_verify, G1},
+    group_ops::{Self, Element},
+    vec_map::{Self, VecMap}
+};
 use walrus::messages::{Self, CertifiedMessage};
 
 // Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const ETotalMemberOrder: u64 = 0;
 const ESigVerification: u64 = 1;
 const ENotEnoughStake: u64 = 2;

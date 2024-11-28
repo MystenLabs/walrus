@@ -15,7 +15,8 @@ const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
 const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
 
-// Errors
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EIncorrectAppId: u64 = 0;
 const EIncorrectEpoch: u64 = 1;
 const EInvalidMsgType: u64 = 2;

@@ -24,7 +24,7 @@ fastcrypto.workspace = true
 futures.workspace = true
 move-core-types.workspace = true
 rand.workspace = true
-regex = "1.11.1"
+regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -47,6 +47,11 @@ walrus-test-utils = { workspace = true, optional = true }
 [dev-dependencies]
 tracing-subscriber.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
+
+[build-dependencies]
+inflections = "1.1.1"
+regex.workspace = true
+walkdir = "2.5.0"
 
 [lints]
 workspace = true

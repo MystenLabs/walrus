@@ -26,8 +26,8 @@ const MAX_MAX_EPOCHS_AHEAD: u32 = 1000;
 // Keep in sync with the same constant in `crates/walrus-sui/utils.rs`.
 const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
 
-// Errors
-// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EInvalidMaxEpochsAhead: u64 = 0;
 const EStorageExceeded: u64 = 1;
 const EInvalidEpochsAhead: u64 = 2;

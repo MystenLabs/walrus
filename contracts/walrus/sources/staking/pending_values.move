@@ -5,8 +5,8 @@ module walrus::pending_values;
 
 use sui::vec_map::{Self, VecMap};
 
-/// Attempt to reduce the value of a pending value for an epoch that does not
-/// exist.
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EIncorrectValue: u64 = 0;
 
 /// Represents a map of pending values. The key is the epoch when the value is

@@ -4215,6 +4215,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b248f5224d1d606005e02c97f5aa4e88eeb230488bcc03bc9ca4d7991399f2b5"
 
 [[package]]
+name = "inflections"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a257582fdcde896fd96463bf2d40eefea0580021c0712a0e2b028b60b47a837a"
+
+[[package]]
 name = "inotify"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11645,6 +11651,7 @@ dependencies = [
  "chrono",
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=3366c26a746b72707572c4f3f05915e20d5c16c2)",
  "futures",
+ "inflections",
  "move-core-types",
  "rand 0.8.5",
  "regex",
@@ -11666,6 +11673,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "walkdir",
  "walrus-core",
  "walrus-test-utils",
 ]

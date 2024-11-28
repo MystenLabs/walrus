@@ -12,7 +12,9 @@
 ///   shards and total_staked (#715)
 module walrus::active_set;
 
-/// Active set cannot have maximum size of 0.
+
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EZeroMaxSize: u64 = 0;
 
 public struct ActiveSetEntry has store, copy, drop {

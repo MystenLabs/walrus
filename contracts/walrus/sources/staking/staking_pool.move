@@ -16,7 +16,8 @@ use walrus::{
     walrus_context::WalrusContext
 };
 
-// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EPoolAlreadyUpdated: u64 = 0;
 const ECalculationError: u64 = 1;
 const EIncorrectEpochAdvance: u64 = 2;

@@ -3,6 +3,8 @@
 
 module walrus::storage_resource;
 
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EInvalidEpoch: u64 = 0;
 const EIncompatibleEpochs: u64 = 1;
 const EIncompatibleAmount: u64 = 2;
