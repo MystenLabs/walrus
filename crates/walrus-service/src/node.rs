@@ -903,12 +903,9 @@ impl StorageNode {
         // Given that the storage node is severely lagging, the node may contain shards in outdated
         // status. We need to set the status of all currently owned shards to `Active` despite
         // their current status.
-        for shard in committees
-            .current_committee()
-            .shards_for_node_public_key(public_key)
-        {
+        for shard in self.inner.owned_shards() {
             storage
-                .shard_storage(*shard)
+                .shard_storage(shard)
                 .expect("we just create all storage, it must exist")
                 .set_active_status()?;
         }
@@ -1108,7 +1105,7 @@ impl StorageNodeInner {
         self.committee_service
             .active_committees()
             .current_committee()
-            .shards_for_node_public_key(self.protocol_key_pair.public())
+            .shards_for_node_public_key(self.public_key())
             .to_vec()
     }
 
@@ -1176,12 +1173,7 @@ impl StorageNodeInner {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.try_list_shard_status().unwrap_or_default();
-        let committee = self
-            .committee_service
-            .active_committees()
-            .current_committee()
-            .clone();
-        let owned_shards = committee.shards_for_node_public_key(self.public_key());
+        let owned_shards = self.owned_shards();
         let mut summary = ShardStatusSummary::default();
 
         let mut detail = detailed.then(|| {
@@ -1191,7 +1183,7 @@ impl StorageNodeInner {
         });
 
         // Record the status for the owned shards.
-        for &shard in owned_shards {
+        for shard in owned_shards {
             // Consume statuses, so that we are left with shards that are not owned.
             let status = shard_statuses
                 .remove(&shard)
