@@ -69,6 +69,16 @@ fun split_join_early_withdraw() {
 }
 
 #[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]
+fun try_splitting_full_amount() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut sw = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
+    let _v = sw.split(1000, ctx);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]
 fun try_split_zero() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
