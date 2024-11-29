@@ -3,8 +3,9 @@
 
 module walrus::staked_wal_tests;
 
+use std::unit_test::assert_eq;
 use sui::test_utils::destroy;
-use walrus::{staked_wal, test_utils::{assert_eq, mint_balance}};
+use walrus::{staked_wal, test_utils::mint_balance};
 
 #[test]
 // Scenario: Test the staked WAL flow
@@ -14,28 +15,26 @@ fun staked_wal_lifecycle() {
     let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
 
     // assert that the staked WAL is created correctly
-    assert!(staked_wal.value() == 100);
-    assert!(staked_wal.node_id() == node_id);
-    assert!(staked_wal.activation_epoch() == 1);
+    assert_eq!(staked_wal.value(), 100);
+    assert_eq!(staked_wal.node_id(), node_id);
+    assert_eq!(staked_wal.activation_epoch(), 1);
 
     // test that splitting works correctly and copies the parameters
     let other = staked_wal.split(50, ctx);
-    assert!(other.value() == 50);
-    assert!(other.node_id() == node_id);
-    assert!(other.activation_epoch() == 1);
-    assert!(staked_wal.value() == 50);
+    assert_eq!(other.value(), 50);
+    assert_eq!(other.node_id(), node_id);
+    assert_eq!(other.activation_epoch(), 1);
+    assert_eq!(staked_wal.value(), 50);
 
     // test that joining works correctly
     staked_wal.join(other);
-    assert!(staked_wal.value() == 100);
-    assert!(staked_wal.node_id() == node_id);
-    assert!(staked_wal.activation_epoch() == 1);
+    assert_eq!(staked_wal.value(), 100);
+    assert_eq!(staked_wal.node_id(), node_id);
+    assert_eq!(staked_wal.activation_epoch(), 1);
 
     // test that the staked WAL can be burned
     let principal = staked_wal.into_balance();
-    assert!(principal.value() == 100);
-
-    destroy(principal);
+    assert_eq!(principal.destroy_for_testing(), 100);
 }
 
 #[test]
