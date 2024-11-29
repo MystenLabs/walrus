@@ -134,7 +134,10 @@ impl FromStr for RawMoveError {
 }
 
 // Include the auto-generated error definitions based on the Move source code.
-include!(concat!(env!("OUT_DIR"), "/move_error_defs.rs"));
+#[cfg(feature = "mainnet-contracts")]
+include!(concat!(env!("OUT_DIR"), "/contracts_error_defs.rs"));
+#[cfg(not(feature = "mainnet-contracts"))]
+include!(concat!(env!("OUT_DIR"), "/testnet-contracts_error_defs.rs"));
 
 impl From<&str> for MoveExecutionError {
     fn from(value: &str) -> Self {

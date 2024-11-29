@@ -34,31 +34,35 @@ impl ModuleErrorDefs {
 }
 
 fn main() {
-    let out_dir = env::var_os("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("move_error_defs.rs");
+    let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR should be set automatically by cargo");
 
+    for contracts_dir in ["../../contracts", "../../testnet-contracts"] {
+        generate_error_defs_for_contracts(Path::new(contracts_dir), Path::new(&out_dir));
+        // Tell cargo to rerun if relevant files change
+        println!("cargo:rerun-if-changed={}", contracts_dir);
+    }
+}
+
+fn generate_error_defs_for_contracts(contracts_dir: &Path, out_dir: &Path) {
+    let dest_path = out_dir.join(format!(
+        "{}_error_defs.rs",
+        contracts_dir
+            .file_name()
+            .expect("contracts dir should have a name")
+            .to_string_lossy()
+    ));
     // Collect error definitions from Move files
-    let error_defs = collect_error_definitions();
+    let error_defs = collect_error_definitions(contracts_dir);
 
     // Generate Rust code
     let error_defs_code = generate_all_error_defs(&error_defs);
 
     // Write to file
     fs::write(&dest_path, error_defs_code).expect("should be able to write to file");
-
-    // Tell cargo to rerun if relevant files change
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../contracts");
-    println!("cargo:rerun-if-changed=../testnet-contracts");
 }
 
 /// Collect the error names and codes from the Move source code for each module.
-fn collect_error_definitions() -> Vec<ModuleErrorDefs> {
-    let contracts_dir = if cfg!(feature = "mainnet-contracts") {
-        Path::new("../../contracts")
-    } else {
-        Path::new("../../testnet-contracts")
-    };
+fn collect_error_definitions(contracts_dir: &Path) -> Vec<ModuleErrorDefs> {
     let module_pattern =
         Regex::new(r"module\s+([a-z_]+::[a-z_]+)\s*;").expect("should be able to compile regex");
     let error_pattern = Regex::new(r"const\s+(E(?:[A-Z][a-z]+)*)\s*:\s*u64\s*=\s*(\d+)")
