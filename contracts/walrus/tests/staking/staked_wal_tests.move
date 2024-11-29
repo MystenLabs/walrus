@@ -8,7 +8,7 @@ use walrus::{staked_wal, test_utils::{assert_eq, mint_balance}};
 
 #[test]
 // Scenario: Test the staked WAL flow
-fun test_staked_wal_flow() {
+fun staked_wal_lifecycle() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
@@ -31,10 +31,6 @@ fun test_staked_wal_flow() {
     assert!(staked_wal.node_id() == node_id);
     assert!(staked_wal.activation_epoch() == 1);
 
-    // test that zero can be destroyed
-    let zero = staked_wal.split(0, ctx);
-    zero.destroy_zero();
-
     // test that the staked WAL can be burned
     let principal = staked_wal.into_balance();
     assert!(principal.value() == 100);
@@ -43,7 +39,15 @@ fun test_staked_wal_flow() {
 }
 
 #[test]
-fun test_split_join_early_withdraw() {
+fun destroy_zero() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let zero = staked_wal::mint(node_id, mint_balance(0), 1, ctx);
+    zero.destroy_zero();
+}
+
+#[test]
+fun split_join_early_withdraw() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
@@ -65,8 +69,18 @@ fun test_split_join_early_withdraw() {
     destroy(sw1);
 }
 
+#[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]
+fun try_split_zero() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut sw = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
+    sw.split(0, ctx).destroy_zero();
+
+    abort
+}
+
 #[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
-fun test_try_join_early_withdraw_with_non_early() {
+fun try_join_early_withdraw_with_non_early() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 0, ctx);
@@ -74,14 +88,28 @@ fun test_try_join_early_withdraw_with_non_early() {
 
     sw1.set_withdrawing(2, option::some(1000));
     sw2.set_withdrawing(2, option::none());
-
     sw1.join(sw2);
 
     abort
 }
 
+#[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
+// reverse version of the test above to ensure the error is symmetric
+fun try_join_non_early_with_early_withdraw() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 0, ctx);
+    let mut sw2 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
+
+    sw1.set_withdrawing(2, option::some(1000));
+    sw2.set_withdrawing(2, option::none());
+    sw2.join(sw1);
+
+    abort
+}
+
 #[test]
-fun test_split_join_withdrawing() {
+fun split_join_withdrawing() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut sw1 = staked_wal::mint(node_id, mint_balance(2000), 1, ctx);
@@ -110,19 +138,19 @@ fun test_split_join_withdrawing() {
 
 #[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]
 // Scenario: Split a staked WAL with a larger amount
-fun test_unable_to_split_larger_amount() {
+fun unable_to_split_larger_amount() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
 
     let _other = staked_wal.split(101, ctx);
 
-    abort 1337
+    abort
 }
 
 #[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
 // Scenario: Join a staked WAL with a different activation epoch
-fun test_unable_to_join_activation_epoch() {
+fun unable_to_join_activation_epoch() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut sw1 = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
@@ -130,12 +158,12 @@ fun test_unable_to_join_activation_epoch() {
 
     sw1.join(sw2);
 
-    abort 1337
+    abort
 }
 
 #[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
 // Scenario: Join a staked WAL with a different pool ID
-fun test_unable_to_join_different_pool() {
+fun unable_to_join_different_pool() {
     let ctx = &mut tx_context::dummy();
     let node_id1 = ctx.fresh_object_address().to_id();
     let node_id2 = ctx.fresh_object_address().to_id();
@@ -144,17 +172,17 @@ fun test_unable_to_join_different_pool() {
 
     sw1.join(sw2);
 
-    abort 1337
+    abort
 }
 
 #[test, expected_failure(abort_code = staked_wal::ENonZeroPrincipal)]
 // Scenario: Destroy a staked WAL with non-zero principal
-fun test_unable_to_destroy_non_zero() {
+fun unable_to_destroy_non_zero() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let sw = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
 
     sw.destroy_zero();
 
-    abort 1337
+    abort 1337 // keeping this abort due to a bug in tree-sitter
 }
