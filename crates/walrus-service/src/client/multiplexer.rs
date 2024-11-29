@@ -288,8 +288,6 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
         initial_balance: u64,
     ) -> anyhow::Result<()> {
         let wal_coin_type = self.refiller.wal_coin_type();
-        //let pkg_id = self.refiller.system_pkg_id.clone();
-        //let wal_coin_type = format!("{}::wal::WAL", pkg_id);
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
         let sui_client = wallet.get_client().await?;
@@ -337,7 +335,7 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
             .collect()
             .await;
 
-        if sui_coins.len() > 1 || sui_coins.len() > 1 {
+        if sui_coins.len() > 1 || wal_coins.len() > 1 {
             tracing::debug!(
                 %address,
                 ?sui_coins,
