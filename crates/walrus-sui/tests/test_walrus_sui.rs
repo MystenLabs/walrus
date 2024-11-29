@@ -377,59 +377,93 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (sui_cluster_handle, walrus_admin_client) = initialize_contract_and_wallet().await?;
+    let (sui_cluster_handle, client_1) = initialize_contract_and_wallet().await?;
 
-    let original_balance = walrus_admin_client.as_ref().balance(CoinType::Wal).await?;
+    let original_balance = client_1.as_ref().balance(CoinType::Wal).await?;
 
-    let walrus_client = new_contract_client_on_sui_test_cluster(
-        sui_cluster_handle.clone(),
-        walrus_admin_client.as_ref(),
-    )
-    .await?;
+    let client_2 =
+        new_contract_client_on_sui_test_cluster(sui_cluster_handle.clone(), client_1.as_ref())
+            .await?;
+
+    let client_1_address = client_1.as_ref().address();
+    let client_2_address = client_2.as_ref().address();
 
     let amount = 100_000;
 
     // Fund the wallet with two separate WAL coins.
-    let wallet = walrus_admin_client.as_ref().wallet().await;
-    let mut tx_builder = walrus_admin_client.as_ref().transaction_builder();
-    tx_builder
-        .pay_wal(walrus_client.as_ref().address(), amount)
-        .await?;
-    walrus_admin_client
-        .as_ref()
-        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
-        .await?;
-    assert_eq!(walrus_client.as_ref().balance(CoinType::Wal).await?, amount);
-
-    // Second transaction.
-    let mut tx_builder = walrus_admin_client.as_ref().transaction_builder();
-    tx_builder
-        .pay_wal(walrus_client.as_ref().address(), amount)
-        .await?;
-    walrus_admin_client
+    let wallet = client_1.as_ref().wallet().await;
+    let mut tx_builder = client_1.as_ref().transaction_builder();
+    tx_builder.pay_wal(client_2_address, amount).await?;
+    tx_builder.pay_wal(client_2_address, amount).await?;
+    client_1
         .as_ref()
         .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
         .await?;
     drop(wallet);
+
+    // Get the number of coins owned by the first wallet to check later that we received exactly
+    // one coin.
+    let n_coins = client_1
+        .as_ref()
+        .sui_client()
+        .coin_read_api()
+        .get_balance(
+            client_1_address,
+            Some(client_2.as_ref().read_client().wal_coin_type()),
+        )
+        .await?
+        .coin_object_count;
+
+    // Check that we have the correct balance.
+    assert_eq!(client_2.as_ref().balance(CoinType::Wal).await?, 2 * amount);
+
+    // Check that we need to send back two coins to cover the full amount.
     assert_eq!(
-        walrus_client.as_ref().balance(CoinType::Wal).await?,
-        2 * amount
+        client_2
+            .as_ref()
+            .read_client()
+            .get_coins_with_total_balance(
+                client_2.as_ref().address(),
+                CoinType::Wal,
+                2 * amount,
+                vec![]
+            )
+            .await?
+            .len(),
+        2
     );
 
     // Now send the full amount back, which should trigger the squashing.
-    let wallet = walrus_client.as_ref().wallet().await;
-    let mut tx_builder = walrus_client.as_ref().transaction_builder();
-    tx_builder
-        .pay_wal(walrus_admin_client.as_ref().address(), amount * 2)
-        .await?;
-    walrus_client
+    let wallet = client_2.as_ref().wallet().await;
+    let mut tx_builder = client_2.as_ref().transaction_builder();
+    tx_builder.pay_wal(client_1_address, amount * 2).await?;
+    client_2
         .as_ref()
         .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
         .await?;
-    assert_eq!(walrus_client.as_ref().balance(CoinType::Wal).await?, 0);
+
+    // Check that the second wallet has no WAL coins left.
+    assert_eq!(client_2.as_ref().balance(CoinType::Wal).await?, 0);
+
+    // Check that the first wallet has the correct balance.
     assert_eq!(
-        walrus_admin_client.as_ref().balance(CoinType::Wal).await?,
+        client_1.as_ref().balance(CoinType::Wal).await?,
         original_balance
+    );
+
+    // Check that we have the correct number of coins.
+    assert_eq!(
+        client_1
+            .as_ref()
+            .sui_client()
+            .coin_read_api()
+            .get_balance(
+                client_1_address,
+                Some(client_2.as_ref().read_client().wal_coin_type())
+            )
+            .await?
+            .coin_object_count,
+        n_coins + 1
     );
     Ok(())
 }

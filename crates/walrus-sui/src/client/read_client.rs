@@ -331,7 +331,7 @@ impl SuiReadClient {
         coin_type: CoinType,
     ) -> SuiClientResult<u64> {
         let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.coin_type()),
+            CoinType::Wal => Some(self.wal_coin_type()),
             CoinType::Sui => None,
         };
         Ok(self
@@ -349,7 +349,7 @@ impl SuiReadClient {
     /// Returns a [`SuiClientError::NoCompatibleGasCoins`] or
     /// [`SuiClientError::NoCompatibleWalCoins`] error if no coins of sufficient total balance are
     /// found.
-    pub(crate) async fn get_coins_with_total_balance(
+    pub async fn get_coins_with_total_balance(
         &self,
         owner_address: SuiAddress,
         coin_type: CoinType,
@@ -357,7 +357,7 @@ impl SuiReadClient {
         exclude: Vec<ObjectID>,
     ) -> SuiClientResult<Vec<Coin>> {
         let coin_type_option = match coin_type {
-            CoinType::Wal => Some(self.coin_type()),
+            CoinType::Wal => Some(self.wal_coin_type()),
             CoinType::Sui => None,
         };
         self.sui_client
@@ -399,7 +399,8 @@ impl SuiReadClient {
         ))
     }
 
-    pub(crate) fn coin_type(&self) -> String {
+    /// Returns the type of the WAL coin.
+    pub fn wal_coin_type(&self) -> String {
         format!("{}::wal::WAL", self.system_pkg_id)
     }
 
