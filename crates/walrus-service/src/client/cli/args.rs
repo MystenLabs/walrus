@@ -415,10 +415,20 @@ pub struct PublisherArgs {
     /// The directory where the publisher will store the sub-wallets used for client multiplexing.
     #[clap(long)]
     pub sub_wallets_dir: PathBuf,
-    /// The initial balance of the sub-wallets used for client multiplexing.
-    #[clap(long, default_value_t = default::sub_wallets_initial_balance())]
-    #[serde(default = "default::sub_wallets_initial_balance")]
-    pub sub_wallets_initial_balance: u64,
+    /// The amount of MIST transferred at every refill.
+    #[clap(long, default_value_t = default::gas_refill_amount())]
+    #[serde(default = "default::gas_refill_amount")]
+    pub gas_refill_amount: u64,
+    /// The amount of FROST transferred at every refill.
+    #[clap(long, default_value_t = default::wal_refill_amount())]
+    #[serde(default = "default::wal_refill_amount")]
+    pub wal_refill_amount: u64,
+    /// The minimum balance the sub-wallets should have.
+    ///
+    /// Below this threshold, the sub-wallets are refilled.
+    #[clap(long, default_value_t = default::sub_wallets_min_balance())]
+    #[serde(default = "default::sub_wallets_min_balance")]
+    pub sub_wallets_min_balance: u64,
 }
 
 impl PublisherArgs {
@@ -627,8 +637,16 @@ pub(crate) mod default {
         max_concurrent_requests()
     }
 
-    pub(crate) fn sub_wallets_initial_balance() -> u64 {
+    pub(crate) fn sub_wallets_min_balance() -> u64 {
         500_000_000 // 0.5 SUI or WAL
+    }
+
+    pub(crate) fn gas_refill_amount() -> u64 {
+        500_000_000 // 0.5 SUI
+    }
+
+    pub(crate) fn wal_refill_amount() -> u64 {
+        500_000_000 // 0.5 WAL
     }
 
     pub(crate) fn refill_interval() -> Duration {
@@ -728,7 +746,9 @@ mod tests {
                 max_concurrent_requests: default::max_concurrent_requests(),
                 refill_interval: default::refill_interval(),
                 sub_wallets_dir: "/some/path".into(),
-                sub_wallets_initial_balance: default::sub_wallets_initial_balance(),
+                gas_refill_amount: default::gas_refill_amount(),
+                wal_refill_amount: default::wal_refill_amount(),
+                sub_wallets_min_balance: default::sub_wallets_min_balance(),
             },
         })
     }

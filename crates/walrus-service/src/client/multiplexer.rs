@@ -33,7 +33,7 @@ use super::{
     cli::PublisherArgs,
     daemon::{WalrusReadClient, WalrusWriteClient},
     metrics::ClientMetrics,
-    refill::{CoinRefill, NetworkOrWallet, RefillHandles, Refiller},
+    refill::{CoinRefill, RefillHandles, Refiller, WalletCoinRefill},
     responses::BlobStoreResult,
     Client,
     ClientResult,
@@ -64,8 +64,14 @@ impl ClientMultiplexer {
 
         let system_pkg_id = get_system_package_id(&sui_client, config.system_object).await?;
         let refiller = Refiller::new(
-            NetworkOrWallet::new_wallet(contract_client, gas_budget)?,
+            WalletCoinRefill::new(
+                contract_client,
+                args.gas_refill_amount,
+                args.wal_refill_amount,
+                gas_budget,
+            )?,
             system_pkg_id,
+            args.sub_wallets_min_balance,
         );
 
         let client_pool = WriteClientPool::new(
@@ -75,7 +81,7 @@ impl ClientMultiplexer {
             gas_budget,
             &args.sub_wallets_dir,
             &refiller,
-            args.sub_wallets_initial_balance,
+            args.sub_wallets_min_balance,
         )
         .await?;
 
@@ -152,7 +158,7 @@ impl WriteClientPool {
         gas_budget: u64,
         sub_wallets_dir: &Path,
         refiller: &Refiller<G>,
-        initial_balance: u64,
+        min_balance: u64,
     ) -> anyhow::Result<Self> {
         tracing::info!(%n_clients, "creating write client pool");
         let pool = SubClientLoader::new(
@@ -161,7 +167,7 @@ impl WriteClientPool {
             sui_env,
             gas_budget,
             refiller,
-            initial_balance,
+            min_balance,
         )
         .create_or_load_sub_clients(n_clients)
         .await?;
@@ -201,8 +207,8 @@ struct SubClientLoader<'a, G> {
     sui_env: SuiEnv,
     gas_budget: u64,
     refiller: &'a Refiller<G>,
-    /// The initial balance to top up the sub wallets with.
-    initial_balance: u64,
+    /// The minimum balance the sub-wallets should have, below which they are refilled at startup.
+    min_balance: u64,
 }
 
 impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
@@ -212,7 +218,7 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
         sui_env: SuiEnv,
         gas_budget: u64,
         refiller: &'a Refiller<G>,
-        initial_balance: u64,
+        min_balance: u64,
     ) -> Self {
         Self {
             config,
@@ -220,7 +226,7 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
             sui_env,
             gas_budget,
             refiller,
-            initial_balance,
+            min_balance,
         }
     }
 
@@ -243,7 +249,7 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
         sub_wallet_idx: usize,
     ) -> anyhow::Result<Client<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
-        self.top_up_if_necessary(&mut wallet, self.initial_balance)
+        self.top_up_if_necessary(&mut wallet, self.min_balance)
             .await?;
         self.merge_coins(&mut wallet).await?;
 
@@ -281,32 +287,24 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
         }
     }
 
-    /// Ensures the wallet has at least 1 coin of at least`initial_balance` SUI and WAL.
+    /// Ensures the wallet has at least 1 coin of at least`min_balance` SUI and WAL.
     async fn top_up_if_necessary(
         &self,
         wallet: &'a mut WalletContext,
-        initial_balance: u64,
+        min_balance: u64,
     ) -> anyhow::Result<()> {
         let wal_coin_type = self.refiller.wal_coin_type();
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
         let sui_client = wallet.get_client().await?;
 
-        if should_refill(&sui_client, address, None, initial_balance, 1).await {
+        if should_refill(&sui_client, address, None, min_balance).await {
             self.refiller.send_gas_request(address).await?;
         } else {
             tracing::debug!(%address, "sub-wallet has enough SUI, skipping refill");
         }
 
-        if should_refill(
-            &sui_client,
-            address,
-            Some(wal_coin_type),
-            initial_balance,
-            1,
-        )
-        .await
-        {
+        if should_refill(&sui_client, address, Some(wal_coin_type), min_balance).await {
             self.refiller.send_wal_request(address).await?;
         } else {
             tracing::debug!(%address, "sub-wallet has enough WAL, skipping refill");

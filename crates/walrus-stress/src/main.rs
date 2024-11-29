@@ -14,10 +14,10 @@ use std::{
 use anyhow::Context;
 use clap::Parser;
 use walrus_service::{
-    client::{metrics::ClientMetrics, Config, NetworkOrWallet, Refiller},
-    utils::LoadConfig,
+    client::{metrics::ClientMetrics, Config, Refiller, WalletCoinRefill},
+    utils::{load_wallet_context, LoadConfig},
 };
-use walrus_sui::{client::get_system_package_id, utils::SuiNetwork};
+use walrus_sui::utils::SuiNetwork;
 
 use crate::generator::LoadGenerator;
 
@@ -25,6 +25,10 @@ mod generator;
 
 /// Gas budget for transactions.
 const GAS_BUDGET: u64 = 1_000_000_000;
+/// The amount of gas or MIST to refil each time.
+const COIN_REFILL_AMOUNT: u64 = 500_000_000;
+/// The minimum balance to keep in the wallet.
+const MIN_BALANCE: u64 = 1_000_000_000;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
@@ -95,19 +99,19 @@ async fn main() -> anyhow::Result<()> {
     // Start the write transaction generator.
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
 
-    let sui_client = args.sui_network.env().create_rpc_client(None, None).await?;
-    let system_pkg_id = get_system_package_id(&sui_client, config.system_object).await?;
+    let wallet = load_wallet_context(&args.wallet_path)?;
+    let contract_client = config.new_contract_client(wallet, GAS_BUDGET).await?;
+    let system_pkg_id = contract_client.read_client().get_system_package_id();
 
     let refiller = Refiller::new(
-        NetworkOrWallet::new(
-            config.system_object,
-            config.staking_object,
-            args.sui_network.clone(),
-            args.wallet_path.clone(),
+        WalletCoinRefill::new(
+            contract_client,
+            COIN_REFILL_AMOUNT,
+            COIN_REFILL_AMOUNT,
             GAS_BUDGET,
-        )
-        .await?,
+        )?,
         system_pkg_id,
+        MIN_BALANCE,
     );
     let mut load_generator = LoadGenerator::new(
         n_clients,
