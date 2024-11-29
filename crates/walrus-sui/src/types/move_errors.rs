@@ -276,6 +276,8 @@ move_error_kind!(
     4,
     ECantSplitWithdrawing,
     5,
+    EAlreadyWithdrawing,
+    6,
 );
 
 move_error_kind!(
