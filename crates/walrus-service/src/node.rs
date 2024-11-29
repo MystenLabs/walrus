@@ -527,7 +527,10 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Returns the existing shards currently owned by the storage node.
+    /// Returns the shards which the node currently manages in its storage.
+    ///
+    /// This neither considers the current shard assignment from the Walrus contracts nor the status
+    /// of the local shard storage.
     pub fn existing_shards(&self) -> Vec<ShardIndex> {
         self.inner.storage.existing_shards()
     }
@@ -1114,8 +1117,8 @@ impl StorageNodeInner {
             match self.storage.is_stored_at_shard(blob_id, shard) {
                 Ok(false) => return Ok(false),
                 Ok(true) => continue,
-                Err(e) => {
-                    tracing::warn!(?e, "failed to check if blob is stored at shard");
+                Err(error) => {
+                    tracing::warn!(?error, "failed to check if blob is stored at shard");
                     return Ok(false);
                 }
             }
