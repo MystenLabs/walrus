@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
-use walrus_service::client::{Client, ClientError, CoinRefill, Config, Refiller, StoreWhen};
+use walrus_service::client::{Client, ClientError, Config, Refiller, StoreWhen};
 use walrus_sui::{
     client::{BlobPersistence, ReadClient, SuiContractClient},
     test_utils::temp_dir_wallet,
@@ -24,13 +24,13 @@ pub(crate) struct WriteClient {
 
 impl WriteClient {
     #[tracing::instrument(err, skip_all)]
-    pub async fn new<G: CoinRefill + 'static>(
+    pub async fn new(
         config: &Config,
         network: &SuiNetwork,
         gas_budget: u64,
         min_size_log2: u8,
         max_size_log2: u8,
-        refiller: Refiller<G>,
+        refiller: Refiller,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
             StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
@@ -157,11 +157,11 @@ impl WriteClient {
     }
 }
 
-async fn new_client<G: CoinRefill + 'static>(
+async fn new_client(
     config: &Config,
     network: &SuiNetwork,
     gas_budget: u64,
-    refiller: Refiller<G>,
+    refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(network, refiller).await?;
@@ -180,9 +180,9 @@ async fn new_client<G: CoinRefill + 'static>(
     Ok(client)
 }
 
-pub async fn wallet_for_testing_from_refill<G: CoinRefill + 'static>(
+pub async fn wallet_for_testing_from_refill(
     network: &SuiNetwork,
-    refiller: Refiller<G>,
+    refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
     let mut wallet = temp_dir_wallet(network.env())?;
     let address = wallet.as_mut().active_address()?;

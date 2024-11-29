@@ -18,7 +18,12 @@ use sui_sdk::{
     wallet_context::WalletContext,
     SuiClient,
 };
-use sui_types::{base_types::SuiAddress, event::EventID, transaction::ProgrammableTransaction};
+use sui_types::{
+    base_types::SuiAddress,
+    event::EventID,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::ProgrammableTransaction,
+};
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use transaction_builder::WalrusPtbBuilder;
@@ -695,6 +700,65 @@ impl SuiContractClient {
             .iter()
             .map(Coin::object_ref)
             .collect())
+    }
+
+    /// Merges the WAL and SUI coins owned by the wallet of the contract client.
+    pub async fn merge_coins(&self) -> SuiClientResult<()> {
+        let wallet = self.wallet().await;
+        let mut tx_builder = self.transaction_builder();
+        let sui_balance = self
+            .sui_client()
+            .coin_read_api()
+            .get_balance(self.address(), None)
+            .await?;
+        let wal_balance = self
+            .sui_client()
+            .coin_read_api()
+            .get_balance(self.address(), Some(self.read_client().wal_coin_type()))
+            .await?;
+
+        if wal_balance.coin_object_count > 1 {
+            tx_builder
+                .fill_wal_balance(wal_balance.total_balance as u64)
+                .await?;
+        }
+
+        if sui_balance.coin_object_count > 1 || wal_balance.coin_object_count > 1 {
+            self.sign_and_send_ptb(
+                &wallet,
+                tx_builder.finish().await?.0,
+                Some(sui_balance.total_balance as u64),
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Sends the `amount` gas to the provided `address`.
+    pub async fn send_sui(&self, amount: u64, address: SuiAddress) -> Result<()> {
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
+        pt_builder.pay_sui(vec![address], vec![amount])?;
+        self.sign_and_send_ptb(&wallet, pt_builder.finish(), Some(self.gas_budget + amount))
+            .await?;
+        Ok(())
+    }
+
+    /// Sends the `amount` WAL to the provided `address`.
+    pub async fn send_wal(&self, amount: u64, address: SuiAddress) -> Result<()> {
+        tracing::debug!(%address, "sending WAL to sub-wallet");
+        let mut pt_builder = self.transaction_builder();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+        pt_builder.pay_wal(address, amount).await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
     }
 }
 

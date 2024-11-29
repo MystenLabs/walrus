@@ -21,7 +21,6 @@ use walrus_service::client::{
     metrics::{self, ClientMetrics},
     Client,
     ClientError,
-    CoinRefill,
     Config,
     RefillHandles,
     Refiller,
@@ -53,7 +52,7 @@ pub struct LoadGenerator {
 
 impl LoadGenerator {
     #[allow(clippy::too_many_arguments)]
-    pub async fn new<G: CoinRefill + 'static>(
+    pub async fn new(
         n_clients: usize,
         min_size_log2: u8,
         max_size_log2: u8,
@@ -61,7 +60,7 @@ impl LoadGenerator {
         network: SuiNetwork,
         gas_refill_period: Duration,
         metrics: Arc<ClientMetrics>,
-        refiller: Refiller<G>,
+        refiller: Refiller,
     ) -> anyhow::Result<Self> {
         tracing::info!("initializing clients...");
 

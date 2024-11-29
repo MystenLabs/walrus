@@ -77,7 +77,7 @@ use walrus_utils::backoff::ExponentialBackoff;
 pub mod metrics;
 
 mod refill;
-pub use refill::{CoinRefill, RefillHandles, Refiller, WalletCoinRefill};
+pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;

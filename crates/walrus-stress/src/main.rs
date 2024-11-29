@@ -14,7 +14,7 @@ use std::{
 use anyhow::Context;
 use clap::Parser;
 use walrus_service::{
-    client::{metrics::ClientMetrics, Config, Refiller, WalletCoinRefill},
+    client::{metrics::ClientMetrics, Config, Refiller},
     utils::{load_wallet_context, LoadConfig},
 };
 use walrus_sui::utils::SuiNetwork;
@@ -101,16 +101,11 @@ async fn main() -> anyhow::Result<()> {
 
     let wallet = load_wallet_context(&args.wallet_path)?;
     let contract_client = config.new_contract_client(wallet, GAS_BUDGET).await?;
-    let system_pkg_id = contract_client.read_client().get_system_package_id();
 
     let refiller = Refiller::new(
-        WalletCoinRefill::new(
-            contract_client,
-            COIN_REFILL_AMOUNT,
-            COIN_REFILL_AMOUNT,
-            GAS_BUDGET,
-        )?,
-        system_pkg_id,
+        contract_client,
+        COIN_REFILL_AMOUNT,
+        COIN_REFILL_AMOUNT,
         MIN_BALANCE,
     );
     let mut load_generator = LoadGenerator::new(

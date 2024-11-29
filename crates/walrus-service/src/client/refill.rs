@@ -7,136 +7,37 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use futures::future::try_join_all;
-use sui_sdk::{
-    types::{
-        base_types::{ObjectID, SuiAddress},
-        programmable_transaction_builder::ProgrammableTransactionBuilder,
-    },
-    SuiClient,
-};
+use sui_sdk::{types::base_types::SuiAddress, SuiClient};
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use walrus_sui::client::SuiContractClient;
 
 use super::metrics::ClientMetrics;
 
-/// Trait to request gas and Wal coins for a client.
-pub trait CoinRefill: Send + Sync {
-    /// Sends a request to get gas for the given `address`.
-    fn send_gas_request(
-        &self,
-        address: SuiAddress,
-    ) -> impl std::future::Future<Output = Result<()>> + std::marker::Send;
-
-    /// Sends a request to get WAL for the given `address`.
-    fn send_wal_request(
-        &self,
-        address: SuiAddress,
-    ) -> impl std::future::Future<Output = Result<()>> + std::marker::Send;
-}
-
-/// The `CoinRefill` implementation for a Sui wallet.
-///
-/// The wallet sends gas and WAL to the specified address.
-#[derive(Debug)]
-pub struct WalletCoinRefill {
-    /// The wallet containing the funds.
-    sui_client: SuiContractClient,
+/// Refills gas and WAL for the clients.
+#[derive(Debug, Clone)]
+pub struct Refiller {
+    /// The inner implementation of the refiller.
+    contract_client: Arc<SuiContractClient>,
     /// The amount of MIST to send at each request.
     gas_refill_size: u64,
     /// The amount of FROST to send at each request.
     wal_refill_size: u64,
-    /// The gas budget.
-    gas_budget: u64,
+    /// The minimum balance the wallet should have before refilling.
+    min_balance: u64,
 }
 
-impl WalletCoinRefill {
-    /// The gas budget for each transaction.
-    ///
-    /// Should be sufficient to execute a coin transfer transaction.
+impl Refiller {
+    /// Creates a new [`Refiller`] from a [`SuiContractClient`].
     pub fn new(
-        sui_client: SuiContractClient,
+        contract_client: SuiContractClient,
         gas_refill_size: u64,
         wal_refill_size: u64,
-        gas_budget: u64,
-    ) -> Result<Self> {
-        Ok(Self {
-            sui_client,
+        min_balance: u64,
+    ) -> Self {
+        Self {
+            contract_client: Arc::new(contract_client),
             gas_refill_size,
             wal_refill_size,
-            gas_budget,
-        })
-    }
-
-    async fn send_gas(&self, address: SuiAddress) -> Result<()> {
-        tracing::debug!(%address, "sending gas to sub-wallet");
-        let mut pt_builder = ProgrammableTransactionBuilder::new();
-
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.sui_client.wallet().await;
-
-        pt_builder.pay_sui(vec![address], vec![self.gas_refill_size])?;
-        self.sui_client
-            .sign_and_send_ptb(
-                &wallet,
-                pt_builder.finish(),
-                Some(self.gas_budget + self.gas_refill_size),
-            )
-            .await?;
-        Ok(())
-    }
-
-    async fn send_wal(&self, address: SuiAddress) -> Result<()> {
-        tracing::debug!(%address, "sending WAL to sub-wallet");
-        let mut pt_builder = self.sui_client.transaction_builder();
-
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.sui_client.wallet().await;
-        pt_builder.pay_wal(address, self.wal_refill_size).await?;
-        let (ptb, _) = pt_builder.finish().await?;
-        self.sui_client
-            .sign_and_send_ptb(&wallet, ptb, None)
-            .await?;
-        Ok(())
-    }
-}
-
-impl CoinRefill for WalletCoinRefill {
-    async fn send_gas_request(&self, address: SuiAddress) -> Result<()> {
-        self.send_gas(address).await
-    }
-
-    async fn send_wal_request(&self, address: SuiAddress) -> Result<()> {
-        self.send_wal(address).await
-    }
-}
-
-/// Refills gas and WAL for the clients.
-#[derive(Debug)]
-pub struct Refiller<G> {
-    /// The inner implementation of the refiller.
-    pub refill_inner: Arc<G>,
-    /// The package id of the system.
-    pub system_pkg_id: ObjectID,
-    /// The minimum balance the wallet should have before refilling.
-    pub min_balance: u64,
-}
-
-impl<G> Clone for Refiller<G> {
-    fn clone(&self) -> Self {
-        Self {
-            refill_inner: self.refill_inner.clone(),
-            system_pkg_id: self.system_pkg_id,
-            min_balance: self.min_balance,
-        }
-    }
-}
-
-impl<G: CoinRefill + 'static> Refiller<G> {
-    /// Creates a new refiller.
-    pub fn new(gas_refill: G, system_pkg_id: ObjectID, min_balance: u64) -> Self {
-        Self {
-            refill_inner: Arc::new(gas_refill),
-            system_pkg_id,
             min_balance,
         }
     }
@@ -171,6 +72,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         metrics: Arc<ClientMetrics>,
         sui_client: SuiClient,
     ) -> JoinHandle<anyhow::Result<()>> {
+        let amount = self.gas_refill_size;
         self.periodic_refill(
             addresses,
             period,
@@ -180,7 +82,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
             move |refiller, address| {
                 let metrics = metrics.clone();
                 async move {
-                    refiller.send_gas_request(address).await?;
+                    refiller.send_sui(amount, address).await?;
                     tracing::info!("clients gas coins refilled");
                     metrics.observe_gas_refill();
                     Ok(())
@@ -196,6 +98,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         metrics: Arc<ClientMetrics>,
         sui_client: SuiClient,
     ) -> JoinHandle<anyhow::Result<()>> {
+        let amount = self.wal_refill_size;
         self.periodic_refill(
             addresses,
             period,
@@ -205,7 +108,7 @@ impl<G: CoinRefill + 'static> Refiller<G> {
             move |refiller, address| {
                 let metrics = metrics.clone();
                 async move {
-                    refiller.send_wal_request(address).await?;
+                    refiller.send_wal(amount, address).await?;
                     tracing::info!("clients WAL coins refilled");
                     metrics.observe_wal_refill();
                     Ok(())
@@ -214,7 +117,6 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn periodic_refill<F, Fut>(
         &self,
         addresses: Vec<SuiAddress>,
@@ -225,13 +127,13 @@ impl<G: CoinRefill + 'static> Refiller<G> {
         inner_action: F,
     ) -> JoinHandle<anyhow::Result<()>>
     where
-        F: Fn(Arc<G>, SuiAddress) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<SuiContractClient>, SuiAddress) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = anyhow::Result<()>> + Send,
     {
         let mut interval = tokio::time::interval(period);
         interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        let refiller = self.refill_inner.clone();
+        let refiller = self.contract_client.clone();
         tokio::spawn(async move {
             loop {
                 interval.tick().await;
@@ -268,17 +170,21 @@ impl<G: CoinRefill + 'static> Refiller<G> {
 
     /// The WAL coin type.
     pub fn wal_coin_type(&self) -> String {
-        format!("{}::wal::WAL", self.system_pkg_id)
-    }
-}
-
-impl<G: CoinRefill> CoinRefill for Refiller<G> {
-    async fn send_gas_request(&self, address: SuiAddress) -> Result<()> {
-        self.refill_inner.send_gas_request(address).await
+        self.contract_client.read_client().wal_coin_type()
     }
 
-    async fn send_wal_request(&self, address: SuiAddress) -> Result<()> {
-        self.refill_inner.send_wal_request(address).await
+    /// Sends SUI to the specified address.
+    pub async fn send_gas_request(&self, address: SuiAddress) -> Result<()> {
+        self.contract_client
+            .send_sui(self.gas_refill_size, address)
+            .await
+    }
+
+    /// Sends WAL to the specified address.
+    pub async fn send_wal_request(&self, address: SuiAddress) -> Result<()> {
+        self.contract_client
+            .send_wal(self.wal_refill_size, address)
+            .await
     }
 }
 
