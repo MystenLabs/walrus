@@ -342,7 +342,7 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
                 ?wal_coins,
                 "merging SUI or WAL coins in sub-wallet"
             );
-            Self::merge_coin_commands(wal_coins, &mut pt_builder).await?;
+            Self::merge_coin_commands(wal_coins, &mut pt_builder)?;
             let ptb = pt_builder.finish();
             // Even if there are no WAL coins, we do a no-op to smash the SUI gas coins.
             sign_and_send_ptb(address, wallet, ptb, sui_coins, self.gas_budget).await?;
@@ -354,7 +354,7 @@ impl<'a, G: CoinRefill + 'static> SubClientLoader<'a, G> {
     }
 
     /// Downloads the list of all coins of a type, and adds the commands to merge them to the ptb.
-    async fn merge_coin_commands(
+    fn merge_coin_commands(
         coin_list: Vec<Coin>,
         pt_builder: &mut ProgrammableTransactionBuilder,
     ) -> anyhow::Result<()> {
