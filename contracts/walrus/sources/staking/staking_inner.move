@@ -16,6 +16,7 @@ use wal::wal::WAL;
 use walrus::{
     active_set::{Self, ActiveSet},
     bls_aggregate::{Self, BlsCommittee},
+    commission::{Auth, Receiver},
     committee::{Self, Committee},
     epoch_parameters::{Self, EpochParams},
     events,
@@ -167,12 +168,23 @@ public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNo
     self.pools[cap.node_id()].set_withdrawing(wctx);
 }
 
+/// Sets the commission receiver for the pool.
+public(package) fun set_commission_receiver(
+    self: &mut StakingInnerV1,
+    node_id: ID,
+    auth: Auth,
+    receiver: Receiver,
+) {
+    self.pools[node_id].set_commission_receiver(auth, receiver)
+}
+
 /// Collect commission for the pool using the `StorageNodeCap`.
 public(package) fun collect_commission(
     self: &mut StakingInnerV1,
-    cap: &StorageNodeCap,
+    node_id: ID,
+    auth: Auth,
 ): Balance<WAL> {
-    self.pools[cap.node_id()].withdraw_commission(option::none())
+    self.pools[node_id].collect_commission(auth)
 }
 
 public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {

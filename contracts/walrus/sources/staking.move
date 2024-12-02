@@ -9,6 +9,7 @@ use std::string::String;
 use sui::{clock::Clock, coin::Coin, dynamic_object_field as df};
 use wal::wal::WAL;
 use walrus::{
+    commission::{Self, Auth, Receiver},
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
     storage_node::{Self, StorageNodeCap},
@@ -69,22 +70,24 @@ public fun register_candidate(
     ctx: &mut TxContext,
 ): StorageNodeCap {
     // use the Pool Object ID as the identifier of the storage node
-    let node_id = staking
-        .inner_mut()
-        .create_pool(
-            name,
-            network_address,
-            public_key,
-            network_public_key,
-            proof_of_possession,
-            commission_rate,
-            storage_price,
-            write_price,
-            node_capacity,
-            ctx,
-        );
+    let staking_mut = staking.inner_mut();
+    let node_id = staking_mut.create_pool(
+        name,
+        network_address,
+        public_key,
+        network_public_key,
+        proof_of_possession,
+        commission_rate,
+        storage_price,
+        write_price,
+        node_capacity,
+        ctx,
+    );
 
-    storage_node::new_cap(node_id, ctx)
+    let cap = storage_node::new_cap(node_id, ctx);
+    let receiver = commission::receiver_object(object::id(&cap));
+    staking_mut.set_commission_receiver(node_id, commission::auth_as_sender(ctx), receiver);
+    cap
 }
 
 /// Blocks staking for the nodes staking pool
@@ -98,19 +101,33 @@ public fun withdraw_node(staking: &mut Staking, cap: &mut StorageNodeCap) {
     staking.inner_mut().withdraw_node(cap);
 }
 
+// === Commission ===
+
 /// Sets next_commission in the staking pool, which will then take effect as commission rate
 /// one epoch after setting the value (to allow stakers to react to setting this).
 public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, commission_rate: u16) {
     staking.inner_mut().set_next_commission(cap, commission_rate);
 }
 
-/// Returns the accumulated commission for the storage node.
+/// Collects the commission for the node. Transaction sender must be the
+/// `ComissionReceiver` for the `StakingPool`.
 public fun collect_commission(
     staking: &mut Staking,
-    cap: &StorageNodeCap,
+    node_id: ID,
+    auth: Auth,
     ctx: &mut TxContext,
 ): Coin<WAL> {
-    staking.inner_mut().collect_commission(cap).into_coin(ctx)
+    staking.inner_mut().collect_commission(node_id, auth).into_coin(ctx)
+}
+
+/// Sets the commission receiver for the node.
+public fun set_commission_receiver(
+    staking: &mut Staking,
+    node_id: ID,
+    auth: Auth,
+    receiver: Receiver,
+) {
+    staking.inner_mut().set_commission_receiver(node_id, auth, receiver);
 }
 
 // === Voting ===

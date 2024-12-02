@@ -3,7 +3,7 @@
 
 module walrus::pool_commission_tests;
 
-use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq};
+use walrus::{commission, test_utils::{mint_balance, pool, context_runner, assert_eq}};
 
 #[test]
 // Scenario:
@@ -24,7 +24,7 @@ fun collect_commission_with_rewards() {
     pool.advance_epoch(mint_balance(0), &wctx);
     pool.request_withdraw_stake(&mut sw1, &wctx);
 
-    let (wctx, _) = test.next_epoch();
+    let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint_balance(10_000), &wctx);
 
     // Alice's stake: 1000 + 9000 (90%) rewards
@@ -32,7 +32,8 @@ fun collect_commission_with_rewards() {
     assert_eq!(pool.commission_amount(), 1000);
 
     // Commission is 10% -> 1000
-    let commission = pool.withdraw_commission(option::none());
+    let auth = commission::auth_as_sender(ctx);
+    let commission = pool.collect_commission(auth);
     assert_eq!(commission.destroy_for_testing(), 1000);
 
     pool.destroy_empty();

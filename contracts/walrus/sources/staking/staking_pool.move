@@ -8,6 +8,7 @@ use std::string::String;
 use sui::{bag::{Self, Bag}, balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
+    commission::{Self, Auth, Receiver},
     messages,
     pending_values::{Self, PendingValues},
     pool_exchange_rate::{Self, PoolExchangeRate},
@@ -44,9 +45,11 @@ const EActivationEpochNotReached: u64 = 12;
 const EWithdrawDirectly: u64 = 13;
 /// Incorrect commission rate.
 const EIncorrectCommissionRate: u64 = 14;
+/// Trying to collect commission or change receiver without authorization.
+const ECommissionAuthorizationFailure: u64 = 15;
 
 /// Represents the state of the staking pool.
-public enum PoolState has store, copy, drop {
+public enum PoolState has copy, drop, store {
     // The pool is active and can accept stakes.
     Active,
     // The pool awaits the stake to be withdrawn. The value inside the
@@ -57,7 +60,7 @@ public enum PoolState has store, copy, drop {
 }
 
 /// The parameters for the staking pool. Stored for the next epoch.
-public struct VotingParams has store, copy, drop {
+public struct VotingParams has copy, drop, store {
     /// Voting: storage price for the next epoch.
     storage_price: u64,
     /// Voting: write price for the next epoch.
@@ -122,6 +125,8 @@ public struct StakingPool has key, store {
     rewards_pool: Balance<WAL>,
     /// The commission that the pool has received from the rewards.
     commission: Balance<WAL>,
+    /// An Object or an address which can claim the commission.
+    commission_receiver: Receiver,
     /// Reserved for future use and migrations.
     extra_fields: Bag,
 }
@@ -192,6 +197,7 @@ public(package) fun new(
         pool_token_balance: 0,
         rewards_pool: balance::zero(),
         commission: balance::zero(),
+        commission_receiver: commission::receiver_address(ctx.sender()),
         extra_fields: bag::new(ctx),
     }
 }
@@ -536,6 +542,19 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
 
 // === Accessors ===
 
+/// Returns the ID of the pool.
+public(package) fun commission_receiver(pool: &StakingPool): &Receiver { &pool.commission_receiver }
+
+/// Sets the commission receiver for the pool.
+public(package) fun set_commission_receiver(
+    pool: &mut StakingPool,
+    auth: Auth,
+    receiver: Receiver,
+) {
+    assert!(auth.matches(&pool.commission_receiver), ECommissionAuthorizationFailure);
+    pool.commission_receiver = receiver
+}
+
 /// Returns the commission rate for the pool.
 public(package) fun commission_rate(pool: &StakingPool): u16 { pool.commission_rate }
 
@@ -544,8 +563,9 @@ public(package) fun commission_amount(pool: &StakingPool): u64 { pool.commission
 
 /// Withdraws the commission from the pool. Amount is optional, if not provided,
 /// the full commission is withdrawn.
-public(package) fun withdraw_commission(pool: &mut StakingPool, amount: Option<u64>): Balance<WAL> {
-    amount.map!(|amount| pool.commission.split(amount)).destroy_or!(pool.commission.withdraw_all())
+public(package) fun collect_commission(pool: &mut StakingPool, auth: Auth): Balance<WAL> {
+    assert!(auth.matches(&pool.commission_receiver), ECommissionAuthorizationFailure);
+    pool.commission.withdraw_all()
 }
 
 /// Returns the rewards amount for the pool.

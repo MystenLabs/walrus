@@ -5,8 +5,8 @@
 module walrus::e2e_tests;
 
 use std::unit_test::assert_eq;
-use walrus::{e2e_runner, staking_pool, test_node, test_utils};
 use sui::test_scenario;
+use walrus::{commission, e2e_runner, staking_pool, test_node, test_utils};
 
 const COMMISSION_RATE: u16 = 0;
 const STORAGE_PRICE: u64 = 5;
@@ -450,7 +450,8 @@ fun test_epoch_change_with_rewards_and_commission() {
     // each node is getting 470 in rewards, 10% of that is - 47 - commission
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let commission = staking.collect_commission(node.cap(), ctx);
+            let auth = commission::auth_as_object(node.cap());
+            let commission = staking.collect_commission(node.node_id(), auth, ctx);
             assert_eq!(commission.burn_for_testing(), 47);
         })
     });
@@ -528,8 +529,6 @@ fun test_register_invalid_pop_signer() {
 
     abort 0
 }
-
-
 
 #[test]
 fun withdraw_rewards_before_joining_committee() {
@@ -613,7 +612,6 @@ fun withdraw_rewards_before_joining_committee() {
         });
     });
 
-
     // === withdraw stake from excluded node ===
 
     let mut staked_wal = runner.scenario().take_from_address(excluded_node.sui_address());
@@ -647,5 +645,4 @@ fun withdraw_rewards_before_joining_committee() {
     nodes.destroy!(|node| node.destroy());
     excluded_node.destroy();
     runner.destroy();
-
 }
