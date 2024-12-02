@@ -178,6 +178,16 @@ pub struct VotingParams {
     pub node_capacity: u64,
 }
 
+#[cfg(feature = "mainnet-contracts")]
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+/// The receiver of the commission.
+enum CommissionReceiver {
+    /// Address receiver.
+    Address(ObjectID),
+    /// Object receiver.
+    ObjectID(ObjectID),
+}
+
 /// Represents a single staking pool.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct StakingPool {
@@ -220,6 +230,9 @@ pub(crate) struct StakingPool {
     #[cfg(feature = "mainnet-contracts")]
     /// Collected commission.
     commission: u64,
+    #[cfg(feature = "mainnet-contracts")]
+    /// The receiver of the commission.
+    commission_receiver: CommissionReceiver,
     #[cfg(feature = "mainnet-contracts")]
     #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,

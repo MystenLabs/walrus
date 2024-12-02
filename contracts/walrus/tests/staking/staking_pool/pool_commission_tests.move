@@ -65,6 +65,18 @@ fun change_commission_receiver() {
     let auth = commission::auth_as_object(&cap);
     pool.collect_commission(auth).destroy_zero();
 
+    // change it back
+    let auth = commission::auth_as_object(&cap);
+    let new_receiver = commission::receiver_address(ctx.sender());
+    pool.set_commission_receiver(auth, new_receiver);
+
+    // check the new receiver
+    assert!(pool.commission_receiver() == &new_receiver);
+
+    // try claiming the commission with the new receiver
+    let auth = commission::auth_as_sender(ctx);
+    pool.collect_commission(auth).destroy_zero();
+
     let TestObject { id } = cap;
     id.delete();
     pool.destroy_empty();
