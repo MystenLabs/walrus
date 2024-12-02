@@ -496,8 +496,8 @@ impl Drop for SimStorageNodeHandle {
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
     event_provider: Box<dyn SystemEventProvider>,
-    committee_service: Option<Box<dyn CommitteeService>>,
-    contract_service: Option<Box<dyn SystemContractService>>,
+    committee_service: Option<Arc<dyn CommitteeService>>,
+    contract_service: Option<Arc<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
     test_config: Option<StorageNodeTestConfig>,
@@ -544,7 +544,7 @@ impl StorageNodeHandleBuilder {
     /// If not provided, defaults to [`StubCommitteeService`] created with a valid committee
     /// constructed over at most 1 other node. Note that if the node has no shards assigned to it
     /// (as inferred from the storage), it will not be in the committee.
-    pub fn with_committee_service(mut self, service: Box<dyn CommitteeService>) -> Self {
+    pub fn with_committee_service(mut self, service: Arc<dyn CommitteeService>) -> Self {
         self.committee_service = Some(service);
         self
     }
@@ -554,7 +554,7 @@ impl StorageNodeHandleBuilder {
     /// If not provided, defaults to a [`StubContractService`].
     pub fn with_system_contract_service(
         mut self,
-        contract_service: Box<dyn SystemContractService>,
+        contract_service: Arc<dyn SystemContractService>,
     ) -> Self {
         self.contract_service = Some(contract_service);
         self
@@ -650,14 +650,14 @@ impl StorageNodeHandleBuilder {
                 committee_members.into_iter().flatten().collect(),
                 self.initial_epoch,
             );
-            Box::new(StubCommitteeService {
+            Arc::new(StubCommitteeService {
                 encoding: EncodingConfig::new(committee.n_shards()).into(),
                 committee: committee.into(),
             })
         });
 
         let contract_service = self.contract_service.unwrap_or_else(|| {
-            Box::new(StubContractService {
+            Arc::new(StubContractService {
                 system_parameters: FixedSystemParameters {
                     n_shards: committee_service.active_committees().n_shards(),
                     max_epochs_ahead: 200,
@@ -1315,8 +1315,8 @@ pub struct TestClusterBuilder {
     use_distinct_ip: bool,
     // INV: Reset if shard_assignment is changed.
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
-    committee_services: Vec<Option<Box<dyn CommitteeService>>>,
-    contract_services: Vec<Option<Box<dyn SystemContractService>>>,
+    committee_services: Vec<Option<Arc<dyn CommitteeService>>>,
+    contract_services: Vec<Option<Arc<dyn SystemContractService>>>,
     storage_capabilities: Vec<Option<StorageNodeCap>>,
     node_wallet_dirs: Vec<Option<PathBuf>>,
 }
@@ -1408,17 +1408,15 @@ impl TestClusterBuilder {
     /// Sets the [`CommitteeService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub async fn with_committee_services<F, Fut, T>(mut self, make_service: F) -> Self
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = T>,
-        T: CommitteeService + 'static,
-    {
-        self.committee_services.clear();
-        for _ in self.storage_node_configs.iter() {
-            self.committee_services
-                .push(Some(Box::new(make_service().await) as _));
-        }
+    pub fn with_committee_services(
+        mut self,
+        committee_services: &[Arc<dyn CommitteeService>],
+    ) -> Self {
+        assert_eq!(committee_services.len(), self.storage_node_configs.len());
+        self.committee_services = committee_services
+            .iter()
+            .map(|service| Some(service.clone()))
+            .collect();
         self
     }
 
@@ -1432,7 +1430,7 @@ impl TestClusterBuilder {
         assert_eq!(contract_services.len(), self.storage_node_configs.len());
         self.contract_services = contract_services
             .iter()
-            .map(|service| Some(Box::new(service.clone()) as _))
+            .map(|service| Some(Arc::new(service.clone()) as _))
             .collect();
         self
     }
@@ -1521,7 +1519,7 @@ impl TestClusterBuilder {
                     .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
                     .build(lookup_service.clone())
                     .await?;
-                builder.with_committee_service(Box::new(service))
+                builder.with_committee_service(Arc::new(service))
             };
 
             if let Some(service) = contract_service {
@@ -1724,6 +1722,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
 pub mod test_cluster {
     use std::sync::OnceLock;
 
+    use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
         client::{SuiContractClient, SuiReadClient},
@@ -1862,19 +1861,6 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
-            .into_iter()
-            .map(|client| (client.inner, client.temp_dir))
-            .map(|(client, tmp_dir)| {
-                (
-                    SuiSystemContractService::new(client),
-                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We need
-                    // to keep the directory alive throughout the test.
-                    Box::leak(Box::new(tmp_dir)),
-                )
-            })
-            .unzip();
-
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             wallet.as_ref().get_client().await?,
@@ -1884,18 +1870,35 @@ pub mod test_cluster {
         )
         .await?;
 
-        // Create a contract service for the storage nodes using a wallet in a temp dir
-        // The sui test cluster handler can be dropped since we already have one
-        // Set up the cluster
-        let cluster_builder = cluster_builder
-            .with_committee_services(|| async {
+        let committee_services = future::join_all(contract_clients.iter().map(|_| async {
+            let service: Arc<dyn CommitteeService> = Arc::new(
                 NodeCommitteeService::builder()
                     .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
                     .build(sui_read_client.clone())
                     .await
-                    .expect("service construction must succeed in tests")
+                    .expect("service construction must succeed in tests"),
+            );
+            service
+        }))
+        .await;
+
+        // Create a contract service for the storage nodes using a wallet in a temp dir.
+        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
+            .into_iter()
+            .zip(committee_services.iter())
+            .map(|(client, committee_service)| (client.inner, committee_service, client.temp_dir))
+            .map(|(client, committee_service, tmp_dir)| {
+                (
+                    SuiSystemContractService::new(client, committee_service.clone()),
+                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We
+                    // need to keep the directory alive throughout the test.
+                    Box::leak(Box::new(tmp_dir)),
+                )
             })
-            .await
+            .unzip();
+
+        let cluster_builder = cluster_builder
+            .with_committee_services(&committee_services)
             .with_system_contract_services(&node_contract_services);
 
         let event_processor_config =

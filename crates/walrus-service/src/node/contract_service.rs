@@ -20,7 +20,7 @@ use walrus_sui::{
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::config::SuiConfig;
+use super::{committee::CommitteeService, config::SuiConfig};
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
@@ -49,37 +49,47 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SuiSystemContractService {
     contract_client: Arc<TokioMutex<SuiContractClient>>,
+    committee_service: Arc<dyn CommitteeService>,
     rng: Arc<StdMutex<StdRng>>,
-}
-
-impl Clone for SuiSystemContractService {
-    fn clone(&self) -> Self {
-        Self {
-            contract_client: self.contract_client.clone(),
-            rng: self.rng.clone(),
-        }
-    }
 }
 
 impl SuiSystemContractService {
     /// Creates a new service with the supplied [`SuiContractClient`].
-    pub fn new(contract_client: SuiContractClient) -> Self {
-        Self::new_with_seed(contract_client, rand::thread_rng().gen())
+    pub fn new(
+        contract_client: SuiContractClient,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> Self {
+        Self::new_with_seed(contract_client, committee_service, rand::thread_rng().gen())
     }
 
-    fn new_with_seed(contract_client: SuiContractClient, seed: u64) -> Self {
+    fn new_with_seed(
+        contract_client: SuiContractClient,
+        committee_service: Arc<dyn CommitteeService>,
+        seed: u64,
+    ) -> Self {
         Self {
             contract_client: Arc::new(TokioMutex::new(contract_client)),
+            committee_service,
             rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(seed))),
         }
     }
 
     /// Creates a new provider with a [`SuiContractClient`] constructed from the config.
-    pub async fn from_config(config: &SuiConfig) -> Result<Self, anyhow::Error> {
-        Ok(Self::new(config.new_contract_client().await?))
+    pub async fn from_config(
+        config: &SuiConfig,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(Self::new(
+            config.new_contract_client().await?,
+            committee_service,
+        ))
+    }
+
+    fn current_epoch(&self) -> Epoch {
+        self.committee_service.active_committees().epoch()
     }
 }
 
@@ -134,6 +144,15 @@ impl SystemContractService for SuiSystemContractService {
         );
 
         backoff::retry(backoff, || async {
+            let current_epoch = self.current_epoch();
+            if epoch < current_epoch {
+                tracing::info!(
+                    epoch,
+                    current_epoch,
+                    "stop trying to submit epoch sync done for older epoch"
+                );
+                return Some(());
+            }
             match self
                 .contract_client
                 .lock()

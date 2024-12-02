@@ -233,8 +233,8 @@ pub trait ServiceState {
 pub struct StorageNodeBuilder {
     storage: Option<Storage>,
     event_manager: Option<Box<dyn EventManager>>,
-    committee_service: Option<Box<dyn CommitteeService>>,
-    contract_service: Option<Box<dyn SystemContractService>>,
+    committee_service: Option<Arc<dyn CommitteeService>>,
+    contract_service: Option<Arc<dyn SystemContractService>>,
 }
 
 impl StorageNodeBuilder {
@@ -258,14 +258,14 @@ impl StorageNodeBuilder {
     /// Sets the [`SystemContractService`] to be used with the node.
     pub fn with_system_contract_service(
         mut self,
-        contract_service: Box<dyn SystemContractService>,
+        contract_service: Arc<dyn SystemContractService>,
     ) -> Self {
         self.contract_service = Some(contract_service);
         self
     }
 
     /// Sets the [`CommitteeService`] used with the node.
-    pub fn with_committee_service(mut self, service: Box<dyn CommitteeService>) -> Self {
+    pub fn with_committee_service(mut self, service: Arc<dyn CommitteeService>) -> Self {
         self.committee_service = Some(service);
         self
     }
@@ -342,29 +342,33 @@ impl StorageNodeBuilder {
             }
         };
 
-        let contract_service = match self.contract_service {
-            None => Box::new(
-                SuiSystemContractService::from_config(
-                    config.sui.as_ref().expect("Sui config must be provided"),
-                )
-                .await?,
-            ),
-            Some(service) => service,
-        };
+        let committee_service: Arc<dyn CommitteeService> =
+            if let Some(service) = self.committee_service {
+                service
+            } else {
+                let (read_client, _) = sui_config_and_client
+                    .expect("this is always created if self.committee_service_factory.is_none()");
+                let service = NodeCommitteeService::builder()
+                    .local_identity(protocol_key_pair.public().clone())
+                    .config(config.blob_recovery.committee_service_config.clone())
+                    .metrics_registry(&metrics_registry)
+                    .build(read_client)
+                    .await?;
+                Arc::new(service)
+            };
 
-        let committee_service = if let Some(committee_service) = self.committee_service {
-            committee_service
-        } else {
-            let (read_client, _) = sui_config_and_client
-                .expect("this is always created if self.committee_service_factory.is_none()");
-            let service = NodeCommitteeService::builder()
-                .local_identity(protocol_key_pair.public().clone())
-                .config(config.blob_recovery.committee_service_config.clone())
-                .metrics_registry(&metrics_registry)
-                .build(read_client)
-                .await?;
-            Box::new(service)
-        };
+        let contract_service: Arc<dyn SystemContractService> =
+            if let Some(service) = self.contract_service {
+                service
+            } else {
+                Arc::new(
+                    SuiSystemContractService::from_config(
+                        config.sui.as_ref().expect("Sui config must be provided"),
+                        committee_service.clone(),
+                    )
+                    .await?,
+                )
+            };
 
         StorageNode::new(
             config,
@@ -414,8 +418,8 @@ impl StorageNode {
         config: &StorageNodeConfig,
         key_pair: ProtocolKeyPair,
         event_manager: Box<dyn EventManager>,
-        committee_service: Box<dyn CommitteeService>,
-        contract_service: Box<dyn SystemContractService>,
+        committee_service: Arc<dyn CommitteeService>,
+        contract_service: Arc<dyn SystemContractService>,
         registry: &Registry,
         pre_created_storage: Option<Storage>, // For testing purposes. TODO(#703): remove.
     ) -> Result<Self, anyhow::Error> {
@@ -433,7 +437,6 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
-        let contract_service: Arc<dyn SystemContractService> = Arc::from(contract_service);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: key_pair,
             storage,
@@ -441,7 +444,7 @@ impl StorageNode {
             encoding_config,
             contract_service: contract_service.clone(),
             current_epoch: watch::Sender::new(committee_service.get_epoch()),
-            committee_service: committee_service.into(),
+            committee_service,
             metrics: NodeMetricSet::new(registry),
             start_time,
             is_shutting_down: false.into(),
@@ -4011,7 +4014,7 @@ mod tests {
                 }),
             )])
             .with_shard_assignment(shard_assignment)
-            .with_system_contract_service(Box::new(contract_service))
+            .with_system_contract_service(Arc::new(contract_service))
             .with_node_started(true)
             .with_initial_epoch(initial_epoch)
             .build()
