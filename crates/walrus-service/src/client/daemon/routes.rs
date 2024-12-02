@@ -21,6 +21,7 @@ use reqwest::header::{
     X_CONTENT_TYPE_OPTIONS,
 };
 use serde::Deserialize;
+use sui_types::base_types::SuiAddress;
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::EpochCount;
@@ -127,17 +128,24 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         // TODO(giac): remove the force parameter from the publisher. (breaking change)
         force: _force,
         deletable,
+        return_to,
     }): Query<PublisherQuery>,
     blob: Bytes,
 ) -> Response {
-    tracing::debug!("starting to store received blob");
+    let action = if let Some(return_to) = return_to {
+        PostStoreAction::TransferTo(return_to)
+    } else {
+        PostStoreAction::Burn
+    };
+    tracing::debug!(?action, "starting to store received blob");
+
     let mut response = match client
         .write_blob(
             &blob[..],
             epochs,
             StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
-            PostStoreAction::Keep,
+            action,
         )
         .await
     {
@@ -197,6 +205,8 @@ pub(super) struct PublisherQuery {
     force: bool,
     #[serde(default)]
     deletable: bool,
+    #[serde(default)]
+    return_to: Option<SuiAddress>,
 }
 
 pub(super) fn default_epochs() -> EpochCount {
