@@ -38,15 +38,3 @@ public fun receiver_object(id: ID): Receiver {
 public(package) fun matches(auth: &Auth, receiver: &Receiver): bool {
     &auth.0 == receiver
 }
-
-#[test_only]
-/// Returns the `Receiver` as an address.
-public fun auth_as_address_for_testing(addr: address): Auth {
-    Auth(Receiver::Address(addr))
-}
-
-#[test_only]
-/// Returns the `Receiver` as an object.
-public fun auth_as_object_for_testing(id: ID): Auth {
-    Auth(Receiver::ObjectID(id))
-}
