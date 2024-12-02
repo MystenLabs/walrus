@@ -39,6 +39,37 @@ fun collect_commission_with_rewards() {
     pool.destroy_empty();
 }
 
+public struct TestObject has key { id: UID }
+
+#[test]
+fun change_commission_receiver() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().commission_rate(10_00).build(&wctx, ctx);
+
+    // by default sender is the receiver
+    let auth = commission::auth_as_sender(ctx);
+    let cap = TestObject { id: object::new(ctx) };
+    let new_receiver = commission::receiver_object(object::id(&cap));
+
+    // make sure the initial setting is correct
+    assert!(pool.commission_receiver() == &commission::receiver_address(ctx.sender()));
+
+    // update the receiver
+    pool.set_commission_receiver(auth, new_receiver);
+
+    // check the new receiver
+    assert!(pool.commission_receiver() == &new_receiver);
+
+    // try claiming the commission with the new receiver
+    let auth = commission::auth_as_object(&cap);
+    pool.collect_commission(auth).destroy_zero();
+
+    let TestObject { id } = cap;
+    id.delete();
+    pool.destroy_empty();
+}
+
 #[test]
 fun commission_setting_at_different_epochs() {
     let mut test = context_runner();
