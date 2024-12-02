@@ -110,7 +110,7 @@ public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, comm
 }
 
 /// Collects the commission for the node. Transaction sender must be the
-/// `ComissionReceiver` for the `StakingPool`.
+/// `CommissionReceiver` for the `StakingPool`.
 public fun collect_commission(
     staking: &mut Staking,
     node_id: ID,
