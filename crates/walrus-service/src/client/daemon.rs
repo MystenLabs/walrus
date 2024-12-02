@@ -59,7 +59,9 @@ pub trait WalrusReadClient {
     fn set_metric_registry(&mut self, registry: &Registry);
 }
 
+/// Trait representing a client that can write blobs to Walrus.
 pub trait WalrusWriteClient: WalrusReadClient {
+    /// Writes a blob to Walrus.
     fn write_blob(
         &self,
         blob: &[u8],
@@ -112,9 +114,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
                     .map_err(ClientError::other)?,
                 PostStoreAction::Keep => (),
             }
-            todo!()
-        }
-
+        };
         Ok(result)
     }
 }

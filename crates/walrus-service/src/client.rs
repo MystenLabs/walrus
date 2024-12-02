@@ -63,7 +63,7 @@ pub use config::{
 };
 
 mod daemon;
-pub use daemon::ClientDaemon;
+pub use daemon::{ClientDaemon, PostStoreAction, WalrusWriteClient};
 
 mod error;
 pub use error::{ClientError, ClientErrorKind};
@@ -510,7 +510,7 @@ impl Client<SuiContractClient> {
     ) -> ClientResult<impl Iterator<Item = Blob> + 'a> {
         Ok(self
             .sui_client
-            .owned_blobs(false)
+            .owned_blobs(None, false)
             .await?
             .into_iter()
             .filter(|blob| blob.blob_id == *blob_id && blob.deletable))

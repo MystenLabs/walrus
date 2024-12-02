@@ -307,7 +307,7 @@ impl<'a> ResourceManager<'a> {
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client
-            .owned_blobs(false)
+            .owned_blobs(None, false)
             .await?
             .into_iter()
             .find(|blob| {

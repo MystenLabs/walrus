@@ -584,11 +584,17 @@ impl SuiContractClient {
     }
 
     /// Returns the list of [`Blob`] objects owned by the wallet currently in use.
-    pub async fn owned_blobs(&self, include_expired: bool) -> SuiClientResult<Vec<Blob>> {
+    ///
+    /// If `owner` is `None`, the current wallet address is used.
+    pub async fn owned_blobs(
+        &self,
+        owner: Option<SuiAddress>,
+        include_expired: bool,
+    ) -> SuiClientResult<Vec<Blob>> {
         let current_epoch = self.read_client.current_committee().await?.epoch;
         Ok(self
             .read_client
-            .get_owned_objects::<Blob>(self.wallet_address, &[])
+            .get_owned_objects::<Blob>(owner.unwrap_or(self.wallet_address), &[])
             .await?
             .filter(|blob| include_expired || blob.storage.end_epoch > current_epoch)
             .collect())

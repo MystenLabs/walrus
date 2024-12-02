@@ -436,7 +436,7 @@ impl ClientCommandRunner {
         let contract_client = config
             .new_contract_client(self.wallet?, self.gas_budget)
             .await?;
-        let blobs = contract_client.owned_blobs(include_expired).await?;
+        let blobs = contract_client.owned_blobs(None, include_expired).await?;
         blobs.print_output(self.json)
     }
 
@@ -555,7 +555,7 @@ impl ClientCommandRunner {
             } else if let Some(object_id) = object_id {
                 if let Some(to_delete) = client
                     .sui_client()
-                    .owned_blobs(false)
+                    .owned_blobs(None, false)
                     .await?
                     .into_iter()
                     .find(|blob| blob.id == object_id)
