@@ -3,7 +3,7 @@
 
 //! Blob encoding functionality, using the RedStuff algorithm.
 
-// TODO(giac): Link or import the `../../../docs/red-stuff.md` documentation here.
+// TODO(giac): Link or import the `../../../docs/red-stuff.md` documentation here (#307).
 
 mod basic_encoding;
 pub use basic_encoding::{Decoder, Encoder};
