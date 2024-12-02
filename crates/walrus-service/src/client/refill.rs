@@ -175,16 +175,18 @@ impl Refiller {
 
     /// Sends SUI to the specified address.
     pub async fn send_gas_request(&self, address: SuiAddress) -> Result<()> {
-        self.contract_client
+        Ok(self
+            .contract_client
             .send_sui(self.gas_refill_size, address)
-            .await
+            .await?)
     }
 
     /// Sends WAL to the specified address.
     pub async fn send_wal_request(&self, address: SuiAddress) -> Result<()> {
-        self.contract_client
+        Ok(self
+            .contract_client
             .send_wal(self.wal_refill_size, address)
-            .await
+            .await?)
     }
 }
 

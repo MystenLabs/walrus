@@ -28,7 +28,7 @@ use walrus_sui::client::BlobPersistence;
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::{BlobStoreResult, ClientErrorKind, StoreWhen},
+    client::{daemon::PostStoreAction, BlobStoreResult, ClientErrorKind, StoreWhen},
     common::api::{self, BlobIdString},
 };
 
@@ -137,6 +137,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             epochs,
             StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
+            PostStoreAction::Keep,
         )
         .await
     {

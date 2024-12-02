@@ -25,7 +25,7 @@ use walrus_sui::{
 
 use super::{
     cli::PublisherArgs,
-    daemon::{WalrusReadClient, WalrusWriteClient},
+    daemon::{PostStoreAction, WalrusReadClient, WalrusWriteClient},
     metrics::ClientMetrics,
     refill::{RefillHandles, Refiller},
     responses::BlobStoreResult,
@@ -97,12 +97,13 @@ impl ClientMultiplexer {
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
+        post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let client = self.client_pool.next_client().await;
         tracing::debug!("submitting write request to client in pool");
 
         let result = client
-            .reserve_and_store_blob_retry_epoch(blob, epochs_ahead, store_when, persistence)
+            .write_blob(blob, epochs_ahead, store_when, persistence, post_store)
             .await?;
 
         Ok(result)
@@ -126,13 +127,14 @@ impl WalrusWriteClient for ClientMultiplexer {
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
+        post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
-        self.submit_write(blob, epochs_ahead, store_when, persistence)
+        self.submit_write(blob, epochs_ahead, store_when, persistence, post_store)
             .await
     }
 }
 
-/// A pool of temporary write clients that are rotaated.
+/// A pool of temporary write clients that are rotated.
 pub struct WriteClientPool {
     pool: Vec<Arc<Client<SuiContractClient>>>,
     cur_idx: AtomicUsize,

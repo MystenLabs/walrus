@@ -734,7 +734,7 @@ impl SuiContractClient {
     }
 
     /// Sends the `amount` gas to the provided `address`.
-    pub async fn send_sui(&self, amount: u64, address: SuiAddress) -> Result<()> {
+    pub async fn send_sui(&self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
 
         // Lock the wallet here to ensure there are no race conditions with object references.
@@ -747,7 +747,7 @@ impl SuiContractClient {
     }
 
     /// Sends the `amount` WAL to the provided `address`.
-    pub async fn send_wal(&self, amount: u64, address: SuiAddress) -> Result<()> {
+    pub async fn send_wal(&self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
         tracing::debug!(%address, "sending WAL to address");
         let mut pt_builder = self.transaction_builder();
 
@@ -760,7 +760,7 @@ impl SuiContractClient {
     }
 
     /// Burns the blob objects with the given object IDs.
-    pub async fn burn_blobs(&self, blob_object_ids: &[ObjectID]) -> Result<()> {
+    pub async fn burn_blobs(&self, blob_object_ids: &[ObjectID]) -> SuiClientResult<()> {
         tracing::debug!(?blob_object_ids, "burning blobs");
         let mut pt_builder = self.transaction_builder();
 

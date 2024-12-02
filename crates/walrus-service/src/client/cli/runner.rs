@@ -209,7 +209,7 @@ impl ClientCommandRunner {
             } => self.exchange_sui_for_wal(exchange_id, amount).await,
 
             CliCommands::BurnBlobs { object_ids, yes } => {
-                self.burn_blob(object_ids, yes.into()).await
+                self.burn_blobs(object_ids, yes.into()).await
             }
         }
     }
@@ -635,7 +635,7 @@ impl ClientCommandRunner {
         ExchangeOutput { amount_sui: amount }.print_output(self.json)
     }
 
-    pub(crate) async fn burn_blob(
+    pub(crate) async fn burn_blobs(
         self,
         object_ids: Vec<ObjectID>,
         confirmation: UserConfirmation,
