@@ -207,6 +207,10 @@ impl ClientCommandRunner {
                 exchange_id,
                 amount,
             } => self.exchange_sui_for_wal(exchange_id, amount).await,
+
+            CliCommands::BurnBlobs { object_ids, yes } => {
+                self.burn_blob(object_ids, yes.into()).await
+            }
         }
     }
 
@@ -629,6 +633,39 @@ impl ClientCommandRunner {
         );
         client.exchange_sui_for_wal(exchange_id, amount).await?;
         ExchangeOutput { amount_sui: amount }.print_output(self.json)
+    }
+
+    pub(crate) async fn burn_blob(
+        self,
+        object_ids: Vec<ObjectID>,
+        confirmation: UserConfirmation,
+    ) -> Result<()> {
+        if confirmation.is_required() {
+            let object_list = object_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            println!(
+                "{} You are about to burn the following blob object(s):\n{}\n({} total). \
+                \nIf unsure, please enter `No` and check the `--help` manual.",
+                warning(),
+                object_list,
+                object_ids.len()
+            );
+            if !ask_for_confirmation()? {
+                println!("{} Aborting. No blobs were burned.", success());
+                return Ok(());
+            }
+        }
+
+        let sui_client = self
+            .config?
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+        sui_client.burn_blobs(&object_ids).await?;
+        println!("{} The specified blob objects have been burned", success());
+        Ok(())
     }
 }
 

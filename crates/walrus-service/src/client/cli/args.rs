@@ -327,6 +327,27 @@ pub enum CliCommands {
         /// The amount of MIST to exchange for WAL/FROST.
         amount: u64,
     },
+    /// Burns one or more owned Blob object on Sui.
+    ///
+    /// This command burns the Blob objects with the given object IDs. The Blob objects must be
+    /// owned by the wallet currently in use.
+    ///
+    /// This operation simply removes the Blob objects from Sui, _without_ deleting the data from
+    /// Walrus and _without_ refunding the storage. Running this command will result in the loss of
+    /// control over the Blob objects and the data they represent. Importantly, after burning:
+    ///
+    /// - Permanent blobs cannot be extended;
+    /// - deletable blobs cannot be extended nor deleted.
+    BurnBlobs {
+        /// The object IDs of the Blob objects to burn.
+        #[clap(num_args=1.., required=true)]
+        #[serde_as(as = "Vec<DisplayFromStr>")]
+        object_ids: Vec<ObjectID>,
+        /// Proceed to burn the blobs without confirmation.
+        #[clap(short, long, action)]
+        #[serde(default)]
+        yes: bool,
+    },
 }
 
 /// The daemon commands for the Walrus client.

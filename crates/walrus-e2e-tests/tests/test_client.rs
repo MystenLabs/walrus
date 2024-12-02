@@ -579,3 +579,42 @@ async fn test_repeated_shard_move() -> TestResult {
 
     Ok(())
 }
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_burn_blobs() -> TestResult {
+    const N_BLOBS: usize = 3;
+    const N_TO_DELETE: usize = 2;
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let mut blob_object_ids = vec![];
+    for idx in 0..N_BLOBS {
+        let blob = walrus_test_utils::random_data(314 + idx);
+        let result = client
+            .as_ref()
+            .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
+            .await?;
+        blob_object_ids.push({
+            let BlobStoreResult::NewlyCreated { blob_object, .. } = result else {
+                panic!("expect newly stored blob")
+            };
+            blob_object.id
+        });
+    }
+
+    let blobs = client.as_ref().sui_client().owned_blobs(false).await?;
+    assert_eq!(blobs.len(), N_BLOBS);
+
+    client
+        .as_ref()
+        .sui_client()
+        .burn_blobs(&blob_object_ids[..N_TO_DELETE])
+        .await?;
+
+    let blobs = client.as_ref().sui_client().owned_blobs(false).await?;
+    assert_eq!(blobs.len(), N_BLOBS - N_TO_DELETE);
+
+    Ok(())
+}

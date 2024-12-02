@@ -758,6 +758,21 @@ impl SuiContractClient {
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
     }
+
+    /// Burns the blob objects with the given object IDs.
+    pub async fn burn_blobs(&self, blob_object_ids: &[ObjectID]) -> Result<()> {
+        tracing::debug!(?blob_object_ids, "burning blobs");
+        let mut pt_builder = self.transaction_builder();
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+        for object_id in blob_object_ids.iter() {
+            pt_builder.burn_blob(object_id.into()).await?;
+        }
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
 }
 
 impl ReadClient for SuiContractClient {

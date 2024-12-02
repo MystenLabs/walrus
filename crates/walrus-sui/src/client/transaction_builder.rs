@@ -286,6 +286,14 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
+    /// Adds a call to `burn` the blob to the `pt_builder`.
+    pub async fn burn_blob(&mut self, blob_object: ArgumentOrOwnedObject) -> SuiClientResult<()> {
+        let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
+        self.move_call(contracts::blob::burn, vec![blob_arg])?;
+        self.mark_arg_as_consumed(&blob_arg);
+        Ok(())
+    }
+
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.
     pub async fn transfer<I: IntoIterator<Item = ArgumentOrOwnedObject>>(
         &mut self,

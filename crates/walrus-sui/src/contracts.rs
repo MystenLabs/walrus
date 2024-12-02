@@ -283,6 +283,7 @@ pub mod blob {
     use super::*;
 
     contract_ident!(struct blob::Blob);
+    contract_ident!(fn blob::burn);
 }
 
 /// Module for tags corresponding to the Move module `blob_events`.
