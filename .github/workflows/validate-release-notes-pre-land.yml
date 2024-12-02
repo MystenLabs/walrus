@@ -8,7 +8,7 @@ on:
       - 'testnet'
       - 'mainnet'
   pull_request:
-    types: [ opened, synchronize, reopened, edited, ready_for_review ]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
     inputs:
       sui_repo_ref:
@@ -25,7 +25,7 @@ jobs:
   diff:
     name: Determine PR eligibility for ${{ github.event.pull_request.number }}
     if: github.event.pull_request.number != ''
-    runs-on: [ ubuntu-latest ]
+    runs-on: [ubuntu-latest]
     outputs:
       isReleaseNotesEligible: ${{ steps.diff.outputs.isReleaseNotesEligible }}
     steps:
@@ -40,7 +40,10 @@ jobs:
     name: Validate Release Notes in ${{ github.event.pull_request.number }}
     needs: diff
     if: needs.diff.outputs.isReleaseNotesEligible == 'true' && github.event.pull_request.number != ''
-    runs-on: [ ubuntu-latest ]
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
         with:
@@ -51,4 +54,4 @@ jobs:
       - name: Validate PR's release notes
         shell: bash
         run: |
-          WALRUS_REPO_TOKEN=${{ secrets.WALRUS_REPO_TOKEN }} python ./scripts/release_notes.py check ${{ github.event.pull_request.number }}
+          WALRUS_REPO_TOKEN=${{ secrets.GITHUB_TOKEN }} python ./scripts/release_notes.py check ${{ github.event.pull_request.number }}
