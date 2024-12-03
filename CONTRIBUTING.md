@@ -40,7 +40,9 @@ You can also use a custom pre-commit configuration if you wish:
 1. Create a file `.custom-pre-commit-config.yaml` (this is set to be ignored by Git).
 1. Run `pre-commit install -c .custom-pre-commit-config.yaml`.
 
-## Code formatting
+## Formatting
+
+### Rust code formatting
 
 We use a few unstable formatting options of Rustfmt. Unfortunately, these can only be used with a
 stable toolchain when specified via the `--config` command-line option. This is done in
@@ -62,17 +64,18 @@ Also make sure you use the correct version of Rustfmt. See
 [rust-toolchain.toml](rust-toolchain.toml) for the current version. This also impacts other checks,
 for example Clippy.
 
-## Move code formatting
+### Move code formatting
 
-We use the `@mysten/prettier-plugin-move` npm package to format Move code.
-If you're using VSCode, you can install the [Move Formatter](https://marketplace.visualstudio.com/items?itemName=mysten.prettier-move) extension.
-The formatter is also run automatically in the [pre-commit hooks](#pre-commit-hooks).
+We use the `@mysten/prettier-plugin-move` npm package to format Move code. If you're using VSCode,
+you can install the [Move Formatter](https://marketplace.visualstudio.com/items?itemName=mysten.prettier-move)
+extension. The formatter is also run automatically in the [pre-commit hooks](#pre-commit-hooks).
 
 To use it as a stand-alone tool, we recommend installing it globally (requires NodeJS and npm):
 
 ```sh
-npm i -g @mysten/prettier-plugin-move
+npm i -g prettier @mysten/prettier-plugin-move
 ```
+
 The Move formatter can then be run manually by executing:
 
 ```sh

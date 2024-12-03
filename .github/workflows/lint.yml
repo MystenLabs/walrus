@@ -53,7 +53,7 @@ jobs:
       - name: Check formatting of all YAML files
         run: ./yamlfmt -lint
 
-  move_formatting:
+  move-formatting:
     name: Check Move formatting
     runs-on: ubuntu-latest
     defaults:
@@ -87,6 +87,7 @@ jobs:
     needs:
       - pr-title
       - formatting
+      - move-formatting
       - typos
       - license-headers
     runs-on: ubuntu-latest

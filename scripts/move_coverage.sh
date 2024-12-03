@@ -42,7 +42,7 @@ if [ $error -ne 0 ]; then
     exit $error
 fi
 
-if ! [ $COVERAGE ]; then
+if ! $COVERAGE; then
     exit 0
 fi
 
