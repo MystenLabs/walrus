@@ -199,6 +199,12 @@ struct ConfigArgs {
     /// Object ID of the Walrus staking object.
     staking_object: ObjectID,
     #[clap(long)]
+    /// The Walrus package ID.
+    ///
+    /// If not provided, the original package ID will be fetched from the Sui network based on the
+    /// provided system and staking object IDs.
+    walrus_package: Option<ObjectID>,
+    #[clap(long)]
     /// Initial storage capacity of this node in bytes.
     ///
     /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
@@ -586,6 +592,7 @@ mod commands {
         ConfigArgs {
             system_object,
             staking_object,
+            walrus_package,
             node_capacity,
             public_host,
             sui_rpc,
@@ -642,6 +649,7 @@ mod commands {
                 rpc: sui_rpc,
                 system_object,
                 staking_object,
+                walrus_package,
                 wallet_config,
                 event_polling_interval: config::defaults::polling_interval(),
                 gas_budget,

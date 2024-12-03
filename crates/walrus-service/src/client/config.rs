@@ -25,6 +25,9 @@ pub struct Config {
     pub system_object: ObjectID,
     /// The Walrus staking object ID.
     pub staking_object: ObjectID,
+    /// The Walrus package ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walrus_package: Option<ObjectID>,
     /// The WAL exchange object ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exchange_object: Option<ExchangeObjectConfig>,
@@ -42,7 +45,13 @@ impl Config {
         &self,
         sui_client: SuiClient,
     ) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new(sui_client, self.system_object, self.staking_object).await
+        SuiReadClient::new(
+            sui_client,
+            self.system_object,
+            self.staking_object,
+            self.walrus_package,
+        )
+        .await
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
@@ -51,7 +60,14 @@ impl Config {
         wallet: WalletContext,
         gas_budget: u64,
     ) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(wallet, self.system_object, self.staking_object, gas_budget).await
+        SuiContractClient::new(
+            wallet,
+            self.system_object,
+            self.staking_object,
+            self.walrus_package,
+            gas_budget,
+        )
+        .await
     }
 }
 
@@ -448,6 +464,7 @@ mod tests {
         let config = super::Config {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
+            walrus_package: Some(ObjectID::random_from_rng(&mut rng)),
             exchange_object: Some(super::ExchangeObjectConfig::Multiple(vec![
                 ObjectID::random_from_rng(&mut rng),
                 ObjectID::random_from_rng(&mut rng),

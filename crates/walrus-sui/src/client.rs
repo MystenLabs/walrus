@@ -52,18 +52,11 @@ use crate::{
         StorageNodeCap,
         StorageResource,
     },
-    utils::{
-        get_address_capability_object,
-        get_created_sui_object_ids_by_type,
-        get_owned_objects,
-        get_sui_object,
-        sign_and_send_ptb,
-    },
+    utils::{get_created_sui_object_ids_by_type, get_sui_object, sign_and_send_ptb},
 };
 
 mod read_client;
 pub use read_client::{
-    get_system_package_id,
     CoinType,
     CommitteesAndState,
     FixedSystemParameters,
@@ -98,6 +91,13 @@ pub enum SuiClientError {
         activated in your Sui wallet"
     )]
     WalrusSystemObjectDoesNotExist(ObjectID),
+    /// The specified Walrus package could not be found.
+    #[error(
+        "the specified Walrus package {0} could not be found\n\
+        make sure you have the latest binary and configuration, and the correct Sui network is \
+        activated in your Sui wallet"
+    )]
+    WalrusPackageNotFound(ObjectID),
     /// The specified event ID is not associated with a Walrus event.
     #[error("no corresponding blob event found for {0:?}")]
     NoCorrespondingBlobEvent(EventID),
@@ -197,10 +197,16 @@ impl SuiContractClient {
         wallet: WalletContext,
         system_object: ObjectID,
         staking_object: ObjectID,
+        package_id: Option<ObjectID>,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
-        let read_client =
-            SuiReadClient::new(wallet.get_client().await?, system_object, staking_object).await?;
+        let read_client = SuiReadClient::new(
+            wallet.get_client().await?,
+            system_object,
+            staking_object,
+            package_id,
+        )
+        .await?;
         Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
@@ -270,7 +276,7 @@ impl SuiContractClient {
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
-                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
 
         ensure!(
@@ -303,7 +309,8 @@ impl SuiContractClient {
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
-            &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+            &contracts::blob::Blob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
         ensure!(
             blob_obj_id.len() == 1,
@@ -345,7 +352,8 @@ impl SuiContractClient {
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let blob_obj_id = get_created_sui_object_ids_by_type(
             &res,
-            &contracts::blob::Blob.to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+            &contracts::blob::Blob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
         ensure!(
             blob_obj_id.len() == 1,
@@ -416,12 +424,10 @@ impl SuiContractClient {
         //
         // TODO(#928): revisit this choice after mainnet to see if this causes inconvenience for
         // node operators.
-        let existing_capability_object = get_address_capability_object(
-            &self.read_client.sui_client,
-            self.wallet_address,
-            self.read_client.system_pkg_id,
-        )
-        .await?;
+        let existing_capability_object = self
+            .read_client
+            .get_address_capability_object(self.wallet_address)
+            .await?;
 
         if let Some(cap) = existing_capability_object {
             return Err(SuiClientError::CapabilityObjectAlreadyExists(cap));
@@ -439,7 +445,7 @@ impl SuiContractClient {
         let cap_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_node::StorageNodeCap
-                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
         ensure!(
             cap_id.len() == 1,
@@ -467,7 +473,7 @@ impl SuiContractClient {
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
             &contracts::staked_wal::StakedWal
-                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
         ensure!(
             staked_wal.len() == 1,
@@ -507,13 +513,11 @@ impl SuiContractClient {
 
     /// Call to notify the contract that this node is done syncing the specified epoch.
     pub async fn epoch_sync_done(&self, epoch: Epoch) -> SuiClientResult<()> {
-        let node_capability = get_address_capability_object(
-            &self.read_client.sui_client,
-            self.wallet_address,
-            self.read_client.system_pkg_id,
-        )
-        .await?
-        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+        let node_capability = self
+            .read_client
+            .get_address_capability_object(self.wallet_address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
         if node_capability.last_epoch_sync_done >= epoch {
             return Err(SuiClientError::LatestAttestedIsMoreRecent);
@@ -551,7 +555,7 @@ impl SuiContractClient {
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::wal_exchange::Exchange
-                .to_move_struct_tag(self.read_client.system_pkg_id, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
         ensure!(
             exchange_id.len() == 1,
@@ -582,15 +586,12 @@ impl SuiContractClient {
     /// Returns the list of [`Blob`] objects owned by the wallet currently in use.
     pub async fn owned_blobs(&self, include_expired: bool) -> SuiClientResult<Vec<Blob>> {
         let current_epoch = self.read_client.current_committee().await?.epoch;
-        Ok(get_owned_objects::<Blob>(
-            &self.read_client.sui_client,
-            self.wallet_address,
-            self.read_client.system_pkg_id,
-            &[],
-        )
-        .await?
-        .filter(|blob| include_expired || blob.storage.end_epoch > current_epoch)
-        .collect())
+        Ok(self
+            .read_client
+            .get_owned_objects::<Blob>(self.wallet_address, &[])
+            .await?
+            .filter(|blob| include_expired || blob.storage.end_epoch > current_epoch)
+            .collect())
     }
 
     /// Returns the list of [`StorageResource`] objects owned by the wallet currently in use.
@@ -599,15 +600,12 @@ impl SuiContractClient {
         include_expired: bool,
     ) -> SuiClientResult<Vec<StorageResource>> {
         let current_epoch = self.read_client.current_committee().await?.epoch;
-        Ok(get_owned_objects::<StorageResource>(
-            &self.read_client.sui_client,
-            self.wallet_address,
-            self.read_client.system_pkg_id,
-            &[],
-        )
-        .await?
-        .filter(|storage| include_expired || storage.end_epoch > current_epoch)
-        .collect())
+        Ok(self
+            .read_client
+            .get_owned_objects::<StorageResource>(self.wallet_address, &[])
+            .await?
+            .filter(|storage| include_expired || storage.end_epoch > current_epoch)
+            .collect())
     }
 
     /// Returns the closest-matching owned storage resources for given size and number of epochs.
@@ -750,7 +748,7 @@ impl SuiContractClient {
 
     /// Sends the `amount` WAL to the provided `address`.
     pub async fn send_wal(&self, amount: u64, address: SuiAddress) -> Result<()> {
-        tracing::debug!(%address, "sending WAL to sub-wallet");
+        tracing::debug!(%address, "sending WAL to address");
         let mut pt_builder = self.transaction_builder();
 
         // Lock the wallet here to ensure there are no race conditions with object references.

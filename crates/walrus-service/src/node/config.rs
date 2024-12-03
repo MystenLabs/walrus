@@ -344,6 +344,9 @@ pub struct SuiConfig {
     pub system_object: ObjectID,
     /// Object ID of the Walrus staking object.
     pub staking_object: ObjectID,
+    /// Object ID of the Walrus package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walrus_package: Option<ObjectID>,
     /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
     #[serde(
@@ -362,7 +365,13 @@ pub struct SuiConfig {
 impl SuiConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new_for_rpc(&self.rpc, self.system_object, self.staking_object).await
+        SuiReadClient::new_for_rpc(
+            &self.rpc,
+            self.system_object,
+            self.staking_object,
+            self.walrus_package,
+        )
+        .await
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
@@ -371,6 +380,7 @@ impl SuiConfig {
             WalletContext::new(&self.wallet_config, None, None)?,
             self.system_object,
             self.staking_object,
+            self.walrus_package,
             self.gas_budget,
         )
         .await

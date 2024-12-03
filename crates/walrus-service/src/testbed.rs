@@ -348,6 +348,7 @@ pub async fn deploy_walrus_contract(
         admin_wallet,
         system_ctx.system_object,
         system_ctx.staking_object,
+        Some(system_ctx.package_id),
         gas_budget,
     )
     .await?;
@@ -423,6 +424,7 @@ pub async fn create_client_config(
     let client_config = client::Config {
         system_object: system_ctx.system_object,
         staking_object: system_ctx.staking_object,
+        walrus_package: Some(system_ctx.package_id),
         exchange_object: Some(ExchangeObjectConfig::One(exchange_object)),
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
@@ -540,6 +542,7 @@ pub async fn create_storage_node_configs(
             rpc: rpc.clone(),
             system_object: testbed_config.system_ctx.system_object,
             staking_object: testbed_config.system_ctx.staking_object,
+            walrus_package: Some(testbed_config.system_ctx.package_id),
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             gas_budget: defaults::gas_budget(),

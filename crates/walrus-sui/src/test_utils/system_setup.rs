@@ -122,7 +122,14 @@ impl SystemContext {
         wallet: WalletContext,
         gas_budget: u64,
     ) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(wallet, self.system_object, self.staking_object, gas_budget).await
+        SuiContractClient::new(
+            wallet,
+            self.system_object,
+            self.staking_object,
+            Some(self.package_id),
+            gas_budget,
+        )
+        .await
     }
 }
 

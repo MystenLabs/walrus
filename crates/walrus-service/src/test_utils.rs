@@ -803,6 +803,7 @@ impl StorageNodeHandleBuilder {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
                 system_object: system_context.system_object,
                 staking_object: system_context.staking_object,
+                walrus_package: Some(system_context.package_id),
                 wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 event_polling_interval: config::defaults::polling_interval(),
                 gas_budget: config::defaults::gas_budget(),
@@ -1879,6 +1880,7 @@ pub mod test_cluster {
             wallet.as_ref().get_client().await?,
             system_ctx.system_object,
             system_ctx.staking_object,
+            Some(system_ctx.package_id),
         )
         .await?;
 
@@ -1933,6 +1935,7 @@ pub mod test_cluster {
         let config = Config {
             system_object: system_ctx.system_object,
             staking_object: system_ctx.staking_object,
+            walrus_package: Some(system_ctx.package_id),
             exchange_object: None,
             wallet_config: None,
             communication_config,

@@ -60,7 +60,7 @@ async fn initialize_contract_and_wallet(
         sui_cluster,
         admin_wallet
             .and_then_async(|wallet| {
-                SuiContractClient::new(wallet, system_object, staking_object, GAS_BUDGET)
+                SuiContractClient::new(wallet, system_object, staking_object, None, GAS_BUDGET)
             })
             .await?,
     ))

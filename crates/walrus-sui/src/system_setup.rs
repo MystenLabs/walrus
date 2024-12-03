@@ -148,15 +148,15 @@ pub async fn publish_coin_and_system_package(
 
     let [init_cap_id] = get_created_sui_object_ids_by_type(
         &transaction_response,
-        &INIT_CAP_TAG.to_move_struct_tag(walrus_pkg_id, &[])?,
+        &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
     )?[..] else {
         bail!("unexpected number of InitCap objects created");
     };
 
     let wal_type_tag = TypeTag::from_str(&format!("{walrus_pkg_id}::wal::WAL"))?;
 
-    let treasury_cap_struct_tag =
-        TREASURY_CAP_TAG.to_move_struct_tag(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
+    let treasury_cap_struct_tag = TREASURY_CAP_TAG
+        .to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
 
     let [treasury_cap_id] =
         get_created_sui_object_ids_by_type(&transaction_response, &treasury_cap_struct_tag)?[..]
@@ -261,14 +261,14 @@ pub async fn create_system_and_staking_objects(
 
     let [staking_object_id] = get_created_sui_object_ids_by_type(
         &response,
-        &contracts::staking::Staking.to_move_struct_tag(contract_pkg_id, &[])?,
+        &contracts::staking::Staking.to_move_struct_tag_with_package(contract_pkg_id, &[])?,
     )?[..] else {
         bail!("unexpected number of staking objects created");
     };
 
     let [system_object_id] = get_created_sui_object_ids_by_type(
         &response,
-        &contracts::system::System.to_move_struct_tag(contract_pkg_id, &[])?,
+        &contracts::system::System.to_move_struct_tag_with_package(contract_pkg_id, &[])?,
     )?[..] else {
         bail!("unexpected number of system objects created");
     };
