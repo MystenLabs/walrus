@@ -120,7 +120,7 @@ public(package) fun emit_blob_deleted(
     blob_id: u256,
     end_epoch: u32,
     object_id: ID,
-    was_certified: bool
+    was_certified: bool,
 ) {
     event::emit(BlobDeleted { epoch, blob_id, end_epoch, object_id, was_certified });
 }

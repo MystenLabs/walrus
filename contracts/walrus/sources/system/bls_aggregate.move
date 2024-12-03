@@ -17,14 +17,14 @@ const ESigVerification: u64 = 1;
 const ENotEnoughStake: u64 = 2;
 const EIncorrectCommittee: u64 = 3;
 
-public struct BlsCommitteeMember has store, copy, drop {
+public struct BlsCommitteeMember has copy, drop, store {
     public_key: Element<G1>,
     weight: u16,
     node_id: ID,
 }
 
 /// This represents a BLS signing committee for a given epoch.
-public struct BlsCommittee has store, copy, drop {
+public struct BlsCommittee has copy, drop, store {
     /// A vector of committee members
     members: vector<BlsCommitteeMember>,
     /// The total number of shards held by the committee

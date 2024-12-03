@@ -9,13 +9,13 @@ use sui::vec_map::VecMap;
 // === Definitions related to event blob certification ===
 
 /// Event blob index which was attested by a storage node.
-public struct EventBlobAttestation has store, copy, drop {
+public struct EventBlobAttestation has copy, drop, store {
     checkpoint_sequence_num: u64,
     epoch: u32,
 }
 
 /// State of a certified event blob.
-public struct EventBlob has copy, store, drop {
+public struct EventBlob has copy, drop, store {
     /// Blob id of the certified event blob.
     blob_id: u256,
     /// Ending sui checkpoint of the certified event blob.

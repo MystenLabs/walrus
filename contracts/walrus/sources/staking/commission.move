@@ -9,7 +9,7 @@ public struct Auth(Receiver) has drop;
 
 /// Defines the ways to receive commission. It can be either an address - checked
 /// with `ctx.sender()`, - or an object - checked with `object::id(..)`.
-public enum Receiver has store, copy, drop {
+public enum Receiver has copy, drop, store {
     Address(address),
     ObjectID(ID),
 }

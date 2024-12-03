@@ -53,7 +53,7 @@ const ENextCommitteeIsEmpty: u64 = 6;
 const ENotImplemented: u64 = 264;
 
 /// The epoch state.
-public enum EpochState has store, copy, drop {
+public enum EpochState has copy, drop, store {
     // Epoch change is currently in progress. Contains the weight of the nodes that
     // have already attested that they finished the sync.
     EpochChangeSync(u16),
@@ -65,7 +65,7 @@ public enum EpochState has store, copy, drop {
 }
 
 /// The inner object for the staking part of the system.
-public struct StakingInnerV1 has store, key {
+public struct StakingInnerV1 has key, store {
     /// The object ID
     id: UID,
     /// The number of shards in the system.

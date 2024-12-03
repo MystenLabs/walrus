@@ -10,7 +10,7 @@ use sui::vec_map::{Self, VecMap};
 
 /// Represents the current committee in the system. Each node in the committee
 /// has assigned shard IDs.
-public struct Committee(VecMap<ID, vector<u16>>) has store, copy, drop;
+public struct Committee(VecMap<ID, vector<u16>>) has copy, drop, store;
 
 /// Creates an empty committee. Only relevant for epoch 0, when no nodes are
 /// assigned any shards.

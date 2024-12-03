@@ -6,7 +6,7 @@
 module walrus::pool_exchange_rate;
 
 /// Represents the exchange rate for the staking pool.
-public struct PoolExchangeRate has store, copy, drop {
+public struct PoolExchangeRate has copy, drop, store {
     /// Amount of staked WAL tokens this epoch.
     wal_amount: u128,
     /// Amount of total tokens in the pool this epoch.

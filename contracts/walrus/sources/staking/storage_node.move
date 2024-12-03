@@ -13,7 +13,7 @@ use walrus::event_blob::EventBlobAttestation;
 const EInvalidNetworkPublicKey: u64 = 0;
 
 /// Represents a storage node in the system.
-public struct StorageNodeInfo has store, copy, drop {
+public struct StorageNodeInfo has copy, drop, store {
     name: String,
     node_id: ID,
     network_address: String,
