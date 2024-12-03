@@ -64,25 +64,20 @@ for example Clippy.
 
 ## Move code formatting
 
-We use the `@mysten/prettier-plugin-move` npm package to format Move code. This package comes with a
-pre-built executable called `prettier-move`. To avoid polluting the workspace with `node_modules` and
-other JavaScript / NodeJS environment configurations, we recommend installing it globally.
+We use the `@mysten/prettier-plugin-move` npm package to format Move code. 
+If you're using VSCode, you can install the [Move Formatter](https://marketplace.visualstudio.com/items?itemName=mysten.prettier-move) extension.
+The formatter is also run automatically in the [pre-commit hooks](#pre-commit-hooks).
 
-To install, run (requires NodeJS and npm):
+To use it as a stand-alone tool, we recommend installing it globally (requires NodeJS and npm):
 
-```sh
+\```sh
 npm i -g @mysten/prettier-plugin-move
-```
+\```
+The Move formatter can then be run manually by executing:
 
-Formatter is run in the [pre-commit hooks](.pre-commit-config.yaml) (see also [above](#pre-commit-hooks)).
-
-Move formatter can be run manually by executing:
-
-```sh
+\```sh
 prettier-move --write <path-to-move-file-or-folder>
-```
-
-If you're using VSCode, you can also install the [Move Formatter](https://marketplace.visualstudio.com/items?itemName=mysten.prettier-move) extension
+\```
 
 ## Contract Versions
 
