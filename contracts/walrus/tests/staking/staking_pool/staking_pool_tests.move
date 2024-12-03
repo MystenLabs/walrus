@@ -1,14 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// TODO: better comments above test cases
-// TODO: more tests? come up with new scenarios
-
-#[allow(unused_use)]
 module walrus::staking_pool_tests;
 
 use sui::test_utils::destroy;
-use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq, dbg};
+use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq};
 
 #[test]
 // Scenario: Alice stakes, pool receives rewards, Alice withdraws everything
