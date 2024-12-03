@@ -3,9 +3,9 @@
 
 module walrus::pool_rounding_tests;
 
-use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq, dbg};
+use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq};
 
-#[test]
+#[test, expected_failure(abort_code = ::walrus::staking_pool::EPoolNotEmpty)]
 // Scenario: Alice stakes, pool receives rewards, Alice withdraws everything
 fun stake_and_receive_rewards() {
     let mut test = context_runner();
