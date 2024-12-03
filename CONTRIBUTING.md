@@ -26,7 +26,7 @@ history](https://github.com/MystenLabs/walrus/commits/main).
 ## Pre-commit hooks
 
 We have CI jobs running for every PR to test and lint the repository. You can install Git pre-commit hooks to ensure
-that these check pass even *before pushing your changes* to GitHub. To use this, the following steps are required:
+that these check pass even _before pushing your changes_ to GitHub. To use this, the following steps are required:
 
 1. Install [Rust](https://www.rust-lang.org/tools/install).
 1. Install [nextest](https://nexte.st/).
@@ -61,6 +61,28 @@ For example, when using `rust-analyzer` with VSCode, you need to add the followi
 Also make sure you use the correct version of Rustfmt. See
 [rust-toolchain.toml](rust-toolchain.toml) for the current version. This also impacts other checks,
 for example Clippy.
+
+## Move code formatting
+
+We use the `@mysten/prettier-plugin-move` npm package to format Move code. This package comes with a
+pre-built executable called `prettier-move`. To avoid polluting the workspace with `node_modules` and
+other JavaScript / NodeJS environment configurations, we recommend installing it globally.
+
+To install, run (requires NodeJS and npm):
+
+```sh
+npm i -g @mysten/prettier-plugin-move
+```
+
+Formatter is run in the [pre-commit hooks](.pre-commit-config.yaml) (see also [above](#pre-commit-hooks)).
+
+Move formatter can be run manually by executing:
+
+```sh
+prettier-move --write <path-to-move-file-or-folder>
+```
+
+If you're using VSCode, you can also install the [Move Formatter](https://marketplace.visualstudio.com/items?itemName=mysten.prettier-move) extension
 
 ## Contract Versions
 
