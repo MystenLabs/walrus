@@ -83,6 +83,7 @@ repos:
       - id: move-test
         name: move-test
         entry: scripts/move_coverage.sh
+        args: ["-t"]
         language: system
         files: "contracts/.*"
         pass_filenames: false

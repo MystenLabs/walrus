@@ -9,6 +9,19 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BOLD='\033[1m'
 NORMAL='\033[0m'
+COVERAGE=true
+COVERAGE_ARG="--coverage"
+
+while getopts "t" arg; do
+    case "${arg}" in
+        t)
+            COVERAGE=false
+            COVERAGE_ARG=""
+            ;;
+        *)
+            exit 1
+    esac
+done
 
 
 # 1) Run tests and record coverage
@@ -18,7 +31,7 @@ for dir in contracts/*/; do
       echo -e "\nTesting $dir..."
       cd $dir
       sui move build
-      sui move test --coverage
+      sui move test $COVERAGE_ARG
       [ $? -ne 0 ] && error=1
       cd ../..
     fi
@@ -29,6 +42,9 @@ if [ $error -ne 0 ]; then
     exit $error
 fi
 
+if ! [ $COVERAGE ]; then
+    exit 0
+fi
 
 # 2) Check coverage and print summaries
 error=0
