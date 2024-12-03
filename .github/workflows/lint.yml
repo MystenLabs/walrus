@@ -54,7 +54,7 @@ jobs:
         run: ./yamlfmt -lint
 
   move_formatting:
-    name: Check Formatting
+    name: Check Move formatting
     runs-on: ubuntu-latest
     defaults:
       run:
