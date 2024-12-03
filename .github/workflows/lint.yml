@@ -64,7 +64,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v4
       - run: npm i @mysten/prettier-plugin-move
-      - run: npx prettier-move -c */sources/**/*.move
+      - run: npx prettier-move -c **/*.move
 
   typos:
     runs-on: ubuntu-latest

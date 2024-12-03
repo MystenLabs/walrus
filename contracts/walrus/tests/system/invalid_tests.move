@@ -35,14 +35,11 @@ public fun test_invalid_blob_ok() {
 public fun test_invalidate_happy(): system::System {
     let mut system = system::new_for_testing();
 
-    1u32.range_do_eq!(
-        5,
-        |epoch| {
-            let committee = test_utils::new_bls_committee_for_testing(epoch);
-            let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
-            epoch_balance.destroy_for_testing();
-        },
-    );
+    1u32.range_do_eq!(5, |epoch| {
+        let committee = test_utils::new_bls_committee_for_testing(epoch);
+        let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
+        epoch_balance.destroy_for_testing();
+    });
 
     // Create invalid blob message.
     let invalid_blob_message = messages::invalid_message_bytes(system.epoch(), BLOB_ID);
@@ -67,14 +64,11 @@ public fun test_invalidate_happy(): system::System {
 public fun test_system_invalid_id_wrong_epoch(): system::System {
     let mut system = system::new_for_testing();
 
-    1u32.range_do_eq!(
-        5,
-        |epoch| {
-            let committee = test_utils::new_bls_committee_for_testing(epoch);
-            let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
-            epoch_balance.destroy_for_testing();
-        },
-    );
+    1u32.range_do_eq!(5, |epoch| {
+        let committee = test_utils::new_bls_committee_for_testing(epoch);
+        let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
+        epoch_balance.destroy_for_testing();
+    });
 
     // Create invalid blob message for wrong epoch.
     let invalid_blob_message = messages::invalid_message_bytes(system.epoch() - 1, BLOB_ID);

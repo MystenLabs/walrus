@@ -5,11 +5,13 @@
 module walrus::event_blob_tests;
 
 use sui::test_utils::destroy;
-use walrus::blob::{Self};
-use walrus::storage_node;
-use walrus::system::{Self, System};
-use walrus::system_state_inner;
-use walrus::test_node::{test_nodes, TestStorageNode};
+use walrus::{
+    blob,
+    storage_node,
+    system::{Self, System},
+    system_state_inner,
+    test_node::{test_nodes, TestStorageNode}
+};
 
 const RED_STUFF: u8 = 0;
 

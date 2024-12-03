@@ -382,7 +382,7 @@ public fun test_delete_undeletable_blob(): system::System {
 
 #[test]
 public fun test_blob_add_metadata(): system::System {
-    call_function_with_default_blob!(| blob| {
+    call_function_with_default_blob!(|blob| {
         let metadata = metadata::new();
         blob.add_metadata(metadata);
         blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value1".to_string());
@@ -396,7 +396,7 @@ public fun test_blob_add_metadata(): system::System {
 
 #[test, expected_failure(abort_code = dynamic_field::EFieldAlreadyExists)]
 public fun test_blob_add_metadata_already_exists(): system::System {
-    call_function_with_default_blob!(| blob | {
+    call_function_with_default_blob!(|blob| {
         let metadata1 = metadata::new();
         blob.add_metadata(metadata1);
         let metadata2 = metadata::new();
@@ -408,7 +408,7 @@ public fun test_blob_add_metadata_already_exists(): system::System {
 
 #[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
 public fun test_blob_take_metadata_nonexistent(): system::System {
-    call_function_with_default_blob!(| blob | {
+    call_function_with_default_blob!(|blob| {
         // Try to take the metadata from a blob without metadata. Test fails here.
         blob.take_metadata();
     })
@@ -416,7 +416,7 @@ public fun test_blob_take_metadata_nonexistent(): system::System {
 
 #[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
 public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
-    call_function_with_default_blob!(| blob | {
+    call_function_with_default_blob!(|blob| {
         // Try to insert metadata into a blob without metadata. Test fails here.
         blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value1".to_string());
     })
@@ -424,7 +424,7 @@ public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
 
 #[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
 public fun test_blob_remove_metadata_pair_nonexistent(): system::System {
-    call_function_with_default_blob!(| blob | {
+    call_function_with_default_blob!(|blob| {
         // Try to remove metadata from a blob without metadata. Test fails here.
         blob.remove_metadata_pair(&b"key1".to_string());
     })
@@ -474,7 +474,7 @@ fun default_blob_id(): u256 {
 ///
 /// Creates the system, registers the default blob, and calls the given function with the blob.
 /// Finally, it destroys the blob and returns the system.
-macro fun call_function_with_default_blob($f: |&mut Blob|->()): system::System {
+macro fun call_function_with_default_blob($f: |&mut Blob| -> ()): system::System {
     let mut system: system::System = system::new_for_testing();
     let storage = get_storage_resource(&mut system, SIZE, 3);
     let mut blob = register_default_blob(&mut system, storage, false);

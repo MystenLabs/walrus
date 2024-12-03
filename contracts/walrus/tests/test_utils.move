@@ -6,17 +6,19 @@
 module walrus::test_utils;
 
 use std::string::String;
-use sui::balance::{Self, Balance};
-use sui::bls12381::{Self, bls12381_min_pk_verify};
-use sui::coin::{Self, Coin};
-use sui::vec_map;
+use sui::{
+    balance::{Self, Balance},
+    bls12381::{Self, bls12381_min_pk_verify},
+    coin::{Self, Coin},
+    vec_map
+};
 use wal::wal::WAL;
 use walrus::{
     bls_aggregate,
+    messages,
     staking_inner::StakingInnerV1,
     staking_pool::{Self, StakingPool},
-    walrus_context::{Self, WalrusContext},
-    messages,
+    walrus_context::{Self, WalrusContext}
 };
 
 /// Debug macro for pretty printing values.
@@ -76,6 +78,7 @@ public fun context_runner(): ContextRunner {
 }
 
 public fun epoch(self: &ContextRunner): u32 { self.epoch }
+
 public fun is_committee_selected(self: &ContextRunner): bool { self.committee_selected }
 
 /// Returns the current context and the transaction context.
@@ -147,19 +150,13 @@ public fun pool(): PoolBuilder {
 }
 
 /// Sets the commission rate for the pool.
-public fun commission_rate(
-    mut self: PoolBuilder,
-    commission_rate: u16,
-): PoolBuilder {
+public fun commission_rate(mut self: PoolBuilder, commission_rate: u16): PoolBuilder {
     self.commission_rate.fill(commission_rate);
     self
 }
 
 /// Sets the storage price for the pool.
-public fun storage_price(
-    mut self: PoolBuilder,
-    storage_price: u64,
-): PoolBuilder {
+public fun storage_price(mut self: PoolBuilder, storage_price: u64): PoolBuilder {
     self.storage_price.fill(storage_price);
     self
 }
@@ -171,10 +168,7 @@ public fun write_price(mut self: PoolBuilder, write_price: u64): PoolBuilder {
 }
 
 /// Sets the node capacity for the pool.
-public fun node_capacity(
-    mut self: PoolBuilder,
-    node_capacity: u64,
-): PoolBuilder {
+public fun node_capacity(mut self: PoolBuilder, node_capacity: u64): PoolBuilder {
     self.node_capacity.fill(node_capacity);
     self
 }
@@ -186,10 +180,7 @@ public fun name(mut self: PoolBuilder, name: String): PoolBuilder {
 }
 
 /// Sets the network address for the pool.
-public fun network_address(
-    mut self: PoolBuilder,
-    network_address: String,
-): PoolBuilder {
+public fun network_address(mut self: PoolBuilder, network_address: String): PoolBuilder {
     self.network_address.fill(network_address);
     self
 }
@@ -201,20 +192,13 @@ public fun bls_sk(mut self: PoolBuilder, secret_key: vector<u8>): PoolBuilder {
 }
 
 /// Sets the network public key for the pool.
-public fun network_public_key(
-    mut self: PoolBuilder,
-    network_public_key: vector<u8>,
-): PoolBuilder {
+public fun network_public_key(mut self: PoolBuilder, network_public_key: vector<u8>): PoolBuilder {
     self.network_public_key.fill(network_public_key);
     self
 }
 
 /// Builds a staking pool with the parameters set in the builder.
-public fun build(
-    self: PoolBuilder,
-    wctx: &WalrusContext,
-    ctx: &mut TxContext,
-): StakingPool {
+public fun build(self: PoolBuilder, wctx: &WalrusContext, ctx: &mut TxContext): StakingPool {
     let PoolBuilder {
         name,
         network_address,
@@ -228,7 +212,10 @@ public fun build(
 
     let bls_sk = bls_sk.destroy_with_default(bls_sk_for_testing());
     let bls_pub_key = bls_min_pk_from_sk(&bls_sk);
-    let pop = bls_min_pk_sign(&messages::new_proof_of_possession_msg(wctx.epoch(), ctx.sender(), bls_pub_key).to_bcs(), &bls_sk);
+    let pop = bls_min_pk_sign(
+        &messages::new_proof_of_possession_msg(wctx.epoch(), ctx.sender(), bls_pub_key).to_bcs(),
+        &bls_sk,
+    );
 
     staking_pool::new(
         name.destroy_with_default(b"pool".to_string()),
@@ -250,11 +237,7 @@ public fun build(
 /// Similar to `build` but registers the pool with the staking inner, using the
 /// same set of
 /// parameters.
-public fun register(
-    self: PoolBuilder,
-    inner: &mut StakingInnerV1,
-    ctx: &mut TxContext,
-): ID {
+public fun register(self: PoolBuilder, inner: &mut StakingInnerV1, ctx: &mut TxContext): ID {
     let PoolBuilder {
         name,
         network_address,
@@ -268,7 +251,10 @@ public fun register(
 
     let bls_sk = bls_sk.destroy_with_default(bls_sk_for_testing());
     let bls_pub_key = bls_min_pk_from_sk(&bls_sk);
-    let pop = bls_min_pk_sign(&messages::new_proof_of_possession_msg(inner.epoch(), ctx.sender(), bls_pub_key).to_bcs(), &bls_sk);
+    let pop = bls_min_pk_sign(
+        &messages::new_proof_of_possession_msg(inner.epoch(), ctx.sender(), bls_pub_key).to_bcs(),
+        &bls_sk,
+    );
 
     inner.create_pool(
         name.destroy_with_default(b"pool".to_string()),
@@ -339,17 +325,14 @@ public fun bls_secret_keys_for_testing(): vector<vector<u8>> {
 public fun bls_aggregate_sigs(signatures: &vector<vector<u8>>): vector<u8> {
     let mut aggregate = bls12381::g2_identity();
     signatures.do_ref!(
-        |sig| aggregate =
-            bls12381::g2_add(&aggregate, &bls12381::g2_from_bytes(sig)),
+        |sig| aggregate = bls12381::g2_add(&aggregate, &bls12381::g2_from_bytes(sig)),
     );
     *aggregate.bytes()
 }
 
 /// Test committee with one committee member and 100 shards, using
 /// `test_utils::bls_sk_for_testing()` as secret key.
-public fun new_bls_committee_for_testing(
-    epoch: u32,
-): bls_aggregate::BlsCommittee {
+public fun new_bls_committee_for_testing(epoch: u32): bls_aggregate::BlsCommittee {
     let node_id = tx_context::dummy().fresh_object_address().to_id();
     let sk = bls_sk_for_testing();
     let pub_key = bls12381::g1_from_bytes(&bls_min_pk_from_sk(&sk));

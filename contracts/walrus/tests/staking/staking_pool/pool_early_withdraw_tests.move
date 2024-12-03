@@ -117,7 +117,6 @@ fun withdraw_processing_at_different_epochs() {
     pool.destroy_empty();
 }
 
-
 #[test, expected_failure(abort_code = walrus::staking_pool::ENotWithdrawing)]
 // Scenario:
 // 1. Alice stakes in E0,

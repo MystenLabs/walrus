@@ -16,7 +16,6 @@ use walrus::{
     }
 };
 
-
 #[test]
 public fun test_check_aggregate() {
     let (committee, agg_sig, signers, message) = create_committee_and_cert(option::none());
