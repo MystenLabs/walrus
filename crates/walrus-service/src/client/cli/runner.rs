@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use itertools::Itertools as _;
 use prometheus::Registry;
 use rand::seq::SliceRandom;
 use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
@@ -23,7 +24,7 @@ use walrus_core::{
     EpochCount,
 };
 use walrus_sui::{
-    client::{BlobPersistence, ReadClient},
+    client::{BlobPersistence, PostStoreAction, ReadClient},
     utils::{price_for_encoded_length, SuiNetwork},
 };
 
@@ -349,6 +350,7 @@ impl ClientCommandRunner {
                     epochs,
                     store_when,
                     persistence,
+                    PostStoreAction::Keep,
                 )
                 .await?;
             result.print_output(self.json)
@@ -641,11 +643,7 @@ impl ClientCommandRunner {
         confirmation: UserConfirmation,
     ) -> Result<()> {
         if confirmation.is_required() {
-            let object_list = object_ids
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let object_list = object_ids.iter().map(|id| id.to_string()).join("\n");
             println!(
                 "{} You are about to burn the following blob object(s):\n{}\n({} total). \
                 \nIf unsure, please enter `No` and check the `--help` manual.",

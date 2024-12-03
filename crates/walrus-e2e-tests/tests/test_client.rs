@@ -27,14 +27,13 @@ use walrus_service::{
             NotEnoughConfirmations,
             NotEnoughSlivers,
         },
-        PostStoreAction,
         StoreWhen,
         WalrusWriteClient,
     },
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
-    client::{BlobPersistence, ReadClient},
+    client::{BlobPersistence, PostStoreAction, ReadClient},
     types::{BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
@@ -125,7 +124,13 @@ async fn run_store_and_read_with_crash_failures(
         ..
     } = client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
+        .reserve_and_store_blob(
+            &blob,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
         .await?
     else {
         panic!("expect newly stored blob")
@@ -207,7 +212,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     client
         .as_mut()
         .sui_client()
-        .certify_blob(blob_sui_object, &certificate)
+        .certify_blob(blob_sui_object, &certificate, PostStoreAction::Keep)
         .await?;
 
     // Wait to receive an inconsistent blob event.
@@ -302,6 +307,7 @@ async fn test_store_with_existing_blob_resource(
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
+            PostStoreAction::Keep,
         )
         .await?;
 
@@ -371,6 +377,7 @@ async fn test_store_with_existing_storage_resource(
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
+            PostStoreAction::Keep,
         )
         .await?;
 
@@ -404,14 +411,26 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     for idx in 1..blobs_to_create + 1 {
         client
             .as_ref()
-            .reserve_and_store_blob(&blob, idx, StoreWhen::Always, BlobPersistence::Deletable)
+            .reserve_and_store_blob(
+                &blob,
+                idx,
+                StoreWhen::Always,
+                BlobPersistence::Deletable,
+                PostStoreAction::Keep,
+            )
             .await?;
     }
 
     // Add a blob that is not deletable.
     let result = client
         .as_ref()
-        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
+        .reserve_and_store_blob(
+            &blob,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
         .await?;
     let blob_id = result.blob_id();
 
@@ -449,7 +468,13 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let blob = walrus_test_utils::random_data(314);
 
     let store_result = client
-        .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Deletable)
+        .reserve_and_store_blob(
+            &blob,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Deletable,
+            PostStoreAction::Keep,
+        )
         .await?;
     let blob_id = store_result.blob_id();
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
@@ -508,7 +533,13 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 
     for (epochs, store_when, persistence, is_already_certified) in configurations {
         let result = client
-            .reserve_and_store_blob(&blob, epochs, store_when, persistence)
+            .reserve_and_store_blob(
+                &blob,
+                epochs,
+                store_when,
+                persistence,
+                PostStoreAction::Keep,
+            )
             .await?;
 
         match result {
@@ -605,7 +636,13 @@ async fn test_burn_blobs() -> TestResult {
         let blob = walrus_test_utils::random_data(314 + idx);
         let result = client
             .as_ref()
-            .reserve_and_store_blob(&blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
+            .reserve_and_store_blob(
+                &blob,
+                1,
+                StoreWhen::Always,
+                BlobPersistence::Permanent,
+                PostStoreAction::Keep,
+            )
             .await?;
         blob_object_ids.push({
             let BlobStoreResult::NewlyCreated { blob_object, .. } = result else {

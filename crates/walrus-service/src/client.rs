@@ -34,7 +34,7 @@ use walrus_core::{
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
-    client::{BlobPersistence, ReadClient, SuiContractClient},
+    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::{Blob, BlobEvent, StakedWal},
 };
 
@@ -63,7 +63,7 @@ pub use config::{
 };
 
 mod daemon;
-pub use daemon::{ClientDaemon, PostStoreAction, WalrusWriteClient};
+pub use daemon::{ClientDaemon, WalrusWriteClient};
 
 mod error;
 pub use error::{ClientError, ClientErrorKind};
@@ -328,6 +328,7 @@ impl Client<SuiContractClient> {
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
+        post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
 
@@ -338,6 +339,7 @@ impl Client<SuiContractClient> {
                 epochs_ahead,
                 store_when,
                 persistence,
+                post_store,
             )
         })
         .await
@@ -353,6 +355,7 @@ impl Client<SuiContractClient> {
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
+        post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
 
@@ -362,6 +365,7 @@ impl Client<SuiContractClient> {
             epochs_ahead,
             store_when,
             persistence,
+            post_store,
         )
         .await
     }
@@ -403,6 +407,7 @@ impl Client<SuiContractClient> {
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
+        post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let blob_id = *metadata.blob_id();
         self.check_blob_id(&blob_id)?;
@@ -476,7 +481,7 @@ impl Client<SuiContractClient> {
 
         let sui_cert_timer = Instant::now();
         self.sui_client
-            .certify_blob(blob_object.clone(), &certificate)
+            .certify_blob(blob_object.clone(), &certificate, post_store)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
         tracing::info!(

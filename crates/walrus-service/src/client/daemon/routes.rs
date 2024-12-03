@@ -121,23 +121,25 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         // TODO(mlegner): Document error responses. (#178, #462)
     ),
 )]
+// TODO(giac): remove the force parameter from the publisher (breaking change),
+// and remove the allow(deprecated).
+#[allow(deprecated)]
 pub(super) async fn put_blob<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
     Query(PublisherQuery {
         epochs,
-        // TODO(giac): remove the force parameter from the publisher. (breaking change)
         force: _force,
         deletable,
-        return_to,
+        send_object_to,
     }): Query<PublisherQuery>,
     blob: Bytes,
 ) -> Response {
-    let action = if let Some(return_to) = return_to {
-        PostStoreAction::TransferTo(return_to)
+    let post_store_action = if let Some(address) = send_object_to {
+        PostStoreAction::TransferTo(address)
     } else {
         PostStoreAction::Burn
     };
-    tracing::debug!(?action, "starting to store received blob");
+    tracing::debug!(?post_store_action, "starting to store received blob");
 
     let mut response = match client
         .write_blob(
@@ -145,7 +147,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             epochs,
             StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
-            action,
+            post_store_action,
         )
         .await
     {
@@ -199,14 +201,24 @@ pub(super) async fn status() -> Response {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub(super) struct PublisherQuery {
+    /// The number of epochs, ahead of the current one, for which to store the blob.
+    ///
+    /// The default is 1 epoch.
     #[serde(default = "default_epochs")]
     epochs: EpochCount,
+    /// This parameter is deprecated and will be removed in the future.
+    ///
+    /// It is currently ignored by the publisher
+    #[deprecated]
     #[serde(default)]
     force: bool,
+    /// If true, the publisher creates a deletable blob instead of a permanent one.
     #[serde(default)]
     deletable: bool,
     #[serde(default)]
-    return_to: Option<SuiAddress>,
+    /// If specified, the publisher will send the Blob object resulting from the store operation to
+    /// this Sui address.
+    send_object_to: Option<SuiAddress>,
 }
 
 pub(super) fn default_epochs() -> EpochCount {

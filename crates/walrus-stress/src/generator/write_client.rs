@@ -8,7 +8,7 @@ use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, Config, Refiller, StoreWhen};
 use walrus_sui::{
-    client::{BlobPersistence, ReadClient, SuiContractClient},
+    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
 };
@@ -55,7 +55,13 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blob(blob, 1, StoreWhen::Always, BlobPersistence::Permanent)
+            .reserve_and_store_blob(
+                blob,
+                1,
+                StoreWhen::Always,
+                BlobPersistence::Permanent,
+                PostStoreAction::Keep,
+            )
             .await?
             .blob_id()
             .to_owned();
@@ -151,7 +157,7 @@ impl WriteClient {
         self.client
             .as_ref()
             .sui_client()
-            .certify_blob(blob_sui_object, &certificate)
+            .certify_blob(blob_sui_object, &certificate, PostStoreAction::Burn)
             .await?;
         Ok(blob_id)
     }

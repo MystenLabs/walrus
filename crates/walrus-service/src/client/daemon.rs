@@ -18,7 +18,6 @@ use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};
 use reqwest::StatusCode;
 use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
-use sui_types::base_types::SuiAddress;
 use tower::{
     buffer::BufferLayer,
     limit::ConcurrencyLimitLayer,
@@ -29,27 +28,13 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{encoding::Primary, BlobId, EpochCount};
-use walrus_sui::client::{BlobPersistence, ReadClient, SuiContractClient};
+use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
-use crate::{
-    client::ClientError,
-    common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
-};
+use crate::common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan};
 
 mod openapi;
 mod routes;
-
-/// The action to be performed for newly-created blobs.
-#[derive(Debug, Clone)]
-pub enum PostStoreAction {
-    /// Burn the blob object.
-    Burn,
-    /// Transfer the blob object to the given address.
-    TransferTo(SuiAddress),
-    /// Keep the blob object in the wallet that created it.
-    Keep,
-}
 
 pub trait WalrusReadClient {
     fn read_blob(
@@ -92,29 +77,15 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let result = self
-            .reserve_and_store_blob_retry_epoch(blob, epochs_ahead, store_when, persistence)
+            .reserve_and_store_blob_retry_epoch(
+                blob,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+            )
             .await?;
 
-        if let BlobStoreResult::NewlyCreated { blob_object, .. } = &result {
-            match post_store {
-                PostStoreAction::TransferTo(address) => {
-                    let sui_client = self.sui_client();
-                    let mut pt_builder = sui_client.transaction_builder();
-                    let wallet = sui_client.wallet().await;
-                    pt_builder
-                        .transfer(Some(address), vec![blob_object.id.into()])
-                        .await?;
-                    let (ptb, _) = pt_builder.finish().await?;
-                    sui_client.sign_and_send_ptb(&wallet, ptb, None).await?;
-                }
-                PostStoreAction::Burn => self
-                    .sui_client()
-                    .burn_blobs(&[blob_object.id])
-                    .await
-                    .map_err(ClientError::other)?,
-                PostStoreAction::Keep => (),
-            }
-        };
         Ok(result)
     }
 }

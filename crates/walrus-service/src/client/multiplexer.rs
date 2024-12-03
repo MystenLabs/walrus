@@ -19,13 +19,13 @@ use sui_sdk::{
 };
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
-    client::{BlobPersistence, SuiContractClient, SuiReadClient},
+    client::{BlobPersistence, PostStoreAction, SuiContractClient, SuiReadClient},
     utils::create_wallet,
 };
 
 use super::{
     cli::PublisherArgs,
-    daemon::{PostStoreAction, WalrusReadClient, WalrusWriteClient},
+    daemon::{WalrusReadClient, WalrusWriteClient},
     metrics::ClientMetrics,
     refill::{RefillHandles, Refiller},
     responses::BlobStoreResult,

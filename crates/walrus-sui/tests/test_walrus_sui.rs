@@ -19,6 +19,7 @@ use walrus_sui::{
         BlobObjectMetadata,
         BlobPersistence,
         CoinType,
+        PostStoreAction,
         ReadClient,
         SuiClientError,
         SuiContractClient,
@@ -156,7 +157,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     walrus_client
         .as_ref()
-        .certify_blob(blob_obj, &certificate)
+        .certify_blob(blob_obj, &certificate, PostStoreAction::Keep)
         .await?;
 
     // Make sure that we got the expected event
@@ -215,7 +216,11 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     walrus_client
         .as_ref()
-        .certify_blob(blob_obj, &get_default_blob_certificate(blob_id, 1))
+        .certify_blob(
+            blob_obj,
+            &get_default_blob_certificate(blob_id, 1),
+            PostStoreAction::Keep,
+        )
         .await?;
 
     // Make sure that we got the expected event
