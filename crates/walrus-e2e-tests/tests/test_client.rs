@@ -33,7 +33,7 @@ use walrus_service::{
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
-    client::{BlobPersistence, PostStoreAction, ReadClient},
+    client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
     types::{BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
@@ -438,7 +438,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let blobs = client
         .as_ref()
         .sui_client()
-        .owned_blobs(None, false)
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(blobs.len(), blobs_to_create as usize + 1);
 
@@ -450,7 +450,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let blobs = client
         .as_ref()
         .sui_client()
-        .owned_blobs(None, false)
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(blobs.len(), 1);
 
@@ -555,7 +555,10 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 
     // At the end of all the operations above, count the number of blob objects owned by the
     // client.
-    let blobs = client.sui_client().owned_blobs(None, false).await?;
+    let blobs = client
+        .sui_client()
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
+        .await?;
     assert_eq!(blobs.len(), 9);
 
     Ok(())
@@ -655,7 +658,7 @@ async fn test_burn_blobs() -> TestResult {
     let blobs = client
         .as_ref()
         .sui_client()
-        .owned_blobs(None, false)
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(blobs.len(), N_BLOBS);
 
@@ -668,7 +671,7 @@ async fn test_burn_blobs() -> TestResult {
     let blobs = client
         .as_ref()
         .sui_client()
-        .owned_blobs(None, false)
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(blobs.len(), N_BLOBS - N_TO_DELETE);
 
@@ -715,13 +718,13 @@ async fn test_post_store_action(
     let owned_blobs = client
         .as_ref()
         .sui_client()
-        .owned_blobs(None, false)
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(owned_blobs.len(), n_owned_blobs);
     let target_address_blobs = client
         .as_ref()
         .sui_client()
-        .owned_blobs(Some(target_address), false)
+        .owned_blobs(Some(target_address), ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(target_address_blobs.len(), n_target_blobs);
 

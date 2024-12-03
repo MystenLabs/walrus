@@ -24,11 +24,12 @@ use walrus_core::{
     EpochCount,
 };
 use walrus_sui::{
-    client::{BlobPersistence, PostStoreAction, ReadClient},
+    client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
     utils::{price_for_encoded_length, SuiNetwork},
 };
 
 use super::args::{
+    BurnSelection,
     CliCommands,
     DaemonArgs,
     DaemonCommands,
@@ -209,9 +210,10 @@ impl ClientCommandRunner {
                 amount,
             } => self.exchange_sui_for_wal(exchange_id, amount).await,
 
-            CliCommands::BurnBlobs { object_ids, yes } => {
-                self.burn_blobs(object_ids, yes.into()).await
-            }
+            CliCommands::BurnBlobs {
+                burn_selection,
+                yes,
+            } => self.burn_blobs(burn_selection, yes.into()).await,
         }
     }
 
@@ -438,7 +440,9 @@ impl ClientCommandRunner {
         let contract_client = config
             .new_contract_client(self.wallet?, self.gas_budget)
             .await?;
-        let blobs = contract_client.owned_blobs(None, include_expired).await?;
+        let blobs = contract_client
+            .owned_blobs(None, ExpirySelectionPolicy::from_flag(include_expired))
+            .await?;
         blobs.print_output(self.json)
     }
 
@@ -557,7 +561,7 @@ impl ClientCommandRunner {
             } else if let Some(object_id) = object_id {
                 if let Some(to_delete) = client
                     .sui_client()
-                    .owned_blobs(None, false)
+                    .owned_blobs(None, ExpirySelectionPolicy::Valid)
                     .await?
                     .into_iter()
                     .find(|blob| blob.id == object_id)
@@ -639,9 +643,15 @@ impl ClientCommandRunner {
 
     pub(crate) async fn burn_blobs(
         self,
-        object_ids: Vec<ObjectID>,
+        burn_selection: BurnSelection,
         confirmation: UserConfirmation,
     ) -> Result<()> {
+        let sui_client = self
+            .config?
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+        let object_ids = burn_selection.get_object_ids(&sui_client).await?;
+
         if confirmation.is_required() {
             let object_list = object_ids.iter().map(|id| id.to_string()).join("\n");
             println!(
@@ -657,11 +667,11 @@ impl ClientCommandRunner {
             }
         }
 
-        let sui_client = self
-            .config?
-            .new_contract_client(self.wallet?, self.gas_budget)
-            .await?;
+        let spinner = styled_spinner();
+        spinner.set_message("burning blobs...");
         sui_client.burn_blobs(&object_ids).await?;
+        spinner.finish_with_message("done");
+
         println!("{} The specified blob objects have been burned", success());
         Ok(())
     }

@@ -160,6 +160,37 @@ pub enum BlobPersistence {
     Deletable,
 }
 
+/// Represents the selection of blob and storage objects in relation to their expiriy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpirySelectionPolicy {
+    /// Select all the objects.
+    All,
+    /// Select only expired objects.
+    Expired,
+    /// Select only valid (non-expired) objects.
+    Valid,
+}
+
+impl ExpirySelectionPolicy {
+    /// Returns the policy for a give `include_expired` flag.
+    pub fn from_flag(include_expired: bool) -> Self {
+        if include_expired {
+            Self::Expired
+        } else {
+            Self::Valid
+        }
+    }
+
+    /// Return `true` if the expiry epoch matches the policy for the current epoch.
+    pub fn matches(&self, expiry_epoch: Epoch, current_epoch: Epoch) -> bool {
+        match self {
+            Self::All => true,
+            Self::Expired => expiry_epoch <= current_epoch,
+            Self::Valid => expiry_epoch > current_epoch,
+        }
+    }
+}
+
 impl BlobPersistence {
     /// Returns `true` if the blob is deletable.
     pub fn is_deletable(&self) -> bool {
@@ -614,28 +645,28 @@ impl SuiContractClient {
     pub async fn owned_blobs(
         &self,
         owner: Option<SuiAddress>,
-        include_expired: bool,
+        selection_policy: ExpirySelectionPolicy,
     ) -> SuiClientResult<Vec<Blob>> {
         let current_epoch = self.read_client.current_committee().await?.epoch;
         Ok(self
             .read_client
             .get_owned_objects::<Blob>(owner.unwrap_or(self.wallet_address), &[])
             .await?
-            .filter(|blob| include_expired || blob.storage.end_epoch > current_epoch)
+            .filter(|blob| selection_policy.matches(blob.storage.end_epoch, current_epoch))
             .collect())
     }
 
     /// Returns the list of [`StorageResource`] objects owned by the wallet currently in use.
     pub async fn owned_storage(
         &self,
-        include_expired: bool,
+        selection_policy: ExpirySelectionPolicy,
     ) -> SuiClientResult<Vec<StorageResource>> {
         let current_epoch = self.read_client.current_committee().await?.epoch;
         Ok(self
             .read_client
             .get_owned_objects::<StorageResource>(self.wallet_address, &[])
             .await?
-            .filter(|storage| include_expired || storage.end_epoch > current_epoch)
+            .filter(|storage| selection_policy.matches(storage.end_epoch, current_epoch))
             .collect())
     }
 
@@ -653,7 +684,7 @@ impl SuiContractClient {
         end_epoch: Epoch,
     ) -> SuiClientResult<Option<StorageResource>> {
         Ok(self
-            .owned_storage(false)
+            .owned_storage(ExpirySelectionPolicy::Valid)
             .await?
             .into_iter()
             .filter(|storage| {

@@ -34,7 +34,13 @@ use walrus_core::{
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
-    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    client::{
+        BlobPersistence,
+        ExpirySelectionPolicy,
+        PostStoreAction,
+        ReadClient,
+        SuiContractClient,
+    },
     types::{Blob, BlobEvent, StakedWal},
 };
 
@@ -513,9 +519,10 @@ impl Client<SuiContractClient> {
         &self,
         blob_id: &'a BlobId,
     ) -> ClientResult<impl Iterator<Item = Blob> + 'a> {
-        Ok(self
+        let owned_blobs = self
             .sui_client
-            .owned_blobs(None, false)
+            .owned_blobs(None, ExpirySelectionPolicy::Valid);
+        Ok(owned_blobs
             .await?
             .into_iter()
             .filter(|blob| blob.blob_id == *blob_id && blob.deletable))

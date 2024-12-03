@@ -10,7 +10,7 @@ use utoipa::ToSchema;
 use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, EpochCount};
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
-    client::{BlobPersistence, SuiContractClient},
+    client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},
     types::Blob,
     utils::price_for_encoded_length,
 };
@@ -307,7 +307,7 @@ impl<'a> ResourceManager<'a> {
     ) -> ClientResult<Option<Blob>> {
         Ok(self
             .sui_client
-            .owned_blobs(None, false)
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
             .await?
             .into_iter()
             .find(|blob| {

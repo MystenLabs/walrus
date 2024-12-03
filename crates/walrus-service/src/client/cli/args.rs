@@ -11,7 +11,10 @@ use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
 use walrus_core::{encoding::EncodingConfig, BlobId, EpochCount};
-use walrus_sui::utils::SuiNetwork;
+use walrus_sui::{
+    client::{ExpirySelectionPolicy, SuiContractClient},
+    utils::SuiNetwork,
+};
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
 
@@ -150,11 +153,11 @@ pub enum CliCommands {
     /// already certified for the requested number of epochs, and the command is not run with the
     /// `--force` flag, the store operation stops. Otherwise, the operation proceeds as follows:
     ///
-    /// - check if the blob is registered (but not certified) in the current wallet for a sufficient
-    ///   duration, and if so reuse the registration to store the blob;
-    /// - otherwise, check if there is an appropriate storage resource (with sufficient space
-    ///   and for a sufficient duration) that can be used to register the blob; or
-    /// - if the above fails, it purchase a new storage resource and register the blob.
+    /// (i) check if the blob is registered (but not certified) in the current wallet for a
+    /// sufficient duration, and if so reuse the registration to store the blob; (ii) otherwise,
+    /// check if there is an appropriate storage resource (with sufficient space and for a
+    /// sufficient duration) that can be used to register the blob; or (iii) if the above fails, it
+    /// purchase a new storage resource and register the blob.
     ///
     /// If the `--force` flag is used, this operation always creates a new certification for the
     /// blob (possibly reusing storage resources or uncertified but registered blobs).
@@ -330,19 +333,21 @@ pub enum CliCommands {
     /// Burns one or more owned Blob object on Sui.
     ///
     /// This command burns the Blob objects with the given object IDs. The Blob objects must be
-    /// owned by the wallet currently in use.
+    /// owned by the wallet currently in use. Using the flag `--all` will burn all the Blob objects
+    /// owned by the wallet. Using the flag `--all-expired` burns all expired Blob objects owned by
+    /// the wallet.
     ///
     /// This operation simply removes the Blob objects from Sui, _without_ deleting the data from
     /// Walrus and _without_ refunding the storage. Running this command will result in the loss of
-    /// control over the Blob objects and the data they represent. Importantly, after burning:
+    /// control over the Blob objects and the data they represent.
     ///
-    /// - Permanent blobs cannot be extended;
-    /// - deletable blobs cannot be extended nor deleted.
+    /// Importantly, after burning: (i) Permanent blobs cannot be extended; (ii) deletable blobs
+    /// cannot be extended nor deleted.
     BurnBlobs {
         /// The object IDs of the Blob objects to burn.
-        #[clap(num_args=1.., required=true)]
-        #[serde_as(as = "Vec<DisplayFromStr>")]
-        object_ids: Vec<ObjectID>,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        burn_selection: BurnSelection,
         /// Proceed to burn the blobs without confirmation.
         #[clap(short, long, action)]
         #[serde(default)]
@@ -617,6 +622,66 @@ impl FileOrBlobIdOrObjectId {
             _ => Err(anyhow!(
                 "exactly one of `file`, `blob-id`, or `object-id` must be specified"
             )),
+        }
+    }
+}
+
+/// Selector for the blob object IDs to burn.
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct BurnSelection {
+    /// The object IDs of the Blob objects to burn.
+    #[clap(long, num_args=1.., required=true)]
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    object_ids: Vec<ObjectID>,
+    /// Burn all the blob objects owned by the wallet.
+    #[clap(long, action)]
+    #[serde(default)]
+    all: bool,
+    /// Burn all the exipred blob objects owned by the wallet.
+    #[clap(long, action)]
+    #[serde(default)]
+    all_expired: bool,
+}
+
+impl BurnSelection {
+    pub(crate) fn exactly_one_provided(&self) -> Result<()> {
+        match (self.object_ids.is_empty(), self.all, self.all_expired) {
+            (false, false, false) => Ok(()),
+            (true, true, false) => Ok(()),
+            (true, false, true) => Ok(()),
+            _ => Err(anyhow!(
+                "exactly one of `object-ids`, `all`, or `all-expired` must be specified"
+            )),
+        }
+    }
+
+    pub(crate) async fn get_object_ids(
+        &self,
+        client: &SuiContractClient,
+    ) -> anyhow::Result<Vec<ObjectID>> {
+        self.exactly_one_provided()?;
+
+        if !self.object_ids.is_empty() {
+            Ok(self.object_ids.clone())
+        } else if self.all {
+            Ok(client
+                .owned_blobs(None, ExpirySelectionPolicy::All)
+                .await?
+                .into_iter()
+                .map(|blob| blob.id)
+                .collect::<Vec<_>>())
+        } else if self.all_expired {
+            Ok(client
+                .owned_blobs(None, ExpirySelectionPolicy::Expired)
+                .await?
+                .into_iter()
+                .map(|blob| blob.id)
+                .collect::<Vec<_>>())
+        } else {
+            unreachable!("we have already checked that exactly one is provided")
         }
     }
 }
