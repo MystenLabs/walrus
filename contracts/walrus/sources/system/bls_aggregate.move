@@ -31,6 +31,8 @@ public struct BlsCommittee has copy, drop, store {
     n_shards: u16,
     /// The epoch in which the committee is active.
     epoch: u32,
+    /// The aggregation of public keys for all members of the committee
+    total_aggregated_key: Element<G1>,
 }
 
 /// Constructor for committee.
@@ -51,7 +53,14 @@ public(package) fun new_bls_committee(
     //       the staking, and don't require Option<BlsCommittee> there.
     // assert!(n_shards != 0, EIncorrectCommittee);
 
-    BlsCommittee { members, n_shards, epoch }
+    // Compute the total aggregated key, e.g. the sum of all public keys in the committee.
+    let total_aggregated_key = bls12381::uncompressed_g1_to_g1(
+        &bls12381::uncompressed_g1_sum(
+            &members.map!(|member| member.public_key),
+        ),
+    );
+
+    BlsCommittee { members, n_shards, epoch, total_aggregated_key }
 }
 
 /// Constructor for committee member.
@@ -163,9 +172,18 @@ public(package) fun verify_certificate(
     let mut min_next_member_index = 0;
     let mut aggregate_weight = 0;
 
+    // The complement of the signers list of indices
+    let mut non_signers = vector::empty();
+
     signers.do_ref!(|member_index| {
         let member_index = *member_index as u64;
         assert!(member_index >= min_next_member_index, ETotalMemberOrder);
+
+        // Add all the members that are not in the signers list since last member index
+        (member_index - min_next_member_index).do!(
+            |i| non_signers.push_back(min_next_member_index + i),
+        );
+
         min_next_member_index = member_index + 1;
 
         // Bounds check happens here
@@ -175,18 +193,29 @@ public(package) fun verify_certificate(
         aggregate_weight = aggregate_weight + weight;
     });
 
+    // Add remaining non-signers
+    (self.members.length() - min_next_member_index).do!(
+        |i| non_signers.push_back(min_next_member_index + i),
+    );
+
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1
     // stake >= 2f + 1
     assert!(self.verify_quorum(aggregate_weight), ENotEnoughStake);
 
-    // Compute the aggregate public key, e.g. the sum of the public keys of the signers.
-    let aggregate_key = bls12381::uncompressed_g1_sum(
-        &signers.map_ref!(|member_index| self.members[*member_index as u64].public_key),
+    // Compute the aggregate public key, e.g. the sum of the public keys of the non-signers.
+    let non_signers_aggregate_key = bls12381::uncompressed_g1_to_g1(
+        &bls12381::uncompressed_g1_sum(
+            &non_signers.map_ref!(|member_index| self.members[*member_index as u64].public_key),
+        ),
+    );
+    let signers_aggregate_key = bls12381::g1_sub(
+        &self.total_aggregated_key,
+        &non_signers_aggregate_key,
     );
 
     // Verify the signature
-    let pub_key_bytes = group_ops::bytes(&aggregate_key);
+    let pub_key_bytes = group_ops::bytes(&signers_aggregate_key);
     assert!(
         bls12381_min_pk_verify(
             signature,
