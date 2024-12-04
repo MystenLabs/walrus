@@ -194,6 +194,7 @@ public(package) fun verify_certificate(
     let non_signer_public_keys = complement(signers, self.members.length() as u16).map!(
         |index| self.members[index as u64].public_key,
     );
+
     let aggregate_key = bls12381::g1_sub(
         &self.total_aggregated_key,
         &bls12381::uncompressed_g1_to_g1(
@@ -222,7 +223,7 @@ fun complement(list: &vector<u16>, n: u16): vector<u16> {
     let mut offset = 0;
     list.do_ref!(|index| {
         assert!(*index >= offset);
-        (*index - offset as u16).do!(|i| result.push_back(offset + i));
+        (*index - offset).do!(|i| result.push_back(offset + i));
         offset = *index + 1;
     });
     (n - offset).do!(|i| result.push_back(offset + i));
