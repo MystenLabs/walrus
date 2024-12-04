@@ -20,7 +20,7 @@ use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
 #[cfg(msim)]
-use sui_macros::{fail_point_arg, fail_point_if};
+use sui_macros::{fail_point, fail_point_arg, fail_point_if};
 use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
@@ -147,6 +147,8 @@ macro_rules! reopen_cf {
     ($cf_options:expr, $db:expr, $rw_options:expr) => {{
         let (cf_name, cf_db_option) = $cf_options;
         if $db.cf_handle(&cf_name).is_none() {
+            #[cfg(msim)]
+            fail_point!("create-cf-before");
             $db.create_cf(&cf_name, &cf_db_option)
                 .map_err(typed_store_err_from_rocks_err)?;
         }
@@ -165,17 +167,6 @@ impl ShardStorage {
     ) -> Result<Self, TypedStoreError> {
         let rw_options = ReadWriteOptions::default();
 
-        let primary_slivers = reopen_cf!(
-            Self::primary_slivers_column_family_options(id, db_config),
-            database,
-            rw_options
-        );
-        let secondary_slivers = reopen_cf!(
-            Self::secondary_slivers_column_family_options(id, db_config),
-            database,
-            rw_options
-        );
-
         let shard_status = reopen_cf!(
             Self::shard_status_column_family_options(id, db_config),
             database,
@@ -188,6 +179,19 @@ impl ShardStorage {
         );
         let pending_recover_slivers = reopen_cf!(
             Self::pending_recover_slivers_column_family_options(id, db_config),
+            database,
+            rw_options
+        );
+
+        // Make sure that sliver column families are created last. They are used to identify
+        // whether the shard storage is initialized in `existing_cf_shards_ids`.
+        let primary_slivers = reopen_cf!(
+            Self::primary_slivers_column_family_options(id, db_config),
+            database,
+            rw_options
+        );
+        let secondary_slivers = reopen_cf!(
+            Self::secondary_slivers_column_family_options(id, db_config),
             database,
             rw_options
         );
@@ -357,8 +361,9 @@ impl ShardStorage {
         )
     }
 
-    /// Returns the ids of existing shards in the database at the provided path.
-    pub(crate) fn existing_shards(path: &Path, options: &Options) -> HashSet<ShardIndex> {
+    /// Returns the ids of existing shards that are fully initialized in the database at the
+    /// provided path.
+    pub(crate) fn existing_cf_shards_ids(path: &Path, options: &Options) -> HashSet<ShardIndex> {
         DB::list_cf(options, path)
             .unwrap_or_default()
             .into_iter()
@@ -871,20 +876,22 @@ impl ShardStorage {
     /// Deletes the storage for the shard.
     pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
         let rocksdb = self.primary_slivers.rocksdb.clone();
+
+        // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
         rocksdb
-            .drop_cf(&shard_status_column_family_name(self.id()))
-            .map_err(typed_store_err_from_rocks_err)?;
-        rocksdb
-            .drop_cf(&shard_sync_progress_column_family_name(self.id()))
-            .map_err(typed_store_err_from_rocks_err)?;
-        rocksdb
-            .drop_cf(&pending_recover_slivers_column_family_name(self.id()))
+            .drop_cf(&secondary_slivers_column_family_name(self.id()))
             .map_err(typed_store_err_from_rocks_err)?;
         rocksdb
             .drop_cf(&primary_slivers_column_family_name(self.id()))
             .map_err(typed_store_err_from_rocks_err)?;
         rocksdb
-            .drop_cf(&secondary_slivers_column_family_name(self.id()))
+            .drop_cf(&pending_recover_slivers_column_family_name(self.id()))
+            .map_err(typed_store_err_from_rocks_err)?;
+        rocksdb
+            .drop_cf(&shard_sync_progress_column_family_name(self.id()))
+            .map_err(typed_store_err_from_rocks_err)?;
+        rocksdb
+            .drop_cf(&shard_status_column_family_name(self.id()))
             .map_err(typed_store_err_from_rocks_err)?;
         Ok(())
     }

@@ -33,6 +33,7 @@ mod tests {
         "put-cf-after",
         "delete-cf-before",
         "delete-cf-after",
+        "create-cf-before",
     ];
 
     fn latency_config() -> sui_simulator::SimConfig {

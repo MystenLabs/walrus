@@ -113,7 +113,14 @@ impl Storage {
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
 
-        let existing_shards_ids = ShardStorage::existing_shards(path, &db_opts);
+        let existing_shards_ids = ShardStorage::existing_cf_shards_ids(path, &db_opts);
+        tracing::info!(
+            "open storage for existing shards IDs: {}",
+            existing_shards_ids
+                .iter()
+                .map(ToString::to_string)
+                .join(", ")
+        );
         let mut shard_column_families = existing_shards_ids
             .iter()
             .copied()
@@ -1054,16 +1061,44 @@ pub(crate) mod tests {
             &DatabaseConfig::default(),
         );
 
-        // Only create the column family for the primary sliver. When restarting the storage, the
+        let status_cfs = ShardStorage::shard_status_column_family_options(
+            test_shard_index,
+            &DatabaseConfig::default(),
+        );
+
+        let sync_progress_cfs = ShardStorage::shard_sync_progress_column_family_options(
+            test_shard_index,
+            &DatabaseConfig::default(),
+        );
+
+        let pending_recover_cfs = ShardStorage::pending_recover_slivers_column_family_options(
+            test_shard_index,
+            &DatabaseConfig::default(),
+        );
+
+        // Create all but secondary sliver column family. When restarting the storage, the
         // shard should not be detected as existing.
         storage
             .inner
             .database
             .create_cf(&primary_cfs.0, &primary_cfs.1)?;
-        assert!(
-            !ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
-                .contains(&test_shard_index)
-        );
+        storage
+            .inner
+            .database
+            .create_cf(&status_cfs.0, &status_cfs.1)?;
+        storage
+            .inner
+            .database
+            .create_cf(&sync_progress_cfs.0, &sync_progress_cfs.1)?;
+        storage
+            .inner
+            .database
+            .create_cf(&pending_recover_cfs.0, &pending_recover_cfs.1)?;
+        assert!(!ShardStorage::existing_cf_shards_ids(
+            storage.temp_dir.path(),
+            &Options::default()
+        )
+        .contains(&test_shard_index));
 
         // Create the column family for the secondary sliver. When restarting the storage, the shard
         // should now be detected as existing.
@@ -1072,7 +1107,7 @@ pub(crate) mod tests {
             .database
             .create_cf(&secondary_cfs.0, &secondary_cfs.1)?;
         assert!(
-            ShardStorage::existing_shards(storage.temp_dir.path(), &Options::default())
+            ShardStorage::existing_cf_shards_ids(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)
         );
 
