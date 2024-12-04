@@ -55,6 +55,9 @@ pub trait WalrusWriteClient: WalrusReadClient {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
+
+    /// Returns the default [`PostStoreAction`] for this client.
+    fn default_post_store_action(&self) -> PostStoreAction;
 }
 
 impl<T: ReadClient> WalrusReadClient for Client<T> {
@@ -87,6 +90,10 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .await?;
 
         Ok(result)
+    }
+
+    fn default_post_store_action(&self) -> PostStoreAction {
+        PostStoreAction::Keep
     }
 }
 

@@ -455,6 +455,13 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
+    /// If set, the publisher will keep the created Blob object ids in the wallet.
+    ///
+    /// If unset, the publisher will immediately burn all created blob objects by default, and only
+    /// send back the ones that are created with the `send_object_to` query.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub keep: bool,
 }
 
 impl PublisherArgs {
@@ -640,7 +647,7 @@ pub struct BurnSelection {
     #[clap(long, action)]
     #[serde(default)]
     all: bool,
-    /// Burn all the exipred blob objects owned by the wallet.
+    /// Burn all the expired blob objects owned by the wallet.
     #[clap(long, action)]
     #[serde(default)]
     all_expired: bool,
@@ -835,6 +842,7 @@ mod tests {
                 gas_refill_amount: default::gas_refill_amount(),
                 wal_refill_amount: default::wal_refill_amount(),
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
+                keep: false,
             },
         })
     }

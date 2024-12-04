@@ -160,7 +160,7 @@ pub enum BlobPersistence {
     Deletable,
 }
 
-/// Represents the selection of blob and storage objects in relation to their expiriy.
+/// Represents the selection of blob and storage objects in relation to their expiry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExpirySelectionPolicy {
     /// Select all the objects.

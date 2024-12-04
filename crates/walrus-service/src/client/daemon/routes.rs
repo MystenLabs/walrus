@@ -137,7 +137,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     let post_store_action = if let Some(address) = send_object_to {
         PostStoreAction::TransferTo(address)
     } else {
-        PostStoreAction::Burn
+        client.default_post_store_action()
     };
     tracing::debug!(?post_store_action, "starting to store received blob");
 
