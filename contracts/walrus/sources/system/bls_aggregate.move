@@ -173,15 +173,17 @@ public(package) fun verify_certificate(
     let mut aggregate_weight = 0;
 
     // The complement of the signers list of indices
-    let mut non_signers = vector::empty();
+    let mut non_signer_public_keys = vector::empty();
 
     signers.do_ref!(|member_index| {
         let member_index = *member_index as u64;
         assert!(member_index >= min_next_member_index, ETotalMemberOrder);
 
-        // Add all the members that are not in the signers list since last member index
+        // Add all non-signers since the last signer
         (member_index - min_next_member_index).do!(
-            |i| non_signers.push_back(self.members[min_next_member_index + i].public_key),
+            |i| non_signer_public_keys.push_back(self
+                .members[min_next_member_index + i]
+                .public_key),
         );
 
         min_next_member_index = member_index + 1;
@@ -195,7 +197,7 @@ public(package) fun verify_certificate(
 
     // Add remaining non-signers
     (self.members.length() - min_next_member_index).do!(
-        |i| non_signers.push_back(self.members[min_next_member_index + i].public_key),
+        |i| non_signer_public_keys.push_back(self.members[min_next_member_index + i].public_key),
     );
 
     // The expression below is the solution to the inequality:
@@ -205,15 +207,15 @@ public(package) fun verify_certificate(
 
     // Compute the aggregate public key of the signers as the difference between
     // the total aggregated key and the aggregate public key of the non-signers.
-    let signers_aggregate_key = bls12381::g1_sub(
+    let aggregate_key = bls12381::g1_sub(
         &self.total_aggregated_key,
         &bls12381::uncompressed_g1_to_g1(
-            &bls12381::uncompressed_g1_sum(&non_signers),
+            &bls12381::uncompressed_g1_sum(&non_signer_public_keys),
         ),
     );
 
     // Verify the signature
-    let pub_key_bytes = group_ops::bytes(&signers_aggregate_key);
+    let pub_key_bytes = group_ops::bytes(&aggregate_key);
     assert!(
         bls12381_min_pk_verify(
             signature,
