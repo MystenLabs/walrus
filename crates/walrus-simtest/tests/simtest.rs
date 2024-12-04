@@ -22,7 +22,7 @@ mod tests {
         client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
         test_utils::{test_cluster, SimStorageNodeHandle},
     };
-    use walrus_sui::client::{BlobPersistence, SuiContractClient};
+    use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
@@ -59,6 +59,7 @@ mod tests {
                 5,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
+                PostStoreAction::Keep,
             )
             .await
             .context("store blob should not fail")?
