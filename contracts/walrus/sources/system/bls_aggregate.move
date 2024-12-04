@@ -172,20 +172,9 @@ public(package) fun verify_certificate(
     let mut min_next_member_index = 0;
     let mut aggregate_weight = 0;
 
-    // The complement of the signers list of indices
-    let mut non_signer_public_keys = vector::empty();
-
     signers.do_ref!(|member_index| {
         let member_index = *member_index as u64;
         assert!(member_index >= min_next_member_index, ETotalMemberOrder);
-
-        // Add all non-signers since the last signer
-        (member_index - min_next_member_index).do!(
-            |i| non_signer_public_keys.push_back(self
-                .members[min_next_member_index + i]
-                .public_key),
-        );
-
         min_next_member_index = member_index + 1;
 
         // Bounds check happens here
@@ -195,11 +184,6 @@ public(package) fun verify_certificate(
         aggregate_weight = aggregate_weight + weight;
     });
 
-    // Add remaining non-signers
-    (self.members.length() - min_next_member_index).do!(
-        |i| non_signer_public_keys.push_back(self.members[min_next_member_index + i].public_key),
-    );
-
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1
     // stake >= 2f + 1
@@ -207,6 +191,9 @@ public(package) fun verify_certificate(
 
     // Compute the aggregate public key of the signers as the difference between
     // the total aggregated key and the aggregate public key of the non-signers.
+    let non_signer_public_keys = complement(signers, self.members.length() as u16).map!(
+        |index| self.members[index as u64].public_key,
+    );
     let aggregate_key = bls12381::g1_sub(
         &self.total_aggregated_key,
         &bls12381::uncompressed_g1_to_g1(
@@ -226,6 +213,20 @@ public(package) fun verify_certificate(
     );
 
     (aggregate_weight as u16)
+}
+
+/// Returns the complement of the given list with respect to the range [0, n) assuming that the list is in strictly increasing order.
+fun complement(list: &vector<u16>, n: u16): vector<u16> {
+    assert!(list.length() <= n as u64);
+    let mut result: vector<u16> = vector::empty();
+    let mut offset = 0;
+    list.do_ref!(|index| {
+        assert!(*index >= offset);
+        (*index - offset as u16).do!(|i| result.push_back(offset + i));
+        offset = *index + 1;
+    });
+    (n - offset).do!(|i| result.push_back(offset + i));
+    result
 }
 
 #[test_only]
