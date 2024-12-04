@@ -12,7 +12,11 @@ RUN apt-get update && apt-get install -y cmake clang
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 
-RUN cargo build --profile $PROFILE --bin walrus --bin walrus-node --bin walrus-deploy
+RUN cargo build --profile $PROFILE \
+    --features deploy\
+    --bin walrus \
+    --bin walrus-node \
+    --bin walrus-deploy
 
 # Production Image for all binaries under walrus-service
 FROM debian:bullseye-slim AS walrus-service
