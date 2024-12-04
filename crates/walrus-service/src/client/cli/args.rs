@@ -679,6 +679,10 @@ impl BurnSelection {
             )),
         }
     }
+
+    pub(super) fn is_all_expired(&self) -> bool {
+        self.all_expired
+    }
 }
 
 pub(crate) mod default {

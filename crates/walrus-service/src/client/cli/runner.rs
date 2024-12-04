@@ -655,6 +655,18 @@ impl ClientCommandRunner {
             .await?;
         let object_ids = burn_selection.get_object_ids(&sui_client).await?;
 
+        if object_ids.is_empty() {
+            println!(
+                "The wallet does not own any {}blob objects.",
+                if burn_selection.is_all_expired() {
+                    "expired "
+                } else {
+                    ""
+                }
+            );
+            return Ok(());
+        }
+
         if confirmation.is_required() {
             let object_list = object_ids.iter().map(|id| id.to_string()).join("\n");
             println!(
