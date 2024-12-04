@@ -181,7 +181,7 @@ public(package) fun verify_certificate(
 
         // Add all the members that are not in the signers list since last member index
         (member_index - min_next_member_index).do!(
-            |i| non_signers.push_back(min_next_member_index + i),
+            |i| non_signers.push_back(self.members[min_next_member_index + i].public_key),
         );
 
         min_next_member_index = member_index + 1;
@@ -195,7 +195,7 @@ public(package) fun verify_certificate(
 
     // Add remaining non-signers
     (self.members.length() - min_next_member_index).do!(
-        |i| non_signers.push_back(min_next_member_index + i),
+        |i| non_signers.push_back(self.members[min_next_member_index + i].public_key),
     );
 
     // The expression below is the solution to the inequality:
@@ -203,15 +203,13 @@ public(package) fun verify_certificate(
     // stake >= 2f + 1
     assert!(self.verify_quorum(aggregate_weight), ENotEnoughStake);
 
-    // Compute the aggregate public key, e.g. the sum of the public keys of the non-signers.
-    let non_signers_aggregate_key = bls12381::uncompressed_g1_to_g1(
-        &bls12381::uncompressed_g1_sum(
-            &non_signers.map_ref!(|member_index| self.members[*member_index as u64].public_key),
-        ),
-    );
+    // Compute the aggregate public key of the signers as the difference between
+    // the total aggregated key and the aggregate public key of the non-signers.
     let signers_aggregate_key = bls12381::g1_sub(
         &self.total_aggregated_key,
-        &non_signers_aggregate_key,
+        &bls12381::uncompressed_g1_to_g1(
+            &bls12381::uncompressed_g1_sum(&non_signers),
+        ),
     );
 
     // Verify the signature
