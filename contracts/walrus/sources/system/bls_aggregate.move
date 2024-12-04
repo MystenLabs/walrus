@@ -4,7 +4,7 @@
 module walrus::bls_aggregate;
 
 use sui::{
-    bls12381::{Self, bls12381_min_pk_verify, G1},
+    bls12381::{Self, bls12381_min_pk_verify, G1, UncompressedG1},
     group_ops::{Self, Element},
     vec_map::{Self, VecMap}
 };
@@ -18,7 +18,7 @@ const ENotEnoughStake: u64 = 2;
 const EIncorrectCommittee: u64 = 3;
 
 public struct BlsCommitteeMember has copy, drop, store {
-    public_key: Element<G1>,
+    public_key: Element<UncompressedG1>,
     weight: u16,
     node_id: ID,
 }
@@ -61,7 +61,7 @@ public(package) fun new_bls_committee_member(
     node_id: ID,
 ): BlsCommitteeMember {
     BlsCommitteeMember {
-        public_key,
+        public_key: bls12381::g1_to_uncompressed_g1(&public_key),
         weight,
         node_id,
     }
@@ -161,7 +161,6 @@ public(package) fun verify_certificate(
     // Lower bound for the next `member_index` to ensure they are monotonically
     // increasing
     let mut min_next_member_index = 0;
-    let mut aggregate_key = bls12381::g1_identity();
     let mut aggregate_weight = 0;
 
     signers.do_ref!(|member_index| {
@@ -171,10 +170,8 @@ public(package) fun verify_certificate(
 
         // Bounds check happens here
         let member = &self.members[member_index];
-        let key = &member.public_key;
         let weight = member.weight;
 
-        aggregate_key = bls12381::g1_add(&aggregate_key, key);
         aggregate_weight = aggregate_weight + weight;
     });
 
@@ -182,6 +179,11 @@ public(package) fun verify_certificate(
     // n_shards = 3 f + 1
     // stake >= 2f + 1
     assert!(self.verify_quorum(aggregate_weight), ENotEnoughStake);
+
+    // Compute the aggregate public key, e.g. the sum of the public keys of the signers.
+    let aggregate_key = bls12381::uncompressed_g1_sum(
+        &signers.map_ref!(|member_index| self.members[*member_index as u64].public_key),
+    );
 
     // Verify the signature
     let pub_key_bytes = group_ops::bytes(&aggregate_key);
