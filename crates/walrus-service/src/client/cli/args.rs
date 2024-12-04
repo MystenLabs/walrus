@@ -455,10 +455,12 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
-    /// If set, the publisher will keep the created Blob object ids in the wallet.
+    /// If set, the publisher will keep the created Blob objects in its _main_ wallet.
     ///
-    /// If unset, the publisher will immediately burn all created blob objects by default, and only
-    /// send back the ones that are created with the `send_object_to` query.
+    /// If unset, the publisher will immediately burn all created blob objects by default. However,
+    /// note that this flag _does not affect_ the use of the `send_object_to` query parameter:
+    /// Regardless of this flag's status, the publisher will send created objects to the address in
+    /// the `send_object_to` query parameter, if it is specified in the PUT request.
     #[clap(long, action)]
     #[serde(default)]
     pub keep: bool,
@@ -654,41 +656,27 @@ pub struct BurnSelection {
 }
 
 impl BurnSelection {
-    pub(crate) fn exactly_one_provided(&self) -> Result<()> {
-        match (self.object_ids.is_empty(), self.all, self.all_expired) {
-            (false, false, false) => Ok(()),
-            (true, true, false) => Ok(()),
-            (true, false, true) => Ok(()),
-            _ => Err(anyhow!(
-                "exactly one of `object-ids`, `all`, or `all-expired` must be specified"
-            )),
-        }
-    }
-
     pub(crate) async fn get_object_ids(
         &self,
         client: &SuiContractClient,
     ) -> anyhow::Result<Vec<ObjectID>> {
-        self.exactly_one_provided()?;
-
-        if !self.object_ids.is_empty() {
-            Ok(self.object_ids.clone())
-        } else if self.all {
-            Ok(client
+        match (self.object_ids.is_empty(), self.all, self.all_expired) {
+            (false, false, false) => Ok(self.object_ids.clone()),
+            (true, true, false) => Ok(client
                 .owned_blobs(None, ExpirySelectionPolicy::All)
                 .await?
                 .into_iter()
                 .map(|blob| blob.id)
-                .collect::<Vec<_>>())
-        } else if self.all_expired {
-            Ok(client
+                .collect::<Vec<_>>()),
+            (true, false, true) => Ok(client
                 .owned_blobs(None, ExpirySelectionPolicy::Expired)
                 .await?
                 .into_iter()
                 .map(|blob| blob.id)
-                .collect::<Vec<_>>())
-        } else {
-            unreachable!("we have already checked that exactly one is provided")
+                .collect::<Vec<_>>()),
+            _ => Err(anyhow!(
+                "exactly one of `objectIds`, `all`, or `allExpired` must be specified"
+            )),
         }
     }
 }

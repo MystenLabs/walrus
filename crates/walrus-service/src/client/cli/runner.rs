@@ -441,7 +441,10 @@ impl ClientCommandRunner {
             .new_contract_client(self.wallet?, self.gas_budget)
             .await?;
         let blobs = contract_client
-            .owned_blobs(None, ExpirySelectionPolicy::from_flag(include_expired))
+            .owned_blobs(
+                None,
+                ExpirySelectionPolicy::from_include_expired_flag(include_expired),
+            )
             .await?;
         blobs.print_output(self.json)
     }

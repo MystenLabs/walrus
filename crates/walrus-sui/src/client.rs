@@ -173,9 +173,9 @@ pub enum ExpirySelectionPolicy {
 
 impl ExpirySelectionPolicy {
     /// Returns the policy for a give `include_expired` flag.
-    pub fn from_flag(include_expired: bool) -> Self {
+    pub fn from_include_expired_flag(include_expired: bool) -> Self {
         if include_expired {
-            Self::Expired
+            Self::All
         } else {
             Self::Valid
         }
