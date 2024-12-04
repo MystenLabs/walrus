@@ -118,7 +118,7 @@ pub struct StructTag<'a> {
 }
 
 impl<'a> StructTag<'a> {
-    /// Returns a [MoveStructTag] for the identified struct with the given package ID.
+    /// Returns a [`MoveStructTag`] for the identified struct with the given package ID.
     ///
     /// Use [`Self::to_move_struct_tag_with_type_map`] if the type origin map is available.
     pub(crate) fn to_move_struct_tag_with_package(
