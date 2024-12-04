@@ -138,7 +138,7 @@ impl<'a> StructTag<'a> {
         })
     }
 
-    /// Converts a [StructTag] to a [MoveStructTag] using the matching package ID from the given
+    /// Converts a [`StructTag`] to a [`MoveStructTag`] using the matching package ID from the given
     /// type origin map.
     pub(crate) fn to_move_struct_tag_with_type_map(
         &self,
