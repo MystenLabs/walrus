@@ -22,6 +22,8 @@ const EResourceSize: u64 = 3;
 const EWrongEpoch: u64 = 4;
 const EAlreadyCertified: u64 = 5;
 const EInvalidBlobId: u64 = 6;
+const EDuplicateMetadata: u64 = 7;
+const EMissingMetadata: u64 = 8;
 
 // The fixed dynamic filed name for metadata
 const METADATA_DF: vector<u8> = b"metadata";
@@ -179,7 +181,7 @@ public(package) fun certify_with_certified_msg(
     message: CertifiedBlobMessage,
 ) {
     // Check that the blob is registered in the system
-    assert!(blob_id(blob) == message.certified_blob_id(), EInvalidBlobId);
+    assert!(blob.blob_id() == message.certified_blob_id(), EInvalidBlobId);
 
     // Check that the blob is not already certified
     assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
@@ -223,11 +225,7 @@ public use fun walrus::shared_blob::new as Blob.share;
 
 /// Allow the owner of a blob object to destroy it.
 public fun burn(blob: Blob) {
-    let Blob {
-        id,
-        storage,
-        ..,
-    } = blob;
+    let Blob { id, storage, .. } = blob;
 
     id.delete();
     storage.destroy();
@@ -276,6 +274,7 @@ public(package) fun emit_certified(self: &Blob, is_extension: bool) {
 ///
 /// Aborts if the metadata is already present.
 public fun add_metadata(self: &mut Blob, metadata: Metadata) {
+    assert!(!dynamic_field::exists_(&self.id, METADATA_DF), EDuplicateMetadata);
     dynamic_field::add(&mut self.id, METADATA_DF, metadata)
 }
 
@@ -290,6 +289,7 @@ public fun take_metadata(self: &mut Blob): Metadata {
 ///
 /// Aborts if the metadata does not exist.
 fun metadata(self: &mut Blob): &mut Metadata {
+    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
     dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
 }
 

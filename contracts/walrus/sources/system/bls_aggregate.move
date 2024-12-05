@@ -98,10 +98,7 @@ public(package) fun contains(self: &BlsCommittee, node_id: &ID): bool {
 
 /// Returns the member weight if it is part of the committee or 0 otherwise
 public(package) fun get_member_weight(self: &BlsCommittee, node_id: &ID): u16 {
-    self.find_index(node_id).and!(|idx| {
-        let member = &self.members[idx];
-        option::some(member.weight)
-    }).get_with_default(0)
+    self.find_index(node_id).map!(|idx| self.members[idx].weight).destroy_or!(0)
 }
 
 /// Finds the index of the member by node_id
@@ -184,7 +181,7 @@ public(package) fun verify_certificate(
     // The expression below is the solution to the inequality:
     // n_shards = 3 f + 1
     // stake >= 2f + 1
-    assert!(verify_quorum(self, aggregate_weight), ENotEnoughStake);
+    assert!(self.verify_quorum(aggregate_weight), ENotEnoughStake);
 
     // Verify the signature
     let pub_key_bytes = group_ops::bytes(&aggregate_key);

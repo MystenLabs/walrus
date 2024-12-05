@@ -58,10 +58,7 @@ public(package) fun delete_empty_future_accounting(self: FutureAccounting) {
 }
 
 public(package) fun unwrap_balance(self: FutureAccounting): Balance<WAL> {
-    let FutureAccounting {
-        rewards_to_distribute,
-        ..,
-    } = self;
+    let FutureAccounting { rewards_to_distribute, .. } = self;
     rewards_to_distribute
 }
 
@@ -93,7 +90,7 @@ public(package) fun ring_new(length: u32): FutureAccountingRingBuffer {
         },
     );
 
-    FutureAccountingRingBuffer { current_index: 0, length: length, ring_buffer: ring_buffer }
+    FutureAccountingRingBuffer { current_index: 0, length, ring_buffer }
 }
 
 /// Lookup an entry a number of epochs in the future.

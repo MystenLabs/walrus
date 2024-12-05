@@ -4,7 +4,7 @@
 /// Module to certify event blobs.
 module walrus::event_blob;
 
-use sui::vec_map::VecMap;
+use sui::vec_map::{Self, VecMap};
 
 // === Definitions related to event blob certification ===
 
@@ -109,7 +109,7 @@ public(package) fun is_blob_already_certified(
                 latest_certified_sequence_num,
             | latest_certified_sequence_num >= ending_checkpoint_sequence_num,
         )
-        .get_with_default(false)
+        .destroy_or!(false)
 }
 
 /// Updates the latest certified event blob
@@ -121,10 +121,7 @@ public(package) fun update_latest_certified_event_blob(
     self.get_latest_certified_checkpoint_sequence_number().do!(|latest_certified_sequence_num| {
         assert!(checkpoint_sequence_number > latest_certified_sequence_num);
     });
-    self.latest_certified_blob =
-        option::some(
-            new_event_blob(checkpoint_sequence_number, blob_id),
-        );
+    self.latest_certified_blob = option::some(new_event_blob(checkpoint_sequence_number, blob_id));
 }
 
 /// Update the aggregate weight of an event blob
@@ -133,7 +130,7 @@ public(package) fun update_aggregate_weight(
     blob_id: u256,
     weight: u16,
 ): u16 {
-    let agg_weight = self.aggregate_weight_per_blob.get_mut(&blob_id);
+    let agg_weight = &mut self.aggregate_weight_per_blob[&blob_id];
     *agg_weight = *agg_weight + weight;
     *agg_weight
 }
@@ -155,5 +152,5 @@ public(package) fun stop_tracking_blob(self: &mut EventBlobCertificationState, b
 
 /// Reset blob certification state upon epoch change
 public(package) fun reset(self: &mut EventBlobCertificationState) {
-    self.aggregate_weight_per_blob = sui::vec_map::empty();
+    self.aggregate_weight_per_blob = vec_map::empty();
 }

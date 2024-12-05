@@ -69,6 +69,7 @@ public fun split_by_epoch(storage: &mut Storage, split_epoch: u32, ctx: &mut TxC
 /// `storage` is modified to cover `split_size` and a new object covering
 /// `storage.storage_size - split_size` is created.
 public fun split_by_size(storage: &mut Storage, split_size: u64, ctx: &mut TxContext): Storage {
+    assert!(storage.storage_size >= split_size, EIncompatibleAmount);
     let storage_size = storage.storage_size - split_size;
     storage.storage_size = split_size;
     Storage {
@@ -118,10 +119,10 @@ public fun fuse_amount(first: &mut Storage, second: Storage) {
 public fun fuse(first: &mut Storage, second: Storage) {
     if (first.start_epoch == second.start_epoch) {
         // Fuse by storage_size
-        fuse_amount(first, second);
+        first.fuse_amount(second);
     } else {
         // Fuse by period
-        fuse_periods(first, second);
+        first.fuse_periods(second);
     }
 }
 
