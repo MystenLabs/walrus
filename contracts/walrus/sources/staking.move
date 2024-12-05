@@ -27,8 +27,6 @@ public struct Staking has key {
 
 /// Creates and shares a new staking object.
 /// Must only be called by the initialization function.
-///
-/// TODO: consider removing `epoch_duration` parameter when the testing is over.
 public(package) fun create(
     epoch_zero_duration: u64,
     epoch_duration: u64,

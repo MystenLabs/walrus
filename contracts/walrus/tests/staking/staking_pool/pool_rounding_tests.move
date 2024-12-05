@@ -52,8 +52,8 @@ fun split_odd_number_of_rewards_pool_leftovers_failure() {
 }
 
 #[test]
-// Not failing when mixed with commission. Commission seems to not affect
-// rewards calculation.
+// Not failing when mixed with commission.
+// Commission seems to not affect rewards calculation in terms for rounding.
 fun commission_rounding_success() {
     let mut test = context_runner();
 
