@@ -282,6 +282,7 @@ public fun add_metadata(self: &mut Blob, metadata: Metadata) {
 ///
 /// Aborts if the metadata does not exist.
 public fun take_metadata(self: &mut Blob): Metadata {
+    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
     dynamic_field::remove(&mut self.id, METADATA_DF)
 }
 

@@ -4,7 +4,7 @@
 #[test_only]
 module walrus::blob_tests;
 
-use sui::{bcs, dynamic_field};
+use sui::bcs;
 use walrus::{
     blob::{Self, Blob},
     encoding,
@@ -394,7 +394,7 @@ public fun test_blob_add_metadata(): system::System {
     })
 }
 
-#[test, expected_failure(abort_code = dynamic_field::EFieldAlreadyExists)]
+#[test, expected_failure(abort_code = blob::EDuplicateMetadata)]
 public fun test_blob_add_metadata_already_exists(): system::System {
     call_function_with_default_blob!(|blob| {
         let metadata1 = metadata::new();
@@ -406,7 +406,7 @@ public fun test_blob_add_metadata_already_exists(): system::System {
     })
 }
 
-#[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
+#[test, expected_failure(abort_code = blob::EMissingMetadata)]
 public fun test_blob_take_metadata_nonexistent(): system::System {
     call_function_with_default_blob!(|blob| {
         // Try to take the metadata from a blob without metadata. Test fails here.
@@ -414,7 +414,7 @@ public fun test_blob_take_metadata_nonexistent(): system::System {
     })
 }
 
-#[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
+#[test, expected_failure(abort_code = blob::EMissingMetadata)]
 public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
     call_function_with_default_blob!(|blob| {
         // Try to insert metadata into a blob without metadata. Test fails here.
@@ -422,7 +422,7 @@ public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
     })
 }
 
-#[test, expected_failure(abort_code = dynamic_field::EFieldDoesNotExist)]
+#[test, expected_failure(abort_code = blob::EMissingMetadata)]
 public fun test_blob_remove_metadata_pair_nonexistent(): system::System {
     call_function_with_default_blob!(|blob| {
         // Try to remove metadata from a blob without metadata. Test fails here.
