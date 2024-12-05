@@ -3,10 +3,11 @@
 
 //! Walrus move type bindings. Replicates the move types in Rust.
 
-use std::{fmt::Display, num::NonZeroU16};
-
+#[cfg(feature = "mainnet-contracts")]
+use fastcrypto::groups::bls12381::G1ElementUncompressed;
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use std::{fmt::Display, num::NonZeroU16};
 use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
@@ -410,8 +411,11 @@ impl AssociatedContractStruct for StakingInnerV1 {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct BlsCommitteeMember {
+    #[cfg(not(feature = "mainnet-contracts"))]
     #[serde(deserialize_with = "deserialize_public_key")]
     public_key: PublicKey,
+    #[cfg(feature = "mainnet-contracts")]
+    public_key: G1ElementUncompressed,
     weight: u16,
     node_id: ObjectID,
 }
@@ -425,6 +429,9 @@ pub(crate) struct BlsCommittee {
     n_shards: u16,
     /// The current epoch
     epoch: Epoch,
+    #[cfg(feature = "mainnet-contracts")]
+    /// Aggregated key for all committee members
+    aggregated_keys: PublicKey,
 }
 
 /// Sui type for system object
