@@ -225,7 +225,7 @@ public(package) fun register_blob(
         ctx,
     );
     let write_price = self.write_price(blob.encoded_size(self.n_shards()));
-    let payment = write_payment_coin.split(write_price, ctx).into_balance();
+    let payment = write_payment_coin.balance_mut().split(write_price);
     let accounts = self.future_accounting.ring_lookup_mut(0).rewards_balance().join(payment);
     blob
 }

@@ -611,3 +611,6 @@ public(package) fun is_empty(pool: &StakingPool): bool {
     pool.wal_balance == 0 &&
     non_empty == 0
 }
+
+#[test_only]
+public(package) fun pool_token_balance(pool: &StakingPool): u64 { pool.pool_token_balance }

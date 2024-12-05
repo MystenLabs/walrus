@@ -43,10 +43,13 @@ fun split_odd_number_of_rewards_pool_leftovers_failure() {
 
     assert_eq!(balance_a.destroy_for_testing(), 200);
     assert_eq!(balance_b.destroy_for_testing(), 200);
+    assert_eq!(pool.pool_token_balance(), 200); // epoch change hasn't happened yet
 
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(0), &wctx);
-    pool.destroy_empty();
+    assert_eq!(pool.pool_token_balance(), 0); // 0 pool tokens left
+
+    pool.destroy_empty(); // fails because there's dust in the `staked_wal`
 
     abort 1337
 }
