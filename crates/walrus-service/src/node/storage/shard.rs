@@ -19,9 +19,9 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
-#[cfg(msim)]
-use sui_macros::fail_point_arg;
 use sui_macros::fail_point_if;
+#[cfg(msim)]
+use sui_macros::{fail_point, fail_point_arg};
 use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
