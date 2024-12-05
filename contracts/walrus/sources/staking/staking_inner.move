@@ -220,8 +220,9 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
     assert!(self.next_committee.is_some(), ENextCommitteeIsEmpty);
 
-    let size = self.next_committee.borrow().size();
-    let inner = self.next_committee.borrow().inner();
+    let committee = self.next_committee.borrow();
+    let size = committee.size();
+    let inner = committee.inner();
     let mut write_prices = priority_queue::new(vector[]);
     let mut storage_prices = priority_queue::new(vector[]);
     let mut capacity_votes = priority_queue::new(vector[]);
@@ -553,8 +554,7 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     // Distribute the rewards.
 
     // Add any leftover rewards to the rewards to distribute.
-    let leftover_value = self.leftover_rewards.value();
-    rewards.join(self.leftover_rewards.split(leftover_value));
+    rewards.join(self.leftover_rewards.withdraw_all());
     let rewards_per_shard = rewards.value() / (self.n_shards as u64);
 
     // Add any nodes that are new in the committee to the previous shard assignments
@@ -651,9 +651,10 @@ public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
 
 /// Construct the BLS committee for the next epoch.
 public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
+    assert!(self.next_committee.is_some(), ENextCommitteeIsEmpty);
     let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
     let members = ids.zip_map!(shard_assignments, |id, shards| {
-        let pk = self.pools.borrow(id).node_info().next_epoch_public_key();
+        let pk = self.pools[id].node_info().next_epoch_public_key();
         bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
     });
     bls_aggregate::new_bls_committee(self.epoch + 1, members)

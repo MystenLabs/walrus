@@ -88,7 +88,7 @@ public(package) fun n_shards(self: &BlsCommittee): u16 {
 
 /// Returns the member at given index
 public(package) fun get_idx(self: &BlsCommittee, idx: u64): &BlsCommitteeMember {
-    self.members.borrow(idx)
+    &self.members[idx]
 }
 
 /// Checks if the committee contains a given node.
@@ -105,7 +105,7 @@ public(package) fun get_member_weight(self: &BlsCommittee, node_id: &ID): u16 {
 }
 
 /// Finds the index of the member by node_id
-public(package) fun find_index(self: &BlsCommittee, node_id: &ID): std::option::Option<u64> {
+public(package) fun find_index(self: &BlsCommittee, node_id: &ID): Option<u64> {
     self.members.find_index!(|member| &member.node_id == node_id)
 }
 
