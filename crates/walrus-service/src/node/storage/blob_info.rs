@@ -273,8 +273,6 @@ pub(super) trait Mergeable: Sized {
 pub(crate) trait BlobInfoApi {
     /// Returns a boolean indicating whether the metadata of the blob is stored.
     fn is_metadata_stored(&self) -> bool;
-    /// Returns true iff the blob is invalid.
-    fn is_invalid(&self) -> bool;
     /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
     fn is_registered(&self, current_epoch: Epoch) -> bool;
     /// Returns true iff there exists at least one non-expired and certified deletable or permanent
@@ -881,10 +879,6 @@ impl BlobInfoApi for BlobInfoV1 {
                 ..
             })
         )
-    }
-
-    fn is_invalid(&self) -> bool {
-        matches!(self, Self::Invalid { .. })
     }
 
     // TODO: This is currently just an approximation: It is possible that this returns true even

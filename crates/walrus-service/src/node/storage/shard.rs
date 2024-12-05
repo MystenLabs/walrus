@@ -20,7 +20,8 @@ use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
 #[cfg(msim)]
-use sui_macros::{fail_point, fail_point_arg, fail_point_if};
+use sui_macros::fail_point_arg;
+use sui_macros::fail_point_if;
 use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
@@ -783,20 +784,74 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
         epoch: Epoch,
-    ) -> Result<(), TypedStoreError> {
+    ) -> Result<(), SyncShardClientError> {
         let semaphore = Semaphore::new(config.max_concurrent_blob_recovery_during_shard_recovery);
         let mut futures = FuturesUnordered::new();
         for recover_blob in self.pending_recover_slivers.safe_iter() {
             let ((sliver_type, blob_id), _) = recover_blob?;
-            futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), &semaphore, epoch));
+
+            #[allow(unused_mut)]
+            let mut skip_certified_check_in_test = false;
+            fail_point_if!(
+                "shard_recovery_skip_initial_blob_certification_check",
+                || { skip_certified_check_in_test = true }
+            );
+
+            if skip_certified_check_in_test || node.is_blob_certified(&blob_id)? {
+                futures.push(self.recover_blob(
+                    blob_id,
+                    sliver_type,
+                    node.clone(),
+                    &semaphore,
+                    epoch,
+                ));
+            } else {
+                tracing::info!(
+                    walrus.blob_id = %blob_id,
+                    "blob is not certified; skip recovering it"
+                );
+                metrics::with_label!(
+                    node.metrics.sync_shard_recover_sliver_skip_total,
+                    &self.id.to_string()
+                )
+                .inc();
+                self.pending_recover_slivers
+                    .remove(&(sliver_type, blob_id))?;
+            }
         }
 
         while let Some(result) = futures.next().await {
             if let Err(error) = result {
-                tracing::error!(?error, "error recovering missing blob sliver");
+                tracing::error!(
+                    ?error,
+                    "error recovering missing blob sliver. \
+                    blob is not removed from pending_recover_slivers"
+                );
             }
         }
 
+        Ok(())
+    }
+
+    /// Skips recovering a blob that is no longer certified.
+    fn skip_recover_blob(
+        &self,
+        blob_id: BlobId,
+        sliver_type: SliverType,
+        node: &Arc<StorageNodeInner>,
+    ) -> Result<(), TypedStoreError> {
+        tracing::debug!(
+            %blob_id,
+            shard_index = %self.id,
+            "blob is no longer certified during recovery; stop recovery"
+        );
+        metrics::with_label!(
+            node.metrics.sync_shard_recover_sliver_cancellation_total,
+            &self.id.to_string()
+        )
+        .inc();
+        self.pending_recover_slivers
+            .remove(&(sliver_type, blob_id))?;
         Ok(())
     }
 
@@ -808,7 +863,7 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         semaphore: &Semaphore,
         epoch: Epoch,
-    ) -> Result<(), TypedStoreError> {
+    ) -> Result<(), SyncShardClientError> {
         let _guard = semaphore.acquire().await;
         tracing::info!(
             walrus.blob_id = %blob_id,
@@ -817,6 +872,10 @@ impl ShardStorage {
         );
 
         let Some(metadata) = node.storage.get_metadata(&blob_id)? else {
+            if !node.is_blob_certified(&blob_id)? {
+                self.skip_recover_blob(blob_id, sliver_type, &node)?;
+                return Ok(());
+            }
             tracing::warn!(
                 "blob {} is missing in the metadata table. For certified blob, Blob sync task should
                 recover the metadata. Skip recovering it for now.",
@@ -835,12 +894,47 @@ impl ShardStorage {
         )
         .inc();
 
-        // TODO(#1095): we need to make sure that we don't recover expired/deleted/invalidated blobs
-        // here. Otherwise, this may be blocked forever.
-        let result = node
-            .committee_service
-            .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch)
-            .await;
+        // Create a periodic check future which checks if the blob is still certified.
+        let node_clone = node.clone();
+        let certified_status_check_future = async move {
+            let mut check_interval = if cfg!(not(test)) {
+                tokio::time::interval(Duration::from_secs(60))
+            } else {
+                // Short interval for testing.
+                tokio::time::interval(Duration::from_secs(1))
+            };
+
+            loop {
+                check_interval.tick().await;
+                if !node_clone.is_blob_certified(&blob_id)? {
+                    return Ok(());
+                }
+            }
+        };
+
+        let recover_future =
+            node.committee_service
+                .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch);
+
+        let result = tokio::select! {
+            result = recover_future => result,
+            status_check_result = certified_status_check_future => {
+                match status_check_result {
+                    Ok(()) => {
+                        self.skip_recover_blob(blob_id, sliver_type, &node)?;
+                return Ok(());
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            ?error,
+                            %blob_id,
+                            "error checking blob certification status during recovery"
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+        };
 
         match result {
             Ok(sliver) => {
@@ -870,7 +964,9 @@ impl ShardStorage {
             }
         }
 
-        self.pending_recover_slivers.remove(&(sliver_type, blob_id))
+        self.pending_recover_slivers
+            .remove(&(sliver_type, blob_id))?;
+        Ok(())
     }
 
     /// Deletes the storage for the shard.

@@ -61,6 +61,12 @@ telemetry::define_metric_set! {
         #[help = "Total number of slivers failed to recover during shard sync"]
         sync_shard_recover_sliver_error_total: IntCounterVec["shard"],
 
+        #[help = "Total number of slivers skipped during shard sync"]
+        sync_shard_recover_sliver_skip_total: IntCounterVec["shard"],
+
+        #[help = "Total number of slivers successfully recovered during shard sync"]
+        sync_shard_recover_sliver_cancellation_total: IntCounterVec["shard"],
+
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],
 
