@@ -234,7 +234,8 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
                 activation_epoch: sw.activation_epoch,
             }
         },
-        _ => abort , // unreachable
+        // unreachable, we checked that the staked WAL is withdrawing beforehand
+        _ => abort ,
     }
 }
 

@@ -15,6 +15,7 @@ module walrus::active_set;
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EZeroMaxSize: u64 = 0;
+const EDuplicateInsertion: u64 = 1;
 
 public struct ActiveSetEntry has copy, drop, store {
     node_id: ID,
@@ -73,7 +74,7 @@ public(package) fun update(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
         return false
     };
     index.do!(|idx| {
-        set.total_stake = set.total_stake - set.nodes[idx].staked_amount + staked_amount;
+        set.total_stake = set.total_stake + staked_amount - set.nodes[idx].staked_amount;
         set.nodes[idx].staked_amount = staked_amount;
     });
     true
@@ -85,7 +86,7 @@ public(package) fun update(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
 /// staked WAL is removed to make space for the new node.
 /// Returns true if the node was inserted, false otherwise.
 public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
-    assert!(set.nodes.find_index!(|entry| entry.node_id == node_id).is_none());
+    assert!(set.nodes.find_index!(|entry| entry.node_id == node_id).is_none(), EDuplicateInsertion);
 
     // Check if the staked amount is enough to be included in the active set.
     if (staked_amount < set.threshold_stake) return false;
@@ -94,26 +95,27 @@ public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
     if (set.nodes.length() as u16 < set.max_size) {
         set.total_stake = set.total_stake + staked_amount;
         set.nodes.push_back(ActiveSetEntry { node_id, staked_amount });
+        return true
+    };
+
+    // Find the node with the smallest amount of stake and less than the new node.
+    let mut min_stake = staked_amount;
+    let mut min_idx = option::none();
+    set.nodes.length().do!(|i| {
+        if (set.nodes[i].staked_amount < min_stake) {
+            min_idx = option::some(i);
+            min_stake = set.nodes[i].staked_amount;
+        }
+    });
+
+    // If there is such a node, replace it in the list.
+    if (min_idx.is_some()) {
+        let min_idx = min_idx.extract();
+        set.total_stake = set.total_stake - min_stake + staked_amount;
+        *&mut set.nodes[min_idx] = ActiveSetEntry { node_id, staked_amount };
         true
     } else {
-        // Find the node with the smallest amount of stake and less than the new node.
-        let mut min_stake = staked_amount;
-        let mut min_idx = option::none();
-        set.nodes.length().do!(|i| {
-            if (set.nodes[i].staked_amount < min_stake) {
-                min_idx = option::some(i);
-                min_stake = set.nodes[i].staked_amount;
-            }
-        });
-        // If there is such a node, replace it in the list.
-        if (min_idx.is_some()) {
-            let min_idx = min_idx.extract();
-            set.total_stake = set.total_stake - min_stake + staked_amount;
-            *&mut set.nodes[min_idx] = ActiveSetEntry { node_id, staked_amount };
-            true
-        } else {
-            false
-        }
+        false
     }
 }
 
@@ -180,7 +182,7 @@ public fun stake_for_node(set: &ActiveSet, node_id: ID): u64 {
         .nodes
         .find_index!(|entry| entry.node_id == node_id)
         .map!(|index| set.nodes[index].staked_amount)
-        .destroy_with_default(0)
+        .destroy_or!(0)
 }
 
 // === Test ===
