@@ -13,7 +13,6 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 
 RUN cargo build --profile $PROFILE \
-    --features deploy\
     --bin walrus \
     --bin walrus-node \
     --bin walrus-deploy
