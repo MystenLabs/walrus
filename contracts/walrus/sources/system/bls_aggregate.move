@@ -224,10 +224,10 @@ fun complement(list: &vector<u16>, n: u16): vector<u16> {
     let mut offset = 0;
     list.do_ref!(|index| {
         assert!(*index >= offset);
-        (*index - offset).do!(|i| result.push_back(offset + i));
+        offset.range_do!(*index, |i| result.push_back(i));
         offset = *index + 1;
     });
-    (n - offset).do!(|i| result.push_back(offset + i));
+    offset.range_do!(n, |i| result.push_back(i));
     result
 }
 
