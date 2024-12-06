@@ -1,6 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Error;
 use axum::{
@@ -28,7 +28,11 @@ use serde::{Deserialize, Serialize};
 use tracing::error;
 use uuid::Uuid;
 
-use crate::{consumer::ProtobufDecoder, providers::WalrusNodeProvider, register_metric};
+use crate::{
+    consumer::{Label, ProtobufDecoder},
+    providers::WalrusNodeProvider,
+    register_metric,
+};
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
@@ -52,7 +56,7 @@ static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap())
 });
 
-/// we expect sui-node to send us an http header content-length encoding.
+/// we expect walrus-node to send us an http header content-length encoding.
 pub async fn expect_content_length(
     TypedHeader(content_length): TypedHeader<ContentLength>,
     request: Request<Body>,
@@ -60,24 +64,6 @@ pub async fn expect_content_length(
 ) -> Result<Response, (StatusCode, &'static str)> {
     MIDDLEWARE_HEADERS.with_label_values(&["content-length", &format!("{}", content_length.0)]);
     Ok(next.run(request).await)
-}
-
-/// we expect sui-node to send us an http header content-type encoding.
-pub async fn expect_mysten_proxy_header(
-    TypedHeader(content_type): TypedHeader<ContentType>,
-    request: Request<Body>,
-    next: Next,
-) -> Result<Response, (StatusCode, &'static str)> {
-    match format!("{content_type}").as_str() {
-        prometheus::PROTOBUF_FORMAT => Ok(next.run(request).await),
-        ct => {
-            error!("invalid content-type; {ct}");
-            MIDDLEWARE_OPS
-                .with_label_values(&["expect_mysten_proxy_header", "invalid-content-type"])
-                .inc();
-            Err((StatusCode::BAD_REQUEST, "invalid content-type header"))
-        }
-    }
 }
 
 /// AuthInfo is an intermediate type used to decode the auth header
@@ -161,10 +147,22 @@ pub async fn expect_valid_recoverable_pubkey(
     Ok(next.run(request).await)
 }
 
-/// LenDelimProtobuf is an axum extractor that will consume protobuf content by
-/// decompressing it and decoding it into protobuf metrics
+/// MetricFamilyWithStaticLabels takes labels that were signaled to us from the node as well
+/// as their metrics and creates an axum Extension type param that can be used in middleware
 #[derive(Debug)]
-pub struct LenDelimProtobuf(pub Vec<MetricFamily>);
+pub struct MetricFamilyWithStaticLabels {
+    /// static labels defined in config, eg host, network, etc
+    pub labels: Option<Vec<Label>>,
+    /// the metrics the node sent us, decoded from protobufs
+    pub metric_families: Vec<MetricFamily>,
+}
+
+/// LenDelimProtobuf is an axum extractor that will consume protobuf content by
+/// decompressing it and decoding it into protobuf metrics. the body payload is
+/// a json payload that is snappy compressed.  it has a structure seen in
+/// MetricPayload.  The buf field is protobuf encoded Vec<MetricFamily>
+#[derive(Debug)]
+pub struct LenDelimProtobuf(pub MetricFamilyWithStaticLabels);
 
 #[async_trait]
 impl<S> FromRequest<S> for LenDelimProtobuf
@@ -177,11 +175,15 @@ where
         req: Request<axum::body::Body>,
         state: &S,
     ) -> Result<Self, Self::Rejection> {
-        let should_be_snappy = req
-            .headers()
+        req.headers()
             .get(CONTENT_ENCODING)
             .map(|v| v.as_bytes() == b"snappy")
-            .unwrap_or(false);
+            .unwrap_or(false)
+            .then_some(())
+            .ok_or((
+                StatusCode::BAD_REQUEST,
+                "snappy compression is required".into(),
+            ))?;
 
         let body = Bytes::from_request(req, state).await.map_err(|e| {
             let msg = format!("error extracting bytes; {e}");
@@ -192,26 +194,29 @@ where
             (e.status(), msg)
         })?;
 
-        let intermediate = if should_be_snappy {
-            let mut s = snap::raw::Decoder::new();
-            let decompressed = s.decompress_vec(&body).map_err(|e| {
-                let msg = format!("unable to decode snappy encoded protobufs; {e}");
-                error!(msg);
-                MIDDLEWARE_OPS
-                    .with_label_values(&[
-                        "LenDelimProtobuf_decompress_vec",
-                        "unable-to-decode-snappy",
-                    ])
-                    .inc();
-                (StatusCode::BAD_REQUEST, msg)
-            })?;
-            Bytes::from(decompressed).reader()
-        } else {
-            body.reader()
-        };
+        let mut s = snap::raw::Decoder::new();
+        let decompressed = s.decompress_vec(&body).map_err(|e| {
+            let msg = format!("unable to decode snappy encoded protobufs; {e}");
+            error!(msg);
+            MIDDLEWARE_OPS
+                .with_label_values(&["LenDelimProtobuf_decompress_vec", "unable-to-decode-snappy"])
+                .inc();
+            (StatusCode::BAD_REQUEST, msg.into())
+        })?;
 
-        let mut decoder = ProtobufDecoder::new(intermediate);
-        let decoded = decoder.parse::<MetricFamily>().map_err(|e| {
+        #[derive(Deserialize)]
+        struct Payload {
+            labels: Option<HashMap<String, String>>,
+            buf: Vec<u8>,
+        }
+        let metric_payload: Payload = serde_json::from_slice(&decompressed).map_err(|error| {
+            let msg = "unable to deserialize MetricPayload";
+            error!(?error, msg);
+            (StatusCode::BAD_REQUEST, msg.into())
+        })?;
+
+        let mut decoder = ProtobufDecoder::new(Bytes::from(metric_payload.buf).reader());
+        let metric_families = decoder.parse::<MetricFamily>().map_err(|e| {
             let msg = format!("unable to decode len delimited protobufs; {e}");
             error!(msg);
             MIDDLEWARE_OPS
@@ -222,6 +227,15 @@ where
                 .inc();
             (StatusCode::BAD_REQUEST, msg)
         })?;
-        Ok(Self(decoded))
+
+        let labels: Option<Vec<Label>> = metric_payload.labels.map(|map| {
+            map.into_iter()
+                .map(|(k, v)| Label { name: k, value: v })
+                .collect()
+        });
+        Ok(Self(MetricFamilyWithStaticLabels {
+            labels,
+            metric_families,
+        }))
     }
 }

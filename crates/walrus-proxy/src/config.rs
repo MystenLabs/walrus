@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 use core::time::Duration;
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr};
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -14,8 +14,8 @@ use tracing::debug;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ProxyConfig {
-    /// which network to use as a label in mimir
-    pub network: String,
+    /// labels that will be applied to all metrics a given proxy relays
+    pub labels: HashMap<String, String>,
     /// what address to bind to
     pub listen_address: SocketAddr,
     /// remote write configuration

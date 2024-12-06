@@ -78,11 +78,15 @@ async fn main() -> Result<()> {
     // begin polling
     walrus_node_provider.poll_peer_list();
 
+    // you can override the bsae_labels if you want...or just provide more to use
+    let labels = config
+        .labels
+        .into_iter()
+        .map(|(k, v)| Label { name: k, value: v })
+        .collect();
+
     let app = admin::app(
-        vec![Label {
-            name: "network".into(),
-            value: config.network,
-        }],
+        labels,
         remote_write_client,
         histogram_relay,
         Some(walrus_node_provider),

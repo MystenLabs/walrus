@@ -37,9 +37,8 @@ static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 });
 
 /// Publish handler which receives metrics from nodes.  Nodes will call us at
-/// this endpoint and we relay them to the upstream tsdb.
-/// Clients will receive a response after successfully relaying the metrics
-/// upstream
+/// this endpoint and we relay them to the upstream tsdb. Clients will receive
+/// a response after successfully relaying the metrics upstream
 pub async fn publish_metrics(
     Extension(labels): Extension<Vec<Label>>,
     Extension(remote_write_client): Extension<ReqwestClient>,

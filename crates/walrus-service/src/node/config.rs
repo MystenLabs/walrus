@@ -4,6 +4,7 @@
 //! Storage client configuration module.
 
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -198,6 +199,8 @@ pub struct MetricsConfig {
     pub push_interval_seconds: Duration,
     /// the url that we will push metrics to
     pub push_url: String,
+    /// static labels to provide to the push process
+    pub labels: Option<HashMap<String, String>>,
 }
 
 /// Configure the default push interval for metrics.

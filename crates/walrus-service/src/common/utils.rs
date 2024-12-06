@@ -4,7 +4,7 @@
 //! Utility functions for the Walrus service.
 
 use std::{
-    collections::HashSet,
+    collections::{HashSet, HashMap},
     env,
     fmt::Debug,
     future::Future,
@@ -30,6 +30,7 @@ use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
     Deserializer,
+    Serialize,
 };
 use serde_json;
 use sui_sdk::wallet_context::WalletContext;
@@ -343,16 +344,18 @@ impl MetricPushRuntime {
             let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
-            let push_url = mp_config.config.push_url;
-            tracing::info!("starting metrics push to '{push_url}'");
+            // let push_url = mp_config.config.push_url;
+            tracing::info!("starting metrics push to '{}'", &mp_config.config.push_url);
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(error) = push_metrics(
-                            mp_config.network_key_pair.clone(),
+                            mp_config.network_key_pair.as_ref(),
                             &client,
-                            &push_url,
+                            &mp_config.config.push_url,
                             &registry,
+                            // clone because we serialize this with our metrics
+                            mp_config.config.labels.clone(),
                         ).await {
                             tracing::error!(?error, "unable to push metrics");
                             client = create_push_client();
@@ -387,13 +390,26 @@ fn create_push_client() -> reqwest::Client {
         .expect("unable to build client")
 }
 
+#[derive(Deserialize, Serialize)]
+#[allow(missing_debug_implementations)]
+/// MetricPayload holds static labels and metric data
+/// the static labels are always sent and will be merged within the proxy
+pub struct MetricPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    /// static labels defined in config, eg host, network, etc
+    pub labels: Option<HashMap<String, String>>,
+    /// protobuf encoded metric families. these must be decoded on the proxy side
+    pub buf: Vec<u8>,
+}
+
 /// Responsible for sending data to walrus-proxy, used within the async scope of
 /// MetricPushRuntime::start.
 async fn push_metrics(
-    network_key_pair: Arc<Secp256r1KeyPair>,
+    network_key_pair: &Secp256r1KeyPair,
     client: &reqwest::Client,
     push_url: &str,
     registry: &Registry,
+    labels: Option<HashMap<String, String>>,
 ) -> Result<(), anyhow::Error> {
     tracing::info!(push_url, "pushing metrics to remote");
 
@@ -414,8 +430,13 @@ async fn push_metrics(
     let encoder = prometheus::ProtobufEncoder::new();
     encoder.encode(&metric_families, &mut buf)?;
 
+    // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
+    let serialized = serde_json::to_vec(&MetricPayload{labels, buf}).inspect_err(|error| {
+        tracing::error!(?error, "unable to serialize MetricPayload to JSON");
+    })?;
+
     let mut s = snap::raw::Encoder::new();
-    let compressed = s.compress_vec(&buf).inspect_err(|error| {
+    let compressed = s.compress_vec(&serialized).inspect_err(|error| {
         tracing::error!(?error, "unable to snappy encode");
     })?;
 
@@ -431,7 +452,6 @@ async fn push_metrics(
         .post(push_url)
         .header(reqwest::header::AUTHORIZATION, auth_encoded_with_scheme)
         .header(reqwest::header::CONTENT_ENCODING, "snappy")
-        .header(reqwest::header::CONTENT_TYPE, prometheus::PROTOBUF_FORMAT)
         .body(compressed)
         .send()
         .await?;

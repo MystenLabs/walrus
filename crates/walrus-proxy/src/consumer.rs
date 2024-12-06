@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Read;
+use std::{collections::HashMap, io::Read};
 
 use anyhow::Result;
 use axum::{body::Bytes, http::StatusCode};
@@ -22,6 +22,7 @@ use tracing::{debug, error};
 
 use crate::{
     admin::ReqwestClient,
+    middleware::MetricFamilyWithStaticLabels,
     prom_to_mimir::Mimir,
     register_metric,
     remote_write::WriteRequest,
@@ -136,35 +137,67 @@ pub struct Label {
     pub value: String,
 }
 
+/// convert a hashmap into a label, useful for snagging from yaml config
+// impl From<HashMap<String, String>> for Label {
+//     fn from(map: HashMap<String, String>) -> Self {
+//         let (name, value) = map.into_iter().next().unwrap();
+//         Label { name, value }
+//     }
+// }
+
 /// populate labels in place for our given metric family data
 pub fn populate_labels(
-    name: String,                   // host field for grafana agent (from chain data)
-    labels: Vec<Label>,             // labels to apply
-    data: Vec<proto::MetricFamily>, // data sent to use from the node
+    // we will use this for the host field in grafana, this is sourced
+    // from the stakingObject data on chain
+    name: String,
+    // labels to apply from local config from walrus-proxy
+    labels: Vec<Label>,
+    // labels and metric data sent to use from the node
+    data: MetricFamilyWithStaticLabels,
 ) -> Vec<proto::MetricFamily> {
     let timer = CONSUMER_OPERATION_DURATION
         .with_label_values(&["populate_labels"])
         .start_timer();
     debug!("received metrics from {name}");
-    let mut label_pairs = vec![];
-    for Label { name, value } in &labels {
-        // proto::LabelPair doesn't have pub fields so we can't use
-        // struct literals to construct
-        let mut label = proto::LabelPair::default();
-        label.set_name(name.to_owned());
-        label.set_value(value.to_owned());
-        label_pairs.push(label)
-    }
 
-    let mut data = data;
-    // add our extra labels to our incoming metric data
-    for mf in data.iter_mut() {
-        for m in mf.mut_metric() {
-            m.mut_label().extend(label_pairs.clone());
-        }
-    }
+    // convert to proto label pairs
+    let label_pairs: Vec<_> = labels
+        .iter()
+        .map(|Label { name, value }| {
+            let mut label = proto::LabelPair::default();
+            label.set_name(name.to_owned());
+            label.set_value(value.to_owned());
+            label
+        })
+        .collect();
+
+    // merge our node provided labels, careful not to overwrite any labels we
+    // specified in our config.  our labels take precedence
+    let label_pairs: Vec<_> = labels
+        .iter()
+        .chain(
+            data.labels
+                .iter()
+                .flatten()
+                .filter(|label| !labels.iter().any(|l| l.name == label.name)),
+        )
+        .map(|Label { name, value }| {
+            let mut label = proto::LabelPair::default();
+            label.set_name(name.to_owned());
+            label.set_value(value.to_owned());
+            label
+        })
+        .collect();
+
+    // apply all of the labels we made here to all of the metrics we received from the node
+    let mut metric_families = data.metric_families;
+    metric_families
+        .iter_mut()
+        .flat_map(|mf| mf.mut_metric())
+        .for_each(|m| m.mut_label().extend(label_pairs.clone()));
+
     timer.observe_duration();
-    data
+    metric_families
 }
 
 // encode and compress our metric data before it gets sent to mimir
