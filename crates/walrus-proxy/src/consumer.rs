@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashMap, io::Read};
+use std::io::Read;
 
 use anyhow::Result;
 use axum::{body::Bytes, http::StatusCode};
@@ -151,17 +151,6 @@ pub fn populate_labels(
         .with_label_values(&["populate_labels"])
         .start_timer();
     debug!("received metrics from {name}");
-
-    // convert to proto label pairs
-    let label_pairs: Vec<_> = labels
-        .iter()
-        .map(|Label { name, value }| {
-            let mut label = proto::LabelPair::default();
-            label.set_name(name.to_owned());
-            label.set_value(value.to_owned());
-            label
-        })
-        .collect();
 
     // merge our node provided labels, careful not to overwrite any labels we
     // specified in our config.  our labels take precedence

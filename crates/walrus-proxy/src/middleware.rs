@@ -11,10 +11,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use axum_extra::{
-    headers::{ContentLength, ContentType},
-    typed_header::TypedHeader,
-};
+use axum_extra::{headers::ContentLength, typed_header::TypedHeader};
 use base64::Engine;
 use bytes::Buf;
 use fastcrypto::{
@@ -201,7 +198,7 @@ where
             MIDDLEWARE_OPS
                 .with_label_values(&["LenDelimProtobuf_decompress_vec", "unable-to-decode-snappy"])
                 .inc();
-            (StatusCode::BAD_REQUEST, msg.into())
+            (StatusCode::BAD_REQUEST, msg)
         })?;
 
         #[derive(Deserialize)]
