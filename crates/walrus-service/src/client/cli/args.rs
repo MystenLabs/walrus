@@ -163,9 +163,10 @@ pub enum CliCommands {
     /// blob (possibly reusing storage resources or uncertified but registered blobs).
     #[clap(alias("write"))]
     Store {
-        /// The file containing the blob to be published to Walrus.
-        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
-        file: PathBuf,
+        /// The files containing the blob to be published to Walrus.
+        #[clap(required = true, value_name = "FILES")]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
+        files: Vec<PathBuf>,
         /// The number of epochs ahead for which to store the blob.
         #[clap(short, long)]
         epochs: Option<EpochCount>,
@@ -799,7 +800,7 @@ mod tests {
     // Fixture for the store command.
     fn store_command() -> Commands {
         Commands::Cli(CliCommands::Store {
-            file: PathBuf::from("README.md"),
+            files: vec![PathBuf::from("README.md")],
             epochs: None,
             dry_run: false,
             force: false,
