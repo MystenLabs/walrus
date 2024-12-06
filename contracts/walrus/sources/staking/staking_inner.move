@@ -437,9 +437,6 @@ fun apportionment(self: &StakingInnerV1): (vector<ID>, vector<u16>) {
     (active_ids, shards)
 }
 
-// TODO remove this when we have a higher resolution fixed point number (#835)
-const DHONDT_TOTAL_STAKE_MAX: u64 = 0xFFFF_FFFF;
-
 // Implementation of the D'Hondt method (aka Jefferson method) for apportionment.
 fun dhondt(
     // Priorities for the nodes for tie-breaking. Nodes with a higher priority value
@@ -448,16 +445,11 @@ fun dhondt(
     n_shards: u16,
     stake: vector<u64>,
 ): vector<u16> {
-    use std::uq32_32;
+    // TODO: replace this once we have a higher resolution fixed point number in the stdlib (#835)
+    use walrus::uq64_64;
+    use walrus::apportionment_queue;
 
     let total_stake = stake.fold!(0, |acc, x| acc + x);
-
-    // TODO remove this when we have a higher resolution fixed point number (#835)
-    let scaling = DHONDT_TOTAL_STAKE_MAX
-        .max(total_stake)
-        .divide_and_round_up(DHONDT_TOTAL_STAKE_MAX);
-    let total_stake = total_stake / scaling;
-    let stake = stake.map!(|s| s / scaling);
 
     let n_nodes = stake.length();
     let n_shards = n_shards as u64;
@@ -472,48 +464,22 @@ fun dhondt(
     // division), we therefore get a lower bound for the number of shards assigned to the node.
     let mut shards = stake.map_ref!(|s| *s / (total_stake/(n_shards + 1) + 1));
     // Set up quotients priority queue.
-    let mut quotients = priority_queue::new(vector[]);
+    let mut quotients = apportionment_queue::new();
     n_nodes.do!(|index| {
-        let quotient = uq32_32::from_quotient(stake[index], shards[index] + 1);
-        quotients.insert(quotient.to_raw(), index);
+        let quotient = uq64_64::from_quotient(stake[index], shards[index] + 1);
+        quotients.insert(quotient, node_priorities[index], index);
     });
-
-    // Set up a priority queue for the ranking of nodes with equal quotient.
-    let mut equal_quotient_ranking = priority_queue::new(vector[]);
-    // Priority_queue currently doesn't allow peeking at the head or checking the length.
-    // TODO: improve priority queue and change this afterwards.
-    let mut equal_quotient_ranking_len = 0;
 
     if (n_nodes == 0) return vector[];
     let mut n_shards_distributed = shards.fold!(0, |acc, x| acc + x);
-    // loop until all shards are distributed
+    // Loop until all shards are distributed.
     while (n_shards_distributed != n_shards) {
-        let index = if (equal_quotient_ranking_len > 0) {
-            let (_priority, index) = equal_quotient_ranking.pop_max();
-            equal_quotient_ranking_len = equal_quotient_ranking_len - 1;
-            index
-        } else {
-            let (quotient, index) = quotients.pop_max();
-            equal_quotient_ranking.insert(node_priorities[index], index);
-            equal_quotient_ranking_len = equal_quotient_ranking_len + 1;
-            // Condition ensures that `quotients` is not empty.
-            while (n_nodes > equal_quotient_ranking_len) {
-                let (next_quotient, next_index) = quotients.pop_max();
-                if (next_quotient == quotient) {
-                    equal_quotient_ranking.insert(node_priorities[next_index], next_index);
-                    equal_quotient_ranking_len = equal_quotient_ranking_len + 1;
-                } else {
-                    quotients.insert(next_quotient, next_index);
-                    break
-                }
-            };
-            let (_priority, index) = equal_quotient_ranking.pop_max();
-            equal_quotient_ranking_len = equal_quotient_ranking_len - 1;
-            index
-        };
+        // Get the node with the highest quotient, assign an additional shard and adjust the
+        // quotient.
+        let (_quotient, tie_breaker, index) = quotients.pop_max();
         *&mut shards[index] = shards[index] + 1;
-        let quotient = uq32_32::from_quotient(stake[index], shards[index] + 1);
-        quotients.insert(quotient.to_raw(), index);
+        let quotient = uq64_64::from_quotient(stake[index], shards[index] + 1);
+        quotients.insert(quotient, tie_breaker, index);
         n_shards_distributed = n_shards_distributed + 1;
     };
     shards.map!(|s| s as u16)
