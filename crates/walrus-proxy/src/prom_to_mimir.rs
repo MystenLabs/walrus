@@ -199,7 +199,7 @@ impl Mimir<remote_write::TimeSeries> {
 }
 
 #[cfg(test)]
-pub mod tests {
+pub(crate) mod tests {
     use prometheus::proto;
     use protobuf::RepeatedField;
 
@@ -247,6 +247,7 @@ pub mod tests {
         m
     }
 
+    #[allow(dead_code)]
     pub fn create_metric_histogram(
         labels: RepeatedField<proto::LabelPair>,
         histogram: proto::Histogram,
@@ -258,6 +259,7 @@ pub mod tests {
         m
     }
 
+    #[allow(dead_code)]
     pub fn create_histogram() -> proto::Histogram {
         let mut h = proto::Histogram::default();
         h.set_sample_count(1);
