@@ -366,7 +366,6 @@ impl Client {
     /// This method ensures that the storage node is authenticated: Only the storage node can
     /// establish the connection using the self-signed certificate corresponding to the provided
     /// identity and public key.
-
     pub fn for_storage_node(
         address: &str,
         public_key: &NetworkPublicKey,
@@ -909,7 +908,7 @@ impl Client {
 // so we reimplement the injector here.
 struct HeaderInjector<'a>(pub &'a mut HeaderMap);
 
-impl<'a> Injector for HeaderInjector<'a> {
+impl Injector for HeaderInjector<'_> {
     fn set(&mut self, key: &str, value: String) {
         if let Ok(name) = HeaderName::from_bytes(key.as_bytes()) {
             if let Ok(val) = HeaderValue::from_str(&value) {

@@ -245,10 +245,10 @@ where
 fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
     if path.starts_with("~/") {
         let home = home::home_dir().context("unable to resolve home directory")?;
-        return Ok(home.join(
+        Ok(home.join(
             path.strip_prefix("~")
                 .expect("we just checked for this prefix"),
-        ));
+        ))
     } else {
         Ok(path)
     }

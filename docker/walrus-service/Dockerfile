@@ -2,7 +2,7 @@
 #
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
-FROM rust:1.82-bullseye AS builder
+FROM rust:1.83-bookworm AS builder
 ARG PROFILE=release
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
@@ -18,7 +18,7 @@ RUN cargo build --profile $PROFILE \
     --bin walrus-deploy
 
 # Production Image for all binaries under walrus-service
-FROM debian:bullseye-slim AS walrus-service
+FROM debian:bookworm-slim AS walrus-service
 RUN apt-get update && apt-get install -y ca-certificates curl git
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -33,7 +33,7 @@ LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus CLI
-FROM debian:bullseye-slim AS walrus-cli
+FROM debian:bookworm-slim AS walrus-cli
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -46,7 +46,7 @@ LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus node
-FROM debian:bullseye-slim AS walrus-node
+FROM debian:bookworm-slim AS walrus-node
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -59,7 +59,7 @@ LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus deployment CLI
-FROM debian:bullseye-slim AS walrus-deploy
+FROM debian:bookworm-slim AS walrus-deploy
 RUN apt-get update && apt-get install -y ca-certificates curl
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"

@@ -50,7 +50,7 @@ impl NodeCommunicationFactory {
         &'a self,
         committees: &'a ActiveCommittees,
         sliver_write_limit: Arc<Semaphore>,
-    ) -> ClientResult<Vec<NodeWriteCommunication>> {
+    ) -> ClientResult<Vec<NodeWriteCommunication<'a>>> {
         self.remove_old_cached_clients(
             committees,
             &mut self
@@ -78,7 +78,7 @@ impl NodeCommunicationFactory {
         &'a self,
         committees: &'a ActiveCommittees,
         certified_epoch: Epoch,
-    ) -> ClientResult<Vec<NodeReadCommunication>> {
+    ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
         self.remove_old_cached_clients(
             committees,
             &mut self
@@ -105,7 +105,7 @@ impl NodeCommunicationFactory {
         &'a self,
         committees: &'a ActiveCommittees,
         certified_epoch: Epoch,
-    ) -> ClientResult<Vec<NodeReadCommunication>> {
+    ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
         self.node_read_communications_threshold(committees, certified_epoch, |weight| {
             committees.is_quorum(weight)
         })
@@ -125,7 +125,7 @@ impl NodeCommunicationFactory {
         &'a self,
         committee: &'a Committee,
         index: usize,
-    ) -> Result<Option<NodeCommunication<'_>>, ClientBuildError> {
+    ) -> Result<Option<NodeCommunication<'a>>, ClientBuildError> {
         let node = &committee.members()[index];
         let client = self.create_client(node)?;
 
@@ -199,7 +199,6 @@ impl NodeCommunicationFactory {
 
     /// Clears the cache of all clients that are not in the previous, current, or next committee.
     #[allow(clippy::mutable_key_type)]
-
     fn remove_old_cached_clients(
         &self,
         committees: &ActiveCommittees,
@@ -226,7 +225,7 @@ impl NodeCommunicationFactory {
         committees: &'a ActiveCommittees,
         certified_epoch: Epoch,
         threshold_fn: impl Fn(usize) -> bool,
-    ) -> ClientResult<Vec<NodeReadCommunication>> {
+    ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
         let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
             ClientErrorKind::BehindCurrentEpoch {
                 client_epoch: committees.epoch(),

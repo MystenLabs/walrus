@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
+
 use std::{num::NonZeroU16, time::Duration};
 
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};

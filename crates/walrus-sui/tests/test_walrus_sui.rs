@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Contains integration tests for the Sui bindings.
+
 use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::bail;

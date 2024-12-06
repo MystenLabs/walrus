@@ -59,7 +59,7 @@ pub const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
 /// Calculates the number of storage units required to store a blob with the
 /// given encoded size.
 pub fn storage_units_from_size(encoded_size: u64) -> u64 {
-    (encoded_size + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE
+    encoded_size.div_ceil(BYTES_PER_UNIT_SIZE)
 }
 
 /// Computes the price given the unencoded blob size.

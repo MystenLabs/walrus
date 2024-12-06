@@ -210,7 +210,7 @@ impl WalrusColors for ColoredString {
     }
 }
 
-impl<'a> WalrusColors for &'a str {
+impl WalrusColors for &str {
     fn walrus_teal(self) -> ColoredString {
         self.color(WALRUS_TEAL)
     }
@@ -261,11 +261,7 @@ impl std::fmt::Display for HumanReadableBytes {
         // Get correct number of significant digits (not rounding integer part).
         let normalized_integer_digits = normalized_value.log10() as usize + 1;
         let set_precision = f.precision().unwrap_or(3).max(1);
-        let precision = if set_precision > normalized_integer_digits {
-            set_precision - normalized_integer_digits
-        } else {
-            0
-        };
+        let precision = set_precision.saturating_sub(normalized_integer_digits);
 
         write!(f, "{normalized_value:.*} {unit}", precision)
     }

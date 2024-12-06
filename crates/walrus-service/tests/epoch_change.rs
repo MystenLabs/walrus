@@ -1,6 +1,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Contains end-to-end tests for the epoch change mechanism.
+
 use std::time::Duration;
 
 use tokio::time;

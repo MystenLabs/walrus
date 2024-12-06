@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+//! Contains dedicated Walrus simulation tests.
 #[cfg(msim)]
 mod tests {
     use std::{

@@ -635,6 +635,7 @@ struct PendingInvalidBlobAttestations<'fut, 'iter, T> {
     pending_requests: FuturesUnordered<StoredFuture<'fut>>,
 }
 
+#[allow(clippy::needless_lifetimes)] // be consistent with other functions in this file
 impl<'fut, 'iter, T> std::future::Future for PendingInvalidBlobAttestations<'fut, 'iter, T>
 where
     T: NodeService + 'fut,

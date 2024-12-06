@@ -322,7 +322,7 @@ impl EncodingConfig {
     pub fn get_blob_encoder<'a>(
         &'a self,
         blob: &'a [u8],
-    ) -> Result<BlobEncoder, DataTooLargeError> {
+    ) -> Result<BlobEncoder<'a>, DataTooLargeError> {
         BlobEncoder::new(self, blob)
     }
 

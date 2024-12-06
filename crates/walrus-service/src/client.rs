@@ -1153,7 +1153,7 @@ impl<T> Client<T> {
         &'a self,
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
-    ) -> HashMap<usize, Vec<&SliverPair>> {
+    ) -> HashMap<usize, Vec<&'a SliverPair>> {
         let committees = self.committees.read().await;
         committees
             .write_committee()

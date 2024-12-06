@@ -152,7 +152,7 @@ impl Debug for BlobId {
 #[error("failed to parse a blob ID")]
 pub struct BlobIdParseError;
 
-impl<'a> TryFrom<&'a [u8]> for BlobId {
+impl TryFrom<&[u8]> for BlobId {
     type Error = BlobIdParseError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {

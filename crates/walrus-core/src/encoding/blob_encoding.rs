@@ -293,7 +293,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
 
     fn expanded_column_symbols(
         &'a self,
-    ) -> impl Iterator<Item = impl ExactSizeIterator<Item = &'a [u8]> + '_> {
+    ) -> impl Iterator<Item = impl ExactSizeIterator<Item = &'a [u8]> + 'a> {
         (0..self.matrix.len()).map(move |col_index| {
             self.matrix
                 .iter()
