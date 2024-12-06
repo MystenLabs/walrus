@@ -167,5 +167,5 @@ async fn liveness(Extension(pod_health): Extension<HealthCheckMetrics>) -> (Stat
 
 /// pod_health is called by k8s to know if this service is alive and able to respond
 async fn pod_health() -> StatusCode {
-    StatusCode::IM_A_TEAPOT
+    StatusCode::OK
 }
