@@ -5,8 +5,6 @@
 
 use std::{fmt::Display, num::NonZeroU16};
 
-#[cfg(feature = "mainnet-contracts")]
-use fastcrypto::groups::bls12381::G1ElementUncompressed;
 use fastcrypto::traits::ToFromBytes;
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
