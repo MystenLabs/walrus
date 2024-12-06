@@ -4,7 +4,7 @@
 //! Utility functions for the Walrus service.
 
 use std::{
-    collections::{HashSet, HashMap},
+    collections::{HashMap, HashSet},
     env,
     fmt::Debug,
     future::Future,
@@ -431,7 +431,7 @@ async fn push_metrics(
     encoder.encode(&metric_families, &mut buf)?;
 
     // serialize the MetricPayload to JSON using serde_json and then compress the entire thing
-    let serialized = serde_json::to_vec(&MetricPayload{labels, buf}).inspect_err(|error| {
+    let serialized = serde_json::to_vec(&MetricPayload { labels, buf }).inspect_err(|error| {
         tracing::error!(?error, "unable to serialize MetricPayload to JSON");
     })?;
 
