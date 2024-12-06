@@ -427,6 +427,7 @@ pub(crate) struct BlsCommittee {
     epoch: Epoch,
     #[cfg(feature = "mainnet-contracts")]
     /// Aggregated key for all committee members
+    #[serde(deserialize_with = "deserialize_public_key")]
     aggregated_keys: PublicKey,
 }
 
