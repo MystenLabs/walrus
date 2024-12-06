@@ -412,11 +412,8 @@ impl AssociatedContractStruct for StakingInnerV1 {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct BlsCommitteeMember {
-    #[cfg(not(feature = "mainnet-contracts"))]
     #[serde(deserialize_with = "deserialize_public_key")]
     public_key: PublicKey,
-    #[cfg(feature = "mainnet-contracts")]
-    public_key: G1ElementUncompressed,
     weight: u16,
     node_id: ObjectID,
 }

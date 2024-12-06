@@ -36,7 +36,7 @@ clap = { version = "4.5.23", features = ["derive"] }
 colored = "2.1.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
-fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "62b2de1adc1bdce6575de42cac29a243805db019" }
+fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "2f502fd8570fe4e9cff36eea5bbd6fef22002898" }
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }
 futures-timer = "=3.0.2" # required for MSIM
 futures-util = "0.3.30"
