@@ -157,7 +157,7 @@ impl<'a> ResourceManager<'a> {
             .map(|(m, _)| *m)
             .collect::<Vec<_>>();
 
-        // If there are no blobs to be processed, return the results.
+        // If there are no blobs to be processed, return early the results.
         if to_be_processed.is_empty() {
             return Ok(results);
         }
@@ -270,9 +270,14 @@ impl<'a> ResourceManager<'a> {
         let mut new_list = Vec::new();
         let mut new_encoded_lengths = Vec::new();
 
+        // This keeps tracks of selected storage objects and exclude them from selecting again.
+        // todo: might not be efficient if the list is long, consider multiselect in
+        // owned_storage_for_size_and_epoch.
+        let mut excluded = Vec::new();
+
         // For all the metadata, if the blob is registered in wallet, add it directly to results.
-        // Otherwise, check if there is existing storage resource, add it and its length to
-        // reused_metadata_with_storage and reused_encoded_lengths.
+        // Otherwise, check if there is existing storage resource selected for the encoded length,
+        // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
         // Otherwise, add it to new_list and its length to new_list and new_encoded_lengths.
         for (metadata, encoded_length) in metadatum.iter().zip(encoded_lengths) {
             if let Some(blob) = self
@@ -299,6 +304,7 @@ impl<'a> ResourceManager<'a> {
                 .owned_storage_for_size_and_epoch(
                     *encoded_length,
                     epochs_ahead + self.write_committee_epoch,
+                    &excluded,
                 )
                 .await?
             {
@@ -307,6 +313,7 @@ impl<'a> ResourceManager<'a> {
                     storage_object=%storage_resource.id,
                     "using an existing storage resource to register the blob"
                 );
+                excluded.push(storage_resource.id);
                 reused_metadata_with_storage.push(((*metadata).try_into()?, storage_resource));
                 reused_encoded_lengths.push(*encoded_length);
             } else {
@@ -318,7 +325,7 @@ impl<'a> ResourceManager<'a> {
         // Register all in reused_metadata_with_storage in one ptb.
         tracing::debug!(
             num_blobs=%reused_metadata_with_storage.len(),
-            "registering the following blobs with the following storage resources"
+            "registering blobs with its storage resources"
         );
         let blobs = self
             .sui_client
@@ -330,7 +337,8 @@ impl<'a> ResourceManager<'a> {
 
         // Reserve space and register all in new_list in one ptb.
         tracing::debug!(
-            "the blob is not already registered or its lifetime is too short; creating new one"
+            num_blobs = ?new_list.len(),
+            "blobs are not already registered or their lifetime is too short; creating new ones"
         );
         results.extend(
             self.reserve_and_register_blob_op(

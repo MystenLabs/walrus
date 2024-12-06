@@ -369,7 +369,12 @@ impl ClientCommandRunner {
                     PostStoreAction::Keep,
                 )
                 .await?;
-            tracing::info!(duration = ?start_timer.elapsed(),"all blobs stored");
+            tracing::info!(
+                duration = ?start_timer.elapsed(),
+                "{} out of {} blobs stored",
+                result.len(),
+                blobs.len()
+            );
             result.print_output(self.json)
         }
     }

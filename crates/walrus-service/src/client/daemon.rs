@@ -79,6 +79,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
+        // todo: should this handle many blobs
         let result = self
             .reserve_and_store_blobs_retry_epoch(
                 &[blob.to_vec()],

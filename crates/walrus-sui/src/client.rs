@@ -693,12 +693,14 @@ impl SuiContractClient {
     /// - has the closest size to `storage_size`; and
     /// - breaks ties by taking the one with the smallest end epoch that is greater or equal to the
     ///   requested `end_epoch`.
+    /// - If object id is in the excluded list, do not select.
     ///
     /// Returns `None` if no matching storage resource is found.
     pub async fn owned_storage_for_size_and_epoch(
         &self,
         storage_size: u64,
         end_epoch: Epoch,
+        excluded: &[ObjectID],
     ) -> SuiClientResult<Option<StorageResource>> {
         Ok(self
             .owned_storage(ExpirySelectionPolicy::Valid)
@@ -707,6 +709,7 @@ impl SuiContractClient {
             .filter(|storage| {
                 storage.storage_size >= storage_size && storage.end_epoch >= end_epoch
             })
+            .filter(|storage| !excluded.contains(&storage.id))
             // Pick the smallest storage size. Break ties by comparing the end epoch, and take the
             // one that is the closest to `end_epoch`. NOTE: we are already sure that these values
             // are above the minimum.

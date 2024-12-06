@@ -3,12 +3,7 @@
 
 //! Client for the Walrus service.
 
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use std::{collections::HashMap, fmt::Display, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
@@ -92,6 +87,8 @@ pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;
+
+const MAX_TOTAL_BLOB_SIZE: usize = 20 * 100 * 1024 * 1024; // 2GB
 
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
@@ -380,7 +377,7 @@ impl Client<SuiContractClient> {
     }
 
     /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
-    /// Returns the successful pairs/metadata and logs the indices of failed blobs.
+    /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
     async fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[Vec<u8>],
@@ -389,9 +386,19 @@ impl Client<SuiContractClient> {
             return Ok(Vec::new());
         }
 
-        // todo: add batch limit
-        let mut failed_indices = Vec::new();
-        let mut pairs_and_metadata = Vec::new();
+        let total_blob_size = blobs.iter().map(|blob| blob.len()).sum::<usize>();
+        if total_blob_size > MAX_TOTAL_BLOB_SIZE {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                format!(
+                    "total blob size {} exceeds the maximum limit of {}",
+                    total_blob_size, MAX_TOTAL_BLOB_SIZE
+                )
+                .into(),
+            )));
+        }
+
+        let mut failed_indices = Vec::with_capacity(blobs.len());
+        let mut pairs_and_metadata = Vec::with_capacity(blobs.len());
 
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
         futures::future::join_all(blobs.iter().enumerate().map(|(idx, blob)| async move {
@@ -407,18 +414,24 @@ impl Client<SuiContractClient> {
         .into_iter()
         .for_each(|(idx, result)| match result {
             Ok(data) => pairs_and_metadata.push(data),
-            Err(_) => failed_indices.push(idx),
+            Err(e) => failed_indices.push((idx, e)),
         });
 
+        // Return early if none of blobs are encoded.
         if pairs_and_metadata.is_empty() {
-            // todo: should return new client error with a list of errors?
             return Err(ClientError::from(ClientErrorKind::Other(
-                "failed to encode any blob".into(),
+                format!(
+                    "failed to encode any blob: {}",
+                    failed_indices
+                        .iter()
+                        .map(|(idx, e)| format!("{}: {}", idx, e))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+                .into(),
             )));
         }
-        if !failed_indices.is_empty() {
-            tracing::warn!("Failed to encode blobs at: {:?}", failed_indices);
-        }
+
         Ok(pairs_and_metadata)
     }
 
@@ -460,13 +473,16 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
+        let metadata_len = pairs_and_metadata.len();
+        tracing::info!("storing {} sliver pairs with metadata", metadata_len);
+        let status_start_timer = Instant::now();
+
         // Fetch status for each blob, then build mapping: blob id -> (pair, metadata, status).
         // Filters out all the failed blobs that cannot fetch status and continue.
-        let status_start_timer = Instant::now();
-        let failed_blob_ids = Arc::new(Mutex::new(Vec::new()));
+        let failed_blobs = Arc::new(RwLock::new(Vec::with_capacity(metadata_len)));
         let metadata_with_status: HashMap<BlobId, (_, _, _)> =
             futures::future::join_all(pairs_and_metadata.iter().map(|(pair, metadata)| {
-                let failed_ids = failed_blob_ids.clone();
+                let failed_blobs_write = failed_blobs.clone();
                 async move {
                     let blob_id = *metadata.blob_id();
                     match async {
@@ -481,7 +497,8 @@ impl Client<SuiContractClient> {
                         Ok(result) => Some(result),
                         Err(e) => {
                             tracing::warn!("Failed to process blob {}: {}", blob_id, e);
-                            failed_ids.lock().unwrap().push(blob_id);
+                            let mut guard = failed_blobs_write.write().await;
+                            guard.push((blob_id, e));
                             None
                         }
                     }
@@ -492,22 +509,17 @@ impl Client<SuiContractClient> {
             .flatten()
             .collect();
 
-        if let Ok(failed_ids) = failed_blob_ids.lock() {
-            if !failed_ids.is_empty() {
-                tracing::warn!("Failed to get status for blobs: {:?}", failed_ids);
-            }
-        } else {
-            tracing::warn!("Failed to acquire lock to check failed blob IDs");
-        }
-        tracing::info!(
-            duration = ?status_start_timer.elapsed(),
-            "retrieved blobs statuses"
-        );
-
+        // Return early if no blob status is fetched.
         if metadata_with_status.is_empty() {
-            // todo: should add new error type with a list of errors?
+            // todo: check if this should return a list of errors
             return Err(ClientError::from(ClientErrorKind::NoValidStatusReceived));
         }
+
+        tracing::info!(
+            duration = ?status_start_timer.elapsed(),
+            "retrieved {} blobs statuses",
+            metadata_with_status.len()
+        );
 
         let store_op_timer = Instant::now();
         let store_operations = self
@@ -525,12 +537,13 @@ impl Client<SuiContractClient> {
             .await?;
         tracing::info!(
             duration = ?store_op_timer.elapsed(),
-            "all blobs resources obtained"
+            "{} blobs resources obtained",
+            store_operations.len()
         );
 
         // Collect store ops for noops and new blobs.
-        let mut noop_results: Vec<_> = Vec::new();
-        let mut new_blobs_and_ops: Vec<_> = Vec::new();
+        let mut noop_results: Vec<_> = Vec::with_capacity(store_operations.len());
+        let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         store_operations
             .into_iter()
             .for_each(|store_op| match store_op {
@@ -540,29 +553,74 @@ impl Client<SuiContractClient> {
                 }
             });
 
-        // Return early if all operations were noops.
+        // Return early if all operations are noops.
         if new_blobs_and_ops.is_empty() {
             return Ok(noop_results);
         }
 
         // Get certificates for all new blobs.
+        let get_cert_timer = Instant::now();
         let committees = self.committees.read().await;
-        let mut blobs_with_certificates = Vec::with_capacity(new_blobs_and_ops.len());
-        for (blob_object, resource_operation) in new_blobs_and_ops.iter() {
-            let (pairs, metadata, blob_status) = &metadata_with_status[&blob_object.blob_id];
+        let metadata_ref = &metadata_with_status;
 
-            let certificate = self
-                .get_blob_certificate(
-                    blob_object,
-                    resource_operation,
-                    pairs,
-                    metadata,
-                    blob_status,
-                    &committees,
+        let mut failed_indices = Vec::with_capacity(new_blobs_and_ops.len());
+        let mut blobs_with_certificates = Vec::with_capacity(new_blobs_and_ops.len());
+        futures::future::join_all(new_blobs_and_ops.iter().map(
+            |(blob_object, resource_operation)| {
+                let committees = committees.clone();
+                async move {
+                    let (pairs, metadata, blob_status) = &metadata_ref[&blob_object.blob_id];
+                    match self
+                        .get_blob_certificate(
+                            blob_object,
+                            resource_operation,
+                            pairs,
+                            metadata,
+                            blob_status,
+                            &committees,
+                        )
+                        .await
+                    {
+                        Ok(certificate) => (blob_object.blob_id, Ok((blob_object, certificate))),
+                        Err(e) => {
+                            tracing::warn!(
+                                %blob_object.blob_id,
+                                error = %e,
+                                "Failed to get blob certificate"
+                            );
+                            (blob_object.blob_id, Err(e))
+                        }
+                    }
+                }
+            },
+        ))
+        .await
+        .into_iter()
+        .for_each(|(id, result)| match result {
+            Ok(data) => blobs_with_certificates.push(data),
+            Err(e) => failed_indices.push((id, e)),
+        });
+
+        // Return early if none of blob certificate is fetched.
+        if blobs_with_certificates.is_empty() {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                format!(
+                    "failed to get blob certificate: {}",
+                    failed_indices
+                        .iter()
+                        .map(|(id, e)| format!("{}: {}", id, e))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
-                .await?;
-            blobs_with_certificates.push((blob_object, certificate));
+                .into(),
+            )));
         }
+
+        tracing::info!(
+            duration = ?get_cert_timer.elapsed(),
+            "generated {} blobs certificates",
+            blobs_with_certificates.len()
+        );
 
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
@@ -572,12 +630,13 @@ impl Client<SuiContractClient> {
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
         tracing::info!(
             duration = ?sui_cert_timer.elapsed(),
-            "certified all blobs on Sui"
+            "certified {} blobs on Sui",
+            blobs_with_certificates.len()
         );
 
         // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
         let write_committee_epoch = committees.write_committee().epoch;
-        let results: Vec<_> = new_blobs_and_ops
+        let newly_created_results: Vec<_> = new_blobs_and_ops
             .into_iter()
             .map(|(blob, resource_operation)| {
                 let cost = self.price_computation.operation_cost(&resource_operation);
@@ -592,8 +651,7 @@ impl Client<SuiContractClient> {
             })
             .collect();
 
-        // todo: check if order matters here
-        Ok(results
+        Ok(newly_created_results
             .into_iter()
             .chain(noop_results.into_iter())
             .collect())
