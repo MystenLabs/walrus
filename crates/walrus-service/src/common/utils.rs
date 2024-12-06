@@ -344,7 +344,6 @@ impl MetricPushRuntime {
             let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
-            // let push_url = mp_config.config.push_url;
             tracing::info!("starting metrics push to '{}'", &mp_config.config.push_url);
             loop {
                 tokio::select! {

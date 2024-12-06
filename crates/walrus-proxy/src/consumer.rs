@@ -137,14 +137,6 @@ pub struct Label {
     pub value: String,
 }
 
-/// convert a hashmap into a label, useful for snagging from yaml config
-// impl From<HashMap<String, String>> for Label {
-//     fn from(map: HashMap<String, String>) -> Self {
-//         let (name, value) = map.into_iter().next().unwrap();
-//         Label { name, value }
-//     }
-// }
-
 /// populate labels in place for our given metric family data
 pub fn populate_labels(
     // we will use this for the host field in grafana, this is sourced

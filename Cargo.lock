@@ -11491,7 +11491,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "walrus-service",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ listen-address: 127.0.0.1:8080
 remote-write:
   url: https://metrics-gw.testnet.walrus.space/api/v1/push
   username: incoming_metrics
-  password: 9784f616e9af2e8a5d8b4d3a83f70f3e
+  password: fooman
 dynamic-peers:
   url: https://fullnode.devnet.sui.io
   interval: 60
