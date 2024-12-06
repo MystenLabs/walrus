@@ -216,7 +216,8 @@ public(package) fun verify_certificate(
     (aggregate_weight as u16)
 }
 
-/// Returns the complement of the given list with respect to the range [0, n) assuming that the list is in strictly increasing order.
+/// Returns the complement of the given list with respect to the range [0, n)
+/// assuming that the list is in strictly increasing order.
 fun complement(list: &vector<u16>, n: u16): vector<u16> {
     assert!(list.length() <= n as u64);
     let mut result: vector<u16> = vector::empty();
