@@ -157,7 +157,7 @@ pub struct MetricFamilyWithStaticLabels {
 /// LenDelimProtobuf is an axum extractor that will consume protobuf content by
 /// decompressing it and decoding it into protobuf metrics. the body payload is
 /// a json payload that is snappy compressed.  it has a structure seen in
-/// MetricPayload.  The buf field is protobuf encoded Vec<MetricFamily>
+/// MetricPayload.  The buf field is protobuf encoded `Vec<MetricFamily>`
 #[derive(Debug)]
 pub struct LenDelimProtobuf(pub MetricFamilyWithStaticLabels);
 
