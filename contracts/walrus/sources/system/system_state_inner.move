@@ -471,7 +471,7 @@ public(package) fun write_price(self: &SystemStateInnerV1, write_size: u64): u64
 }
 
 fun storage_units_from_size(size: u64): u64 {
-    (size + BYTES_PER_UNIT_SIZE - 1) / BYTES_PER_UNIT_SIZE
+    size.divide_and_round_up(BYTES_PER_UNIT_SIZE)
 }
 
 // === Testing ===

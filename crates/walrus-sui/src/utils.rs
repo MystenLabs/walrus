@@ -49,13 +49,14 @@ use crate::{
     types::NodeRegistrationParams,
 };
 
-// Keep in sync with the same constant in `contracts/walrus/sources/system.move`.
+// Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
 // The storage unit is used in doc comments for CLI arguments in the files
 // `crates/walrus-service/bin/deploy.rs` and `crates/walrus-service/bin/node.rs`.
 // Change the unit there if it changes.
 /// The number of bytes per storage unit.
 pub const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
 
+// Keep in sync with the same function in `contracts/walrus/sources/system/system_state_inner.move`.
 /// Calculates the number of storage units required to store a blob with the
 /// given encoded size.
 pub fn storage_units_from_size(encoded_size: u64) -> u64 {
