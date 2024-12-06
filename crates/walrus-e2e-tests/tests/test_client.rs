@@ -15,6 +15,7 @@ use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::Primary,
     merkle::Node,
+    messages::BlobPersistenceType,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     EpochCount,
@@ -216,7 +217,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     // Certify blob.
     let certificate = client
         .as_ref()
-        .send_blob_data_and_get_certificate(&metadata, &pairs)
+        .send_blob_data_and_get_certificate(&metadata, &pairs, &BlobPersistenceType::Permanent)
         .await?;
 
     // Stop the nodes in the failure set.

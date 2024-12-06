@@ -162,7 +162,11 @@ impl WriteClient {
         let certificate = self
             .client
             .as_ref()
-            .send_blob_data_and_get_certificate(&metadata, &pairs)
+            .send_blob_data_and_get_certificate(
+                &metadata,
+                &pairs,
+                &blob_sui_object.blob_persistence_type(),
+            )
             .await?;
 
         self.client

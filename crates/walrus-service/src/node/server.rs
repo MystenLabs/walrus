@@ -319,8 +319,12 @@ where
                 get(routes::get_sliver_status),
             )
             .route(
-                routes::STORAGE_CONFIRMATION_ENDPOINT,
-                get(routes::get_storage_confirmation),
+                routes::PERMANENT_BLOB_CONFIRMATION_ENDPOINT,
+                get(routes::get_permanent_blob_confirmation),
+            )
+            .route(
+                routes::DELETABLE_BLOB_CONFIRMATION_ENDPOINT,
+                get(routes::get_deletable_blob_confirmation),
             )
             .route(routes::RECOVERY_ENDPOINT, get(routes::get_recovery_symbol))
             .route(
@@ -383,6 +387,7 @@ mod tests {
         keys::ProtocolKeyPair,
         merkle::MerkleProof,
         messages::{
+            BlobPersistenceType,
             InvalidBlobIdAttestation,
             SignedMessage,
             StorageConfirmation,
@@ -511,6 +516,7 @@ mod tests {
         async fn compute_storage_confirmation(
             &self,
             blob_id: &BlobId,
+            _blob_persistence_type: &BlobPersistenceType,
         ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
             if blob_id.0[0] == 0 {
                 let confirmation = walrus_core::test_utils::random_signed_message();
@@ -867,7 +873,7 @@ mod tests {
 
         let blob_id = blob_id_for_valid_response();
         let _confirmation = client
-            .get_confirmation(&blob_id)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
             .await
             .expect("should return a signed confirmation");
     }
@@ -883,7 +889,7 @@ mod tests {
         let client = storage_node_client(config.as_ref());
 
         let err = client
-            .get_confirmation(&blob_id)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
             .await
             .expect_err("confirmation request should fail");
 

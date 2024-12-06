@@ -11,7 +11,12 @@ use axum::{
 use tracing::Level;
 use walrus_core::{
     encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
-    messages::{InvalidBlobIdAttestation, SignedSyncShardRequest, StorageConfirmation},
+    messages::{
+        BlobPersistenceType,
+        InvalidBlobIdAttestation,
+        SignedSyncShardRequest,
+        StorageConfirmation,
+    },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     InconsistencyProof,
     RecoverySymbol,
@@ -21,6 +26,7 @@ use walrus_core::{
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 
+use self::api::ObjectIdSchema;
 use super::{
     extract::{Authorization, Bcs},
     openapi,
@@ -53,8 +59,15 @@ pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index
 /// The path to check if a sliver is stored.
 pub const SLIVER_STATUS_ENDPOINT: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
-/// The path to get storage confirmations.
-pub const STORAGE_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation";
+/// The path to get blob confirmations for permanent blobs.
+#[cfg(not(feature = "mainnet-contracts"))]
+pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation";
+/// The path to get blob confirmations for permanent blobs.
+#[cfg(feature = "mainnet-contracts")]
+pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation/permanent";
+/// The path to get blob confirmations for deletable blobs.
+pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
+    "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
 /// The path to get recovery symbols.
 pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
@@ -281,14 +294,14 @@ pub async fn get_sliver_status<S: SyncServiceState>(
     Ok(ApiSuccess::ok(status))
 }
 
-/// Get storage confirmation.
+/// Get storage confirmation for permanent blobs.
 ///
 /// Gets a signed storage confirmation from this storage node, indicating that all shards assigned
 /// to this storage node for the current epoch have stored their respective slivers.
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(STORAGE_CONFIRMATION_ENDPOINT),
+    path = api::rewrite_route(PERMANENT_BLOB_CONFIRMATION_ENDPOINT),
     params(("blob_id" = BlobIdString,)),
     responses(
         (status = 200, description = "A signed confirmation of storage",
@@ -297,11 +310,51 @@ pub async fn get_sliver_status<S: SyncServiceState>(
     ),
     tag = openapi::GROUP_STORING_BLOBS
 )]
-pub async fn get_storage_confirmation<S: SyncServiceState>(
+pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
-    let confirmation = state.compute_storage_confirmation(&blob_id).await?;
+    let confirmation = state
+        .compute_storage_confirmation(&blob_id, &BlobPersistenceType::Permanent)
+        .await?;
+
+    Ok(ApiSuccess::ok(confirmation))
+}
+
+/// Get storage confirmation for deletable blobs.
+///
+/// Gets a signed storage confirmation from this storage node, indicating that all shards assigned
+/// to this storage node for the current epoch have stored their respective slivers.
+#[tracing::instrument(
+    skip_all,
+    fields(walrus.blob_id = %blob_id_string.0, walrus.object_id = %object_id_schema.0),
+    err(level = Level::DEBUG)
+)]
+#[utoipa::path(
+    get,
+    path = api::rewrite_route(DELETABLE_BLOB_CONFIRMATION_ENDPOINT),
+    params(("blob_id" = BlobIdString,), ("object_id" = ObjectIdSchema,)),
+    responses(
+        (status = 200, description = "A signed confirmation of storage",
+        body = ApiSuccessStorageConfirmation),
+        ComputeStorageConfirmationError,
+    ),
+    tag = openapi::GROUP_STORING_BLOBS
+)]
+pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Path((blob_id_string, object_id_schema)): Path<(BlobIdString, ObjectIdSchema)>,
+) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
+    let blob_id = blob_id_string.0;
+    let object_id = object_id_schema.0;
+    let confirmation = state
+        .compute_storage_confirmation(
+            &blob_id,
+            &BlobPersistenceType::Deletable {
+                object_id: object_id.into(),
+            },
+        )
+        .await?;
 
     Ok(ApiSuccess::ok(confirmation))
 }

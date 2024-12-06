@@ -10,7 +10,7 @@ use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
-    messages::SignedStorageConfirmation,
+    messages::{BlobPersistenceType, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
@@ -241,9 +241,10 @@ impl<'a, W> NodeCommunication<'a, W> {
         &self,
         blob_id: &BlobId,
         epoch: Epoch,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
         let confirmation = backoff::retry(self.backoff_strategy(), || {
-            self.client.get_confirmation(blob_id)
+            self.client.get_confirmation(blob_id, blob_persistence_type)
         })
         .await
         .map_err(|error| {
@@ -252,7 +253,12 @@ impl<'a, W> NodeCommunication<'a, W> {
         })?;
 
         let _ = confirmation
-            .verify(self.public_key(), epoch, blob_id)
+            .verify(
+                self.public_key(),
+                epoch,
+                *blob_id,
+                blob_persistence_type.clone(),
+            )
             .map_err(NodeError::other)?;
 
         Ok(confirmation)
@@ -263,10 +269,11 @@ impl<'a, W> NodeCommunication<'a, W> {
         &self,
         blob_id: &BlobId,
         epoch: Epoch,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> NodeResult<SignedStorageConfirmation, NodeError> {
         tracing::debug!("retrieving confirmation");
         let result = self
-            .get_confirmation_with_retries_inner(blob_id, epoch)
+            .get_confirmation_with_retries_inner(blob_id, epoch, blob_persistence_type)
             .await;
         self.to_node_result_with_n_shards(result)
     }
@@ -297,6 +304,7 @@ impl<'a> NodeWriteCommunication<'a> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: impl IntoIterator<Item = &SliverPair>,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
         tracing::debug!("storing metadata and sliver pairs");
         let result = async {
@@ -313,9 +321,13 @@ impl<'a> NodeWriteCommunication<'a> {
             tracing::debug!(node = %self.node.public_key, n_stored_slivers,
                 "finished storing slivers on node");
 
-            self.get_confirmation_with_retries_inner(metadata.blob_id(), self.committee_epoch)
-                .await
-                .map_err(StoreError::Confirmation)
+            self.get_confirmation_with_retries_inner(
+                metadata.blob_id(),
+                self.committee_epoch,
+                blob_persistence_type,
+            )
+            .await
+            .map_err(StoreError::Confirmation)
         }
         .await;
         tracing::debug!(node = %self.node.public_key, ?result,

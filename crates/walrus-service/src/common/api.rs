@@ -17,6 +17,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_with::{serde_as, DisplayFromStr};
+use sui_types::base_types::ObjectID;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use utoipa::{
@@ -67,14 +68,16 @@ pub(crate) struct EventIdSchema {
 }
 
 // Schema for the [`sui_types::ObjectID`] type.
-#[allow(missing_docs)]
-#[derive(Debug, ToSchema)]
+#[serde_as]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 #[schema(
     as = ObjectID,
+    value_type = String,
+    format = Byte,
     title = "Sui object ID as a hex string",
     example = "0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60"
 )]
-pub(crate) struct ObjectIdSchema(String);
+pub(crate) struct ObjectIdSchema(#[serde_as(as = "DisplayFromStr")] pub(crate) ObjectID);
 
 /// Successful API response body as JSON.
 ///

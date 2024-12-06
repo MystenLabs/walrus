@@ -37,7 +37,13 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use walrus_core::{
     keys::ProtocolKeyPair,
-    messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
+    messages::{
+        BlobPersistenceType,
+        Confirmation,
+        ConfirmationCertificate,
+        InvalidBlobCertificate,
+        InvalidBlobIdMsg,
+    },
     BlobId,
     EncodingType,
     Epoch,
@@ -79,7 +85,12 @@ pub fn object_id_for_testing() -> ObjectID {
 ///
 /// The default test committee is currently a single storage node with sk = 117.
 pub fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> ConfirmationCertificate {
-    let confirmation = bcs::to_bytes(&Confirmation::new(epoch, blob_id)).unwrap();
+    let confirmation = bcs::to_bytes(&Confirmation::new(
+        epoch,
+        blob_id,
+        BlobPersistenceType::Permanent,
+    ))
+    .unwrap();
     let signature = sign_with_default_committee(&confirmation);
     ConfirmationCertificate::new(vec![0], confirmation, signature)
 }

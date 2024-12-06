@@ -102,7 +102,7 @@ fun create_committee_and_cert(
     let weights = weights.get_with_default(vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     let epoch = 5;
 
-    let message = messages::certified_message_bytes(epoch, 0xABC);
+    let message = messages::certified_permanent_message_bytes(epoch, 0xABC);
 
     // Create the aggregate sig for keys 0, 1, 2, 3, 4, 7, 8
     let signers = vector[0, 1, 2, 3, 4, 7, 8];

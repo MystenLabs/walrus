@@ -8,7 +8,6 @@ use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc, time::In
 use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
-use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::{Future, FutureExt};
 use indicatif::HumanDuration;
 use metrics::ClientMetricSet;
@@ -27,7 +26,7 @@ use walrus_core::{
     bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
-    messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
+    messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
@@ -814,8 +813,12 @@ impl Client<SuiContractClient> {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
                 // If the blob is already certified on chain and there is no committee change in
                 // progress, all nodes already have the slivers.
-                self.get_certificate_standalone(&blob_object.blob_id, certified_epoch)
-                    .await
+                self.get_certificate_standalone(
+                    &blob_object.blob_id,
+                    certified_epoch,
+                    &blob_object.blob_persistence_type(),
+                )
+                .await
             }
             _ => {
                 // If the blob is not certified, we need to store the slivers. Also, during
@@ -830,7 +833,11 @@ impl Client<SuiContractClient> {
                 }
                 let certify_start_timer = Instant::now();
                 let result = self
-                    .send_blob_data_and_get_certificate(metadata, pairs)
+                    .send_blob_data_and_get_certificate(
+                        metadata,
+                        pairs,
+                        &blob_object.blob_persistence_type(),
+                    )
                     .await?;
                 let duration = certify_start_timer.elapsed();
                 let blob_size = blob_object.size;
@@ -956,6 +963,7 @@ impl<T> Client<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs).await;
@@ -986,6 +994,7 @@ impl<T> Client<T> {
                 pairs_per_node
                     .remove(&n.node_index)
                     .expect("there are shards for each node"),
+                blob_persistence_type,
             )
             .inspect({
                 let value = progress_bar.clone();
@@ -1063,7 +1072,7 @@ impl<T> Client<T> {
 
         let results = requests.into_results();
 
-        self.confirmations_to_certificate(metadata.blob_id(), results, &committees)
+        self.confirmations_to_certificate(results, &committees)
             .await
     }
 
@@ -1072,17 +1081,16 @@ impl<T> Client<T> {
         &self,
         blob_id: &BlobId,
         certified_epoch: Epoch,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> ClientResult<ConfirmationCertificate> {
         let committees = self.committees.read().await;
         let comms = self
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
 
-        let mut requests = WeightedFutures::new(
-            comms
-                .iter()
-                .map(|n| n.get_confirmation_with_retries(blob_id, committees.epoch())),
-        );
+        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+            n.get_confirmation_with_retries(blob_id, committees.epoch(), blob_persistence_type)
+        }));
 
         requests
             .execute_weight(
@@ -1092,7 +1100,7 @@ impl<T> Client<T> {
             .await;
         let results = requests.into_results();
 
-        self.confirmations_to_certificate(blob_id, results, &committees)
+        self.confirmations_to_certificate(results, &committees)
             .await
     }
 
@@ -1101,21 +1109,21 @@ impl<T> Client<T> {
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through
     /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
-    /// blob ID and epoch.
+    /// blob ID, epoch, and blob persistence type.
     async fn confirmations_to_certificate<E: Display>(
         &self,
-        blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
         committees: &ActiveCommittees,
     ) -> ClientResult<ConfirmationCertificate> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
-        let mut valid_signatures = Vec::with_capacity(confirmations.len());
+        let mut signed_messages = Vec::with_capacity(confirmations.len());
+
         for NodeResult(_, weight, node, result) in confirmations {
             match result {
                 Ok(confirmation) => {
                     aggregate_weight += weight;
-                    valid_signatures.push(confirmation.signature);
+                    signed_messages.push(confirmation);
                     signers.push(
                         u16::try_from(node)
                             .expect("the node index is computed from the vector of members"),
@@ -1133,17 +1141,9 @@ impl<T> Client<T> {
                 .await
         );
 
-        let aggregate =
-            BLS12381AggregateSignature::aggregate(&valid_signatures).map_err(ClientError::other)?;
-        let cert = ConfirmationCertificate::new(
-            signers,
-            bcs::to_bytes(&Confirmation::new(
-                committees.write_committee().epoch,
-                *blob_id,
-            ))
-            .expect("serialization should always succeed"),
-            aggregate,
-        );
+        let cert =
+            ConfirmationCertificate::from_signed_messages_and_indices(signed_messages, signers)
+                .map_err(ClientError::other)?;
         Ok(cert)
     }
 

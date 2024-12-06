@@ -25,6 +25,8 @@ use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
+#[cfg(feature = "walrus-mainnet")]
+use storage::blob_info::PerObjectBlobInfoApi;
 use sui_macros::fail_point_async;
 use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
@@ -38,6 +40,7 @@ use walrus_core::{
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
     messages::{
+        BlobPersistenceType,
         Confirmation,
         InvalidBlobIdAttestation,
         InvalidBlobIdMsg,
@@ -185,6 +188,7 @@ pub trait ServiceState {
     fn compute_storage_confirmation(
         &self,
         blob_id: &BlobId,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send;
 
     /// Verifies an inconsistency proof and provides a signed attestation for it, if valid.
@@ -1748,9 +1752,11 @@ impl ServiceState for StorageNode {
     fn compute_storage_confirmation(
         &self,
         blob_id: &BlobId,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> impl Future<Output = Result<StorageConfirmation, ComputeStorageConfirmationError>> + Send
     {
-        self.inner.compute_storage_confirmation(blob_id)
+        self.inner
+            .compute_storage_confirmation(blob_id, blob_persistence_type)
     }
 
     fn verify_inconsistency_proof(
@@ -1920,6 +1926,7 @@ impl ServiceState for StorageNodeInner {
     async fn compute_storage_confirmation(
         &self,
         blob_id: &BlobId,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
         ensure!(
             self.is_blob_registered(blob_id)?,
@@ -1927,11 +1934,28 @@ impl ServiceState for StorageNodeInner {
         );
         ensure!(
             self.is_stored_at_all_shards(blob_id)
-                .context("database error when storage status")?,
+                .context("database error when checkingstorage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
         );
 
-        let confirmation = Confirmation::new(self.current_epoch(), *blob_id);
+        #[cfg(feature = "walrus-mainnet")]
+        if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
+            let per_object_info = self
+                .storage
+                .get_per_object_info(&object_id.into())
+                .context("database error when checking per object info")?
+                .ok_or(ComputeStorageConfirmationError::NotCurrentlyRegistered)?;
+            ensure!(
+                per_object_info.is_registered(self.current_epoch()),
+                ComputeStorageConfirmationError::NotCurrentlyRegistered,
+            );
+        }
+
+        let confirmation = Confirmation::new(
+            self.current_epoch(),
+            *blob_id,
+            blob_persistence_type.clone(),
+        );
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
 
         self.metrics.storage_confirmations_issued_total.inc();
@@ -2167,7 +2191,7 @@ mod tests {
 
             let err = storage_node
                 .as_ref()
-                .compute_storage_confirmation(&BLOB_ID)
+                .compute_storage_confirmation(&BLOB_ID, &BlobPersistenceType::Permanent)
                 .await
                 .expect_err("should fail");
 
@@ -2196,7 +2220,7 @@ mod tests {
             let err = retry_until_success_or_timeout(TIMEOUT, || async {
                 match storage_node
                     .as_ref()
-                    .compute_storage_confirmation(&BLOB_ID)
+                    .compute_storage_confirmation(&BLOB_ID, &BlobPersistenceType::Permanent)
                     .await
                 {
                     Err(ComputeStorageConfirmationError::NotCurrentlyRegistered) => Err(()),
@@ -2230,7 +2254,9 @@ mod tests {
             .await;
 
             let confirmation = retry_until_success_or_timeout(TIMEOUT, || {
-                storage_node.as_ref().compute_storage_confirmation(&BLOB_ID)
+                storage_node
+                    .as_ref()
+                    .compute_storage_confirmation(&BLOB_ID, &BlobPersistenceType::Permanent)
             })
             .await?;
 
@@ -2252,7 +2278,12 @@ mod tests {
                 confirmation.as_ref().epoch(),
                 storage_node.as_ref().inner.current_epoch()
             );
-            assert_eq!(*confirmation.as_ref().contents(), BLOB_ID);
+
+            assert_eq!(confirmation.as_ref().contents().blob_id, BLOB_ID);
+            assert_eq!(
+                confirmation.as_ref().contents().blob_type,
+                BlobPersistenceType::Permanent
+            );
 
             Ok(())
         }
@@ -3658,7 +3689,7 @@ mod tests {
         assert!(matches!(
             cluster.nodes[0]
                 .storage_node
-                .compute_storage_confirmation(blob.blob_id())
+                .compute_storage_confirmation(blob.blob_id(), &BlobPersistenceType::Permanent)
                 .await,
             Err(ComputeStorageConfirmationError::NotFullyStored)
         ));
@@ -3695,7 +3726,7 @@ mod tests {
 
         assert!(cluster.nodes[0]
             .storage_node
-            .compute_storage_confirmation(blob.blob_id())
+            .compute_storage_confirmation(blob.blob_id(), &BlobPersistenceType::Permanent)
             .await
             .is_ok());
 

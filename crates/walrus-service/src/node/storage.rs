@@ -11,10 +11,14 @@ use std::{
 };
 
 use blob_info::BlobInfoIterator;
+#[cfg(feature = "walrus-mainnet")]
+use blob_info::PerObjectBlobInfo;
 use itertools::Itertools;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
+#[cfg(feature = "walrus-mainnet")]
+use sui_types::base_types::ObjectID;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
@@ -365,6 +369,15 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn get_blob_info(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.blob_info.get(blob_id)
+    }
+
+    /// Returns the per-object blob info for `object_id`.
+    #[cfg(feature = "walrus-mainnet")]
+    pub(crate) fn get_per_object_info(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
+        self.blob_info.get_per_object_info(object_id)
     }
 
     /// Returns the current event cursor and the next event index.

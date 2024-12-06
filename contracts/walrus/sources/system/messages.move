@@ -3,7 +3,7 @@
 
 module walrus::messages;
 
-use sui::{bcs, bls12381::bls12381_min_pk_verify};
+use sui::{bcs::{Self, BCS}, bls12381::bls12381_min_pk_verify};
 
 const APP_ID: u8 = 3;
 const INTENT_VERSION: u8 = 0;
@@ -23,6 +23,8 @@ const EIncorrectAppId: u64 = 0;
 const EIncorrectEpoch: u64 = 1;
 const EInvalidMsgType: u64 = 2;
 const EIncorrectIntentVersion: u64 = 3;
+const EInvalidBlobPersistenceType: u64 = 4;
+const ENotDeletable: u64 = 5;
 
 #[error]
 const EInvalidKeyLength: vector<u8> = b"The length of the provided bls key is incorrect.";
@@ -90,12 +92,19 @@ public struct CertifiedMessage has drop {
     stake_support: u16, // Metadata, not part of the actual certified message.
 }
 
+/// The persistence type of a blob. Used for storage confirmation.
+public enum BlobPersistenceType has copy, drop {
+    Deletable { object_id: ID },
+    Permanent,
+}
+
 /// Message type for certifying a blob.
 ///
 /// Constructed from a `CertifiedMessage`, states that `blob_id` has been certified in `epoch`
 /// by a quorum.
 public struct CertifiedBlobMessage has drop {
     blob_id: u256,
+    blob_persistence_type: BlobPersistenceType,
 }
 
 /// Message type for Invalid Blob Certificates.
@@ -161,16 +170,18 @@ public(package) fun certify_blob_message(message: CertifiedMessage): CertifiedBl
     let mut bcs_body = bcs::new(message_body);
     let blob_id = bcs_body.peel_u256();
 
+    let blob_persistence_type = peel_blob_persistence_type(&mut bcs_body);
+
     // On purpose we do not check that nothing is left in the message
     // to allow in the future for extensibility.
 
-    CertifiedBlobMessage { blob_id }
+    CertifiedBlobMessage { blob_id, blob_persistence_type }
 }
 
 /// Constructs the certified blob message, note this is only
 /// used for event blobs
 public(package) fun certified_event_blob_message(blob_id: u256): CertifiedBlobMessage {
-    CertifiedBlobMessage { blob_id }
+    CertifiedBlobMessage { blob_id, blob_persistence_type: BlobPersistenceType::Permanent }
 }
 
 /// Construct the certified invalid Blob ID message, note that constructing
@@ -261,6 +272,10 @@ public(package) fun certified_blob_id(self: &CertifiedBlobMessage): u256 {
     self.blob_id
 }
 
+public(package) fun blob_persistence_type(self: &CertifiedBlobMessage): BlobPersistenceType {
+    self.blob_persistence_type
+}
+
 // === Accessors for CertifiedInvalidBlobId ===
 
 public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
@@ -291,6 +306,36 @@ public(package) fun blob_id(self: &DenyListBlobDeleted): u256 {
     self.blob_id
 }
 
+// === Accessors for BlobPersistenceType ===
+
+public(package) fun is_deletable(self: &BlobPersistenceType): bool {
+    match (self) {
+        BlobPersistenceType::Deletable { .. } => true,
+        BlobPersistenceType::Permanent => false,
+    }
+}
+
+public(package) fun object_id(self: &BlobPersistenceType): ID {
+    match (self) {
+        BlobPersistenceType::Deletable { object_id } => *object_id,
+        BlobPersistenceType::Permanent => abort ENotDeletable,
+    }
+}
+
+// === BCS deserialization ===
+
+public(package) fun peel_blob_persistence_type(bcs: &mut BCS): BlobPersistenceType {
+    let type_id = bcs.peel_u8();
+    if (type_id == 0) {
+        let object_id = bcs.peel_address().to_id();
+        return BlobPersistenceType::Deletable { object_id }
+    };
+    if (type_id == 1) {
+        return BlobPersistenceType::Permanent
+    };
+    abort EInvalidBlobPersistenceType
+}
+
 // === Test only functions ===
 
 #[test_only]
@@ -305,18 +350,42 @@ public fun certified_message_for_testing(
 }
 
 #[test_only]
-public fun certified_blob_message_for_testing(_epoch: u32, blob_id: u256): CertifiedBlobMessage {
-    CertifiedBlobMessage { blob_id }
+public fun certified_permanent_blob_message_for_testing(blob_id: u256): CertifiedBlobMessage {
+    CertifiedBlobMessage { blob_id, blob_persistence_type: BlobPersistenceType::Permanent }
 }
 
 #[test_only]
-public fun certified_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
+public fun certified_deletable_blob_message_for_testing(
+    blob_id: u256,
+    object_id: ID,
+): CertifiedBlobMessage {
+    CertifiedBlobMessage {
+        blob_id,
+        blob_persistence_type: BlobPersistenceType::Deletable { object_id },
+    }
+}
+
+#[test_only]
+public fun certified_permanent_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
     let mut message = vector<u8>[];
     message.push_back(BLOB_CERT_MSG_TYPE);
     message.push_back(INTENT_VERSION);
     message.push_back(APP_ID);
     message.append(bcs::to_bytes(&epoch));
     message.append(bcs::to_bytes(&blob_id));
+    message.append(bcs::to_bytes(&BlobPersistenceType::Permanent));
+    message
+}
+
+#[test_only]
+public fun certified_deletable_message_bytes(epoch: u32, blob_id: u256, object_id: ID): vector<u8> {
+    let mut message = vector<u8>[];
+    message.push_back(BLOB_CERT_MSG_TYPE);
+    message.push_back(INTENT_VERSION);
+    message.push_back(APP_ID);
+    message.append(bcs::to_bytes(&epoch));
+    message.append(bcs::to_bytes(&blob_id));
+    message.append(bcs::to_bytes(&BlobPersistenceType::Deletable { object_id }));
     message
 }
 
@@ -335,7 +404,19 @@ public fun invalid_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
 fun test_message_creation() {
     let epoch = 42;
     let blob_id = 0xdeadbeefdeadbeefdeadbeefdeadbeef;
-    let msg = certified_message_bytes(epoch, blob_id);
+    let msg = certified_permanent_message_bytes(epoch, blob_id);
     let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
     assert!(cert_msg.blob_id == blob_id);
+}
+
+#[test]
+fun test_certified_deletable_blob_message() {
+    let epoch = 42;
+    let blob_id = 0xdeadbeefdeadbeefdeadbeefdeadbeef;
+    let object_id = object::id_from_address(@42);
+    let msg = certified_deletable_message_bytes(epoch, blob_id, object_id);
+    let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
+    assert!(cert_msg.blob_id == blob_id);
+    assert!(cert_msg.blob_persistence_type().is_deletable());
+    assert!(cert_msg.blob_persistence_type().object_id() == object_id);
 }

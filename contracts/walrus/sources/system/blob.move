@@ -24,6 +24,8 @@ const EAlreadyCertified: u64 = 5;
 const EInvalidBlobId: u64 = 6;
 const EDuplicateMetadata: u64 = 7;
 const EMissingMetadata: u64 = 8;
+const EInvalidBlobPersistenceType: u64 = 9;
+const EInvalidBlobObject: u64 = 10;
 
 // The fixed dynamic filed name for metadata
 const METADATA_DF: vector<u8> = b"metadata";
@@ -46,6 +48,10 @@ public struct Blob has key, store {
 }
 
 // === Accessors ===
+
+public fun object_id(self: &Blob): ID {
+    object::id(self)
+}
 
 public fun registered_epoch(self: &Blob): u32 {
     self.registered_epoch
@@ -188,6 +194,20 @@ public(package) fun certify_with_certified_msg(
 
     // Check that the storage in the blob is still valid
     assert!(current_epoch < blob.storage.end_epoch(), EResourceBounds);
+
+    // Check the blob persistence type
+    assert!(
+        blob.deletable == message.blob_persistence_type().is_deletable(),
+        EInvalidBlobPersistenceType,
+    );
+
+    // Check that the object id matches the message
+    if (blob.deletable) {
+        assert!(
+            message.blob_persistence_type().object_id() == object::id(blob),
+            EInvalidBlobObject,
+        );
+    };
 
     // Mark the blob as certified
     blob.certified_epoch.fill(current_epoch);

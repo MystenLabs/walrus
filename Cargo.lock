@@ -11430,6 +11430,7 @@ dependencies = [
  "serde",
  "serde_test",
  "serde_with",
+ "sui-types",
  "thiserror 2.0.9",
  "tracing",
  "utoipa",

@@ -14,7 +14,15 @@ use serde::{
     Serializer,
 };
 use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
-use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
+use walrus_core::{
+    messages::BlobPersistenceType,
+    BlobId,
+    EncodingType,
+    Epoch,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
+};
 
 use super::NetworkAddress;
 use crate::contracts::{self, AssociatedContractStruct, StructTag};
@@ -61,6 +69,19 @@ pub struct Blob {
     pub storage: StorageResource,
     /// Marks the blob as deletable.
     pub deletable: bool,
+}
+
+impl Blob {
+    /// Returns the blob persistence type of the blob object.
+    pub fn blob_persistence_type(&self) -> BlobPersistenceType {
+        if self.deletable {
+            BlobPersistenceType::Deletable {
+                object_id: self.id.into(),
+            }
+        } else {
+            BlobPersistenceType::Permanent
+        }
+    }
 }
 
 /// Serialize as string to make sure that the json output uses the base64 encoding.

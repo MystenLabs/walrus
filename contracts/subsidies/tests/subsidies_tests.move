@@ -20,7 +20,6 @@ const RED_STUFF: u8 = 0;
 
 const ROOT_HASH: u256 = 0xABC;
 const SIZE: u64 = 5_000_000;
-const EPOCH: u32 = 0;
 
 const N_COINS: u64 = 1_000_000_000;
 
@@ -207,7 +206,7 @@ fun test_extend_blob_no_funds_no_subsidies(): (System, Coin<WAL>, Blob) {
     let storage = get_storage_resource(&mut system, SIZE, 3);
 
     let mut blob = register_default_blob(&mut system, storage, false);
-    let certify_message = messages::certified_blob_message_for_testing(EPOCH, blob.blob_id());
+    let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
     // Assert certified
@@ -238,7 +237,7 @@ fun test_extend_blob_no_funds_buyer_subsidies(): (System, Coin<WAL>, Blob) {
     let storage = get_storage_resource(&mut system, SIZE, 3);
 
     let mut blob = register_default_blob(&mut system, storage, false);
-    let certify_message = messages::certified_blob_message_for_testing(EPOCH, blob.blob_id());
+    let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
     // Assert certified
@@ -267,7 +266,7 @@ fun test_extend_blob_no_funds_storage_node_subsidies(): (System, Coin<WAL>, Blob
     let storage = get_storage_resource(&mut system, SIZE, 3);
 
     let mut blob = register_default_blob(&mut system, storage, false);
-    let certify_message = messages::certified_blob_message_for_testing(EPOCH, blob.blob_id());
+    let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
     // Assert certified
@@ -299,7 +298,7 @@ fun test_extend_blob_funds_with_subsidies(): (System, Coin<WAL>, Blob) {
     let storage = get_storage_resource(&mut system, SIZE, 3);
 
     let mut blob = register_default_blob(&mut system, storage, false);
-    let certify_message = messages::certified_blob_message_for_testing(EPOCH, blob.blob_id());
+    let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
     // Assert certified
@@ -493,7 +492,7 @@ fun test_extend_blob_funds_with_subsidies_full_pool_consumption(): (System, Coin
     let storage = get_storage_resource(&mut system, SIZE, 3);
 
     let mut blob = register_default_blob(&mut system, storage, false);
-    let certify_message = messages::certified_blob_message_for_testing(EPOCH, blob.blob_id());
+    let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     // Set certify
     blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
     // Assert certified

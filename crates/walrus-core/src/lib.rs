@@ -42,6 +42,8 @@ use inconsistency::{
 use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "sui-types")]
+use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
 pub mod bft;
@@ -186,6 +188,64 @@ impl FromStr for BlobId {
         } else {
             Err(BlobIdParseError)
         }
+    }
+}
+
+// Sui Object ID.
+
+/// The ID of a Sui object.
+///
+/// Reimplemented here to not take a mandatory dependency on the sui sdk in the core crate.
+/// With the feature `sui-types` enabled, this type can be converted to and from
+/// the `ObjectID` type from the sui sdk.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash, Debug)]
+#[repr(transparent)]
+pub struct SuiObjectId(pub [u8; Self::LENGTH]);
+
+impl SuiObjectId {
+    /// The length of a Sui object ID in bytes.
+    pub const LENGTH: usize = 32;
+}
+
+#[cfg(feature = "sui-types")]
+impl From<ObjectID> for SuiObjectId {
+    fn from(value: ObjectID) -> Self {
+        Self(value.into_bytes())
+    }
+}
+
+#[cfg(feature = "sui-types")]
+impl From<&ObjectID> for SuiObjectId {
+    fn from(value: &ObjectID) -> Self {
+        (*value).into()
+    }
+}
+
+#[cfg(feature = "sui-types")]
+impl From<SuiObjectId> for ObjectID {
+    fn from(value: SuiObjectId) -> Self {
+        ObjectID::from_bytes(value.0).expect("valid Sui object ID")
+    }
+}
+
+#[cfg(feature = "sui-types")]
+impl From<&SuiObjectId> for ObjectID {
+    fn from(value: &SuiObjectId) -> Self {
+        (*value).into()
+    }
+}
+
+/// Error returned when unable to parse a Sui object ID.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("failed to parse a Sui object ID")]
+pub struct SuiObjectIdParseError;
+
+impl TryFrom<&[u8]> for SuiObjectId {
+    type Error = SuiObjectIdParseError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let bytes = <[u8; Self::LENGTH]>::try_from(value).map_err(|_| SuiObjectIdParseError)?;
+        Ok(Self(bytes))
     }
 }
 

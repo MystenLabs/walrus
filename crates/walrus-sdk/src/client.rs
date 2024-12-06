@@ -20,6 +20,7 @@ use reqwest::{
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use serde::{de::DeserializeOwned, Serialize};
+use sui_types::base_types::ObjectID;
 use tracing::{field, Instrument as _, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::{
@@ -28,6 +29,7 @@ use walrus_core::{
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
     messages::{
+        BlobPersistenceType,
         InvalidBlobIdAttestation,
         SignedStorageConfirmation,
         StorageConfirmation,
@@ -59,7 +61,12 @@ const METADATA_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata/status";
 const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
 const SLIVER_STATUS_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
-const STORAGE_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
+#[cfg(not(feature = "walrus-mainnet"))]
+const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
+#[cfg(feature = "walrus-mainnet")]
+const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
+const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
+    "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
 const RECOVERY_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
@@ -96,10 +103,41 @@ impl UrlEndpoints {
         )
     }
 
-    fn confirmation(&self, blob_id: &BlobId) -> (Url, &'static str) {
+    fn confirmation(
+        &self,
+        blob_id: &BlobId,
+        blob_persistence_type: &BlobPersistenceType,
+    ) -> (Url, &'static str) {
+        match blob_persistence_type {
+            BlobPersistenceType::Permanent => self.permanent_blob_confirmation(blob_id),
+            BlobPersistenceType::Deletable { object_id } => {
+                self.deletable_blob_confirmation(blob_id, &object_id.into())
+            }
+        }
+    }
+
+    fn permanent_blob_confirmation(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        if cfg!(feature = "walrus-mainnet") {
+            (
+                self.blob_resource(blob_id, "confirmation/permanent"),
+                PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE,
+            )
+        } else {
+            (
+                self.blob_resource(blob_id, "confirmation"),
+                PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE,
+            )
+        }
+    }
+
+    fn deletable_blob_confirmation(
+        &self,
+        blob_id: &BlobId,
+        object_id: &ObjectID,
+    ) -> (Url, &'static str) {
         (
-            self.blob_resource(blob_id, "confirmation"),
-            STORAGE_CONFIRMATION_URL_TEMPLATE,
+            self.blob_resource(blob_id, &format!("confirmation/deletable/{object_id}")),
+            DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE,
         )
     }
 
@@ -429,8 +467,9 @@ impl Client {
     pub async fn get_confirmation(
         &self,
         blob_id: &BlobId,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let (url, template) = self.endpoints.confirmation(blob_id);
+        let (url, template) = self.endpoints.confirmation(blob_id, blob_persistence_type);
         // NOTE(giac): in the future additional values may be possible here.
         let StorageConfirmation::Signed(confirmation) = self
             .send_and_parse_service_response(Request::new(Method::GET, url), template)
@@ -453,10 +492,13 @@ impl Client {
         blob_id: &BlobId,
         epoch: Epoch,
         public_key: &PublicKey,
+        blob_persistence_type: BlobPersistenceType,
     ) -> Result<SignedStorageConfirmation, NodeError> {
-        let confirmation = self.get_confirmation(blob_id).await?;
+        let confirmation = self
+            .get_confirmation(blob_id, &blob_persistence_type)
+            .await?;
         let _ = confirmation
-            .verify(public_key, epoch, blob_id)
+            .verify(public_key, epoch, *blob_id, blob_persistence_type)
             .map_err(NodeError::other)?;
         Ok(confirmation)
     }
@@ -920,7 +962,7 @@ impl Injector for HeaderInjector<'_> {
 
 #[cfg(test)]
 mod tests {
-    use walrus_core::{encoding::Primary, test_utils};
+    use walrus_core::{encoding::Primary, test_utils, SuiObjectId};
     use walrus_test_utils::param_test;
 
     use super::*;
@@ -931,7 +973,26 @@ mod tests {
         test_blob_url_endpoint: [
             blob: (|e| e.blob_resource(&BLOB_ID, ""), ""),
             metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
-            confirmation: (|e| e.confirmation(&BLOB_ID).0, "confirmation"),
+            #[cfg(not(feature = "mainnet-contracts"))]
+            permanent_confirmation: (
+                |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent).0,
+                "confirmation"
+            ),
+            #[cfg(feature = "mainnet-contracts")]
+            permanent_confirmation: (
+                |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent).0,
+                "confirmation/permanent"
+            ),
+            deletable_confirmation: (
+                |e| e.confirmation(
+                    &BLOB_ID,
+                    &BlobPersistenceType::Deletable { object_id: SuiObjectId([42; 32]) }
+                ).0,
+                concat!(
+                    "confirmation/deletable/",
+                    "0x2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a"
+                )
+            ),
             sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
             recovery_symbol: (
                 |e| e.recovery_symbol::<Primary>(

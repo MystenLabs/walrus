@@ -27,7 +27,11 @@ use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
 #[cfg(feature = "walrus-mainnet")]
-use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoMergeOperand};
+pub(crate) use self::per_object_blob_info::PerObjectBlobInfo;
+#[cfg(feature = "walrus-mainnet")]
+pub(crate) use self::per_object_blob_info::PerObjectBlobInfoApi;
+#[cfg(feature = "walrus-mainnet")]
+use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 use super::{database_config::DatabaseTableOptions, DatabaseConfig};
 
 #[derive(Debug, Clone)]
@@ -191,6 +195,15 @@ impl BlobInfoTable {
     /// Returns the blob info for `blob_id`.
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.aggregate_blob_info.get(blob_id)
+    }
+
+    /// Returns the per-object blob info for `object_id`.
+    #[cfg(feature = "walrus-mainnet")]
+    pub fn get_per_object_info(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
+        self.per_object_blob_info.get(object_id)
     }
 }
 
