@@ -53,7 +53,12 @@ use crate::{
         StorageNodeCap,
         StorageResource,
     },
-    utils::{get_created_sui_object_ids_by_type, sign_and_send_ptb},
+    utils::{
+        get_created_sui_object_ids_by_type,
+        get_sui_object,
+        get_sui_objects,
+        sign_and_send_ptb,
+    },
 };
 
 mod read_client;
@@ -337,33 +342,37 @@ impl SuiContractClient {
     ///
     /// `blob_size` is the size of the unencoded blob. The encoded size of the blob must be
     /// less than or equal to the size reserved in `storage`.
-    pub async fn register_blob(
+    pub async fn register_blobs(
         &self,
-        storage: &StorageResource,
-        blob_metadata: BlobObjectMetadata,
+        blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Blob> {
+    ) -> SuiClientResult<Vec<Blob>> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder
-            .register_blob(storage.id.into(), blob_metadata, persistence)
-            .await?;
+        // Build a ptb to include all register blob commands for all blobs.
+        let expected_num_blobs = blob_metadata_and_storage.len();
+        for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
+            pt_builder
+                .register_blob(storage.id.into(), blob_metadata, persistence)
+                .await?;
+        }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        let blob_obj_id = get_created_sui_object_ids_by_type(
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
                 .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
         ensure!(
-            blob_obj_id.len() == 1,
-            "unexpected number of blob objects created: {}",
-            blob_obj_id.len()
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {} ",
+            blob_obj_ids.len(),
+            expected_num_blobs
         );
 
-        self.sui_client().get_sui_object(blob_obj_id[0]).await
+        self.sui_client().get_sui_objects(blob_obj_ids).await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -371,70 +380,76 @@ impl SuiContractClient {
     ///
     /// This combines the [`reserve_space`][Self::reserve_space] and
     /// [`register_blob`][Self::register_blob] functions in one atomic transaction.
-    pub async fn reserve_and_register_blob(
+    pub async fn reserve_and_register_blobs(
         &self,
         epochs_ahead: EpochCount,
-        blob_metadata: BlobObjectMetadata,
+        blob_metadatum: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Blob> {
+    ) -> SuiClientResult<Vec<Blob>> {
         tracing::debug!(
-            encoded_size = blob_metadata.encoded_size,
-            "starting to reserve and register blob"
+            size = blob_metadatum.len(),
+            "starting to reserve and register blobs"
         );
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        let storage_arg = pt_builder
-            .reserve_space(blob_metadata.encoded_size, epochs_ahead)
-            .await?;
-        // Blob is transferred automatically in the call to `finish`.
-        pt_builder
-            .register_blob(storage_arg.into(), blob_metadata, persistence)
-            .await?;
+        // Build a ptb to include all reserve space and register blob commands for all blobs.
+        let expected_num_blobs = blob_metadatum.len();
+        for blob_metadata in blob_metadatum.into_iter() {
+            let storage_arg = pt_builder
+                .reserve_space(blob_metadata.encoded_size, epochs_ahead)
+                .await?;
+            // Blob is transferred automatically in the call to `finish`.
+            pt_builder
+                .register_blob(storage_arg.into(), blob_metadata, persistence)
+                .await?;
+        }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        let blob_obj_id = get_created_sui_object_ids_by_type(
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
                 .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
         )?;
+
         ensure!(
-            blob_obj_id.len() == 1,
-            "unexpected number of blob objects created: {}",
-            blob_obj_id.len()
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {} ",
+            blob_obj_ids.len(),
+            expected_num_blobs
         );
 
-        self.sui_client().get_sui_object(blob_obj_id[0]).await
+        self.sui_client().get_sui_objects(blob_obj_ids).await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
     /// returns the certified blob.
     // NB: This intentionally takes an owned `Blob` object even though it is not required, as the
     // corresponding object on Sui will be changed in the process.
-    pub async fn certify_blob(
+    pub async fn certify_blobs(
         &self,
-        blob: Blob,
-        certificate: &ConfirmationCertificate,
+        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder.certify_blob(blob.id.into(), certificate).await?;
-
-        match post_store {
-            PostStoreAction::TransferTo(address) => {
-                pt_builder
-                    .transfer(Some(address), vec![blob.id.into()])
-                    .await?;
+        for (blob, certificate) in blobs_with_certificates.iter() {
+            pt_builder.certify_blob(blob.id.into(), certificate).await?;
+            match post_store {
+                PostStoreAction::TransferTo(address) => {
+                    pt_builder
+                        .transfer(Some(address), vec![blob.id.into()])
+                        .await?;
+                }
+                PostStoreAction::Burn => {
+                    pt_builder.burn_blob(blob.id.into()).await?;
+                }
+                PostStoreAction::Keep => (),
             }
-            PostStoreAction::Burn => {
-                pt_builder.burn_blob(blob.id.into()).await?;
-            }
-            PostStoreAction::Keep => (),
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
@@ -445,7 +460,6 @@ impl SuiContractClient {
             Err(anyhow!("could not certify blob: {:?}", res.errors).into())
         }
     }
-
     /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
     /// invalid.
     pub async fn invalidate_blob_id(

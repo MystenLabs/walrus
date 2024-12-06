@@ -232,6 +232,19 @@ where
 
 /// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
 /// directory.
+pub fn resolve_home_dir_vec<'de, D>(deserializer: D) -> Result<Vec<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let paths: Vec<PathBuf> = Deserialize::deserialize(deserializer)?;
+    paths
+        .into_iter()
+        .map(|p| path_with_resolved_home_dir(p).map_err(D::Error::custom))
+        .collect()
+}
+
+/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
+/// directory.
 pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
 where
     D: Deserializer<'de>,

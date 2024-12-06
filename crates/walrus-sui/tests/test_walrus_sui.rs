@@ -132,8 +132,14 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let blob_obj = walrus_client
         .as_ref()
-        .register_blob(&storage_resource, blob_metadata, BlobPersistence::Permanent)
-        .await?;
+        .register_blobs(
+            vec![(blob_metadata, storage_resource.clone())],
+            BlobPersistence::Permanent,
+        )
+        .await?
+        .into_iter()
+        .next()
+        .expect("expected one blob object");
     assert_eq!(blob_obj.blob_id, blob_id);
     assert_eq!(blob_obj.size, size);
     assert_eq!(blob_obj.certified_epoch, None);
@@ -167,7 +173,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     walrus_client
         .as_ref()
-        .certify_blob(blob_obj, &certificate, PostStoreAction::Keep)
+        .certify_blobs(&[(&blob_obj, certificate)], PostStoreAction::Keep)
         .await?;
 
     // Make sure that we got the expected event
@@ -213,8 +219,14 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     let blob_obj = walrus_client
         .as_ref()
-        .register_blob(&storage_resource, blob_metadata, BlobPersistence::Permanent)
-        .await?;
+        .register_blobs(
+            vec![(blob_metadata, storage_resource)],
+            BlobPersistence::Permanent,
+        )
+        .await?
+        .into_iter()
+        .next()
+        .expect("expected one blob object");
 
     // Make sure that we got the expected event
     let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
@@ -226,9 +238,8 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
     walrus_client
         .as_ref()
-        .certify_blob(
-            blob_obj,
-            &get_default_blob_certificate(blob_id, 1),
+        .certify_blobs(
+            &[(&blob_obj, get_default_blob_certificate(blob_id, 1))],
             PostStoreAction::Keep,
         )
         .await?;

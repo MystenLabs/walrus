@@ -61,14 +61,16 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blob(
-                blob,
+            .reserve_and_store_blobs(
+                &[blob.to_vec()],
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
             .await?
+            .first()
+            .unwrap()
             .blob_id()
             .to_owned();
         let elapsed = now.elapsed();
@@ -143,12 +145,15 @@ impl WriteClient {
             .resource_manager()
             .await
             .get_existing_or_register(
-                &metadata,
+                &[&metadata],
                 epochs,
                 BlobPersistence::Permanent,
                 StoreWhen::NotStored,
             )
-            .await?;
+            .await?
+            .into_iter()
+            .next()
+            .expect("should register exactly one blob");
 
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -163,7 +168,7 @@ impl WriteClient {
         self.client
             .as_ref()
             .sui_client()
-            .certify_blob(blob_sui_object, &certificate, PostStoreAction::Burn)
+            .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
             .await?;
         Ok(blob_id)
     }

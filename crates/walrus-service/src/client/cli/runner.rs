@@ -129,14 +129,14 @@ impl ClientCommandRunner {
             } => self.read(blob_id, out, rpc_url).await,
 
             CliCommands::Store {
-                file,
+                files,
                 epochs,
                 dry_run,
                 force,
                 deletable,
             } => {
                 self.store(
-                    file,
+                    files,
                     epochs,
                     dry_run,
                     StoreWhen::always(force),
@@ -296,7 +296,7 @@ impl ClientCommandRunner {
 
     pub(crate) async fn store(
         self,
-        file: PathBuf,
+        files: Vec<PathBuf>,
         epochs: Option<EpochCount>,
         dry_run: bool,
         store_when: StoreWhen,
@@ -325,37 +325,51 @@ impl ClientCommandRunner {
         );
 
         if dry_run {
-            tracing::info!("performing dry-run store for file '{}'", file.display());
+            tracing::info!("performing dry-run store for {} files", files.len());
             let encoding_config = client.encoding_config();
-            tracing::debug!(n_shards = encoding_config.n_shards(), "encoding the blob");
-            let metadata = encoding_config
-                .get_blob_encoder(&read_blob_from_file(&file)?)?
-                .compute_metadata();
-            let unencoded_size = metadata.metadata().unencoded_length;
-            let encoded_size =
-                encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
-                    .expect("must be valid as the encoding succeeded");
-            let price_per_unit_size = client.sui_client().storage_price_per_unit_size().await?;
-            let storage_cost = price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
-            DryRunOutput {
-                blob_id: *metadata.blob_id(),
-                unencoded_size,
-                encoded_size,
-                storage_cost,
+            let mut outputs = Vec::with_capacity(files.len());
+
+            for file in files {
+                tracing::debug!(
+                    n_shards = encoding_config.n_shards(),
+                    "encoding blob for file '{}'",
+                    file.display()
+                );
+                let metadata = encoding_config
+                    .get_blob_encoder(&read_blob_from_file(&file)?)?
+                    .compute_metadata();
+                let unencoded_size = metadata.metadata().unencoded_length;
+                let encoded_size =
+                    encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
+                        .expect("must be valid as the encoding succeeded");
+                let price_per_unit_size = client.sui_client().storage_price_per_unit_size().await?;
+                let storage_cost =
+                    price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
+                outputs.push(DryRunOutput {
+                    blob_id: *metadata.blob_id(),
+                    unencoded_size,
+                    encoded_size,
+                    storage_cost,
+                });
             }
-            .print_output(self.json)
+            // todo: change print list
+            outputs[0].print_output(self.json)
         } else {
-            tracing::info!("storing file '{}' as blob on Walrus", file.display());
+            tracing::info!("storing {} files as blobs on Walrus", files.len());
+            let blobs = files
+                .into_iter()
+                .map(|file| read_blob_from_file(&file))
+                .collect::<Result<Vec<_>>>()?;
             let result = client
-                .reserve_and_store_blob_retry_epoch(
-                    &read_blob_from_file(&file)?,
+                .reserve_and_store_blobs_retry_epoch(
+                    &blobs,
                     epochs,
                     store_when,
                     persistence,
                     PostStoreAction::Keep,
                 )
                 .await?;
-            result.print_output(self.json)
+            result[0].print_output(self.json)
         }
     }
 
