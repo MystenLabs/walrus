@@ -379,7 +379,7 @@ impl SuiContractClient {
     /// storage resource to register a blob with the provided `blob_metadata`.
     ///
     /// This combines the [`reserve_space`][Self::reserve_space] and
-    /// [`register_blob`][Self::register_blob] functions in one atomic transaction.
+    /// [`register_blobs`][Self::register_blobs] functions in one atomic transaction.
     pub async fn reserve_and_register_blobs(
         &self,
         epochs_ahead: EpochCount,
