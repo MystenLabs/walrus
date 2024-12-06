@@ -446,8 +446,9 @@ impl ShardStorage {
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
+        directly_recover_shard: bool,
     ) -> Result<(), SyncShardClientError> {
-        tracing::info!(walrus.epoch = epoch, "syncing shard");
+        tracing::info!(walrus.epoch = epoch, %directly_recover_shard, "syncing shard");
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
         }
@@ -467,6 +468,7 @@ impl ShardStorage {
                     SliverType::Primary,
                     last_synced_blob_id,
                     config,
+                    directly_recover_shard,
                 )
                 .await?;
                 self.sync_shard_before_epoch_internal(
@@ -475,6 +477,7 @@ impl ShardStorage {
                     SliverType::Secondary,
                     None,
                     config,
+                    directly_recover_shard,
                 )
                 .await?;
             }
@@ -487,6 +490,7 @@ impl ShardStorage {
                     SliverType::Secondary,
                     last_synced_blob_id,
                     config,
+                    directly_recover_shard,
                 )
                 .await?;
             }
@@ -551,6 +555,7 @@ impl ShardStorage {
         sliver_type: SliverType,
         mut last_synced_blob_id: Option<BlobId>,
         config: &ShardSyncConfig,
+        directly_recover_shard: bool,
     ) -> Result<(), SyncShardClientError> {
         // Helper to track the number of scanned blobs to test recovery. Not used in production.
         #[cfg(msim)]
@@ -569,62 +574,64 @@ impl ShardStorage {
         // any committees and should not receive any user blobs, there shouldn't be any certified
         // blobs. In case, the shard sync should finish immediately and transition to Active state.
         assert!(epoch != 0 && (epoch > 1 || next_blob_info.is_none()));
-        while let Some((next_starting_blob_id, _)) = next_blob_info {
-            tracing::debug!(
-                "syncing shard to before epoch: {}. Starting blob id: {}",
-                epoch,
-                next_starting_blob_id,
-            );
-            let mut batch = match sliver_type {
-                SliverType::Primary => self.primary_slivers.batch(),
-                SliverType::Secondary => self.secondary_slivers.batch(),
-            };
-
-            let fetched_slivers = node
-                .committee_service
-                .sync_shard_before_epoch(
-                    self.id(),
-                    next_starting_blob_id,
-                    sliver_type,
-                    config.sliver_count_per_sync_request,
+        if !directly_recover_shard {
+            while let Some((next_starting_blob_id, _)) = next_blob_info {
+                tracing::debug!(
+                    "syncing shard to before epoch: {}. Starting blob id: {}",
                     epoch,
-                    &node.protocol_key_pair,
-                )
-                .await?;
+                    next_starting_blob_id,
+                );
+                let mut batch = match sliver_type {
+                    SliverType::Primary => self.primary_slivers.batch(),
+                    SliverType::Secondary => self.secondary_slivers.batch(),
+                };
 
-            next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
-                epoch,
-                &fetched_slivers,
-                sliver_type,
-                next_blob_info,
-                &mut blob_info_iter,
-                &mut batch,
-            )?;
+                let fetched_slivers = node
+                    .committee_service
+                    .sync_shard_before_epoch(
+                        self.id(),
+                        next_starting_blob_id,
+                        sliver_type,
+                        config.sliver_count_per_sync_request,
+                        epoch,
+                        &node.protocol_key_pair,
+                    )
+                    .await?;
 
-            #[cfg(msim)]
-            {
-                scan_count += fetched_slivers.len() as u64;
-                inject_failure(scan_count, sliver_type)?;
-            }
-
-            // Record sync progress.
-            last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
-            if let Some(last_synced_blob_id) = last_synced_blob_id {
-                batch.insert_batch(
-                    &self.shard_sync_progress,
-                    [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+                next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
+                    epoch,
+                    &fetched_slivers,
+                    sliver_type,
+                    next_blob_info,
+                    &mut blob_info_iter,
+                    &mut batch,
                 )?;
-            }
-            batch.write()?;
 
-            metrics::with_label!(
-                node.metrics.sync_shard_sync_sliver_total,
-                &self.id.to_string()
-            )
-            .inc_by(fetched_slivers.len() as u64);
+                #[cfg(msim)]
+                {
+                    scan_count += fetched_slivers.len() as u64;
+                    inject_failure(scan_count, sliver_type)?;
+                }
 
-            if last_synced_blob_id.is_none() {
-                break;
+                // Record sync progress.
+                last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
+                if let Some(last_synced_blob_id) = last_synced_blob_id {
+                    batch.insert_batch(
+                        &self.shard_sync_progress,
+                        [((), ShardSyncProgress::new(last_synced_blob_id, sliver_type))],
+                    )?;
+                }
+                batch.write()?;
+
+                metrics::with_label!(
+                    node.metrics.sync_shard_sync_sliver_total,
+                    &self.id.to_string()
+                )
+                .inc_by(fetched_slivers.len() as u64);
+
+                if last_synced_blob_id.is_none() {
+                    break;
+                }
             }
         }
 

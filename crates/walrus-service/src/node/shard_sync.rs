@@ -142,50 +142,76 @@ impl ShardSyncHandler {
                 shard_index.0 as u64, // Seed the backoff with the shard index.
             );
 
+            let directly_recover_shard = Arc::new(Mutex::new(false));
+
             backoff::retry(backoff, || async {
                 metrics::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
+                let recover_shard = *directly_recover_shard.lock().await;
                 let sync_result = shard_storage
                     .start_sync_shard_before_epoch(
                         current_epoch,
                         node_clone.clone(),
                         &shard_sync_handler_clone.config,
+                        recover_shard,
                     )
                     .await;
 
-                if let Err(error) = sync_result {
-                    metrics::with_label!(node_clone.metrics.shard_sync_total, "error").inc();
-                    tracing::error!(
-                        ?error,
-                        "failed to sync {shard_index} to before epoch {current_epoch}"
-                    );
+                match sync_result {
+                    Ok(_) => {
+                        metrics::with_label!(node_clone.metrics.shard_sync_total, "complete").inc();
+                        tracing::info!(
+                            walrus.shard_index = %shard_index,
+                            "successfully synced shard to before epoch {}",
+                            current_epoch
+                        );
+                        true // Exit retry loop
+                    }
 
-                    if let SyncShardClientError::RequestError(node_error) = error {
-                        if let Some(ServiceError::InvalidEpoch {
-                            request_epoch,
-                            server_epoch,
-                        }) = node_error.service_error()
-                        {
-                            if request_epoch > server_epoch {
-                                tracing::info!(
-                                    request_epoch,
-                                    server_epoch,
-                                    "source storage node hasn't reached the epoch yet"
-                                );
-                                // Retry the sync after backoff.
-                                return false;
+                    Err(error) => {
+                        metrics::with_label!(node_clone.metrics.shard_sync_total, "error").inc();
+                        tracing::error!(
+                            ?error,
+                            "failed to sync {shard_index} to before epoch {current_epoch}"
+                        );
+
+                        #[cfg(msim)]
+                        if check_no_retry_fail_point() {
+                            return true;
+                        }
+
+                        // Check for invalid epoch error
+                        if let SyncShardClientError::RequestError(node_error) = &error {
+                            if let Some(ServiceError::InvalidEpoch {
+                                request_epoch,
+                                server_epoch,
+                            }) = node_error.service_error()
+                            {
+                                if request_epoch > server_epoch {
+                                    tracing::info!(
+                                        request_epoch,
+                                        server_epoch,
+                                        "source storage node hasn't reached the epoch yet"
+                                    );
+                                    return false; // Retry after backoff
+                                }
                             }
                         }
+
+                        // Try direct recovery if not already doing so
+                        if !recover_shard {
+                            *directly_recover_shard.lock().await = true;
+                            tracing::info!(
+                                walrus.shard_index = %shard_index,
+                                "shard sync failed; directly recovering shard next time"
+                            );
+                            false // Retry with direct recovery
+                        } else {
+                            // TODO(#705): also do retries for other retriable errors. E.g. RPC
+                            // error.
+                            true // Exit retry loop if direct recovery also failed
+                        }
                     }
-                } else {
-                    metrics::with_label!(node_clone.metrics.shard_sync_total, "complete").inc();
-                    tracing::info!(
-                        walrus.shard_index = %shard_index,
-                        "successfully synced shard to before epoch {}",
-                        current_epoch
-                    );
                 }
-                // TODO(#705): also do retries for other retriable errors. E.g. RPC error.
-                true
             })
             .await;
 
@@ -213,6 +239,14 @@ impl ShardSyncHandler {
     pub async fn current_sync_task_count(&self) -> usize {
         self.shard_sync_in_progress.lock().await.len()
     }
+}
+
+// Helper function for fail point testing
+#[cfg(msim)]
+fn check_no_retry_fail_point() -> bool {
+    let mut no_retry = false;
+    sui_macros::fail_point_if!("fail_point_shard_sync_no_retry", || { no_retry = true });
+    no_retry
 }
 
 #[cfg(test)]

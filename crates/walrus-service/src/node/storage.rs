@@ -522,6 +522,18 @@ impl Storage {
         request: &SyncShardRequest,
         current_epoch: Epoch,
     ) -> Result<SyncShardResponse, SyncShardServiceError> {
+        #[cfg(msim)]
+        {
+            let mut return_error = false;
+            sui_macros::fail_point_if!("fail_point_sync_shard_return_error", || return_error =
+                true);
+            if return_error {
+                return Err(SyncShardServiceError::Internal(anyhow::anyhow!(
+                    "sync shard request failed"
+                )));
+            }
+        }
+
         let Some(shard) = self.shard_storage(request.shard_index()) else {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };

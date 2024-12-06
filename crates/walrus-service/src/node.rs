@@ -3521,7 +3521,8 @@ mod tests {
         use super::*;
 
         async fn wait_until_no_sync_tasks(shard_sync_handler: &ShardSyncHandler) -> TestResult {
-            tokio::time::timeout(Duration::from_secs(5), async {
+            // Timeout needs to be longer than shard sync retry interval.
+            tokio::time::timeout(Duration::from_secs(120), async {
                 loop {
                     if shard_sync_handler.current_sync_task_count().await == 0 {
                         break;
@@ -3529,7 +3530,9 @@ mod tests {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             })
-            .await?;
+            .await
+            .map_err(|_| anyhow::anyhow!("Timed out waiting for shard sync tasks to complete"))?;
+
             Ok(())
         }
 
@@ -3567,6 +3570,9 @@ mod tests {
                 "fail_point_fetch_sliver",
                 move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
             );
+
+            // Skip retry loop in shard sync to simulate a reboot.
+            register_fail_point_if("fail_point_shard_sync_no_retry", || true);
 
             // Starts the shard syncing process in the new shard, which will fail at the specified
             // break index.
@@ -3623,8 +3629,7 @@ mod tests {
 
             register_fail_point_if("fail_point_sync_shard_return_empty", || true);
 
-            // Starts the shard syncing process in the new shard, which will fail at the specified
-            // break index.
+            // Starts the shard syncing process in the new shard, which will return empty slivers.
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
@@ -3633,6 +3638,35 @@ mod tests {
 
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst)?;
+
+            Ok(())
+        }
+
+        // Tests that when direct shard sync request fails, the shard sync process will be
+        // retried using shard recovery.
+        #[walrus_simtest]
+        async fn sync_shard_src_return_error() -> TestResult {
+            telemetry_subscribers::init_for_testing();
+
+            let (cluster, _blob_details, _shard_storage_dst) =
+                setup_cluster_for_shard_sync_tests().await?;
+
+            register_fail_point_if("fail_point_sync_shard_return_error", || true);
+
+            // Starts the shard syncing process in the new shard, which will return an error and
+            // retry using shard recovery.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_new_shard_sync(ShardIndex(0))
+                .await?;
+
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+
+            // All blobs should be recovered in the new dst node.
+            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst)?;
 
             Ok(())
         }
@@ -3666,6 +3700,9 @@ mod tests {
                     move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
                 );
             }
+
+            // Skip retry loop in shard sync to simulate a reboot.
+            register_fail_point_if("fail_point_shard_sync_no_retry", || true);
 
             let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
             let (cluster, blob_details) = setup_shard_recovery_test_cluster(|blob_index| {
