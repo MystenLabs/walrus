@@ -163,7 +163,8 @@ pub enum CliCommands {
     /// blob (possibly reusing storage resources or uncertified but registered blobs).
     #[clap(alias("write"))]
     Store {
-        /// The file containing the blob to be published to Walrus.
+        /// The files containing the blob to be published to Walrus.
+        #[clap(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The number of epochs ahead for which to store the blob.

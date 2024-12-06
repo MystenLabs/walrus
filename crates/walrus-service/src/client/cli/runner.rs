@@ -352,10 +352,10 @@ impl ClientCommandRunner {
                     storage_cost,
                 });
             }
-            // todo: change print list
-            outputs[0].print_output(self.json)
+            outputs.print_output(self.json)
         } else {
             tracing::info!("storing {} files as blobs on Walrus", files.len());
+            let start_timer = std::time::Instant::now();
             let blobs = files
                 .into_iter()
                 .map(|file| read_blob_from_file(&file))
@@ -369,7 +369,8 @@ impl ClientCommandRunner {
                     PostStoreAction::Keep,
                 )
                 .await?;
-            result[0].print_output(self.json)
+            tracing::info!(duration = ?start_timer.elapsed(),"all blobs stored");
+            result.print_output(self.json)
         }
     }
 

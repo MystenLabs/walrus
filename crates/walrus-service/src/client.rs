@@ -416,7 +416,9 @@ impl Client<SuiContractClient> {
                 "failed to encode any blob".into(),
             )));
         }
-        tracing::warn!("Failed to encode blobs at: {:?}", failed_indices);
+        if !failed_indices.is_empty() {
+            tracing::warn!("Failed to encode blobs at: {:?}", failed_indices);
+        }
         Ok(pairs_and_metadata)
     }
 
@@ -490,7 +492,13 @@ impl Client<SuiContractClient> {
             .flatten()
             .collect();
 
-        tracing::warn!("Failed to get status for blobs: {:?}", failed_blob_ids);
+        if let Ok(failed_ids) = failed_blob_ids.lock() {
+            if !failed_ids.is_empty() {
+                tracing::warn!("Failed to get status for blobs: {:?}", failed_ids);
+            }
+        } else {
+            tracing::warn!("Failed to acquire lock to check failed blob IDs");
+        }
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
             "retrieved blobs statuses"

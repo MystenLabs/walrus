@@ -57,6 +57,21 @@ pub trait CliOutput: Serialize {
         Ok(())
     }
 }
+impl CliOutput for Vec<BlobStoreResult> {
+    fn print_cli_output(&self) {
+        for result in self {
+            result.print_cli_output();
+        }
+    }
+}
+
+impl CliOutput for Vec<DryRunOutput> {
+    fn print_cli_output(&self) {
+        for result in self {
+            result.print_cli_output();
+        }
+    }
+}
 
 impl CliOutput for BlobStoreResult {
     fn print_cli_output(&self) {
