@@ -36,6 +36,7 @@ macro_rules! register_metric {
 
 const METRICS_ROUTE: &str = "/metrics";
 const POD_HEALTH_ROUTE: &str = "/pod_health";
+const POD_LIVENESS_ROUTE: &str = "/liveness";
 
 type HealthCheckMetrics = Arc<RwLock<HealthCheck>>;
 
@@ -86,6 +87,7 @@ pub fn start_prometheus_server(listener: TcpListener) -> Registry {
     let app = Router::new()
         .route(METRICS_ROUTE, get(metrics))
         .route(POD_HEALTH_ROUTE, get(pod_health))
+        .route(POD_LIVENESS_ROUTE, get(liveness))
         .layer(Extension(registry.clone()))
         .layer(Extension(pod_health_data.clone()))
         .layer(
@@ -140,9 +142,14 @@ async fn metrics(
     }
 }
 
-// pod_health is called by k8s to know if this service is correctly processing
-// data
-async fn pod_health(Extension(pod_health): Extension<HealthCheckMetrics>) -> (StatusCode, String) {
+/// liveness is called by k8s to know if this service is correctly processing
+/// data. What this means is that if we do not receive any data, we can still
+/// technically be alive and healthy but for one reason or another we're not
+/// doing real work.  Properly configured liveness checks in k8s should be aware
+/// of this behavior so as to give enoug time to the pod to receive data and
+/// become healthy.  a typical system will converge in a few seconds under
+/// steady state.
+async fn liveness(Extension(pod_health): Extension<HealthCheckMetrics>) -> (StatusCode, String) {
     let consumer_operations_submitted = pod_health
         .read()
         .expect("unable to read pod health metrics")
@@ -156,4 +163,9 @@ async fn pod_health(Extension(pod_health): Extension<HealthCheckMetrics>) -> (St
             consumer_operations_submitted.to_string(),
         )
     }
+}
+
+/// pod_health is called by k8s to know if this service is alive and able to respond
+async fn pod_health() -> StatusCode {
+    StatusCode::IM_A_TEAPOT
 }
