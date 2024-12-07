@@ -142,6 +142,7 @@ impl ShardSyncHandler {
                 shard_index.0 as u64, // Seed the backoff with the shard index.
             );
 
+            // TODO(WAL-444): see if we can remove the mutex.
             let directly_recover_shard = Arc::new(Mutex::new(false));
 
             backoff::retry(backoff, || async {
