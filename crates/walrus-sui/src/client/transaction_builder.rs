@@ -404,13 +404,15 @@ impl WalrusPtbBuilder {
         &mut self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        let mut signers = certificate.signers.clone();
-
         #[cfg(not(feature = "mainnet-contracts"))]
-        signers.sort_unstable();
+        let signers = {
+            let mut signers = certificate.signers.clone();
+            signers.sort_unstable();
+            signers
+        };
 
         #[cfg(feature = "mainnet-contracts")]
-        let signers = Self::signers_to_bitmap(&signers);
+        let signers = Self::signers_to_bitmap(&certificate.signers);
 
         let invalidate_args = vec![
             self.system_arg(Mutability::Immutable).await?,
