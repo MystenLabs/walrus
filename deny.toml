@@ -68,7 +68,10 @@ ignore = true
 [bans]
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "deny"
-skip = [{ name = "itertools", version = "<=12.1" }]
+skip = [
+  { name = "aws-smithy-json", version = "0.60.7" }, # For some reason, aws-config depends on this older version.
+  { name = "itertools", version = "<=12.1" },
+]
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
   { name = "fastcrypto", depth = 4 },
