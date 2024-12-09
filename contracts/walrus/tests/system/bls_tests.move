@@ -29,6 +29,24 @@ public fun test_check_aggregate() {
 }
 
 #[test, expected_failure(abort_code = bls_aggregate::ESigVerification)]
+public fun test_add_members_error() {
+    let (committee, agg_sig, signers, message) = create_committee_and_cert(option::none());
+
+    // Add another signer to the set.
+    let mut other_signers = vector::empty();
+    // Add the 7th signer to the set.
+    other_signers.push_back(signers[0] | 64u8);
+    other_signers.push_back(signers[1]);
+
+    // Verify the aggregate signature with the new, modified set of signers. Test fails here.
+    committee.verify_certificate(
+        &agg_sig,
+        &other_signers,
+        &message,
+    );
+}
+
+#[test, expected_failure(abort_code = bls_aggregate::ESigVerification)]
 public fun test_incorrect_signature_error() {
     let (committee, mut agg_sig, signers, message) = create_committee_and_cert(option::none());
 
