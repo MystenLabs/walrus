@@ -153,12 +153,10 @@ public(package) fun verify_quorum(self: &BlsCommittee, weight: u16): bool {
 }
 
 /// Verify an aggregate BLS signature is a certificate in the epoch, and return
-/// the type of
-/// certificate and the bytes certified. The `signers` vector is an increasing
-/// list of indexes
-/// into the `members` vector of the committee. If there is a certificate, the
-/// function
-/// returns the total stake. Otherwise, it aborts.
+/// the type of certificate and the bytes certified.
+/// The `signers_bitmap` is a bitmap of the indices of the signers in the committee.
+/// If there is a certificate, the function returns the total stake.
+/// Otherwise, it aborts.
 public(package) fun verify_certificate(
     self: &BlsCommittee,
     signature: &vector<u8>,
@@ -167,8 +165,6 @@ public(package) fun verify_certificate(
 ): u16 {
     // Use the signers flags to construct the key and the weights.
 
-    // Lower bound for the next `member_index` to ensure they are monotonically
-    // increasing
     let mut non_signer_aggregate_weight = 0;
     let mut non_signer_public_keys: vector<Element<UncompressedG1>> = vector::empty();
     let mut offset: u64 = 0;
@@ -200,9 +196,6 @@ public(package) fun verify_certificate(
         offset = offset + 8;
     });
 
-    // The expression below is the solution to the inequality:
-    // n_shards = 3 f + 1
-    // stake >= 2f + 1
     let aggregate_weight = self.n_shards - non_signer_aggregate_weight;
     assert!(verify_quorum(self, aggregate_weight), ENotEnoughStake);
 

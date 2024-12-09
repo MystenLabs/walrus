@@ -266,6 +266,8 @@ impl WalrusPtbBuilder {
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
         let mut signers = certificate.signers.clone();
+
+        #[cfg(not(feature = "mainnet-contracts"))]
         signers.sort_unstable();
 
         #[cfg(feature = "mainnet-contracts")]
@@ -284,7 +286,7 @@ impl WalrusPtbBuilder {
 
     #[cfg(feature = "mainnet-contracts")]
     fn signers_to_bitmap(signers: &[u16]) -> Vec<u8> {
-        let mut bitmap = vec![0; (signers.len() + 7) / 8];
+        let mut bitmap = vec![0; signers.len().div_ceil(8)];
         for signer in signers {
             let byte_index = signer / 8;
             let bit_index = signer % 8;
@@ -401,6 +403,8 @@ impl WalrusPtbBuilder {
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
         let mut signers = certificate.signers.clone();
+
+        #[cfg(not(feature = "mainnet-contracts"))]
         signers.sort_unstable();
 
         #[cfg(feature = "mainnet-contracts")]
