@@ -266,7 +266,7 @@ impl WalrusPtbBuilder {
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
         #[cfg(not(feature = "mainnet-contracts"))]
-        let signers = { 
+        let signers = {
             let mut signers = certificate.signers.clone();
             signers.sort_unstable();
             signers
