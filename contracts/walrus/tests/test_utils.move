@@ -8,7 +8,7 @@ module walrus::test_utils;
 use std::string::String;
 use sui::{
     balance::{Self, Balance},
-    bls12381::{Self, bls12381_min_pk_verify},
+    bls12381::{Self, bls12381_min_pk_verify, g1_to_uncompressed_g1},
     coin::{Self, Coin},
     vec_map
 };
@@ -336,7 +336,11 @@ public fun new_bls_committee_for_testing(epoch: u32): bls_aggregate::BlsCommitte
     let node_id = tx_context::dummy().fresh_object_address().to_id();
     let sk = bls_sk_for_testing();
     let pub_key = bls12381::g1_from_bytes(&bls_min_pk_from_sk(&sk));
-    let member = bls_aggregate::new_bls_committee_member(pub_key, 100, node_id);
+    let member = bls_aggregate::new_bls_committee_member(
+        g1_to_uncompressed_g1(&pub_key),
+        100,
+        node_id,
+    );
     bls_aggregate::new_bls_committee(epoch, vector[member])
 }
 
@@ -350,7 +354,7 @@ public fun new_bls_committee_with_multiple_members_for_testing(
     let members = keys.map!(|sk| {
         let pub_key = bls12381::g1_from_bytes(&bls_min_pk_from_sk(&sk));
         let node_id = tx_context.fresh_object_address().to_id();
-        bls_aggregate::new_bls_committee_member(pub_key, 100, node_id)
+        bls_aggregate::new_bls_committee_member(g1_to_uncompressed_g1(&pub_key), 100, node_id)
     });
     bls_aggregate::new_bls_committee(epoch, members)
 }

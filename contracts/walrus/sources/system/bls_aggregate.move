@@ -65,12 +65,12 @@ public(package) fun new_bls_committee(
 
 /// Constructor for committee member.
 public(package) fun new_bls_committee_member(
-    public_key: Element<G1>,
+    public_key: Element<UncompressedG1>,
     weight: u16,
     node_id: ID,
 ): BlsCommitteeMember {
     BlsCommitteeMember {
-        public_key: bls12381::g1_to_uncompressed_g1(&public_key),
+        public_key,
         weight,
         node_id,
     }

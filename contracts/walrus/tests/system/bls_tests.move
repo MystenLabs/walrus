@@ -4,7 +4,7 @@
 #[test_only]
 module walrus::bls_tests;
 
-use sui::bls12381;
+use sui::bls12381::{Self, g1_to_uncompressed_g1};
 use walrus::{
     bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate},
     messages,
@@ -125,7 +125,7 @@ fun create_committee_and_cert(
     let members = pks.zip_map!(
         weights,
         |pk, weight| bls_aggregate::new_bls_committee_member(
-            pk,
+            g1_to_uncompressed_g1(&pk),
             weight,
             tx_context::dummy().fresh_object_address().to_id(),
         ),

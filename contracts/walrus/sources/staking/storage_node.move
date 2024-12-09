@@ -5,7 +5,7 @@
 module walrus::storage_node;
 
 use std::string::String;
-use sui::{bls12381::{G1, g1_from_bytes}, group_ops::Element};
+use sui::{bls12381::{UncompressedG1, g1_from_bytes, g1_to_uncompressed_g1}, group_ops::Element};
 use walrus::event_blob::EventBlobAttestation;
 
 // Error codes
@@ -17,8 +17,8 @@ public struct StorageNodeInfo has copy, drop, store {
     name: String,
     node_id: ID,
     network_address: String,
-    public_key: Element<G1>,
-    next_epoch_public_key: Option<Element<G1>>,
+    public_key: Element<UncompressedG1>,
+    next_epoch_public_key: Option<Element<UncompressedG1>>,
     network_public_key: vector<u8>,
 }
 
@@ -44,7 +44,7 @@ public(package) fun new(
         node_id,
         name,
         network_address,
-        public_key: g1_from_bytes(&public_key),
+        public_key: g1_to_uncompressed_g1(&g1_from_bytes(&public_key)),
         next_epoch_public_key: option::none(),
         network_public_key,
     }
@@ -63,12 +63,12 @@ public(package) fun new_cap(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
 // === Accessors ===
 
 /// Return the public key of the storage node.
-public(package) fun public_key(self: &StorageNodeInfo): &Element<G1> {
+public(package) fun public_key(self: &StorageNodeInfo): &Element<UncompressedG1> {
     &self.public_key
 }
 
 /// Return the public key of the storage node for the next epoch.
-public(package) fun next_epoch_public_key(self: &StorageNodeInfo): &Element<G1> {
+public(package) fun next_epoch_public_key(self: &StorageNodeInfo): &Element<UncompressedG1> {
     self.next_epoch_public_key.borrow_with_default(&self.public_key)
 }
 
@@ -106,7 +106,8 @@ public(package) fun set_last_event_blob_attestation(
 
 /// Sets the public key to be used starting from the next epoch for which the node is selected.
 public(package) fun set_next_public_key(self: &mut StorageNodeInfo, public_key: vector<u8>) {
-    self.next_epoch_public_key.swap_or_fill(g1_from_bytes(&public_key));
+    let public_key = g1_from_bytes(&public_key);
+    self.next_epoch_public_key.swap_or_fill(g1_to_uncompressed_g1(&public_key));
 }
 
 /// Sets the name of the storage node.
@@ -145,7 +146,7 @@ public fun new_for_testing(public_key: vector<u8>): StorageNodeInfo {
         node_id,
         name: b"node".to_string(),
         network_address: b"127.0.0.1".to_string(),
-        public_key: g1_from_bytes(&public_key),
+        public_key: g1_to_uncompressed_g1(&g1_from_bytes(&public_key)),
         next_epoch_public_key: option::none(),
         network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
     }
