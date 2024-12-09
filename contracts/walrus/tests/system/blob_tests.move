@@ -14,7 +14,7 @@ use walrus::{
     storage_resource::{Self, split_by_epoch, destroy, Storage},
     system::{Self, System},
     system_state_inner,
-    test_utils::{Self, bls_min_pk_sign}
+    test_utils::{Self, bls_min_pk_sign, signers_to_bitmap}
 };
 
 const RED_STUFF: u8 = 0;
@@ -90,7 +90,7 @@ public fun test_blob_certify_single_function(): system::System {
     // Signature from private key scalar(117) on `confirmation`
     let signature = bls_min_pk_sign(&confirmation_message, &sk);
     // Set certify
-    system.certify_blob(&mut blob1, signature, vector[1], confirmation_message);
+    system.certify_blob(&mut blob1, signature, signers_to_bitmap(&vector[0]), confirmation_message);
 
     // Assert certified
     assert!(blob1.certified_epoch().is_some());

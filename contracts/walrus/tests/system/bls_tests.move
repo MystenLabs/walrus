@@ -12,7 +12,8 @@ use walrus::{
         bls_aggregate_sigs,
         bls_min_pk_from_sk,
         bls_min_pk_sign,
-        bls_secret_keys_for_testing
+        bls_secret_keys_for_testing,
+        signers_to_bitmap
     }
 };
 
@@ -108,7 +109,7 @@ fun create_committee_and_cert(
     let mut sigs = vector[];
     signers.do!(|i| sigs.push_back(bls_min_pk_sign(&message, &sks[i as u64])));
 
-    let signers_bitmap = x"9f01";
+    let signers_bitmap = signers_to_bitmap(&signers);
 
     let agg_sig = bls_aggregate_sigs(&sigs);
 
