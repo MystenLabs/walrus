@@ -29,21 +29,6 @@ public fun test_check_aggregate() {
 }
 
 #[test, expected_failure(abort_code = bls_aggregate::ESigVerification)]
-public fun test_add_members_error() {
-    let (committee, agg_sig, mut signers, message) = create_committee_and_cert(option::none());
-
-    // Add another signer to the set.
-    signers.push_back(9);
-
-    // Verify the aggregate signature with signers 0, 1, 2, 3, 4, 7, 8. Test fails here.
-    committee.verify_certificate(
-        &agg_sig,
-        &signers,
-        &message,
-    );
-}
-
-#[test, expected_failure(abort_code = bls_aggregate::ESigVerification)]
 public fun test_incorrect_signature_error() {
     let (committee, mut agg_sig, signers, message) = create_committee_and_cert(option::none());
 
@@ -51,21 +36,6 @@ public fun test_incorrect_signature_error() {
     agg_sig.swap(0, 1);
 
     // Verify the aggregate signature with wrong signature. Test fails here.
-    committee.verify_certificate(
-        &agg_sig,
-        &signers,
-        &message,
-    );
-}
-
-#[test, expected_failure(abort_code = bls_aggregate::ETotalMemberOrder)]
-public fun test_duplicate_member_error() {
-    let (committee, agg_sig, mut signers, message) = create_committee_and_cert(option::none());
-
-    // Add a duplicate signer to the set.
-    signers.insert(3, 3);
-
-    // Verify the aggregate signature with the same signer listed twice. Test fails here.
     committee.verify_certificate(
         &agg_sig,
         &signers,
@@ -107,7 +77,7 @@ public fun test_cert_incorrect_epoch() {
 /// The signers are keys 0, 1, 2, 3, 4, 7, 8 and the committee has 10 keys in total.
 fun create_committee_and_cert(
     weights: Option<vector<u16>>,
-): (BlsCommittee, vector<u8>, vector<u16>, vector<u8>) {
+): (BlsCommittee, vector<u8>, vector<u8>, vector<u8>) {
     let sks = bls_secret_keys_for_testing();
     let pks = sks.map_ref!(|sk| bls12381::g1_from_bytes(&bls_min_pk_from_sk(sk)));
     let weights = weights.get_with_default(vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
@@ -119,6 +89,9 @@ fun create_committee_and_cert(
     let signers = vector[0, 1, 2, 3, 4, 7, 8];
     let mut sigs = vector[];
     signers.do!(|i| sigs.push_back(bls_min_pk_sign(&message, &sks[i as u64])));
+
+    let signers_bitmap = x"9f01";
+
     let agg_sig = bls_aggregate_sigs(&sigs);
 
     // Make a new committee with equal weight
@@ -134,5 +107,5 @@ fun create_committee_and_cert(
         epoch,
         members,
     );
-    (committee, agg_sig, signers, message)
+    (committee, agg_sig, signers_bitmap, message)
 }

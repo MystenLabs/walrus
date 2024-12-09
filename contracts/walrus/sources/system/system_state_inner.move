@@ -173,14 +173,14 @@ fun reserve_space_without_payment(
 public(package) fun invalidate_blob_id(
     self: &SystemStateInnerV1,
     signature: vector<u8>,
-    members: vector<u16>,
+    members_bitmap: vector<u8>,
     message: vector<u8>,
 ): u256 {
     let certified_message = self
         .committee
         .verify_quorum_in_epoch(
             signature,
-            members,
+            members_bitmap,
             message,
         );
 
@@ -237,14 +237,14 @@ public(package) fun certify_blob(
     self: &SystemStateInnerV1,
     blob: &mut Blob,
     signature: vector<u8>,
-    signers: vector<u16>,
+    signers_bitmap: vector<u8>,
     message: vector<u8>,
 ) {
     let certified_msg = self
         .committee()
         .verify_quorum_in_epoch(
             signature,
-            signers,
+            signers_bitmap,
             message,
         );
     let certified_blob_msg = certified_msg.certify_blob_message();

@@ -38,10 +38,10 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext) {
 public fun invalidate_blob_id(
     system: &System,
     signature: vector<u8>,
-    members: vector<u16>,
+    members_bitmap: vector<u8>,
     message: vector<u8>,
 ): u256 {
-    system.inner().invalidate_blob_id(signature, members, message)
+    system.inner().invalidate_blob_id(signature, members_bitmap, message)
 }
 
 /// Certifies a blob containing Walrus events.
@@ -115,10 +115,10 @@ public fun certify_blob(
     self: &System,
     blob: &mut Blob,
     signature: vector<u8>,
-    signers: vector<u16>,
+    signers_bitmap: vector<u8>,
     message: vector<u8>,
 ) {
-    self.inner().certify_blob(blob, signature, signers, message);
+    self.inner().certify_blob(blob, signature, signers_bitmap, message);
 }
 
 /// Deletes a deletable blob and returns the contained storage resource.
