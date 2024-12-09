@@ -267,15 +267,26 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
+        let signers_bitmap = signers_to_bitmap(&signers);
         let certify_args = vec![
             self.system_arg(Mutability::Immutable).await?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
-            self.pt_builder.pure(&signers)?,
+            self.pt_builder.pure(&signers_bitmap)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
         self.move_call(contracts::system::certify_blob, certify_args)?;
         Ok(())
+    }
+
+    fn signers_to_bitmap(signers: &[u16]) -> Vec<u8> {
+        let mut bitmap = vec![0; (signers.len() + 7) / 8];
+        for (i, signer) in signers.iter().enumerate() {
+            let byte_index = i / 8;
+            let bit_index = i % 8;
+            bitmap[byte_index] |= 1 << bit_index;
+        }
+        bitmap
     }
 
     /// Adds a call to `delete_blob` to the `pt_builder` and returns the result [`Argument`].
@@ -387,10 +398,11 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
+        let signers_bitmap = Self::signers_to_bitmap(&signers);
         let invalidate_args = vec![
             self.system_arg(Mutability::Immutable).await?,
             self.pt_builder.pure(certificate.signature.as_bytes())?,
-            self.pt_builder.pure(&signers)?,
+            self.pt_builder.pure(&signers_bitmap)?,
             self.pt_builder.pure(&certificate.serialized_message)?,
         ];
         self.move_call(contracts::system::invalidate_blob_id, invalidate_args)?;
