@@ -173,9 +173,9 @@ public(package) fun verify_certificate(
     let mut non_signer_public_keys: vector<Element<UncompressedG1>> = vector::empty();
     let mut offset: u64 = 0;
 
-    // The signers bitmap cannot be longer than the number of members divided by 8
-    assert!(signers_bitmap.length() * 8 - self.members.length() < 8, EInvalidBitmap);
-    assert!(signers_bitmap.length() * 8 - self.members.length() >= 0, EInvalidBitmap);
+    // The signers bitmap must be exactly long enough to hold all members.
+    let excess_bits = signers_bitmap.length() * 8 - self.members.length();
+    assert!(excess_bits >= 0 && excess_bits < 8, EInvalidBitmap);
 
     signers_bitmap.do_ref!(|byte| {
         (8u8).do!(|i| {
