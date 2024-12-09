@@ -197,7 +197,7 @@ public(package) fun verify_certificate(
     });
 
     let aggregate_weight = self.n_shards - non_signer_aggregate_weight;
-    assert!(verify_quorum(self, aggregate_weight), ENotEnoughStake);
+    assert!(self.verify_quorum(aggregate_weight), ENotEnoughStake);
 
     // Compute the aggregate public key as the difference between the total
     // aggregated key and the sum of the non-signer public keys.
