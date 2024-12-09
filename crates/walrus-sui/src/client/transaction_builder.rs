@@ -267,7 +267,7 @@ impl WalrusPtbBuilder {
     ) -> SuiClientResult<()> {
         let mut signers = certificate.signers.clone();
         signers.sort_unstable();
-        let signers_bitmap = signers_to_bitmap(&signers);
+        let signers_bitmap = Self::signers_to_bitmap(&signers);
         let certify_args = vec![
             self.system_arg(Mutability::Immutable).await?,
             self.argument_from_arg_or_obj(blob_object).await?,
@@ -281,10 +281,10 @@ impl WalrusPtbBuilder {
 
     fn signers_to_bitmap(signers: &[u16]) -> Vec<u8> {
         let mut bitmap = vec![0; (signers.len() + 7) / 8];
-        for (i, signer) in signers.iter().enumerate() {
-            let byte_index = i / 8;
-            let bit_index = i % 8;
-            bitmap[byte_index] |= 1 << bit_index;
+        for signer in signers {
+            let byte_index = signer / 8;
+            let bit_index = signer % 8;
+            bitmap[byte_index as usize] |= 1 << bit_index;
         }
         bitmap
     }
