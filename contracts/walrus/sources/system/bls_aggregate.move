@@ -206,6 +206,8 @@ public(package) fun verify_certificate(
     let aggregate_weight = self.n_shards - non_signer_aggregate_weight;
     assert!(verify_quorum(self, aggregate_weight), ENotEnoughStake);
 
+    // Compute the aggregate public key as the difference between the total
+    // aggregated key and the sum of the non-signer public keys.
     let aggregate_key = bls12381::g1_sub(
         &self.total_aggregated_key,
         &bls12381::uncompressed_g1_to_g1(
