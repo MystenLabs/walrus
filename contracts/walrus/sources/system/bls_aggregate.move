@@ -182,7 +182,7 @@ public(package) fun verify_certificate(
             let index = offset + (i as u64);
             let is_signer = (*byte >> i) & 1 == 1;
 
-            // If the index is out of bounds, the byte must be 0 to ensure
+            // If the index is out of bounds, the bit must be 0 to ensure
             // uniqueness of the signers_bitmap.
             if (index >= self.members.length()) {
                 assert!(!is_signer, EInvalidBitmap);
