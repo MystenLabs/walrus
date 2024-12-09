@@ -22,7 +22,7 @@ public fun test_invalid_blob_ok() {
 
     let certified_message = committee.verify_quorum_in_epoch(
         signature,
-        vector[1],
+        test_utils::signers_to_bitmap(&vector[0]),
         invalid_blob_message,
     );
 
@@ -51,7 +51,7 @@ public fun test_invalidate_happy(): system::System {
     // Now check this is a invalid blob message
     let blob_id = system.invalidate_blob_id(
         signature,
-        vector[1],
+        test_utils::signers_to_bitmap(&vector[0]),
         invalid_blob_message,
     );
 
@@ -80,7 +80,7 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
     // Now check this is a invalid blob message. Test fails here.
     let _blob_id = system.invalidate_blob_id(
         signature,
-        vector[1],
+        test_utils::signers_to_bitmap(&vector[0]),
         invalid_blob_message,
     );
 
