@@ -6,7 +6,13 @@
 use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{
+    de::{DeserializeOwned, Error},
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
+};
 use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
 
@@ -562,4 +568,23 @@ impl ExchangeRate {
     pub fn sui_to_wal(&self, amount: u64) -> u64 {
         amount * self.wal / self.sui
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// Sui type for a dynamic field.
+pub struct SuiDynamicField<N, V> {
+    /// The object ID of the dynamic field.
+    pub id: ObjectID,
+    /// The name of the dynamic field.
+    pub name: N,
+    /// The value of the dynamic field.
+    pub value: V,
+}
+
+impl<N, V> AssociatedContractStruct for SuiDynamicField<N, V>
+where
+    N: DeserializeOwned,
+    V: DeserializeOwned,
+{
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::dynamic_field::Field;
 }

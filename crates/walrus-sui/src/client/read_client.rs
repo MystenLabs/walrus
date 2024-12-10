@@ -27,6 +27,7 @@ use sui_types::{
     object::Owner,
     transaction::ObjectArg,
     Identifier,
+    TypeTag,
 };
 use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
@@ -38,9 +39,11 @@ use crate::{
     types::{
         move_structs::{
             EpochState,
+            StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
             SystemObjectForDeserialization,
+            SystemStateInnerV1,
         },
         BlobEvent,
         Committee,
@@ -50,6 +53,7 @@ use crate::{
         SystemObject,
     },
     utils::{
+        get_dynamic_field_object,
         get_package_id_from_object_response,
         get_sui_object,
         get_sui_object_from_object_response,
@@ -407,38 +411,28 @@ impl SuiReadClient {
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization { id, version } =
             get_sui_object(&self.sui_client, self.system_object_id).await?;
-        let Some(dynamic_field_info) = self
-            .sui_client
-            .read_api()
-            .get_dynamic_fields(self.system_object_id, None, None)
-            .await?
-            .data
-            .into_iter()
-            .next()
-        else {
-            return Err(anyhow!("system object does not have a dynamic field").into());
-        };
+        let inner = get_dynamic_field_object::<u64, SystemStateInnerV1>(
+            &self.sui_client,
+            self.system_object_id,
+            TypeTag::U64,
+            version,
+        )
+        .await?;
 
-        let inner = get_sui_object(&self.sui_client, dynamic_field_info.object_id).await?;
         Ok(SystemObject { id, version, inner })
     }
 
     async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
         let StakingObjectForDeserialization { id, version } =
             get_sui_object(&self.sui_client, self.staking_object_id).await?;
-        let Some(dynamic_field_info) = self
-            .sui_client
-            .read_api()
-            .get_dynamic_fields(self.staking_object_id, None, None)
-            .await?
-            .data
-            .into_iter()
-            .next()
-        else {
-            return Err(anyhow!("staking object does not have a dynamic field").into());
-        };
 
-        let inner = get_sui_object(&self.sui_client, dynamic_field_info.object_id).await?;
+        let inner = get_dynamic_field_object::<u64, StakingInnerV1>(
+            &self.sui_client,
+            self.staking_object_id,
+            TypeTag::U64,
+            version,
+        )
+        .await?;
         Ok(StakingObject { id, version, inner })
     }
 
