@@ -12,7 +12,7 @@ use std::{
 use anyhow::{anyhow, bail};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
-use sui_rest_api::Client;
+use sui_rpc_api::Client;
 use sui_sdk::{
     rpc_types::{SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
     SuiClient,
