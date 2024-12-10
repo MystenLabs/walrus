@@ -134,8 +134,8 @@ public(package) fun to_vec_map(self: &BlsCommittee): VecMap<ID, u16> {
 
 /// Verifies that a message is signed by a quorum of the members of a committee.
 ///
-/// The signers are listed as indices into the `members` vector of the committee
-/// in increasing order and with no repetitions.
+/// The signers are given as a bitmap for the indices into the `members` vector of
+/// the committee.
 ///
 /// If the signers form a quorum and the signature is valid, the function returns
 /// a new `CertifiedMessage` with the message, the epoch, and the total stake of
@@ -163,9 +163,8 @@ public(package) fun is_quorum(self: &BlsCommittee, weight: u16): bool {
 
 /// Verifies that a message is signed by at least one correct node of a committee.
 ///
-/// The signers are listed as indices into the `members` vector of the committee
-/// in increasing order and with no repetitions.
-///
+/// The signers are given as a bitmap for the indices into the `members` vector of
+/// the committee.
 /// If the signers include at least one correct node and the signature is valid,
 /// the function returns a new `CertifiedMessage` with the message, the epoch,
 /// and the total stake of the signers. Otherwise, it aborts with an error.
