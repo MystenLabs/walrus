@@ -6,7 +6,7 @@ module walrus::bls_tests;
 
 use sui::bls12381::{Self, g1_to_uncompressed_g1};
 use walrus::{
-    bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate},
+    bls_aggregate::{Self, BlsCommittee, new_bls_committee},
     messages,
     test_utils::{
         bls_aggregate_sigs,
@@ -22,7 +22,7 @@ public fun test_check_aggregate() {
     let (committee, agg_sig, signers, message) = create_committee_and_cert(option::none());
 
     // Verify the aggregate signature
-    committee.verify_certificate(
+    committee.verify_certificate_and_quorum(
         &agg_sig,
         &signers,
         &message,
@@ -40,7 +40,7 @@ public fun test_add_members_error() {
     other_signers.push_back(signers[1]);
 
     // Verify the aggregate signature with the new, modified set of signers. Test fails here.
-    committee.verify_certificate(
+    committee.verify_certificate_and_quorum(
         &agg_sig,
         &other_signers,
         &message,
@@ -55,7 +55,7 @@ public fun test_incorrect_signature_error() {
     agg_sig.swap(0, 1);
 
     // Verify the aggregate signature with wrong signature. Test fails here.
-    committee.verify_certificate(
+    committee.verify_certificate_and_quorum(
         &agg_sig,
         &signers,
         &message,
@@ -70,7 +70,7 @@ public fun test_incorrect_stake_error() {
     );
 
     // Verify the aggregate signature with insufficient weight. Test fails here.
-    committee.verify_certificate(
+    committee.verify_certificate_and_quorum(
         &agg_sig,
         &signers,
         &message,

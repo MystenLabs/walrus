@@ -178,7 +178,7 @@ public(package) fun invalidate_blob_id(
 ): u256 {
     let certified_message = self
         .committee
-        .verify_quorum_in_epoch(
+        .verify_one_correct_node_in_epoch(
             signature,
             members_bitmap,
             message,
@@ -392,7 +392,7 @@ public(package) fun certify_event_blob(
     self.event_blob_certification_state.start_tracking_blob(blob_id);
     let weight = self.committee().get_member_weight(&cap.node_id());
     let agg_weight = self.event_blob_certification_state.update_aggregate_weight(blob_id, weight);
-    let certified = self.committee().verify_quorum(agg_weight);
+    let certified = self.committee().is_quorum(agg_weight);
     if (!certified) {
         return
     };

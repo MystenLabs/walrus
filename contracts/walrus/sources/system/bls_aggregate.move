@@ -35,6 +35,11 @@ public struct BlsCommittee has copy, drop, store {
     total_aggregated_key: Element<G1>,
 }
 
+public enum WeightVerificationType {
+    Quorum,
+    OneCorrectNode,
+}
+
 /// Constructor for committee.
 public(package) fun new_bls_committee(
     epoch: u32,
@@ -142,26 +147,59 @@ public(package) fun verify_quorum_in_epoch(
         &signature,
         &signers_bitmap,
         &message,
+        WeightVerificationType::Quorum,
     );
 
     messages::new_certified_message(message, self.epoch, stake_support)
 }
 
 /// Returns true if the weight is more than the aggregate weight of quorum members of a committee.
-public(package) fun verify_quorum(self: &BlsCommittee, weight: u16): bool {
+public(package) fun is_quorum(self: &BlsCommittee, weight: u16): bool {
     3 * (weight as u64) >= 2 * (self.n_shards as u64) + 1
+}
+
+/// Verifies that a message is signed by at least one correct node of a committee.
+///
+/// The signers are listed as indices into the `members` vector of the committee
+/// in increasing
+/// order and with no repetitions. The total weight of the signers (i.e. total
+/// number of shards)
+/// is returned, but if the weight is insufficient to ensure that at least one
+/// correct node contributed the function aborts with an error.
+public(package) fun verify_one_correct_node_in_epoch(
+    self: &BlsCommittee,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+): CertifiedMessage {
+    let stake_support = self.verify_certificate(
+        &signature,
+        &signers_bitmap,
+        &message,
+        WeightVerificationType::OneCorrectNode,
+    );
+
+    messages::new_certified_message(message, self.epoch, stake_support)
+}
+
+/// Returns true if the weight is enough to ensure that at least one honest node contributed.
+public(package) fun includes_one_correct_node(self: &BlsCommittee, weight: u16): bool {
+    3 * (weight as u64) >= self.n_shards as u64 + 1
 }
 
 /// Verify an aggregate BLS signature is a certificate in the epoch, and return
 /// the type of certificate and the bytes certified.
 /// The `signers_bitmap` is a bitmap of the indices of the signers in the committee.
+/// The `weight_verification_type` is the type of weight verification to perform,
+/// either check that the signers forms a quorum or includes at least one correct node.
 /// If there is a certificate, the function returns the total stake.
 /// Otherwise, it aborts.
-public(package) fun verify_certificate(
+fun verify_certificate(
     self: &BlsCommittee,
     signature: &vector<u8>,
     signers_bitmap: &vector<u8>,
     message: &vector<u8>,
+    weight_verification_type: WeightVerificationType,
 ): u16 {
     // Use the signers flags to construct the key and the weights.
 
@@ -197,7 +235,16 @@ public(package) fun verify_certificate(
     });
 
     let aggregate_weight = self.n_shards - non_signer_aggregate_weight;
-    assert!(self.verify_quorum(aggregate_weight), ENotEnoughStake);
+    match (weight_verification_type) {
+        WeightVerificationType::Quorum => assert!(
+            self.is_quorum(aggregate_weight),
+            ENotEnoughStake,
+        ),
+        WeightVerificationType::OneCorrectNode => assert!(
+            self.includes_one_correct_node(aggregate_weight),
+            ENotEnoughStake,
+        ),
+    };
 
     // Compute the aggregate public key as the difference between the total
     // aggregated key and the sum of the non-signer public keys.
@@ -226,4 +273,29 @@ public(package) fun verify_certificate(
 /// Increments the committee epoch by one.
 public fun increment_epoch_for_testing(self: &mut BlsCommittee) {
     self.epoch = self.epoch + 1;
+}
+
+#[test_only]
+public fun verify_certificate_and_quorum(
+    self: &BlsCommittee,
+    signature: &vector<u8>,
+    signers_bitmap: &vector<u8>,
+    message: &vector<u8>,
+): u16 {
+    self.verify_certificate(signature, signers_bitmap, message, WeightVerificationType::Quorum)
+}
+
+#[test_only]
+public fun verify_certificate_and_one_correct_node(
+    self: &BlsCommittee,
+    signature: &vector<u8>,
+    signers_bitmap: &vector<u8>,
+    message: &vector<u8>,
+): u16 {
+    self.verify_certificate(
+        signature,
+        signers_bitmap,
+        message,
+        WeightVerificationType::OneCorrectNode,
+    )
 }
