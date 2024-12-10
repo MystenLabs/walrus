@@ -11419,7 +11419,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-core"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -11439,7 +11439,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-e2e-tests"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "prometheus",
@@ -11461,7 +11461,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-orchestrator"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "aws-config",
  "aws-runtime",
@@ -11489,7 +11489,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proc-macros"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "quote 1.0.37",
  "sui-macros",
@@ -11498,7 +11498,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -11533,7 +11533,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sdk"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "axum",
  "axum-server 0.7.1",
@@ -11563,7 +11563,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-service"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -11640,7 +11640,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-simtest"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "futures",
@@ -11662,7 +11662,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-stress"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -11682,7 +11682,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sui"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "bcs",
@@ -11718,7 +11718,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-test-utils"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "rand 0.8.5",
  "tempfile",
@@ -11727,7 +11727,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-utils"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "anyhow",
  "async-channel",
