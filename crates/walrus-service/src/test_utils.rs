@@ -2026,7 +2026,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 
 async fn wait_for_event_processor_to_start(
     event_processor: EventProcessor,
-    client: sui_rest_api::Client,
+    client: sui_rpc_api::Client,
 ) -> anyhow::Result<()> {
     // Wait until event processor is actually running and downloaded a few checkpoints
     tokio::time::sleep(Duration::from_secs(5)).await;

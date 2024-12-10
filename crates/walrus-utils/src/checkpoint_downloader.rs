@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use sui_rest_api::{client::sdk, Client};
+use sui_rpc_api::{client::sdk, Client};
 use sui_types::{
     full_checkpoint_content::CheckpointData,
     messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint},
@@ -610,7 +610,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
-        let client = Client::new("http://localhost:9000");
+        let client = Client::new("http://localhost:9000")?;
         let parallel_config = ParallelDownloaderConfig {
             min_retries: 10,
             initial_delay: Duration::from_millis(250),
