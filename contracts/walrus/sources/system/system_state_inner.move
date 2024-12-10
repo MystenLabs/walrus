@@ -4,6 +4,8 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
+use std::debug;
+
 use sui::{balance::Balance, coin::Coin};
 use wal::wal::WAL;
 use walrus::{
@@ -350,8 +352,10 @@ public(package) fun certify_event_blob(
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
 
     let cap_attestion = cap.last_event_blob_attestation();
+    
     if (cap_attestion.is_some()) {
         let attestation = cap_attestion.destroy_some();
+        // latest attestation from current node was either from old epoch or for old cp
         assert!(
             attestation.last_attested_event_blob_epoch() < self.epoch() ||
                 ending_checkpoint_sequence_num >
@@ -361,8 +365,10 @@ public(package) fun certify_event_blob(
         let latest_certified_checkpoint_seq_num = self
             .event_blob_certification_state
             .get_latest_certified_checkpoint_sequence_number();
+        // if started new epoch, check that last attestation was from old epoch
+        // else, check that last attestation was either from old epoch or for cp that was certified
         if (latest_certified_checkpoint_seq_num.is_some()) {
-            let certified_checkpoint_seq_num = latest_certified_checkpoint_seq_num.destroy_some();
+            let certified_checkpoint_seq_num = latest_certified_checkpoint_seq_num.destroy_some();            
             assert!(
                 attestation.last_attested_event_blob_epoch() < self.epoch() ||
                     attestation.last_attested_event_blob_checkpoint_seq_num()

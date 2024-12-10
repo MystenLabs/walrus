@@ -6,6 +6,8 @@ module walrus::event_blob;
 
 use sui::vec_map::{Self, VecMap};
 
+use std::debug;
+
 // === Definitions related to event blob certification ===
 
 /// Event blob index which was attested by a storage node.
@@ -141,6 +143,8 @@ public(package) fun start_tracking_blob(self: &mut EventBlobCertificationState, 
     if (!self.aggregate_weight_per_blob.contains(&blob_id)) {
         self.aggregate_weight_per_blob.insert(blob_id, 0);
     };
+    debug::print(&321321); // marker
+    debug::print(&self.aggregate_weight_per_blob.size()); // should remain small
 }
 
 /// Stop tracking nodes for the given blob id

