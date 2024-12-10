@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
@@ -33,7 +33,9 @@ use sui_sdk::{
 use sui_types::{
     base_types::{ObjectRef, ObjectType, SuiAddress},
     crypto::SignatureScheme,
+    dynamic_field::derive_dynamic_field_id,
     transaction::{ProgrammableTransaction, TransactionData},
+    TypeTag,
 };
 use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
@@ -44,9 +46,9 @@ use walrus_core::{
 };
 
 use crate::{
-    client::{SuiClientResult, SuiContractClient},
+    client::{SuiClientError, SuiClientResult, SuiContractClient},
     contracts::AssociatedContractStruct,
-    types::NodeRegistrationParams,
+    types::{move_structs::SuiDynamicField, NodeRegistrationParams},
 };
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
@@ -148,6 +150,30 @@ where
             )
             .await?,
     )
+}
+
+pub(crate) async fn get_dynamic_field_object<K, V>(
+    sui_client: &SuiClient,
+    parent: ObjectID,
+    key_type: TypeTag,
+    key: K,
+) -> SuiClientResult<V>
+where
+    V: AssociatedContractStruct,
+    K: DeserializeOwned + Serialize,
+{
+    let key_tag = key_type.to_canonical_string(true);
+    let object_id = derive_dynamic_field_id(
+        parent,
+        &TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
+            .expect("valid type tag"),
+        &bcs::to_bytes(&key).expect("key should be serializable"),
+    )
+    .map_err(|err| SuiClientError::Internal(err.into()))?;
+
+    let field: SuiDynamicField<K, ObjectID> = get_sui_object(sui_client, object_id).await?;
+    let inner = get_sui_object(sui_client, field.value).await?;
+    Ok(inner)
 }
 
 pub(crate) fn get_sui_object_from_object_response<U>(
