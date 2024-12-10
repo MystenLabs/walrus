@@ -27,7 +27,7 @@ use sui_package_resolver::{
     PackageStoreWithLruCache,
     Resolver,
 };
-use sui_rest_api::Client;
+use sui_rpc_api::Client;
 use sui_sdk::{rpc_types::SuiEvent, SuiClientBuilder};
 use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
@@ -460,7 +460,7 @@ impl EventProcessor {
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         // return a new CheckpointProcessor
-        let client = Client::new(&config.rest_url);
+        let client = Client::new(&config.rest_url)?;
 
         // Fail with an error if experimental rest endpoint does not exist
         // as we need it to get the full checkpoint
@@ -730,7 +730,7 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let client = Client::new("http://localhost:8080");
+        let client = Client::new("http://localhost:8080")?;
         let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
             client.clone(),

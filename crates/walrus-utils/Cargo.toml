@@ -18,8 +18,8 @@ reqwest.workspace = true
 rocksdb.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-sui-rest-api.workspace = true
-sui-types = { workspace = true, features = ["test-utils"] }
+sui-rpc-api.workspace = true
+sui-types.workspace = true
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util.workspace = true
