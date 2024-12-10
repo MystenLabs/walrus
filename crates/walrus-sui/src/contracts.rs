@@ -323,3 +323,10 @@ pub mod wal_exchange {
     contract_ident!(fn wal_exchange::exchange_all_for_sui, 1);
     contract_ident!(fn wal_exchange::exchange_for_sui, 1);
 }
+
+/// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.
+pub mod dynamic_field {
+    use super::*;
+
+    contract_ident!(struct dynamic_field::Field);
+}
