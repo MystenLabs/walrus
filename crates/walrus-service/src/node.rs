@@ -3821,7 +3821,7 @@ mod tests {
 
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
-            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst)?;
+            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst, &[])?;
 
             Ok(())
         }
@@ -3849,7 +3849,7 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // All blobs should be recovered in the new dst node.
-            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst)?;
+            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst, &[])?;
 
             Ok(())
         }
