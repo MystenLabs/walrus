@@ -22,7 +22,7 @@ public fun test_check_aggregate() {
     let (committee, agg_sig, signers, message) = create_committee_and_cert(option::none());
 
     // Verify the aggregate signature
-    committee.verify_certificate_and_quorum(
+    committee.verify_certificate(
         &agg_sig,
         &signers,
         &message,
@@ -40,7 +40,7 @@ public fun test_add_members_error() {
     other_signers.push_back(signers[1]);
 
     // Verify the aggregate signature with the new, modified set of signers. Test fails here.
-    committee.verify_certificate_and_quorum(
+    committee.verify_certificate(
         &agg_sig,
         &other_signers,
         &message,
@@ -55,7 +55,7 @@ public fun test_incorrect_signature_error() {
     agg_sig.swap(0, 1);
 
     // Verify the aggregate signature with wrong signature. Test fails here.
-    committee.verify_certificate_and_quorum(
+    committee.verify_certificate(
         &agg_sig,
         &signers,
         &message,
@@ -70,7 +70,7 @@ public fun test_incorrect_stake_error() {
     );
 
     // Verify the aggregate signature with insufficient weight. Test fails here.
-    committee.verify_certificate_and_quorum(
+    committee.verify_certificate(
         &agg_sig,
         &signers,
         &message,
