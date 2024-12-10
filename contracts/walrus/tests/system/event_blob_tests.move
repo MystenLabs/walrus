@@ -344,7 +344,7 @@ public fun block_blob_events() {
         let bad_blob_id = blob::derive_blob_id(hash, RED_STUFF, SIZE);    
         
         let bad_cp = 100*(i as u64) + 1;
-        // next should never be certified...
+        // unique blob id per call -> fill up aggregate_weight_per_blob        
         system.certify_event_blob(
             nodes.borrow_mut(9).cap_mut(),
             bad_blob_id,
