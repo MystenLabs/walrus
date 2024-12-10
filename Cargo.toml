@@ -49,8 +49,8 @@ integer-encoding = "4.0.2"
 itertools = "0.13.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
 num-bigint = { version = "0.4.5", default-features = false }
 opentelemetry = { version = "=0.25.0", default-features = false, features = ["trace"] }
 p256 = "0.13.2"
@@ -72,22 +72,22 @@ serde_test = "1.0.177"
 serde_with = { version = "3.11", features = ["base64"] }
 serde_yaml = "0.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
+sui-config = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
+sui-types = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
 syn = "2.0"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
 tempfile = "3.14.0"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
+test-cluster = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
 thiserror = "2.0.3"
 tokio = { version = "=1.38.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.16"
@@ -97,7 +97,7 @@ tower-http = { version = "0.5.2", features = ["timeout", "trace"] }
 tracing = "0.1.40"
 tracing-opentelemetry = { version = "0.26", default-features = false }
 tracing-subscriber = { version = "0.3.18", default-features = false, features = ["fmt"] }
-typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.0" }
+typed-store = { git = "https://github.com/MystenLabs/sui", rev = "014af2a0c6d15b57b103385e35cedba94ec29f92" }
 url = "2.5.4"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
