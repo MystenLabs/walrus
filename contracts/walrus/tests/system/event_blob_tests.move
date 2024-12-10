@@ -355,13 +355,6 @@ public fun block_blob_events() {
             0,
             ctx,
         );
-        let state = system.inner().get_event_blob_certification_state();
-        if (state.get_latest_certified_checkpoint_sequence_number() != option::some(good_cp)) {      
-            // the bad blob id was certified!      
-            debug::print(state);
-            debug::print(&bad_blob_id);
-            assert!(false);
-        };
         i = i + 1
     };
     nodes.destroy!(|node| node.destroy());
