@@ -6,7 +6,7 @@
 /// priorities are equal.
 module walrus::apportionment_queue;
 
-use walrus::uq64_64::UQ64_64;
+use std::uq64_64::UQ64_64;
 
 /// Error code for popping from an empty heap.
 const EPopFromEmptyHeap: u64 = 0;
@@ -93,12 +93,12 @@ fun bubble_up<T>(elements: &mut vector<Entry<T>>) {
 }
 
 fun higher_priority_than<T>(entry1: &Entry<T>, entry2: &Entry<T>): bool {
-    (entry1.priority.gt(&entry2.priority)) ||
+    (entry1.priority.gt(entry2.priority)) ||
         (entry1.priority == entry2.priority && entry1.tie_breaker > entry2.tie_breaker)
 }
 
 #[test_only]
-use walrus::uq64_64;
+use std::uq64_64;
 
 #[test_only]
 public fun new_filled<T>(

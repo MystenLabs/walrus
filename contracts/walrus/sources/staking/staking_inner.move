@@ -445,8 +445,7 @@ fun dhondt(
     n_shards: u16,
     stake: vector<u64>,
 ): vector<u16> {
-    // TODO: replace this once we have a higher resolution fixed point number in the stdlib (#835)
-    use walrus::uq64_64;
+    use std::uq64_64;
     use walrus::apportionment_queue;
 
     let total_stake = stake.fold!(0, |acc, x| acc + x);
@@ -466,7 +465,7 @@ fun dhondt(
     // Set up quotients priority queue.
     let mut quotients = apportionment_queue::new();
     n_nodes.do!(|index| {
-        let quotient = uq64_64::from_quotient(stake[index], shards[index] + 1);
+        let quotient = uq64_64::from_quotient(stake[index] as u128, shards[index] as u128 + 1);
         quotients.insert(quotient, node_priorities[index], index);
     });
 
@@ -478,7 +477,7 @@ fun dhondt(
         // quotient.
         let (_quotient, tie_breaker, index) = quotients.pop_max();
         *&mut shards[index] = shards[index] + 1;
-        let quotient = uq64_64::from_quotient(stake[index], shards[index] + 1);
+        let quotient = uq64_64::from_quotient(stake[index] as u128, shards[index] as u128 + 1);
         quotients.insert(quotient, tie_breaker, index);
         n_shards_distributed = n_shards_distributed + 1;
     };
