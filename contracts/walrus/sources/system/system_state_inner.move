@@ -362,11 +362,11 @@ public(package) fun certify_event_blob(
             .event_blob_certification_state
             .get_latest_certified_checkpoint_sequence_number();
         if (latest_certified_checkpoint_seq_num.is_some()) {
-            let certified_checkpoint_seq_num = latest_certified_checkpoint_seq_num.destroy_some();
+            let latest_certified_checkpoint_seq_num = latest_certified_checkpoint_seq_num.destroy_some();
             assert!(
                 attestation.last_attested_event_blob_epoch() < self.epoch() ||
                     attestation.last_attested_event_blob_checkpoint_seq_num()
-                        <= certified_checkpoint_seq_num,
+                        <= latest_certified_checkpoint_seq_num, // [ben] not > ?
                 EIncorrectAttestation,
             );
         } else {
@@ -389,6 +389,9 @@ public(package) fun certify_event_blob(
         return
     };
 
+    // [ben] event_blob_certification_state is internally a vector, and a node
+    // can add to it as many blob ids as it wants, no? preventing valid blob ids from being added
+    // confirm with a test
     self.event_blob_certification_state.start_tracking_blob(blob_id);
     let weight = self.committee().get_member_weight(&cap.node_id());
     let agg_weight = self.event_blob_certification_state.update_aggregate_weight(blob_id, weight);

@@ -84,8 +84,7 @@ public struct StakingInnerV1 has key, store {
     /// The current epoch of the Walrus system. The epochs are not the same as
     /// the Sui epochs, not to be mistaken with `ctx.epoch()`.
     epoch: u32,
-    /// Stores the active set of storage nodes. Provides automatic sorting and
-    /// tracks the total amount of staked WAL.
+    /// Stores the active set of storage nodes. Tracks the total amount of staked WAL.
     active_set: ActiveSet,
     /// The next committee in the system.
     next_committee: Option<Committee>,
@@ -234,6 +233,7 @@ public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
         write_prices.insert(pool.write_price(), weight);
         storage_prices.insert(pool.storage_price(), weight);
         // The vote for capacity is determined by the node capacity and number of assigned shards.
+        // [ben] i don't follow this comment. also, why divide here by the "fixed" n_shards?
         let capacity_vote = pool.node_capacity() / weight * (self.n_shards as u64);
         capacity_votes.insert(capacity_vote, weight);
     });

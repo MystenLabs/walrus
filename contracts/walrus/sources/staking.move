@@ -52,6 +52,8 @@ public(package) fun create(
 // === Public API: Storage Node ===
 
 /// Creates a staking pool for the candidate, registers the candidate as a storage node.
+// [ben] anyone can register a candidate with any name and network address - are we worried 
+// about impersonation (i.e., use mysten-labs as a name even though there is another node with the same name)?
 public fun register_candidate(
     staking: &mut Staking,
     // node info
@@ -82,6 +84,7 @@ public fun register_candidate(
         ctx,
     );
 
+    // Switch the commission receiver from the sender (default) to the cap.
     let cap = storage_node::new_cap(node_id, ctx);
     let receiver = commission::receiver_object(object::id(&cap));
     staking_mut.set_commission_receiver(node_id, commission::auth_as_sender(ctx), receiver);
@@ -161,6 +164,7 @@ public fun set_next_public_key(
 }
 
 /// Sets the name of a storage node.
+// [ben] as above, aren't we worried about impersonation?
 public fun set_name(self: &mut Staking, cap: &StorageNodeCap, name: String) {
     self.inner_mut().set_name(cap, name);
 }

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Contains an active set of storage nodes. The active set is a smart collection
-/// that only stores up to a 1000 nodes. The nodes are sorted by the amount of
-/// staked WAL. Additionally, the active set tracks the total amount of staked
+/// that only stores up to a 1000 nodes. The active set tracks the total amount of staked
 /// WAL to make the calculation of the rewards and voting power distribution easier.
 ///
 /// TODOs:
@@ -23,7 +22,7 @@ public struct ActiveSetEntry has copy, drop, store {
 }
 
 /// The active set of storage nodes, a smart collection that only stores up
-/// to a 1000 nodes. The nodes are sorted by the amount of staked WAL.
+/// to a 1000 nodes.
 /// Additionally, the active set tracks the total amount of staked WAL to make
 /// the calculation of the rewards and voting power distribution easier.
 ///

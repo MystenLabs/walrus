@@ -46,6 +46,7 @@ public(package) fun write_price(self: &EpochParams): u64 {
 
 // === Test only ===
 
+#[test_only]
 public fun epoch_params_for_testing(): EpochParams {
     EpochParams {
         total_capacity_size: 1_000_000_000,

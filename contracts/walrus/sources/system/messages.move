@@ -83,8 +83,8 @@ public(package) fun verify_proof_of_possession(
 public struct CertifiedMessage has drop {
     intent_type: u8,
     intent_version: u8,
-    cert_epoch: u32,
-    stake_support: u16,
+    cert_epoch: u32, 
+    stake_support: u16, // [ben] it's confusing that it's not part of the cert, maybe metadata_stake_support and put this field last?
     message: vector<u8>,
 }
 

@@ -29,22 +29,33 @@ public(package) fun new(wal_amount: u64, pool_token_amount: u64): PoolExchangeRa
     }
 }
 
+/// Assumptions:
+/// - token_amount is at most the amount of pool tokens in the pool
 public(package) fun get_wal_amount(exchange_rate: &PoolExchangeRate, token_amount: u64): u64 {
     // When either amount is 0, that means we have no stakes with this pool.
     // The other amount might be non-zero when there's dust left in the pool.
+
+    // [ben] when can pool_token_amount = 0 but not wal_amount?
+    // [ben] assuming we only care about wal_amount = 0, should we use an enum to be more explicit?
+    // [ben] if wal_amount=0, why should we return token_amount here?
     if (exchange_rate.wal_amount == 0 || exchange_rate.pool_token_amount == 0) {
         return token_amount
     };
 
+    
     let token_amount = (token_amount as u128);
     let res = token_amount * exchange_rate.wal_amount / exchange_rate.pool_token_amount;
 
     res as u64
 }
 
+/// Assumptions:
+/// - wal_amount is at most the amount of WAL in the pool
 public(package) fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amount: u64): u64 {
     // When either amount is 0, that means we have no stakes with this pool.
     // The other amount might be non-zero when there's dust left in the pool.
+
+    // [ben] same questions as above
     if (exchange_rate.wal_amount == 0 || exchange_rate.pool_token_amount == 0) {
         return wal_amount
     };

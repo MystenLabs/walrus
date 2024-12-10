@@ -65,38 +65,30 @@ public fun test_event_blob_certify_repeated_attestation() {
     let mut nodes = test_nodes();
     set_storage_node_caps(&system, ctx, &mut nodes);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
-    let mut index = 0;
-    while (index < 10) {
-        // Every node is going to attest the blob twice but their
-        // votes are only going to be counted once
-        system.certify_event_blob(
-            nodes.borrow_mut(index).cap_mut(),
-            blob_id,
-            ROOT_HASH,
-            SIZE,
-            RED_STUFF,
-            100,
-            0,
-            ctx,
-        );
-        system.certify_event_blob(
-            nodes.borrow_mut(index).cap_mut(),
-            blob_id,
-            ROOT_HASH,
-            SIZE,
-            RED_STUFF,
-            100,
-            0,
-            ctx,
-        );
-        let state = system.inner().get_event_blob_certification_state();
-        if (index < 6) {
-            assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
-        } else {
-            assert!(state.get_latest_certified_checkpoint_sequence_number().is_some());
-        };
-        index = index + 1
-    };
+
+    system.certify_event_blob(
+        nodes.borrow_mut(0).cap_mut(),
+        blob_id,
+        ROOT_HASH,
+        SIZE,
+        RED_STUFF,
+        100,
+        0,
+        ctx,
+    );
+
+    // Second attestation should fail
+    system.certify_event_blob(
+        nodes.borrow_mut(0).cap_mut(),
+        blob_id,
+        ROOT_HASH,
+        SIZE,
+        RED_STUFF,
+        100,
+        0,
+        ctx,
+    );
+
     nodes.destroy!(|node| node.destroy());
     destroy(system);
 }

@@ -308,7 +308,7 @@ public(package) fun withdraw_stake(
 
     assert!(staked_wal.is_withdrawing(), ENotWithdrawing);
     assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
-    assert!(staked_wal.activation_epoch() <= wctx.epoch(), EActivationEpochNotReached);
+    assert!(activation_epoch <= wctx.epoch(), EActivationEpochNotReached);
 
     // token amount is either set in the `StakedWal` or, in case of the early
     // withdrawal, is calculated from the principal amount and the exchange rate
@@ -359,8 +359,10 @@ public(package) fun advance_epoch(
 
     // split the commission from the rewards
     let total_rewards = rewards.value();
+    // [ben] why do we update commission_rate before this line? shouldn't it be for the next epoch?
     let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / 100_00);
-
+    pool.commission.join(commission);
+    
     // add rewards to the pool and update the `wal_balance`
     let rewards_amount = rewards.value();
     pool.rewards_pool.join(rewards);
@@ -369,8 +371,7 @@ public(package) fun advance_epoch(
     pool.node_info.rotate_public_key();
 
     // perform stake deduction / addition for the current epoch - wctx.epoch()
-    pool.process_pending_stake(wctx);
-    pool.commission.join(commission);
+    pool.process_pending_stake(wctx);    
 }
 
 /// Process the pending stake and withdrawal requests for the pool. Called in the
@@ -510,6 +511,7 @@ public(package) fun destroy_empty(pool: StakingPool) {
 /// Returns the exchange rate for the given current or future epoch. If there
 /// isn't a value for the specified epoch, it will look for the most recent
 /// value down to the pool activation epoch.
+// [ben] i don't see why we fallback to the most recent rate, and it's only confusing this way
 public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): PoolExchangeRate {
     let activation_epoch = pool.activation_epoch;
     while (epoch >= activation_epoch) {
@@ -519,7 +521,7 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
         epoch = epoch - 1;
     };
 
-    pool_exchange_rate::empty()
+    pool_exchange_rate::empty() // [ben] why not assert? this should never happen, no?
 }
 
 /// Returns the expected active stake for current or future epoch `E` for the pool.

@@ -8,6 +8,7 @@ module walrus::storage_resource;
 const EInvalidEpoch: u64 = 0;
 const EIncompatibleEpochs: u64 = 1;
 const EIncompatibleAmount: u64 = 2;
+const EInvalidEpochRange: u64 = 3;
 
 /// Reservation for storage for a given period, which is inclusive start, exclusive end.
 public struct Storage has key, store {
@@ -40,6 +41,7 @@ public(package) fun create_storage(
     storage_size: u64,
     ctx: &mut TxContext,
 ): Storage {
+    assert!(start_epoch < end_epoch, EInvalidEpochRange);
     Storage { id: object::new(ctx), start_epoch, end_epoch, storage_size }
 }
 
@@ -52,8 +54,8 @@ public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u32) 
 ///
 /// `storage` is modified to cover the period from `start_epoch` to `split_epoch`
 /// and a new storage object covering `split_epoch` to `end_epoch` is returned.
-public fun split_by_epoch(storage: &mut Storage, split_epoch: u32, ctx: &mut TxContext): Storage {
-    assert!(split_epoch >= storage.start_epoch && split_epoch <= storage.end_epoch, EInvalidEpoch);
+public fun split_by_epoch(storage: &mut Storage, split_epoch: u32, ctx: &mut TxContext): Storage {    
+    assert!(split_epoch > storage.start_epoch && split_epoch < storage.end_epoch, EInvalidEpoch);
     let end_epoch = storage.end_epoch;
     storage.end_epoch = split_epoch;
     Storage {

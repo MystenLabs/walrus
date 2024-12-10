@@ -18,6 +18,7 @@ public struct BlobRegistered has copy, drop {
     end_epoch: u32,
     deletable: bool,
     // The object id of the related `Blob` object
+    // [ben] why is this needed? if only for ref, document the reason
     object_id: ID,
 }
 

@@ -17,6 +17,8 @@ const ESigVerification: u64 = 1;
 const ENotEnoughStake: u64 = 2;
 const EIncorrectCommittee: u64 = 3;
 
+// [ben] why copy is needed in the next 2 structs?
+
 public struct BlsCommitteeMember has copy, drop, store {
     public_key: Element<UncompressedG1>,
     weight: u16,

@@ -18,6 +18,9 @@ public(package) fun empty(): Committee { Committee(vec_map::empty()) }
 
 /// Initializes the committee with the given `assigned_number` of shards per
 /// node. Shards are assigned sequentially to each node.
+/// 
+/// Assumptions:
+/// - The values of assigned_number are <= 1000 (i.e., the limit of a vector)
 public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
     let mut shard_idx: u16 = 0;
     let (keys, values) = assigned_number.into_keys_values();
@@ -39,6 +42,7 @@ public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
 ///
 /// This assumes that the number of shards in the new committee is equal to the
 /// number of shards in the current committee. Check for this is not performed.
+// [ben] why it's not checked?
 public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, u16>): Committee {
     let mut new_cmt = vec_map::empty();
     let mut to_move = vector[];
@@ -77,20 +81,9 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
             new_cmt.insert(node_id, node_shards);
         };
 
-        // if the node is in the new committee, and we already freed enough
-        // shards from other nodes, perform the reassignment. Alternatively,
-        // mark the node as needing more shards, so when we free up enough
-        // shards, we can assign them to this node
-        if (curr_len < assigned_len) {
-            let diff = assigned_len - curr_len;
-            if (to_move.length() >= diff) {
-                let mut node_shards = *prev_shards;
-                diff.do!(|_| node_shards.push_back(to_move.pop_back()));
-                new_cmt.insert(node_id, node_shards);
-            } else {
-                // insert it back, we didn't have enough shards to assign
-                new_assignments.insert(node_id, assigned_len as u16);
-            };
+        // Mark the node as needing more shards.
+        if (curr_len < assigned_len) {            
+            new_assignments.insert(node_id, assigned_len as u16);
         };
     });
 
