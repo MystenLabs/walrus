@@ -197,7 +197,7 @@ fn generate_move_error_from_impl(module_error_defs: &[ModuleErrorDefs]) -> Strin
     code.push_str("            _ => Ok(Self::OtherMoveModule(error)),\n");
 
     code.push_str("        }\n");
-    code.push_str("        .unwrap_or_else(|e| Self::OtherMoveModule(e.0))\n");
+    code.push_str("        .unwrap_or_else(|e: ConversionError| Self::OtherMoveModule(e.0))\n");
     code.push_str("    }\n");
     code.push_str("}\n\n");
 
