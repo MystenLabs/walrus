@@ -40,7 +40,6 @@ public(package) fun new(
     network_public_key: vector<u8>,
 ): StorageNodeInfo {
     assert!(network_public_key.length() == 33, EInvalidNetworkPublicKey);
-    // [ben] maybe let's check that network_address starts with https://?
     StorageNodeInfo {
         node_id,
         name,

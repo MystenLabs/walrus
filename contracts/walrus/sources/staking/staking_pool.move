@@ -512,7 +512,8 @@ public(package) fun destroy_empty(pool: StakingPool) {
 /// Returns the exchange rate for the given current or future epoch. If there
 /// isn't a value for the specified epoch, it will look for the most recent
 /// value down to the pool activation epoch.
-// [ben] i don't see why we fallback to the most recent rate, and it's only confusing this way
+/// Note that exchange rates are only set for epochs in which the node is in
+/// the committee, and otherwise the rate remains static.
 public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): PoolExchangeRate {
     let activation_epoch = pool.activation_epoch;
     while (epoch >= activation_epoch) {
@@ -522,7 +523,7 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
         epoch = epoch - 1;
     };
 
-    pool_exchange_rate::empty() // [ben] why not assert? this should never happen, no?
+    pool_exchange_rate::empty()
 }
 
 /// Returns the expected active stake for current or future epoch `E` for the pool.

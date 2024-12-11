@@ -54,7 +54,6 @@ public(package) fun get_token_amount(exchange_rate: &PoolExchangeRate, wal_amoun
     // When either amount is 0, that means we have no stakes with this pool.
     // The other amount might be non-zero when there's dust left in the pool.
 
-    // [ben] same questions as above
     if (exchange_rate.wal_amount == 0 || exchange_rate.pool_token_amount == 0) {
         return wal_amount
     };
