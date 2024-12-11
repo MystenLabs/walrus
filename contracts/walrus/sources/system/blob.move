@@ -147,7 +147,7 @@ public(package) fun new(
     assert!(encoded_size <= storage.storage_size(), EResourceSize);
 
     // Cryptographically verify that the Blob ID authenticates
-    // both the size and fe_type (sanity check).
+    // both the size and encoding_type (sanity check).
     assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
     // Emit register event
