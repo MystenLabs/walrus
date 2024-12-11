@@ -211,7 +211,6 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
         // If the staked WAL is withdrawing, we need to perform pool token amount
         // calculation based on the amount being split. Needn't worry about the
         // rounding errors as the value is always subtracted from the principal.
-
         // TODO: disable split during withdraw.
         StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount } => {
             // reclaculate the pool token amount if it is set, otherwise ignore
