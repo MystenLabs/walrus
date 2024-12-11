@@ -594,7 +594,9 @@ fn handle_checkpoint_error(err: Option<&sdk::Error>, next_checkpoint: u64) {
             return;
         }
     }
-    tracing::warn!(next_checkpoint, ?error, "failed to read next checkpoint",);
+    // Temporarily reduce the log level to debug to avoid spamming the logs while the gRPC version
+    // of the checkpoint API does not support the checkpoint height.
+    tracing::debug!(next_checkpoint, ?error, "failed to read next checkpoint");
 }
 
 #[cfg(test)]
