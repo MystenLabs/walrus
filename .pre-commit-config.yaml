@@ -93,5 +93,5 @@ repos:
         language: node
         additional_dependencies:
           - "prettier@3.4.1"
-          - "@mysten/prettier-plugin-move@0.2.1"
+          - "@mysten/prettier-plugin-move@0.2.2"
         files: "^contracts/.*\\.move"

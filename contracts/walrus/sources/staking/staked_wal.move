@@ -182,7 +182,7 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
             StakedWalState::Withdrawing { pool_token_amount: current_pool_token_amount, .. } => {
                 current_pool_token_amount.do_mut!(|current| *current = *current + amount);
             },
-            _ => abort , // unreachable
+            _ => abort, // unreachable
         }
     });
 }
