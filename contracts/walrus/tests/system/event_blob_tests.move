@@ -216,6 +216,133 @@ public fun test_event_blob_certify_change_epoch() {
     destroy(system);
 }
 
+#[test]
+public fun test_certify_invalid_blob_id() {
+    // Setup
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing_with_multiple_members(ctx);
+    assert!(system.committee().to_vec_map().size() == 10);
+    let mut nodes = test_nodes();
+    set_storage_node_caps(&system, ctx, &mut nodes);
+
+    // Create a constant bad blob ID that will be used throughout the test
+    let bad_blob_id = blob::derive_blob_id(0xbeef, RED_STUFF, SIZE);
+
+    // Test multiple rounds of certification
+    let mut i: u256 = 0;
+    while (i < 30) {
+        // First, get 9 nodes to certify a valid blob
+        let good_blob_id = blob::derive_blob_id(i, RED_STUFF, SIZE);
+        let good_checkpoint = 100 * (i as u64);
+
+        // Get signatures from first 9 nodes
+        let mut index = 0;
+        while (index < 9) {
+            system.certify_event_blob(
+                nodes.borrow_mut(index).cap_mut(),
+                good_blob_id,
+                i,
+                SIZE,
+                RED_STUFF,
+                good_checkpoint,
+                0,
+                ctx,
+            );
+            index = index + 1
+        };
+
+        // Verify the good blob was certified
+        let state = system.inner().get_event_blob_certification_state();
+        assert!(
+            state.get_latest_certified_checkpoint_sequence_number() ==
+            option::some(good_checkpoint
+        ),
+        );
+
+        // Now try to get the 10th node to certify an invalid blob
+        let bad_checkpoint = good_checkpoint + 1;
+        system.certify_event_blob(
+            nodes.borrow_mut(9).cap_mut(),
+            bad_blob_id,
+            0xbeef,
+            SIZE,
+            RED_STUFF,
+            bad_checkpoint,
+            0,
+            ctx,
+        );
+
+        // Verify the bad blob didn't affect the certification state
+        let state = system.inner().get_event_blob_certification_state();
+        assert!(
+            state.get_latest_certified_checkpoint_sequence_number() ==
+            option::some(good_checkpoint),
+        );
+
+        i = i + 1
+    };
+    nodes.destroy!(|node| node.destroy());
+    destroy(system);
+}
+
+#[test]
+public fun test_block_blob_events() {
+    let ctx = &mut tx_context::dummy();
+    // Initialize system with 10 nodes
+    let mut system: system::System = system::new_for_testing_with_multiple_members(ctx);
+    assert!(system.committee().to_vec_map().size() == 10);
+    let mut nodes = test_nodes();
+    set_storage_node_caps(&system, ctx, &mut nodes);
+
+    let mut i: u256 = 0;
+    while (i < 30) {
+        // Derive a good blob ID and certify it
+        let good_blob_id = blob::derive_blob_id(i as u256, RED_STUFF, SIZE);
+        let good_cp = 100 * (i as u64);
+        let mut index = 0;
+        while (index < 9) {
+            system.certify_event_blob(
+                nodes.borrow_mut(index).cap_mut(),
+                good_blob_id,
+                i as u256,
+                SIZE,
+                RED_STUFF,
+                good_cp,
+                0,
+                ctx,
+            );
+            index = index + 1;
+        };
+
+        let state = system.inner().get_event_blob_certification_state();
+        assert!(state.get_latest_certified_checkpoint_sequence_number() == option::some(good_cp));
+
+        // Derive a bad blob ID and attempt to certify it
+        let hash = 2000 * (i as u256);
+        let bad_blob_id = blob::derive_blob_id(hash, RED_STUFF, SIZE);
+        let bad_cp = 100 * (i as u64) + 1;
+
+        // Unique blob ID per call to fill up aggregate_weight_per_blob
+        system.certify_event_blob(
+            nodes.borrow_mut(9).cap_mut(),
+            bad_blob_id,
+            hash,
+            SIZE,
+            RED_STUFF,
+            bad_cp,
+            0,
+            ctx,
+        );
+
+        let state = system.inner().get_event_blob_certification_state();
+        // Ensure no more than one blob is being tracked
+        assert!(state.get_num_tracked_blobs() <= 1);
+        i = i + 1;
+    };
+    nodes.destroy!(|node| node.destroy());
+    destroy(system);
+}
+
 // === Helper functions ===
 
 fun set_storage_node_caps(

@@ -63,9 +63,7 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
     let committee = bls_aggregate::new_bls_committee(0, vector[]);
     assert!(max_epochs_ahead <= MAX_MAX_EPOCHS_AHEAD, EInvalidMaxEpochsAhead);
     let future_accounting = storage_accounting::ring_new(max_epochs_ahead);
-    let event_blob_certification_state = event_blob::create_with_empty_state(
-        ctx,
-    );
+    let event_blob_certification_state = event_blob::create_with_empty_state();
     let id = object::new(ctx);
     SystemStateInnerV1 {
         id,
@@ -430,7 +428,20 @@ public(package) fun certify_event_blob(
             ending_checkpoint_sequence_num,
             blob_id,
         );
-    self.event_blob_certification_state.stop_tracking_blob(blob_id);
+    // Stop tracking all event blobs
+    // It is safe to reset the event blob certification state here for several reasons:
+    // This reset happens after a blob has been certified, so all previous attestations
+    // are no longer relevant because:
+    //  a. Each node is allowed one outstanding attestation
+    //  b. Majority of the nodes attested to the same blob ID at checkpoint X (which got certified)
+    //  c. For previous certified blob (before checkpoint X) at checkpoint X' where X' < X:
+    //     - Any attestations to blobs at checkpoint Y where X' < Y < X are invalid and can be
+    //       ignored
+    //  d. For next certified blob (after checkpoint X) at checkpoint X'':
+    //     - Attestations at checkpoint Z (Z > X) where Z == X'' are impossible because every event
+    //       blob requires a pointer to previous certified blob, and we just certified blob at
+    //       checkpoint X
+    self.event_blob_certification_state.reset();
     blob.burn();
 }
 
@@ -492,9 +503,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
         future_accounting: storage_accounting::ring_new(104),
-        event_blob_certification_state: event_blob::create_with_empty_state(
-            ctx,
-        ),
+        event_blob_certification_state: event_blob::create_with_empty_state(),
     }
 }
 
@@ -514,9 +523,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
         future_accounting: storage_accounting::ring_new(104),
-        event_blob_certification_state: event_blob::create_with_empty_state(
-            ctx,
-        ),
+        event_blob_certification_state: event_blob::create_with_empty_state(),
     }
 }
 

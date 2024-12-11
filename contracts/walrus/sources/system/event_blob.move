@@ -23,9 +23,7 @@ public struct EventBlob has copy, drop, store {
 }
 
 /// State of event blob stream.
-#[allow(unused_field)]
-public struct EventBlobCertificationState has key, store {
-    id: UID,
+public struct EventBlobCertificationState has store {
     /// Latest certified event blob.
     latest_certified_blob: Option<EventBlob>,
     /// Current event blob being attested.
@@ -75,10 +73,8 @@ public(package) fun ending_checkpoint_sequence_number(self: &EventBlob): u64 {
 // === Accessors for EventBlobCertificationState ===
 
 /// Creates a blob state with no signers and no last checkpoint sequence number
-public(package) fun create_with_empty_state(ctx: &mut TxContext): EventBlobCertificationState {
-    let id = object::new(ctx);
+public(package) fun create_with_empty_state(): EventBlobCertificationState {
     EventBlobCertificationState {
-        id,
         latest_certified_blob: option::none(),
         aggregate_weight_per_blob: sui::vec_map::empty(),
     }
@@ -95,6 +91,11 @@ public(package) fun get_latest_certified_checkpoint_sequence_number(
     self: &EventBlobCertificationState,
 ): Option<u64> {
     self.latest_certified_blob.map!(|state| state.ending_checkpoint_sequence_number())
+}
+
+/// Returns the number of blobs being tracked
+public(package) fun get_num_tracked_blobs(self: &EventBlobCertificationState): u64 {
+    self.aggregate_weight_per_blob.size()
 }
 
 /// Returns true if a blob is already certified or false otherwise
@@ -140,13 +141,6 @@ public(package) fun update_aggregate_weight(
 public(package) fun start_tracking_blob(self: &mut EventBlobCertificationState, blob_id: u256) {
     if (!self.aggregate_weight_per_blob.contains(&blob_id)) {
         self.aggregate_weight_per_blob.insert(blob_id, 0);
-    };
-}
-
-/// Stop tracking nodes for the given blob id
-public(package) fun stop_tracking_blob(self: &mut EventBlobCertificationState, blob_id: u256) {
-    if (self.aggregate_weight_per_blob.contains(&blob_id)) {
-        self.aggregate_weight_per_blob.remove(&blob_id);
     };
 }
 
