@@ -31,6 +31,7 @@ const EPoolIsNotActive: u64 = 6;
 /// Trying to stake zero amount.
 const EZeroStake: u64 = 7;
 /// Pool is not in `New` state.
+#[allow(unused)]
 const EPoolIsNotNew: u64 = 8;
 /// Trying to withdraw stake from the incorrect pool.
 const EIncorrectPoolId: u64 = 9;
@@ -140,14 +141,14 @@ public(package) fun new(
             ctx.sender(),
             public_key,
         ).verify_proof_of_possession(proof_of_possession),
-        /// Invalid proof of possession in the `new` function.
+        // Invalid proof of possession in the `new` function.
         EInvalidProofOfPossession,
     );
 
-    let (activation_epoch, state) = if (wctx.committee_selected()) {
-        (wctx.epoch() + 1, PoolState::New)
+    let activation_epoch = if (wctx.committee_selected()) {
+        wctx.epoch() + 1
     } else {
-        (wctx.epoch(), PoolState::Active)
+        wctx.epoch()
     };
 
     let mut exchange_rates = table::new(ctx);
@@ -155,7 +156,7 @@ public(package) fun new(
 
     StakingPool {
         id,
-        state,
+        state: PoolState::Active,
         exchange_rates,
         voting_params: VotingParams {
             storage_price,
@@ -231,7 +232,6 @@ public(package) fun request_withdraw_stake(
     staked_wal: &mut StakedWal,
     wctx: &WalrusContext,
 ) {
-    assert!(!pool.is_new());
     assert!(staked_wal.value() > 0);
     assert!(staked_wal.node_id() == pool.id.to_inner());
     assert!(staked_wal.activation_epoch() <= wctx.epoch());
@@ -261,7 +261,6 @@ public(package) fun withdraw_stake(
     staked_wal: StakedWal,
     wctx: &WalrusContext,
 ): Balance<WAL> {
-    assert!(!pool.is_new(), EPoolIsNotActive);
     assert!(staked_wal.value() > 0, EZeroStake);
     assert!(staked_wal.node_id() == pool.id.to_inner(), EIncorrectPoolId);
 
@@ -431,12 +430,6 @@ public(package) fun destroy_empty(pool: StakingPool) {
 
     let (_epochs, pending_stakes) = pending_stake.unwrap().into_keys_values();
     pending_stakes.do!(|stake| assert!(stake == 0));
-}
-
-/// Set the state of the pool to `Active`.
-public(package) fun set_is_active(pool: &mut StakingPool) {
-    assert!(pool.is_new(), EPoolIsNotNew);
-    pool.state = PoolState::Active;
 }
 
 /// Returns the exchange rate for the given current or future epoch. If there
