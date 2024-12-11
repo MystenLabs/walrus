@@ -8,6 +8,10 @@ module walrus::committee;
 
 use sui::vec_map::{Self, VecMap};
 
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+const EInvalidShardAssignment: u64 = 0;
+
 /// Represents the current committee in the system. Each node in the committee
 /// has assigned shard IDs.
 public struct Committee(VecMap<ID, vector<u16>>) has copy, drop, store;
@@ -39,17 +43,23 @@ public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
 /// Transitions the current committee to the new committee with the given shard
 /// assignments. The function tries to minimize the number of changes by keeping
 /// as many shards in place as possible.
-///
-/// This assumes that the number of shards in the new committee is equal to the
-/// number of shards in the current committee. Check for this is not performed.
-// [ben] why it's not checked?
 public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, u16>): Committee {
+    // Store the total number of shards in the new committee, before 
+    // new_assignments is modified.
+    let mut new_num_of_shards = 0;
+    new_assignments.size().do!(|idx| {
+        let (_, shards) = new_assignments.get_entry_by_idx(idx);
+        new_num_of_shards = new_num_of_shards + *shards;
+    });
+    
     let mut new_cmt = vec_map::empty();
     let mut to_move = vector[];
     let size = cmt.0.size();
 
+    let mut current_num_of_shards = 0;
     size.do!(|idx| {
         let (node_id, prev_shards) = cmt.0.get_entry_by_idx(idx);
+        current_num_of_shards = current_num_of_shards + prev_shards.length();
         let node_id = *node_id;
         let assigned_len = new_assignments.get_idx_opt(&node_id).map!(|idx| {
             let (_, value) = new_assignments.remove_entry_by_idx(idx);
@@ -86,6 +96,10 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
             new_assignments.insert(node_id, assigned_len as u16);
         };
     });
+
+    // Check that the number of shards in the new committee is equal to
+    // the number of shards in the current committee.
+    assert!((new_num_of_shards as u64) == current_num_of_shards, EInvalidShardAssignment);
 
     // Now the `new_assignments` only contains nodes for which we didn't have
     // enough shards to assign, and the nodes that were not part of the old

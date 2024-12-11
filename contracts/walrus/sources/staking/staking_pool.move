@@ -351,7 +351,9 @@ public(package) fun advance_epoch(
     assert!(current_epoch > pool.latest_epoch, EPoolAlreadyUpdated);
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
-    // update the commission_rate if there's a pending value for the current epoch
+    // update the commission_rate if there's a pending value for the current epoch.
+    // note that pending commission rates are set 2 epochs ahead, so users are 
+    // aware of the rate change in advance.
     pool.pending_commission_rate.inner().try_get(&current_epoch).do!(|commission_rate| {
         pool.commission_rate = commission_rate as u16;
         pool.pending_commission_rate.flush(current_epoch);
@@ -359,7 +361,6 @@ public(package) fun advance_epoch(
 
     // split the commission from the rewards
     let total_rewards = rewards.value();
-    // [ben] why do we update commission_rate before this line? shouldn't it be for the next epoch?
     let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / 100_00);
     pool.commission.join(commission);
     

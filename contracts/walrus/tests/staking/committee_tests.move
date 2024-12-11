@@ -157,3 +157,35 @@ fun large_set_assignments_2() {
         ),
     );
 }
+
+#[test, expected_failure(abort_code = committee::EInvalidShardAssignment)]
+fun reject_invalid_shard_assignment() {
+    let (n1, n2, n3) = (
+        @0x1.to_id(),
+        @0x2.to_id(),
+        @0x3.to_id(),
+    );
+    
+    let cmt = committee::initialize(
+        vec_map::from_keys_values(
+            vector[n1, n2, n3],
+            vector[2, 2, 2],
+        ),
+    );
+
+    // expect transaction to succeed (same number of shards)
+    let cmt2 = cmt.transition(
+        vec_map::from_keys_values(
+            vector[n1, n2, n3],
+            vector[1, 3, 2],
+        ),
+    );
+    
+    // expect transaction to fail (different number of shards)
+    let _ = cmt2.transition(
+        vec_map::from_keys_values(
+            vector[n1, n2, n3],
+            vector[3, 3, 2],
+        ),
+    );
+}

@@ -212,9 +212,7 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
         // calculation based on the amount being split. Needn't worry about the
         // rounding errors as the value is always subtracted from the principal.
 
-        // [ben] why is this permitted? as opposed to only support split for Staked?
-        // This rounding below does not guarantee "fair" distribution of pool tokens 
-        // (can be repeated multiple times to make it more significant than off by 1)
+        // TODO: disable split during withdraw.
         StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount } => {
             // reclaculate the pool token amount if it is set, otherwise ignore
             let new_pool_token_amount = if (pool_token_amount.is_some()) {

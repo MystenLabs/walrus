@@ -147,8 +147,7 @@ public(package) fun new(
     assert!(encoded_size <= storage.storage_size(), EResourceSize);
 
     // Cryptographically verify that the Blob ID authenticates
-    // both the size and fe_type.
-    // [ben] why does the user need to provide the blobid? just a sanity check?
+    // both the size and fe_type (sanity check).
     assert!(derive_blob_id(root_hash, encoding_type, size) == blob_id, EInvalidBlobId);
 
     // Emit register event
@@ -187,7 +186,7 @@ public(package) fun certify_with_certified_msg(
     // Check that the blob is not already certified
     assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
 
-    // Check that the message is from the current epoch    
+    // Check that the message is from the current epoch
     assert!(message.certified_epoch() == current_epoch, EWrongEpoch);
 
     // Check that the storage in the blob is still valid
@@ -253,7 +252,6 @@ public(package) fun extend_with_resource(blob: &mut Blob, extension: Storage, cu
 }
 
 /// Emits a `BlobCertified` event for the given blob.
-// [ben] what is an extension?
 public(package) fun emit_certified(self: &Blob, is_extension: bool) {
     // Emit certified event
     //
