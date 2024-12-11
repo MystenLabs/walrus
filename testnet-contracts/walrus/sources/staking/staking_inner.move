@@ -54,9 +54,11 @@ const EInvalidSyncEpoch: u64 = 1;
 const EDuplicateSyncDone: u64 = 2;
 const ENoStake: u64 = 3;
 const ENotInCommittee: u64 = 4;
+const ECommitteeSelected: u64 = 5;
+const ENextCommitteeIsEmpty: u64 = 6;
 
 // TODO: remove this once the module is implemented.
-const ENotImplemented: u64 = 5;
+const ENotImplemented: u64 = 264;
 
 /// The epoch state.
 public enum EpochState has store, copy, drop {
@@ -209,7 +211,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 /// Calculates the votes for the next epoch parameters. The function sorts the
 /// write and storage prices and picks the value that satisfies a quorum of the weight.
 public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
-    assert!(self.next_committee.is_some());
+    assert!(self.next_committee.is_some(), ENextCommitteeIsEmpty);
 
     let size = self.next_committee.borrow().size();
     let inner = self.next_committee.borrow().inner();
@@ -404,7 +406,7 @@ public(package) fun withdraw_stake(
 ///
 /// TODO: current solution is temporary, we need to have a proper algorithm for shard assignment.
 public(package) fun select_committee(self: &mut StakingInnerV1) {
-    assert!(self.next_committee.is_none());
+    assert!(self.next_committee.is_none(), ECommitteeSelected);
 
     let (active_ids, shards) = self.apportionment();
     let distribution = vec_map::from_keys_values(active_ids, shards);
@@ -426,7 +428,7 @@ fun apportionment(self: &StakingInnerV1): (vector<ID>, vector<u16>) {
     (active_ids, shards)
 }
 
-// TODO: remove this when the FixedPoint32 has a replacement (#835)
+// TODO remove this when we have a higher resolution fixed point number (#835)
 const DHONDT_TOTAL_STAKE_MAX: u64 = 0xFFFF_FFFF;
 
 // Implementation of the D'Hondt method (aka Jefferson method) for apportionment.
@@ -437,11 +439,11 @@ fun dhondt(
     n_shards: u16,
     stake: vector<u64>,
 ): vector<u16> {
-    use std::fixed_point32::{create_from_rational as from_rational, get_raw_value as to_raw};
+    use std::uq32_32;
 
     let total_stake = stake.fold!(0, |acc, x| acc + x);
 
-    // TODO remove this when the FixedPoint32 has a replacement (#835)
+    // TODO remove this when we have a higher resolution fixed point number (#835)
     let scaling = DHONDT_TOTAL_STAKE_MAX
         .max(total_stake)
         .divide_and_round_up(DHONDT_TOTAL_STAKE_MAX);
@@ -463,7 +465,7 @@ fun dhondt(
     // Set up quotients priority queue.
     let mut quotients = priority_queue::new(vector[]);
     n_nodes.do!(|index| {
-        let quotient = from_rational(stake[index], shards[index] + 1);
+        let quotient = uq32_32::from_quotient(stake[index], shards[index] + 1);
         quotients.insert(quotient.to_raw(), index);
     });
 
@@ -501,7 +503,7 @@ fun dhondt(
             index
         };
         *&mut shards[index] = shards[index] + 1;
-        let quotient = from_rational(stake[index], shards[index] + 1);
+        let quotient = uq32_32::from_quotient(stake[index], shards[index] + 1);
         quotients.insert(quotient.to_raw(), index);
         n_shards_distributed = n_shards_distributed + 1;
     };
