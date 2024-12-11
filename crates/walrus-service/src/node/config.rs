@@ -324,6 +324,10 @@ pub struct ShardSyncConfig {
     pub shard_sync_retry_max_backoff: Duration,
     /// The maximum number of concurrent blob recoveries during shard recovery.
     pub max_concurrent_blob_recovery_during_shard_recovery: usize,
+    /// The interval to check if the blob is still certified during recovery.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "blob_certified_check_interval_secs")]
+    pub blob_certified_check_interval: Duration,
 }
 
 impl Default for ShardSyncConfig {
@@ -333,6 +337,7 @@ impl Default for ShardSyncConfig {
             shard_sync_retry_min_backoff: Duration::from_secs(60),
             shard_sync_retry_max_backoff: Duration::from_secs(600),
             max_concurrent_blob_recovery_during_shard_recovery: 5,
+            blob_certified_check_interval: Duration::from_secs(60),
         }
     }
 }

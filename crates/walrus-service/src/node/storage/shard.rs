@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use sui_macros::fail_point_if;
 #[cfg(msim)]
 use sui_macros::{fail_point, fail_point_arg};
-use tokio::sync::Semaphore;
 use typed_store::{
     rocks::{
         be_fix_int_ser as to_rocks_db_key,
@@ -792,8 +791,17 @@ impl ShardStorage {
         config: &ShardSyncConfig,
         epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
-        let semaphore = Semaphore::new(config.max_concurrent_blob_recovery_during_shard_recovery);
         let mut futures = FuturesUnordered::new();
+
+        // Update the metric for the total number of blobs pending recovery, so that we know how
+        // many blobs are pending recovery.
+        let mut total_blobs_pending_recovery = self.pending_recover_slivers.keys().count();
+        metrics::with_label!(
+            node.metrics.sync_shard_recover_sliver_pending_total,
+            &self.id.to_string()
+        )
+        .set(total_blobs_pending_recovery as i64);
+
         for recover_blob in self.pending_recover_slivers.safe_iter() {
             let ((sliver_type, blob_id), _) = recover_blob?;
 
@@ -805,13 +813,7 @@ impl ShardStorage {
             );
 
             if skip_certified_check_in_test || node.is_blob_certified(&blob_id)? {
-                futures.push(self.recover_blob(
-                    blob_id,
-                    sliver_type,
-                    node.clone(),
-                    &semaphore,
-                    epoch,
-                ));
+                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch, config));
             } else {
                 tracing::info!(
                     walrus.blob_id = %blob_id,
@@ -824,6 +826,24 @@ impl ShardStorage {
                 .inc();
                 self.pending_recover_slivers
                     .remove(&(sliver_type, blob_id))?;
+            }
+
+            total_blobs_pending_recovery -= 1;
+            metrics::with_label!(
+                node.metrics.sync_shard_recover_sliver_pending_total,
+                &self.id.to_string()
+            )
+            .set(total_blobs_pending_recovery as i64);
+
+            // Wait for some futures to complete if we reach the concurrent blob recovery limit
+            if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery {
+                if let Some(Err(error)) = futures.next().await {
+                    tracing::error!(
+                        ?error,
+                        "error recovering missing blob sliver. \
+                        blob is not removed from pending_recover_slivers"
+                    );
+                }
             }
         }
 
@@ -868,10 +888,9 @@ impl ShardStorage {
         blob_id: BlobId,
         sliver_type: SliverType,
         node: Arc<StorageNodeInner>,
-        semaphore: &Semaphore,
         epoch: Epoch,
+        config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
-        let _guard = semaphore.acquire().await;
         tracing::info!(
             walrus.blob_id = %blob_id,
             walrus.shard_index = %self.id,
@@ -905,7 +924,7 @@ impl ShardStorage {
         let node_clone = node.clone();
         let certified_status_check_future = async move {
             let mut check_interval = if cfg!(not(test)) {
-                tokio::time::interval(Duration::from_secs(60))
+                tokio::time::interval(config.blob_certified_check_interval)
             } else {
                 // Short interval for testing.
                 tokio::time::interval(Duration::from_secs(1))

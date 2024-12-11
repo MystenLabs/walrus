@@ -1702,7 +1702,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, sync::OnceLock, time::Duration};
+    use std::{sync::OnceLock, time::Duration};
 
     use chrono::Utc;
     use contract_service::MockSystemContractService;
@@ -2495,17 +2495,18 @@ mod tests {
     ///
     /// The function also takes custom function to determine the end epoch of a blob, and whether
     /// the blob should be deletable.
-    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F, G>(
+    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F, G, H>(
         assignment: &[&[u16]],
         blobs: &[&'a [u8]],
         initial_epoch: Epoch,
         mut blob_index_store_at_shard_0: F,
         mut blob_index_to_end_epoch: G,
-        deletable_blob_indices: &[usize],
+        mut blob_index_to_deletable: H,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, ClusterEventSenders)>
     where
         F: FnMut(usize) -> bool,
         G: FnMut(usize) -> Epoch,
+        H: FnMut(usize) -> bool,
     {
         // Node 0 must contain shard 0.
         assert!(assignment[0].contains(&0));
@@ -2533,34 +2534,23 @@ mod tests {
         for (i, blob) in blobs.iter().enumerate() {
             let blob_details = EncodedBlob::new(blob, config.clone());
             let blob_end_epoch = blob_index_to_end_epoch(i);
-            let deletable = deletable_blob_indices.contains(&i);
-            node_0_events.send(
-                BlobRegistered {
-                    deletable,
-                    end_epoch: blob_end_epoch,
-                    ..BlobRegistered::for_testing(*blob_details.blob_id())
-                }
-                .into(),
-            )?;
-            all_other_node_events.send(
-                BlobRegistered {
-                    deletable,
-                    end_epoch: blob_end_epoch,
-                    ..BlobRegistered::for_testing(*blob_details.blob_id())
-                }
-                .into(),
-            )?;
+            let deletable = blob_index_to_deletable(i);
+            let blob_registration_event = BlobRegistered {
+                deletable,
+                end_epoch: blob_end_epoch,
+                ..BlobRegistered::for_testing(*blob_details.blob_id())
+            };
+            node_0_events.send(blob_registration_event.clone().into())?;
+            all_other_node_events.send(blob_registration_event.into())?;
 
+            let blob_certified_event = BlobCertified {
+                deletable,
+                end_epoch: blob_end_epoch,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            };
             if blob_index_store_at_shard_0(i) {
                 store_at_shards(&blob_details, &cluster, |_, _| true).await?;
-                node_0_events.send(
-                    BlobCertified {
-                        deletable,
-                        end_epoch: blob_end_epoch,
-                        ..BlobCertified::for_testing(*blob_details.blob_id())
-                    }
-                    .into(),
-                )?;
+                node_0_events.send(blob_certified_event.clone().into())?;
             } else {
                 // Don't certify the blob if it's not stored in shard 0.
                 store_at_shards(&blob_details, &cluster, |shard_index, _| {
@@ -2569,14 +2559,7 @@ mod tests {
                 .await?;
             }
 
-            all_other_node_events.send(
-                BlobCertified {
-                    deletable,
-                    end_epoch: blob_end_epoch,
-                    ..BlobCertified::for_testing(*blob_details.blob_id())
-                }
-                .into(),
-            )?;
+            all_other_node_events.send(blob_certified_event.into())?;
             details.push(blob_details);
         }
 
@@ -3364,7 +3347,7 @@ mod tests {
     }
 
     // Checks that all primary and secondary slivers match the original encoding of the blobs.
-    // Don't check if the blob is in the skip list.
+    // Checks that blobs in the skip list are not synced.
     fn check_all_blobs_are_synced(
         blob_details: &[EncodedBlob],
         shard_storage_dst: &ShardStorage,
@@ -3475,14 +3458,15 @@ mod tests {
     }
 
     /// Sets up a test cluster for shard recovery tests.
-    async fn setup_shard_recovery_test_cluster<F, G>(
+    async fn setup_shard_recovery_test_cluster<F, G, H>(
         blob_index_store_at_shard_0: F,
         blob_index_to_end_epoch: G,
-        delete_blob_indices: &[usize],
+        blob_index_to_deletable: H,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, ClusterEventSenders)>
     where
         F: FnMut(usize) -> bool,
         G: FnMut(usize) -> Epoch,
+        H: FnMut(usize) -> bool,
     {
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
@@ -3493,7 +3477,7 @@ mod tests {
                 2,
                 blob_index_store_at_shard_0,
                 blob_index_to_end_epoch,
-                delete_blob_indices,
+                blob_index_to_deletable,
             )
             .await?;
 
@@ -3506,7 +3490,7 @@ mod tests {
         telemetry_subscribers::init_for_testing();
 
         let (cluster, blob_details, _) =
-            setup_shard_recovery_test_cluster(|_| false, |_| 42, &[]).await?;
+            setup_shard_recovery_test_cluster(|_| false, |_| 42, |_| false).await?;
 
         // Make sure that all blobs are not certified in node 0.
         for blob_detail in blob_details.iter() {
@@ -3553,7 +3537,7 @@ mod tests {
         let (cluster, blob_details, _) = setup_shard_recovery_test_cluster(
             |blob_index| !skip_stored_blob_index.contains(&blob_index),
             |_| 42,
-            &[],
+            |_| false,
         )
         .await?;
 
@@ -3622,13 +3606,13 @@ mod tests {
 
         // Blob 3 expires at epoch 2, which is the current epoch when
         // `setup_shard_recovery_test_cluster` returns.
-        let blob_end_epoch: HashMap<usize, Epoch> = HashMap::from([(3, 2)]);
+        let blob_end_epoch = |blob_index| if blob_index == 3 { 2 } else { 42 };
         // Blob 9 is a deletable blob.
         let deletable_blob_index: [usize; 1] = [9];
         let (cluster, blob_details, event_senders) = setup_shard_recovery_test_cluster(
             |blob_index| !skip_stored_blob_index.contains(&blob_index),
-            |blob_index| *blob_end_epoch.get(&blob_index).unwrap_or(&42),
-            &deletable_blob_index,
+            blob_end_epoch,
+            |blob_index| deletable_blob_index.contains(&blob_index),
         )
         .await?;
 
@@ -3891,7 +3875,7 @@ mod tests {
             let (cluster, blob_details, _) = setup_shard_recovery_test_cluster(
                 |blob_index| !skip_stored_blob_index.contains(&blob_index),
                 |_| 42,
-                &[],
+                |_| false,
             )
             .await?;
 
