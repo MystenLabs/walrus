@@ -83,9 +83,9 @@ public(package) fun verify_proof_of_possession(
 public struct CertifiedMessage has drop {
     intent_type: u8,
     intent_version: u8,
-    cert_epoch: u32, 
-    stake_support: u16, // [ben] it's confusing that it's not part of the cert, maybe metadata_stake_support and put this field last?
+    cert_epoch: u32,     
     message: vector<u8>,
+    stake_support: u16, // Metadata, not part of the actual certified message.
 }
 
 /// Message type for certifying a blob.
@@ -128,7 +128,7 @@ public(package) fun new_certified_message(
 
     let message = bcs_message.into_remainder_bytes();
 
-    CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
+    CertifiedMessage { intent_type, intent_version, cert_epoch, message, stake_support }
 }
 
 /// Constructs the certified blob message, note that constructing
@@ -233,7 +233,7 @@ public fun certified_message_for_testing(
     stake_support: u16,
     message: vector<u8>,
 ): CertifiedMessage {
-    CertifiedMessage { intent_type, intent_version, cert_epoch, stake_support, message }
+    CertifiedMessage { intent_type, intent_version, cert_epoch, message, stake_support }
 }
 
 #[test_only]

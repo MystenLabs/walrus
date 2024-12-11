@@ -232,7 +232,7 @@ public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
         let weight = shards.length();
         write_prices.insert(pool.write_price(), weight);
         storage_prices.insert(pool.storage_price(), weight);
-        // The vote for capacity is determined by the node capacity and number of assigned shards.        
+        // The vote for capacity is determined by the node capacity and number of assigned shards.
         let capacity_vote = (pool.node_capacity() * (self.n_shards as u64)) / weight;
         capacity_votes.insert(capacity_vote, weight);
     });

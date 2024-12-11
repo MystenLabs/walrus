@@ -42,7 +42,6 @@ public(package) fun get_wal_amount(exchange_rate: &PoolExchangeRate, token_amoun
         return token_amount
     };
 
-    
     let token_amount = (token_amount as u128);
     let res = token_amount * exchange_rate.wal_amount / exchange_rate.pool_token_amount;
 
