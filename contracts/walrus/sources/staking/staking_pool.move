@@ -352,7 +352,7 @@ public(package) fun advance_epoch(
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
     // update the commission_rate if there's a pending value for the current epoch.
-    // note that pending commission rates are set 2 epochs ahead, so users are 
+    // note that pending commission rates are set 2 epochs ahead, so users are
     // aware of the rate change in advance.
     pool.pending_commission_rate.inner().try_get(&current_epoch).do!(|commission_rate| {
         pool.commission_rate = commission_rate as u16;
@@ -363,7 +363,7 @@ public(package) fun advance_epoch(
     let total_rewards = rewards.value();
     let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / 100_00);
     pool.commission.join(commission);
-    
+
     // add rewards to the pool and update the `wal_balance`
     let rewards_amount = rewards.value();
     pool.rewards_pool.join(rewards);
@@ -372,7 +372,7 @@ public(package) fun advance_epoch(
     pool.node_info.rotate_public_key();
 
     // perform stake deduction / addition for the current epoch - wctx.epoch()
-    pool.process_pending_stake(wctx);    
+    pool.process_pending_stake(wctx);
 }
 
 /// Process the pending stake and withdrawal requests for the pool. Called in the

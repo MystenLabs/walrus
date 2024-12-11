@@ -165,7 +165,7 @@ fun reject_invalid_shard_assignment() {
         @0x2.to_id(),
         @0x3.to_id(),
     );
-    
+
     let cmt = committee::initialize(
         vec_map::from_keys_values(
             vector[n1, n2, n3],
@@ -180,7 +180,7 @@ fun reject_invalid_shard_assignment() {
             vector[1, 3, 2],
         ),
     );
-    
+
     // expect transaction to fail (different number of shards)
     let _ = cmt2.transition(
         vec_map::from_keys_values(

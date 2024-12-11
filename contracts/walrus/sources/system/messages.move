@@ -83,7 +83,7 @@ public(package) fun verify_proof_of_possession(
 public struct CertifiedMessage has drop {
     intent_type: u8,
     intent_version: u8,
-    cert_epoch: u32,     
+    cert_epoch: u32,
     message: vector<u8>,
     stake_support: u16, // Metadata, not part of the actual certified message.
 }

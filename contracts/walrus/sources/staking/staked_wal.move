@@ -23,7 +23,7 @@ const ENonZeroPrincipal: u64 = 3;
 const EAlreadyWithdrawing: u64 = 6;
 
 /// The state of the staked WAL. It can be either `Staked` or `Withdrawing`.
-/// The `Withdrawing` state contains the epoch when the staked WAL can be 
+/// The `Withdrawing` state contains the epoch when the staked WAL can be
 /// withdrawn.
 public enum StakedWalState has copy, drop, store {
     // Default state of the staked WAL - it is staked in the staking pool.

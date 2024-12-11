@@ -22,7 +22,7 @@ public(package) fun empty(): Committee { Committee(vec_map::empty()) }
 
 /// Initializes the committee with the given `assigned_number` of shards per
 /// node. Shards are assigned sequentially to each node.
-/// 
+///
 /// Assumptions:
 /// - The values of assigned_number are <= 1000 (i.e., the limit of a vector)
 public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
@@ -44,14 +44,14 @@ public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
 /// assignments. The function tries to minimize the number of changes by keeping
 /// as many shards in place as possible.
 public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, u16>): Committee {
-    // Store the total number of shards in the new committee, before 
+    // Store the total number of shards in the new committee, before
     // new_assignments is modified.
     let mut new_num_of_shards = 0;
     new_assignments.size().do!(|idx| {
         let (_, shards) = new_assignments.get_entry_by_idx(idx);
         new_num_of_shards = new_num_of_shards + *shards;
     });
-    
+
     let mut new_cmt = vec_map::empty();
     let mut to_move = vector[];
     let size = cmt.0.size();
@@ -92,7 +92,7 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         };
 
         // Mark the node as needing more shards.
-        if (curr_len < assigned_len) {            
+        if (curr_len < assigned_len) {   
             new_assignments.insert(node_id, assigned_len as u16);
         };
     });
