@@ -160,11 +160,7 @@ fun large_set_assignments_2() {
 
 #[test, expected_failure(abort_code = committee::EInvalidShardAssignment)]
 fun reject_invalid_shard_assignment() {
-    let (n1, n2, n3) = (
-        @0x1.to_id(),
-        @0x2.to_id(),
-        @0x3.to_id(),
-    );
+    let (n1, n2, n3) = (@0x1.to_id(), @0x2.to_id(), @0x3.to_id());
 
     let cmt = committee::initialize(
         vec_map::from_keys_values(

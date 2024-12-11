@@ -92,7 +92,7 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         };
 
         // Mark the node as needing more shards.
-        if (curr_len < assigned_len) {   
+        if (curr_len < assigned_len) {
             new_assignments.insert(node_id, assigned_len as u16);
         };
     });

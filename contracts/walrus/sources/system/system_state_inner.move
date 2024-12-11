@@ -362,8 +362,7 @@ public(package) fun certify_event_blob(
             .event_blob_certification_state
             .get_latest_certified_checkpoint_sequence_number();
         if (latest_certified_checkpoint_seq_num.is_some()) {
-            let latest_certified_checkpoint_seq_num =
-                latest_certified_checkpoint_seq_num.destroy_some();
+            let latest_certified_checkpoint_seq_num = latest_certified_checkpoint_seq_num.destroy_some();
             assert!(
                 attestation.last_attested_event_blob_epoch() < self.epoch() ||
                     attestation.last_attested_event_blob_checkpoint_seq_num()
