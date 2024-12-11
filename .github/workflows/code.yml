@@ -58,7 +58,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.3
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.4
         with:
           # do not check advisories on PRs to prevent sudden failure due to new announcement
           command: check bans licenses sources
@@ -104,7 +104,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.45.13
+      - uses: taiki-e/install-action@v2.46.6
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -121,7 +121,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.45.13
+      - uses: taiki-e/install-action@v2.46.6
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -160,7 +160,7 @@ jobs:
       MSIM_TEST_NUM: 10
       RUST_LOG: error
     steps:
-      - uses: taiki-e/install-action@v2.45.13
+      - uses: taiki-e/install-action@v2.46.6
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4

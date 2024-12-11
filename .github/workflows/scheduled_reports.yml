@@ -48,7 +48,7 @@ jobs:
     env:
       MSIM_TEST_NUM: 30
     steps:
-      - uses: taiki-e/install-action@v2.45.13
+      - uses: taiki-e/install-action@v2.46.6
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -60,4 +60,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.3
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.4
