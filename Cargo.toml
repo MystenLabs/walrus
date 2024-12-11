@@ -65,9 +65,9 @@ rcgen = "0.13.1"
 regex = "1"
 reqwest = { version = "0.12.9", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.19", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.20", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
-serde = { version = "1.0.213", features = ["derive"] }
+serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.133"
 serde_test = "1.0.177"
 serde_with = { version = "3.11", features = ["base64"] }
