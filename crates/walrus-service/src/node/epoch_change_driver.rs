@@ -492,7 +492,16 @@ impl EpochOperation for VotingEndOperation {
     }
 
     async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error> {
-        tracing::debug!("attempting to end voting");
+        let epoch_under_vote = self.epoch_under_vote.get();
+        let (current_epoch, state) = contract.get_epoch_and_state().await?;
+        if current_epoch >= epoch_under_vote
+            || (current_epoch + 1 == epoch_under_vote
+                && matches!(state, EpochState::NextParamsSelected(_)))
+        {
+            tracing::debug!(epoch_under_vote, "voting already ended");
+            return Ok(());
+        }
+        tracing::info!(epoch_under_vote, "attempting to end voting");
         contract.end_voting().await?;
         tracing::debug!("voting successfully ended");
         Ok(())
@@ -551,7 +560,12 @@ impl EpochOperation for InitiateEpochChangeOperation {
     }
 
     async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error> {
-        tracing::debug!("attempting to start epoch change");
+        let next_epoch = self.next_epoch.get();
+        if contract.current_epoch() >= next_epoch {
+            tracing::debug!("epoch change already started");
+            return Ok(());
+        }
+        tracing::info!(next_epoch, "attempting to start epoch change");
         contract.initiate_epoch_change().await?;
         tracing::debug!("epoch change successfully started");
         Ok(())
@@ -806,6 +820,10 @@ mod tests {
                 ))
             });
 
+            service
+                .expect_current_epoch()
+                .returning(move || upcoming_epoch.get() - 1);
+
             let driver = driver_under_test(service, /*seed=*/ 3, start);
 
             // Schedule epoch change for the next epoch.
@@ -849,6 +867,10 @@ mod tests {
                     EpochState::NextParamsSelected(current_epoch_started_at),
                 ))
             });
+
+            service
+                .expect_current_epoch()
+                .returning(move || GENESIS_EPOCH);
 
             let driver = driver_under_test_with_epoch_zero_end(
                 service,

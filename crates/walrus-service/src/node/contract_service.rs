@@ -32,6 +32,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Returns the current epoch and the state that the committee's state.
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
 
+    /// Returns the current epoch.
+    fn current_epoch(&self) -> Epoch;
+
     /// Returns the non-variable system parameters.
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error>;
 
@@ -87,14 +90,20 @@ impl SuiSystemContractService {
             committee_service,
         ))
     }
-
-    fn current_epoch(&self) -> Epoch {
-        self.committee_service.active_committees().epoch()
-    }
 }
 
 #[async_trait]
 impl SystemContractService for SuiSystemContractService {
+    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+        let client = self.contract_client.lock().await;
+        let committees = client.get_committees_and_state().await?;
+        Ok((committees.current.epoch, committees.epoch_state))
+    }
+
+    fn current_epoch(&self) -> Epoch {
+        self.committee_service.active_committees().epoch()
+    }
+
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
         let contract_client = self.contract_client.lock().await;
         contract_client
@@ -172,12 +181,6 @@ impl SystemContractService for SuiSystemContractService {
             }
         })
         .await;
-    }
-
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
-        let client = self.contract_client.lock().await;
-        let committees = client.get_committees_and_state().await?;
-        Ok((committees.current.epoch, committees.epoch_state))
     }
 
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {

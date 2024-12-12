@@ -1166,6 +1166,10 @@ impl SystemContractService for StubContractService {
         anyhow::bail!("stub service does not store the epoch or state")
     }
 
+    fn current_epoch(&self) -> Epoch {
+        unimplemented!("stub service does not store the epoch")
+    }
+
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
         Ok(self.system_parameters.clone())
     }
@@ -1672,6 +1676,10 @@ where
 
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
         self.as_ref().inner.get_epoch_and_state().await
+    }
+
+    fn current_epoch(&self) -> Epoch {
+        self.as_ref().inner.current_epoch()
     }
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
