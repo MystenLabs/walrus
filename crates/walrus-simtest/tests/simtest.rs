@@ -12,7 +12,7 @@ mod tests {
 
     use anyhow::Context;
     use rand::{Rng, SeedableRng};
-    use sui_macros::{register_fail_point_async, register_fail_points};
+    use sui_macros::{register_fail_point, register_fail_point_async, register_fail_points};
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::{task::JoinHandle, time::Instant};
@@ -317,7 +317,9 @@ mod tests {
 
         // Tracks if a crash has been triggered.
         let fail_triggered = Arc::new(AtomicBool::new(false));
-        let target_fail_node_id = walrus_cluster.nodes[0].node_id;
+        let target_fail_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
         let fail_triggered_clone = fail_triggered.clone();
 
         // Trigger node crash during some DB access.
@@ -470,7 +472,9 @@ mod tests {
         }
 
         let next_fail_triggered = Arc::new(Mutex::new(tokio::time::Instant::now()));
-        let target_fail_node_id = walrus_cluster.nodes[0].node_id;
+        let target_fail_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
         let next_fail_triggered_clone = next_fail_triggered.clone();
         let crash_end_time = Instant::now() + Duration::from_secs(2 * 60);
 
@@ -601,6 +605,103 @@ mod tests {
 
             tokio::time::sleep(Duration::from_secs(70)).await;
         }
+
+        workload_handle.abort();
+    }
+
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    async fn test_new_node_joining_cluster() {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                &[1, 2, 3, 3, 4, 0],
+                true,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .await
+            .unwrap();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node crashes.
+        let workload_handle = start_background_workload(client_arc.clone(), false);
+
+        // Running the workload for 60 seconds to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(90)).await;
+
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                walrus_cluster.nodes[5].storage_node_config.clone(),
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+
+        // Adding stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        tokio::time::sleep(Duration::from_secs(150)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = get_nodes_health_info(&node_refs).await;
+
+        assert!(node_health_info[0].shard_detail.is_some());
+        for shard in &node_health_info[5].shard_detail.as_ref().unwrap().owned {
+            assert_eq!(shard.status, ShardStatus::Ready);
+
+            // These shards should not exist in any of the other nodes.
+            for i in 0..node_health_info.len() - 1 {
+                assert_eq!(
+                    node_health_info[i]
+                        .shard_detail
+                        .as_ref()
+                        .unwrap()
+                        .owned
+                        .iter()
+                        .find(|s| s.shard == shard.shard),
+                    None
+                );
+                let shard_i_status = node_health_info[i]
+                    .shard_detail
+                    .as_ref()
+                    .unwrap()
+                    .owned
+                    .iter()
+                    .find(|s| s.shard == shard.shard);
+                assert!(
+                    shard_i_status.is_none()
+                        || shard_i_status.unwrap().status != ShardStatus::ReadOnly
+                );
+            }
+        }
+
+        assert_eq!(
+            get_nodes_health_info(&[&walrus_cluster.nodes[5]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
+        );
 
         workload_handle.abort();
     }

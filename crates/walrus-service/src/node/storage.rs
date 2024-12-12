@@ -556,6 +556,15 @@ impl Storage {
     pub(crate) fn get_event_cursor_progress(&self) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor.get_event_cursor_progress()
     }
+
+    /// Clears the metadata in the storage for testing purposes.
+    #[cfg(test)]
+    pub fn clear_metadata_in_test(&self) -> Result<(), TypedStoreError> {
+        self.metadata.schedule_delete_all()?;
+        self.metadata
+            .compact_range(&BlobId([0; 32]), &BlobId([255; 32]))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

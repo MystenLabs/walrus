@@ -253,6 +253,8 @@ pub struct ShardStatusSummary {
     pub in_transfer: usize,
     /// The number of owned shards that are being recovered.
     pub in_recovery: usize,
+    /// The number of owned shards that are waiting for metadata recovery.
+    pub recover_metadata: usize,
     /// The number of shards, no longer owned by the node, that are read only,
     /// i.e., only serving reads from this node.
     pub read_only: usize,
@@ -291,6 +293,8 @@ pub enum ShardStatus {
     Unknown,
     /// The shard is ready and up-to-date.
     Ready,
+    /// The shard is waiting for metadata recovery.
+    RecoverMetadata,
     /// The shard is being transferred to this storage node.
     InTransfer,
     /// The shard is being recovered.

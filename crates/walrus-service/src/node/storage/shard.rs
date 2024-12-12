@@ -62,6 +62,9 @@ pub enum ShardStatus {
     /// The shard is active in this node serving reads and writes.
     Active,
 
+    /// The shard is waiting for metadata recovery.
+    RecoverMetadata,
+
     /// The shard is being synced to the last epoch.
     ActiveSync,
 
@@ -90,6 +93,7 @@ impl ShardStatus {
         match self {
             ShardStatus::None => "None",
             ShardStatus::Active => "Active",
+            ShardStatus::RecoverMetadata => "RecoverMetadata",
             ShardStatus::ActiveSync => "ActiveSync",
             ShardStatus::ActiveRecover => "ActiveRecover",
             ShardStatus::LockedToMove => "LockedToMove",
@@ -386,6 +390,10 @@ impl ShardStorage {
         self.shard_status.insert(&(), &ShardStatus::ActiveSync)
     }
 
+    pub(crate) fn set_recover_metadata_status(&self) -> Result<(), TypedStoreError> {
+        self.shard_status.insert(&(), &ShardStatus::RecoverMetadata)
+    }
+
     pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {
         self.shard_status.insert(&(), &ShardStatus::Active)
     }
@@ -448,7 +456,7 @@ impl ShardStorage {
         config: &ShardSyncConfig,
         directly_recover_shard: bool,
     ) -> Result<(), SyncShardClientError> {
-        tracing::info!(walrus.epoch = epoch, %directly_recover_shard, "syncing shard");
+        tracing::info!(walrus.epoch = epoch, %self.id, %directly_recover_shard, "syncing shard");
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
         }
@@ -904,17 +912,15 @@ impl ShardStorage {
             "start recovering missing blob"
         );
 
-        let Some(metadata) = node.storage.get_metadata(&blob_id)? else {
+        let metadata = if let Some(metadata) = node.storage.get_metadata(&blob_id)? {
+            metadata
+        } else {
             if !node.is_blob_certified(&blob_id)? {
                 self.skip_recover_blob(blob_id, sliver_type, &node)?;
                 return Ok(());
             }
-            tracing::warn!(
-                "blob {} is missing in the metadata table. For certified blob, Blob sync task should
-                recover the metadata. Skip recovering it for now.",
-                blob_id
-            );
-            return Ok(());
+            // We need to recover the blob. So check if we also need to recover the metadata.
+            node.get_or_recover_blob_metadata(&blob_id, epoch).await?
         };
 
         let sliver_id = self

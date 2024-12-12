@@ -73,6 +73,7 @@ use crate::{
             EndCommitteeChangeError,
             NodeCommitteeService,
         },
+        config,
         config::{EventProviderConfig, StorageNodeConfig},
         contract_service::SystemContractService,
         errors::SyncShardClientError,
@@ -147,6 +148,7 @@ pub trait StorageNodeHandleTrait {
         sui_cluster_handle: Option<Arc<TestClusterHandle>>,
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
+        start_node: bool,
     ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
     where
         Self: Sized;
@@ -210,6 +212,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         _sui_cluster_handle: Option<Arc<TestClusterHandle>>,
         _system_context: Option<SystemContext>,
         _storage_dir: TempDir,
+        _start_node: bool,
     ) -> anyhow::Result<Self> {
         builder.build().await
     }
@@ -252,16 +255,18 @@ pub struct SimStorageNodeHandle {
     /// Cancellation token for the node.
     pub cancel_token: CancellationToken,
     /// The wrapped simulator node id.
-    pub node_id: sui_simulator::task::NodeId,
+    pub node_id: Option<sui_simulator::task::NodeId>,
     /// The storage capability object of the node.
     pub storage_node_capability: Option<StorageNodeCap>,
+    /// The storage node config.
+    pub storage_node_config: StorageNodeConfig,
 }
 
 #[cfg(msim)]
 impl SimStorageNodeHandle {
     // Starts and runs a storage node with the provided configuration in a dedicated simulator
     // node.
-    async fn spawn_node(
+    pub async fn spawn_node(
         config: StorageNodeConfig,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
@@ -456,6 +461,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         sui_cluster_handle: Option<Arc<TestClusterHandle>>,
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
+        start_node: bool,
     ) -> anyhow::Result<Self>
     where
         Self: Sized,
@@ -465,6 +471,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
                 sui_cluster_handle.expect("SUI cluster handle must be provided in simtest"),
                 system_context.expect("System context must be provided"),
                 storage_dir,
+                start_node,
             )
             .await
     }
@@ -787,6 +794,7 @@ impl StorageNodeHandleBuilder {
         sui_cluster_handle: Arc<TestClusterHandle>,
         system_context: SystemContext,
         storage_dir: TempDir,
+        start_node: bool,
     ) -> anyhow::Result<SimStorageNodeHandle> {
         let node_info = self
             .test_config
@@ -813,9 +821,15 @@ impl StorageNodeHandleBuilder {
 
         let cancel_token = CancellationToken::new();
 
-        let handle =
-            SimStorageNodeHandle::spawn_node(storage_node_config.clone(), cancel_token.clone())
-                .await;
+        let node_id = if start_node {
+            Some(
+                SimStorageNodeHandle::spawn_node(storage_node_config.clone(), cancel_token.clone())
+                    .await
+                    .id(),
+            )
+        } else {
+            None
+        };
 
         Ok(SimStorageNodeHandle {
             storage_directory: storage_dir,
@@ -834,8 +848,9 @@ impl StorageNodeHandleBuilder {
             rest_api_address: storage_node_config.rest_api_address,
             metrics_address: storage_node_config.metrics_address,
             cancel_token,
-            node_id: handle.id(),
+            node_id,
             storage_node_capability: self.storage_node_capability,
+            storage_node_config,
         })
     }
 }
@@ -1323,6 +1338,7 @@ pub struct TestClusterBuilder {
     contract_services: Vec<Option<Arc<dyn SystemContractService>>>,
     storage_capabilities: Vec<Option<StorageNodeCap>>,
     node_wallet_dirs: Vec<Option<PathBuf>>,
+    start_node_from_beginning: Vec<bool>,
 }
 
 impl TestClusterBuilder {
@@ -1463,6 +1479,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the start node from beginning flag for each storage node.
+    pub fn with_start_node_from_beginning(mut self, start_node_from_beginning: Vec<bool>) -> Self {
+        self.start_node_from_beginning = start_node_from_beginning;
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let mut nodes = vec![];
@@ -1484,8 +1506,11 @@ impl TestClusterBuilder {
         let mut lookup_service_and_handle = None;
 
         for (
-            ((((config, event_provider), service), contract_service), capability),
-            node_wallet_dir,
+            (
+                ((((config, event_provider), service), contract_service), capability),
+                node_wallet_dir,
+            ),
+            start_node_from_beginning,
         ) in self
             .storage_node_configs
             .into_iter()
@@ -1494,6 +1519,7 @@ impl TestClusterBuilder {
             .zip(self.contract_services.into_iter())
             .zip(self.storage_capabilities.into_iter())
             .zip(self.node_wallet_dirs.into_iter())
+            .zip(self.start_node_from_beginning.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
             let mut builder = StorageNodeHandle::builder()
@@ -1536,6 +1562,7 @@ impl TestClusterBuilder {
                     self.sui_cluster_handle.clone(),
                     self.system_context.clone(),
                     tempfile::tempdir().expect("temporary directory creation must succeed"),
+                    start_node_from_beginning,
                 )
                 .await?,
             );
@@ -1646,6 +1673,7 @@ impl Default for TestClusterBuilder {
             contract_services: shard_assignment.iter().map(|_| None).collect(),
             storage_capabilities: shard_assignment.iter().map(|_| None).collect(),
             node_wallet_dirs: shard_assignment.iter().map(|_| None).collect(),
+            start_node_from_beginning: shard_assignment.iter().map(|_| true).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -1931,8 +1959,13 @@ pub mod test_cluster {
             .with_system_context(system_ctx.clone())
             .with_sui_cluster_handle(sui_cluster.clone())
             .with_storage_capabilities(storage_capabilities)
-            .with_node_wallet_dirs(node_wallet_dirs);
-
+            .with_node_wallet_dirs(node_wallet_dirs)
+            .with_start_node_from_beginning(
+                amounts_to_stake
+                    .iter()
+                    .map(|&initial_staking_amount| initial_staking_amount > 0)
+                    .collect(),
+            );
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
@@ -2022,7 +2055,11 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             blob_recovery: Default::default(),
             tls: Default::default(),
             rest_graceful_shutdown_period_secs: Some(Some(0)),
-            shard_sync_config: Default::default(),
+            shard_sync_config: config::ShardSyncConfig {
+                shard_sync_retry_min_backoff: Duration::from_secs(1),
+                shard_sync_retry_max_backoff: Duration::from_secs(10),
+                ..Default::default()
+            },
             event_provider_config: EventProviderConfig::LegacyEventProvider,
             commission_rate: 0,
             voting_params: VotingParams {
