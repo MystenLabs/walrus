@@ -168,7 +168,7 @@ public(package) fun new(
     };
 
     let mut exchange_rates = table::new(ctx);
-    exchange_rates.add(activation_epoch, pool_exchange_rate::empty());
+    exchange_rates.add(activation_epoch, pool_exchange_rate::flat());
 
     StakingPool {
         id,
@@ -282,7 +282,7 @@ public(package) fun request_withdraw_stake(
     let principal_amount = staked_wal.value();
     let token_amount = pool
         .exchange_rate_at_epoch(staked_wal.activation_epoch())
-        .get_token_amount(principal_amount);
+        .convert_to_token_amount(principal_amount);
 
     pool.pending_pool_token_withdraw.insert_or_add(withdraw_epoch, token_amount);
     staked_wal.set_withdrawing(withdraw_epoch, option::some(token_amount));
@@ -318,13 +318,17 @@ public(package) fun withdraw_stake(
     let token_amount = staked_wal
         .pool_token_amount()
         .destroy_or!(
-            pool.exchange_rate_at_epoch(activation_epoch).get_token_amount(staked_wal.value()),
+            pool
+                .exchange_rate_at_epoch(activation_epoch)
+                .convert_to_token_amount(staked_wal.value()),
         );
 
     let withdraw_epoch = staked_wal.withdraw_epoch();
 
     // calculate the total amount to withdraw by converting token amount via the exchange rate
-    let total_amount = pool.exchange_rate_at_epoch(withdraw_epoch).get_wal_amount(token_amount);
+    let total_amount = pool
+        .exchange_rate_at_epoch(withdraw_epoch)
+        .convert_to_wal_amount(token_amount);
     let principal = staked_wal.into_balance();
     let rewards_amount = if (total_amount >= principal.value()) {
         total_amount - principal.value()
@@ -393,7 +397,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
         let (_, epoch_value) = pending_early_withdrawals.remove(&epoch);
         let token_value_for_epoch = pool
             .exchange_rate_at_epoch(epoch - 1)
-            .get_token_amount(epoch_value);
+            .convert_to_token_amount(epoch_value);
 
         early_token_withdraw = early_token_withdraw + token_value_for_epoch;
     });
@@ -413,14 +417,16 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 
     // Process withdrawals.
     let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
-    let pending_withdrawal = exchange_rate.get_wal_amount(token_withdraw + early_token_withdraw);
+    let pending_withdrawal = exchange_rate.convert_to_wal_amount(
+        token_withdraw + early_token_withdraw,
+    );
 
     // Check that the amount is not higher than the pool balance
     assert!(pool.wal_balance >= pending_withdrawal, ECalculationError);
     pool.wal_balance = pool.wal_balance - pending_withdrawal;
 
     // Recalculate the pool token balance.
-    pool.pool_token_balance = exchange_rate.get_token_amount(pool.wal_balance);
+    pool.pool_token_balance = exchange_rate.convert_to_token_amount(pool.wal_balance);
 }
 
 // === Pool parameters ===
@@ -523,7 +529,7 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
         epoch = epoch - 1;
     };
 
-    pool_exchange_rate::empty()
+    pool_exchange_rate::flat()
 }
 
 /// Returns the expected active stake for current or future epoch `E` for the pool.
@@ -537,7 +543,7 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let mut expected = pool.wal_balance;
     let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
     let token_withdraw = pool.pending_pool_token_withdraw.value_at(epoch);
-    let pending_withdrawal = exchange_rate.get_wal_amount(token_withdraw);
+    let pending_withdrawal = exchange_rate.convert_to_wal_amount(token_withdraw);
 
     expected = expected + pool.pending_stake.value_at(epoch);
     expected = expected - pending_withdrawal;
