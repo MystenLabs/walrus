@@ -53,7 +53,7 @@ public(package) fun convert_to_wal_amount(exchange_rate: &PoolExchangeRate, amou
 }
 
 /// Assumptions:
-/// - wal_amount is at most the amount of WAL in the pool
+/// - amount is at most the amount of WAL in the pool
 public(package) fun convert_to_token_amount(exchange_rate: &PoolExchangeRate, amount: u64): u64 {
     match (exchange_rate) {
         PoolExchangeRate::Flat => amount,
