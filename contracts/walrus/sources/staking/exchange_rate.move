@@ -15,7 +15,8 @@ public enum PoolExchangeRate has copy, drop, store {
     Variable {
         /// Amount of staked WAL tokens + rewards.
         wal_amount: u128,
-        /// Amount of total tokens in the pool (<= wal_amount, as long as slashing is not implemented).
+        /// Amount of total tokens in the pool (<= wal_amount, as long as slashing is not
+        /// implemented).
         pool_token_amount: u128,
     },
 }
