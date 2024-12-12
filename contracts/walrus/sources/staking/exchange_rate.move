@@ -15,7 +15,7 @@ public enum PoolExchangeRate has copy, drop, store {
     Variable {
         /// Amount of staked WAL tokens + rewards.
         wal_amount: u128,
-        /// Amount of total tokens in the pool (<= wal_amount).
+        /// Amount of total tokens in the pool (<= wal_amount, as long as slashing is not implemented).
         pool_token_amount: u128,
     },
 }
@@ -27,6 +27,7 @@ public(package) fun flat(): PoolExchangeRate {
 
 /// Create a new exchange rate with the given amounts.
 public(package) fun new(wal_amount: u64, pool_token_amount: u64): PoolExchangeRate {
+    // pool_token_amount <= wal_amount as long as slashing is not implemented.
     assert!(pool_token_amount <= wal_amount, EInvalidRate);
     match (wal_amount) {
         0 => PoolExchangeRate::Flat,
