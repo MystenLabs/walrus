@@ -181,18 +181,44 @@ def extract_notes_for_commit(commit):
     whether it has a note and whether it was checked (ticked).
 
     """
-    message = git("show", "-s", "--format=%B", commit)
 
-    # Extract PR number
-    match = RE_PR.match(message)
-    pr = match.group(1) if match else None
+    gh_token = os.getenv('WALRUS_REPO_TOKEN')
+    if not gh_token:
+        raise ValueError("The environment variable WALRUS_REPO_TOKEN is not set!")
+    auth_header = f"Authorization: Bearer {gh_token}"
+
+    url = f"https://api.github.com/repos/MystenLabs/walrus/commits/{commit}/pulls"
+    curl_command = [
+        "curl", "-s",
+        "-H", "Accept: application/vnd.github.groot-preview+json",
+        "-H", auth_header,
+        url
+    ]
+
+    # Execute the curl command
+    result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    json_data = json.loads(result.stdout)
+    message = json_data[0].get("body")
+
+    # Get PR number
+    url = f"https://api.github.com/repos/MystenLabs/walrus/commits/{commit}/pulls"
+    curl_command = [
+        "curl", "-s",
+        "-H", "Accept: application/vnd.github.groot-preview+json",
+        "-H", auth_header,
+        url
+    ]
+
+    # Execute the curl command
+    result = subprocess.run(curl_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    json_data = json.loads(result.stdout)
+    pr = json_data[0].get("number")
     return parse_notes(pr, message)
 
 def print_changelog(pr, log):
     if pr:
         print(f"https://github.com/MystenLabs/walrus/pull/{pr}:")
     print(log)
-
 
 def do_check(pr):
     """Check if the release notes section of a given PR is complete.
