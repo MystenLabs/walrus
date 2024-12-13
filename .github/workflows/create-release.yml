@@ -32,8 +32,8 @@ jobs:
         shell: bash
         working-directory: ./
         run: |
-          echo "previous_commit=$(curl -s \ 
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \ 
+          echo "previous_commit=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.previous_branch }}| jq .sha | tr -d '"')" >> $GITHUB_ENV
           echo "current_commit=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
