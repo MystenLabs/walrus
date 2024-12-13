@@ -222,11 +222,17 @@ where
             let Ok((_, blob_info)) = &item else {
                 return Some(item);
             };
+
+            // The iterator should return blobs that are certified before `before_epoch` and
+            // are valid and remain certified at `before_epoch`.
+            //
+            // It is important to only return certified blobs certified before `before_epoch`
+            // because we don't want to fetch blobs that are just certified at `before_epoch`.
             if !self.only_certified
-                || matches!(
+                || (matches!(
                     blob_info.initial_certified_epoch(),
                     Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
-                )
+                ) && blob_info.is_certified(self.before_epoch))
             {
                 return Some(item);
             }

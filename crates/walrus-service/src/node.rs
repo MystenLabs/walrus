@@ -3696,7 +3696,7 @@ mod tests {
 
     #[cfg(msim)]
     mod failure_injection_tests {
-        use sui_macros::{register_fail_point_arg, register_fail_point_async};
+        use sui_macros::{register_fail_point, register_fail_point_arg, register_fail_point_async};
         use tokio::sync::Notify;
         use walrus_proc_macros::walrus_simtest;
         use walrus_test_utils::simtest_param_test;
@@ -3800,17 +3800,24 @@ mod tests {
             Ok(())
         }
 
-        // Tests that there is a discrepancy between the source and destination shards in terms
-        // of certified blobs. If the source doesn't return any blobs, the destination should
-        // finish the sync process.
-        #[walrus_simtest]
-        async fn sync_shard_src_return_empty() -> TestResult {
+        simtest_param_test! {
+            sync_shard_src_abnormal_return -> TestResult: [
+                // Tests that there is a discrepancy between the source and destination shards in
+                // terms of certified blobs. If the source doesn't return any blobs, the destination
+                // should finish the sync process.
+                return_empty: ("fail_point_sync_shard_return_empty"),
+                // Tests that when direct shard sync request fails, the shard sync process will be
+                // retried using shard recovery.
+                return_error: ("fail_point_sync_shard_return_error")
+            ]
+        }
+        async fn sync_shard_src_abnormal_return(fail_point: &'static str) -> TestResult {
             telemetry_subscribers::init_for_testing();
 
             let (cluster, _blob_details, _shard_storage_dst) =
                 setup_cluster_for_shard_sync_tests().await?;
 
-            register_fail_point_if("fail_point_sync_shard_return_empty", || true);
+            register_fail_point_if(fail_point, || true);
 
             // Starts the shard syncing process in the new shard, which will return empty slivers.
             cluster.nodes[1]
@@ -3826,19 +3833,80 @@ mod tests {
             Ok(())
         }
 
-        // Tests that when direct shard sync request fails, the shard sync process will be
-        // retried using shard recovery.
+        // Tests that non-certified blobs are not synced during shard sync. And expired certified
+        // blobs do not cause shard sync to enter recovery directly.
         #[walrus_simtest]
-        async fn sync_shard_src_return_error() -> TestResult {
+        async fn sync_shard_ignore_non_certified_blobs() -> TestResult {
             telemetry_subscribers::init_for_testing();
 
-            let (cluster, _blob_details, _shard_storage_dst) =
-                setup_cluster_for_shard_sync_tests().await?;
+            // Creates some regular blobs that will be synced.
+            let blobs: Vec<[u8; 32]> = (9..13).map(|i| [i; 32]).collect();
+            let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
 
-            register_fail_point_if("fail_point_sync_shard_return_error", || true);
+            // Creates some expired certified blobs that will not be synced.
+            let blobs_expired: Vec<[u8; 32]> = (1..21).map(|i| [i; 32]).collect();
+            let blobs_expired: Vec<_> = blobs_expired.iter().map(|b| &b[..]).collect();
 
-            // Starts the shard syncing process in the new shard, which will return an error and
-            // retry using shard recovery.
+            // Generates a cluster with two nodes and one shard each.
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]]).await?;
+
+            // Uses fail point to track whether shard sync recovery is triggered.
+            let shard_sync_recovery_triggered = Arc::new(AtomicBool::new(false));
+            let trigger = shard_sync_recovery_triggered.clone();
+            register_fail_point("fail_point_shard_sync_recovery", move || {
+                trigger.store(true, Ordering::SeqCst)
+            });
+
+            // Certifies all the blobs and upload data.
+            let mut details = Vec::new();
+            {
+                let config = cluster.encoding_config();
+
+                for blob in blobs {
+                    let blob_details = EncodedBlob::new(blob, config.clone());
+                    // Note: register and certify the blob are always using epoch 0.
+                    events.send(BlobRegistered::for_testing(*blob_details.blob_id()).into())?;
+                    store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+                    events.send(BlobCertified::for_testing(*blob_details.blob_id()).into())?;
+                    details.push(blob_details);
+                }
+
+                // These blobs will be expired at epoch 3.
+                for blob in blobs_expired {
+                    let blob_details = EncodedBlob::new(blob, config.clone());
+                    events.send(
+                        BlobRegistered {
+                            end_epoch: 3,
+                            ..BlobRegistered::for_testing(*blob_details.blob_id())
+                        }
+                        .into(),
+                    )?;
+                    store_at_shards(&blob_details, &cluster, |_, _| false).await?;
+                    events.send(
+                        BlobCertified {
+                            end_epoch: 3,
+                            ..BlobCertified::for_testing(*blob_details.blob_id())
+                        }
+                        .into(),
+                    )?;
+                }
+
+                // Advance cluster to epoch 4.
+                advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
+            }
+
+            // Makes storage inner mutable so that we can manually add another shard to node 1.
+            let node_inner = unsafe {
+                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            };
+            node_inner
+                .storage
+                .create_storage_for_shards(&[ShardIndex(0)])?;
+            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+            // Starts the shard syncing process in the new shard, which should only use happy path
+            // shard sync to sync non-expired certified blobs.
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
@@ -3849,7 +3917,10 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // All blobs should be recovered in the new dst node.
-            check_all_blobs_are_synced(&_blob_details, &_shard_storage_dst, &[])?;
+            check_all_blobs_are_synced(&details, &shard_storage_dst, &[])?;
+
+            // Checks that shard sync recovery is not triggered.
+            assert!(!shard_sync_recovery_triggered.load(Ordering::SeqCst));
 
             Ok(())
         }

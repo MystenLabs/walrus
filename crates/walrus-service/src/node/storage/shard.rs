@@ -756,6 +756,9 @@ impl ShardStorage {
             return Ok(());
         }
 
+        #[cfg(msim)]
+        fail_point!("fail_point_shard_sync_recovery");
+
         tracing::info!("shard sync is done; still has missing blobs; shard enters recovery mode");
         self.shard_status.insert(&(), &ShardStatus::ActiveRecover)?;
 
