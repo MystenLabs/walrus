@@ -268,6 +268,16 @@ impl BlobEvent {
         }
     }
 
+    /// Returns the object ID contained in the wrapped event.
+    pub fn object_id(&self) -> Option<ObjectID> {
+        match self {
+            BlobEvent::Registered(event) => Some(event.object_id),
+            BlobEvent::Certified(event) => Some(event.object_id),
+            BlobEvent::Deleted(event) => Some(event.object_id),
+            BlobEvent::InvalidBlobID(_) => None,
+        }
+    }
+
     /// Returns the event ID of the wrapped event.
     pub fn event_id(&self) -> EventID {
         match self {

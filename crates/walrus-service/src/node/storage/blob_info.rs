@@ -12,7 +12,9 @@ use std::{
 
 use enum_dispatch::enum_dispatch;
 use rocksdb::{MergeOperands, Options};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+#[cfg(feature = "walrus-mainnet")]
+use sui_types::base_types::ObjectID;
 use sui_types::event::EventID;
 use tracing::Level;
 use typed_store::{
@@ -24,22 +26,38 @@ use walrus_core::{BlobId, Epoch};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
+#[cfg(feature = "walrus-mainnet")]
+use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoMergeOperand};
 use super::{database_config::DatabaseTableOptions, DatabaseConfig};
 
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
-    blob_info: DBMap<BlobId, BlobInfo>,
+    aggregate_blob_info: DBMap<BlobId, BlobInfo>,
+    #[cfg(feature = "walrus-mainnet")]
+    per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
 }
 
 impl BlobInfoTable {
-    const BLOBINFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
+    #[cfg(feature = "walrus-mainnet")]
+    const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "aggregate_blob_info";
+    #[cfg(feature = "walrus-mainnet")]
+    const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "per_object_blob_info";
+    #[cfg(not(feature = "walrus-mainnet"))]
+    const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
     const EVENT_INDEX_COLUMN_FAMILY_NAME: &'static str = "latest_handled_event_index";
 
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
-        let blob_info = DBMap::reopen(
+        let aggregate_blob_info = DBMap::reopen(
             database,
-            Some(Self::BLOBINFO_COLUMN_FAMILY_NAME),
+            Some(Self::AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        #[cfg(feature = "walrus-mainnet")]
+        let per_object_blob_info = DBMap::reopen(
+            database,
+            Some(Self::PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME),
             &ReadWriteOptions::default(),
             false,
         )?;
@@ -51,16 +69,42 @@ impl BlobInfoTable {
         )?));
 
         Ok(Self {
-            blob_info,
+            aggregate_blob_info,
+            #[cfg(feature = "walrus-mainnet")]
+            per_object_blob_info,
             latest_handled_event_index,
         })
     }
 
-    pub fn options(db_config: &DatabaseConfig) -> [(&'static str, Options); 2] {
+    pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
         let mut blob_info_options = db_config.blob_info.to_options();
-        blob_info_options.set_merge_operator("merge blob info", merge_blob_info, |_, _, _| None);
-        [
-            (Self::BLOBINFO_COLUMN_FAMILY_NAME, blob_info_options),
+        blob_info_options.set_merge_operator(
+            "merge blob info",
+            merge_mergeable::<BlobInfo>,
+            |_, _, _| None,
+        );
+
+        #[cfg(feature = "walrus-mainnet")]
+        let per_object_blob_info_options = {
+            let mut options = db_config.per_object_blob_info.to_options();
+            options.set_merge_operator(
+                "merge per object blob info",
+                merge_mergeable::<PerObjectBlobInfo>,
+                |_, _, _| None,
+            );
+            options
+        };
+
+        vec![
+            (
+                Self::AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME,
+                blob_info_options,
+            ),
+            #[cfg(feature = "walrus-mainnet")]
+            (
+                Self::PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME,
+                per_object_blob_info_options,
+            ),
             (
                 Self::EVENT_INDEX_COLUMN_FAMILY_NAME,
                 // Doesn't make sense to have special options for the table containing a single
@@ -89,8 +133,18 @@ impl BlobInfoTable {
         let operation = BlobInfoMergeOperand::from(event);
         tracing::debug!(?operation, "updating blob info");
 
-        let mut batch = self.blob_info.batch();
+        let mut batch = self.aggregate_blob_info.batch();
         self.merge_blob_info_batch(&mut batch, &event.blob_id(), &operation)?;
+        #[cfg(feature = "walrus-mainnet")]
+        if let Some(object_id) = event.object_id() {
+            let per_object_operation =
+                PerObjectBlobInfoMergeOperand::from_blob_info_merge_operand(operation)
+                    .expect("we know this is a registered, certified, or deleted event");
+            batch.partial_merge_batch(
+                &self.per_object_blob_info,
+                [(object_id, per_object_operation.to_bytes())],
+            )?;
+        }
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
@@ -105,12 +159,12 @@ impl BlobInfoTable {
         blob_id: &BlobId,
         operand: &BlobInfoMergeOperand,
     ) -> Result<(), TypedStoreError> {
-        batch.partial_merge_batch(&self.blob_info, [(blob_id, operand.to_bytes())])?;
+        batch.partial_merge_batch(&self.aggregate_blob_info, [(blob_id, operand.to_bytes())])?;
         Ok(())
     }
 
     pub fn delete(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        batch.delete_batch(&self.blob_info, [blob_id])
+        batch.delete_batch(&self.aggregate_blob_info, [blob_id])
     }
 
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
@@ -123,7 +177,7 @@ impl BlobInfoTable {
     ) -> BlobInfoIterator {
         BlobInfoIter::new(
             Box::new(
-                self.blob_info
+                self.aggregate_blob_info
                     .safe_range_iter((starting_blob_id_bound, Unbounded)),
             ),
             before_epoch,
@@ -132,7 +186,7 @@ impl BlobInfoTable {
 
     /// Returns the blob info for `blob_id`.
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
-        self.blob_info.get(blob_id)
+        self.aggregate_blob_info.get(blob_id)
     }
 }
 
@@ -140,7 +194,7 @@ impl BlobInfoTable {
 #[cfg(test)]
 impl BlobInfoTable {
     pub fn batch(&self) -> DBBatch {
-        self.blob_info.batch()
+        self.aggregate_blob_info.batch()
     }
 
     pub fn merge_blob_info(
@@ -154,15 +208,15 @@ impl BlobInfoTable {
     }
 
     pub fn insert(&self, blob_id: &BlobId, blob_info: &BlobInfo) -> Result<(), TypedStoreError> {
-        self.blob_info.insert(blob_id, blob_info)
+        self.aggregate_blob_info.insert(blob_id, blob_info)
     }
 
     pub fn remove(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        self.blob_info.remove(blob_id)
+        self.aggregate_blob_info.remove(blob_id)
     }
 
     pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
-        self.blob_info.keys().collect()
+        self.aggregate_blob_info.keys().collect()
     }
 
     pub fn insert_batch<'a>(
@@ -170,7 +224,7 @@ impl BlobInfoTable {
         batch: &mut DBBatch,
         new_vals: impl IntoIterator<Item = (&'a BlobId, &'a BlobInfo)>,
     ) -> Result<(), TypedStoreError> {
-        batch.insert_batch(&self.blob_info, new_vals)?;
+        batch.insert_batch(&self.aggregate_blob_info, new_vals)?;
         Ok(())
     }
 }
@@ -236,8 +290,16 @@ where
 pub type BlobInfoIterator<'a> =
     BlobInfoIter<dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a>;
 
-pub(super) trait Mergeable: Sized {
-    type MergeOperand;
+pub(super) trait ToBytes: Serialize + Sized {
+    /// Converts the value to a `Vec<u8>`.
+    ///
+    /// Uses BCS encoding (which is assumed to succeed) by default.
+    fn to_bytes(&self) -> Vec<u8> {
+        bcs::to_bytes(self).expect("value must be BCS-serializable")
+    }
+}
+pub(super) trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Sized {
+    type MergeOperand: Debug + DeserializeOwned + ToBytes;
 
     /// Updates the existing blob info with the provided merge operand and returns the result.
     ///
@@ -303,8 +365,12 @@ pub(super) enum BlobInfoMergeOperand {
     },
 }
 
+impl ToBytes for BlobInfoMergeOperand {}
+
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(super) struct BlobStatusChangeInfo {
+    #[cfg(feature = "walrus-mainnet")]
+    pub(super) blob_id: BlobId,
     pub(super) deletable: bool,
     pub(super) epoch: Epoch,
     pub(super) end_epoch: Epoch,
@@ -315,15 +381,12 @@ pub(super) struct BlobStatusChangeInfo {
 pub(super) enum BlobStatusChangeType {
     Register,
     Certify,
+    // INV: Can only be applied to a certified blob.
     Extend,
     Delete { was_certified: bool },
 }
 
 impl BlobInfoMergeOperand {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        bcs::to_bytes(self).expect("blob info merge operand can always be BCS encoded")
-    }
-
     #[cfg(test)]
     pub fn new_change_for_testing(
         change_type: BlobStatusChangeType,
@@ -335,6 +398,8 @@ impl BlobInfoMergeOperand {
         Self::ChangeStatus {
             change_type,
             change_info: BlobStatusChangeInfo {
+                #[cfg(feature = "walrus-mainnet")]
+                blob_id: walrus_core::test_utils::blob_id_from_u64(42),
                 deletable,
                 epoch,
                 end_epoch,
@@ -351,10 +416,9 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
             end_epoch,
             event_id,
             deletable,
-            blob_id: _,
-            size: _,
-            encoding_type: _,
-            object_id: _,
+            #[cfg(feature = "walrus-mainnet")]
+            blob_id,
+            ..
         } = value;
         Self::ChangeStatus {
             change_info: BlobStatusChangeInfo {
@@ -362,6 +426,8 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
+                #[cfg(feature = "walrus-mainnet")]
+                blob_id: *blob_id,
             },
             change_type: BlobStatusChangeType::Register,
         }
@@ -376,14 +442,17 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
             event_id,
             deletable,
             is_extension,
-            blob_id: _,
-            object_id: _,
+            #[cfg(feature = "walrus-mainnet")]
+            blob_id,
+            ..
         } = value;
         let change_info = BlobStatusChangeInfo {
             deletable: *deletable,
             epoch: *epoch,
             end_epoch: *end_epoch,
             status_event: *event_id,
+            #[cfg(feature = "walrus-mainnet")]
+            blob_id: *blob_id,
         };
         let change_type = if *is_extension {
             BlobStatusChangeType::Extend
@@ -404,8 +473,9 @@ impl From<&BlobDeleted> for BlobInfoMergeOperand {
             end_epoch,
             was_certified,
             event_id,
-            blob_id: _,
-            object_id: _,
+            #[cfg(feature = "walrus-mainnet")]
+            blob_id,
+            ..
         } = value;
         Self::ChangeStatus {
             change_type: BlobStatusChangeType::Delete {
@@ -416,6 +486,8 @@ impl From<&BlobDeleted> for BlobInfoMergeOperand {
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
+                #[cfg(feature = "walrus-mainnet")]
+                blob_id: *blob_id,
             },
         }
     }
@@ -452,6 +524,8 @@ pub(crate) enum BlobInfoV1 {
     Valid(ValidBlobInfoV1),
 }
 
+impl ToBytes for BlobInfoV1 {}
+
 // INV: count_deletable_total >= count_deletable_certified
 // INV: permanent_total.is_none() => permanent_certified.is_none()
 // INV: permanent_total.count >= permanent_certified.count
@@ -469,7 +543,7 @@ pub(crate) struct ValidBlobInfoV1 {
     pub initial_certified_epoch: Option<Epoch>,
 
     // TODO: The following are helper fields that are needed as long as we don't properly clean up
-    // deletable blobs. (#1005)
+    // deletable blobs. (WAL-473)
     pub latest_seen_deletable_registered_epoch: Option<Epoch>,
     pub latest_seen_deletable_certified_epoch: Option<Epoch>,
 }
@@ -482,7 +556,7 @@ impl From<ValidBlobInfoV1> for BlobInfoV1 {
 
 impl ValidBlobInfoV1 {
     fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus {
-        // TODO: The following should be adjusted/simplified when we have proper cleanup (#1005).
+        // TODO: The following should be adjusted/simplified when we have proper cleanup (WAL-473).
         let deletable_counts = DeletableCounts {
             count_deletable_total: self
                 .latest_seen_deletable_registered_epoch
@@ -834,6 +908,7 @@ impl PermanentBlobInfoV1 {
             end_epoch: new_end_epoch,
             status_event: new_status_event,
             deletable,
+            ..
         } = change_info;
         assert!(!deletable);
 
@@ -881,7 +956,7 @@ impl BlobInfoApi for BlobInfoV1 {
 
     // TODO: This is currently just an approximation: It is possible that this returns true even
     // though there is no existing registered blob because the blob with the latest expiration epoch
-    // was deleted. This should be adjusted/simplified when we have proper cleanup (#1005).
+    // was deleted. This should be adjusted/simplified when we have proper cleanup (WAL-473).
     fn is_registered(&self, current_epoch: Epoch) -> bool {
         let Self::Valid(ValidBlobInfoV1 {
             count_deletable_total,
@@ -916,7 +991,7 @@ impl BlobInfoApi for BlobInfoV1 {
 
     // TODO: This is currently just an approximation: It is possible that this returns true even
     // though there is no existing certified blob because the blob with the latest expiration epoch
-    // was deleted. This should be adjusted/simplified when we have proper cleanup (#1005).
+    // was deleted. This should be adjusted/simplified when we have proper cleanup (WAL-473).
     fn is_certified(&self, current_epoch: Epoch) -> bool {
         let Self::Valid(ValidBlobInfoV1 {
             count_deletable_certified,
@@ -1011,6 +1086,7 @@ impl Mergeable for BlobInfoV1 {
                     epoch: _,
                     end_epoch,
                     status_event,
+                    ..
                 },
         } = operand
         else {
@@ -1077,7 +1153,7 @@ impl Ord for BlobCertificationStatus {
     }
 }
 
-/// Internal representation of the blob information for use in the database etc. Use
+/// Internal representation of the aggregate blob information for use in the database etc. Use
 /// [`walrus_sdk::api::BlobStatus`] for anything public facing (e.g., communication to the client).
 #[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
@@ -1086,10 +1162,6 @@ pub(crate) enum BlobInfo {
 }
 
 impl BlobInfo {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        bcs::to_bytes(self).expect("blob info can always be BCS encoded")
-    }
-
     /// Creates a new (permanent) blob for testing purposes.
     #[cfg(test)]
     pub(super) fn new_for_testing(
@@ -1127,6 +1199,8 @@ impl BlobInfo {
     }
 }
 
+impl ToBytes for BlobInfo {}
+
 impl Mergeable for BlobInfo {
     type MergeOperand = BlobInfoMergeOperand;
 
@@ -1141,28 +1215,192 @@ impl Mergeable for BlobInfo {
     }
 }
 
-#[tracing::instrument(
-    level = Level::DEBUG,
-    skip(existing_val, operands),
-    fields(existing_val = existing_val.is_some())
-)]
-pub(super) fn merge_blob_info(
-    key: &[u8],
-    existing_val: Option<&[u8]>,
-    operands: &MergeOperands,
-) -> Option<Vec<u8>> {
-    let mut current_val: Option<BlobInfo> = existing_val.and_then(deserialize_from_db);
+#[cfg(feature = "walrus-mainnet")]
+mod per_object_blob_info {
+    use super::*;
 
-    for operand_bytes in operands {
-        let Some(operand) = deserialize_from_db::<BlobInfoMergeOperand>(operand_bytes) else {
-            continue;
-        };
-        tracing::debug!(?current_val, ?operand, "updating blob info");
-
-        current_val = BlobInfo::merge(current_val, operand);
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    pub(crate) struct PerObjectBlobInfoMergeOperand {
+        pub change_type: BlobStatusChangeType,
+        pub change_info: BlobStatusChangeInfo,
     }
 
-    current_val.as_ref().map(BlobInfo::to_bytes)
+    impl ToBytes for PerObjectBlobInfoMergeOperand {}
+
+    impl PerObjectBlobInfoMergeOperand {
+        pub fn from_blob_info_merge_operand(
+            blob_info_merge_operand: BlobInfoMergeOperand,
+        ) -> Option<Self> {
+            let BlobInfoMergeOperand::ChangeStatus {
+                change_type,
+                change_info,
+            } = blob_info_merge_operand
+            else {
+                return None;
+            };
+            Some(Self {
+                change_type,
+                change_info,
+            })
+        }
+    }
+
+    /// Trait defining methods for retrieving information about a blob object.
+    // NB: Before adding functions to this trait, think twice if you really need it as it needs to
+    // be implementable by future internal representations of the per-object blob status as well.
+    #[enum_dispatch]
+    #[allow(dead_code)]
+    pub(crate) trait PerObjectBlobInfoApi {
+        /// Returns the blob ID associated with this object.
+        fn blob_id(&self) -> BlobId;
+        /// Returns true iff the object is deletable.
+        fn is_deletable(&self) -> bool;
+
+        /// Returns true iff the object is not expired and not deleted.
+        fn is_registered(&self, current_epoch: Epoch) -> bool;
+        /// Returns true iff the object is certified and not expired and not deleted.
+        fn is_certified(&self, current_epoch: Epoch) -> bool;
+
+        /// Returns the epoch at which this blob was first certified.
+        ///
+        /// Returns `None` if it was never certified.
+        fn certified_epoch(&self) -> Option<Epoch>;
+    }
+
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    #[enum_dispatch(PerObjectBlobInfoApi)]
+    pub(crate) enum PerObjectBlobInfo {
+        V1(PerObjectBlobInfoV1),
+    }
+
+    impl ToBytes for PerObjectBlobInfo {}
+
+    impl Mergeable for PerObjectBlobInfo {
+        type MergeOperand = PerObjectBlobInfoMergeOperand;
+
+        fn merge_with(self, operand: Self::MergeOperand) -> Self {
+            match self {
+                Self::V1(value) => Self::V1(value.merge_with(operand)),
+            }
+        }
+
+        fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
+            PerObjectBlobInfoV1::merge_new(operand).map(Self::from)
+        }
+    }
+
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    pub(crate) struct PerObjectBlobInfoV1 {
+        /// The blob ID.
+        pub blob_id: BlobId,
+        /// The epoch in which the blob has been registered.
+        pub registered_epoch: Epoch,
+        /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
+        pub certified_epoch: Option<Epoch>,
+        /// The epoch in which the blob expires.
+        pub end_epoch: Epoch,
+        /// Whether the blob is deletable.
+        pub deletable: bool,
+        /// The ID of the last blob event related to this object.
+        pub event: EventID,
+        /// Whether the blob has been deleted.
+        pub deleted: bool,
+    }
+
+    impl PerObjectBlobInfoApi for PerObjectBlobInfoV1 {
+        fn blob_id(&self) -> BlobId {
+            self.blob_id
+        }
+
+        fn is_deletable(&self) -> bool {
+            self.deletable
+        }
+
+        fn is_registered(&self, current_epoch: Epoch) -> bool {
+            self.end_epoch > current_epoch && !self.deleted
+        }
+
+        fn is_certified(&self, current_epoch: Epoch) -> bool {
+            self.is_registered(current_epoch) && self.certified_epoch.is_some()
+        }
+
+        fn certified_epoch(&self) -> Option<Epoch> {
+            self.certified_epoch
+        }
+    }
+
+    impl ToBytes for PerObjectBlobInfoV1 {}
+
+    impl Mergeable for PerObjectBlobInfoV1 {
+        type MergeOperand = PerObjectBlobInfoMergeOperand;
+
+        fn merge_with(
+            mut self,
+            PerObjectBlobInfoMergeOperand {
+                change_type,
+                change_info,
+            }: PerObjectBlobInfoMergeOperand,
+        ) -> Self {
+            assert_eq!(self.blob_id, change_info.blob_id);
+            assert_eq!(self.deletable, change_info.deletable);
+            assert!(!self.deleted);
+            self.event = change_info.status_event;
+            match change_type {
+                BlobStatusChangeType::Register => {
+                    unreachable!("cannot register an already registered blob");
+                }
+                BlobStatusChangeType::Certify => {
+                    assert!(
+                        self.certified_epoch.is_none(),
+                        "cannot certify an already certified blob"
+                    );
+                    self.certified_epoch = Some(change_info.epoch);
+                }
+                BlobStatusChangeType::Extend => {
+                    assert!(
+                        self.certified_epoch.is_some(),
+                        "cannot extend an uncertified blob"
+                    );
+                    self.end_epoch = change_info.end_epoch;
+                }
+                BlobStatusChangeType::Delete { was_certified } => {
+                    assert_eq!(self.certified_epoch.is_some(), was_certified);
+                    self.deleted = true;
+                }
+            }
+            self
+        }
+
+        fn merge_new(operand: Self::MergeOperand) -> Option<Self> {
+            let PerObjectBlobInfoMergeOperand {
+                change_type: BlobStatusChangeType::Register,
+                change_info:
+                    BlobStatusChangeInfo {
+                        blob_id,
+                        deletable,
+                        epoch,
+                        end_epoch,
+                        status_event,
+                    },
+            } = operand
+            else {
+                tracing::error!(
+                    ?operand,
+                    "encountered an update other than 'register' for an untracked blob object"
+                );
+                return None;
+            };
+            Some(Self {
+                blob_id,
+                registered_epoch: epoch,
+                certified_epoch: None,
+                end_epoch,
+                deletable,
+                event: status_event,
+                deleted: false,
+            })
+        }
+    }
 }
 
 fn deserialize_from_db<'de, T>(data: &'de [u8]) -> Option<T>
@@ -1178,6 +1416,30 @@ where
             )
         })
         .ok()
+}
+
+#[tracing::instrument(
+    level = Level::DEBUG,
+    skip(existing_val, operands),
+    fields(existing_val = existing_val.is_some())
+)]
+pub(super) fn merge_mergeable<T: Mergeable>(
+    key: &[u8],
+    existing_val: Option<&[u8]>,
+    operands: &MergeOperands,
+) -> Option<Vec<u8>> {
+    let mut current_val: Option<T> = existing_val.and_then(deserialize_from_db);
+
+    for operand_bytes in operands {
+        let Some(operand) = deserialize_from_db::<T::MergeOperand>(operand_bytes) else {
+            continue;
+        };
+        tracing::debug!(?current_val, ?operand, "updating blob info");
+
+        current_val = T::merge(current_val, operand);
+    }
+
+    current_val.as_ref().map(|value| value.to_bytes())
 }
 
 #[cfg(test)]
