@@ -25,7 +25,6 @@ use walrus_core::{
 };
 
 use super::{
-    get_sui_object,
     read_client::Mutability,
     BlobObjectMetadata,
     BlobPersistence,
@@ -355,8 +354,11 @@ impl WalrusPtbBuilder {
         exchange_id: ObjectID,
         amount: u64,
     ) -> SuiClientResult<()> {
-        let exchange: WalExchange =
-            get_sui_object(&self.read_client.sui_client, exchange_id).await?;
+        let exchange: WalExchange = self
+            .read_client
+            .sui_client
+            .get_sui_object(exchange_id)
+            .await?;
         let exchange_arg = self.pt_builder.obj(
             self.read_client
                 .object_arg_for_shared_obj(exchange_id, Mutability::Mutable)

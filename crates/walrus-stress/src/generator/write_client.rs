@@ -8,7 +8,13 @@ use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
 use walrus_service::client::{Client, ClientError, Config, Refiller, StoreWhen};
 use walrus_sui::{
-    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    client::{
+        retry_client::RetryableSuiClient,
+        BlobPersistence,
+        PostStoreAction,
+        ReadClient,
+        SuiContractClient,
+    },
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,
 };
@@ -171,9 +177,9 @@ async fn new_client(
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
     let wallet = wallet_for_testing_from_refill(network, refiller).await?;
-    let sui_read_client = config
-        .new_read_client(wallet.as_ref().get_client().await?)
-        .await?;
+    let sui_client =
+        RetryableSuiClient::new_from_wallet(wallet.as_ref(), Default::default()).await?;
+    let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
         SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
     })?;

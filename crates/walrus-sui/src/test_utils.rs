@@ -376,6 +376,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
                 system_object,
                 staking_object,
                 Some(package_id),
+                existing_client.read_client().backoff_config().clone(),
                 DEFAULT_GAS_BUDGET,
             )
         })

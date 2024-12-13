@@ -7,9 +7,9 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use futures::future::try_join_all;
-use sui_sdk::{types::base_types::SuiAddress, SuiClient};
+use sui_sdk::types::base_types::SuiAddress;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
-use walrus_sui::client::SuiContractClient;
+use walrus_sui::client::{retry_client::RetryableSuiClient, SuiContractClient};
 
 use super::metrics::ClientMetrics;
 
@@ -48,7 +48,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         metrics: Arc<ClientMetrics>,
-        sui_client: SuiClient,
+        sui_client: RetryableSuiClient,
     ) -> RefillHandles {
         let _gas_refill_handle = self.refill_gas(
             addresses.clone(),
@@ -70,7 +70,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         metrics: Arc<ClientMetrics>,
-        sui_client: SuiClient,
+        sui_client: RetryableSuiClient,
     ) -> JoinHandle<anyhow::Result<()>> {
         let amount = self.gas_refill_size;
         self.periodic_refill(
@@ -96,7 +96,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         metrics: Arc<ClientMetrics>,
-        sui_client: SuiClient,
+        sui_client: RetryableSuiClient,
     ) -> JoinHandle<anyhow::Result<()>> {
         let amount = self.wal_refill_size;
         self.periodic_refill(
@@ -121,7 +121,7 @@ impl Refiller {
         &self,
         addresses: Vec<SuiAddress>,
         period: Duration,
-        sui_client: SuiClient,
+        sui_client: RetryableSuiClient,
         coin_type: Option<String>,
         min_coin_value: u64,
         inner_action: F,
@@ -205,13 +205,12 @@ pub struct RefillHandles {
 /// RPC returns an error, we assume that the wallet has enough coins and we do not try to refill
 /// it, threfore returning `false`.
 pub async fn should_refill(
-    sui_client: &SuiClient,
+    sui_client: &RetryableSuiClient,
     address: SuiAddress,
     coin_type: Option<String>,
     min_balance: u64,
 ) -> bool {
     sui_client
-        .coin_read_api()
         .get_balance(address, coin_type)
         .await
         .map(|balance| balance.total_balance < min_balance as u128)

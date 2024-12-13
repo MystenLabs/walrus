@@ -18,6 +18,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{
+        retry_client::ExponentialBackoffConfig,
         BlobObjectMetadata,
         BlobPersistence,
         CoinType,
@@ -63,7 +64,14 @@ async fn initialize_contract_and_wallet(
         sui_cluster,
         admin_wallet
             .and_then_async(|wallet| {
-                SuiContractClient::new(wallet, system_object, staking_object, None, GAS_BUDGET)
+                SuiContractClient::new(
+                    wallet,
+                    system_object,
+                    staking_object,
+                    None,
+                    ExponentialBackoffConfig::default(),
+                    GAS_BUDGET,
+                )
             })
             .await?,
     ))
@@ -413,7 +421,6 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
     let n_coins = client_1
         .as_ref()
         .sui_client()
-        .coin_read_api()
         .get_balance(
             client_1_address,
             Some(client_2.as_ref().read_client().wal_coin_type()),
@@ -463,7 +470,6 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
         client_1
             .as_ref()
             .sui_client()
-            .coin_read_api()
             .get_balance(
                 client_1_address,
                 Some(client_2.as_ref().read_client().wal_coin_type())

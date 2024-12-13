@@ -25,13 +25,14 @@ communication_config:
     http2_keep_alive_while_idle: true
   request_rate_config:
     max_node_connections: 10
-    max_retries: 5
-    min_backoff:
-      secs: 2
-      nanos: 0
-    max_backoff:
-      secs: 60
-      nanos: 0
+    backoff_config:
+      min_backoff:
+        secs: 1
+        nanos: 0
+      max_backoff:
+        secs: 30
+        nanos: 0
+      max_retries: 5
   disable_proxy: false
   disable_native_certs: true
   sliver_write_extra_time:

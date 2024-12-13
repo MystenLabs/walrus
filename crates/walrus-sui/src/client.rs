@@ -7,6 +7,7 @@ use core::fmt;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use retry_client::{ExponentialBackoffConfig, RetryableSuiClient};
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -16,7 +17,6 @@ use sui_sdk::{
     },
     types::base_types::{ObjectID, ObjectRef},
     wallet_context::WalletContext,
-    SuiClient,
 };
 use sui_types::{
     base_types::SuiAddress,
@@ -52,7 +52,7 @@ use crate::{
         StorageNodeCap,
         StorageResource,
     },
-    utils::{get_created_sui_object_ids_by_type, get_sui_object, sign_and_send_ptb},
+    utils::{get_created_sui_object_ids_by_type, sign_and_send_ptb},
 };
 
 mod read_client;
@@ -63,6 +63,7 @@ pub use read_client::{
     ReadClient,
     SuiReadClient,
 };
+pub mod retry_client;
 
 pub mod transaction_builder;
 
@@ -240,10 +241,11 @@ impl SuiContractClient {
         system_object: ObjectID,
         staking_object: ObjectID,
         package_id: Option<ObjectID>,
+        backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
         let read_client = SuiReadClient::new(
-            wallet.get_client().await?,
+            RetryableSuiClient::new_from_wallet(&wallet, backoff_config).await?,
             system_object,
             staking_object,
             package_id,
@@ -272,8 +274,8 @@ impl SuiContractClient {
         &self.read_client
     }
 
-    /// Gets the [`SuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &SuiClient {
+    /// Gets the [`RetryableSuiClient`] from the associated read client.
+    pub fn sui_client(&self) -> &RetryableSuiClient {
         &self.read_client.sui_client
     }
 
@@ -326,7 +328,7 @@ impl SuiContractClient {
             "unexpected number of storage resources created: {}",
             storage_id.len()
         );
-        get_sui_object(&self.read_client.sui_client, storage_id[0]).await
+        self.sui_client().get_sui_object(storage_id[0]).await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -360,7 +362,7 @@ impl SuiContractClient {
             blob_obj_id.len()
         );
 
-        get_sui_object(&self.read_client.sui_client, blob_obj_id[0]).await
+        self.sui_client().get_sui_object(blob_obj_id[0]).await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -403,7 +405,7 @@ impl SuiContractClient {
             blob_obj_id.len()
         );
 
-        get_sui_object(&self.read_client.sui_client, blob_obj_id[0]).await
+        self.sui_client().get_sui_object(blob_obj_id[0]).await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -509,7 +511,7 @@ impl SuiContractClient {
             cap_id.len()
         );
 
-        get_sui_object(&self.read_client.sui_client, cap_id[0]).await
+        self.sui_client().get_sui_object(cap_id[0]).await
     }
 
     /// Stakes the given amount with the pool of node with `node_id`.
@@ -537,7 +539,7 @@ impl SuiContractClient {
             staked_wal.len()
         );
 
-        get_sui_object(&self.read_client.sui_client, staked_wal[0]).await
+        self.sui_client().get_sui_object(staked_wal[0]).await
     }
 
     /// Call to end voting and finalize the next epoch parameters.
@@ -766,14 +768,9 @@ impl SuiContractClient {
     pub async fn merge_coins(&self) -> SuiClientResult<()> {
         let wallet = self.wallet().await;
         let mut tx_builder = self.transaction_builder();
-        let sui_balance = self
-            .sui_client()
-            .coin_read_api()
-            .get_balance(self.address(), None)
-            .await?;
+        let sui_balance = self.sui_client().get_balance(self.address(), None).await?;
         let wal_balance = self
             .sui_client()
-            .coin_read_api()
             .get_balance(self.address(), Some(self.read_client().wal_coin_type()))
             .await?;
 

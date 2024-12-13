@@ -26,7 +26,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::SuiContractClient,
+    client::{retry_client::ExponentialBackoffConfig, SuiContractClient},
     system_setup::InitSystemParams,
     test_utils::{
         system_setup::{
@@ -349,6 +349,7 @@ pub async fn deploy_walrus_contract(
         system_ctx.system_object,
         system_ctx.staking_object,
         Some(system_ctx.package_id),
+        ExponentialBackoffConfig::default(),
         gas_budget,
     )
     .await?;
@@ -545,6 +546,7 @@ pub async fn create_storage_node_configs(
             walrus_package: Some(testbed_config.system_ctx.package_id),
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
+            backoff_config: ExponentialBackoffConfig::default(),
             gas_budget: defaults::gas_budget(),
         });
 
@@ -591,7 +593,11 @@ pub async fn create_storage_node_configs(
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
         testbed_config
             .system_ctx
-            .new_contract_client(wallet, DEFAULT_GAS_BUDGET)
+            .new_contract_client(
+                wallet,
+                ExponentialBackoffConfig::default(),
+                DEFAULT_GAS_BUDGET,
+            )
             .await
             .expect("should not fail")
     }))

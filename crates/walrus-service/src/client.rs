@@ -13,6 +13,7 @@ use futures::{Future, FutureExt};
 use indicatif::HumanDuration;
 use metrics::ClientMetricSet;
 use prometheus::Registry;
+use rand::{rngs::ThreadRng, RngCore as _};
 use resource::{PriceComputation, ResourceManager, StoreOp};
 use sui_types::base_types::ObjectID;
 use tokio::{
@@ -78,7 +79,6 @@ mod resource;
 
 mod utils;
 pub use utils::string_prefix;
-use walrus_utils::backoff::ExponentialBackoff;
 
 pub mod metrics;
 
@@ -1031,17 +1031,10 @@ impl<T> Client<T> {
         read_client: &U,
     ) -> ClientResult<BlobStatus> {
         // The backoff is both the interval between retries and the maximum duration of the retry.
-        let config = &self.config.communication_config.request_rate_config;
-        let backoff = ExponentialBackoff::new_with_seed(
-            config.min_backoff,
-            config.max_backoff,
-            config.max_retries,
-            u64::from_le_bytes(
-                blob_id.0[..8]
-                    .try_into()
-                    .expect("can always convert 8 bytes into u64"),
-            ),
-        );
+        let backoff = self
+            .config
+            .backoff_config()
+            .get_strategy(ThreadRng::default().next_u64());
 
         let mut peekable = backoff.peekable();
 

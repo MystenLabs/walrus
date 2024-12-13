@@ -11,10 +11,15 @@ use std::{
 use itertools::Itertools;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
-use sui_sdk::{wallet_context::WalletContext, SuiClient};
+use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
-use walrus_sui::client::{SuiClientError, SuiContractClient, SuiReadClient};
+use walrus_sui::client::{
+    retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
+    SuiClientError,
+    SuiContractClient,
+    SuiReadClient,
+};
 
 use crate::common::utils::{self, LoadConfig};
 
@@ -43,7 +48,7 @@ impl Config {
     /// Creates a [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(
         &self,
-        sui_client: SuiClient,
+        sui_client: RetryableSuiClient,
     ) -> Result<SuiReadClient, SuiClientError> {
         SuiReadClient::new(
             sui_client,
@@ -65,9 +70,15 @@ impl Config {
             self.system_object,
             self.staking_object,
             self.walrus_package,
+            self.backoff_config().clone(),
             gas_budget,
         )
         .await
+    }
+
+    /// Returns a reference to the backoff configuration.
+    pub fn backoff_config(&self) -> &ExponentialBackoffConfig {
+        &self.communication_config.request_rate_config.backoff_config
     }
 }
 
@@ -147,9 +158,11 @@ impl ClientCommunicationConfig {
             disable_native_certs: true,
             request_rate_config: RequestRateConfig {
                 max_node_connections: 10,
-                max_retries,
-                min_backoff: Duration::from_secs(2),
-                max_backoff: Duration::from_secs(10),
+                backoff_config: ExponentialBackoffConfig {
+                    max_retries,
+                    min_backoff: Duration::from_secs(2),
+                    max_backoff: Duration::from_secs(10),
+                },
             },
             ..Default::default()
         }
@@ -278,21 +291,15 @@ impl CommunicationLimits {
 pub struct RequestRateConfig {
     /// The maximum number of connections the client can open towards each node.
     pub max_node_connections: usize,
-    /// The number of retries for failed communication.
-    pub max_retries: Option<u32>,
-    /// The minimum backoff time between retries.
-    pub min_backoff: Duration,
-    /// The maximum backoff time between retries.
-    pub max_backoff: Duration,
+    /// The configuration for the backoff strategy.
+    pub backoff_config: ExponentialBackoffConfig,
 }
 
 impl Default for RequestRateConfig {
     fn default() -> Self {
         Self {
             max_node_connections: 10,
-            max_retries: Some(5),
-            min_backoff: Duration::from_secs(2),
-            max_backoff: Duration::from_secs(60),
+            backoff_config: Default::default(),
         }
     }
 }

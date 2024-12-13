@@ -43,6 +43,7 @@ tracing.workspace = true
 utoipa = { workspace = true, optional = true }
 walrus-core.workspace = true
 walrus-test-utils = { workspace = true, optional = true }
+walrus-utils = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber.workspace = true

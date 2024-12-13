@@ -28,7 +28,12 @@ use walrus_core::{
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
-    client::{ReadClient, SuiClientError, SuiContractClient},
+    client::{
+        retry_client::ExponentialBackoffConfig,
+        ReadClient,
+        SuiClientError,
+        SuiContractClient,
+    },
     system_setup::{self, InitSystemParams},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
@@ -82,7 +87,11 @@ pub async fn publish_with_default_system(
 
     // Initialize client
     let contract_client = system_context
-        .new_contract_client(node_wallet, DEFAULT_GAS_BUDGET)
+        .new_contract_client(
+            node_wallet,
+            ExponentialBackoffConfig::default(),
+            DEFAULT_GAS_BUDGET,
+        )
         .await?;
 
     register_committee_and_stake(
@@ -120,6 +129,7 @@ impl SystemContext {
     pub async fn new_contract_client(
         &self,
         wallet: WalletContext,
+        backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
@@ -127,6 +137,7 @@ impl SystemContext {
             self.system_object,
             self.staking_object,
             Some(self.package_id),
+            backoff_config,
             gas_budget,
         )
         .await

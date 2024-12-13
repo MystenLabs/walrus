@@ -24,11 +24,8 @@ use sui_sdk::{
         SuiObjectDataFilter,
         SuiObjectDataOptions,
         SuiObjectResponseQuery,
-        SuiRawData,
     },
     types::base_types::ObjectID,
-    SuiClient,
-    SuiClientBuilder,
 };
 use sui_types::{
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
@@ -43,7 +40,11 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::Instrument as _;
 use walrus_core::{ensure, Epoch};
 
-use super::{SuiClientError, SuiClientResult};
+use super::{
+    retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
+    SuiClientError,
+    SuiClientResult,
+};
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::{
@@ -63,13 +64,7 @@ use crate::{
         StorageNodeCap,
         SystemObject,
     },
-    utils::{
-        get_dynamic_field_object,
-        get_package_id_from_object_response,
-        get_sui_object,
-        get_sui_object_from_object_response,
-        handle_pagination,
-    },
+    utils::{get_sui_object_from_object_response, handle_pagination},
 };
 
 const EVENT_MODULE: &str = "events";
@@ -215,7 +210,7 @@ impl From<Mutability> for bool {
 #[derive(Clone)]
 pub struct SuiReadClient {
     pub(crate) walrus_package_id: ObjectID,
-    pub(crate) sui_client: SuiClient,
+    pub(crate) sui_client: RetryableSuiClient,
     pub(crate) system_object_id: ObjectID,
     pub(crate) staking_object_id: ObjectID,
     pub(crate) type_origin_map: TypeOriginMap,
@@ -229,7 +224,7 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
     pub async fn new(
-        sui_client: SuiClient,
+        sui_client: RetryableSuiClient,
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
         package_id: Option<ObjectID>,
@@ -237,9 +232,13 @@ impl SuiReadClient {
         let walrus_package_id = package_id.unwrap_or(
             // We use `unwrap_or` here because we want to call the function even if the package ID
             // is provided to check if the system and staking objects exist.
-            get_system_package_id_from_system_object(&sui_client, system_object_id).await?,
+            sui_client
+                .get_system_package_id_from_system_object(system_object_id)
+                .await?,
         );
-        let type_origin_map = type_origin_map_for_package(&sui_client, walrus_package_id).await?;
+        let type_origin_map = sui_client
+            .type_origin_map_for_package(walrus_package_id)
+            .await?;
         Ok(Self {
             walrus_package_id,
             sui_client,
@@ -251,15 +250,16 @@ impl SuiReadClient {
         })
     }
 
-    /// Constructs a new `SuiReadClient` around a [`SuiClient`] constructed for the
+    /// Constructs a new `SuiReadClient` around a [`RetryableSuiClient`] constructed for the
     /// provided fullnode's RPC address.
     pub async fn new_for_rpc<S: AsRef<str>>(
         rpc_address: S,
         system_object: ObjectID,
         staking_object: ObjectID,
         package_id: Option<ObjectID>,
+        backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client = SuiClientBuilder::default().build(rpc_address).await?;
+        let client = RetryableSuiClient::new_for_rpc(rpc_address, backoff_config).await?;
         Self::new(client, system_object, staking_object, package_id).await
     }
 
@@ -324,7 +324,6 @@ impl SuiReadClient {
             initial_shared_version,
         }) = self
             .sui_client
-            .read_api()
             .get_object_with_options(object_id, SuiObjectDataOptions::new().with_owner())
             .await?
             .owner()
@@ -361,7 +360,6 @@ impl SuiReadClient {
         };
         Ok(self
             .sui_client
-            .coin_read_api()
             .get_balance(owner_address, coin_type_option)
             .await?
             .total_balance
@@ -386,7 +384,6 @@ impl SuiReadClient {
             CoinType::Sui => None,
         };
         self.sui_client
-            .coin_read_api()
             .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
             .await
             .map_err(|err| match err {
@@ -464,7 +461,7 @@ impl SuiReadClient {
         let struct_tag =
             object_type.to_move_struct_tag_with_type_map(&self.type_origin_map, type_args)?;
         Ok(handle_pagination(move |cursor| {
-            self.sui_client.read_api().get_owned_objects(
+            self.sui_client.get_owned_objects(
                 owner,
                 Some(SuiObjectResponseQuery {
                     filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
@@ -488,7 +485,6 @@ impl SuiReadClient {
     ) -> Result<ObjectRef, anyhow::Error> {
         Ok(self
             .sui_client
-            .read_api()
             .get_object_with_options(object_id, SuiObjectDataOptions::new())
             .await?
             .into_object()?
@@ -510,30 +506,36 @@ impl SuiReadClient {
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        let SystemObjectForDeserialization { id, version } =
-            get_sui_object(&self.sui_client, self.system_object_id).await?;
-        let inner = get_dynamic_field_object::<u64, SystemStateInnerV1>(
-            &self.sui_client,
-            self.system_object_id,
-            TypeTag::U64,
-            version,
-        )
-        .await?;
+        let SystemObjectForDeserialization { id, version } = self
+            .sui_client
+            .get_sui_object(self.system_object_id)
+            .await?;
+        let inner = self
+            .sui_client
+            .get_dynamic_field_object::<u64, SystemStateInnerV1>(
+                self.system_object_id,
+                TypeTag::U64,
+                version,
+            )
+            .await?;
 
         Ok(SystemObject { id, version, inner })
     }
 
     async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
-        let StakingObjectForDeserialization { id, version } =
-            get_sui_object(&self.sui_client, self.staking_object_id).await?;
+        let StakingObjectForDeserialization { id, version } = self
+            .sui_client
+            .get_sui_object(self.staking_object_id)
+            .await?;
 
-        let inner = get_dynamic_field_object::<u64, StakingInnerV1>(
-            &self.sui_client,
-            self.staking_object_id,
-            TypeTag::U64,
-            version,
-        )
-        .await?;
+        let inner = self
+            .sui_client
+            .get_dynamic_field_object::<u64, StakingInnerV1>(
+                self.staking_object_id,
+                TypeTag::U64,
+                version,
+            )
+            .await?;
         Ok(StakingObject { id, version, inner })
     }
 
@@ -547,7 +549,6 @@ impl SuiReadClient {
         for obj_id_batch in shard_assignment.chunks(MULTI_GET_OBJ_LIMIT) {
             node_object_responses.extend(
                 self.sui_client
-                    .read_api()
                     .multi_get_object_with_options(
                         obj_id_batch
                             .iter()
@@ -599,6 +600,11 @@ impl SuiReadClient {
         } else {
             Ok(None)
         }
+    }
+
+    /// Returns the backoff configuration for the inner client.
+    pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
+        self.sui_client.backoff_config()
     }
 }
 
@@ -768,61 +774,6 @@ impl fmt::Debug for SuiReadClient {
             .field("system_object", &self.system_object_id)
             .finish()
     }
-}
-
-/// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
-async fn get_system_package_id_from_system_object(
-    sui_client: &SuiClient,
-    system_object_id: ObjectID,
-) -> SuiClientResult<ObjectID> {
-    let response = sui_client
-        .read_api()
-        .get_object_with_options(
-            system_object_id,
-            SuiObjectDataOptions::default().with_type().with_bcs(),
-        )
-        .await
-        .map_err(|error| {
-            tracing::debug!(%error, "unable to get the Walrus system object");
-            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-        })?;
-
-    get_sui_object_from_object_response::<SystemObjectForDeserialization>(&response).map_err(
-        |error| {
-            tracing::debug!(%error, "error when trying to deserialize the system object");
-            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-        },
-    )?;
-
-    let object_pkg_id = get_package_id_from_object_response(&response).map_err(|error| {
-        tracing::debug!(%error, "unable to get the Walrus package ID");
-        SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-    })?;
-    Ok(object_pkg_id)
-}
-
-/// Gets the type origin map for a given package.
-async fn type_origin_map_for_package(
-    sui_client: &SuiClient,
-    package_id: ObjectID,
-) -> Result<TypeOriginMap> {
-    let Ok(Some(SuiRawData::Package(raw_package))) = sui_client
-        .read_api()
-        .get_object_with_options(
-            package_id,
-            SuiObjectDataOptions::default().with_type().with_bcs(),
-        )
-        .await?
-        .into_object()
-        .map(|object| object.bcs)
-    else {
-        bail!(SuiClientError::WalrusPackageNotFound(package_id));
-    };
-    Ok(raw_package
-        .type_origin_table
-        .into_iter()
-        .map(|origin| ((origin.module_name, origin.datatype_name), origin.package))
-        .collect())
 }
 
 #[tracing::instrument(err, skip_all)]

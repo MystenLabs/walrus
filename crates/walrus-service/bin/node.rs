@@ -336,7 +336,10 @@ mod commands {
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
-    use walrus_sui::{client::ReadClient as _, types::NetworkAddress};
+    use walrus_sui::{
+        client::{retry_client::ExponentialBackoffConfig, ReadClient as _},
+        types::NetworkAddress,
+    };
 
     use super::*;
 
@@ -652,6 +655,7 @@ mod commands {
                 walrus_package,
                 wallet_config,
                 event_polling_interval: config::defaults::polling_interval(),
+                backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget,
             }),
             voting_params: VotingParams {

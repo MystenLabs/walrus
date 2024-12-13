@@ -8,10 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Context;
 use futures::future::try_join_all;
 use rand::{thread_rng, Rng};
-use sui_sdk::{types::base_types::SuiAddress, SuiClientBuilder};
+use sui_sdk::types::base_types::SuiAddress;
 use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
     time::{Interval, MissedTickBehavior},
@@ -25,7 +24,13 @@ use walrus_service::client::{
     RefillHandles,
     Refiller,
 };
-use walrus_sui::{client::SuiReadClient, utils::SuiNetwork};
+use walrus_sui::{
+    client::{
+        retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
+        SuiReadClient,
+    },
+    utils::SuiNetwork,
+};
 
 const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
 
@@ -66,13 +71,12 @@ impl LoadGenerator {
 
         // Set up read clients
         let (read_client_pool_tx, read_client_pool) = mpsc::channel(n_clients);
-        let sui_client = SuiClientBuilder::default()
-            .build(&network.env().rpc)
-            .await
-            .context(format!(
-                "cannot connect to Sui RPC node at {}",
-                &network.env().rpc
-            ))?;
+        let sui_client = RetryableSuiClient::new_for_rpc(
+            network.env().rpc.clone(),
+            ExponentialBackoffConfig::default(),
+        )
+        .await?;
+
         let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;
         for read_client in try_join_all(
             (0..n_clients)

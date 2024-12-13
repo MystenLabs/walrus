@@ -274,9 +274,9 @@ impl<'a, W> NodeCommunication<'a, W> {
     /// Gets the backoff strategy for the node.
     fn backoff_strategy(&self) -> ExponentialBackoff<StdRng> {
         ExponentialBackoff::new_with_seed(
-            self.config.min_backoff,
-            self.config.max_backoff,
-            self.config.max_retries,
+            self.config.backoff_config.min_backoff,
+            self.config.backoff_config.max_backoff,
+            self.config.backoff_config.max_retries,
             self.node_index as u64,
         )
     }
@@ -393,7 +393,7 @@ impl<'a> NodeWriteCommunication<'a> {
                     node_permits=?self.node_write_limit.available_permits(),
                     sliver_permits=?self.sliver_write_limit.available_permits(),
                     ?error,
-                    ?self.config.max_retries,
+                    ?self.config.backoff_config.max_retries,
                     "could not store sliver after retrying; stopping storing on the node"
                 );
                 return Err(error);
