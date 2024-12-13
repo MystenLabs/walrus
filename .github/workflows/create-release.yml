@@ -50,7 +50,7 @@ jobs:
         shell: bash
         working-directory: ./
         run: |
-          GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+          WALRUS_REPO_TOKEN=${{ secrets.GITHUB_TOKEN }} \
           python ./scripts/release_notes.py generate ${{ env.previous_commit }} ${{ env.current_commit }} | tee -a ${{ env.RELEASE_NOTES_FILE }}
           echo "---" >> ${{ env.RELEASE_NOTES_FILE }}
           echo "#### Full Log: https://github.com/MystenLabs/walrus/commits/${{ inputs.release_tag }}" >> ${{ env.RELEASE_NOTES_FILE }}
