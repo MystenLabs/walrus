@@ -796,11 +796,7 @@ impl ShardStorage {
         // Update the metric for the total number of blobs pending recovery, so that we know how
         // many blobs are pending recovery.
         let mut total_blobs_pending_recovery = self.pending_recover_slivers.keys().count();
-        metrics::with_label!(
-            node.metrics.sync_shard_recover_sliver_pending_total,
-            &self.id.to_string()
-        )
-        .set(total_blobs_pending_recovery as i64);
+        self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
         for recover_blob in self.pending_recover_slivers.safe_iter() {
             let ((sliver_type, blob_id), _) = recover_blob?;
@@ -829,11 +825,7 @@ impl ShardStorage {
             }
 
             total_blobs_pending_recovery -= 1;
-            metrics::with_label!(
-                node.metrics.sync_shard_recover_sliver_pending_total,
-                &self.id.to_string()
-            )
-            .set(total_blobs_pending_recovery as i64);
+            self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
             // Wait for some futures to complete if we reach the concurrent blob recovery limit
             if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery {
@@ -858,6 +850,18 @@ impl ShardStorage {
         }
 
         Ok(())
+    }
+
+    fn record_pending_recovery_metrics(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        total_blobs_pending_recovery: usize,
+    ) {
+        metrics::with_label!(
+            node.metrics.sync_shard_recover_sliver_pending_total,
+            &self.id.to_string()
+        )
+        .set(total_blobs_pending_recovery as i64);
     }
 
     /// Skips recovering a blob that is no longer certified.
