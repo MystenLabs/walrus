@@ -70,6 +70,15 @@ impl Display for EventOrObjectId {
     }
 }
 
+/// Blob store result with its file path.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlobStoreResultWithPath {
+    /// The result of the store operation.
+    pub blob_store_result: BlobStoreResult,
+    /// The file path to the blob.
+    pub path: PathBuf,
+}
+
 /// Result when attempting to store a blob.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

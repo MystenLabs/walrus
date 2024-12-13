@@ -11439,6 +11439,7 @@ name = "walrus-e2e-tests"
 version = "1.8.0"
 dependencies = [
  "anyhow",
+ "futures",
  "prometheus",
  "reqwest",
  "sui-macros",

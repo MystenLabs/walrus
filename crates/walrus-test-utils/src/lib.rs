@@ -363,6 +363,14 @@ pub fn random_data(data_length: usize) -> Vec<u8> {
     random_data_from_rng(data_length, &mut StdRng::seed_from_u64(42))
 }
 
+/// Creates a list of deterministically generated random bytearray of
+/// length `data_length` with different seeds.
+pub fn random_data_list(data_length: usize, count: usize) -> Vec<Vec<u8>> {
+    (0..count)
+        .map(|i| random_data_from_rng(data_length, &mut StdRng::seed_from_u64(i as u64)))
+        .collect()
+}
+
 /// Creates a NonZero value from a literal with a compile-time check disallowing zero.
 #[macro_export]
 macro_rules! nonzero {

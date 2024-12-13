@@ -28,6 +28,7 @@ use crate::client::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
+        BlobStoreResultWithPath,
         DeleteOutput,
         DryRunOutput,
         ExampleBlobInfo,
@@ -57,7 +58,7 @@ pub trait CliOutput: Serialize {
         Ok(())
     }
 }
-impl CliOutput for Vec<BlobStoreResult> {
+impl CliOutput for Vec<BlobStoreResultWithPath> {
     fn print_cli_output(&self) {
         for result in self {
             result.print_cli_output();
@@ -73,10 +74,10 @@ impl CliOutput for Vec<DryRunOutput> {
     }
 }
 
-impl CliOutput for BlobStoreResult {
+impl CliOutput for BlobStoreResultWithPath {
     fn print_cli_output(&self) {
-        match &self {
-            Self::AlreadyCertified {
+        match &self.blob_store_result {
+            BlobStoreResult::AlreadyCertified {
                 blob_id,
                 event_or_object,
                 end_epoch,
@@ -84,13 +85,14 @@ impl CliOutput for BlobStoreResult {
                 println!(
                     "{} Blob was already available and certified within Walrus, \
                     for a sufficient number of epochs.\n\
-                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}",
+                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}\nPath: {}",
                     success(),
                     blob_id,
                     end_epoch,
+                    self.path.display(),
                 )
             }
-            Self::NewlyCreated {
+            BlobStoreResult::NewlyCreated {
                 blob_object,
                 resource_operation,
                 cost,
@@ -112,7 +114,8 @@ impl CliOutput for BlobStoreResult {
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
-                    Cost (excluding gas): {} {}",
+                    Cost (excluding gas): {} {}\n\
+                    Path: {}",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
@@ -125,14 +128,17 @@ impl CliOutput for BlobStoreResult {
                     HumanReadableBytes(resource_operation.encoded_length()),
                     HumanReadableFrost::from(*cost),
                     operation_str,
+                    self.path.display()
                 )
             }
-            Self::MarkedInvalid { blob_id, event } => {
+            BlobStoreResult::MarkedInvalid { blob_id, event } => {
                 println!(
-                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
+                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}
+                    \nPath: {}",
                     error(),
                     blob_id,
                     format_event_id(event),
+                    self.path.display(),
                 )
             }
         }

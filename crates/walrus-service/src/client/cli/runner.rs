@@ -358,10 +358,10 @@ impl ClientCommandRunner {
             let start_timer = std::time::Instant::now();
             let blobs = files
                 .into_iter()
-                .map(|file| read_blob_from_file(&file))
-                .collect::<Result<Vec<_>>>()?;
+                .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
+                .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
             let result = client
-                .reserve_and_store_blobs_retry_epoch(
+                .reserve_and_store_blobs_retry_epoch_with_path(
                     &blobs,
                     epochs,
                     store_when,

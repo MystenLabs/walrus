@@ -3,7 +3,11 @@
 
 //! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroU16,
+    time::Duration,
+};
 
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
@@ -119,10 +123,10 @@ async fn run_store_and_read_with_crash_failures(
     failed_shards_write
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
-
-    // Store a blob and get confirmations from each node.
-    let blobs = vec![walrus_test_utils::random_data(data_length); 10];
-    let result = client
+    // Store a list of blobs and get confirmations from each node.
+    let blob_data = walrus_test_utils::random_data_list(data_length, 10);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let store_result = client
         .as_ref()
         .reserve_and_store_blobs(
             &blobs,
@@ -132,22 +136,35 @@ async fn run_store_and_read_with_crash_failures(
             PostStoreAction::Keep,
         )
         .await?;
-    let blob_ids: Vec<&BlobId> = result
-        .iter()
-        .map(|blob_store_result| blob_store_result.blob_id())
-        .collect::<Vec<_>>();
+    let original_blobs: HashSet<&[u8]> = blobs.into_iter().collect();
 
     // Stop the nodes in the read failure set.
     failed_shards_read
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
-    // Read the blob.
-    for (idx, blob_id) in blob_ids.iter().enumerate() {
-        let read_blob = client.as_ref().read_blob::<Primary>(blob_id).await?;
-        assert_eq!(read_blob, blobs[idx]);
-    }
+    // Read all blobs and collect them into a HashSet
+    let read_blobs: HashSet<Vec<u8>> = futures::future::try_join_all(
+        store_result
+            .iter()
+            .map(|result| client.as_ref().read_blob::<Primary>(result.blob_id())),
+    )
+    .await?
+    .into_iter()
+    .collect();
 
+    assert_eq!(
+        original_blobs.len(),
+        read_blobs.len(),
+        "Number of blobs should match"
+    );
+
+    for original in original_blobs {
+        assert!(
+            read_blobs.iter().any(|read| read == original),
+            "Each original blob should have a matching read blob"
+        );
+    }
     Ok(())
 }
 
@@ -278,34 +295,41 @@ async fn test_store_with_existing_blob_resource(
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blobs = vec![walrus_test_utils::random_data(31415)];
-    let (_, metadata) = client
-        .as_ref()
-        .encoding_config()
-        .get_blob_encoder(&blobs[0])?
-        .encode_with_metadata();
-    let metadata = metadata.metadata().to_owned();
-    let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-    let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
+    let blob_data = walrus_test_utils::random_data_list(31415, 10);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let metatdatum = blobs
+        .iter()
+        .map(|blob| {
+            let (_, metadata) = client
+                .as_ref()
+                .encoding_config()
+                .get_blob_encoder(blob)
+                .expect("blob encoding should not fail")
+                .encode_with_metadata();
+            let metadata = metadata.metadata().to_owned();
+            let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+            VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata)
+        })
+        .collect::<Vec<_>>();
 
-    // Register a new blob.
-    let (original_blob_object, _) = client
+    // Register a list of new blobs.
+    let original_blob_objects = client
         .as_ref()
         .resource_manager()
         .await
         .get_existing_or_register(
-            &[&metadata],
+            &metatdatum.iter().collect::<Vec<_>>(),
             epochs_ahead_registered,
             BlobPersistence::Permanent,
             StoreWhen::NotStored,
         )
         .await?
         .into_iter()
-        .next()
-        .expect("should register exactly one blob");
+        .map(|(blob, _)| (blob.blob_id, blob))
+        .collect::<HashMap<_, _>>();
 
     // Now ask the client to store again.
-    let blob_store = client
+    let blob_stores = client
         .inner
         .reserve_and_store_blobs(
             &blobs,
@@ -314,15 +338,20 @@ async fn test_store_with_existing_blob_resource(
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?;
+        .await?
+        .into_iter()
+        .map(|blob_store_result| match blob_store_result {
+            BlobStoreResult::NewlyCreated { blob_object, .. } => (blob_object.blob_id, blob_object),
+            _ => panic!("the client should be able to store the blob"),
+        })
+        .collect::<HashMap<_, _>>();
 
-    if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store.first().unwrap() {
-        // Check if the storage object used is the same.
+    for (blob_id, blob_object) in blob_stores {
+        let original_blob_object = original_blob_objects
+            .get(&blob_id)
+            .expect("should have original blob object");
         assert!(should_match == (blob_object.id == original_blob_object.id));
-    } else {
-        panic!("the client should be able to store the blob")
-    };
-
+    }
     Ok(())
 }
 
@@ -351,30 +380,34 @@ async fn test_store_with_existing_storage_resource(
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blobs = vec![walrus_test_utils::random_data(31415)];
-    let (_, metadata) = client
+    let blob_data = walrus_test_utils::random_data_list(31415, 10);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let pairs_and_metadata = client
         .as_ref()
-        .encoding_config()
-        .get_blob_encoder(&blobs[0])?
-        .encode_with_metadata();
-    let metadata = metadata.metadata().to_owned();
-    let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-    let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
-
-    // Register a new storage resource.
-    let encoded_size = metadata
-        .metadata()
-        .encoded_size()
-        .expect("we just encoded this blob");
-
-    let original_storage_resource = client
-        .as_ref()
-        .sui_client()
-        .reserve_space(encoded_size, epochs_ahead_registered)
+        .encode_blobs_to_pairs_and_metadata(&blobs)
         .await?;
+    let encoded_sizes = pairs_and_metadata
+        .iter()
+        .map(|(_, metadata)| metadata.metadata().encoded_size().unwrap())
+        .collect::<Vec<_>>();
+
+    // Reserve space for the blobs. Collect all original storage resource objects ids.
+    let original_storage_resources =
+        futures::future::join_all(encoded_sizes.iter().map(|encoded_size| async {
+            let resource = client
+                .as_ref()
+                .sui_client()
+                .reserve_space(*encoded_size, epochs_ahead_registered)
+                .await
+                .expect("reserve space should not fail");
+            resource.id
+        }))
+        .await
+        .into_iter()
+        .collect::<HashSet<_>>();
 
     // Now ask the client to store again.
-
+    // Collect all object ids of the newly created blob object.
     let blob_store = client
         .inner
         .reserve_and_store_blobs(
@@ -384,15 +417,16 @@ async fn test_store_with_existing_storage_resource(
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?;
+        .await?
+        .into_iter()
+        .map(|blob_store_result| match blob_store_result {
+            BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.storage.id,
+            _ => panic!("the client should be able to store the blob"),
+        })
+        .collect::<HashSet<_>>();
 
-    if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store.first().unwrap() {
-        // Check if the storage object used is the same.
-        assert!(should_match == (blob_object.storage.id == original_storage_resource.id));
-    } else {
-        panic!("the client should be able to store the blob")
-    };
-
+    // Check the object ids are the same.
+    assert!(should_match == (original_storage_resources == blob_store));
     Ok(())
 }
 
@@ -409,8 +443,8 @@ async_param_test! {
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
-    let blobs = vec![walrus_test_utils::random_data(314)];
-
+    let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.as_slice()];
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
     // with the same blob ID.
     for idx in 1..blobs_to_create + 1 {
@@ -470,9 +504,10 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
-    let blobs = vec![walrus_test_utils::random_data(314)];
+    let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.as_slice()];
 
-    let store_result = client
+    let results = client
         .reserve_and_store_blobs(
             &blobs,
             1,
@@ -481,13 +516,11 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
             PostStoreAction::Keep,
         )
         .await?;
-    let blob_id = store_result.first().unwrap().blob_id();
-    assert!(matches!(
-        store_result.first().unwrap(),
-        BlobStoreResult::NewlyCreated { .. }
-    ));
+    let store_result = results.first().expect("should have one blob store result");
+    let blob_id = store_result.blob_id();
+    assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
-    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blobs[0]);
+    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blob);
 
     client.delete_owned_blob(blob_id).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -518,7 +551,8 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
-    let blobs = vec![walrus_test_utils::random_data(314)];
+    let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.as_slice()];
 
     // NOTE: not in a param_test, because we want to test these store operations in sequence.
     // If the last `bool` parameter is `true`, the store operation should return a
@@ -540,7 +574,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     ];
 
     for (epochs, store_when, persistence, is_already_certified) in configurations {
-        let result = client
+        let results = client
             .reserve_and_store_blobs(
                 &blobs,
                 epochs,
@@ -549,8 +583,9 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 PostStoreAction::Keep,
             )
             .await?;
+        let store_result = results.first().expect("should have one blob store result");
 
-        match result.first().unwrap() {
+        match store_result {
             BlobStoreResult::NewlyCreated { .. } => {
                 assert!(!is_already_certified, "the blob should be newly stored");
             }
@@ -648,7 +683,7 @@ async fn test_burn_blobs() -> TestResult {
         let result = client
             .as_ref()
             .reserve_and_store_blobs(
-                &[blob],
+                &[blob.as_slice()],
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,

@@ -62,7 +62,7 @@ impl WriteClient {
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
             .reserve_and_store_blobs(
-                &[blob.to_vec()],
+                &[blob],
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -70,7 +70,7 @@ impl WriteClient {
             )
             .await?
             .first()
-            .unwrap()
+            .expect("should have one blob store result")
             .blob_id()
             .to_owned();
         let elapsed = now.elapsed();

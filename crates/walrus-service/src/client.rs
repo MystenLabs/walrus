@@ -3,7 +3,7 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, fmt::Display, sync::Arc, time::Instant};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
@@ -15,6 +15,7 @@ use metrics::ClientMetricSet;
 use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
 use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
+use responses::BlobStoreResultWithPath;
 use sui_types::base_types::ObjectID;
 use tokio::{
     sync::{RwLock, Semaphore},
@@ -88,7 +89,17 @@ mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;
 
-const MAX_TOTAL_BLOB_SIZE: usize = 20 * 100 * 1024 * 1024; // 2GB
+const MAX_TOTAL_BLOB_SIZE: usize = 1024 * 1024 * 1024; // 1GB
+
+/// The result of encoding as a list of sliver pairs and metadata and a
+/// mapping from blob id to file path.
+#[derive(Debug)]
+pub struct EncodedResult {
+    /// The sliver pairs and metadata.
+    pairs_and_metadata: Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
+    /// The mapping from blob ID to path.
+    id_to_path: HashMap<BlobId, PathBuf>,
+}
 
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
@@ -328,11 +339,11 @@ impl Client<SuiContractClient> {
             .await)
     }
 
-    /// Stores the list of blobs to Walrus, retrying if it fails because of epoch change.
+    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs_retry_epoch(
         &self,
-        blobs: &[Vec<u8>],
+        blobs: &[&[u8]],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -352,13 +363,53 @@ impl Client<SuiContractClient> {
         .await
     }
 
+    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
+    /// Similar to `[Client::reserve_and_store_blobs_retry_epoch]`, except the result
+    /// includes the corresponding path for blob.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    pub async fn reserve_and_store_blobs_retry_epoch_with_path(
+        &self,
+        blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
+        let EncodedResult {
+            pairs_and_metadata,
+            id_to_path,
+        } = self
+            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
+            .await?;
+
+        let store_results = retry_if_epoch_change(self, || {
+            self.reserve_and_store_encoded_blobs(
+                &pairs_and_metadata,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+            )
+        })
+        .await?;
+
+        // Attach path for the given blob ID to BlobStoreResult.
+        Ok(store_results
+            .into_iter()
+            .map(|result| BlobStoreResultWithPath {
+                path: id_to_path[result.blob_id()].clone(),
+                blob_store_result: result,
+            })
+            .collect::<Vec<_>>())
+    }
+
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
     /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
     /// [`ConfirmationCertificate`] on chain.
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs(
         &self,
-        blobs: &[Vec<u8>],
+        blobs: &[&[u8]],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -376,25 +427,46 @@ impl Client<SuiContractClient> {
         .await
     }
 
+    async fn encode_blobs_to_pairs_and_metadata_with_path(
+        &self,
+        blobs_with_paths: &[(PathBuf, Vec<u8>)],
+    ) -> ClientResult<EncodedResult> {
+        let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs).await?;
+        // Build the id_to_path mapping
+        let id_to_path = pairs_and_metadata
+            .iter()
+            .zip(blobs_with_paths.iter())
+            .map(|((_, metadata), (path, _))| (*metadata.blob_id(), path.clone()))
+            .collect();
+
+        Ok(EncodedResult {
+            pairs_and_metadata,
+            id_to_path,
+        })
+    }
+
     /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
     /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
-    async fn encode_blobs_to_pairs_and_metadata(
+    pub async fn encode_blobs_to_pairs_and_metadata(
         &self,
-        blobs: &[Vec<u8>],
+        blobs: &[&[u8]],
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
         if blobs.is_empty() {
             return Ok(Vec::new());
         }
 
-        let total_blob_size = blobs.iter().map(|blob| blob.len()).sum::<usize>();
-        if total_blob_size > MAX_TOTAL_BLOB_SIZE {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                format!(
-                    "total blob size {} exceeds the maximum limit of {}",
-                    total_blob_size, MAX_TOTAL_BLOB_SIZE
-                )
-                .into(),
-            )));
+        if blobs.len() > 1 {
+            let total_blob_size = blobs.iter().map(|blob| blob.len()).sum::<usize>();
+            if total_blob_size > MAX_TOTAL_BLOB_SIZE {
+                return Err(ClientError::from(ClientErrorKind::Other(
+                    format!(
+                        "total blob size {} exceeds the maximum limit of {}",
+                        total_blob_size, MAX_TOTAL_BLOB_SIZE
+                    )
+                    .into(),
+                )));
+            }
         }
 
         let mut failed_indices = Vec::with_capacity(blobs.len());
@@ -511,7 +583,6 @@ impl Client<SuiContractClient> {
 
         // Return early if no blob status is fetched.
         if metadata_with_status.is_empty() {
-            // todo: check if this should return a list of errors
             return Err(ClientError::from(ClientErrorKind::NoValidStatusReceived));
         }
 
@@ -603,17 +674,7 @@ impl Client<SuiContractClient> {
 
         // Return early if none of blob certificate is fetched.
         if blobs_with_certificates.is_empty() {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                format!(
-                    "failed to get blob certificate: {}",
-                    failed_indices
-                        .iter()
-                        .map(|(id, e)| format!("{}: {}", id, e))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-                .into(),
-            )));
+            return Err(failed_indices.remove(0).1);
         }
 
         tracing::info!(

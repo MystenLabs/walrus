@@ -54,16 +54,17 @@ mod tests {
         let store_results = client
             .as_ref()
             .reserve_and_store_blobs_retry_epoch(
-                &[blob.to_vec()],
+                &[blob.as_slice()],
                 5,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
             .await
-            .context("store blob should not fail")
-            .unwrap();
-        let store_result = store_results.first().unwrap();
+            .context("store blob should not fail")?;
+        let store_result = &store_results
+            .first()
+            .expect("should have exactly one result");
 
         let BlobStoreResult::NewlyCreated {
             blob_object: blob_confirmation,

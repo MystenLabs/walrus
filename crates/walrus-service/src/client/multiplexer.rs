@@ -121,9 +121,10 @@ impl ClientMultiplexer {
         let client = self.client_pool.next_client().await;
         tracing::debug!("submitting write request to client in pool");
 
-        client
+        let result = client
             .write_blob(blob, epochs_ahead, store_when, persistence, post_store)
-            .await
+            .await?;
+        Ok(result)
     }
 }
 

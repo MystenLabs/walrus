@@ -317,6 +317,10 @@ impl<'a> ResourceManager<'a> {
                 reused_metadata_with_storage.push(((*metadata).try_into()?, storage_resource));
                 reused_encoded_lengths.push(*encoded_length);
             } else {
+                tracing::debug!(
+                    blob_id=%metadata.blob_id(),
+                    "no storage resource found for the blob"
+                );
                 new_list.push(*metadata);
                 new_encoded_lengths.push(*encoded_length);
             };
