@@ -1,5 +1,5 @@
 name: Create Walrus Release
-run-name: Generate Release Notes for ${{ inputs.release_tag }}
+run-name: Create Walrus Release for ${{ inputs.release_tag }}
 
 concurrency: ${{ github.workflow }}-${{ inputs.release_tag }}
 
@@ -11,11 +11,11 @@ on:
         type: string
         required: true
       previous_branch:
-        description: 'Previous Release Branch'
+        description: 'Previous Release branch or commit hash'
         type: string
         required: true
       current_branch:
-        description: 'Current Release Branch'
+        description: 'Current Release branch or commit hash'
         type: string
         required: true
 
