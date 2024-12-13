@@ -1,4 +1,4 @@
-name: Create Walrus Release with Release Notes
+name: Create Walrus Release
 run-name: Generate Release Notes for ${{ inputs.release_tag }}
 
 concurrency: ${{ github.workflow }}-${{ inputs.release_tag }}
