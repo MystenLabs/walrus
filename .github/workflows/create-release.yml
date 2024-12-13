@@ -28,8 +28,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Get commits for branches
+      - name: Get commits for branches | j
         shell: bash
+        env:
+          WALRUS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         working-directory: ./
         run: |
           echo "previous_commit=$(curl https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.previous_branch }} | jq .sha)" >> $GITHUB_ENV
