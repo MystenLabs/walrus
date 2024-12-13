@@ -32,8 +32,8 @@ jobs:
         shell: bash
         working-directory: ./
         run: |
-          echo "previous_commit=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.previous_branch }} | jq .sha) >> $GITHUB_ENV
-          echo "current_commit=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.current_branch }} | jq .sha) >> $GITHUB_ENV
+          echo "previous_commit=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.previous_branch }} | jq .sha)" >> $GITHUB_ENV
+          echo "current_commit=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.current_branch }} | jq .sha)" >> $GITHUB_ENV
 
       - name: Checkout main
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
