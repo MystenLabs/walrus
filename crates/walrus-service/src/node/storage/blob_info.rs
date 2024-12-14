@@ -127,7 +127,6 @@ impl BlobInfoTable {
                     .safe_range_iter((starting_blob_id_bound, Unbounded)),
             ),
             before_epoch,
-            true,
         )
     }
 
@@ -183,19 +182,14 @@ where
 {
     iter: Box<I>,
     before_epoch: Epoch,
-    only_certified: bool,
 }
 
 impl<I: ?Sized> BlobInfoIter<I>
 where
     I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
 {
-    pub fn new(iter: Box<I>, before_epoch: Epoch, only_certified: bool) -> Self {
-        Self {
-            iter,
-            before_epoch,
-            only_certified,
-        }
+    pub fn new(iter: Box<I>, before_epoch: Epoch) -> Self {
+        Self { iter, before_epoch }
     }
 }
 
@@ -206,7 +200,6 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BlobInfoIter")
             .field("before_epoch", &self.before_epoch)
-            .field("only_certified", &self.only_certified)
             .finish()
     }
 }
@@ -228,11 +221,10 @@ where
             //
             // It is important to only return certified blobs certified before `before_epoch`
             // because we don't want to fetch blobs that are just certified at `before_epoch`.
-            if !self.only_certified
-                || (matches!(
-                    blob_info.initial_certified_epoch(),
-                    Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
-                ) && blob_info.is_certified(self.before_epoch))
+            if matches!(
+                blob_info.initial_certified_epoch(),
+                Some(initial_certified_epoch) if initial_certified_epoch < self.before_epoch
+            ) && blob_info.is_certified(self.before_epoch)
             {
                 return Some(item);
             }
