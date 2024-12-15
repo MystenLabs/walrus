@@ -79,6 +79,13 @@ public struct ShardRecoveryStart has copy, drop {
     shards: vector<u16>,
 }
 
+/// Signals that the contract has been upgraded and migrated.
+public struct ContractUpgraded has copy, drop {
+    epoch: u32,
+    package_id: ID,
+    version: u64,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -144,4 +151,8 @@ public(package) fun emit_epoch_parameters_selected(next_epoch: u32) {
 
 public(package) fun emit_shard_recovery_start(epoch: u32, shards: vector<u16>) {
     event::emit(ShardRecoveryStart { epoch, shards })
+}
+
+public(package) fun emit_contract_upgraded(epoch: u32, package_id: ID, version: u64) {
+    event::emit(ContractUpgraded { epoch, package_id, version })
 }

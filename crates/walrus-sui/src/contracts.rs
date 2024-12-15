@@ -300,6 +300,7 @@ pub mod events {
     contract_ident!(struct events::EpochChangeDone);
     contract_ident!(struct events::ShardsReceived);
     contract_ident!(struct events::ShardRecoveryStart);
+    contract_ident!(struct events::ContractUpgraded);
 }
 
 /// Module for tags corresponding to the Move module `extended_field`.
@@ -344,4 +345,11 @@ pub mod dynamic_field {
     use super::*;
 
     contract_ident!(struct dynamic_field::Field);
+}
+
+/// Module for tags corresponding to the Move module `package` from the `sui` package.
+pub mod package {
+    use super::*;
+
+    contract_ident!(struct package::UpgradeCap);
 }

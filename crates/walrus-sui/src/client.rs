@@ -322,7 +322,7 @@ impl SuiContractClient {
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
 
         ensure!(
@@ -359,7 +359,7 @@ impl SuiContractClient {
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
             blob_obj_ids.len() == expected_num_blobs,
@@ -407,7 +407,7 @@ impl SuiContractClient {
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
 
         ensure!(
@@ -550,7 +550,7 @@ impl SuiContractClient {
         let cap_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_node::StorageNodeCap
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
             cap_id.len() == 1,
@@ -578,7 +578,7 @@ impl SuiContractClient {
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
             &contracts::staked_wal::StakedWal
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
             staked_wal.len() == 1,
@@ -660,7 +660,7 @@ impl SuiContractClient {
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::wal_exchange::Exchange
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
             exchange_id.len() == 1,
@@ -953,6 +953,10 @@ impl ReadClient for SuiContractClient {
 
     async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
         self.read_client.last_certified_event_blob().await
+    }
+
+    async fn refresh_package_id(&self) -> SuiClientResult<()> {
+        self.read_client.refresh_package_id().await
     }
 }
 

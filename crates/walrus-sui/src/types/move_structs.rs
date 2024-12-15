@@ -314,6 +314,12 @@ pub struct StakingObject {
     pub id: ObjectID,
     /// The version of the system object.
     pub version: u64,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The package ID of the staking object.
+    pub package_id: ObjectID,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The new package ID of the staking object.
+    pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
     pub(crate) inner: StakingInnerV1,
 }
@@ -323,6 +329,10 @@ pub struct StakingObject {
 pub(crate) struct StakingObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
+    #[cfg(feature = "walrus-mainnet")]
+    pub(crate) package_id: ObjectID,
+    #[cfg(feature = "walrus-mainnet")]
+    pub(crate) new_package_id: Option<ObjectID>,
 }
 
 impl AssociatedContractStruct for StakingObjectForDeserialization {
@@ -453,6 +463,12 @@ pub struct SystemObject {
     pub id: ObjectID,
     /// The version of the system object.
     pub version: u64,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The package ID of the system object.
+    pub package_id: ObjectID,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The new package ID of the system object.
+    pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
     pub(crate) inner: SystemStateInnerV1,
 }
@@ -462,6 +478,10 @@ pub struct SystemObject {
 pub(crate) struct SystemObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
+    #[cfg(feature = "walrus-mainnet")]
+    pub(crate) package_id: ObjectID,
+    #[cfg(feature = "walrus-mainnet")]
+    pub(crate) new_package_id: Option<ObjectID>,
 }
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;

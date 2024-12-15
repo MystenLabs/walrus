@@ -37,10 +37,12 @@ use tracing::Level;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
+#[cfg(not(feature = "walrus-mainnet"))]
+use crate::utils::get_package_id_from_object_response;
 use crate::{
     contracts::{AssociatedContractStruct, TypeOriginMap},
     types::move_structs::{SuiDynamicField, SystemObjectForDeserialization},
-    utils::{get_package_id_from_object_response, get_sui_object_from_object_response},
+    utils::get_sui_object_from_object_response,
 };
 
 /// The list of HTTP status codes that are retriable.
@@ -386,18 +388,22 @@ impl RetriableSuiClient {
                 SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
             })?;
 
-        get_sui_object_from_object_response::<SystemObjectForDeserialization>(&response).map_err(
-            |error| {
-                tracing::debug!(%error, "error when trying to deserialize the system object");
-                SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-            },
-        )?;
+        let system_object =
+            get_sui_object_from_object_response::<SystemObjectForDeserialization>(&response)
+                .map_err(|error| {
+                    tracing::debug!(%error, "error when trying to deserialize the system object");
+                    SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+                })?;
 
-        let object_pkg_id = get_package_id_from_object_response(&response).map_err(|error| {
-            tracing::debug!(%error, "unable to get the Walrus package ID");
-            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-        })?;
-        Ok(object_pkg_id)
+        #[cfg(feature = "walrus-mainnet")]
+        let pkg_id = system_object.package_id;
+        #[cfg(not(feature = "walrus-mainnet"))]
+        let pkg_id =
+            crate::utils::get_package_id_from_object_response(&response).map_err(|error| {
+                tracing::debug!(%error, "unable to get the Walrus package ID");
+                SuiClientError::WalrusSystemObjectDoesNotExist(system_object.id)
+            })?;
+        Ok(pkg_id)
     }
 
     /// Gets the type origin map for a given package.

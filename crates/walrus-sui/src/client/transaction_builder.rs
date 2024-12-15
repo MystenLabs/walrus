@@ -195,7 +195,7 @@ impl WalrusPtbBuilder {
         arguments: Vec<Argument>,
     ) -> SuiClientResult<Argument> {
         Ok(self.pt_builder.programmable_move_call(
-            self.read_client.walrus_package_id,
+            self.read_client.get_system_package_id(),
             Identifier::from_str(function.module)?,
             Identifier::from_str(function.name)?,
             function.type_params,

@@ -701,3 +701,32 @@ fun withdraw_rewards_before_joining_committee() {
     excluded_node.destroy();
     runner.destroy();
 }
+
+#[test]
+public fun test_emergency_upgrade() {
+    use walrus::upgrade::EmergencyUpgradeCap;
+    use sui::package;
+
+    let admin = @0xA11CE;
+    let mut runner = e2e_runner::prepare(admin).build();
+
+    let emergency_cap: EmergencyUpgradeCap = runner.scenario().take_from_address(admin);
+    runner.tx_with_upgrade_manager!(admin, |staking, system, upgrade_manager, _| {
+        // Check that the new package id is not set before the upgrade
+        assert!(system.new_package_id().is_none() && staking.new_package_id().is_none());
+
+        let upgrade_ticket = upgrade_manager.authorize_emergency_upgrade(
+            &emergency_cap,
+            vector<u8>[],
+        );
+        let receipt = package::test_upgrade(upgrade_ticket);
+        upgrade_manager.commit_upgrade(staking, system, receipt);
+
+        // Check that the new package id is set after the upgrade and is the same for both the
+        // system and staking objects.
+        assert!(system.new_package_id().is_some());
+        assert_eq!(system.new_package_id(), staking.new_package_id());
+    });
+    test_scenario::return_to_address(admin, emergency_cap);
+    runner.destroy();
+}

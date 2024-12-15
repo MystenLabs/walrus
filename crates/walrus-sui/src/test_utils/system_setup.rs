@@ -30,7 +30,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
     client::{ReadClient, SuiClientError, SuiContractClient},
-    system_setup::{self, InitSystemParams},
+    system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
 
@@ -176,7 +176,12 @@ pub async fn create_and_init_system(
     gas_budget: u64,
     for_test: bool,
 ) -> Result<SystemContext> {
-    let (package_id, cap_id, treasury_cap) = system_setup::publish_coin_and_system_package(
+    let PublishSystemPackageResult {
+        walrus_pkg_id,
+        init_cap_id,
+        upgrade_cap_id,
+        treasury_cap_id,
+    } = system_setup::publish_coin_and_system_package(
         admin_wallet,
         contract_path,
         gas_budget,
@@ -186,18 +191,19 @@ pub async fn create_and_init_system(
 
     let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
         admin_wallet,
-        package_id,
-        cap_id,
+        walrus_pkg_id,
+        init_cap_id,
+        upgrade_cap_id,
         init_system_params,
         gas_budget,
     )
     .await?;
 
     Ok(SystemContext {
-        package_id,
+        package_id: walrus_pkg_id,
         system_object,
         staking_object,
-        treasury_cap,
+        treasury_cap: treasury_cap_id,
     })
 }
 

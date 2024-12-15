@@ -78,6 +78,7 @@ use walrus_sui::{
         EpochChangeEvent,
         EpochChangeStart,
         InvalidBlobId,
+        PackageEvent,
         GENESIS_EPOCH,
     },
 };
@@ -852,6 +853,10 @@ impl StorageNode {
                 self.process_epoch_change_event(event_handle, epoch_change_event)
                     .await?;
             }
+            EventStreamElement::ContractEvent(ContractEvent::PackageEvent(package_event)) => {
+                self.process_package_event(event_handle, package_event)
+                    .await?;
+            }
             EventStreamElement::CheckpointBoundary => {
                 event_handle.mark_as_complete();
             }
@@ -922,6 +927,26 @@ impl StorageNode {
             EpochChangeEvent::ShardRecoveryStart(_) => {
                 event_handle.mark_as_complete();
             }
+        }
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_package_event(
+        &self,
+        event_handle: EventHandle,
+        package_event: PackageEvent,
+    ) -> anyhow::Result<()> {
+        tracing::info!(?package_event, "{} event received", package_event.name());
+        match package_event {
+            PackageEvent::ContractUpgraded(_event) => {
+                self.inner
+                    .contract_service
+                    .refresh_contract_package()
+                    .await?;
+                event_handle.mark_as_complete();
+            }
+            _ => bail!("unknown package event type: {:?}", package_event),
         }
         Ok(())
     }

@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
@@ -25,7 +25,7 @@ use sui_sdk::{
     SuiClient,
 };
 use sui_types::{
-    base_types::{ObjectRef, ObjectType, SuiAddress},
+    base_types::{ObjectRef, SuiAddress},
     crypto::SignatureScheme,
     transaction::{ProgrammableTransaction, TransactionData},
 };
@@ -82,11 +82,14 @@ pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: 
     storage_units_from_size(encoded_length) * price_per_unit_size
 }
 
+#[cfg(not(feature = "walrus-mainnet"))]
 pub(crate) fn get_package_id_from_object_response(
     object_response: &SuiObjectResponse,
 ) -> Result<ObjectID> {
-    let ObjectType::Struct(move_object_type) = object_response.object()?.object_type()? else {
-        bail!("response does not contain a move struct object");
+    let sui_types::base_types::ObjectType::Struct(move_object_type) =
+        object_response.object()?.object_type()?
+    else {
+        anyhow::bail!("response does not contain a move struct object");
     };
     Ok(move_object_type.address().into())
 }

@@ -9,6 +9,7 @@ use std::{
     future::Future,
     num::NonZeroU16,
     ops::ControlFlow,
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::Duration,
 };
 
@@ -182,6 +183,11 @@ pub trait ReadClient: Send + Sync {
     fn last_certified_event_blob(
         &self,
     ) -> impl Future<Output = SuiClientResult<Option<EventBlob>>> + Send;
+
+    /// Refreshes the Walrus package ID.
+    ///
+    /// Should be called after the contract is upgraded.
+    fn refresh_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
 }
 
 /// The mutability of a shared object.
@@ -212,11 +218,11 @@ impl From<Mutability> for bool {
 /// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
-    pub(crate) walrus_package_id: ObjectID,
+    walrus_package_id: Arc<RwLock<ObjectID>>,
     pub(crate) sui_client: RetriableSuiClient,
     pub(crate) system_object_id: ObjectID,
     pub(crate) staking_object_id: ObjectID,
-    pub(crate) type_origin_map: TypeOriginMap,
+    type_origin_map: Arc<RwLock<TypeOriginMap>>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
 }
@@ -230,8 +236,10 @@ impl SuiReadClient {
         sui_client: RetriableSuiClient,
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
+        // TODO(WAL-474): remove this when removing the `walrus-mainnet` feature flag.
         package_id: Option<ObjectID>,
     ) -> SuiClientResult<Self> {
+        #[cfg(not(feature = "walrus-mainnet"))]
         let walrus_package_id = package_id.unwrap_or(
             // We use `unwrap_or` here because we want to call the function even if the package ID
             // is provided to check if the system and staking objects exist.
@@ -239,15 +247,21 @@ impl SuiReadClient {
                 .get_system_package_id_from_system_object(system_object_id)
                 .await?,
         );
+        #[cfg(feature = "walrus-mainnet")]
+        let walrus_package_id = sui_client
+            .get_system_package_id_from_system_object(system_object_id)
+            .await?;
+        #[cfg(feature = "walrus-mainnet")]
+        let _ = package_id; // Drop to avoid unused variable warning.
         let type_origin_map = sui_client
             .type_origin_map_for_package(walrus_package_id)
             .await?;
         Ok(Self {
-            walrus_package_id,
+            walrus_package_id: Arc::new(RwLock::new(walrus_package_id)),
             sui_client,
             system_object_id,
             staking_object_id,
-            type_origin_map,
+            type_origin_map: Arc::new(RwLock::new(type_origin_map)),
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
         })
@@ -338,7 +352,7 @@ impl SuiReadClient {
 
     /// Returns the system package ID.
     pub fn get_system_package_id(&self) -> ObjectID {
-        self.walrus_package_id
+        *self.walrus_package_id()
     }
 
     /// Returns the system object ID.
@@ -349,6 +363,30 @@ impl SuiReadClient {
     /// Returns the staking object ID.
     pub fn get_staking_object_id(&self) -> ObjectID {
         self.staking_object_id
+    }
+
+    fn walrus_package_id(&self) -> RwLockReadGuard<ObjectID> {
+        self.walrus_package_id
+            .read()
+            .expect("lock should not be poisoned")
+    }
+
+    fn walrus_package_id_mut(&self) -> RwLockWriteGuard<ObjectID> {
+        self.walrus_package_id
+            .write()
+            .expect("lock should not be poisoned")
+    }
+
+    pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
+        self.type_origin_map
+            .read()
+            .expect("lock should not be poisoned")
+    }
+
+    fn type_origin_map_mut(&self) -> RwLockWriteGuard<TypeOriginMap> {
+        self.type_origin_map
+            .write()
+            .expect("lock should not be poisoned")
     }
 
     /// Returns the balance of the owner for the given coin type.
@@ -462,7 +500,7 @@ impl SuiReadClient {
         object_type: contracts::StructTag<'a>,
     ) -> Result<impl Iterator<Item = Result<SuiObjectData>> + 'a> {
         let struct_tag =
-            object_type.to_move_struct_tag_with_type_map(&self.type_origin_map, type_args)?;
+            object_type.to_move_struct_tag_with_type_map(&self.type_origin_map(), type_args)?;
         Ok(handle_pagination(move |cursor| {
             self.sui_client.get_owned_objects(
                 owner,
@@ -507,13 +545,49 @@ impl SuiReadClient {
     pub fn wal_coin_type(&self) -> String {
         // TODO: WAL-425
         let type_name = ("wal".to_string(), "WAL".to_string());
-        let package_id = self
-            .type_origin_map
-            .get(&type_name)
-            .expect("WAL type origin not found");
-        format!("{}::{}::{}", package_id, type_name.0, type_name.1)
+        format!(
+            "{}::{}::{}",
+            self.type_origin_map()
+                .get(&type_name)
+                .expect("WAL type origin not found"),
+            type_name.0,
+            type_name.1
+        )
     }
 
+    #[cfg(feature = "walrus-mainnet")]
+    async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
+        let SystemObjectForDeserialization {
+            id,
+            version,
+            package_id,
+            new_package_id,
+        } = self
+            .sui_client
+            .get_sui_object(self.system_object_id)
+            .await?;
+        // Refresh the package ID if it is different from the current package ID.
+        if package_id != *self.walrus_package_id() {
+            self.refresh_package_id_with_id(package_id).await?;
+        }
+        let inner = self
+            .sui_client
+            .get_dynamic_field_object::<u64, SystemStateInnerV1>(
+                self.system_object_id,
+                TypeTag::U64,
+                version,
+            )
+            .await?;
+        Ok(SystemObject {
+            id,
+            version,
+            package_id,
+            new_package_id,
+            inner,
+        })
+    }
+
+    #[cfg(not(feature = "walrus-mainnet"))]
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization { id, version } = self
             .sui_client
@@ -527,16 +601,25 @@ impl SuiReadClient {
                 version,
             )
             .await?;
-
-        Ok(SystemObject { id, version, inner })
+        let system_object = SystemObject { id, version, inner };
+        Ok(system_object)
     }
 
+    #[cfg(feature = "walrus-mainnet")]
     async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
-        let StakingObjectForDeserialization { id, version } = self
+        let StakingObjectForDeserialization {
+            id,
+            version,
+            package_id,
+            new_package_id,
+        } = self
             .sui_client
             .get_sui_object(self.staking_object_id)
             .await?;
-
+        // Refresh the package ID if it is different from the current package ID.
+        if package_id != *self.walrus_package_id() {
+            self.refresh_package_id_with_id(package_id).await?;
+        }
         let inner = self
             .sui_client
             .get_dynamic_field_object::<u64, StakingInnerV1>(
@@ -545,7 +628,42 @@ impl SuiReadClient {
                 version,
             )
             .await?;
-        Ok(StakingObject { id, version, inner })
+        let staking_object = StakingObject {
+            id,
+            version,
+            package_id,
+            new_package_id,
+            inner,
+        };
+        Ok(staking_object)
+    }
+
+    #[cfg(not(feature = "walrus-mainnet"))]
+    async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
+        let StakingObjectForDeserialization { id, version } = self
+            .sui_client
+            .get_sui_object(self.staking_object_id)
+            .await?;
+        let inner = self
+            .sui_client
+            .get_dynamic_field_object::<u64, StakingInnerV1>(
+                self.staking_object_id,
+                TypeTag::U64,
+                version,
+            )
+            .await?;
+        let staking_object = StakingObject { id, version, inner };
+        Ok(staking_object)
+    }
+
+    async fn refresh_package_id_with_id(&self, walrus_package_id: ObjectID) -> SuiClientResult<()> {
+        let type_origin_map = self
+            .sui_client
+            .type_origin_map_for_package(walrus_package_id)
+            .await?;
+        *self.walrus_package_id_mut() = walrus_package_id;
+        *self.type_origin_map_mut() = type_origin_map;
+        Ok(())
     }
 
     async fn shard_assignment_to_committee(
@@ -659,7 +777,10 @@ impl ReadClient for SuiReadClient {
         let event_api = self.sui_client.event_api().clone();
 
         let event_filter = EventFilter::MoveEventModule {
-            package: self.walrus_package_id,
+            package: *self
+                .walrus_package_id
+                .read()
+                .expect("lock should not be poisoned"),
             module: Identifier::new(EVENT_MODULE)?,
         };
         tokio::spawn(async move {
@@ -792,12 +913,23 @@ impl ReadClient for SuiReadClient {
         let staking_object = self.get_staking_object().await?;
         let active_set_id = staking_object.inner.active_set;
         let key_tag = contracts::extended_field::Key
-            .to_move_struct_tag_with_type_map(&self.type_origin_map, &[])?;
+            .to_move_struct_tag_with_type_map(&self.type_origin_map(), &[])?;
         let active_set: ActiveSet = self
             .sui_client
             .get_dynamic_field(active_set_id, key_tag.into(), ())
             .await?;
         Ok(active_set.nodes.into_iter().collect())
+    }
+
+    async fn refresh_package_id(&self) -> SuiClientResult<()> {
+        if cfg!(feature = "walrus-mainnet") {
+            let walrus_package_id = self
+                .sui_client
+                .get_system_package_id_from_system_object(self.system_object_id)
+                .await?;
+            self.refresh_package_id_with_id(walrus_package_id).await?;
+        }
+        Ok(())
     }
 }
 

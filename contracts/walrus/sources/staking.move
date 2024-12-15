@@ -17,6 +17,10 @@ use walrus::{
     system::System
 };
 
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+const EInvalidMigration: u64 = 0;
+
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 0;
 
@@ -24,6 +28,8 @@ const VERSION: u64 = 0;
 public struct Staking has key {
     id: UID,
     version: u64,
+    package_id: ID,
+    new_package_id: Option<ID>,
 }
 
 /// Creates and shares a new staking object.
@@ -32,10 +38,16 @@ public(package) fun create(
     epoch_zero_duration: u64,
     epoch_duration: u64,
     n_shards: u16,
+    package_id: ID,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    let mut staking = Staking { id: object::new(ctx), version: VERSION };
+    let mut staking = Staking {
+        id: object::new(ctx),
+        version: VERSION,
+        package_id,
+        new_package_id: option::none(),
+    };
     df::add(
         &mut staking.id,
         VERSION,
@@ -272,6 +284,44 @@ public fun withdraw_stake(
     staking.inner_mut().withdraw_stake(staked_wal, ctx)
 }
 
+// === Accessors ===
+
+public(package) fun package_id(staking: &Staking): ID {
+    staking.package_id
+}
+
+public(package) fun version(staking: &Staking): u64 {
+    staking.version
+}
+
+/// Returns the current epoch of the staking object.
+public fun epoch(staking: &Staking): u32 {
+    staking.inner().epoch()
+}
+
+// === Upgrade ===
+
+public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID) {
+    staking.new_package_id = option::some(new_package_id);
+}
+
+/// Migrate the staking object to the new package id.
+///
+/// This function sets the new package id and version and can be modified in future versions
+/// to migrate changes in the `staking_inner` object if needed.
+public(package) fun migrate(staking: &mut Staking) {
+    assert!(staking.version < VERSION, EInvalidMigration);
+
+    // Move the old system state inner to the new version.
+    let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
+    df::add(&mut staking.id, VERSION, staking_inner);
+    staking.version = VERSION;
+
+    // Set the new package id.
+    assert!(staking.new_package_id.is_some(), EInvalidMigration);
+    staking.package_id = staking.new_package_id.extract();
+}
+
 // === Internals ===
 
 /// Get a mutable reference to `StakingInner` from the `Staking`.
@@ -299,7 +349,12 @@ public(package) fun inner_for_testing(staking: &Staking): &StakingInnerV1 {
 #[test_only]
 public(package) fun new_for_testing(ctx: &mut TxContext): Staking {
     let clock = clock::create_for_testing(ctx);
-    let mut staking = Staking { id: object::new(ctx), version: VERSION };
+    let mut staking = Staking {
+        id: object::new(ctx),
+        version: VERSION,
+        package_id: new_id(ctx),
+        new_package_id: option::none(),
+    };
     df::add(&mut staking.id, VERSION, staking_inner::new(0, 10, 1000, &clock, ctx));
     clock.destroy_for_testing();
     staking
@@ -313,4 +368,9 @@ public(package) fun is_epoch_sync_done(self: &Staking): bool {
 #[test_only]
 fun new_id(ctx: &mut TxContext): ID {
     ctx.fresh_object_address().to_id()
+}
+
+#[test_only]
+public(package) fun new_package_id(staking: &Staking): Option<ID> {
+    staking.new_package_id
 }

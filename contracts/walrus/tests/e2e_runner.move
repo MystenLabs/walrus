@@ -4,7 +4,7 @@
 module walrus::e2e_runner;
 
 use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}, test_utils};
-use walrus::{init, staking::Staking, system::System};
+use walrus::{init, staking::Staking, system::System, upgrade::UpgradeManager};
 
 const MAX_EPOCHS_AHEAD: u32 = 104;
 
@@ -79,11 +79,15 @@ public fun build(self: InitBuilder): TestRunner {
 
     init::init_for_testing(ctx);
 
+    // We need an upgrade cap for package with address 0x0
+    let upgrade_cap = sui::package::test_publish(ctx.fresh_object_address().to_id(), ctx);
+
     scenario.next_tx(admin);
     let cap = scenario.take_from_sender<init::InitCap>();
     let ctx = scenario.ctx();
-    init::initialize_walrus(
+    let emergency_upgrade_cap = init::initialize_for_testing(
         cap,
+        upgrade_cap,
         epoch_zero_duration,
         epoch_duration,
         n_shards,
@@ -91,6 +95,9 @@ public fun build(self: InitBuilder): TestRunner {
         &clock,
         ctx,
     );
+
+    transfer::public_transfer(emergency_upgrade_cap, admin);
+    scenario.next_tx(admin);
 
     TestRunner { scenario, clock, admin }
 }
@@ -114,7 +121,7 @@ public fun epoch(self: &mut TestRunner): u32 {
 }
 
 /// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
-/// `System` and `TxContext` as arguments.
+/// `System`, and `TxContext` as arguments.
 public macro fun tx(
     $runner: &mut TestRunner,
     $sender: address,
@@ -129,6 +136,28 @@ public macro fun tx(
 
     $f(&mut staking, &mut system, ctx);
 
+    test_scenario::return_shared(staking);
+    test_scenario::return_shared(system);
+}
+
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `System`, `UpgradeManager`, and `TxContext` as arguments.
+public macro fun tx_with_upgrade_manager(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut System, &mut UpgradeManager, &mut TxContext|,
+) {
+    let runner = $runner;
+    let scenario = runner.scenario();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut system = scenario.take_shared<System>();
+    let mut upgrade_manager = scenario.take_shared<UpgradeManager>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut system, &mut upgrade_manager, ctx);
+
+    test_scenario::return_shared(upgrade_manager);
     test_scenario::return_shared(staking);
     test_scenario::return_shared(system);
 }

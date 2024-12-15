@@ -50,6 +50,11 @@ const TREASURY_CAP_TAG: StructTag<'_> = StructTag {
     module: "coin",
 };
 
+const UPGRADE_CAP_TAG: StructTag<'_> = StructTag {
+    name: "UpgradeCap",
+    module: "package",
+};
+
 fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Result<ObjectID> {
     tx_response
         .effects
@@ -129,6 +134,13 @@ pub(crate) async fn publish_package(
     Ok(transaction_response)
 }
 
+pub(crate) struct PublishSystemPackageResult {
+    pub walrus_pkg_id: ObjectID,
+    pub init_cap_id: ObjectID,
+    pub upgrade_cap_id: ObjectID,
+    pub treasury_cap_id: ObjectID,
+}
+
 /// Publishes the `wal`, `wal_exchange`, and `walrus` packages.
 ///
 /// Returns the IDs of the walrus package and the `InitCap` as well as the `TreasuryCap`
@@ -139,7 +151,7 @@ pub async fn publish_coin_and_system_package(
     walrus_contract_path: PathBuf,
     gas_budget: u64,
     for_test: bool,
-) -> Result<(ObjectID, ObjectID, ObjectID)> {
+) -> Result<PublishSystemPackageResult> {
     // Publish `walrus` package with unpublished dependencies.
     let transaction_response =
         publish_package(wallet, walrus_contract_path, gas_budget, for_test).await?;
@@ -164,7 +176,19 @@ pub async fn publish_coin_and_system_package(
         bail!("unexpected number of TreasuryCap objects created");
     };
 
-    Ok((walrus_pkg_id, init_cap_id, treasury_cap_id))
+    let [upgrade_cap_id] = get_created_sui_object_ids_by_type(
+        &transaction_response,
+        &UPGRADE_CAP_TAG.to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[])?,
+    )?[..] else {
+        bail!("unexpected number of UpgradeCap objects created");
+    };
+
+    Ok(PublishSystemPackageResult {
+        walrus_pkg_id,
+        init_cap_id,
+        upgrade_cap_id,
+        treasury_cap_id,
+    })
 }
 
 /// Parameters used to call the `init_walrus` function in the Walrus contracts.
@@ -185,6 +209,7 @@ pub async fn create_system_and_staking_objects(
     wallet: &mut WalletContext,
     contract_pkg_id: ObjectID,
     init_cap: ObjectID,
+    upgrade_cap: ObjectID,
     system_params: InitSystemParams,
     gas_budget: u64,
 ) -> Result<(ObjectID, ObjectID)> {
@@ -203,8 +228,15 @@ pub async fn create_system_and_staking_objects(
 
     // prepare the arguments
     let init_cap_ref = wallet.get_object_ref(init_cap).await?;
-
     let init_cap_arg = pt_builder.input(init_cap_ref.into())?;
+
+    #[cfg(feature = "walrus-mainnet")]
+    let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap).await?;
+    #[cfg(feature = "walrus-mainnet")]
+    let upgrade_cap_arg = pt_builder.input(upgrade_cap_ref.into())?;
+    #[cfg(not(feature = "walrus-mainnet"))]
+    let _ = upgrade_cap; // drop to avoid unused variable
+
     let epoch_zero_duration_arg = pt_builder.pure(epoch_zero_duration_millis)?;
     let epoch_duration_arg = pt_builder.pure(epoch_duration_millis)?;
     let n_shards_arg = pt_builder.pure(system_params.n_shards.get())?;
@@ -216,13 +248,15 @@ pub async fn create_system_and_staking_objects(
     })?;
 
     // Create the system and staking objects
-    pt_builder.programmable_move_call(
+    let result = pt_builder.programmable_move_call(
         contract_pkg_id,
         Identifier::from_str(contracts::init::initialize_walrus.module)?,
         Identifier::from_str(contracts::init::initialize_walrus.name)?,
         vec![],
         vec![
             init_cap_arg,
+            #[cfg(feature = "walrus-mainnet")]
+            upgrade_cap_arg,
             epoch_zero_duration_arg,
             epoch_duration_arg,
             n_shards_arg,
@@ -230,6 +264,11 @@ pub async fn create_system_and_staking_objects(
             clock_arg,
         ],
     );
+
+    #[cfg(feature = "walrus-mainnet")]
+    pt_builder.transfer_arg(wallet.active_address()?, result);
+    #[cfg(not(feature = "walrus-mainnet"))]
+    let _ = result; // drop to avoid unused variable
 
     // finalize transaction
     let ptb = pt_builder.finish();

@@ -1238,6 +1238,10 @@ impl SystemContractService for StubContractService {
     ) -> Result<(), Error> {
         anyhow::bail!("stub service cannot certify event blob")
     }
+
+    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service cannot refresh contract package")
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -1804,6 +1808,10 @@ where
             .inner
             .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
             .await
+    }
+
+    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.refresh_contract_package().await
     }
 }
 

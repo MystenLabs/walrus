@@ -510,6 +510,70 @@ impl EpochChangeEvent {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Sui event that a contract has been upgraded.
+pub struct ContractUpgradedEvent {
+    /// The epoch in which the contract was upgraded.
+    pub epoch: Epoch,
+    /// The new package ID of the contract.
+    pub package_id: ObjectID,
+    /// The new version of the contract.
+    pub version: u64,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ContractUpgradedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ContractUpgraded;
+}
+
+impl TryFrom<SuiEvent> for ContractUpgradedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, package_id, version) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            package_id,
+            version,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Enum to wrap package events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum PackageEvent {
+    /// Contract upgraded event.
+    ContractUpgraded(ContractUpgradedEvent),
+}
+
+impl PackageEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            PackageEvent::ContractUpgraded(event) => event.event_id,
+        }
+    }
+
+    /// The epoch corresponding to the contract change event.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            PackageEvent::ContractUpgraded(event) => event.epoch,
+        }
+    }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            PackageEvent::ContractUpgraded(_) => "ContractUpgraded",
+        }
+    }
+}
+
 /// Enum to wrap contract events used in event streaming.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractEvent {
@@ -517,6 +581,8 @@ pub enum ContractEvent {
     BlobEvent(BlobEvent),
     /// Epoch change event.
     EpochChangeEvent(EpochChangeEvent),
+    /// Events related to package maintenance.
+    PackageEvent(PackageEvent),
 }
 
 impl ContractEvent {
@@ -525,6 +591,7 @@ impl ContractEvent {
         match self {
             ContractEvent::BlobEvent(event) => event.event_id(),
             ContractEvent::EpochChangeEvent(event) => event.event_id(),
+            ContractEvent::PackageEvent(event) => event.event_id(),
         }
     }
 
@@ -533,6 +600,7 @@ impl ContractEvent {
         match self {
             ContractEvent::BlobEvent(event) => Some(event.blob_id()),
             ContractEvent::EpochChangeEvent(_) => None,
+            ContractEvent::PackageEvent(_) => None,
         }
     }
 
@@ -541,6 +609,7 @@ impl ContractEvent {
         match self {
             ContractEvent::BlobEvent(event) => event.event_epoch(),
             ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
+            ContractEvent::PackageEvent(event) => event.event_epoch(),
         }
     }
 }
@@ -576,6 +645,9 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::ShardRecoveryStart => Ok(ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::ShardRecoveryStart(value.try_into()?),
+            )),
+            contracts::events::ContractUpgraded => Ok(ContractEvent::PackageEvent(
+                PackageEvent::ContractUpgraded(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }

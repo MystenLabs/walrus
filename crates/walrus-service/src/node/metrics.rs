@@ -13,7 +13,7 @@ use prometheus::{
     Registry,
 };
 pub(crate) use telemetry::with_label;
-use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent};
+use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent, PackageEvent};
 
 use crate::{
     common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric},
@@ -156,11 +156,21 @@ impl TelemetryLabel for EpochChangeEvent {
     }
 }
 
+impl TelemetryLabel for PackageEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            PackageEvent::ContractUpgraded(_) => "contract-upgraded",
+            _ => "unknown-package-event",
+        }
+    }
+}
+
 impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
             ContractEvent::BlobEvent(event) => event.label(),
             ContractEvent::EpochChangeEvent(event) => event.label(),
+            ContractEvent::PackageEvent(event) => event.label(),
         }
     }
 }

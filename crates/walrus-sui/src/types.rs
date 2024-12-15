@@ -19,11 +19,13 @@ pub use events::{
     BlobEvent,
     BlobRegistered,
     ContractEvent,
+    ContractUpgradedEvent,
     EpochChangeDone,
     EpochChangeEvent,
     EpochChangeStart,
     EpochParametersSelected,
     InvalidBlobId,
+    PackageEvent,
 };
 
 pub mod move_structs;

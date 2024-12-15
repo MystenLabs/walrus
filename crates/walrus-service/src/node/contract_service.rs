@@ -63,6 +63,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         ending_checkpoint_seq_num: u64,
         epoch: u32,
     ) -> Result<(), Error>;
+
+    /// Refreshes the contract package that the service is using.
+    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -242,6 +245,12 @@ impl SystemContractService for SuiSystemContractService {
             }
         })
         .await;
+        Ok(())
+    }
+
+    async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
+        let client = self.contract_client.lock().await;
+        client.refresh_package_id().await?;
         Ok(())
     }
 }
