@@ -5,7 +5,7 @@ use core::fmt::{self, Display};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Debug,
-    ops::Bound::Included,
+    ops::Bound::{Excluded, Included},
     path::Path,
     sync::{Arc, RwLock, TryLockError},
 };
@@ -530,20 +530,36 @@ impl Storage {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
-        // Scan certified slivers to fetch.
-        let blobs_to_fetch = self
-            .blob_info
-            .certified_blob_info_iter_before_epoch(
-                current_epoch,
-                Included(request.starting_blob_id()),
-            )
-            .take(request.sliver_count() as usize)
-            .map_ok(|(blob_id, _)| blob_id)
-            .collect::<Result<Vec<_>, TypedStoreError>>()?;
+        let mut fetched_blobs = Vec::with_capacity(request.sliver_count() as usize);
+        let mut last_fetched_blob_id = None;
+        while fetched_blobs.len() < request.sliver_count() as usize {
+            let remaining_count = request.sliver_count() as usize - fetched_blobs.len();
 
-        Ok(shard
-            .fetch_slivers(request.sliver_type(), &blobs_to_fetch)?
-            .into())
+            // Set starting point - either the initial request start or after last fetched blob
+            let starting_blob_id_bound =
+                last_fetched_blob_id.map_or(Included(request.starting_blob_id()), Excluded);
+
+            // Scan certified slivers to fetch.
+            let blobs_to_fetch = self
+                .blob_info
+                .certified_blob_info_iter_before_epoch(current_epoch, starting_blob_id_bound)
+                .take(remaining_count)
+                .map_ok(|(blob_id, _)| blob_id)
+                .collect::<Result<Vec<_>, TypedStoreError>>()?;
+
+            if blobs_to_fetch.is_empty() {
+                // No more blobs to fetch.
+                break;
+            }
+
+            // Update last fetched ID for next iteration
+            last_fetched_blob_id = blobs_to_fetch.last().cloned();
+
+            let mut slivers = shard.fetch_slivers(request.sliver_type(), &blobs_to_fetch)?;
+            fetched_blobs.append(&mut slivers);
+        }
+
+        Ok(fetched_blobs.into())
     }
 
     /// Returns an iterator over the certified blob info before the specified epoch.
@@ -1187,14 +1203,18 @@ pub(crate) mod tests {
     async_param_test! {
         handle_sync_shard_request_behave_expected -> TestResult: [
             scan_first: (SliverType::Primary, ShardIndex(3), 1, 1, &[1]),
-            scan_all: (SliverType::Primary, ShardIndex(5), 1, 5, &[1, 2, 3, 4, 5]),
-            scan_tail: (SliverType::Primary, ShardIndex(3), 3, 5, &[3, 4, 5]),
+            scan_all: (SliverType::Primary, ShardIndex(5), 1, 10, &[1, 2, 3, 8, 9, 10]),
+            scan_tail: (SliverType::Primary, ShardIndex(3), 3, 10, &[3, 8, 9, 10]),
             scan_head: (SliverType::Primary, ShardIndex(5), 0, 2, &[1, 2]),
             scan_middle_single: (SliverType::Secondary, ShardIndex(5), 3, 1, &[3]),
             scan_middle_range: (SliverType::Secondary, ShardIndex(3), 2, 2, &[2, 3]),
-            scan_end_over: (SliverType::Secondary, ShardIndex(5), 3, 5, &[3, 4, 5]),
-            scan_all_wide_range: (SliverType::Secondary, ShardIndex(3), 0, 100, &[1, 2, 3, 4, 5]),
-            scan_out_of_range: (SliverType::Secondary, ShardIndex(5), 6, 2, &[]),
+            scan_end_over: (SliverType::Secondary, ShardIndex(5), 3, 20, &[3, 8, 9, 10]),
+            scan_all_wide_range:
+                (SliverType::Secondary, ShardIndex(3), 0, 100, &[1, 2, 3, 8, 9, 10]),
+            scan_out_of_range: (SliverType::Secondary, ShardIndex(5), 11, 2, &[]),
+
+            scan_containing_non_certified: (SliverType::Secondary, ShardIndex(3), 3, 2, &[3, 8]),
+            scan_start_at_non_certified: (SliverType::Secondary, ShardIndex(3), 4, 2, &[8, 9]),
         ]
     }
     async fn handle_sync_shard_request_behave_expected(
@@ -1208,84 +1228,95 @@ pub(crate) mod tests {
 
         // All tests use the same setup:
         // - 2 shards: 3 and 5
-        // - 5 blobs: 1, 2, 3, 4, 5
+        // - 10 blobs: blob 4 and 5 are expired, and blob 6 and 7 do not have slivers stored.
         // - 2 slivers per blob: primary and secondary
 
-        let mut seed = 10u8;
-
-        let blob_ids = [
-            BlobId([1; 32]),
-            BlobId([2; 32]),
-            BlobId([3; 32]),
-            BlobId([4; 32]),
-            BlobId([5; 32]),
-        ];
-
+        // Create test data structure to track expected slivers
         let mut data: HashMap<ShardIndex, HashMap<BlobId, HashMap<SliverType, Sliver>>> =
             HashMap::new();
-        for shard in [ShardIndex(3), ShardIndex(5)] {
-            // TODO: call create storage once with the list of storages.
-            storage.as_mut().create_storage_for_shards(&[shard])?;
+        let mut seed = 10u8;
+
+        // Create test blob IDs
+        let blob_ids: Vec<_> = (1..=10).map(|i| BlobId([i; 32])).collect();
+
+        // Initialize storage with two shards
+        let shards = [ShardIndex(3), ShardIndex(5)];
+        storage.as_mut().create_storage_for_shards(&shards)?;
+
+        // Populate shards with slivers
+        for shard in shards {
             let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
             data.insert(shard, HashMap::new());
-            for blob in blob_ids.iter() {
-                data.get_mut(&shard).unwrap().insert(*blob, HashMap::new());
+
+            for (index, blob_id) in blob_ids.iter().enumerate() {
+                data.get_mut(&shard)
+                    .unwrap()
+                    .insert(*blob_id, HashMap::new());
+
+                // Create and store both primary and secondary slivers
                 for sliver_type in [SliverType::Primary, SliverType::Secondary] {
                     let sliver_data = get_sliver(sliver_type, seed);
                     seed += 1;
+
                     data.get_mut(&shard)
                         .unwrap()
-                        .get_mut(blob)
+                        .get_mut(blob_id)
                         .unwrap()
                         .insert(sliver_type, sliver_data.clone());
-                    shard_storage
-                        .put_sliver(blob, &sliver_data)
-                        .expect("Store should succeed");
+
+                    // Only store slivers for certain indices. This tests that
+                    // handle_sync_shard_request should return the count of number of slivers
+                    // corresponding to the request. If some blobs are certified, but the slivers
+                    // are not stored, handle_sync_shard_request should continue getting following
+                    // slivers until the count is reached.
+                    if !(5..=6).contains(&index) {
+                        shard_storage.put_sliver(blob_id, &sliver_data)?;
+                    }
                 }
             }
         }
 
-        for blob_id in blob_ids.iter() {
-            storage
-                .as_mut()
-                .blob_info
-                .merge_blob_info(
-                    blob_id,
-                    &BlobInfoMergeOperand::new_change_for_testing(
-                        BlobStatusChangeType::Register,
-                        false,
-                        0,
-                        2,
-                        event_id_for_testing(),
-                    ),
-                )
-                .expect("writing blob info should succeed");
-            storage
-                .as_mut()
-                .blob_info
-                .merge_blob_info(
-                    blob_id,
-                    &BlobInfoMergeOperand::new_change_for_testing(
-                        BlobStatusChangeType::Certify,
-                        false,
-                        0,
-                        2,
-                        event_id_for_testing(),
-                    ),
-                )
-                .expect("writing blob info should succeed");
+        // Register and certify blobs with appropriate epochs
+        for (index, blob_id) in blob_ids.iter().enumerate() {
+            let end_epoch = if !(3..=4).contains(&index) { 3 } else { 1 };
+
+            // Register blob
+            storage.as_mut().blob_info.merge_blob_info(
+                blob_id,
+                &BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Register,
+                    false,
+                    0,
+                    end_epoch,
+                    event_id_for_testing(),
+                ),
+            )?;
+
+            // Certify blob
+            storage.as_mut().blob_info.merge_blob_info(
+                blob_id,
+                &BlobInfoMergeOperand::new_change_for_testing(
+                    BlobStatusChangeType::Certify,
+                    false,
+                    0,
+                    end_epoch,
+                    event_id_for_testing(),
+                ),
+            )?;
         }
 
+        // Create and execute sync request
         let request = SyncShardRequest::new(
             shard_index,
             sliver_type,
             BlobId([start_blob_index; 32]),
             count,
-            1,
+            2,
         );
-        let response = storage.as_ref().handle_sync_shard_request(&request, 1)?;
+        let SyncShardResponse::V1(slivers) =
+            storage.as_ref().handle_sync_shard_request(&request, 2)?;
 
-        let SyncShardResponse::V1(slivers) = response;
+        // Verify response matches expected
         let expected_response = expected_blob_index_in_response
             .iter()
             .map(|blob_index| {
@@ -1297,7 +1328,6 @@ pub(crate) mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(slivers, expected_response);
-
         Ok(())
     }
 
