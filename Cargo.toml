@@ -33,7 +33,7 @@ byteorder = "1.5.0"
 bytes = { version = "1.9.0", features = ["serde"] }
 chrono = "0.4"
 clap = { version = "4.5.23", features = ["derive"] }
-colored = "2.1.0"
+colored = "2.2.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "2f502fd8570fe4e9cff36eea5bbd6fef22002898" }
@@ -89,7 +89,7 @@ syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
 tempfile = "3.14.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-thiserror = "2.0.6"
+thiserror = "2.0.7"
 tokio = { version = "=1.38.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
