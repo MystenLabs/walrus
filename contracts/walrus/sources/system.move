@@ -161,6 +161,29 @@ public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u3
     system.inner_mut().add_subsidy(subsidy, epochs_ahead)
 }
 
+// === Deny List Features ===
+
+/// Register a deny list update.
+public fun register_deny_list_update(
+    self: &mut System,
+    cap: &StorageNodeCap,
+    deny_list_root: u256,
+    deny_list_sequence: u64,
+) {
+    self.inner_mut().register_deny_list_update(cap, deny_list_root, deny_list_sequence)
+}
+
+/// Perform the update of the deny list.
+public fun update_deny_list(
+    self: &mut System,
+    cap: &mut StorageNodeCap,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner_mut().update_deny_list(cap, signature, members_bitmap, message)
+}
+
 // === Public Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.

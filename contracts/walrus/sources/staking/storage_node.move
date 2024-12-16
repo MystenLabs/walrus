@@ -34,6 +34,10 @@ public struct StorageNodeCap has key, store {
     node_id: ID,
     last_epoch_sync_done: u32,
     last_event_blob_attestation: Option<EventBlobAttestation>,
+    /// Stores the Merkle root of the deny list for the storage node.
+    deny_list_root: u256,
+    /// Stores the sequence number of the deny list for the storage node.
+    deny_list_sequence: u64,
 }
 
 /// A public constructor for the StorageNodeInfo.
@@ -65,6 +69,8 @@ public(package) fun new_cap(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
         node_id,
         last_epoch_sync_done: 0,
         last_event_blob_attestation: option::none(),
+        deny_list_root: 0,
+        deny_list_sequence: 0,
     }
 }
 
@@ -101,6 +107,12 @@ public fun last_epoch_sync_done(cap: &StorageNodeCap): u32 {
 public fun last_event_blob_attestation(cap: &mut StorageNodeCap): Option<EventBlobAttestation> {
     cap.last_event_blob_attestation
 }
+
+/// Return the deny list root of the storage node.
+public fun deny_list_root(cap: &StorageNodeCap): u256 { cap.deny_list_root }
+
+/// Return the deny list sequence number of the storage node.
+public fun deny_list_sequence(cap: &StorageNodeCap): u64 { cap.deny_list_sequence }
 
 // === Modifiers ===
 
@@ -158,6 +170,12 @@ public(package) fun rotate_public_key(self: &mut StorageNodeInfo) {
 public(package) fun destroy(self: StorageNodeInfo) {
     let StorageNodeInfo { metadata, .. } = self;
     metadata.destroy();
+}
+
+/// Set the deny list root of the storage node.
+public(package) fun set_deny_list_properties(self: &mut StorageNodeCap, root: u256, sequence: u64) {
+    self.deny_list_root = root;
+    self.deny_list_sequence = sequence;
 }
 
 // === Testing ===

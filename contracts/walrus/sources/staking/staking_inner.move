@@ -508,7 +508,7 @@ fun dhondt(
     // is the amount of stake that guarantees receiving a shard with the d'Hondt method. By
     // dividing the stake per node by this distribution number and rounding down (integer
     // division), we therefore get a lower bound for the number of shards assigned to the node.
-    let mut shards = stake.map_ref!(|s| *s / (total_stake/(n_shards + 1) + 1));
+    let mut shards = stake.map_ref!(|s| *s / (total_stake / (n_shards + 1) + 1));
     // Set up quotients priority queue.
     let mut quotients = apportionment_queue::new();
     n_nodes.do!(|index| {

@@ -106,6 +106,17 @@ public struct CertifiedInvalidBlobId has drop {
     blob_id: u256,
 }
 
+/// Message type for DenyList updates.
+///
+/// Constructed from a `CertifiedMessage`, states that the deny list has been updated in `epoch` for
+/// a given node.
+public struct DenyListUpdateMessage has drop {
+    storage_node_id: ID,
+    deny_list_sequence_number: u64,
+    deny_list_size: u64,
+    deny_list_root: u256,
+}
+
 /// Creates a `CertifiedMessage` with support `stake_support` by parsing `message_bytes` and
 /// verifying the intent and the message epoch.
 public(package) fun new_certified_message(
@@ -176,6 +187,27 @@ public(package) fun invalid_blob_id_message(message: CertifiedMessage): Certifie
     CertifiedInvalidBlobId { epoch, blob_id }
 }
 
+/// Construct the certified deny list update message, note that constructing
+/// implies a certified message, that is already checked.
+public(package) fun deny_list_update_message(message: CertifiedMessage): DenyListUpdateMessage {
+    // The DenyListUpdateMessage contains the storage_node_id, deny_list_sequence_number,
+    // deny_list_size, and deny_list_root.
+    let message_body = message.into_message();
+
+    let mut bcs_body = bcs::new(message_body);
+    let storage_node_id = bcs_body.peel_address().to_id();
+    let deny_list_sequence_number = bcs_body.peel_u64();
+    let deny_list_size = bcs_body.peel_u64();
+    let deny_list_root = bcs_body.peel_u256();
+
+    DenyListUpdateMessage {
+        storage_node_id,
+        deny_list_sequence_number,
+        deny_list_size,
+        deny_list_root,
+    }
+}
+
 // === Accessors for CertifiedMessage ===
 
 public(package) fun intent_type(self: &CertifiedMessage): u8 {
@@ -221,6 +253,24 @@ public(package) fun certified_invalid_epoch(self: &CertifiedInvalidBlobId): u32 
 
 public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
     self.blob_id
+}
+
+// === Accessors for DenyListUpdateMessage ===
+
+public(package) fun storage_node_id(self: &DenyListUpdateMessage): ID {
+    self.storage_node_id
+}
+
+public(package) fun sequence_number(self: &DenyListUpdateMessage): u64 {
+    self.deny_list_sequence_number
+}
+
+public(package) fun size(self: &DenyListUpdateMessage): u64 {
+    self.deny_list_size
+}
+
+public(package) fun root(self: &DenyListUpdateMessage): u256 {
+    self.deny_list_root
 }
 
 // === Test only functions ===

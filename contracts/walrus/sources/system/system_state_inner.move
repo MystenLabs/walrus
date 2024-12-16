@@ -12,7 +12,7 @@ use walrus::{
     encoding::encoded_blob_length,
     epoch_parameters::EpochParams,
     event_blob::{Self, EventBlobCertificationState, new_attestation},
-    events::emit_invalid_blob_id,
+    events::{emit_invalid_blob_id, emit_deny_list_update_start},
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
@@ -155,7 +155,7 @@ fun reserve_space_without_payment(
     let final_account = self.future_accounting.ring_lookup_mut(epochs_ahead - 1);
     final_account.increase_storage_to_reclaim(storage_amount);
 
-    let self_epoch = epoch(self);
+    let self_epoch = self.epoch();
 
     storage_resource::create_storage(
         self_epoch,
@@ -511,10 +511,59 @@ fun storage_units_from_size(size: u64): u64 {
     size.divide_and_round_up(BYTES_PER_UNIT_SIZE)
 }
 
+// === DenyList ===
+
+/// Announce a deny list update for a storage node.
+public(package) fun register_deny_list_update(
+    self: &SystemStateInnerV1,
+    cap: &StorageNodeCap,
+    deny_list_root: u256,
+    deny_list_sequence: u64,
+) {
+    assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
+    assert!(deny_list_sequence > cap.deny_list_sequence());
+
+    emit_deny_list_update_start(
+        deny_list_root,
+        deny_list_sequence,
+        cap.node_id(),
+    );
+}
+
+/// Perform the update of the deny list; register updated root and sequence in
+/// the `StorageNodeCap`.
+public(package) fun update_deny_list(
+    self: &SystemStateInnerV1,
+    cap: &mut StorageNodeCap,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    let certified_message = self
+        .committee
+        .verify_quorum_in_epoch(signature, members_bitmap, message);
+
+    let message = certified_message.deny_list_update_message();
+    let node_id = message.storage_node_id();
+
+    assert!(node_id == cap.node_id());
+    assert!(cap.deny_list_sequence() < message.sequence_number());
+    assert!(cap.deny_list_root() != message.root());
+
+    cap.set_deny_list_properties(message.root(), message.sequence_number());
+
+    // now deal with the size parameter ???
+    // we need to register it somewhere, the idea rn is to move it to the
+    // staking pool and store there (given that we already access staking pool
+    // in the advance epoch);
+
+    let _ = message.size();
+}
+
 // === Testing ===
 
 #[test_only]
-use walrus::{test_utils};
+use walrus::test_utils;
 
 #[test_only]
 public(package) fun new_for_testing(): SystemStateInnerV1 {
@@ -535,11 +584,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
 
 #[test_only]
 public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): SystemStateInnerV1 {
-    let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(
-        0,
-        ctx,
-    );
-
+    let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(0, ctx);
     let id = object::new(ctx);
     SystemStateInnerV1 {
         id,

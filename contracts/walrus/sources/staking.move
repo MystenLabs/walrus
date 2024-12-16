@@ -223,6 +223,8 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
         staking_inner.next_epoch_params(),
     );
 
+    // do the computation for denylist updates
+
     staking_inner.initiate_epoch_change(clock, rewards);
 }
 
