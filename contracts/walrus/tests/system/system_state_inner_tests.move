@@ -5,7 +5,7 @@
 module walrus::system_state_inner_tests;
 
 use sui::{clock, test_utils::destroy};
-use walrus::{storage_accounting, system_state_inner, test_utils::mint};
+use walrus::{storage_accounting as sa, system_state_inner, test_utils::mint};
 
 #[test]
 fun test_add_rewards_zero_rewards() {
@@ -21,8 +21,9 @@ fun test_add_rewards_zero_rewards() {
 
     // Check rewards for the epochs ahead
     0u32.range_do!(epochs_ahead, |i| {
+        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), i));
         assert!(
-            storage_accounting::rewards_balance(storage_accounting::ring_lookup_mut(system.get_future_accounting(), i)).value() == reward_per_epoch,
+            rb.value() == reward_per_epoch,
         )
     });
 
@@ -43,8 +44,9 @@ fun test_add_rewards_one_epoch_ahead() {
 
     // Check rewards for the epochs ahead
     0u32.range_do!(epochs_ahead, |i| {
+        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), i));
         assert!(
-            storage_accounting::rewards_balance(storage_accounting::ring_lookup_mut(system.get_future_accounting(), i)).value() == reward_per_epoch,
+            rb.value() == reward_per_epoch,
         )
     });
 
@@ -65,8 +67,9 @@ fun test_add_rewards_multiple_epochs_ahead() {
 
     // Check rewards for the epochs ahead
     0u32.range_do!(epochs_ahead, |i| {
+        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), i));
         assert!(
-            storage_accounting::rewards_balance(storage_accounting::ring_lookup_mut(system.get_future_accounting(), i)).value() == reward_per_epoch,
+            rb.value() == reward_per_epoch,
         )
     });
 
@@ -88,14 +91,18 @@ fun test_add_rewards_uneven_distribution() {
     // Check rewards for the epochs ahead
     // The first epoch should get 2 more rewards than the others. They are the leftover_rewards.
     let first_epoch_rewards = reward_per_epoch + 2;
+
+    let rb0 = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), 0));
     assert!(
-        storage_accounting::rewards_balance(storage_accounting::ring_lookup_mut(system.get_future_accounting(), 0)).value() == first_epoch_rewards,
+        rb0.value() == first_epoch_rewards,
     );
+    let rb1 = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), 1));
     assert!(
-        storage_accounting::rewards_balance(storage_accounting::ring_lookup_mut(system.get_future_accounting(), 1)).value() == reward_per_epoch,
+        rb1.value() == reward_per_epoch,
     );
+    let rb2 = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), 2));
     assert!(
-        storage_accounting::rewards_balance(storage_accounting::ring_lookup_mut(system.get_future_accounting(), 2)).value() == reward_per_epoch,
+        rb2.value() == reward_per_epoch,
     );
     destroy(system);
 }
