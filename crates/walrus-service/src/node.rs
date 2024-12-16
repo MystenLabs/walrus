@@ -127,6 +127,7 @@ mod storage;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 
 use crate::{
+    client::Blocklist,
     common::utils::ShardDiff,
     node::{
         events::{
@@ -436,6 +437,7 @@ pub struct StorageNodeInner {
     metrics: NodeMetricSet,
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
+    blocklist: Arc<Blocklist>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -475,6 +477,8 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
+        let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: key_pair,
             storage,
@@ -486,7 +490,10 @@ impl StorageNode {
             metrics: NodeMetricSet::new(registry),
             start_time,
             is_shutting_down: false.into(),
+            blocklist: blocklist.clone(),
         });
+
+        blocklist.start_refresh_task();
 
         inner.init_gauges()?;
 
@@ -1494,6 +1501,10 @@ impl StorageNodeInner {
         self.storage.reposition_event_cursor(event_index, event_id)
     }
 
+    fn is_blocked(&self, blob_id: &BlobId) -> bool {
+        self.blocklist.is_blocked(blob_id)
+    }
+
     fn get_shard_for_sliver_pair(
         &self,
         sliver_pair_index: SliverPairIndex,
@@ -1792,6 +1803,8 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
+        ensure!(!self.is_blocked(blob_id), RetrieveMetadataError::Forbidden);
+
         ensure!(
             self.is_blob_registered(blob_id)?,
             RetrieveMetadataError::Unavailable,
@@ -1860,6 +1873,8 @@ impl ServiceState for StorageNodeInner {
         sliver_type: SliverType,
     ) -> Result<Sliver, RetrieveSliverError> {
         self.check_index(sliver_pair_index)?;
+
+        ensure!(!self.is_blocked(blob_id), RetrieveSliverError::Forbidden);
 
         ensure!(
             self.is_blob_certified(blob_id)?,

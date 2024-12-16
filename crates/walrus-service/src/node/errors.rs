@@ -34,6 +34,8 @@ pub struct IndexOutOfRange {
 pub enum RetrieveMetadataError {
     #[error("the requested metadata is unavailable")]
     Unavailable,
+    #[error("the requested metadata is blocked")]
+    Forbidden,
     #[error(transparent)]
     Internal(#[from] InternalError),
 }
@@ -42,6 +44,8 @@ pub enum RetrieveMetadataError {
 pub enum RetrieveSliverError {
     #[error("the requested sliver is unavailable")]
     Unavailable,
+    #[error("the requested sliver is forbidden")]
+    Forbidden,
     #[error(transparent)]
     ShardNotAssigned(#[from] ShardNotAssigned),
     #[error("the requested sliver index is out of range: {0}")]
@@ -112,6 +116,7 @@ impl From<RetrieveMetadataError> for InconsistencyProofError {
     fn from(value: RetrieveMetadataError) -> Self {
         match value {
             RetrieveMetadataError::Unavailable => Self::MissingMetadata,
+            RetrieveMetadataError::Forbidden => Self::MissingMetadata,
             RetrieveMetadataError::Internal(error) => Self::Internal(error),
         }
     }

@@ -522,6 +522,7 @@ impl Drop for SimStorageNodeHandle {
 #[derive(Debug)]
 pub struct StorageNodeHandleBuilder {
     storage: Option<WithTempDir<Storage>>,
+    blocklist_path: Option<PathBuf>,
     event_provider: Box<dyn SystemEventProvider>,
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
@@ -645,6 +646,12 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the blocklist file for the node.
+    pub fn with_blocklist_file(mut self, blocklist_file: Option<PathBuf>) -> Self {
+        self.blocklist_path = blocklist_file;
+        self
+    }
+
     /// Specify the sui wallet directory for the node.
     pub fn with_node_wallet_dir(mut self, node_wallet_dir: Option<PathBuf>) -> Self {
         self.node_wallet_dir = node_wallet_dir;
@@ -708,6 +715,7 @@ impl StorageNodeHandleBuilder {
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: Some(node_info.rest_api_address.ip().to_string()),
+            blocklist_path: self.blocklist_path,
             ..storage_node_config().inner
         };
 
@@ -892,6 +900,7 @@ impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
             event_provider: Box::<Vec<ContractEvent>>::default(),
+            blocklist_path: None,
             committee_service: None,
             storage: Default::default(),
             run_rest_api: Default::default(),
@@ -1403,6 +1412,7 @@ pub struct TestClusterBuilder {
     node_wallet_dirs: Vec<Option<PathBuf>>,
     start_node_from_beginning: Vec<bool>,
     num_checkpoints_per_blob: Option<u32>,
+    blocklist_files: Vec<Option<PathBuf>>,
 }
 
 impl TestClusterBuilder {
@@ -1555,6 +1565,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the sui wallet config directory for each storage node.
+    pub fn with_blocklist_files(mut self, blocklist_files: Vec<PathBuf>) -> Self {
+        self.blocklist_files = blocklist_files.into_iter().map(Some).collect();
+        self
+    }
+
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
         let mut nodes = vec![];
@@ -1577,10 +1593,13 @@ impl TestClusterBuilder {
 
         for (
             (
-                ((((config, event_provider), service), contract_service), capability),
-                node_wallet_dir,
+                (
+                    ((((config, event_provider), service), contract_service), capability),
+                    node_wallet_dir,
+                ),
+                start_node_from_beginning,
             ),
-            start_node_from_beginning,
+            blocklist_file,
         ) in self
             .storage_node_configs
             .into_iter()
@@ -1590,6 +1609,7 @@ impl TestClusterBuilder {
             .zip(self.storage_capabilities.into_iter())
             .zip(self.node_wallet_dirs.into_iter())
             .zip(self.start_node_from_beginning.into_iter())
+            .zip(self.blocklist_files.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
             let builder = StorageNodeHandle::builder()
@@ -1598,7 +1618,8 @@ impl TestClusterBuilder {
                 .with_rest_api_started(true)
                 .with_node_started(true)
                 .with_storage_node_capability(capability)
-                .with_node_wallet_dir(node_wallet_dir);
+                .with_node_wallet_dir(node_wallet_dir)
+                .with_blocklist_file(blocklist_file);
 
             let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
             {
@@ -1756,6 +1777,7 @@ impl Default for TestClusterBuilder {
             storage_capabilities: shard_assignment.iter().map(|_| None).collect(),
             node_wallet_dirs: shard_assignment.iter().map(|_| None).collect(),
             start_node_from_beginning: shard_assignment.iter().map(|_| true).collect(),
+            blocklist_files: shard_assignment.iter().map(|_| None).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -1916,6 +1938,7 @@ pub mod test_cluster {
             &node_weights,
             true,
             ClientCommunicationConfig::default_for_test(),
+            None,
         )
         .await
     }
@@ -1927,6 +1950,7 @@ pub mod test_cluster {
         node_weights: &[u16],
         use_legacy_event_processor: bool,
         communication_config: ClientCommunicationConfig,
+        blocklist_dir: Option<PathBuf>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1938,6 +1962,7 @@ pub mod test_cluster {
             use_legacy_event_processor,
             None,
             communication_config,
+            blocklist_dir,
         )
         .await
     }
@@ -1950,6 +1975,7 @@ pub mod test_cluster {
         use_legacy_event_processor: bool,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
+        blocklist_dir: Option<PathBuf>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1994,7 +2020,8 @@ pub mod test_cluster {
 
         let mut contract_clients = vec![];
         let mut node_wallet_dirs = vec![];
-        for _ in members.iter() {
+        let mut blocklist_files = vec![];
+        for (i, _) in members.iter().enumerate() {
             let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
                 .await?
                 .and_then_async(|wallet| {
@@ -2005,8 +2032,11 @@ pub mod test_cluster {
                     )
                 })
                 .await?;
-            node_wallet_dirs.push(client.temp_dir.path().to_owned());
+            let temp_dir = client.temp_dir.path().to_owned();
+            node_wallet_dirs.push(temp_dir.clone());
             contract_clients.push(client);
+            let blocklist_dir = blocklist_dir.clone().unwrap_or(temp_dir);
+            blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
         }
         let contract_clients_refs = contract_clients
             .iter()
@@ -2110,7 +2140,9 @@ pub mod test_cluster {
                     .iter()
                     .map(|&initial_staking_amount| initial_staking_amount > 0)
                     .collect(),
-            );
+            )
+            .with_blocklist_files(blocklist_files);
+
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
@@ -2207,6 +2239,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: None,
+            blocklist_path: None,
             sui: None,
             blob_recovery: Default::default(),
             tls: Default::default(),

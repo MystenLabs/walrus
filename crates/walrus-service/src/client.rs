@@ -57,8 +57,7 @@ use crate::common::active_committees::ActiveCommittees;
 pub mod cli;
 pub mod responses;
 
-mod blocklist;
-pub use blocklist::Blocklist;
+pub use crate::common::blocklist::Blocklist;
 
 mod communication;
 
@@ -1220,6 +1219,7 @@ impl<T> Client<T> {
         progress_bar.finish_with_message("slivers received");
 
         let mut n_not_found = 0; // Counts the number of "not found" status codes received.
+        let mut n_forbidden = 0; // Counts the number of "forbidden" status codes received.
         let slivers = requests
             .take_results()
             .into_iter()
@@ -1229,14 +1229,20 @@ impl<T> Client<T> {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
+                        } else if error.is_status_forbidden() {
+                            n_forbidden += 1;
                         }
                     })
                     .ok()
             })
             .collect::<Vec<_>>();
 
-        if committees.is_quorum(n_not_found) {
-            return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+        if committees.is_quorum(n_not_found + n_forbidden) {
+            return if n_not_found > n_forbidden {
+                Err(ClientErrorKind::BlobIdDoesNotExist.into())
+            } else {
+                Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
+            };
         }
 
         if let Some((blob, _meta)) = decoder
@@ -1248,8 +1254,14 @@ impl<T> Client<T> {
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
-            self.decode_sliver_by_sliver(&mut requests, &mut decoder, metadata, n_not_found)
-                .await
+            self.decode_sliver_by_sliver(
+                &mut requests,
+                &mut decoder,
+                metadata,
+                n_not_found,
+                n_forbidden,
+            )
+            .await
         }
     }
 
@@ -1262,6 +1274,7 @@ impl<T> Client<T> {
         decoder: &mut BlobDecoder<'a, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
+        mut n_forbidden: usize,
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
@@ -1289,11 +1302,22 @@ impl<T> Client<T> {
                 }
                 Err(error) => {
                     tracing::debug!(%node, %error, "retrieving sliver failed");
-                    if error.is_status_not_found() && {
+                    if error.is_status_not_found() {
                         n_not_found += 1;
-                        self.committees.read().await.is_quorum(n_not_found)
-                    } {
-                        return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                    } else if error.is_status_forbidden() {
+                        n_forbidden += 1;
+                    }
+                    if self
+                        .committees
+                        .read()
+                        .await
+                        .is_quorum(n_not_found + n_forbidden)
+                    {
+                        return if n_not_found > n_forbidden {
+                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                        } else {
+                            Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
+                        };
                     }
                 }
             }
@@ -1355,6 +1379,7 @@ impl<T> Client<T> {
             .await;
 
         let mut n_not_found = 0;
+        let mut n_forbidden = 0;
         for NodeResult(_, weight, node, result) in requests.into_results() {
             match result {
                 Ok(metadata) => {
@@ -1362,14 +1387,25 @@ impl<T> Client<T> {
                     return Ok(metadata);
                 }
                 Err(error) => {
-                    if error.is_status_not_found() && {
-                        n_not_found += weight;
-                        committees.is_quorum(n_not_found)
-                    } {
-                        // TODO(giac): now that we check that the blob is certified before starting
-                        // to read, this error should not technically happen unless (1) the client
-                        // was disconnected while reading, or (2) the bft threshold was exceeded.
-                        return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                    let res = {
+                        if error.is_status_not_found() {
+                            n_not_found += weight;
+                        } else if error.is_status_forbidden() {
+                            n_forbidden += weight;
+                        }
+                        committees.is_quorum(n_not_found + n_forbidden)
+                    };
+                    if res {
+                        // Return appropriate error based on which response type was more common
+                        return if n_not_found > n_forbidden {
+                            // TODO(giac): now that we check that the blob is certified before
+                            // starting to read, this error should not technically happen unless (1)
+                            // the client was disconnected while reading, or (2) the bft threshold
+                            // was exceeded.
+                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                        } else {
+                            Err(ClientErrorKind::BlobIdBlocked(*blob_id).into())
+                        };
                     }
                 }
             }

@@ -35,6 +35,7 @@ rest_api_error! {
     RetrieveMetadataError: [
         (Unavailable, NOT_FOUND, None, Self::Unavailable.to_string()),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical),
+        (Forbidden, FORBIDDEN, None, Self::Forbidden.to_string()),
     ]
 }
 
@@ -51,6 +52,7 @@ rest_api_error! {
     RetrieveSliverError: [
         (ShardNotAssigned(_), MISDIRECTED_REQUEST, None,
         "the requested sliver is not stored at a shard assigned to this storage node"),
+        (Forbidden, FORBIDDEN, None, Self::Forbidden.to_string()),
         (SliverOutOfRange(_), BAD_REQUEST, None, "the requested sliver index is out of range"),
         (Unavailable, NOT_FOUND, None, Self::Unavailable.to_string()),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)
@@ -78,6 +80,8 @@ rest_api_error! {
         "invalid index for the sliver providing the recovery symbol"),
         (RetrieveSliver(RetrieveSliverError::ShardNotAssigned(_)), MISDIRECTED_REQUEST, None,
         "the sliver providing the requested symbol is not stored at this node's shards"),
+        (RetrieveSliver(RetrieveSliverError::Forbidden), FORBIDDEN, None,
+        "the sliver providing the requested symbol is forbidden"),
         (RetrieveSliver(RetrieveSliverError::Unavailable), NOT_FOUND, None,
         "the sliver providing the requested symbol was not found"),
         (Internal(_), INTERNAL_SERVER_ERROR, None, @canonical)

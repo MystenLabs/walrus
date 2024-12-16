@@ -49,6 +49,9 @@ pub struct StorageNodeConfig {
     /// Directory in which to persist the database
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
+    /// File path to the blocklist
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocklist_path: Option<PathBuf>,
     /// Option config to tune storage db
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db_config: Option<DatabaseConfig>,
@@ -124,6 +127,7 @@ impl Default for StorageNodeConfig {
     fn default() -> Self {
         Self {
             storage_path: PathBuf::from("db"),
+            blocklist_path: Default::default(),
             db_config: Default::default(),
             protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
             network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),

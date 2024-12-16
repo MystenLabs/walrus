@@ -25,6 +25,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             false,
             Some(10),
             ClientCommunicationConfig::default_for_test(),
+            None,
         )
         .await?;
 

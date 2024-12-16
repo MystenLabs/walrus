@@ -42,6 +42,12 @@ impl NodeError {
     }
 
     /// Returns true if the HTTP error status code associated with the error is
+    /// [`StatusCode::FORBIDDEN`].
+    pub fn is_status_forbidden(&self) -> bool {
+        Some(StatusCode::FORBIDDEN) == self.http_status_code()
+    }
+
+    /// Returns true if the HTTP error status code associated with the error is
     /// [`StatusCode::MISDIRECTED_REQUEST`].
     pub fn is_shard_not_assigned(&self) -> bool {
         self.http_status_code() == Some(StatusCode::MISDIRECTED_REQUEST)

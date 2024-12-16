@@ -25,6 +25,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     client::{
         responses::BlobStoreResult,
+        Blocklist,
         ClientCommunicationConfig,
         ClientError,
         ClientErrorKind::{
@@ -538,6 +539,84 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     Ok(())
 }
 
+#[walrus_simtest]
+async fn test_blocklist() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+    let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+    let (_sui_cluster_handle, _cluster, client) =
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+            Duration::from_secs(60 * 60),
+            &[1, 2, 3, 3, 4],
+            true,
+            ClientCommunicationConfig::default_for_test(),
+            Some(blocklist_dir.path().to_path_buf()),
+        )
+        .await?;
+    let client = client.as_ref();
+    let blob = walrus_test_utils::random_data(314);
+
+    let store_results = client
+        .reserve_and_store_blobs(
+            &[&blob],
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Deletable,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let store_result = store_results[0].clone();
+    let blob_id = store_result.blob_id();
+    assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
+
+    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blob);
+
+    let mut blocklists = vec![];
+
+    for (i, _) in _cluster.nodes.iter().enumerate() {
+        let blocklist_file = blocklist_dir.path().join(format!("blocklist-{i}.yaml"));
+        let blocklist =
+            Blocklist::new(&Some(blocklist_file)).expect("blocklist creation must succeed");
+        blocklists.push(blocklist);
+    }
+
+    tracing::info!("Adding blob to blocklist");
+
+    for blocklist in blocklists.iter_mut() {
+        blocklist.insert(*blob_id)?;
+    }
+
+    // Read the blob using the client until it fails with forbidden
+    let mut blob_read_result = client.read_blob::<Primary>(blob_id).await;
+    while let Ok(_blob) = blob_read_result {
+        blob_read_result = client.read_blob::<Primary>(blob_id).await;
+        // sleep for a bit to allow the nodes to sync
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }
+    assert!(matches!(
+        blob_read_result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdBlocked(_blob_id)
+    ));
+
+    // Remove the blob from the blocklist
+    for blocklist in blocklists.iter_mut() {
+        blocklist.remove(blob_id)?;
+    }
+
+    tracing::info!("Removing blob from blocklist");
+
+    // Read the blob again until it succeeds
+    let mut blob_read_result = client.read_blob::<Primary>(blob_id).await;
+    while blob_read_result.is_err() {
+        blob_read_result = client.read_blob::<Primary>(blob_id).await;
+        // sleep for a bit to allow the nodes to sync
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }
+
+    assert_eq!(blob_read_result?, blob);
+
+    Ok(())
+}
+
 /// Tests that storing the same blob multiple times with possibly different end epochs,
 /// persistence, and force-store conditions always works.
 #[ignore = "ignore E2E tests by default"]
@@ -613,6 +692,7 @@ async fn test_repeated_shard_move() -> TestResult {
             &[1, 1],
             true,
             ClientCommunicationConfig::default_for_test(),
+            None,
         )
         .await?;
 

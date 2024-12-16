@@ -12,9 +12,11 @@ prometheus.workspace = true
 # explicitly import reqwest in test to disable its system proxy cache. It causes indeterminism in simtest.
 futures.workspace = true
 reqwest = { version = "0.12.9", default-features = false, features = ["__internal_proxy_sys_no_cache", "http2", "json", "rustls-tls"] }
+serde_yaml.workspace = true
 sui-macros.workspace = true
 sui-protocol-config.workspace = true
 sui-simulator.workspace = true
+tempfile.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tracing.workspace = true

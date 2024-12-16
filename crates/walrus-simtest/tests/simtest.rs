@@ -138,6 +138,7 @@ mod tests {
                 &[1, 2, 3, 3, 4],
                 true,
                 ClientCommunicationConfig::default_for_test(),
+                None,
             )
             .await
             .unwrap();
@@ -164,6 +165,7 @@ mod tests {
                 &[1, 2, 3, 3, 4],
                 true,
                 ClientCommunicationConfig::default_for_test(),
+                None,
             )
             .await
             .unwrap();
@@ -307,6 +309,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                None,
             )
             .await
             .unwrap();
@@ -448,6 +451,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
+                None,
             )
             .await
             .unwrap();
@@ -576,6 +580,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                None,
             )
             .await
             .unwrap();
@@ -625,6 +630,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                None,
             )
             .await
             .unwrap();

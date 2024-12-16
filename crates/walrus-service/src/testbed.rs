@@ -566,6 +566,7 @@ pub async fn create_storage_node_configs(
         storage_node_configs.push(StorageNodeConfig {
             name: Some(node.name),
             storage_path,
+            blocklist_path: None,
             protocol_key_pair: node.keypair.into(),
             network_key_pair: node.network_keypair.into(),
             public_host: Some(node.network_address.get_host().to_owned()),

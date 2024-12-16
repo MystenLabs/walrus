@@ -37,8 +37,6 @@ use tracing::Level;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
-#[cfg(not(feature = "walrus-mainnet"))]
-use crate::utils::get_package_id_from_object_response;
 use crate::{
     contracts::{AssociatedContractStruct, TypeOriginMap},
     types::move_structs::{SuiDynamicField, SystemObjectForDeserialization},
