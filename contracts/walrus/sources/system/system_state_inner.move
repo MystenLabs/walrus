@@ -538,9 +538,11 @@ public(package) fun update_deny_list(
         .committee
         .verify_quorum_in_epoch(signature, members_bitmap, message);
 
+    let epoch = certified_message.cert_epoch();
     let message = certified_message.deny_list_update_message();
     let node_id = message.storage_node_id();
 
+    assert!(epoch == self.epoch());
     assert!(node_id == cap.node_id());
     assert!(cap.deny_list_sequence() < message.sequence_number());
     assert!(cap.deny_list_root() != message.root());
@@ -569,6 +571,8 @@ public(package) fun delete_deny_listed_blob(
 
     let epoch = certified_message.cert_epoch();
     let message = certified_message.deny_list_blob_deleted_message();
+
+    assert!(epoch == self.epoch());
 
     events::emit_deny_listed_blob_deleted(epoch, message.blob_id());
 }
