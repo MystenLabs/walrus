@@ -61,7 +61,7 @@ use walrus_sui::{
 use walrus_test_utils::WithTempDir;
 
 #[cfg(msim)]
-use crate::node::config::{self, SuiConfig};
+use crate::node::config::SuiConfig;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
@@ -264,8 +264,8 @@ pub struct SimStorageNodeHandle {
 
 #[cfg(msim)]
 impl SimStorageNodeHandle {
-    // Starts and runs a storage node with the provided configuration in a dedicated simulator
-    // node.
+    /// Starts and runs a storage node with the provided configuration in a dedicated simulator
+    /// node.
     pub async fn spawn_node(
         config: StorageNodeConfig,
         cancel_token: CancellationToken,

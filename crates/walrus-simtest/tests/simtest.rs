@@ -12,7 +12,7 @@ mod tests {
 
     use anyhow::Context;
     use rand::{Rng, SeedableRng};
-    use sui_macros::{register_fail_point, register_fail_point_async, register_fail_points};
+    use sui_macros::{register_fail_point_async, register_fail_points};
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::{task::JoinHandle, time::Instant};

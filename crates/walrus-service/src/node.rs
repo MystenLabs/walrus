@@ -4060,12 +4060,7 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // All blobs should be recovered in the new dst node.
-            check_all_blobs_are_synced(
-                &_blob_details,
-                &node_inner.storage,
-                &shard_storage_dst,
-                &[],
-            )?;
+            check_all_blobs_are_synced(&details, &node_inner.storage, &shard_storage_dst, &[])?;
 
             // Checks that shard sync recovery is not triggered.
             assert!(!shard_sync_recovery_triggered.load(Ordering::SeqCst));
