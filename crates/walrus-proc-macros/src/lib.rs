@@ -25,12 +25,12 @@ pub fn walrus_simtest(args: TokenStream, item: TokenStream) -> TokenStream {
         let fn_name = &input.sig.ident;
         input.sig.ident = syn::Ident::new(&format!("simtest_{}", fn_name), fn_name.span());
         quote! {
-            #[sui_macros::sim_test(#(#args)*)]
+            #[sui_macros::sim_test(#(#args),*)]
             #input
         }
     } else {
         quote! {
-            #[tokio::test(#(#args)*)]
+            #[tokio::test(#(#args),*)]
             #input
         }
     };
