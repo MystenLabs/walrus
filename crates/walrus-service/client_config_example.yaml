@@ -43,3 +43,4 @@ communication_config:
   registration_delay:
     secs: 0
     nanos: 200000000
+  max_total_blob_size: 1073741824

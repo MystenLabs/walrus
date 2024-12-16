@@ -89,7 +89,10 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             )
             .await?;
 
-        Ok(result.into_iter().next().expect("expected one blob"))
+        Ok(result
+            .into_iter()
+            .next()
+            .expect("there is only one blob, as store was called with one blob"))
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {

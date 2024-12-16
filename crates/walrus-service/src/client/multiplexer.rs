@@ -124,6 +124,7 @@ impl ClientMultiplexer {
         let result = client
             .write_blob(blob, epochs_ahead, store_when, persistence, post_store)
             .await?;
+
         Ok(result)
     }
 }

@@ -84,12 +84,12 @@ impl CliOutput for BlobStoreResultWithPath {
             } => {
                 println!(
                     "{} Blob was already available and certified within Walrus, \
-                    for a sufficient number of epochs.\n\
-                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}\nPath: {}",
+                    for a sufficient number of epochs.\nPath: {}\n\
+                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}",
                     success(),
+                    self.path.display(),
                     blob_id,
                     end_epoch,
-                    self.path.display(),
                 )
             }
             BlobStoreResult::NewlyCreated {
@@ -110,35 +110,35 @@ impl CliOutput for BlobStoreResultWithPath {
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
+                    Path: {}\n\
                     Blob ID: {}\n\
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
-                    Cost (excluding gas): {} {}\n\
-                    Path: {}",
+                    Cost (excluding gas): {} {}\n",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
                     } else {
                         "Permanent"
                     },
+                    self.path.display(),
                     blob_object.blob_id,
                     blob_object.id,
                     HumanReadableBytes(blob_object.size),
                     HumanReadableBytes(resource_operation.encoded_length()),
                     HumanReadableFrost::from(*cost),
-                    operation_str,
-                    self.path.display()
+                    operation_str
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
                 println!(
-                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}
-                    \nPath: {}",
+                    "{} Blob was marked as invalid.\nPath: {}\nBlob ID: {}\n
+                    Invalidation event ID: {}",
                     error(),
+                    self.path.display(),
                     blob_id,
                     format_event_id(event),
-                    self.path.display(),
                 )
             }
         }

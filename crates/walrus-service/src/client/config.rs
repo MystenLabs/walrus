@@ -126,6 +126,8 @@ pub struct ClientCommunicationConfig {
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
     pub registration_delay: Duration,
+    /// The maximum total blob size allowed to store if multiple blobs are uploaded.
+    pub max_total_blob_size: usize,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -142,6 +144,7 @@ impl Default for ClientCommunicationConfig {
             disable_proxy: Default::default(),
             sliver_write_extra_time: Default::default(),
             registration_delay: Duration::from_millis(200),
+            max_total_blob_size: 1024 * 1024 * 1024_usize, // 1GiB
         }
     }
 }

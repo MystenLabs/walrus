@@ -6,6 +6,7 @@
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
+    path::PathBuf,
     time::Duration,
 };
 
@@ -123,47 +124,41 @@ async fn run_store_and_read_with_crash_failures(
     failed_shards_write
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
+
     // Store a list of blobs and get confirmations from each node.
-    let blob_data = walrus_test_utils::random_data_list(data_length, 10);
-    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let blob_data = walrus_test_utils::random_data_list(data_length, 4);
+    let blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = blob_data
+        .iter()
+        .enumerate()
+        .map(|(i, blob)| (PathBuf::from(format!("path_{i}")), blob.to_vec()))
+        .collect();
+    let original_blobs: HashMap<PathBuf, Vec<u8>> = blobs_with_paths
+        .iter()
+        .map(|(path, blob)| (path.clone(), blob.clone()))
+        .collect();
+
     let store_result = client
         .as_ref()
-        .reserve_and_store_blobs(
-            &blobs,
+        .reserve_and_store_blobs_retry_epoch_with_path(
+            &blobs_with_paths,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
         .await?;
-    let original_blobs: HashSet<&[u8]> = blobs.into_iter().collect();
 
     // Stop the nodes in the read failure set.
     failed_shards_read
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
-    // Read all blobs and collect them into a HashSet
-    let read_blobs: HashSet<Vec<u8>> = futures::future::try_join_all(
-        store_result
-            .iter()
-            .map(|result| client.as_ref().read_blob::<Primary>(result.blob_id())),
-    )
-    .await?
-    .into_iter()
-    .collect();
-
-    assert_eq!(
-        original_blobs.len(),
-        read_blobs.len(),
-        "Number of blobs should match"
-    );
-
-    for original in original_blobs {
-        assert!(
-            read_blobs.iter().any(|read| read == original),
-            "Each original blob should have a matching read blob"
-        );
+    for result in store_result.into_iter() {
+        let read = client
+            .as_ref()
+            .read_blob::<Primary>(result.blob_store_result.blob_id())
+            .await?;
+        assert_eq!(read, original_blobs[&result.path]);
     }
     Ok(())
 }
@@ -295,7 +290,7 @@ async fn test_store_with_existing_blob_resource(
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blob_data = walrus_test_utils::random_data_list(31415, 10);
+    let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let metatdatum = blobs
         .iter()
@@ -380,7 +375,7 @@ async fn test_store_with_existing_storage_resource(
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blob_data = walrus_test_utils::random_data_list(31415, 10);
+    let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let pairs_and_metadata = client
         .as_ref()

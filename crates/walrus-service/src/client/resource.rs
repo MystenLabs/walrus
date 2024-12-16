@@ -137,8 +137,8 @@ impl<'a> ResourceManager<'a> {
     ) -> ClientResult<Vec<StoreOp>> {
         let mut results = Vec::with_capacity(metadata_with_status.len());
 
-        // Filter for already certified/invalid blobs and add to result,
-        // otherwise add it to to_be_processed.
+        // Filter for already certified/invalid blobs and add to result, otherwise add it to
+        // to_be_processed.
         let to_be_processed = metadata_with_status
             .iter()
             .filter(|(metadata, blob_status)| {
@@ -148,6 +148,7 @@ impl<'a> ResourceManager<'a> {
                         epochs_ahead,
                         *blob_status,
                     ) {
+                        tracing::debug!(blob_id=%metadata.blob_id(), "blob is already certified");
                         results.push(StoreOp::NoOp(result));
                         return false;
                     }
@@ -174,6 +175,7 @@ impl<'a> ResourceManager<'a> {
                     "get_existing_registration with StoreWhen::Always filters certified blobs"
                 );
                 tracing::debug!(
+                    blob_id=%blob.blob_id,
                     "there is a deletable certified blob in the wallet, and we are not forcing
                     a store"
                 );
@@ -193,8 +195,7 @@ impl<'a> ResourceManager<'a> {
         Ok(results)
     }
 
-    /// Returns a list of [`Blob`] registration object for a list of specified metadata and number
-    /// of epochs.
+    /// Returns a list of [`Blob`] registration objects for a list of specified metadata and number
     ///
     /// Tries to reuse existing blob registrations or storage resources if possible.
     /// Specifically:
@@ -209,13 +210,13 @@ impl<'a> ResourceManager<'a> {
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_existing_or_register(
         &self,
-        metadatum: &[&VerifiedBlobMetadataWithId],
+        metadata_list: &[&VerifiedBlobMetadataWithId],
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
         let encoded_lengths: Result<Vec<_>, _> =
-            metadatum
+            metadata_list
                 .iter()
                 .map(|m| {
                     m.metadata().encoded_size().ok_or_else(|| {
@@ -234,7 +235,7 @@ impl<'a> ResourceManager<'a> {
             self.reserve_and_register_blob_op(
                 &encoded_lengths?,
                 epochs_ahead,
-                metadatum,
+                metadata_list,
                 persistence,
             )
             .await
@@ -242,7 +243,7 @@ impl<'a> ResourceManager<'a> {
             self.get_existing_or_register_with_resources(
                 &encoded_lengths?,
                 epochs_ahead,
-                metadatum,
+                metadata_list,
                 persistence,
                 store_when,
             )
@@ -254,32 +255,31 @@ impl<'a> ResourceManager<'a> {
         &self,
         encoded_lengths: &[u64],
         epochs_ahead: EpochCount,
-        metadatum: &[&VerifiedBlobMetadataWithId],
+        metadata_list: &[&VerifiedBlobMetadataWithId],
         persistence: BlobPersistence,
         store_when: StoreWhen,
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
+        let max_len = metadata_list.len();
         debug_assert!(
-            encoded_lengths.len() == metadatum.len(),
+            encoded_lengths.len() == max_len,
             "inconsistent metadata and encoded lengths"
         );
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(max_len);
 
-        let mut reused_metadata_with_storage = Vec::new();
-        let mut reused_encoded_lengths = Vec::new();
+        let mut reused_metadata_with_storage = Vec::with_capacity(max_len);
+        let mut reused_encoded_lengths = Vec::with_capacity(max_len);
 
-        let mut new_list = Vec::new();
-        let mut new_encoded_lengths = Vec::new();
+        let mut new_metadata_list = Vec::with_capacity(max_len);
+        let mut new_encoded_lengths = Vec::with_capacity(max_len);
 
         // This keeps tracks of selected storage objects and exclude them from selecting again.
-        // todo: might not be efficient if the list is long, consider multiselect in
-        // owned_storage_for_size_and_epoch.
-        let mut excluded = Vec::new();
+        let mut excluded = Vec::with_capacity(max_len);
 
         // For all the metadata, if the blob is registered in wallet, add it directly to results.
         // Otherwise, check if there is existing storage resource selected for the encoded length,
         // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
-        // Otherwise, add it to new_list and its length to new_list and new_encoded_lengths.
-        for (metadata, encoded_length) in metadatum.iter().zip(encoded_lengths) {
+        // Otherwise, add it to new_metadata_list and its length to new_encoded_lengths.
+        for (metadata, encoded_length) in metadata_list.iter().zip(encoded_lengths) {
             if let Some(blob) = self
                 .is_blob_registered_in_wallet(
                     metadata.blob_id(),
@@ -291,6 +291,7 @@ impl<'a> ResourceManager<'a> {
             {
                 tracing::debug!(
                     end_epoch=%blob.storage.end_epoch,
+                    blob_id=%blob.blob_id,
                     "blob is already registered and valid; using the existing registration"
                 );
                 results.push((
@@ -308,8 +309,12 @@ impl<'a> ResourceManager<'a> {
                 )
                 .await?
             {
+                // TODO(joy): Currently select is done one at a time for each blob using `excluded`
+                // to filter, this might not be efficient if the list is too long, consider better
+                // storage selection strategy.
                 // TODO(giac): consider splitting the storage before reusing it (#811).
                 tracing::debug!(
+                    blob_id=%metadata.blob_id(),
                     storage_object=%storage_resource.id,
                     "using an existing storage resource to register the blob"
                 );
@@ -321,7 +326,7 @@ impl<'a> ResourceManager<'a> {
                     blob_id=%metadata.blob_id(),
                     "no storage resource found for the blob"
                 );
-                new_list.push(*metadata);
+                new_metadata_list.push(*metadata);
                 new_encoded_lengths.push(*encoded_length);
             };
         }
@@ -339,16 +344,16 @@ impl<'a> ResourceManager<'a> {
             |(blob, &encoded_length)| (blob, RegisterBlobOp::ReuseStorage { encoded_length }),
         ));
 
-        // Reserve space and register all in new_list in one ptb.
+        // Reserve space and register all in new_metadata_list in one ptb.
         tracing::debug!(
-            num_blobs = ?new_list.len(),
+            num_blobs = ?new_metadata_list.len(),
             "blobs are not already registered or their lifetime is too short; creating new ones"
         );
         results.extend(
             self.reserve_and_register_blob_op(
                 &new_encoded_lengths,
                 epochs_ahead,
-                &new_list,
+                &new_metadata_list,
                 persistence,
             )
             .await?,
@@ -360,18 +365,18 @@ impl<'a> ResourceManager<'a> {
         &self,
         encoded_lengths: &[u64],
         epochs_ahead: EpochCount,
-        metadatum: &[&VerifiedBlobMetadataWithId],
+        metadata_list: &[&VerifiedBlobMetadataWithId],
         persistence: BlobPersistence,
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
         debug_assert!(
-            encoded_lengths.len() == metadatum.len(),
+            encoded_lengths.len() == metadata_list.len(),
             "inconsistent metadata and encoded lengths"
         );
         let blobs = self
             .sui_client
             .reserve_and_register_blobs(
                 epochs_ahead,
-                metadatum
+                metadata_list
                     .iter()
                     .map(|m| (*m).try_into())
                     .collect::<Result<Vec<_>, _>>()?,
@@ -382,6 +387,7 @@ impl<'a> ResourceManager<'a> {
             .into_iter()
             .zip(encoded_lengths.iter())
             .map(|(blob, &encoded_length)| {
+                tracing::debug!(blob_id=%blob.blob_id, "registering blob from scratch");
                 (
                     blob,
                     RegisterBlobOp::RegisterFromScratch {
@@ -436,7 +442,7 @@ impl<'a> ResourceManager<'a> {
                 ..
             } => {
                 if end_epoch >= self.write_committee_epoch + epochs_ahead {
-                    tracing::debug!(end_epoch, "blob is already certified");
+                    tracing::debug!(end_epoch, blob_id=%blob_id, "blob is already certified");
                     Some(BlobStoreResult::AlreadyCertified {
                         blob_id,
                         event_or_object: EventOrObjectId::Event(status_event),
@@ -444,14 +450,14 @@ impl<'a> ResourceManager<'a> {
                     })
                 } else {
                     tracing::debug!(
-                        end_epoch,
+                        end_epoch, blob_id=%blob_id,
                         "blob is already certified but its lifetime is too short"
                     );
                     None
                 }
             }
             BlobStatus::Invalid { event } => {
-                tracing::debug!("blob is marked as invalid");
+                tracing::debug!(blob_id=%blob_id, "blob is marked as invalid");
                 Some(BlobStoreResult::MarkedInvalid { blob_id, event })
             }
             status => {
@@ -460,7 +466,7 @@ impl<'a> ResourceManager<'a> {
                 // Sui object. The check to see if we own the registered-but-not-certified Blob
                 // object is done in `reserve_and_register_blob`.
                 tracing::debug!(
-                    ?status,
+                    ?status, blob_id=%blob_id,
                     "no corresponding permanent certified `Blob` object exists"
                 );
                 None

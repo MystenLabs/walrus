@@ -53,12 +53,7 @@ use crate::{
         StorageNodeCap,
         StorageResource,
     },
-    utils::{
-        get_created_sui_object_ids_by_type,
-        get_sui_object,
-        get_sui_objects,
-        sign_and_send_ptb,
-    },
+    utils::{get_created_sui_object_ids_by_type, sign_and_send_ptb},
 };
 
 mod read_client;
@@ -383,11 +378,11 @@ impl SuiContractClient {
     pub async fn reserve_and_register_blobs(
         &self,
         epochs_ahead: EpochCount,
-        blob_metadatum: Vec<BlobObjectMetadata>,
+        blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
         tracing::debug!(
-            size = blob_metadatum.len(),
+            size = blob_metadata_list.len(),
             "starting to reserve and register blobs"
         );
 
@@ -396,8 +391,8 @@ impl SuiContractClient {
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
         // Build a ptb to include all reserve space and register blob commands for all blobs.
-        let expected_num_blobs = blob_metadatum.len();
-        for blob_metadata in blob_metadatum.into_iter() {
+        let expected_num_blobs = blob_metadata_list.len();
+        for blob_metadata in blob_metadata_list.into_iter() {
             let storage_arg = pt_builder
                 .reserve_space(blob_metadata.encoded_size, epochs_ahead)
                 .await?;
