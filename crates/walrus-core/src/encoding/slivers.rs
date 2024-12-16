@@ -405,7 +405,7 @@ impl<T: EncodingAxis> Display for SliverData<T> {
 }
 
 /// Combination of a primary and secondary sliver of one shard.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SliverPair {
     /// The sliver corresponding to the [`Primary`] encoding.
     pub primary: PrimarySliver,
