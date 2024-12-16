@@ -614,7 +614,6 @@ impl StorageNode {
                     maybe_epoch_at_start = None;
 
                     // Checks if the node is severely lagging behind.
-                    // This applies to node both in `Active` or `RecoveryInProgress` status.
                     if node_status != NodeStatus::RecoveryCatchUp
                         && event.event_epoch() + 1 < epoch_at_start
                     {
@@ -835,6 +834,8 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        // TODO: need to check if the node is lagging or not.
+
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
         self.epoch_change_driver
@@ -843,43 +844,65 @@ impl StorageNode {
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
         if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
-            self.inner
-                .committee_service
-                .begin_committee_change_to_latest_committee()
-                .await?;
-            if event.epoch == self.inner.current_epoch() {
-                tracing::info!(
-                    epoch = %event.epoch,
-                    "processing event reaches the latest epoch, start recover entire node"
-                );
-                let active_committees = self.inner.committee_service.active_committees();
-                if active_committees.previous_committee().is_none()
-                    || !active_committees
-                        .previous_committee()
-                        .unwrap()
-                        .contains(self.inner.public_key())
-                {
-                    tracing::info!(
-                        "node is not in the previous committee, set node status to active"
-                    );
-                    self.inner.storage.set_node_status(NodeStatus::Active)?;
-                    self.process_shard_changes_in_new_epoch(event_handle, event, true)
-                        .await?;
-                } else {
-                    self.start_node_recovery(event_handle, event).await?;
-                }
-            } else {
-                tracing::info!(
-                    event_epoch = %event.epoch,
-                    committee_epoch = %self.inner.current_epoch(),
-                    "epoch change start event reaches new epoch that is still lagging"
-                );
-                event_handle.mark_as_complete();
-            }
+            self.node_catch_up_process_epoch_change_start(event_handle, event)
+                .await
+        } else {
+            self.node_active_process_epoch_change_start(event_handle, event)
+                .await
+        }
+    }
 
+    async fn node_catch_up_process_epoch_change_start(
+        &self,
+        event_handle: EventHandle,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<()> {
+        self.inner
+            .committee_service
+            .begin_committee_change_to_latest_committee()
+            .await?;
+
+        if event.epoch < self.inner.current_epoch() {
+            // We have not caught up to the latest epoch yet, so we can skip the event.
+            event_handle.mark_as_complete();
             return Ok(());
         }
 
+        tracing::info!(
+            epoch = %event.epoch,
+            "processing event during node RecoveryCatchUp reaches the latest epoch"
+        );
+
+        let active_committees = self.inner.committee_service.active_committees();
+        if !active_committees
+            .current_committee()
+            .contains(self.inner.public_key())
+        {
+            tracing::info!("node is not in the current committee, set node status to Stand");
+            self.inner.storage.set_node_status(NodeStatus::Standby)?;
+            event_handle.mark_as_complete();
+            return Ok(());
+        }
+
+        if !active_committees
+            .previous_committee()
+            .is_some_and(|c| c.contains(self.inner.public_key()))
+        {
+            // TODO: add logging.
+            self.process_shard_changes_in_new_epoch(event_handle, event, true)
+                .await?;
+        } else {
+            self.start_node_recovery(event_handle, event).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn node_active_process_epoch_change_start(
+        &self,
+        event_handle: EventHandle,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<()> {
         if !self.begin_committee_change(event.epoch).await? {
             event_handle.mark_as_complete();
             return Ok(());
@@ -890,8 +913,31 @@ impl StorageNode {
             .cancel_all_expired_syncs_and_mark_events_completed()
             .await?;
 
-        self.process_shard_changes_in_new_epoch(event_handle, event, false)
-            .await
+        let active_committees = self.inner.committee_service.active_committees();
+        let current_node_status = self.inner.storage.node_status()?;
+        if current_node_status == NodeStatus::Standby
+            && active_committees
+                .current_committee()
+                .contains(self.inner.public_key())
+        {
+            // TODO: add logging.
+            self.process_shard_changes_in_new_epoch(event_handle, event, true)
+                .await
+        } else {
+            if current_node_status != NodeStatus::Standby
+                && !active_committees
+                    .current_committee()
+                    .contains(self.inner.public_key())
+            {
+                // The reason we set the node status to Standby here is that the node is not in the
+                // current committee, and therefore from this epoch, it won't sync any blob
+                // metadata. In the case it becomes committee member again, it needs to sync blob
+                // metadata again.
+                self.inner.storage.set_node_status(NodeStatus::Standby)?;
+            }
+            self.process_shard_changes_in_new_epoch(event_handle, event, false)
+                .await
+        }
     }
 
     /// Starts the node recovery process.
@@ -1004,7 +1050,7 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
-        new_node_joining: bool,
+        new_node_joining_committee: bool,
     ) -> anyhow::Result<()> {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
@@ -1045,10 +1091,18 @@ impl StorageNode {
                 .create_storage_for_shards_in_background(shard_diff.gained.clone())
                 .await?;
 
+            // Set node status to RecoverMetadata to sync metadata for the new shards.
+            // Note that this must be set before marking the event as complete, so that
+            // node crashing before setting the status will always be retried when replying
+            // the event.
+            self.inner
+                .storage
+                .set_node_status(NodeStatus::RecoverMetadata)?;
+
             // There shouldn't be an epoch change event for the genesis epoch.
             assert!(event.epoch != GENESIS_EPOCH);
             self.shard_sync_handler
-                .start_sync_shards(shard_diff.gained, new_node_joining)
+                .start_sync_shards(shard_diff.gained, new_node_joining_committee)
                 .await?;
             ongoing_shard_sync = true;
         }
@@ -1302,7 +1356,6 @@ fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
     match status {
         ShardStatus::None => ApiShardStatus::Unknown,
         ShardStatus::Active => ApiShardStatus::Ready,
-        ShardStatus::RecoverMetadata => ApiShardStatus::RecoverMetadata,
         ShardStatus::ActiveSync => ApiShardStatus::InTransfer,
         ShardStatus::ActiveRecover => ApiShardStatus::InRecovery,
         ShardStatus::LockedToMove => ApiShardStatus::ReadOnly,
@@ -3487,6 +3540,7 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             storage_dst.clear_metadata_in_test()?;
+            storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
         let shard_storage_src = cluster.nodes[0]
@@ -3590,6 +3644,9 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
+            node_inner
+                .storage
+                .set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
         cluster.nodes[1]
@@ -3653,6 +3710,9 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
+            node_inner
+                .storage
+                .set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
         cluster.nodes[1]

@@ -53,10 +53,20 @@ pub(crate) use shard::{ShardStatus, ShardStorage};
 pub struct WouldBlockError;
 
 /// The status of the node.
+//
+//     Standby <--> RecoveryCatchUp --> RecoveryInProgress
+//         \            /          ^       |
+//          \          /            \      |
+//           v        v              \     v
+//          RecoverMetadata  -------> Active
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
+    /// The node is in recovery mode and syncing metadata.
+    Standby,
     /// The node is active and processing events.
     Active,
+    /// The node is in recovery mode and syncing metadata.
+    RecoverMetadata,
     /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
     /// The node is in recovery mode and processing events.
@@ -70,6 +80,8 @@ impl NodeStatus {
             NodeStatus::Active => 0,
             NodeStatus::RecoveryCatchUp => 1,
             NodeStatus::RecoveryInProgress(_) => 2,
+            NodeStatus::RecoverMetadata => 3,
+            NodeStatus::Standby => 4,
         }
     }
 }
@@ -80,6 +92,8 @@ impl Display for NodeStatus {
             NodeStatus::Active => write!(f, "Active"),
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
+            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
+            NodeStatus::Standby => write!(f, "Standby"),
         }
     }
 }
@@ -165,7 +179,7 @@ impl Storage {
             false,
         )?;
         if node_status.get(&())?.is_none() {
-            node_status.insert(&(), &NodeStatus::Active)?;
+            node_status.insert(&(), &NodeStatus::Standby)?;
         }
 
         let metadata = DBMap::reopen(

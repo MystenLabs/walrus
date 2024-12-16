@@ -121,6 +121,9 @@ impl NodeRecoveryHandler {
 
             tracing::info!("node recovery task finished; set node status to active");
 
+            // TODO: we can only set the node to active if the node currently is in
+            // RecoveryInProgress status. If the node is in RecoveryCatchUp status, we cannot
+            // override it to active.
             match node.set_node_status(NodeStatus::Active) {
                 Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
                 Err(error) => {
