@@ -45,6 +45,7 @@ jobs:
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
+      isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
       - name: Detect Changes
@@ -196,6 +197,27 @@ jobs:
         with:
           path: ${{ env.SUI_BIN }}
           key: ${{ steps.cache-sui-restore.outputs.cache-primary-key }}
+
+  test-contracts-warning:
+    name: Check if the PR touches the testnet-contracts directory
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isTestnetContracts == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post a warning if the PR touches the testnet-contracts directory
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: >
+            **Warning:** This PR touches the `testnet-contracts` directory. This should only be
+            done if the Testnet contracts are updated. Note that in this case a corresponding
+            change needs to be made to the [walrus-docs](https://github.com/MystenLabs/walrus-docs)
+            repository.
+
+            cc @karlwuest @mlegner
 
   check-all:
     name: Check if all code checks succeeded

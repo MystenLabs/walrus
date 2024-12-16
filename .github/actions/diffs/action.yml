@@ -2,10 +2,10 @@ name: Detect Changes
 description: Defines variables indicating the parts of the code that changed
 outputs:
   isMove:
-    description: True when changes happened in Move code
+    description: True when changes happened in Move code or related build/test files
     value: "${{ steps.diff.outputs.isMove }}"
   isRust:
-    description: True when changes happened in Rust code
+    description: True when changes happened in Rust code or related build/test files
     value: "${{ steps.diff.outputs.isRust }}"
   isReleaseNotesEligible:
     description: True when changes happened in paths eligible for release notes
@@ -16,6 +16,12 @@ outputs:
   isTestConfig:
     description: True when changes happened in the configuration for `nextest`
     value: "${{ steps.diff.outputs.isTestConfig }}"
+  isTestnetContracts:
+    description: True when changes happened in the `testnet-contracts` directory
+    value: "${{ steps.diff.outputs.isTestnetContracts }}"
+  isMainnetContracts:
+    description: True when changes happened in the `contracts` directory
+    value: "${{ steps.diff.outputs.isMainnetContracts }}"
 
 runs:
   using: composite
@@ -45,3 +51,7 @@ runs:
             - 'deny.toml'
           isTestConfig:
             - '.config/nextest.toml'
+          isTestnetContracts:
+            - 'testnet-contracts/**'
+          isMainnetContracts:
+            - 'contracts/**'
