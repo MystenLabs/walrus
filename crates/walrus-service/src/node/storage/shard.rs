@@ -600,6 +600,7 @@ impl ShardStorage {
 
                 next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
                     epoch,
+                    &node,
                     &fetched_slivers,
                     sliver_type,
                     next_blob_info,
@@ -655,9 +656,11 @@ impl ShardStorage {
     /// Helper function to add fetched slivers to the db batch and check for missing blobs.
     /// Advance `blob_info_iter`` to the next blob that is greater than the last fetched blob id,
     /// which is the next expected blob to fetch, and return the next expected blob.
+    #[allow(clippy::too_many_arguments)]
     fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
         epoch: Epoch,
+        node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
         mut next_blob_info: Option<(BlobId, BlobInfo)>,
@@ -674,6 +677,12 @@ impl ShardStorage {
             //TODO(#705): verify sliver validity.
             //  - blob is certified
             //  - metadata is correct
+
+            #[cfg(any(test, feature = "test-utils"))]
+            {
+                assert!(node.storage.has_metadata(blob_id)?);
+            }
+
             match sliver {
                 Sliver::Primary(primary) => {
                     assert_eq!(sliver_type, SliverType::Primary);

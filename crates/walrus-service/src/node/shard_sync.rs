@@ -6,6 +6,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(msim)]
+use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 use walrus_core::ShardIndex;
 use walrus_sdk::error::ServiceError;
@@ -87,7 +89,7 @@ impl ShardSyncHandler {
                     %shard,
                     "failed to start shard sync; aborting shard sync"
                 );
-                return;
+                continue;
             }
         }
 
@@ -116,6 +118,19 @@ impl ShardSyncHandler {
             .storage
             .certified_blob_info_iter_before_epoch(self.node.current_epoch());
 
+        #[cfg(msim)]
+        {
+            let mut sync_blob_metadata_error = false;
+            fail_point_if!("fail_point_shard_sync_recovery_metadata_error", || {
+                sync_blob_metadata_error = true
+            });
+            if sync_blob_metadata_error {
+                return Err(SyncShardClientError::Internal(anyhow::anyhow!(
+                    "fail point triggered sync blob metadata error"
+                )));
+            }
+        }
+
         // TODO: create a end point that can transfer multiple blob metadata at once.
         // TODO: do this in parallel to speed up the sync.
         for blob_info in blob_infos {
@@ -130,10 +145,12 @@ impl ShardSyncHandler {
                 )
                 .await?;
         }
+        tracing::info!("finished syncing blob metadata");
         Ok(())
     }
 
     /// Starts syncing a new shard. This method is used when a new shard is assigned to the node.
+    // TODO: make this function private.
     pub async fn start_new_shard_sync(
         &self,
         shard_index: ShardIndex,
@@ -194,13 +211,13 @@ impl ShardSyncHandler {
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
         let current_node_status = self.node.storage.node_status()?;
         if current_node_status == NodeStatus::RecoverMetadata {
-            assert!(self.node.storage.existing_shard_storages().is_empty());
-            let committees = self.node.committee_service.active_committees();
-
-            let shards_to_sync = committees
-                .current_committee()
-                .shards_for_node_public_key(self.node.public_key())
-                .to_vec();
+            let shards_to_sync = self
+                .node
+                .storage
+                .existing_shard_storages()
+                .iter()
+                .map(|s| s.id())
+                .collect::<Vec<_>>();
 
             let sync_handler_clone = self.clone();
             self.task_handle
@@ -358,6 +375,12 @@ impl ShardSyncHandler {
     #[cfg(test)]
     pub async fn current_sync_task_count(&self) -> usize {
         self.shard_sync_in_progress.lock().await.len()
+    }
+
+    #[cfg(all(msim, test, feature = "test-utils"))]
+    pub async fn no_pending_recover_metadata(&self) -> bool {
+        let task_handle = self.task_handle.lock().await;
+        task_handle.is_none() || task_handle.as_ref().unwrap().is_finished()
     }
 }
 

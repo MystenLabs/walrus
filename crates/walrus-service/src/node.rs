@@ -1107,8 +1107,12 @@ impl StorageNode {
             if new_node_joining_committee {
                 // Set node status to RecoverMetadata to sync metadata for the new shards.
                 // Note that this must be set before marking the event as complete, so that
-                // node crashing before setting the status will always be retried when replying
-                // the event.
+                // node crashing before setting the status will always be setting the status
+                // again when re-processing the EpochChangeStart event.
+                //
+                // It's also important to set RecoverMetadata status after creating storage for
+                // the new shards. Restarting seeing RecoverMetadata status will assume all the
+                // shards are created.
                 self.inner
                     .storage
                     .set_node_status(NodeStatus::RecoverMetadata)?;
@@ -3864,7 +3868,9 @@ mod tests {
             // Timeout needs to be longer than shard sync retry interval.
             tokio::time::timeout(Duration::from_secs(120), async {
                 loop {
-                    if shard_sync_handler.current_sync_task_count().await == 0 {
+                    if shard_sync_handler.current_sync_task_count().await == 0
+                        && shard_sync_handler.no_pending_recover_metadata().await
+                    {
                         break;
                     }
                     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -4175,6 +4181,50 @@ mod tests {
                 shard_storage_dst.as_ref(),
                 &[],
             )?;
+
+            Ok(())
+        }
+
+        #[walrus_simtest]
+        async fn sync_shard_recovery_metadata_restart() -> TestResult {
+            telemetry_subscribers::init_for_testing();
+
+            let (cluster, blob_details, storage_dst, shard_storage_dst) =
+                setup_cluster_for_shard_sync_tests().await?;
+
+            register_fail_point_if("fail_point_shard_sync_recovery_metadata_error", || true);
+
+            storage_dst.remove_storage_for_shards(&[ShardIndex(1)])?;
+            storage_dst.clear_metadata_in_test()?;
+            storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
+
+            // Starts the shard syncing process in the new shard, which will fail at the specified
+            // break index.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)], true)
+                .await?;
+
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+
+            assert!(shard_storage_dst.status().unwrap() == ShardStatus::None);
+
+            clear_fail_point("fail_point_shard_sync_recovery_metadata_error");
+
+            // restart the shard syncing process, to simulate a reboot.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .restart_syncs()
+                .await?;
+
+            // Waits for the shard to be synced.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+
+            // Checks that the shard is completely migrated.
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
             Ok(())
         }

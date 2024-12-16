@@ -664,7 +664,29 @@ mod tests {
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
         let node_health_info = get_nodes_health_info(&node_refs).await;
 
-        assert!(node_health_info[0].shard_detail.is_some());
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .unwrap();
+
+        assert!(node_health_info[5].shard_detail.is_some());
+
+        // Check that shards in the new node matches the shards in the committees.
+        let shards_in_new_node = committees
+            .current_committee()
+            .shards_for_node_public_key(&walrus_cluster.nodes[5].public_key);
+        let new_node_shards = node_health_info[5]
+            .shard_detail
+            .as_ref()
+            .unwrap()
+            .owned
+            .clone();
+        assert_eq!(shards_in_new_node.len(), new_node_shards.len());
+        for shard in new_node_shards {
+            assert!(shards_in_new_node.contains(&shard.shard));
+        }
+
         for shard in &node_health_info[5].shard_detail.as_ref().unwrap().owned {
             assert_eq!(shard.status, ShardStatus::Ready);
 

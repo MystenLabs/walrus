@@ -567,6 +567,17 @@ impl Client<SuiContractClient> {
             .exchange_sui_for_wal(exchange_id, amount)
             .await?)
     }
+
+    /// Returns the latest committees from the chain.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn get_latest_committees_in_test(&self) -> Result<ActiveCommittees, ClientError> {
+        Ok(ActiveCommittees::from_committees_and_state(
+            self.sui_client
+                .get_committees_and_state()
+                .await
+                .map_err(ClientError::other)?,
+        ))
+    }
 }
 
 impl<T> Client<T> {
