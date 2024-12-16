@@ -117,6 +117,15 @@ public struct DenyListUpdateMessage has drop {
     deny_list_root: u256,
 }
 
+/// Message type for deleting a blob that has been denylisted.
+///
+/// Constructed from a `CertifiedMessage`, states that `blob_id` has been deleted in `epoch` by an
+/// f+1 quorum.
+public struct DenyListBlobDeleted has drop {
+    epoch: u32,
+    blob_id: u256,
+}
+
 /// Creates a `CertifiedMessage` with support `stake_support` by parsing `message_bytes` and
 /// verifying the intent and the message epoch.
 public(package) fun new_certified_message(
@@ -208,6 +217,19 @@ public(package) fun deny_list_update_message(message: CertifiedMessage): DenyLis
     }
 }
 
+/// Construct the deny list blob deleted message, note that constructing
+/// implies a certified message, that is already checked.
+public(package) fun deny_list_blob_deleted_message(message: CertifiedMessage): DenyListBlobDeleted {
+    // The DenyListBlobDeleted message contains the blob_id.
+    let epoch = message.cert_epoch();
+    let message_body = message.into_message();
+
+    let mut bcs_body = bcs::new(message_body);
+    let blob_id = bcs_body.peel_u256();
+
+    DenyListBlobDeleted { epoch, blob_id }
+}
+
 // === Accessors for CertifiedMessage ===
 
 public(package) fun intent_type(self: &CertifiedMessage): u8 {
@@ -271,6 +293,16 @@ public(package) fun size(self: &DenyListUpdateMessage): u64 {
 
 public(package) fun root(self: &DenyListUpdateMessage): u256 {
     self.deny_list_root
+}
+
+// === Accessors for DenyListBlobDeleted ===
+
+public(package) fun blob_id(self: &DenyListBlobDeleted): u256 {
+    self.blob_id
+}
+
+public(package) fun deny_list_deleted_epoch(self: &DenyListBlobDeleted): u32 {
+    self.epoch
 }
 
 // === Test only functions ===

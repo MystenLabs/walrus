@@ -100,6 +100,12 @@ public struct DenyListUpdate has copy, drop {
     node_id: ID,
 }
 
+/// Signals that a blob was denylisted by f+1 nodes.
+public struct DenyListBlobDeleted has copy, drop {
+    epoch: u32,
+    blob_id: u256,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -171,10 +177,25 @@ public(package) fun emit_contract_upgraded(epoch: u32, package_id: ID, version: 
     event::emit(ContractUpgraded { epoch, package_id, version })
 }
 
-public(package) fun emit_deny_list_update_start(
+public(package) fun emit_register_deny_list_update(
+    root: u256,
+    sequence_number: u64,
+    node_id: ID,
+) {
+    event::emit(RegisterDenyListUpdate { root, sequence_number, node_id })
+}
+
+public(package) fun emit_deny_list_update(
     root: u256,
     sequence_number: u64,
     node_id: ID,
 ) {
     event::emit(DenyListUpdate { root, sequence_number, node_id })
+}
+
+public(package) fun emit_deny_listed_blob_deleted(
+    epoch: u32,
+    blob_id: u256,
+) {
+    event::emit(DenyListBlobDeleted { epoch, blob_id })
 }

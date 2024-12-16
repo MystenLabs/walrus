@@ -24,7 +24,6 @@ use walrus::{
     events,
     extended_field::{Self, ExtendedField},
     node_metadata::NodeMetadata,
-    sort,
     staked_wal::StakedWal,
     staking_pool::{Self, StakingPool},
     storage_node::StorageNodeCap,

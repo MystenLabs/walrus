@@ -184,6 +184,15 @@ public fun update_deny_list(
     self.inner_mut().update_deny_list(cap, signature, members_bitmap, message)
 }
 
+public fun delete_deny_listed_blob(
+    self: &System,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner().delete_deny_listed_blob(signature, members_bitmap, message)
+}
+
 // === Public Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.

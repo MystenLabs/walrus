@@ -12,7 +12,7 @@ use walrus::{
     encoding::encoded_blob_length,
     epoch_parameters::EpochParams,
     event_blob::{Self, EventBlobCertificationState, new_attestation},
-    events::{emit_invalid_blob_id, emit_deny_list_update_start},
+    events,
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
@@ -189,10 +189,7 @@ public(package) fun invalidate_blob_id(
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
 
     // Emit the event about a blob id being invalid here.
-    emit_invalid_blob_id(
-        epoch,
-        blob_id,
-    );
+    events::emit_invalid_blob_id(epoch, blob_id);
     blob_id
 }
 
@@ -380,9 +377,8 @@ public(package) fun certify_event_blob(
 
     let blob_certified = self
         .event_blob_certification_state
-        .is_blob_already_certified(
-            ending_checkpoint_sequence_num,
-        );
+        .is_blob_already_certified(ending_checkpoint_sequence_num);
+
     if (blob_certified) {
         return
     };
@@ -523,7 +519,7 @@ public(package) fun register_deny_list_update(
     assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
     assert!(deny_list_sequence > cap.deny_list_sequence());
 
-    emit_deny_list_update_start(
+    events::emit_register_deny_list_update(
         deny_list_root,
         deny_list_sequence,
         cap.node_id(),
@@ -558,6 +554,26 @@ public(package) fun update_deny_list(
     // in the advance epoch);
 
     let _ = message.size();
+}
+
+/// Certify that a blob is on the deny list for at least one honest node. Emit
+/// an event to mark it for deletion.
+public(package) fun delete_deny_listed_blob(
+    self: &SystemStateInnerV1,
+    signature: vector<u8>,
+    members_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    let certified_message = self
+        .committee
+        .verify_one_correct_node_in_epoch(signature, members_bitmap, message);
+
+    let message = certified_message.deny_list_blob_deleted_message();
+
+    events::emit_deny_listed_blob_deleted(
+        message.deny_list_deleted_epoch(),
+        message.blob_id(),
+    );
 }
 
 // === Testing ===
