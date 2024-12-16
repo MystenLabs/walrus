@@ -20,7 +20,7 @@ use sui_sdk::{
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{
-        retry_client::RetryableSuiClient,
+        retry_client::RetriableSuiClient,
         BlobPersistence,
         PostStoreAction,
         SuiContractClient,
@@ -312,7 +312,7 @@ impl<'a> SubClientLoader<'a> {
         let address = wallet.active_address()?;
         tracing::debug!(%address, "refilling sub-wallet with SUI and WAL");
         let sui_client =
-            RetryableSuiClient::new_from_wallet(wallet, self.config.backoff_config().clone())
+            RetriableSuiClient::new_from_wallet(wallet, self.config.backoff_config().clone())
                 .await?;
 
         if should_refill(&sui_client, address, None, min_balance).await {

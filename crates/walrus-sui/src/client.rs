@@ -7,7 +7,7 @@ use core::fmt;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use retry_client::RetryableSuiClient;
+use retry_client::RetriableSuiClient;
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -246,7 +246,7 @@ impl SuiContractClient {
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
         let read_client = SuiReadClient::new(
-            RetryableSuiClient::new_from_wallet(&wallet, backoff_config).await?,
+            RetriableSuiClient::new_from_wallet(&wallet, backoff_config).await?,
             system_object,
             staking_object,
             package_id,
@@ -275,8 +275,8 @@ impl SuiContractClient {
         &self.read_client
     }
 
-    /// Gets the [`RetryableSuiClient`] from the associated read client.
-    pub fn sui_client(&self) -> &RetryableSuiClient {
+    /// Gets the [`RetriableSuiClient`] from the associated read client.
+    pub fn sui_client(&self) -> &RetriableSuiClient {
         &self.read_client.sui_client
     }
 

@@ -41,7 +41,7 @@ use tracing::Instrument as _;
 use walrus_core::{ensure, Epoch};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{retry_client::RetryableSuiClient, SuiClientError, SuiClientResult};
+use super::{retry_client::RetriableSuiClient, SuiClientError, SuiClientResult};
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::{
@@ -207,7 +207,7 @@ impl From<Mutability> for bool {
 #[derive(Clone)]
 pub struct SuiReadClient {
     pub(crate) walrus_package_id: ObjectID,
-    pub(crate) sui_client: RetryableSuiClient,
+    pub(crate) sui_client: RetriableSuiClient,
     pub(crate) system_object_id: ObjectID,
     pub(crate) staking_object_id: ObjectID,
     pub(crate) type_origin_map: TypeOriginMap,
@@ -221,7 +221,7 @@ const EVENT_CHANNEL_CAPACITY: usize = 1024;
 impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
     pub async fn new(
-        sui_client: RetryableSuiClient,
+        sui_client: RetriableSuiClient,
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
         package_id: Option<ObjectID>,
@@ -247,7 +247,7 @@ impl SuiReadClient {
         })
     }
 
-    /// Constructs a new `SuiReadClient` around a [`RetryableSuiClient`] constructed for the
+    /// Constructs a new `SuiReadClient` around a [`RetriableSuiClient`] constructed for the
     /// provided fullnode's RPC address.
     pub async fn new_for_rpc<S: AsRef<str>>(
         rpc_address: S,
@@ -256,7 +256,7 @@ impl SuiReadClient {
         package_id: Option<ObjectID>,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client = RetryableSuiClient::new_for_rpc(rpc_address, backoff_config).await?;
+        let client = RetriableSuiClient::new_for_rpc(rpc_address, backoff_config).await?;
         Self::new(client, system_object, staking_object, package_id).await
     }
 

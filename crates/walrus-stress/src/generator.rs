@@ -25,7 +25,7 @@ use walrus_service::client::{
     Refiller,
 };
 use walrus_sui::{
-    client::{retry_client::RetryableSuiClient, SuiReadClient},
+    client::{retry_client::RetriableSuiClient, SuiReadClient},
     utils::SuiNetwork,
 };
 
@@ -69,7 +69,7 @@ impl LoadGenerator {
 
         // Set up read clients
         let (read_client_pool_tx, read_client_pool) = mpsc::channel(n_clients);
-        let sui_client = RetryableSuiClient::new_for_rpc(
+        let sui_client = RetriableSuiClient::new_for_rpc(
             network.env().rpc.clone(),
             ExponentialBackoffConfig::default(),
         )

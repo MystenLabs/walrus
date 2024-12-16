@@ -15,7 +15,7 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
 use walrus_sui::client::{
-    retry_client::RetryableSuiClient,
+    retry_client::RetriableSuiClient,
     SuiClientError,
     SuiContractClient,
     SuiReadClient,
@@ -49,7 +49,7 @@ impl Config {
     /// Creates a [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(
         &self,
-        sui_client: RetryableSuiClient,
+        sui_client: RetriableSuiClient,
     ) -> Result<SuiReadClient, SuiClientError> {
         SuiReadClient::new(
             sui_client,

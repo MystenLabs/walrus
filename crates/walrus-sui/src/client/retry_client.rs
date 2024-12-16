@@ -122,25 +122,25 @@ where
 
 /// A [`SuiClient`] that retries RPC calls with backoff in case of network errors.
 ///
-/// This retryable client wraps functions from the [`CoinReadApi`][sui_sdk::apis::CoinReadApi] and
+/// This retriable client wraps functions from the [`CoinReadApi`][sui_sdk::apis::CoinReadApi] and
 /// the [`ReadApi`][sui_sdk::apis::ReadApi] of the [`SuiClient`], and
 /// additionally provides some convenience methods.
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
-pub struct RetryableSuiClient {
+pub struct RetriableSuiClient {
     sui_client: SuiClient,
     backoff_config: ExponentialBackoffConfig,
 }
 
-impl RetryableSuiClient {
-    /// Creates a new retryable client.
+impl RetriableSuiClient {
+    /// Creates a new retriable client.
     ///
     /// NB: If you are creating the sui client from a wallet context, you should use
-    /// [`RetryableSuiClient::new_from_wallet`] instead. This is because the wallet context will
+    /// [`RetriableSuiClient::new_from_wallet`] instead. This is because the wallet context will
     /// make a call to the RPC server in [`WalletContext::get_client`], which may fail without any
     /// retries. `new_from_wallet` will handle this case correctly.
     pub fn new(sui_client: SuiClient, backoff_config: ExponentialBackoffConfig) -> Self {
-        RetryableSuiClient {
+        RetriableSuiClient {
             sui_client,
             backoff_config,
         }
@@ -151,7 +151,7 @@ impl RetryableSuiClient {
         &self.backoff_config
     }
 
-    /// Creates a new retryable client from an RCP address.
+    /// Creates a new retriable client from an RCP address.
     pub async fn new_for_rpc<S: AsRef<str>>(
         rpc_address: S,
         backoff_config: ExponentialBackoffConfig,
@@ -160,7 +160,7 @@ impl RetryableSuiClient {
         Ok(Self::new(client, backoff_config))
     }
 
-    /// Creates a new retryable client from a wallet context.
+    /// Creates a new retriable client from a wallet context.
     pub async fn new_from_wallet(
         wallet: &WalletContext,
         backoff_config: ExponentialBackoffConfig,

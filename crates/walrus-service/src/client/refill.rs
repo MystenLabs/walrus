@@ -9,7 +9,7 @@ use anyhow::Result;
 use futures::future::try_join_all;
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
-use walrus_sui::client::{retry_client::RetryableSuiClient, SuiContractClient};
+use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient};
 
 use super::metrics::ClientMetrics;
 
@@ -48,7 +48,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         metrics: Arc<ClientMetrics>,
-        sui_client: RetryableSuiClient,
+        sui_client: RetriableSuiClient,
     ) -> RefillHandles {
         let _gas_refill_handle = self.refill_gas(
             addresses.clone(),
@@ -70,7 +70,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         metrics: Arc<ClientMetrics>,
-        sui_client: RetryableSuiClient,
+        sui_client: RetriableSuiClient,
     ) -> JoinHandle<anyhow::Result<()>> {
         let amount = self.gas_refill_size;
         self.periodic_refill(
@@ -96,7 +96,7 @@ impl Refiller {
         addresses: Vec<SuiAddress>,
         period: Duration,
         metrics: Arc<ClientMetrics>,
-        sui_client: RetryableSuiClient,
+        sui_client: RetriableSuiClient,
     ) -> JoinHandle<anyhow::Result<()>> {
         let amount = self.wal_refill_size;
         self.periodic_refill(
@@ -121,7 +121,7 @@ impl Refiller {
         &self,
         addresses: Vec<SuiAddress>,
         period: Duration,
-        sui_client: RetryableSuiClient,
+        sui_client: RetriableSuiClient,
         coin_type: Option<String>,
         min_coin_value: u64,
         inner_action: F,
@@ -205,7 +205,7 @@ pub struct RefillHandles {
 /// RPC returns an error, we assume that the wallet has enough coins and we do not try to refill
 /// it, threfore returning `false`.
 pub async fn should_refill(
-    sui_client: &RetryableSuiClient,
+    sui_client: &RetriableSuiClient,
     address: SuiAddress,
     coin_type: Option<String>,
     min_balance: u64,

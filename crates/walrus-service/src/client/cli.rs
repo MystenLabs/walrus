@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::event::EventID;
 use walrus_core::BlobId;
-use walrus_sui::client::{retry_client::RetryableSuiClient, SuiContractClient, SuiReadClient};
+use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient};
 
 use super::{default_configuration_paths, Blocklist, Client, Config};
 
@@ -122,21 +122,21 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     let sui_client = match rpc_url {
         Some(url) => {
             tracing::info!("using explicitly set RPC URL {url}");
-            RetryableSuiClient::new_for_rpc(&url, backoff_config)
+            RetriableSuiClient::new_for_rpc(&url, backoff_config)
                 .await
                 .context(format!("cannot connect to Sui RPC node at {url}"))
         }
         None => match wallet {
             Ok(wallet) => {
                 tracing::info!("using RPC URL set in wallet configuration");
-                RetryableSuiClient::new_from_wallet(&wallet, backoff_config)
+                RetriableSuiClient::new_from_wallet(&wallet, backoff_config)
                     .await
                     .context("cannot connect to Sui RPC node specified in the wallet configuration")
             }
             Err(e) => {
                 if allow_fallback_to_default {
                     tracing::info!("using default RPC URL '{DEFAULT_RPC_URL}'");
-                    RetryableSuiClient::new_for_rpc(DEFAULT_RPC_URL, backoff_config)
+                    RetriableSuiClient::new_for_rpc(DEFAULT_RPC_URL, backoff_config)
                         .await
                         .context(format!(
                             "cannot connect to Sui RPC node at {DEFAULT_RPC_URL}"

@@ -1733,7 +1733,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{retry_client::RetryableSuiClient, SuiContractClient, SuiReadClient},
+        client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -1878,7 +1878,7 @@ pub mod test_cluster {
 
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
-            RetryableSuiClient::new_from_wallet(
+            RetriableSuiClient::new_from_wallet(
                 wallet.as_ref(),
                 ExponentialBackoffConfig::default(),
             )
