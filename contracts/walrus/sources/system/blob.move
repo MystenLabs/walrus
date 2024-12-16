@@ -186,14 +186,11 @@ public(package) fun certify_with_certified_msg(
     // Check that the blob is not already certified
     assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
 
-    // Check that the message is from the current epoch
-    assert!(message.certified_epoch() == current_epoch, EWrongEpoch);
-
     // Check that the storage in the blob is still valid
-    assert!(message.certified_epoch() < blob.storage.end_epoch(), EResourceBounds);
+    assert!(current_epoch < blob.storage.end_epoch(), EResourceBounds);
 
     // Mark the blob as certified
-    blob.certified_epoch.fill(message.certified_epoch());
+    blob.certified_epoch.fill(current_epoch);
 
     blob.emit_certified(false);
 }

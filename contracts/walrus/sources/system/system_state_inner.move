@@ -182,10 +182,10 @@ public(package) fun invalidate_blob_id(
             message,
         );
 
+    let epoch = certified_message.cert_epoch();
     let invalid_blob_message = certified_message.invalid_blob_id_message();
     let blob_id = invalid_blob_message.invalid_blob_id();
     // Assert the epoch is correct.
-    let epoch = invalid_blob_message.certified_invalid_epoch();
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
 
     // Emit the event about a blob id being invalid here.
@@ -242,6 +242,8 @@ public(package) fun certify_blob(
             signers_bitmap,
             message,
         );
+    assert!(certified_msg.cert_epoch() == self.epoch());
+
     let certified_blob_msg = certified_msg.certify_blob_message();
     blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
 }
@@ -413,10 +415,7 @@ public(package) fun certify_event_blob(
         self.n_shards(),
         ctx,
     );
-    let certified_blob_msg = messages::certified_event_blob_message(
-        self.epoch(),
-        blob_id,
-    );
+    let certified_blob_msg = messages::certified_event_blob_message(blob_id);
     blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
     self
         .event_blob_certification_state
@@ -568,12 +567,10 @@ public(package) fun delete_deny_listed_blob(
         .committee
         .verify_one_correct_node_in_epoch(signature, members_bitmap, message);
 
+    let epoch = certified_message.cert_epoch();
     let message = certified_message.deny_list_blob_deleted_message();
 
-    events::emit_deny_listed_blob_deleted(
-        message.deny_list_deleted_epoch(),
-        message.blob_id(),
-    );
+    events::emit_deny_listed_blob_deleted(epoch, message.blob_id());
 }
 
 // === Testing ===

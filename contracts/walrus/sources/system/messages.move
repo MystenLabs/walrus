@@ -93,7 +93,6 @@ public struct CertifiedMessage has drop {
 /// Constructed from a `CertifiedMessage`, states that `blob_id` has been certified in `epoch`
 /// by a quorum.
 public struct CertifiedBlobMessage has drop {
-    epoch: u32,
     blob_id: u256,
 }
 
@@ -102,7 +101,6 @@ public struct CertifiedBlobMessage has drop {
 /// Constructed from a `CertifiedMessage`, states that `blob_id` has been marked as invalid
 /// in `epoch` by a quorum.
 public struct CertifiedInvalidBlobId has drop {
-    epoch: u32,
     blob_id: u256,
 }
 
@@ -122,7 +120,6 @@ public struct DenyListUpdateMessage has drop {
 /// Constructed from a `CertifiedMessage`, states that `blob_id` has been deleted in `epoch` by an
 /// f+1 quorum.
 public struct DenyListBlobDeleted has drop {
-    epoch: u32,
     blob_id: u256,
 }
 
@@ -158,7 +155,6 @@ public(package) fun certify_blob_message(message: CertifiedMessage): CertifiedBl
     assert!(message.intent_type() == BLOB_CERT_MSG_TYPE, EInvalidMsgType);
 
     // The certified blob message contain a blob_id : u256
-    let epoch = message.cert_epoch();
     let message_body = message.into_message();
 
     let mut bcs_body = bcs::new(message_body);
@@ -167,13 +163,13 @@ public(package) fun certify_blob_message(message: CertifiedMessage): CertifiedBl
     // On purpose we do not check that nothing is left in the message
     // to allow in the future for extensibility.
 
-    CertifiedBlobMessage { epoch, blob_id }
+    CertifiedBlobMessage { blob_id }
 }
 
 /// Constructs the certified blob message, note this is only
 /// used for event blobs
-public(package) fun certified_event_blob_message(epoch: u32, blob_id: u256): CertifiedBlobMessage {
-    CertifiedBlobMessage { epoch, blob_id }
+public(package) fun certified_event_blob_message(blob_id: u256): CertifiedBlobMessage {
+    CertifiedBlobMessage { blob_id }
 }
 
 /// Construct the certified invalid Blob ID message, note that constructing
@@ -184,7 +180,6 @@ public(package) fun invalid_blob_id_message(message: CertifiedMessage): Certifie
 
     // The InvalidBlobID message has no payload besides the blob_id.
     // The certified blob message contain a blob_id : u256
-    let epoch = message.cert_epoch();
     let message_body = message.into_message();
 
     let mut bcs_body = bcs::new(message_body);
@@ -193,7 +188,7 @@ public(package) fun invalid_blob_id_message(message: CertifiedMessage): Certifie
     // This output is provided as a service in case anything else needs to rely on
     // certified invalid blob ID information in the future. But out base design only
     // uses the event emitted here.
-    CertifiedInvalidBlobId { epoch, blob_id }
+    CertifiedInvalidBlobId { blob_id }
 }
 
 /// Construct the certified deny list update message, note that constructing
@@ -221,13 +216,12 @@ public(package) fun deny_list_update_message(message: CertifiedMessage): DenyLis
 /// implies a certified message, that is already checked.
 public(package) fun deny_list_blob_deleted_message(message: CertifiedMessage): DenyListBlobDeleted {
     // The DenyListBlobDeleted message contains the blob_id.
-    let epoch = message.cert_epoch();
     let message_body = message.into_message();
 
     let mut bcs_body = bcs::new(message_body);
     let blob_id = bcs_body.peel_u256();
 
-    DenyListBlobDeleted { epoch, blob_id }
+    DenyListBlobDeleted { blob_id }
 }
 
 // === Accessors for CertifiedMessage ===
@@ -259,19 +253,11 @@ public(package) fun into_message(self: CertifiedMessage): vector<u8> {
 
 // === Accessors for CertifiedBlobMessage ===
 
-public(package) fun certified_epoch(self: &CertifiedBlobMessage): u32 {
-    self.epoch
-}
-
 public(package) fun certified_blob_id(self: &CertifiedBlobMessage): u256 {
     self.blob_id
 }
 
 // === Accessors for CertifiedInvalidBlobId ===
-
-public(package) fun certified_invalid_epoch(self: &CertifiedInvalidBlobId): u32 {
-    self.epoch
-}
 
 public(package) fun invalid_blob_id(self: &CertifiedInvalidBlobId): u256 {
     self.blob_id
@@ -301,10 +287,6 @@ public(package) fun blob_id(self: &DenyListBlobDeleted): u256 {
     self.blob_id
 }
 
-public(package) fun deny_list_deleted_epoch(self: &DenyListBlobDeleted): u32 {
-    self.epoch
-}
-
 // === Test only functions ===
 
 #[test_only]
@@ -319,8 +301,8 @@ public fun certified_message_for_testing(
 }
 
 #[test_only]
-public fun certified_blob_message_for_testing(epoch: u32, blob_id: u256): CertifiedBlobMessage {
-    CertifiedBlobMessage { epoch, blob_id }
+public fun certified_blob_message_for_testing(_epoch: u32, blob_id: u256): CertifiedBlobMessage {
+    CertifiedBlobMessage { blob_id }
 }
 
 #[test_only]
@@ -352,5 +334,4 @@ fun test_message_creation() {
     let msg = certified_message_bytes(epoch, blob_id);
     let cert_msg = new_certified_message(msg, epoch, 1).certify_blob_message();
     assert!(cert_msg.blob_id == blob_id);
-    assert!(cert_msg.epoch == epoch);
 }
