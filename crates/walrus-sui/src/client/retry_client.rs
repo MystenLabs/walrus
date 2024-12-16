@@ -33,6 +33,7 @@ use sui_types::{
     dynamic_field::derive_dynamic_field_id,
     TypeTag,
 };
+use tracing::Level;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
@@ -161,6 +162,7 @@ impl RetriableSuiClient {
     }
 
     /// Creates a new retriable client from a wallet context.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn new_from_wallet(
         wallet: &WalletContext,
         backoff_config: ExponentialBackoffConfig,
@@ -175,6 +177,7 @@ impl RetriableSuiClient {
     /// Return a list of coins for the given address, or an error upon failure.
     ///
     /// Calls [`sui_sdk::apis::CoinReadApi::select_coins`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn select_coins(
         &self,
         address: SuiAddress,
@@ -194,6 +197,7 @@ impl RetriableSuiClient {
     /// Returns the balance for the given coin type owned by address.
     ///
     /// Calls [`sui_sdk::apis::CoinReadApi::get_balance`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_balance(
         &self,
         owner: SuiAddress,
@@ -211,6 +215,7 @@ impl RetriableSuiClient {
     /// Return a paginated response with the objects owned by the given address.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_owned_objects`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_owned_objects(
         &self,
         address: SuiAddress,
@@ -230,6 +235,7 @@ impl RetriableSuiClient {
     /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_object_with_options(
         &self,
         object_id: ObjectID,
@@ -247,6 +253,7 @@ impl RetriableSuiClient {
     /// Return a list of [SuiObjectResponse] from the given vector of [ObjectID]s.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn multi_get_object_with_options(
         &self,
         object_ids: Vec<ObjectID>,
@@ -271,6 +278,7 @@ impl RetriableSuiClient {
 
     // Other wrapper methods.
 
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub(crate) async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,

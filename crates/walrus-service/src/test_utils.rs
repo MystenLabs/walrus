@@ -806,6 +806,7 @@ impl StorageNodeHandleBuilder {
                 walrus_package: Some(system_context.package_id),
                 wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 event_polling_interval: config::defaults::polling_interval(),
+                backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: config::defaults::gas_budget(),
             }),
             ..storage_node_config().inner
