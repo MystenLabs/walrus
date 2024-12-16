@@ -458,15 +458,10 @@ public(package) fun add_rewards(
     });
 
     // Add leftover rewards to the first epoch's accounting.
-    if (leftover_rewards > 0) {
-        let accounts = self.future_accounting.ring_lookup_mut(0);
-        let rewards_balance = accounts.rewards_balance();
-        rewards_balance.join(subsidy_balance.split(leftover_rewards));
-    };
-
-    // TODO: is there a better way to destroy the subsidy balance without using assert?
-    assert!(subsidy_balance.value() == 0, ESubsidyBalanceNotZero);
-    subsidy_balance.destroy_zero();
+    self
+        .future_accounting.ring_lookup_mut(0)
+        .rewards_balance();
+        .join(subsidy_balance);
 }
 
 // === Accessors ===
