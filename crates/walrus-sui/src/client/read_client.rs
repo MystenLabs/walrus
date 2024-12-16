@@ -506,7 +506,13 @@ impl SuiReadClient {
 
     /// Returns the type of the WAL coin.
     pub fn wal_coin_type(&self) -> String {
-        format!("{}::wal::WAL", self.walrus_package_id)
+        // TODO: WAL-425
+        let type_name = ("wal".to_string(), "WAL".to_string());
+        let package_id = self
+            .type_origin_map
+            .get(&type_name)
+            .expect("WAL type origin not found");
+        format!("{}::{}::{}", package_id, type_name.0, type_name.1)
     }
 
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
