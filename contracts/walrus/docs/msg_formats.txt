@@ -29,7 +29,9 @@ Intent types (add here):
 
 const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
-const INVALID_BLOB_ID_MSG_TYPE : u8 = 2;
+const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
+const DENY_LIST_UPDATE_MSG_TYPE: u8 = 3;
+const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 4;
 
 PROOF_OF_POSSESSION message
 -----------------
@@ -50,3 +52,4 @@ INVALID_BLOB_ID
 
 The body is the blob_id : u256 (32 bytes) of a blob. The storage node certified that
 it has verified an inconsistency proof and the blob id is invalid.
+

@@ -14,6 +14,8 @@ const BLS_KEY_LEN: u64 = 48;
 const PROOF_OF_POSSESSION_MSG_TYPE: u8 = 0;
 const BLOB_CERT_MSG_TYPE: u8 = 1;
 const INVALID_BLOB_ID_MSG_TYPE: u8 = 2;
+const DENY_LIST_UPDATE_MSG_TYPE: u8 = 3;
+const DENY_LIST_BLOB_DELETED_MSG_TYPE: u8 = 4;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -194,6 +196,8 @@ public(package) fun invalid_blob_id_message(message: CertifiedMessage): Certifie
 /// Construct the certified deny list update message, note that constructing
 /// implies a certified message, that is already checked.
 public(package) fun deny_list_update_message(message: CertifiedMessage): DenyListUpdateMessage {
+    assert!(message.intent_type() == DENY_LIST_UPDATE_MSG_TYPE, EInvalidMsgType);
+
     // The DenyListUpdateMessage contains the storage_node_id, deny_list_sequence_number,
     // deny_list_size, and deny_list_root.
     let message_body = message.into_message();
@@ -215,6 +219,8 @@ public(package) fun deny_list_update_message(message: CertifiedMessage): DenyLis
 /// Construct the deny list blob deleted message, note that constructing
 /// implies a certified message, that is already checked.
 public(package) fun deny_list_blob_deleted_message(message: CertifiedMessage): DenyListBlobDeleted {
+    assert!(message.intent_type() == DENY_LIST_BLOB_DELETED_MSG_TYPE, EInvalidMsgType);
+
     // The DenyListBlobDeleted message contains the blob_id.
     let message_body = message.into_message();
 
