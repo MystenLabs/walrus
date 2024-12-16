@@ -39,7 +39,8 @@ impl ShardSyncHandler {
         }
     }
 
-    /// Starts syncing shards.
+    /// Starts sync shards. If `recover_metadata` is true, sync certified blob metadata before
+    /// syncing shards.
     pub async fn start_sync_shards(
         &self,
         shards: Vec<ShardIndex>,
@@ -62,7 +63,6 @@ impl ShardSyncHandler {
 
     async fn sync_shards_task(&self, shards: Vec<ShardIndex>, recover_metadata: bool) {
         if recover_metadata {
-            // TODO: maybe debug assert?
             assert!(
                 self.node
                     .storage
@@ -194,10 +194,10 @@ impl ShardSyncHandler {
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
         let current_node_status = self.node.storage.node_status()?;
         if current_node_status == NodeStatus::RecoverMetadata {
-            debug_assert!(self.node.storage.existing_shard_storages().is_empty());
+            assert!(self.node.storage.existing_shard_storages().is_empty());
             let committees = self.node.committee_service.active_committees();
 
-            let shards = committees
+            let shards_to_sync = committees
                 .current_committee()
                 .shards_for_node_public_key(self.node.public_key())
                 .to_vec();
@@ -207,7 +207,9 @@ impl ShardSyncHandler {
                 .lock()
                 .await
                 .replace(tokio::spawn(async move {
-                    sync_handler_clone.sync_shards_task(shards, true).await
+                    sync_handler_clone
+                        .sync_shards_task(shards_to_sync, true)
+                        .await
                 }));
         } else {
             for shard_storage in self.node.storage.existing_shard_storages() {

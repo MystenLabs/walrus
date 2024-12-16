@@ -119,16 +119,28 @@ impl NodeRecoveryHandler {
                 join_all(notify_futures).await;
             }
 
-            tracing::info!("node recovery task finished; set node status to active");
+            let current_node_status = node
+                .storage
+                .node_status()
+                .expect("reading node status should not fail");
+            if current_node_status == NodeStatus::RecoveryInProgress(epoch) {
+                tracing::info!("node recovery task finished; set node status to active");
 
-            // TODO: we can only set the node to active if the node currently is in
-            // RecoveryInProgress status. If the node is in RecoveryCatchUp status, we cannot
-            // override it to active.
-            match node.set_node_status(NodeStatus::Active) {
-                Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
-                Err(error) => {
-                    tracing::error!(?error, "failed to set node status to active");
+                // TODO: we can only set the node to active if the node currently is in
+                // RecoveryInProgress status. If the node is in RecoveryCatchUp status, we cannot
+                // override it to active.
+                match node.set_node_status(NodeStatus::Active) {
+                    Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
+                    Err(error) => {
+                        tracing::error!(?error, "failed to set node status to active");
+                    }
                 }
+            } else {
+                tracing::warn!(
+                    node_status = %current_node_status,
+                    "node recovery task finished; but node status is not RecoveryInProgress; \
+                    skip setting node status to active"
+                );
             }
         });
         *locked_task_handle = Some(task_handle);

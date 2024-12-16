@@ -847,11 +847,12 @@ impl StorageNode {
             self.node_catch_up_process_epoch_change_start(event_handle, event)
                 .await
         } else {
-            self.node_active_process_epoch_change_start(event_handle, event)
+            self.node_in_sync_process_epoch_change_start(event_handle, event)
                 .await
         }
     }
 
+    /// The node is in RecoveryCatchUp mode and processing the epoch change start event.
     async fn node_catch_up_process_epoch_change_start(
         &self,
         event_handle: EventHandle,
@@ -878,7 +879,9 @@ impl StorageNode {
             .current_committee()
             .contains(self.inner.public_key())
         {
-            tracing::info!("node is not in the current committee, set node status to Stand");
+            tracing::info!(
+                "node is not in the current committee, set node status to Standby status"
+            );
             self.inner.storage.set_node_status(NodeStatus::Standby)?;
             event_handle.mark_as_complete();
             return Ok(());
@@ -888,17 +891,24 @@ impl StorageNode {
             .previous_committee()
             .is_some_and(|c| c.contains(self.inner.public_key()))
         {
-            // TODO: add logging.
+            tracing::info!("node just became a new committee member, process shard changes");
+            // This node just became a new committee member. Process shard changes as a new
+            // committee member.
             self.process_shard_changes_in_new_epoch(event_handle, event, true)
                 .await?;
         } else {
+            tracing::info!("start node recovery to catch up to the latest epoch");
+            // This node is a past and current committee member. Start node recovery to catch up
+            // to the latest epoch.
             self.start_node_recovery(event_handle, event).await?;
         }
 
         Ok(())
     }
 
-    async fn node_active_process_epoch_change_start(
+    /// The node is up-to-date with the epoch and event processing. Process the epoch change start
+    /// event.
+    async fn node_in_sync_process_epoch_change_start(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -915,12 +925,16 @@ impl StorageNode {
 
         let active_committees = self.inner.committee_service.active_committees();
         let current_node_status = self.inner.storage.node_status()?;
+
         if current_node_status == NodeStatus::Standby
             && active_committees
                 .current_committee()
                 .contains(self.inner.public_key())
         {
-            // TODO: add logging.
+            tracing::info!(
+                "node is in Standby status just became a new committee member, \
+                process shard changes"
+            );
             self.process_shard_changes_in_new_epoch(event_handle, event, true)
                 .await
         } else {
@@ -1055,11 +1069,10 @@ impl StorageNode {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
+        assert!(event.epoch <= committees.epoch());
 
         let shard_diff =
             ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
-
-        assert!(event.epoch <= committees.epoch());
 
         for shard_id in &shard_diff.lost {
             let Some(shard_storage) = storage.shard_storage(*shard_id) else {
@@ -1091,13 +1104,15 @@ impl StorageNode {
                 .create_storage_for_shards_in_background(shard_diff.gained.clone())
                 .await?;
 
-            // Set node status to RecoverMetadata to sync metadata for the new shards.
-            // Note that this must be set before marking the event as complete, so that
-            // node crashing before setting the status will always be retried when replying
-            // the event.
-            self.inner
-                .storage
-                .set_node_status(NodeStatus::RecoverMetadata)?;
+            if new_node_joining_committee {
+                // Set node status to RecoverMetadata to sync metadata for the new shards.
+                // Note that this must be set before marking the event as complete, so that
+                // node crashing before setting the status will always be retried when replying
+                // the event.
+                self.inner
+                    .storage
+                    .set_node_status(NodeStatus::RecoverMetadata)?;
+            }
 
             // There shouldn't be an epoch change event for the genesis epoch.
             assert!(event.epoch != GENESIS_EPOCH);
@@ -1381,7 +1396,6 @@ fn increment_shard_summary(
         ApiShardStatus::Ready => summary.ready += 1,
         ApiShardStatus::InTransfer => summary.in_transfer += 1,
         ApiShardStatus::InRecovery => summary.in_recovery += 1,
-        ApiShardStatus::RecoverMetadata => summary.recover_metadata += 1,
         // We do not expect owned shards to be read-only.
         _ => (),
     }
