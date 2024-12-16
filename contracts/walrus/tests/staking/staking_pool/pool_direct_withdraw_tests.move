@@ -1,13 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Early withdrawal mechanics (for E0, E0', E1, E1', E2, E2'):
-// ```
-// - stake(E0,  AE=E1) -> immediate withdrawal(E0)              // no rewards
-// - stake(E0,  AE=E1) -> request_withdraw(E0') -> withdraw(E2) // rewards for E1
-// - stake(E0', AE=E2) -> immediate withdrawal(E0', E1)         // no rewards
-// - stake(E0', AE=E2) -> request_withdraw(E1') -> withdraw(E3) // rewards for E2
-
 #[allow(unused_use, unused_const)]
 module walrus::pool_direct_withdraw_tests;
 
