@@ -45,29 +45,6 @@ fun destroy_zero() {
     zero.destroy_zero();
 }
 
-#[test]
-fun split_join_early_withdraw() {
-    let ctx = &mut tx_context::dummy();
-    let node_id = ctx.fresh_object_address().to_id();
-    let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
-
-    sw1.set_withdrawing(2, option::none());
-
-    let sw2 = sw1.split(500, ctx);
-
-    assert_eq!(sw1.value(), 500);
-    assert_eq!(sw2.value(), 500);
-    assert!(sw1.pool_token_amount().is_none());
-    assert!(sw2.pool_token_amount().is_none());
-
-    sw1.join(sw2);
-
-    assert_eq!(sw1.value(), 1000);
-    assert!(sw1.pool_token_amount().is_none());
-
-    destroy(sw1);
-}
-
 #[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]
 fun try_splitting_full_amount() {
     let ctx = &mut tx_context::dummy();
@@ -117,32 +94,17 @@ fun try_join_non_early_with_early_withdraw() {
     abort
 }
 
-#[test]
-fun split_join_withdrawing() {
+#[test, expected_failure(abort_code = staked_wal::ENotStaked)]
+fun try_split_withdrawing() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
-    let mut sw1 = staked_wal::mint(node_id, mint_balance(2000), 1, ctx);
+    let mut sw = staked_wal::mint(node_id, mint_balance(2000), 1, ctx);
 
-    // set the staked WAL to withdrawing, 1000 pool tokens
-    sw1.set_withdrawing(2, option::some(1000));
+    sw.set_withdrawing(2, option::some(1000));
+    let sw2 = sw.split(500, ctx);
 
-    let sw2 = sw1.split(500, ctx);
-
-    assert!(sw1.is_withdrawing());
-    assert_eq!(sw1.value(), 1500);
-    sw1.pool_token_amount().do!(|amt| assert_eq!(amt, 750)); // 3/4 of the pool tokens
-
-    assert!(sw2.is_withdrawing());
-    assert_eq!(sw2.value(), 500);
-    sw2.pool_token_amount().do!(|amt| assert_eq!(amt, 250)); // 1/4 of the pool tokens
-
-    sw1.join(sw2);
-
-    assert!(sw1.is_withdrawing());
-    assert_eq!(sw1.value(), 2000);
-    sw1.pool_token_amount().do!(|amt| assert_eq!(amt, 1000)); // all the pool tokens
-
-    destroy(sw1);
+    destroy(sw2);
+    destroy(sw);
 }
 
 #[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]

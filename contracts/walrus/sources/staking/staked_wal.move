@@ -19,6 +19,7 @@ const ENotWithdrawing: u64 = 0;
 const EMetadataMismatch: u64 = 1;
 const EInvalidAmount: u64 = 2;
 const ENonZeroPrincipal: u64 = 3;
+const ENotStaked: u64 = 4;
 /// Trying to mark stake as withdrawing when it is already marked as withdrawing.
 const EAlreadyWithdrawing: u64 = 6;
 
@@ -194,7 +195,7 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
     assert!(sw.principal.value() > amount, EInvalidAmount);
     assert!(amount > 0, EInvalidAmount);
 
-    match (&mut sw.state) {
+    match (sw.state) {
         // If the staked WAL is staked, we can simply split the principal.
         StakedWalState::Staked => {
             StakedWal {
@@ -205,31 +206,7 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
                 activation_epoch: sw.activation_epoch,
             }
         },
-        // If the staked WAL is withdrawing, we need to perform pool token amount
-        // calculation based on the amount being split. Needn't worry about the
-        // rounding errors as the value is always subtracted from the principal.
-        StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount } => {
-            // reclaculate the pool token amount if it is set, otherwise ignore
-            let new_pool_token_amount = if (pool_token_amount.is_some()) {
-                let pool_token_amount = pool_token_amount.borrow_mut();
-                let new_pool_token_amount = (*pool_token_amount * amount) / sw.principal.value();
-                *pool_token_amount = *pool_token_amount - new_pool_token_amount;
-                option::some(new_pool_token_amount)
-            } else {
-                option::none()
-            };
-
-            StakedWal {
-                id: object::new(ctx),
-                state: StakedWalState::Withdrawing {
-                    withdraw_epoch: *withdraw_epoch,
-                    pool_token_amount: new_pool_token_amount,
-                },
-                node_id: sw.node_id,
-                principal: sw.principal.split(amount),
-                activation_epoch: sw.activation_epoch,
-            }
-        },
+        _ => abort ENotStaked,
     }
 }
 
