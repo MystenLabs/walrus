@@ -87,16 +87,13 @@ public(package) fun set_withdrawing(
 /// - activation epoch is current epoch + 2
 /// - activation epoch is current epoch + 1 and committee hasn't been selected
 public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bool {
-    let activation_epoch = sw.activation_epoch;
-    let current_epoch = wctx.epoch();
-    let is_withdrawing = sw.is_withdrawing();
-
-    // early return if stake is already active
-    if (activation_epoch <= current_epoch || is_withdrawing) {
+    if (sw.is_withdrawing()) {
         return false
     };
 
-    // if stake is to be applied in 2 epochs
+    let activation_epoch = sw.activation_epoch;
+    let current_epoch = wctx.epoch();
+
     activation_epoch == current_epoch + 2 ||
     (sw.activation_epoch == current_epoch + 1 && !wctx.committee_selected())
 }
