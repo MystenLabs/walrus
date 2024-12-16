@@ -8,7 +8,7 @@ license.workspace = true
 
 
 [features]
-mainnet-contracts = ["walrus-sui/mainnet-contracts"]
+walrus-mainnet = ["walrus-sui/walrus-mainnet"]
 
 [dependencies]
 aws-config = "1.5.10"

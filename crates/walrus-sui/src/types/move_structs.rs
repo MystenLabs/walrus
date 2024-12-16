@@ -161,7 +161,7 @@ impl Display for StorageNodeCap {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 enum PoolState {
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     // The pool is new and awaits the stake to be added.
     New,
     // The pool is active and can accept stakes.
@@ -184,7 +184,7 @@ pub struct VotingParams {
     pub node_capacity: u64,
 }
 
-#[cfg(feature = "mainnet-contracts")]
+#[cfg(feature = "walrus-mainnet")]
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 /// The receiver of the commission.
 enum CommissionReceiver {
@@ -214,16 +214,16 @@ pub(crate) struct StakingPool {
     pool_token_balance: u64,
     /// Pending withdrawals from the pool token balance indexed by epoch.
     pending_pool_token_withdraw: Vec<(Epoch, u64)>,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// Pending commission rate changes indexed by epoch.
     pending_commission_rate: Vec<(Epoch, u64)>,
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// The commission rate for the pool.
     commission_rate: u64,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// The commission rate for the pool.
     commission_rate: u16,
     /// Exchange rates table ID.
@@ -233,13 +233,13 @@ pub(crate) struct StakingPool {
     pending_stake: Vec<(Epoch, u64)>,
     /// The rewards that the pool has received.
     rewards: u64,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// Collected commission.
     commission: u64,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// The receiver of the commission.
     commission_receiver: CommissionReceiver,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,
 }
@@ -296,7 +296,7 @@ pub struct EventBlob {
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct EventBlobCertificationState {
     /// The object ID of the inner object.
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     pub id: ObjectID,
     /// Latest certified blob
     pub latest_certified_blob: Option<EventBlob>,
@@ -432,7 +432,7 @@ pub(crate) struct BlsCommittee {
     n_shards: u16,
     /// The current epoch
     epoch: Epoch,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// Aggregated key for all committee members
     #[serde(deserialize_with = "deserialize_public_key")]
     aggregated_keys: PublicKey,
@@ -498,10 +498,10 @@ where
 pub enum StakedWalState {
     /// The WAL is staked.
     Staked,
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// The WAL is unstaked and can be withdrawn.
     Withdrawing(Epoch, u64),
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// The WAL is unstaked and can be withdrawn.
     Withdrawing(Epoch, Option<u64>),
 }
@@ -510,11 +510,11 @@ impl Display for StakedWalState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StakedWalState::Staked => write!(f, "Staked"),
-            #[cfg(not(feature = "mainnet-contracts"))]
+            #[cfg(not(feature = "walrus-mainnet"))]
             StakedWalState::Withdrawing(epoch, amount) => {
                 write!(f, "Withdrawing: epoch={}, amount={}", epoch, amount)
             }
-            #[cfg(feature = "mainnet-contracts")]
+            #[cfg(feature = "walrus-mainnet")]
             StakedWalState::Withdrawing(epoch, Some(amount)) => {
                 write!(
                     f,
@@ -522,7 +522,7 @@ impl Display for StakedWalState {
                     epoch, amount
                 )
             }
-            #[cfg(feature = "mainnet-contracts")]
+            #[cfg(feature = "walrus-mainnet")]
             StakedWalState::Withdrawing(epoch, None) => {
                 write!(f, "Withdrawing: epoch={}, pool token amount=Unknown", epoch)
             }

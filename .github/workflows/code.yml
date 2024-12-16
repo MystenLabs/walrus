@@ -113,7 +113,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
       - name: Run tests
-        run: cargo nextest run --workspace --profile ci --run-ignored all --features mainnet-contracts
+        run: cargo nextest run --workspace --profile ci --run-ignored all --features walrus-mainnet
 
   test:
     name: Test Rust code with testnet contracts

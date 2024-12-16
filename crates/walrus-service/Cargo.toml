@@ -29,7 +29,6 @@ client = [
 ]
 default = ["client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
-mainnet-contracts = ["walrus-sui/mainnet-contracts"]
 node = [
   "dep:async-trait",
   "dep:enum_dispatch",
@@ -48,6 +47,7 @@ test-utils = [
   "walrus-core/test-utils",
   "walrus-sui/test-utils",
 ]
+walrus-mainnet = ["walrus-sui/walrus-mainnet"]
 
 [dependencies]
 anyhow.workspace = true

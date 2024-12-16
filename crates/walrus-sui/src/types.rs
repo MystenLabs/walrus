@@ -95,10 +95,10 @@ pub struct NodeRegistrationParams {
     pub public_key: PublicKey,
     /// The network key of the storage node.
     pub network_public_key: NetworkPublicKey,
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// The commission rate of the storage node.
     pub commission_rate: u64,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     /// The commission rate of the storage node.
     pub commission_rate: u16,
     /// The vote for the storage price per unit.

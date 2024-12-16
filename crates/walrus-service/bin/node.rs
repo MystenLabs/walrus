@@ -244,11 +244,11 @@ struct ConfigArgs {
     #[clap(long, default_value_t = config::defaults::write_price())]
     /// Initial vote for the write price in FROST per MiB.
     write_price: u64,
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     #[clap(long, default_value_t = 0)]
     /// The commission rate of the storage node, in basis points.
     commission_rate: u64,
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     #[clap(long, default_value_t = 0)]
     /// The commission rate of the storage node, in basis points.
     commission_rate: u16,

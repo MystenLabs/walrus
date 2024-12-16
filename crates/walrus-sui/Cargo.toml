@@ -8,13 +8,13 @@ license.workspace = true
 
 [features]
 default = []
-mainnet-contracts = []
 test-utils = [
   "dep:tempfile",
   "dep:test-cluster",
   "dep:walrus-test-utils",
   "walrus-core/test-utils",
 ]
+walrus-mainnet = []
 
 [dependencies]
 anyhow.workspace = true

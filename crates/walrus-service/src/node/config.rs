@@ -99,11 +99,11 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub event_provider_config: EventProviderConfig,
     /// The commission rate of the storage node, in basis points.
-    #[cfg(not(feature = "mainnet-contracts"))]
+    #[cfg(not(feature = "walrus-mainnet"))]
     #[serde(default)]
     pub commission_rate: u64,
     /// The commission rate of the storage node, in basis points.
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     #[serde(default)]
     pub commission_rate: u16,
     /// The parameters for the staking pool.

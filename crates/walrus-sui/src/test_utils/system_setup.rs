@@ -37,7 +37,7 @@ const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
 
 /// Provides the default contract path for testing for the package with name `package`.
 pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
-    let contract_dir = if cfg!(feature = "mainnet-contracts") {
+    let contract_dir = if cfg!(feature = "walrus-mainnet") {
         "contracts"
     } else {
         "testnet-contracts"

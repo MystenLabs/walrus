@@ -265,14 +265,14 @@ impl WalrusPtbBuilder {
         blob_object: ArgumentOrOwnedObject,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
-        #[cfg(not(feature = "mainnet-contracts"))]
+        #[cfg(not(feature = "walrus-mainnet"))]
         let signers = {
             let mut signers = certificate.signers.clone();
             signers.sort_unstable();
             signers
         };
 
-        #[cfg(feature = "mainnet-contracts")]
+        #[cfg(feature = "walrus-mainnet")]
         let signers = Self::signers_to_bitmap(&certificate.signers);
 
         let certify_args = vec![
@@ -286,7 +286,7 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    #[cfg(feature = "mainnet-contracts")]
+    #[cfg(feature = "walrus-mainnet")]
     fn signers_to_bitmap(signers: &[u16]) -> Vec<u8> {
         let mut bitmap = vec![0; signers.len().div_ceil(8)];
         for signer in signers {
@@ -404,14 +404,14 @@ impl WalrusPtbBuilder {
         &mut self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        #[cfg(not(feature = "mainnet-contracts"))]
+        #[cfg(not(feature = "walrus-mainnet"))]
         let signers = {
             let mut signers = certificate.signers.clone();
             signers.sort_unstable();
             signers
         };
 
-        #[cfg(feature = "mainnet-contracts")]
+        #[cfg(feature = "walrus-mainnet")]
         let signers = Self::signers_to_bitmap(&certificate.signers);
 
         let invalidate_args = vec![

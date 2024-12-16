@@ -90,10 +90,10 @@ fi
 echo Building walrus, walrus-node, and walrus-deploy binaries...
 features="deploy"
 if $testnet_contracts; then
-    echo "Using testnet contracts."
+    echo "Using testnet version."
 else
-    echo "Using mainnet contracts."
-    features="$features,mainnet-contracts"
+    echo "Using mainnet version."
+    features="$features,walrus-mainnet"
 fi
 cargo build --release --bin walrus --bin walrus --bin walrus-node --bin walrus-deploy --features "$features"
 
