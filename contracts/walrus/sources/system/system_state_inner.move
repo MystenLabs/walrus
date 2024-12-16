@@ -37,7 +37,6 @@ const EInvalidAccountingEpoch: u64 = 5;
 const EIncorrectAttestation: u64 = 6;
 const ERepeatedAttestation: u64 = 7;
 const ENotCommitteeMember: u64 = 8;
-const ESubsidyBalanceNotZero: u64 = 9;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -438,7 +437,7 @@ public(package) fun certify_event_blob(
 /// Adds rewards to the system for the specified number of epochs ahead.
 /// The rewards are split equally across the future accounting ring buffer up to the
 /// specified epoch.
-public(package) fun add_rewards(
+public(package) fun add_subsidy(
     self: &mut SystemStateInnerV1,
     subsidy: Coin<WAL>,
     epochs_ahead: u32,
@@ -458,10 +457,7 @@ public(package) fun add_rewards(
     });
 
     // Add leftover rewards to the first epoch's accounting.
-    self
-        .future_accounting.ring_lookup_mut(0)
-        .rewards_balance();
-        .join(subsidy_balance);
+    self.future_accounting.ring_lookup_mut(0).rewards_balance().join(subsidy_balance);
 }
 
 // === Accessors ===
