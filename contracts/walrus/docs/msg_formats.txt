@@ -39,7 +39,6 @@ PROOF_OF_POSSESSION message
 The body contains the sui address followed by the bls public key (encoded as 48 byte fixed
 size array) of the signer.
 
-
 BLOB_CERT message
 -----------------
 
@@ -53,3 +52,16 @@ INVALID_BLOB_ID
 The body is the blob_id : u256 (32 bytes) of a blob. The storage node certified that
 it has verified an inconsistency proof and the blob id is invalid.
 
+DENY_LIST_UPDATE_MSG_TYPE
+---------------
+
+The body is the node_id : address (32 bytes) of the storage node,
+deny_list_sequence_number : u64 (8 bytes) sequence number, deny_list_size : u64 (8 bytes)
+the size of the deny list of the node, deny_list_root : u256 (32 bytes) the root hash of
+the deny list.
+
+DENY_LIST_BLOB_DELETED_MSG_TYPE
+---------------
+
+The body is the blob_id : u256 (32 bytes) of a blob. f+1 nodes have added the blob id to
+their deny lists, and the blob should be deleted.
