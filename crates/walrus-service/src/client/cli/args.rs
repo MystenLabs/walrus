@@ -286,6 +286,7 @@ pub enum CliCommands {
         ///
         /// Checking the status adds delay and requires additional requests.
         #[clap(long, action)]
+        #[serde(default)]
         no_status_check: bool,
     },
     /// Stake with storage node.
