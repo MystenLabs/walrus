@@ -59,6 +59,7 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::WithTempDir;
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
 use crate::node::config::{self, SuiConfig};
@@ -1746,7 +1747,6 @@ pub mod test_cluster {
             DEFAULT_GAS_BUDGET,
         },
     };
-    use walrus_utils::backoff::ExponentialBackoffConfig;
 
     use super::*;
     use crate::{
