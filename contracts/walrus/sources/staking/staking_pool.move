@@ -343,6 +343,59 @@ public(package) fun withdraw_stake(
     to_withdraw
 }
 
+/// Special case of withdrawal for the case when a node is not in the previous,
+/// active or future committee. Triggered in the `staking_inner`.
+public(package) fun withdraw_stake_from_inactive_pool(
+    pool: &mut StakingPool,
+    staked_wal: StakedWal,
+    wctx: &WalrusContext,
+): Balance<WAL> {
+    assert!(staked_wal.value() > 0, EZeroStake);
+    assert!(staked_wal.node_id() == pool.id.to_inner(), EIncorrectPoolId);
+
+    let token_amount = if (staked_wal.is_staked()) {
+        let token_amount = pool
+            .exchange_rate_at_epoch(staked_wal.activation_epoch())
+            .convert_to_token_amount(staked_wal.value());
+
+        // if stake hasn't yet been activated - reduce the pending stake;
+        // else: add the token amount to the pending withdrawal in the same epoch;
+        if (staked_wal.activation_epoch() >= wctx.epoch()) {
+            pool.pending_stake.reduce(staked_wal.activation_epoch(), staked_wal.value());
+        } else {
+            pool.pending_pool_token_withdraw.insert_or_add(wctx.epoch(), token_amount);
+        };
+
+        token_amount
+    } else if (staked_wal.is_withdrawing() && staked_wal.pool_token_amount().is_some()) {
+        let token_amount = staked_wal.pool_token_amount().extract();
+        if (staked_wal.withdraw_epoch() > wctx.epoch()) {
+            pool.pending_pool_token_withdraw.reduce(staked_wal.withdraw_epoch(), token_amount);
+        }; // else the token amount is already in the pending withdrawal
+        token_amount
+    } else {
+        pool.pending_early_withdrawals.reduce(staked_wal.withdraw_epoch(), staked_wal.value());
+        pool
+            .exchange_rate_at_epoch(staked_wal.activation_epoch())
+            .convert_to_token_amount(staked_wal.value())
+    };
+
+    let total_amount = pool
+        .exchange_rate_at_epoch(wctx.epoch())
+        .convert_to_wal_amount(token_amount);
+
+    let principal = staked_wal.into_balance();
+    let rewards_amount = if (total_amount >= principal.value()) {
+        total_amount - principal.value()
+    } else 0;
+
+    let rewards_amount = rewards_amount.min(pool.rewards_pool.value());
+    let mut to_withdraw = pool.rewards_pool.split(rewards_amount);
+
+    to_withdraw.join(principal);
+    to_withdraw
+}
+
 /// Advance epoch for the `StakingPool`.
 public(package) fun advance_epoch(
     pool: &mut StakingPool,

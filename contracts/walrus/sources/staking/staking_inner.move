@@ -405,7 +405,17 @@ public(package) fun withdraw_stake(
     ctx: &mut TxContext,
 ): Coin<WAL> {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx).into_coin(ctx)
+    let node_id = staked_wal.node_id();
+
+    if (
+        self.committee.contains(&node_id) ||
+        self.previous_committee.contains(&node_id) ||
+        self.next_committee.is_some_and!(|cmt| cmt.contains(&node_id))
+    ) {
+        self.pools[node_id].withdraw_stake(staked_wal, wctx).into_coin(ctx)
+    } else {
+        self.pools[node_id].withdraw_stake_from_inactive_pool(staked_wal, wctx).into_coin(ctx)
+    }
 }
 
 // === System ===
