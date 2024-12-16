@@ -63,7 +63,9 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
     let committee = bls_aggregate::new_bls_committee(0, vector[]);
     assert!(max_epochs_ahead <= MAX_MAX_EPOCHS_AHEAD, EInvalidMaxEpochsAhead);
     let future_accounting = storage_accounting::ring_new(max_epochs_ahead);
-    let event_blob_certification_state = event_blob::create_with_empty_state();
+    let event_blob_certification_state = event_blob::create_with_empty_state(
+        ctx,
+    );
     let id = object::new(ctx);
     SystemStateInnerV1 {
         id,
@@ -428,7 +430,7 @@ public(package) fun certify_event_blob(
             ending_checkpoint_sequence_num,
             blob_id,
         );
-    self.event_blob_certification_state.reset();
+    self.event_blob_certification_state.stop_tracking_blob(blob_id);
     blob.burn();
 }
 
@@ -512,7 +514,9 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
         future_accounting: storage_accounting::ring_new(104),
-        event_blob_certification_state: event_blob::create_with_empty_state(),
+        event_blob_certification_state: event_blob::create_with_empty_state(
+            ctx,
+        ),
     }
 }
 

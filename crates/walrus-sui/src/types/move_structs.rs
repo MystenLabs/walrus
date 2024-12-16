@@ -295,6 +295,9 @@ pub struct EventBlob {
 /// State holding the certification of event blobs.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct EventBlobCertificationState {
+    /// The object ID of the inner object.
+    #[cfg(not(feature = "mainnet-contracts"))]
+    pub id: ObjectID,
     /// Latest certified blob
     pub latest_certified_blob: Option<EventBlob>,
     /// Total weight of the blobs undergoing certification.
