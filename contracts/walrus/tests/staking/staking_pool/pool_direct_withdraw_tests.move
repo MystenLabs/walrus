@@ -130,12 +130,11 @@ fun withdraw_after_the_pool_became_inactive_alternative() {
     let (wctx, _) = test.next_epoch(); // E3 (Bob's withdrawal)
     pool.advance_epoch(mint_balance(2000), &wctx);
 
-    // Bob withdraws his stake (E3)
+    // Bob directly withdraws his stake (E3)
     let balance = pool.withdraw_stake_from_inactive_pool(sw2, &wctx);
     assert_eq!(balance.destroy_for_testing(), 3000);
 
-    // Pool is inactive, Alice performs immediate withdrawal
-    // Alice performs immediate withdrawal
+    // Alice directly withdraws her stake (E3)
     let balance = pool.withdraw_stake_from_inactive_pool(sw1, &wctx);
     assert_eq!(balance.destroy_for_testing(), 3000);
     assert_eq!(pool.wal_balance_at_epoch(E3), 0);
