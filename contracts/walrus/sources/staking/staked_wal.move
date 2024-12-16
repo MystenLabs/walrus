@@ -191,6 +191,7 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 ///
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
 /// Aborts if the `amount` is zero.
+/// Aborts if the staked WAL is in the `Withdrawing` state.
 public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWal {
     assert!(sw.principal.value() > amount, EInvalidAmount);
     assert!(amount > 0, EInvalidAmount);
