@@ -7,7 +7,7 @@ use core::fmt;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
-use retry_client::{ExponentialBackoffConfig, RetryableSuiClient};
+use retry_client::RetryableSuiClient;
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -37,6 +37,7 @@ use walrus_core::{
     Epoch,
     EpochCount,
 };
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     contracts,

@@ -336,10 +336,8 @@ mod commands {
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
-    use walrus_sui::{
-        client::{retry_client::ExponentialBackoffConfig, ReadClient as _},
-        types::NetworkAddress,
-    };
+    use walrus_sui::{client::ReadClient as _, types::NetworkAddress};
+    use walrus_utils::backoff::ExponentialBackoffConfig;
 
     use super::*;
 

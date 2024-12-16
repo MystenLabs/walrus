@@ -1733,11 +1733,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{
-            retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
-            SuiContractClient,
-            SuiReadClient,
-        },
+        client::{retry_client::RetryableSuiClient, SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -1749,6 +1745,7 @@ pub mod test_cluster {
             DEFAULT_GAS_BUDGET,
         },
     };
+    use walrus_utils::backoff::ExponentialBackoffConfig;
 
     use super::*;
     use crate::{

@@ -31,14 +31,10 @@ use walrus_core::keys::{
     TaggedKeyPair,
 };
 use walrus_sui::{
-    client::{
-        retry_client::ExponentialBackoffConfig,
-        SuiClientError,
-        SuiContractClient,
-        SuiReadClient,
-    },
+    client::{SuiClientError, SuiContractClient, SuiReadClient},
     types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
 };
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::storage::DatabaseConfig;
 use crate::{

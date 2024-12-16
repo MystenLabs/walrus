@@ -25,10 +25,7 @@ use walrus_service::client::{
     Refiller,
 };
 use walrus_sui::{
-    client::{
-        retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
-        SuiReadClient,
-    },
+    client::{retry_client::RetryableSuiClient, SuiReadClient},
     utils::SuiNetwork,
 };
 
@@ -42,6 +39,7 @@ const SECS_PER_LOAD_PERIOD: u64 = 60;
 mod blob;
 
 mod write_client;
+use walrus_utils::backoff::ExponentialBackoffConfig;
 use write_client::WriteClient;
 
 /// A load generator for Walrus writes.

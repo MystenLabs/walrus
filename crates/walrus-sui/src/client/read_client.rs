@@ -39,12 +39,9 @@ use tokio::sync::{mpsc, OnceCell};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use tracing::Instrument as _;
 use walrus_core::{ensure, Epoch};
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{
-    retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
-    SuiClientError,
-    SuiClientResult,
-};
+use super::{retry_client::RetryableSuiClient, SuiClientError, SuiClientResult};
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::{

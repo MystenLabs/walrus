@@ -5,13 +5,13 @@
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
 
-use std::{fmt::Debug, future::Future, str::FromStr, time::Duration};
+use std::{fmt::Debug, future::Future, str::FromStr};
 
 use rand::{
     rngs::{StdRng, ThreadRng},
     Rng as _,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use sui_sdk::{
     apis::EventApi,
     error::SuiRpcResult,
@@ -33,7 +33,7 @@ use sui_types::{
     dynamic_field::derive_dynamic_field_id,
     TypeTag,
 };
-use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
 use crate::{
@@ -44,50 +44,6 @@ use crate::{
 
 /// The list of HTTP status codes that are retriable.
 const RETRIABLE_RPC_ERRORS: &[&str] = &["429", "500", "502"];
-
-/// Wrapper for the configuration for the exponential backoff strategy.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExponentialBackoffConfig {
-    /// The minimum backoff duration.
-    pub min_backoff: Duration,
-    /// The maximum backoff duration.
-    pub max_backoff: Duration,
-    /// The maximum number of retries.
-    ///
-    /// If `None`, the backoff strategy will keep retrying indefinitely.
-    pub max_retries: Option<u32>,
-}
-
-impl ExponentialBackoffConfig {
-    /// Creates a new configuration with the given parameters.
-    pub fn new(min_backoff: Duration, max_backoff: Duration, max_retries: Option<u32>) -> Self {
-        ExponentialBackoffConfig {
-            min_backoff,
-            max_backoff,
-            max_retries,
-        }
-    }
-
-    /// Gets a new [`ExponentialBackoff`] strategy with the given seed from the configuration.
-    pub fn get_strategy(&self, seed: u64) -> ExponentialBackoff<StdRng> {
-        ExponentialBackoff::new_with_seed(
-            self.min_backoff,
-            self.max_backoff,
-            self.max_retries,
-            seed,
-        )
-    }
-}
-
-impl Default for ExponentialBackoffConfig {
-    fn default() -> Self {
-        ExponentialBackoffConfig {
-            min_backoff: Duration::from_secs(1),
-            max_backoff: Duration::from_secs(30),
-            max_retries: Some(5),
-        }
-    }
-}
 
 /// Trait to test if an error is produced by a temporary RPC failure and can be retried.
 pub trait RetriableRpcError: Debug {
@@ -129,7 +85,7 @@ impl RetriableRpcError for SuiClientError {
 }
 
 /// Retries the given function while it returns retriable errors.[
-pub async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
+async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
 where
     S: BackoffStrategy,
     F: FnMut() -> Fut,

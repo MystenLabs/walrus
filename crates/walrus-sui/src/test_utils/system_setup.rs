@@ -25,15 +25,11 @@ use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
 };
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
-    client::{
-        retry_client::ExponentialBackoffConfig,
-        ReadClient,
-        SuiClientError,
-        SuiContractClient,
-    },
+    client::{ReadClient, SuiClientError, SuiContractClient},
     system_setup::{self, InitSystemParams},
     types::{NodeRegistrationParams, StorageNodeCap},
 };

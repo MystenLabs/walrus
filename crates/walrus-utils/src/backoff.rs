@@ -4,6 +4,51 @@
 use std::{future::Future, num::Saturating, time::Duration};
 
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
+
+/// Wrapper for the configuration for the exponential backoff strategy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExponentialBackoffConfig {
+    /// The minimum backoff duration.
+    pub min_backoff: Duration,
+    /// The maximum backoff duration.
+    pub max_backoff: Duration,
+    /// The maximum number of retries.
+    ///
+    /// If `None`, the backoff strategy will keep retrying indefinitely.
+    pub max_retries: Option<u32>,
+}
+
+impl ExponentialBackoffConfig {
+    /// Creates a new configuration with the given parameters.
+    pub fn new(min_backoff: Duration, max_backoff: Duration, max_retries: Option<u32>) -> Self {
+        ExponentialBackoffConfig {
+            min_backoff,
+            max_backoff,
+            max_retries,
+        }
+    }
+
+    /// Gets a new [`ExponentialBackoff`] strategy with the given seed from the configuration.
+    pub fn get_strategy(&self, seed: u64) -> ExponentialBackoff<StdRng> {
+        ExponentialBackoff::new_with_seed(
+            self.min_backoff,
+            self.max_backoff,
+            self.max_retries,
+            seed,
+        )
+    }
+}
+
+impl Default for ExponentialBackoffConfig {
+    fn default() -> Self {
+        ExponentialBackoffConfig {
+            min_backoff: Duration::from_secs(1),
+            max_backoff: Duration::from_secs(30),
+            max_retries: Some(5),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ExponentialBackoffState {

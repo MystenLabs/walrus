@@ -15,11 +15,12 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
 use walrus_sui::client::{
-    retry_client::{ExponentialBackoffConfig, RetryableSuiClient},
+    retry_client::RetryableSuiClient,
     SuiClientError,
     SuiContractClient,
     SuiReadClient,
 };
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::common::utils::{self, LoadConfig};
 
@@ -149,6 +150,8 @@ impl ClientCommunicationConfig {
     /// Provides a config with lower number of retries to speed up integration testing.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
+        use walrus_utils::backoff::ExponentialBackoffConfig;
+
         #[cfg(msim)]
         let max_retries = Some(3);
         #[cfg(not(msim))]

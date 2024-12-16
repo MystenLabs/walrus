@@ -18,7 +18,6 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{
-        retry_client::ExponentialBackoffConfig,
         BlobObjectMetadata,
         BlobPersistence,
         CoinType,
@@ -40,6 +39,7 @@ use walrus_sui::{
     utils,
 };
 use walrus_test_utils::WithTempDir;
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 const GAS_BUDGET: u64 = 1_000_000_000;
 

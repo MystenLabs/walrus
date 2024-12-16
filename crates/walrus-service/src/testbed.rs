@@ -26,7 +26,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::{retry_client::ExponentialBackoffConfig, SuiContractClient},
+    client::SuiContractClient,
     system_setup::InitSystemParams,
     test_utils::{
         system_setup::{
@@ -41,6 +41,7 @@ use walrus_sui::{
     types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     client::{self, ClientCommunicationConfig, ExchangeObjectConfig},
