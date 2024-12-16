@@ -37,6 +37,7 @@ const EInvalidAccountingEpoch: u64 = 5;
 const EIncorrectAttestation: u64 = 6;
 const ERepeatedAttestation: u64 = 7;
 const ENotCommitteeMember: u64 = 8;
+const ESubsidyBalanceNotZero: u64 = 9;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -434,6 +435,40 @@ public(package) fun certify_event_blob(
     blob.burn();
 }
 
+/// Adds rewards to the system for the specified number of epochs ahead.
+/// The rewards are split equally across the future accounting ring buffer up to the
+/// specified epoch.
+public(package) fun add_rewards(
+    self: &mut SystemStateInnerV1,
+    subsidy: Coin<WAL>,
+    epochs_ahead: u32,
+) {
+    // Check the period is within the allowed range.
+    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
+    assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
+
+    let mut subsidy_balance = subsidy.into_balance();
+    let reward_per_epoch = subsidy_balance.value() / (epochs_ahead as u64);
+    let leftover_rewards = subsidy_balance.value() % (epochs_ahead as u64);
+
+    0u32.range_do!(epochs_ahead, |i| {
+        let accounts = self.future_accounting.ring_lookup_mut(i);
+        let rewards_balance = accounts.rewards_balance();
+        rewards_balance.join(subsidy_balance.split(reward_per_epoch));
+    });
+
+    // Add leftover rewards to the first epoch's accounting.
+    if (leftover_rewards > 0) {
+        let accounts = self.future_accounting.ring_lookup_mut(0);
+        let rewards_balance = accounts.rewards_balance();
+        rewards_balance.join(subsidy_balance.split(leftover_rewards));
+    };
+    
+    // TODO: is there a better way to destroy the subsidy balance without using assert?
+    assert!(subsidy_balance.value() == 0, ESubsidyBalanceNotZero);
+    subsidy_balance.destroy_zero();
+}
+
 // === Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
@@ -525,4 +560,11 @@ public(package) fun get_event_blob_certification_state(
     system: &SystemStateInnerV1,
 ): &EventBlobCertificationState {
     &system.event_blob_certification_state
+}
+
+#[test_only]
+public(package) fun get_future_accounting(
+    self: &mut SystemStateInnerV1
+): &mut FutureAccountingRingBuffer {
+    &mut self.future_accounting
 }
