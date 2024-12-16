@@ -12,6 +12,7 @@ use walrus_service::{
     client::cli::{error, App, ClientCommandRunner, Commands},
     utils::{self, MetricsAndLoggingRuntime},
 };
+use walrus_sui::client::retry_client::RetriableRpcError;
 
 /// The version of the Walrus client.
 pub const VERSION: &str = walrus_service::utils::version!();
@@ -60,9 +61,15 @@ fn client() -> Result<()> {
 
 /// The CLI entrypoint.
 pub fn main() -> ExitCode {
-    if let Err(e) = client() {
+    if let Err(err) = client() {
         // Print any error in a (relatively) user-friendly way.
-        eprintln!("{} {:#}", error(), e);
+        let error_str = if err.is_retriable_rpc_error() {
+            "The Sui full node RPC seems to be overwhelmed by too many requests. \
+            Please try with another full node, or try again later.\nError: "
+        } else {
+            ""
+        };
+        eprintln!("{} {}{:#}", error(), error_str, err);
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
