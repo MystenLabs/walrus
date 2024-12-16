@@ -451,7 +451,7 @@ public(package) fun add_rewards(
     let reward_per_epoch = subsidy_balance.value() / (epochs_ahead as u64);
     let leftover_rewards = subsidy_balance.value() % (epochs_ahead as u64);
 
-    0u32.range_do!(epochs_ahead, |i| {
+    epochs_ahead.do!(|i| {
         let accounts = self.future_accounting.ring_lookup_mut(i);
         let rewards_balance = accounts.rewards_balance();
         rewards_balance.join(subsidy_balance.split(reward_per_epoch));
