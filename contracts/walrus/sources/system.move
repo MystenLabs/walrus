@@ -143,6 +143,10 @@ public fun extend_blob(
     self.inner_mut().extend_blob(blob, epochs_ahead, payment);
 }
 
+public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u32) {
+    system.inner_mut().add_subsidy(subsidy, epochs_ahead)
+}
+
 // === Public Accessors ===
 
 /// Get epoch. Uses the committee to get the epoch.
