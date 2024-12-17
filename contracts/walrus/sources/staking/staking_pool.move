@@ -98,6 +98,7 @@ public struct StakingPool has key, store {
     /// `pending_pool_token_withdraw` as it stored principals of not yet active
     /// stakes. Token amount for these principals is calculated via the exchange
     /// rate at the activation epoch.
+    /// Those tokens are staked for exactly one epoch.
     pending_early_withdrawals: PendingValues,
     /// The pending commission rate for the pool. Commission rate is applied in
     /// E+2, so we store the value for the matching epoch and apply it in the
@@ -386,8 +387,11 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     let mut pending_early_withdrawals = pool.pending_early_withdrawals.unwrap();
     pending_early_withdrawals.keys().do!(|epoch| if (epoch <= current_epoch) {
         let (_, epoch_value) = pending_early_withdrawals.remove(&epoch);
+        // recall that pending_early_withdrawals contains stakes that were
+        // active for exactly 1 epoch.
+        let activation_epoch = epoch - 1;
         let token_value_for_epoch = pool
-            .exchange_rate_at_epoch(epoch - 1)
+            .exchange_rate_at_epoch(activation_epoch)
             .convert_to_token_amount(epoch_value);
 
         early_token_withdraw = early_token_withdraw + token_value_for_epoch;
