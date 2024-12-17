@@ -73,10 +73,7 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 }
 
 /// Sets the staked WAL state to `Withdrawing`
-public(package) fun set_withdrawing(
-    sw: &mut StakedWal,
-    withdraw_epoch: u32,
-) {
+public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
     assert!(sw.is_staked(), EAlreadyWithdrawing);
     sw.state = StakedWalState::Withdrawing { withdraw_epoch };
 }
