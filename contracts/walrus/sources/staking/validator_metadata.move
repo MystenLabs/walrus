@@ -41,10 +41,7 @@ public fun set_description(metadata: &mut NodeMetadata, description: String) {
 }
 
 /// Set an extra field of the Validator.
-public fun set_extra_fields(
-    metadata: &mut NodeMetadata,
-    extra_fields: VecMap<String, String>,
-) {
+public fun set_extra_fields(metadata: &mut NodeMetadata, extra_fields: VecMap<String, String>) {
     metadata.extra_fields = extra_fields;
 }
 
