@@ -172,6 +172,7 @@ pub trait ReadClient: Send + Sync {
         &self,
     ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
 
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// Returns the mapping between node IDs and stake in the staking object.
     fn stake_assignment(
         &self,
@@ -763,6 +764,8 @@ impl ReadClient for SuiReadClient {
         })
     }
 
+    #[cfg(not(feature = "walrus-mainnet"))]
+    // TODO: consider allowing access via dynamic field read
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
         let staking_object = self.get_staking_object().await?.inner;
         Ok(staking_object.active_set.nodes.into_iter().collect())
