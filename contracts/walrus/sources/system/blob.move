@@ -202,7 +202,9 @@ public(package) fun certify_with_certified_msg(
 ///
 /// Emits a `BlobDeleted` event for the given epoch.
 /// Aborts if the Blob is not deletable or already expired.
-public(package) fun delete(self: Blob, epoch: u32): Storage {
+/// Also removes any metadata associated with the blob.
+public(package) fun delete(mut self: Blob, epoch: u32): Storage {
+    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
     let Blob {
         id,
         storage,
@@ -224,8 +226,11 @@ public(package) fun delete(self: Blob, epoch: u32): Storage {
 public use fun walrus::shared_blob::new as Blob.share;
 
 /// Allow the owner of a blob object to destroy it.
-public fun burn(blob: Blob) {
-    let Blob { id, storage, .. } = blob;
+///
+/// This function also burns any [`Metadata`] associated with the blob, if present.
+public fun burn(mut self: Blob) {
+    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+    let Blob { id, storage, .. } = self;
 
     id.delete();
     storage.destroy();
