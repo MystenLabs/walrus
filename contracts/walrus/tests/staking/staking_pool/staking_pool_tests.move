@@ -31,7 +31,7 @@ fun stake_and_receive_rewards() {
     pool.request_withdraw_stake(&mut staked_a, &wctx);
 
     assert_eq!(pool.wal_balance(), 2000);
-    assert_eq!(staked_a.pool_token_amount().destroy_some(), 1000);
+    assert!(staked_a.is_withdrawing());
 
     // E3: Alice withdraws everything
     let (wctx, _) = test.next_epoch();
@@ -74,7 +74,7 @@ fun stake_no_rewards_different_epochs() {
     pool.request_withdraw_stake(&mut staked_a, &wctx);
 
     assert_eq!(pool.wal_balance(), 2000);
-    assert_eq!(staked_a.pool_token_amount().destroy_some(), 1000);
+    assert!(staked_a.is_withdrawing());
 
     // E3: Bob requests withdrawal
     let (wctx, _) = test.next_epoch();
@@ -84,7 +84,7 @@ fun stake_no_rewards_different_epochs() {
 
     assert_eq!(pool.wal_balance(), 1000);
     assert_eq!(balance_a.destroy_for_testing(), 1000);
-    assert_eq!(staked_b.pool_token_amount().destroy_some(), 1000);
+    assert!(staked_b.is_withdrawing());
 
     // E5: Bob withdraws
     let (wctx, _) = test.next_epoch();
@@ -201,13 +201,13 @@ fun stake_maintain_ratio() {
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
     pool.request_withdraw_stake(&mut staked_a, &wctx);
-    assert_eq!(staked_a.pool_token_amount().destroy_some(), 1000);
+    assert!(staked_a.is_withdrawing());
 
     // E3: +1000 Rewards; Alice withdraws (1000 + 1000); Bob requests withdrawal
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
     pool.request_withdraw_stake(&mut staked_b, &wctx);
-    assert_eq!(staked_b.pool_token_amount().destroy_some(), 1000);
+    assert!(staked_b.is_withdrawing());
 
     let balance_a = pool.withdraw_stake(staked_a, &wctx);
     assert_eq!(balance_a.destroy_for_testing(), 2500);
@@ -689,7 +689,7 @@ fun staked_wal_join_different_activation_epochs() {
 
     // Make sure `join` works correctly
     assert_eq!(sw1.value(), 2000);
-    sw1.pool_token_amount().do!(|amount| assert_eq!(amount, 2000));
+    assert!(sw1.is_withdrawing());
     assert_eq!(pool.withdraw_stake(sw1, &wctx).destroy_for_testing(), 2000);
 
     destroy(pool);

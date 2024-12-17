@@ -31,7 +31,7 @@ public enum StakedWalState has copy, drop, store {
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing { withdraw_epoch: u32, pool_token_amount: Option<u64> },
+    Withdrawing { withdraw_epoch: u32 },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -76,10 +76,9 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 public(package) fun set_withdrawing(
     sw: &mut StakedWal,
     withdraw_epoch: u32,
-    pool_token_amount: Option<u64>,
 ) {
     assert!(sw.is_staked(), EAlreadyWithdrawing);
-    sw.state = StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount };
+    sw.state = StakedWalState::Withdrawing { withdraw_epoch };
 }
 
 /// Checks if the staked WAL can be withdrawn directly.
@@ -131,15 +130,6 @@ public fun withdraw_epoch(sw: &StakedWal): u32 {
     }
 }
 
-/// Return the `withdraw_amount` of the staked WAL if it is in the `Withdrawing`.
-/// Aborts otherwise.
-public fun pool_token_amount(sw: &StakedWal): Option<u64> {
-    match (sw.state) {
-        StakedWalState::Withdrawing { pool_token_amount, .. } => pool_token_amount,
-        _ => abort ENotWithdrawing,
-    }
-}
-
 // === Public APIs ===
 
 /// Joins the staked WAL with another staked WAL, adding the `principal` of the
@@ -167,22 +157,9 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
     assert!(sw.is_withdrawing() && other.is_withdrawing(), EMetadataMismatch);
     assert!(sw.withdraw_epoch() == other.withdraw_epoch(), EMetadataMismatch);
 
-    let pool_token_amount = other.pool_token_amount();
     let StakedWal { id, principal, .. } = other;
     sw.principal.join(principal);
     id.delete();
-
-    // Both either need to be set or unset.
-    assert!(pool_token_amount.is_some() == sw.pool_token_amount().is_some(), EMetadataMismatch);
-
-    pool_token_amount.do!(|amount| {
-        match (&mut sw.state) {
-            StakedWalState::Withdrawing { pool_token_amount: current_pool_token_amount, .. } => {
-                current_pool_token_amount.do_mut!(|current| *current = *current + amount);
-            },
-            _ => abort, // unreachable
-        }
-    });
 }
 
 /// Splits the staked WAL into two parts, one with the `amount` and the other

@@ -263,7 +263,7 @@ public(package) fun request_withdraw_stake(
         // register principal in the early withdrawals, the value will get converted to
         // the token amount in the `process_pending_stake` function
         pool.pending_early_withdrawals.insert_or_add(withdraw_epoch, staked_wal.value());
-        staked_wal.set_withdrawing(withdraw_epoch, option::none());
+        staked_wal.set_withdrawing(withdraw_epoch);
         return
     };
 
@@ -285,7 +285,7 @@ public(package) fun request_withdraw_stake(
         .convert_to_token_amount(principal_amount);
 
     pool.pending_pool_token_withdraw.insert_or_add(withdraw_epoch, token_amount);
-    staked_wal.set_withdrawing(withdraw_epoch, option::some(token_amount));
+    staked_wal.set_withdrawing(withdraw_epoch);
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -315,13 +315,9 @@ public(package) fun withdraw_stake(
     // at the activation epoch.
     //
     // note: macro `destroy_or!` is not evaluated if the value is `Some`
-    let token_amount = staked_wal
-        .pool_token_amount()
-        .destroy_or!(
-            pool
-                .exchange_rate_at_epoch(activation_epoch)
-                .convert_to_token_amount(staked_wal.value()),
-        );
+    let token_amount = pool
+        .exchange_rate_at_epoch(activation_epoch)
+        .convert_to_token_amount(staked_wal.value());
 
     let withdraw_epoch = staked_wal.withdraw_epoch();
 

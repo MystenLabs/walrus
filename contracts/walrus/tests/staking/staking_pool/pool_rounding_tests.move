@@ -33,9 +33,6 @@ fun split_odd_number_of_rewards_pool_leftovers_failure() {
     pool.request_withdraw_stake(&mut staked_a, &wctx);
     pool.request_withdraw_stake(&mut staked_b, &wctx);
 
-    staked_a.pool_token_amount().do!(|amt| assert!(amt == 100));
-    staked_b.pool_token_amount().do!(|amt| assert!(amt == 100));
-
     let (wctx, _) = test.next_epoch();
 
     let balance_a = pool.withdraw_stake(staked_a, &wctx);
@@ -79,7 +76,6 @@ fun commission_rounding_success() {
     assert_eq!(pool.wal_balance(), 282);
 
     pool.request_withdraw_stake(&mut staked_a, &wctx);
-    staked_a.pool_token_amount().do!(|amt| assert!(amt == 100));
 
     let (wctx, ctx) = test.next_epoch();
     let balance_a = pool.withdraw_stake(staked_a, &wctx);

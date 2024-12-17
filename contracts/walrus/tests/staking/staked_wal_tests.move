@@ -65,42 +65,13 @@ fun try_split_zero() {
     abort
 }
 
-#[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
-fun try_join_early_withdraw_with_non_early() {
-    let ctx = &mut tx_context::dummy();
-    let node_id = ctx.fresh_object_address().to_id();
-    let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 0, ctx);
-    let mut sw2 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
-
-    sw1.set_withdrawing(2, option::some(1000));
-    sw2.set_withdrawing(2, option::none());
-    sw1.join(sw2);
-
-    abort
-}
-
-#[test, expected_failure(abort_code = staked_wal::EMetadataMismatch)]
-// reverse version of the test above to ensure the error is symmetric
-fun try_join_non_early_with_early_withdraw() {
-    let ctx = &mut tx_context::dummy();
-    let node_id = ctx.fresh_object_address().to_id();
-    let mut sw1 = staked_wal::mint(node_id, mint_balance(1000), 0, ctx);
-    let mut sw2 = staked_wal::mint(node_id, mint_balance(1000), 1, ctx);
-
-    sw1.set_withdrawing(2, option::some(1000));
-    sw2.set_withdrawing(2, option::none());
-    sw2.join(sw1);
-
-    abort
-}
-
 #[test, expected_failure(abort_code = staked_wal::ENotStaked)]
 fun try_split_withdrawing() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
     let mut sw = staked_wal::mint(node_id, mint_balance(2000), 1, ctx);
 
-    sw.set_withdrawing(2, option::some(1000));
+    sw.set_withdrawing(2);
     let sw2 = sw.split(500, ctx);
 
     destroy(sw2);
