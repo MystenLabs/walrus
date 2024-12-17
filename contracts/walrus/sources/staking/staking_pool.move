@@ -94,12 +94,10 @@ public struct StakingPool has key, store {
     /// We use this amount to calculate the WAL withdrawal in the
     /// `process_pending_stake`.
     pending_pool_token_withdraw: PendingValues,
-    /// The amount of the stake requested for early withdrawal. Differs from the
-    /// `pending_pool_token_withdraw` as it stored principals of not yet active
-    /// stakes. Token amount for these principals is calculated via the exchange
-    /// rate at the activation epoch.
-    /// Those tokens are staked for exactly one epoch.
-    pending_early_withdrawals: PendingValues,
+    /// The amount of the stake requested for withdrawal for a node that may
+    /// part of the next committee. Stores principals of not yet active stakes.
+    /// In practice, those tokens are staked for exactly one epoch.
+    pre_active_withdrawals: PendingValues,
     /// The pending commission rate for the pool. Commission rate is applied in
     /// E+2, so we store the value for the matching epoch and apply it in the
     /// `advance_epoch` function.
@@ -192,7 +190,7 @@ public(package) fun new(
         latest_epoch: wctx.epoch(),
         pending_stake: pending_values::empty(),
         pending_pool_token_withdraw: pending_values::empty(),
-        pending_early_withdrawals: pending_values::empty(),
+        pre_active_withdrawals: pending_values::empty(),
         pending_commission_rate: pending_values::empty(),
         wal_balance: 0,
         pool_token_balance: 0,
@@ -254,16 +252,16 @@ public(package) fun request_withdraw_stake(
     assert!(staked_wal.node_id() == pool.id.to_inner());
     assert!(staked_wal.is_staked());
 
+    // only allow requesting if the stake cannot be withdrawn directly
+    assert!(!staked_wal.can_withdraw_early(wctx), EWithdrawDirectly);
+
     // early withdrawal request: only possible if activation epoch has not been
     // reached, and the stake is already counted for the next committee selection
     if (staked_wal.activation_epoch() > wctx.epoch()) {
-        // only allow requesting if the stake cannot be withdrawn directly
-        assert!(!staked_wal.can_withdraw_early(wctx), EWithdrawDirectly);
-
         let withdraw_epoch = staked_wal.activation_epoch() + 1;
         // register principal in the early withdrawals, the value will get converted to
         // the token amount in the `process_pending_stake` function
-        pool.pending_early_withdrawals.insert_or_add(withdraw_epoch, staked_wal.value());
+        pool.pre_active_withdrawals.insert_or_add(withdraw_epoch, staked_wal.value());
         staked_wal.set_withdrawing(withdraw_epoch);
         return
     };
@@ -383,22 +381,22 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     // active in the previous epoch. so unlike other pending values, we need to
     // flush it one by one, recalculating the exchange rate and pool token amount
     // for each early withdrawal epoch.
-    let mut early_token_withdraw = 0;
-    let mut pending_early_withdrawals = pool.pending_early_withdrawals.unwrap();
-    pending_early_withdrawals.keys().do!(|epoch| if (epoch <= current_epoch) {
-        let (_, epoch_value) = pending_early_withdrawals.remove(&epoch);
-        // recall that pending_early_withdrawals contains stakes that were
+    let mut pre_active_token_withdraw = 0;
+    let mut pre_active_withdrawals = pool.pre_active_withdrawals.unwrap();
+    pre_active_withdrawals.keys().do!(|epoch| if (epoch <= current_epoch) {
+        let (_, epoch_value) = pre_active_withdrawals.remove(&epoch);
+        // recall that pre_active_withdrawals contains stakes that were
         // active for exactly 1 epoch.
         let activation_epoch = epoch - 1;
         let token_value_for_epoch = pool
             .exchange_rate_at_epoch(activation_epoch)
             .convert_to_token_amount(epoch_value);
 
-        early_token_withdraw = early_token_withdraw + token_value_for_epoch;
+        pre_active_token_withdraw = pre_active_token_withdraw + token_value_for_epoch;
     });
 
     // don't forget to flush the early withdrawals since we worked on a copy
-    let _ = pool.pending_early_withdrawals.flush(current_epoch);
+    let _ = pool.pre_active_withdrawals.flush(current_epoch);
 
     // do the withdrawals reduction for both
     let exchange_rate = pool_exchange_rate::new(
@@ -413,7 +411,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     // Process withdrawals.
     let token_withdraw = pool.pending_pool_token_withdraw.flush(wctx.epoch());
     let pending_withdrawal = exchange_rate.convert_to_wal_amount(
-        token_withdraw + early_token_withdraw,
+        token_withdraw + pre_active_token_withdraw,
     );
 
     // Check that the amount is not higher than the pool balance
