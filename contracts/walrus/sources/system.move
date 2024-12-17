@@ -143,6 +143,9 @@ public fun extend_blob(
     self.inner_mut().extend_blob(blob, epochs_ahead, payment);
 }
 
+/// Adds rewards to the system for the specified number of epochs ahead.
+/// The rewards are split equally across the future accounting ring buffer up to the
+/// specified epoch.
 public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u32) {
     system.inner_mut().add_subsidy(subsidy, epochs_ahead)
 }

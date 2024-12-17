@@ -259,13 +259,6 @@ public fun withdraw_stake(
     staking.inner_mut().withdraw_stake(staked_wal, ctx)
 }
 
-/// Adds rewards to the system for the specified number of epochs ahead.
-/// The rewards are split equally across the future accounting ring buffer up to the
-/// specified epoch.
-public fun add_subsidy(system: &mut System, subsidy: Coin<WAL>, epochs_ahead: u32) {
-    system.add_subsidy(subsidy, epochs_ahead);
-}
-
 // === Internals ===
 
 /// Get a mutable reference to `StakingInner` from the `Staking`.
