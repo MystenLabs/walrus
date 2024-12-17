@@ -36,6 +36,7 @@ fun test_init_and_first_epoch_change() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -138,6 +139,7 @@ fun test_stake_after_committee_selection() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -244,6 +246,7 @@ fun node_voting_parameters() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -313,6 +316,7 @@ fun test_first_epoch_too_soon_fail() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -357,6 +361,7 @@ fun test_epoch_change_with_rewards_and_commission() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -480,6 +485,7 @@ fun test_register_invalid_pop_epoch() {
         let cap = staking.register_candidate(
             node.name(),
             node.network_address(),
+            node.metadata(),
             node.bls_pk(),
             node.network_key(),
             node.create_proof_of_possession(epoch),
@@ -515,6 +521,7 @@ fun test_register_invalid_pop_signer() {
         let cap = staking.register_candidate(
             node.name(),
             node.network_address(),
+            node.metadata(),
             node.bls_pk(),
             node.network_key(),
             pop,
@@ -547,6 +554,7 @@ fun withdraw_rewards_before_joining_committee() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),

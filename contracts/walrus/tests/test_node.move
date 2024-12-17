@@ -5,7 +5,12 @@ module walrus::test_node;
 
 use std::string::String;
 use sui::address;
-use walrus::{messages, storage_node::StorageNodeCap, test_utils};
+use walrus::{
+    messages,
+    node_metadata::{Self, NodeMetadata},
+    storage_node::StorageNodeCap,
+    test_utils
+};
 
 public struct TestStorageNode {
     sui_address: address,
@@ -23,6 +28,10 @@ public fun network_address(_self: &TestStorageNode): String {
 
 public fun network_key(_self: &TestStorageNode): vector<u8> {
     x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab"
+}
+
+public fun metadata(_self: &TestStorageNode): NodeMetadata {
+    node_metadata::default()
 }
 
 public fun bls_pk(self: &TestStorageNode): vector<u8> {

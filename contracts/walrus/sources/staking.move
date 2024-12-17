@@ -10,6 +10,7 @@ use sui::{clock::Clock, coin::Coin, dynamic_object_field as df};
 use wal::wal::WAL;
 use walrus::{
     commission::{Self, Auth, Receiver},
+    node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
     storage_node::{Self, StorageNodeCap},
@@ -57,6 +58,7 @@ public fun register_candidate(
     // node info
     name: String,
     network_address: String,
+    metadata: NodeMetadata,
     public_key: vector<u8>,
     network_public_key: vector<u8>,
     proof_of_possession: vector<u8>,
@@ -72,6 +74,7 @@ public fun register_candidate(
     let node_id = staking_mut.create_pool(
         name,
         network_address,
+        metadata,
         public_key,
         network_public_key,
         proof_of_possession,
