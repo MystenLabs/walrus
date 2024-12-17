@@ -131,8 +131,9 @@ impl ShardSyncHandler {
             }
         }
 
-        // TODO: create a end point that can transfer multiple blob metadata at once.
-        // TODO: do this in parallel to speed up the sync.
+        // TODO(WAL-478):
+        //   - create a end point that can transfer multiple blob metadata at once.
+        //   - do this in parallel to speed up the sync.
         for blob_info in blob_infos {
             let (blob_id, blob_info) = blob_info?;
 

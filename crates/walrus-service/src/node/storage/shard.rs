@@ -680,7 +680,7 @@ impl ShardStorage {
 
             #[cfg(any(test, feature = "test-utils"))]
             {
-                assert!(node.storage.has_metadata(blob_id)?);
+                debug_assert!(node.storage.has_metadata(blob_id)?);
             }
 
             match sliver {

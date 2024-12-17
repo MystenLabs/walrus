@@ -834,7 +834,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        // TODO: need to check if the node is lagging or not.
+        // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
