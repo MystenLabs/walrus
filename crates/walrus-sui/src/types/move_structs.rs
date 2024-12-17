@@ -204,6 +204,9 @@ pub(crate) struct StakingPool {
     voting_params: VotingParams,
     /// The storage node info for the pool.
     pub node_info: StorageNode,
+    #[cfg(eature = "walrus-mainnet")]
+    /// The metadata for the pool.
+    node_metadata: ObjectID,
     /// The epoch when the pool is / will be activated.
     activation_epoch: Epoch,
     /// Epoch when the pool was last updated.
@@ -394,9 +397,14 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) pools: ObjectID,
     /// The current epoch of the Walrus system.
     pub(crate) epoch: Epoch,
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// Stores the active set of storage nodes. Provides automatic sorting and
     /// tracks the total amount of staked WAL.
     pub(crate) active_set: ActiveSet,
+    #[cfg(feature = "walrus-mainnet")]
+    /// Stores the active set of storage nodes. Provides automatic sorting and
+    /// tracks the total amount of staked WAL.
+    pub(crate) active_set: ObjectID,
     /// The next committee in the system.
     pub(crate) next_committee: Option<CommitteeShardAssignment>,
     /// The current committee in the system.
