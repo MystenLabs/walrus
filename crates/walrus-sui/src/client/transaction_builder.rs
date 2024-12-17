@@ -36,7 +36,7 @@ use super::{
 };
 use crate::{
     contracts::{self, FunctionTag},
-    types::{move_structs::WalExchange, NodeRegistrationParams},
+    types::{move_structs::WalExchange, NodeMetadata, NodeRegistrationParams},
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };
 
@@ -497,11 +497,15 @@ impl WalrusPtbBuilder {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<Argument> {
+        #[cfg(feature = "walrus-mainnet")]
+        let node_metadata_arg = self.create_node_metadata(&node_parameters.metadata).await?;
         let args = vec![
             self.staking_arg(Mutability::Mutable).await?,
             self.pt_builder.pure(&node_parameters.name)?,
             self.pt_builder
                 .pure(node_parameters.network_address.to_string())?,
+            #[cfg(feature = "walrus-mainnet")]
+            node_metadata_arg,
             self.pt_builder
                 .pure(node_parameters.public_key.as_bytes())?,
             self.pt_builder
@@ -515,6 +519,22 @@ impl WalrusPtbBuilder {
         ];
         let result_arg = self.move_call(contracts::staking::register_candidate, args)?;
         self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `create_node_metadata` to the PTB and returns the result [`Argument`].
+    pub async fn create_node_metadata(
+        &mut self,
+        node_metadata: &NodeMetadata,
+    ) -> SuiClientResult<Argument> {
+        let args = vec![
+            self.pt_builder.pure(&node_metadata.image_url)?,
+            self.pt_builder
+                .pure(node_metadata.project_url.to_string())?,
+            self.pt_builder
+                .pure(node_metadata.description.to_string())?,
+        ];
+        let result_arg = self.move_call(contracts::node_metadata::new, args)?;
         Ok(result_arg)
     }
 

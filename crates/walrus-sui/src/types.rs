@@ -84,6 +84,19 @@ impl NetworkAddress {
     }
 }
 
+/// Node metadata.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize, Default)]
+pub struct NodeMetadata {
+    /// The image URL of the storage node.
+    pub image_url: String,
+    /// The project URL of the storage node.
+    pub project_url: String,
+    /// The description of the storage node.
+    pub description: String,
+    /// Extra fields of the storage node for future use.
+    extra_fields: Vec<(String, String)>,
+}
+
 /// Node parameters needed to register a node.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NodeRegistrationParams {
@@ -108,6 +121,8 @@ pub struct NodeRegistrationParams {
     /// The capacity of the node that determines the vote for the capacity
     /// after shards are assigned.
     pub node_capacity: u64,
+    /// The metadata of the storage node.
+    pub metadata: NodeMetadata,
 }
 
 impl NodeRegistrationParams {
@@ -125,6 +140,7 @@ impl NodeRegistrationParams {
             storage_price: 5,
             write_price: 1,
             node_capacity: 1_000_000_000_000,
+            metadata: NodeMetadata::default(),
         }
     }
 }

@@ -204,7 +204,7 @@ pub(crate) struct StakingPool {
     voting_params: VotingParams,
     /// The storage node info for the pool.
     pub node_info: StorageNode,
-    #[cfg(eature = "walrus-mainnet")]
+    #[cfg(feature = "walrus-mainnet")]
     /// The metadata for the pool.
     node_metadata: ObjectID,
     /// The epoch when the pool is / will be activated.

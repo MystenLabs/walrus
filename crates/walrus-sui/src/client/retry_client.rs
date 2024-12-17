@@ -307,17 +307,33 @@ impl RetriableSuiClient {
         K: DeserializeOwned + Serialize,
     {
         let key_tag = key_type.to_canonical_string(true);
+        let key_tag =
+            TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
+                .expect("valid type tag");
+        let inner_object_id = self.get_dynamic_field(parent, key_tag, key).await?;
+        let inner = self.get_sui_object(inner_object_id).await?;
+        Ok(inner)
+    }
+
+    pub(crate) async fn get_dynamic_field<K, V>(
+        &self,
+        parent: ObjectID,
+        key_type: TypeTag,
+        key: K,
+    ) -> SuiClientResult<V>
+    where
+        K: DeserializeOwned + Serialize,
+        V: DeserializeOwned,
+    {
         let object_id = derive_dynamic_field_id(
             parent,
-            &TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
-                .expect("valid type tag"),
+            &key_type,
             &bcs::to_bytes(&key).expect("key should be serializable"),
         )
         .map_err(|err| SuiClientError::Internal(err.into()))?;
 
-        let field: SuiDynamicField<K, ObjectID> = self.get_sui_object(object_id).await?;
-        let inner = self.get_sui_object(field.value).await?;
-        Ok(inner)
+        let field: SuiDynamicField<K, V> = self.get_sui_object(object_id).await?;
+        Ok(field.value)
     }
 
     /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.

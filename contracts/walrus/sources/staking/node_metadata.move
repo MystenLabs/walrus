@@ -61,8 +61,7 @@ public fun extra_fields(metadata: &NodeMetadata): &VecMap<String, String> {
     &metadata.extra_fields
 }
 
-#[test_only]
-/// Create a default `NodeMetadata` instance for testing.
+/// Create a default empty `NodeMetadata` instance.
 public(package) fun default(): NodeMetadata {
     NodeMetadata {
         image_url: b"".to_string(),

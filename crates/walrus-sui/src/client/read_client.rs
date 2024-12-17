@@ -172,7 +172,6 @@ pub trait ReadClient: Send + Sync {
         &self,
     ) -> impl Future<Output = SuiClientResult<FixedSystemParameters>> + Send;
 
-    #[cfg(not(feature = "walrus-mainnet"))]
     /// Returns the mapping between node IDs and stake in the staking object.
     fn stake_assignment(
         &self,
@@ -773,7 +772,17 @@ impl ReadClient for SuiReadClient {
 
     #[cfg(feature = "walrus-mainnet")]
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
-        Err(SuiClientError::NotImplemented)
+        use crate::types::move_structs::ActiveSet;
+
+        let staking_object = self.get_staking_object().await?;
+        let active_set_id = staking_object.inner.active_set;
+        let key_tag = contracts::extended_field::Key
+            .to_move_struct_tag_with_type_map(&self.type_origin_map, &[])?;
+        let active_set: ActiveSet = self
+            .sui_client
+            .get_dynamic_field(active_set_id, key_tag.into(), ())
+            .await?;
+        Ok(active_set.nodes.into_iter().collect())
     }
 }
 

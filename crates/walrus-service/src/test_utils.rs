@@ -52,6 +52,7 @@ use walrus_sui::{
         Committee,
         ContractEvent,
         NetworkAddress,
+        NodeMetadata,
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,
@@ -1621,6 +1622,7 @@ impl StorageNodeTestConfig {
             storage_price: 5,
             write_price: 1,
             node_capacity: 1_000_000_000,
+            metadata: NodeMetadata::default(),
         }
     }
 }
@@ -2082,6 +2084,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             public_host: Some(rest_api_address.ip().to_string()),
             public_port: Some(rest_api_address.port()),
             metrics_push: None,
+            metadata: None,
         },
         temp_dir,
     }

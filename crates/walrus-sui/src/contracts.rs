@@ -301,6 +301,20 @@ pub mod events {
     contract_ident!(struct events::ShardRecoveryStart);
 }
 
+/// Module for tags corresponding to the Move module `extended_field`.
+pub mod extended_field {
+    use super::*;
+
+    contract_ident!(struct extended_field::Key);
+}
+
+/// Module for tags corresponding to the Move module `node_metadata`.
+pub mod node_metadata {
+    use super::*;
+
+    contract_ident!(fn node_metadata::new, 1);
+}
+
 /// Module for tags corresponding to the Move module `wal_exchange`.
 pub mod wal_exchange {
     use super::*;

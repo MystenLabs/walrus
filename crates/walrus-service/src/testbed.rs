@@ -38,7 +38,7 @@ use walrus_sui::{
         },
         DEFAULT_GAS_BUDGET,
     },
-    types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
+    types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -97,6 +97,7 @@ impl From<TestbedNodeConfig> for NodeRegistrationParams {
             storage_price: config.storage_price,
             write_price: config.write_price,
             node_capacity: config.node_capacity,
+            metadata: NodeMetadata::default(),
         }
     }
 }
@@ -588,6 +589,7 @@ pub async fn create_storage_node_configs(
                 node_capacity: node.node_capacity,
             },
             metrics_push: None,
+            metadata: None,
         });
     }
 
