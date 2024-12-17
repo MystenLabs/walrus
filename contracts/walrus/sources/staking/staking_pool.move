@@ -310,11 +310,6 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
     assert!(activation_epoch <= wctx.epoch(), EActivationEpochNotReached);
 
-    // token amount is either set in the `StakedWal` or, in case of the early
-    // withdrawal, is calculated from the principal amount and the exchange rate
-    // at the activation epoch.
-    //
-    // note: macro `destroy_or!` is not evaluated if the value is `Some`
     let token_amount = pool
         .exchange_rate_at_epoch(activation_epoch)
         .convert_to_token_amount(staked_wal.value());
