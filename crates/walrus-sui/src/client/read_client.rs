@@ -764,7 +764,6 @@ impl ReadClient for SuiReadClient {
     }
 
     #[cfg(not(feature = "walrus-mainnet"))]
-    // TODO: consider allowing access via dynamic field read
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
         let staking_object = self.get_staking_object().await?.inner;
         Ok(staking_object.active_set.nodes.into_iter().collect())
