@@ -533,14 +533,27 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
 /// the given epoch, due to the complexity of the pending stake and withdrawal
 /// requests, and lack of immediate updates.
 public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
-    let mut expected = pool.wal_balance;
     let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.pool_token_balance);
-    let token_withdraw = pool.pending_pool_token_withdraw.value_at(epoch);
-    let pending_withdrawal = exchange_rate.convert_to_wal_amount(token_withdraw);
 
-    expected = expected + pool.pending_stake.value_at(epoch);
-    expected = expected - pending_withdrawal;
-    expected
+    let mut pre_active_token_withdraw = 0;
+    let pre_active_withdrawals = pool.pre_active_withdrawals.unwrap();
+    pre_active_withdrawals.keys().do_ref!(|old_epoch| if (*old_epoch <= epoch) {
+        let wal_value = pre_active_withdrawals.get(old_epoch);
+        // recall that pre_active_withdrawals contains stakes that were
+        // active for exactly 1 epoch.
+        let activation_epoch = *old_epoch - 1;
+        let token_value_for_epoch = pool
+            .exchange_rate_at_epoch(activation_epoch)
+            .convert_to_token_amount(*wal_value);
+
+        pre_active_token_withdraw = pre_active_token_withdraw + token_value_for_epoch;
+    });
+    let token_withdraw = pool.pending_pool_token_withdraw.value_at(epoch);
+    let pending_withdrawal = exchange_rate.convert_to_wal_amount(
+        token_withdraw + pre_active_token_withdraw,
+    );
+
+    pool.wal_balance + pool.pending_stake.value_at(epoch) - pending_withdrawal
 }
 
 // === Accessors ===
