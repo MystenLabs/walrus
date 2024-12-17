@@ -60,6 +60,7 @@ axum = { workspace = true, features = [
   "tower-log",
   "tracing",
 ] }
+axum-extra = { version = "0.9.6", features = ["typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 byteorder.workspace = true
@@ -77,6 +78,7 @@ indicatif.workspace = true
 indoc = { workspace = true, optional = true }
 integer-encoding.workspace = true
 itertools.workspace = true
+jsonwebtoken = "9.2.0"
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }

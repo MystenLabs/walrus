@@ -465,6 +465,21 @@ pub struct PublisherArgs {
     #[clap(long, action)]
     #[serde(default)]
     pub keep: bool,
+    /// If set, the publisher will verify the JWT token.
+    /// If API Gatewate already check the token, we can skip the signature validation
+    #[clap(long)]
+    #[serde(default)]
+    pub jwt_decode_secret: Option<String>,
+    /// If set and greater than 0, exp will be check based on `iat`
+    #[clap(long)]
+    #[serde(default)]
+    pub jwt_expiring_sec: u64,
+    /// - Verify `epochs` in query should be the same as `epoch` in JWT claim if set
+    /// - Verify `send_object_to` in query should be the same as `address` in JWT claim if set
+    // TODO: /// - Verify the size/hash of uploaded file
+    #[clap(long)]
+    #[serde(default)]
+    pub jwt_verify_upload: bool,
 }
 
 impl PublisherArgs {
@@ -836,6 +851,9 @@ mod tests {
                 wal_refill_amount: default::wal_refill_amount(),
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
                 keep: false,
+                jwt_decode_secret: None,
+                jwt_expiring_sec: 0,
+                jwt_verify_upload: false,
             },
         })
     }

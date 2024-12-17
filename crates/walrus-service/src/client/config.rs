@@ -95,6 +95,26 @@ pub enum ExchangeObjectConfig {
     Multiple(Vec<ObjectID>),
 }
 
+/// Configure for publisher authentication
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct AuthConfig {
+    /// The scecret for JWT decode
+    pub(crate) secret: Option<String>,
+    /// If not 0, publisher will verify the expiring seconds
+    pub(crate) expiring_sec: u64,
+    /// verify upload file size and address for `send_object_to`
+    pub(crate) verify_upload: bool,
+}
+
+impl AuthConfig {
+    pub fn new(secret: String) -> Self {
+        Self {
+            secret: Some(secret),
+            ..Default::default()
+        }
+    }
+}
+
 /// Configuration for the communication parameters of the client
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]

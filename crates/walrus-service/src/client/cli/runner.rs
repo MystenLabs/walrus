@@ -54,7 +54,7 @@ use crate::{
             CliOutput,
             HumanReadableMist,
         },
-        config::ExchangeObjectConfig,
+        config::{AuthConfig, ExchangeObjectConfig},
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -449,7 +449,11 @@ impl ClientCommandRunner {
         blobs.print_output(self.json)
     }
 
-    pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
+    pub(crate) async fn publisher(
+        self,
+        registry: &Registry,
+        mut args: PublisherArgs,
+    ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus publisher");
         let client = ClientMultiplexer::new(
             self.wallet?,
@@ -459,9 +463,25 @@ impl ClientCommandRunner {
             &args,
         )
         .await?;
+        let auth_config = if args.jwt_decode_secret.is_some()
+            || args.jwt_expiring_sec > 0
+            || args.jwt_verify_upload
+        {
+            let mut c = args
+                .jwt_decode_secret
+                .take()
+                .map(AuthConfig::new)
+                .unwrap_or_default();
+            c.expiring_sec = args.jwt_expiring_sec;
+            c.verify_upload = args.jwt_verify_upload;
+            Some(c)
+        } else {
+            None
+        };
 
         ClientDaemon::new_publisher(
             client,
+            auth_config,
             args.daemon_args.bind_address,
             args.max_body_size(),
             registry,
@@ -494,8 +514,9 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    pub(crate) async fn daemon(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
+    pub(crate) async fn daemon(self, registry: &Registry, mut args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
+        let auth_config = args.jwt_decode_secret.take().map(AuthConfig::new);
         let client = get_contract_client(
             self.config?,
             self.wallet,
@@ -505,6 +526,7 @@ impl ClientCommandRunner {
         .await?;
         ClientDaemon::new_daemon(
             client,
+            auth_config,
             args.daemon_args.bind_address,
             args.max_body_size(),
             registry,
