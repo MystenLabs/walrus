@@ -62,7 +62,7 @@ impl TryFrom<SuiEvent> for BlobRegistered {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, size, encoding_type, end_epoch, deletable, object_id) =
-            bcs::from_bytes(&sui_event.bcs)?;
+            bcs::from_bytes(sui_event.bcs.bytes())?;
 
         Ok(Self {
             epoch,
@@ -107,7 +107,7 @@ impl TryFrom<SuiEvent> for BlobCertified {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, end_epoch, deletable, object_id, is_extension) =
-            bcs::from_bytes(&sui_event.bcs)?;
+            bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
@@ -148,7 +148,7 @@ impl TryFrom<SuiEvent> for BlobDeleted {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, end_epoch, object_id, was_certified) =
-            bcs::from_bytes(&sui_event.bcs)?;
+            bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
@@ -181,7 +181,7 @@ impl TryFrom<SuiEvent> for InvalidBlobId {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id) = bcs::from_bytes(&sui_event.bcs)?;
+        let (epoch, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             blob_id,
@@ -331,7 +331,7 @@ impl TryFrom<SuiEvent> for EpochParametersSelected {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let next_epoch = bcs::from_bytes(&sui_event.bcs)?;
+        let next_epoch = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             next_epoch,
             event_id: sui_event.id,
@@ -358,7 +358,7 @@ impl TryFrom<SuiEvent> for EpochChangeStart {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let epoch = bcs::from_bytes(&sui_event.bcs)?;
+        let epoch = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             event_id: sui_event.id,
@@ -385,7 +385,7 @@ impl TryFrom<SuiEvent> for EpochChangeDone {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let epoch = bcs::from_bytes(&sui_event.bcs)?;
+        let epoch = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             event_id: sui_event.id,
@@ -413,7 +413,7 @@ impl TryFrom<SuiEvent> for ShardsReceived {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, shards) = bcs::from_bytes(&sui_event.bcs)?;
+        let (epoch, shards) = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             shards,
@@ -441,7 +441,7 @@ impl TryFrom<SuiEvent> for ShardRecoveryStart {
     fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
         ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
 
-        let (epoch, shards) = bcs::from_bytes(&sui_event.bcs)?;
+        let (epoch, shards) = bcs::from_bytes(sui_event.bcs.bytes())?;
         Ok(Self {
             epoch,
             shards,

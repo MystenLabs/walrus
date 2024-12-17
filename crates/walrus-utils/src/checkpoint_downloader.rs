@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use sui_rpc_api::{client::sdk, Client};
+use sui_rpc_api::{client::ResponseExt, Client};
 use sui_types::{
     full_checkpoint_content::CheckpointData,
     messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint},
@@ -24,6 +24,7 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
+use tonic::Status;
 use typed_store::{rocks::DBMap, Map};
 
 /// Fetcher configuration options for the parallel checkpoint fetcher.
@@ -577,24 +578,19 @@ fn create_backoff(
 /// Handles an error that occurred while reading the next checkpoint.
 /// If the error is due to a checkpoint that is already present on the server, it is logged as an
 /// error. Otherwise, it is logged as a debug.
-fn handle_checkpoint_error(err: Option<&sdk::Error>, next_checkpoint: u64) {
-    let error = err.as_ref().map(|e| e.to_string()).unwrap_or_default();
-    if let Some(checkpoint_height) = err
-        .as_ref()
-        .and_then(|e| e.parts())
-        .and_then(|p| p.checkpoint_height)
-    {
+fn handle_checkpoint_error(status: Option<&Status>, next_checkpoint: u64) {
+    if let Some(checkpoint_height) = status.as_ref().and_then(|e| e.checkpoint_height()) {
         if next_checkpoint > checkpoint_height {
             tracing::trace!(
                 next_checkpoint,
                 checkpoint_height,
-                %error,
+                message = status.as_ref().map(|e| e.message()),
                 "failed to read next checkpoint, probably not produced yet",
             );
             return;
         }
     }
-    tracing::warn!(next_checkpoint, ?error, "failed to read next checkpoint",);
+    tracing::warn!(next_checkpoint, ?status, "failed to read next checkpoint",);
 }
 
 #[cfg(test)]
