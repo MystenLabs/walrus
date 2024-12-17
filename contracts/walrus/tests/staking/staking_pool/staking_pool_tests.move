@@ -415,6 +415,68 @@ fun wal_balance_at_epoch() {
 }
 
 #[test]
+// Check that wal balance correctly updates after a pre-active stake
+// withdrawal.
+fun wal_balance_after_pre_active_withdrawal() {
+    let mut test = context_runner();
+
+    // E0:
+    // A stakes 1000 (E1)
+    // B stakes 500 (E1)
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+
+    assert_eq!(pool.wal_balance(), 0);
+
+    let mut staked_wal_a = pool.stake(mint_balance(1000), &wctx, ctx);
+    let mut staked_wal_b = pool.stake(mint_balance(500), &wctx, ctx);
+
+    {
+        assert_eq!(pool.wal_balance(), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1500);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1500);
+    };
+
+    // E0+: committee has been selected, B unstakes pre-active stake, C stakes 1000 (E2)
+    let (wctx, ctx) = test.select_committee();
+    pool.request_withdraw_stake(&mut staked_wal_b, &wctx); // -1000 E+1
+    let staked_wal_c = pool.stake(mint_balance(1000), &wctx, ctx);
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E0), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1500);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 2000);
+    };
+
+    // Since we are still in E0, the stake is not active yet
+    // and can be withdrawn immediately.
+    let balance_c = pool.withdraw_stake(staked_wal_c, &wctx);
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E0), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1500);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1000);
+    };
+
+    // Clean up the pool
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    pool.request_withdraw_stake(&mut staked_wal_a, &wctx);
+
+    let (wctx, _) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    let balance_a = pool.withdraw_stake(staked_wal_a, &wctx);
+    let balance_b = pool.withdraw_stake(staked_wal_b, &wctx);
+
+    assert_eq!(balance_a.destroy_for_testing(), 1000);
+    assert_eq!(balance_b.destroy_for_testing(), 500);
+    assert_eq!(balance_c.destroy_for_testing(), 1000);
+
+    pool.destroy_empty()
+}
+
+#[test]
 // Scenario:
 // E0: Alice stakes: 1000 WAL;
 // E1: Bob stakes: 1000 WAL; Chalie stakes: 1000 WAL;
