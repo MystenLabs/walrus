@@ -415,7 +415,7 @@ fun wal_balance_at_epoch() {
 }
 
 #[test]
-// Check that wal balance correctly updates after a pre-active stake
+// Check that wal_balance_at_epoch correctly updates after a pre-active stake
 // withdrawal.
 fun wal_balance_after_pre_active_withdrawal() {
     let mut test = context_runner();
