@@ -770,6 +770,11 @@ impl ReadClient for SuiReadClient {
         let staking_object = self.get_staking_object().await?.inner;
         Ok(staking_object.active_set.nodes.into_iter().collect())
     }
+
+    #[cfg(feature = "walrus-mainnet")]
+    async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
+        Err(SuiClientError::NotImplemented)
+    }
 }
 
 impl fmt::Debug for SuiReadClient {
