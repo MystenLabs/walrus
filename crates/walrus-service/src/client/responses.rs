@@ -280,8 +280,7 @@ impl StorageNodeInfo {
             next_epoch_public_key,
             network_public_key,
             shard_ids,
-            #[cfg(feature = "walrus-mainnet")]
-                metadata: _,
+            ..
         } = value;
         Self {
             name,

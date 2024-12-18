@@ -500,14 +500,14 @@ fun node_update_metadata() {
     runner.tx!(node.sui_address(), |staking, _, _| {
         let mut metadata = staking.node_metadata(node.node_id());
         metadata.set_description(b"Tusk Crew".to_string());
-        metadata.set_project_url(b"https://crew.walrus.sites/".to_string());
+        metadata.set_project_url(b"https://crew.walrus.site/".to_string());
         staking.set_node_metadata(node.cap(), metadata);
     });
 
     runner.tx!(node.sui_address(), |staking, _, _| {
         let metadata = staking.node_metadata(node.node_id());
         assert_eq!(metadata.description(), b"Tusk Crew".to_string());
-        assert_eq!(metadata.project_url(), b"https://crew.walrus.sites/".to_string());
+        assert_eq!(metadata.project_url(), b"https://crew.walrus.site/".to_string());
     });
 
     nodes.destroy!(|node| node.destroy());
