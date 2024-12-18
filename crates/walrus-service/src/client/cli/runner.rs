@@ -360,7 +360,7 @@ impl ClientCommandRunner {
                 .into_iter()
                 .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
                 .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
-            let result = client
+            let results = client
                 .reserve_and_store_blobs_retry_epoch_with_path(
                     &blobs,
                     epochs,
@@ -369,13 +369,26 @@ impl ClientCommandRunner {
                     PostStoreAction::Keep,
                 )
                 .await?;
+            let blobs_len = blobs.len();
+            if results.len() != blobs_len {
+                let original_paths: Vec<_> = blobs.into_iter().map(|(path, _)| path).collect();
+                let not_stored = results
+                    .iter()
+                    .filter(|blob| !original_paths.contains(&blob.path))
+                    .map(|blob| blob.blob_store_result.blob_id())
+                    .collect::<Vec<_>>();
+                tracing::warn!(
+                    "some blobs ({}) are not stored",
+                    not_stored.into_iter().join(", ")
+                );
+            }
             tracing::info!(
                 duration = ?start_timer.elapsed(),
                 "{} out of {} blobs stored",
-                result.len(),
-                blobs.len()
+                results.len(),
+                blobs_len
             );
-            result.print_output(self.json)
+            results.print_output(self.json)
         }
     }
 

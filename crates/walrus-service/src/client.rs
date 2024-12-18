@@ -664,11 +664,9 @@ impl Client<SuiContractClient> {
         >,
     > {
         // Filters out all the failed blobs that cannot fetch status and continue.
-        let failed_blobs = Arc::new(RwLock::new(Vec::with_capacity(pairs_and_metadata.len())));
         let blob_id_to_metadata_with_status: HashMap<BlobId, (_, _, _)> =
-            futures::future::join_all(pairs_and_metadata.iter().map(|(pair, metadata)| {
-                let failed_blobs_write = failed_blobs.clone();
-                async move {
+            futures::future::join_all(pairs_and_metadata.iter().map(
+                |(pair, metadata)| async move {
                     let blob_id = *metadata.blob_id();
                     match async {
                         self.check_blob_id(&blob_id)?;
@@ -682,13 +680,11 @@ impl Client<SuiContractClient> {
                         Ok(result) => Some(result),
                         Err(e) => {
                             tracing::warn!("Failed to process blob {}: {}", blob_id, e);
-                            let mut guard = failed_blobs_write.write().await;
-                            guard.push((blob_id, e));
                             None
                         }
                     }
-                }
-            }))
+                },
+            ))
             .await
             .into_iter()
             .flatten()
