@@ -9,7 +9,6 @@ use sui::{bag::{Self, Bag}, balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
     commission::{Self, Auth, Receiver},
-    extended_field::{Self, ExtendedField},
     messages,
     node_metadata::NodeMetadata,
     pending_values::{Self, PendingValues},
@@ -82,8 +81,6 @@ public struct StakingPool has key, store {
     voting_params: VotingParams,
     /// The storage node info for the pool.
     node_info: StorageNodeInfo,
-    /// The metadata of the storage node.
-    node_metadata: ExtendedField<NodeMetadata>,
     /// The epoch when the pool is / will be activated.
     /// Serves information purposes only, the checks are performed in the `state`
     /// property.
@@ -190,8 +187,9 @@ public(package) fun new(
             network_address,
             public_key,
             network_public_key,
+            metadata,
+            ctx,
         ),
-        node_metadata: extended_field::new(metadata, ctx),
         commission_rate,
         activation_epoch,
         latest_epoch: wctx.epoch(),
@@ -497,6 +495,11 @@ public(package) fun set_network_public_key(self: &mut StakingPool, network_publi
     self.node_info.set_network_public_key(network_public_key);
 }
 
+/// Sets the node metadata.
+public(package) fun set_node_metadata(self: &mut StakingPool, metadata: NodeMetadata) {
+    self.node_info.set_node_metadata(metadata);
+}
+
 /// Destroy the pool if it is empty.
 public(package) fun destroy_empty(pool: StakingPool) {
     assert!(pool.is_empty(), EPoolNotEmpty);
@@ -508,13 +511,13 @@ public(package) fun destroy_empty(pool: StakingPool) {
         rewards_pool,
         commission,
         extra_fields,
-        node_metadata,
+        node_info,
         ..,
     } = pool;
 
     id.delete();
     exchange_rates.drop();
-    node_metadata.destroy();
+    node_info.destroy();
     commission.destroy_zero();
     rewards_pool.destroy_zero();
     extra_fields.destroy_empty();

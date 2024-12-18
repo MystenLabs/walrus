@@ -102,6 +102,9 @@ pub struct StorageNode {
     /// The network key of the storage node.
     #[serde(deserialize_with = "deserialize_public_key")]
     pub network_public_key: NetworkPublicKey,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The metadata for the pool.
+    node_metadata: ObjectID,
     /// The indices of the shards held by the storage node.
     #[serde(default, skip_deserializing)]
     pub shard_ids: Vec<ShardIndex>,
@@ -204,9 +207,6 @@ pub(crate) struct StakingPool {
     voting_params: VotingParams,
     /// The storage node info for the pool.
     pub node_info: StorageNode,
-    #[cfg(feature = "walrus-mainnet")]
-    /// The metadata for the pool.
-    node_metadata: ObjectID,
     /// The epoch when the pool is / will be activated.
     activation_epoch: Epoch,
     /// Epoch when the pool was last updated.

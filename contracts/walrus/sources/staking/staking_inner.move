@@ -352,6 +352,15 @@ public(package) fun set_network_public_key(
     self.pools[cap.node_id()].set_network_public_key(network_public_key);
 }
 
+/// Sets the metadata of a storage node.
+public(package) fun set_node_metadata(
+    self: &mut StakingInnerV1,
+    cap: &StorageNodeCap,
+    metadata: NodeMetadata,
+) {
+    self.pools[cap.node_id()].set_node_metadata(metadata);
+}
+
 // === Staking ===
 
 /// Blocks staking for the pool, marks it as "withdrawing".

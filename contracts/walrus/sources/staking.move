@@ -183,6 +183,15 @@ public fun set_network_public_key(
     self.inner_mut().set_network_public_key(cap, network_public_key);
 }
 
+/// Sets the metadata of a storage node.
+public fun set_node_metadata(
+    self: &mut Staking,
+    cap: &StorageNodeCap,
+    metadata: NodeMetadata,
+) {
+    self.inner_mut().set_node_metadata(cap, metadata);
+}
+
 // === Epoch Change ===
 
 /// Ends the voting period and runs the apportionment if the current time allows.
