@@ -1753,6 +1753,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
             network_public_key: NetworkKeyPair::generate().public().clone(),
             name: String::new(),
             network_address: NetworkAddress("host:0".to_owned()),
+            #[cfg(feature = "walrus-mainnet")]
             metadata: ObjectID::random(),
         })
         .collect();
