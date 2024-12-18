@@ -281,7 +281,7 @@ impl StorageNodeInfo {
             network_public_key,
             shard_ids,
             #[cfg(feature = "walrus-mainnet")]
-            metadata: _,
+                metadata: _,
         } = value;
         Self {
             name,
