@@ -138,10 +138,7 @@ public(package) fun set_network_public_key(
 }
 
 /// Sets the metadata of the storage node.
-public(package) fun set_node_metadata(
-    self: &mut StorageNodeInfo,
-    metadata: NodeMetadata,
-) {
+public(package) fun set_node_metadata(self: &mut StorageNodeInfo, metadata: NodeMetadata) {
     self.metadata.swap(metadata);
 }
 
