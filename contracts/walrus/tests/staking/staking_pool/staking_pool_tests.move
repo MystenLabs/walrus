@@ -477,6 +477,69 @@ fun wal_balance_after_pre_active_withdrawal() {
 }
 
 #[test]
+// Check that wal_balance_at_epoch correctly updates if a stake is withdrawn
+// after two epochs.
+fun wal_balance_with_withdrawal_after_two_epochs() {
+    let mut test = context_runner();
+
+    let (wctx, ctx) = test.select_committee();
+    let mut pool = pool().build(&wctx, ctx);
+    assert_eq!(pool.wal_balance(), 0);
+    {
+        assert_eq!(pool.wal_balance(), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 0);
+    };
+
+    // E0:
+    // A stakes 1000
+    let mut staked_wal_a = pool.stake(mint_balance(1000), &wctx, ctx);
+    {
+        assert_eq!(pool.wal_balance(), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E1), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1000);
+    };
+    test.next_epoch();
+    let (wctx, _) = test.select_committee();
+
+    // E1:
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E1), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 1000);
+    };
+
+    pool.request_withdraw_stake(&mut staked_wal_a, &wctx);
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E1), 0);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 0);
+    };
+    test.next_epoch();
+    let (wctx, _) = test.select_committee();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    // E2:
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 0);
+    };
+    let (_, _) = test.next_epoch();
+    let (wctx, _) = test.select_committee();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    // E3:
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E3), 0);
+    };
+
+    let balance_a = pool.withdraw_stake(staked_wal_a, &wctx);
+
+    assert_eq!(balance_a.destroy_for_testing(), 1000);
+    pool.destroy_empty()
+}
+
+#[test]
 // Scenario:
 // E0: Alice stakes: 1000 WAL;
 // E1: Bob stakes: 1000 WAL; Chalie stakes: 1000 WAL;

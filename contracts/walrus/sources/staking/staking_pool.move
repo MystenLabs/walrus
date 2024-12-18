@@ -551,7 +551,9 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     pre_active_withdrawals.keys().do_ref!(|old_epoch| if (*old_epoch <= epoch) {
         let wal_value = pre_active_withdrawals.get(old_epoch);
         // recall that pre_active_withdrawals contains stakes that were
-        // active for exactly 1 epoch.
+        // active for exactly 1 epoch. since the node might have been
+        // inactive, this list may contain more than one value
+        // (although exchange_rate_at_epoch will return the same value).
         let activation_epoch = *old_epoch - 1;
         let token_value_for_epoch = pool
             .exchange_rate_at_epoch(activation_epoch)
