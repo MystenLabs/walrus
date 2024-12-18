@@ -908,7 +908,8 @@ impl PermanentBlobInfoV1 {
             end_epoch: new_end_epoch,
             status_event: new_status_event,
             deletable,
-            ..
+            #[cfg(feature = "walrus-mainnet")]
+                blob_id: _,
         } = change_info;
         assert!(!deletable);
 
@@ -1086,7 +1087,8 @@ impl Mergeable for BlobInfoV1 {
                     epoch: _,
                     end_epoch,
                     status_event,
-                    ..
+                    #[cfg(feature = "walrus-mainnet")]
+                        blob_id: _,
                 },
         } = operand
         else {
@@ -1346,8 +1348,11 @@ mod per_object_blob_info {
             assert!(!self.deleted);
             self.event = change_info.status_event;
             match change_type {
+                // We ensure that the blob info is only updated a single time for each event. So if
+                // we see a duplicated registered or certified event for the some object, this is a
+                // serious bug somewhere.
                 BlobStatusChangeType::Register => {
-                    unreachable!("cannot register an already registered blob");
+                    panic!("cannot register an already registered blob");
                 }
                 BlobStatusChangeType::Certify => {
                     assert!(
