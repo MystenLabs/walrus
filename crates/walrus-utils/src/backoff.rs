@@ -7,7 +7,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 /// Wrapper for the configuration for the exponential backoff strategy.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ExponentialBackoffConfig {
     /// The minimum backoff duration.
     pub min_backoff: Duration,
