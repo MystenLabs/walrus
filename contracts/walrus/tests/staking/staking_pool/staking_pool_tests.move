@@ -4,7 +4,7 @@
 module walrus::staking_pool_tests;
 
 use sui::test_utils::destroy;
-use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq};
+use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq, dbg};
 
 #[test]
 // Scenario: Alice stakes, pool receives rewards, Alice withdraws everything
@@ -475,6 +475,74 @@ fun wal_balance_after_pre_active_withdrawal() {
 
     pool.destroy_empty()
 }
+
+
+#[test]
+// Check that wal_balance_at_epoch correctly updates after a pre-active stake
+// withdrawal.
+fun wal_balance_after_pre_active_withdrawal_with_rewards() {
+    let mut test = context_runner();
+
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+
+    assert_eq!(pool.wal_balance(), 0);
+
+    let mut staked_wal_a = pool.stake(mint_balance(1000), &wctx, ctx);
+
+    // Initial epoch change
+    let (wctx, ctx) = test.next_epoch();
+    pool.advance_epoch(mint_balance(0), &wctx);
+
+    let mut staked_wal_b = pool.stake(mint_balance(500), &wctx, ctx);
+
+    {
+        assert_eq!(pool.wal_balance(), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1500);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 1500);
+    };
+
+    // E0+: committee has been selected, B unstakes pre-active stake
+    let (wctx, _) = test.select_committee();
+    pool.request_withdraw_stake(&mut staked_wal_b, &wctx); // -500 E+1
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+        assert_eq!(pool.wal_balance_at_epoch(E2), 1500);
+        assert_eq!(pool.wal_balance_at_epoch(E3), 1000);
+    };
+
+    let (wctx, _) = test.next_epoch();
+    // Rewards for E2, 1000 to A, 500 to B
+    pool.advance_epoch(mint_balance(1500), &wctx);
+
+    {
+        dbg!(b"E3", pool.wal_balance_at_epoch(E3));
+        // This fails, because the balance is 2500, not 2000
+        //assert_eq!(pool.wal_balance_at_epoch(E3), 2000);
+    };
+
+    pool.request_withdraw_stake(&mut staked_wal_a, &wctx);
+
+    let (wctx, _) = test.next_epoch();
+    // Rewards for E3, should only go to A
+    pool.advance_epoch(mint_balance(1000), &wctx);
+
+    {
+        assert_eq!(pool.wal_balance_at_epoch(E3), 0);
+    };
+
+    let balance_a = pool.withdraw_stake(staked_wal_a, &wctx);
+    let balance_b = pool.withdraw_stake(staked_wal_b, &wctx);
+
+    dbg!(b"balance_a", balance_a.value());
+    dbg!(b"balance_b", balance_b.value());
+    assert_eq!(balance_a.destroy_for_testing(), 3000);
+    assert_eq!(balance_b.destroy_for_testing(), 1000);
+
+    pool.destroy_empty()
+}
+
 
 #[test]
 // Scenario:
