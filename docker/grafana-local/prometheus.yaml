@@ -1,0 +1,53 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090", "host.docker.internal:9184"]
+  - job_name: "Storage_0"
+    static_configs:
+      - targets: ["host.docker.internal:9184"]
+        labels:
+          host: storage0
+          network: local
+  - job_name: "Storage_1"
+    static_configs:
+      - targets: ["host.docker.internal:9185"]
+        labels:
+          host: storage1
+          network: local
+  - job_name: "Storage_2"
+    static_configs:
+      - targets: ["host.docker.internal:9186"]
+        labels:
+          host: storage2
+          network: local
+  - job_name: "Storage_3"
+    static_configs:
+      - targets: ["host.docker.internal:9187"]
+        labels:
+          host: storage3
+          network: local
+  - job_name: "Storage_4"
+    static_configs:
+      - targets: ["host.docker.internal:9188"]
+        labels:
+          host: storage4
+          network: local
+  - job_name: "Storage_5"
+    static_configs:
+      - targets: ["host.docker.internal:9189"]
+        labels:
+          host: storage5
+          network: local
+  - job_name: "tempo"
+    static_configs:
+      - targets: ["tempo:3200"]
+  - job_name: "node"
+    static_configs:
+      - targets: ["host.docker.internal:9100"]
+        labels:
+          host: node
+          network: local
