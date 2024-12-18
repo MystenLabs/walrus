@@ -469,7 +469,49 @@ fun test_epoch_change_with_rewards_and_commission() {
 
 #[test]
 fun node_update_metadata() {
-    
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    let epoch = runner.epoch();
+    let node = &mut nodes[0];
+
+    runner.tx!(node.sui_address(), |staking, _, ctx| {
+        let cap = staking.register_candidate(
+            node.name(),
+            node.network_address(),
+            node.metadata(),
+            node.bls_pk(),
+            node.network_key(),
+            node.create_proof_of_possession(epoch),
+            COMMISSION_RATE,
+            STORAGE_PRICE,
+            WRITE_PRICE,
+            NODE_CAPACITY,
+            ctx,
+        );
+        node.set_storage_node_cap(cap);
+    });
+
+    runner.tx!(node.sui_address(), |staking, _, _| {
+        let mut metadata = staking.node_metadata(node.node_id());
+        metadata.set_description(b"Tusk Crew".to_string());
+        metadata.set_project_url(b"https://crew.walrus.sites/".to_string());
+        staking.set_node_metadata(node.cap(), metadata);
+    });
+
+    runner.tx!(node.sui_address(), |staking, _, _| {
+        let metadata = staking.node_metadata(node.node_id());
+        assert_eq!(metadata.description(), b"Tusk Crew".to_string());
+        assert_eq!(metadata.project_url(), b"https://crew.walrus.sites/".to_string());
+    });
+
+    nodes.destroy!(|node| node.destroy());
+    runner.destroy();
 }
 
 #[test, expected_failure(abort_code = staking_pool::EInvalidProofOfPossession)]
