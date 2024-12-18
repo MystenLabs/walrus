@@ -104,7 +104,6 @@ impl ShardSyncHandler {
             == NodeStatus::RecoverMetadata
         {
             self.node
-                .storage
                 .set_node_status(NodeStatus::Active)
                 .expect("setting node status should not fail");
         }

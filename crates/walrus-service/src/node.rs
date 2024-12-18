@@ -882,7 +882,7 @@ impl StorageNode {
             tracing::info!(
                 "node is not in the current committee, set node status to Standby status"
             );
-            self.inner.storage.set_node_status(NodeStatus::Standby)?;
+            self.inner.set_node_status(NodeStatus::Standby)?;
             event_handle.mark_as_complete();
             return Ok(());
         }
@@ -947,7 +947,7 @@ impl StorageNode {
                 // current committee, and therefore from this epoch, it won't sync any blob
                 // metadata. In the case it becomes committee member again, it needs to sync blob
                 // metadata again.
-                self.inner.storage.set_node_status(NodeStatus::Standby)?;
+                self.inner.set_node_status(NodeStatus::Standby)?;
             }
             self.process_shard_changes_in_new_epoch(event_handle, event, false)
                 .await
@@ -1113,9 +1113,7 @@ impl StorageNode {
                 // It's also important to set RecoverMetadata status after creating storage for
                 // the new shards. Restarting seeing RecoverMetadata status will assume all the
                 // shards are created.
-                self.inner
-                    .storage
-                    .set_node_status(NodeStatus::RecoverMetadata)?;
+                self.inner.set_node_status(NodeStatus::RecoverMetadata)?;
             }
 
             // There shouldn't be an epoch change event for the genesis epoch.
@@ -3662,9 +3660,7 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
-            node_inner
-                .storage
-                .set_node_status(NodeStatus::RecoverMetadata)?;
+            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
         cluster.nodes[1]
@@ -3728,9 +3724,7 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
-            node_inner
-                .storage
-                .set_node_status(NodeStatus::RecoverMetadata)?;
+            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
         cluster.nodes[1]
