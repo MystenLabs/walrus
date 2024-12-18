@@ -3,7 +3,7 @@
 
 module walrus::pool_rounding_tests;
 
-use walrus::test_utils::{mint_balance, pool, context_runner, assert_eq};
+use walrus::{auth, test_utils::{mint_balance, pool, context_runner, assert_eq}};
 
 #[test, expected_failure(abort_code = ::walrus::staking_pool::EPoolNotEmpty)]
 // Failure reason: rewards left in the pool after all stakes are withdrawn
@@ -81,7 +81,7 @@ fun commission_rounding_success() {
     let balance_a = pool.withdraw_stake(staked_a, true, false, &wctx);
     assert_eq!(balance_a.destroy_for_testing(), 282); // 100 + 183 rewards?
 
-    let auth = walrus::commission::auth_as_sender(ctx);
+    let auth = auth::authenticate_sender(ctx);
     let commission = pool.collect_commission(auth);
     assert_eq!(commission.destroy_for_testing(), 20);
 

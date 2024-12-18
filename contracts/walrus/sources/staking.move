@@ -9,7 +9,7 @@ use std::string::String;
 use sui::{clock::Clock, coin::Coin, dynamic_object_field as df};
 use wal::wal::WAL;
 use walrus::{
-    commission::{Self, Auth, Receiver},
+    auth::{Self, Authenticated, Authorized},
     node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
@@ -99,8 +99,8 @@ public fun register_candidate(
 
     // Switch the commission receiver from the sender (default) to the cap.
     let cap = storage_node::new_cap(node_id, ctx);
-    let receiver = commission::receiver_object(object::id(&cap));
-    staking_mut.set_commission_receiver(node_id, commission::auth_as_sender(ctx), receiver);
+    let receiver = auth::authorized_object(object::id(&cap));
+    staking_mut.set_commission_receiver(node_id, auth::authenticate_sender(ctx), receiver);
     cap
 }
 
@@ -129,7 +129,7 @@ public fun set_next_commission(staking: &mut Staking, cap: &StorageNodeCap, comm
 public fun collect_commission(
     staking: &mut Staking,
     node_id: ID,
-    auth: Auth,
+    auth: Authenticated,
     ctx: &mut TxContext,
 ): Coin<WAL> {
     staking.inner_mut().collect_commission(node_id, auth).into_coin(ctx)
@@ -139,10 +139,36 @@ public fun collect_commission(
 public fun set_commission_receiver(
     staking: &mut Staking,
     node_id: ID,
-    auth: Auth,
-    receiver: Receiver,
+    auth: Authenticated,
+    receiver: Authorized,
 ) {
     staking.inner_mut().set_commission_receiver(node_id, auth, receiver);
+}
+
+// === Governance ===
+
+/// Sets the governance authorized object for the pool.
+public fun set_governance_authorized(
+    staking: &mut Staking,
+    node_id: ID,
+    auth: Authenticated,
+    authorized: Authorized,
+) {
+    staking.inner_mut().set_governance_authorized(node_id, auth, authorized);
+}
+
+/// Checks if the governance authorized object matches the authenticated object.
+public(package) fun check_governance_authorization(
+    staking: &Staking,
+    node_id: ID,
+    auth: Authenticated,
+): bool {
+    staking.inner().check_governance_authorization(node_id, auth)
+}
+
+/// Returns the current node weight for the given node id.
+public(package) fun get_current_node_weight(staking: &Staking, node_id: ID): u16 {
+    staking.inner().get_current_node_weight(node_id)
 }
 
 // === Voting ===
@@ -297,6 +323,11 @@ public(package) fun version(staking: &Staking): u64 {
 /// Returns the current epoch of the staking object.
 public fun epoch(staking: &Staking): u32 {
     staking.inner().epoch()
+}
+
+/// Checks if the weight reaches a quorum.
+public(package) fun is_quorum(staking: &Staking, weight: u16): bool {
+    staking.inner().is_quorum(weight)
 }
 
 // === Utility functions ===

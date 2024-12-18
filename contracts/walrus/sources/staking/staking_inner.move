@@ -17,8 +17,8 @@ use sui::{
 use wal::wal::WAL;
 use walrus::{
     active_set::{Self, ActiveSet},
+    auth::{Authenticated, Authorized},
     bls_aggregate::{Self, BlsCommittee},
-    commission::{Auth, Receiver},
     committee::{Self, Committee},
     epoch_parameters::{Self, EpochParams},
     events,
@@ -52,7 +52,8 @@ const ENoStake: u64 = 3;
 const ENotInCommittee: u64 = 4;
 const ECommitteeSelected: u64 = 5;
 const ENextCommitteeIsEmpty: u64 = 6;
-const EPoolNotFound: u64 = 7;
+const EInvalidNodeWeight: u64 = 7;
+const EPoolNotFound: u64 = 8;
 // TODO: remove this once the module is implemented.
 const ENotImplemented: u64 = 264;
 
@@ -182,8 +183,8 @@ public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNo
 public(package) fun set_commission_receiver(
     self: &mut StakingInnerV1,
     node_id: ID,
-    auth: Auth,
-    receiver: Receiver,
+    auth: Authenticated,
+    receiver: Authorized,
 ) {
     self.pools[node_id].set_commission_receiver(auth, receiver)
 }
@@ -192,7 +193,7 @@ public(package) fun set_commission_receiver(
 public(package) fun collect_commission(
     self: &mut StakingInnerV1,
     node_id: ID,
-    auth: Auth,
+    auth: Authenticated,
 ): Balance<WAL> {
     self.pools[node_id].collect_commission(auth)
 }
@@ -277,6 +278,36 @@ fun take_threshold_value(vote_queue: &mut PriorityQueue<u64>, threshold_weight: 
             return value
         };
     }
+}
+
+// === Governance ===
+
+/// Sets the governance authorized object for the pool.
+public(package) fun set_governance_authorized(
+    self: &mut StakingInnerV1,
+    node_id: ID,
+    auth: Authenticated,
+    authorized: Authorized,
+) {
+    self.pools[node_id].set_governance_authorized(auth, authorized)
+}
+
+/// Checks if the governance authorized object matches the authenticated object.
+public(package) fun check_governance_authorization(
+    self: &StakingInnerV1,
+    node_id: ID,
+    auth: Authenticated,
+): bool {
+    auth.matches(self.pools[node_id].governance_authorized())
+}
+
+/// Returns the current node weight for the given node id.
+public(package) fun get_current_node_weight(self: &StakingInnerV1, node_id: ID): u16 {
+    // Check if the node is in the committee.
+    assert!(self.committee.inner().contains(&node_id), ENotInCommittee);
+    let weight = self.committee.shards(&node_id).length();
+    assert!(weight <= std::u16::max_value!() as u64, EInvalidNodeWeight);
+    weight as u16
 }
 
 // === Voting ===
@@ -597,7 +628,7 @@ public(package) fun epoch_sync_done(
     match (self.epoch_state) {
         EpochState::EpochChangeSync(weight) => {
             let weight = weight + (node_shards.length() as u16);
-            if (is_quorum(weight, self.n_shards)) {
+            if (self.is_quorum(weight)) {
                 self.epoch_state = EpochState::EpochChangeDone(clock.timestamp_ms());
                 events::emit_epoch_change_done(self.epoch);
             } else {
@@ -686,6 +717,11 @@ public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
     self.pools.contains(node_id)
 }
 
+/// Returns the total number of shards.
+public(package) fun n_shards(self: &StakingInnerV1): u16 {
+    self.n_shards
+}
+
 // === Utility functions ===
 
 /// Calculate the rewards for an amount with value `staked_principal`, staked in the pool with
@@ -711,8 +747,8 @@ fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
     )
 }
 
-fun is_quorum(weight: u16, n_shards: u16): bool {
-    3 * (weight as u64) >= 2 * (n_shards as u64) + 1
+public(package) fun is_quorum(self: &StakingInnerV1, weight: u16): bool {
+    3 * (weight as u64) >= 2 * (self.n_shards as u64) + 1
 }
 
 // ==== Tests ===

@@ -3,7 +3,7 @@
 
 module walrus::pool_commission_tests;
 
-use walrus::{commission, test_utils::{mint_balance, pool, context_runner, assert_eq}};
+use walrus::{auth, test_utils::{mint_balance, pool, context_runner, assert_eq}};
 
 #[test]
 // Scenario:
@@ -32,7 +32,7 @@ fun collect_commission_with_rewards() {
     assert_eq!(pool.commission_amount(), 1000);
 
     // Commission is 10% -> 1000
-    let auth = commission::auth_as_sender(ctx);
+    let auth = auth::authenticate_sender(ctx);
     let commission = pool.collect_commission(auth);
     assert_eq!(commission.destroy_for_testing(), 1000);
 
@@ -48,12 +48,12 @@ fun change_commission_receiver() {
     let mut pool = pool().commission_rate(10_00).build(&wctx, ctx);
 
     // by default sender is the receiver
-    let auth = commission::auth_as_sender(ctx);
+    let auth = auth::authenticate_sender(ctx);
     let cap = TestObject { id: object::new(ctx) };
-    let new_receiver = commission::receiver_object(object::id(&cap));
+    let new_receiver = auth::authorized_object(object::id(&cap));
 
     // make sure the initial setting is correct
-    assert!(pool.commission_receiver() == &commission::receiver_address(ctx.sender()));
+    assert!(pool.commission_receiver() == &auth::authorized_address(ctx.sender()));
 
     // update the receiver
     pool.set_commission_receiver(auth, new_receiver);
@@ -62,19 +62,19 @@ fun change_commission_receiver() {
     assert!(pool.commission_receiver() == &new_receiver);
 
     // try claiming the commission with the new receiver
-    let auth = commission::auth_as_object(&cap);
+    let auth = auth::authenticate_with_object(&cap);
     pool.collect_commission(auth).destroy_zero();
 
     // change it back
-    let auth = commission::auth_as_object(&cap);
-    let new_receiver = commission::receiver_address(ctx.sender());
+    let auth = auth::authenticate_with_object(&cap);
+    let new_receiver = auth::authorized_address(ctx.sender());
     pool.set_commission_receiver(auth, new_receiver);
 
     // check the new receiver
     assert!(pool.commission_receiver() == &new_receiver);
 
     // try claiming the commission with the new receiver
-    let auth = commission::auth_as_sender(ctx);
+    let auth = auth::authenticate_sender(ctx);
     pool.collect_commission(auth).destroy_zero();
 
     let TestObject { id } = cap;
@@ -82,7 +82,7 @@ fun change_commission_receiver() {
     pool.destroy_empty();
 }
 
-#[test, expected_failure(abort_code = ::walrus::staking_pool::ECommissionAuthorizationFailure)]
+#[test, expected_failure(abort_code = ::walrus::staking_pool::EAuthorizationFailure)]
 fun change_commission_receiver_fail_incorrect_auth() {
     let mut test = context_runner();
     let (wctx, ctx) = test.current();
@@ -90,8 +90,8 @@ fun change_commission_receiver_fail_incorrect_auth() {
 
     // by default sender is the receiver
     let cap = TestObject { id: object::new(ctx) };
-    let auth = commission::auth_as_object(&cap);
-    let new_receiver = commission::receiver_object(object::id(&cap));
+    let auth = auth::authenticate_with_object(&cap);
+    let new_receiver = auth::authorized_object(object::id(&cap));
 
     // failure!
     pool.set_commission_receiver(auth, new_receiver);
@@ -99,7 +99,7 @@ fun change_commission_receiver_fail_incorrect_auth() {
     abort
 }
 
-#[test, expected_failure(abort_code = ::walrus::staking_pool::ECommissionAuthorizationFailure)]
+#[test, expected_failure(abort_code = ::walrus::staking_pool::EAuthorizationFailure)]
 fun collect_commission_receiver_fail_incorrect_auth() {
     let mut test = context_runner();
     let (wctx, ctx) = test.current();
@@ -107,7 +107,7 @@ fun collect_commission_receiver_fail_incorrect_auth() {
 
     // by default sender is the receiver
     let cap = TestObject { id: object::new(ctx) };
-    let auth = commission::auth_as_object(&cap);
+    let auth = auth::authenticate_with_object(&cap);
 
     // failure!
     pool.collect_commission(auth).destroy_zero();

@@ -199,7 +199,7 @@ pub struct VotingParams {
 #[cfg(feature = "walrus-mainnet")]
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 /// The receiver of the commission.
-enum CommissionReceiver {
+enum Authorized {
     /// Address receiver.
     Address(ObjectID),
     /// Object receiver.
@@ -250,7 +250,10 @@ pub(crate) struct StakingPool {
     commission: u64,
     #[cfg(feature = "walrus-mainnet")]
     /// The receiver of the commission.
-    commission_receiver: CommissionReceiver,
+    commission_receiver: Authorized,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The authorization object to vote for governance actions, e.g. upgrade the contract.
+    governance_authorized: Authorized,
     #[cfg(feature = "walrus-mainnet")]
     #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,

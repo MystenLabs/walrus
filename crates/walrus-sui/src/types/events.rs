@@ -590,12 +590,78 @@ impl TryFrom<SuiEvent> for ContractUpgradedEvent {
     }
 }
 
+pub type PackageDigest = Vec<u8>;
+
+/// Sui event that a contract upgrade has been proposed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractUpgradeProposedEvent {
+    /// The epoch in which the contract upgrade was proposed.
+    pub epoch: Epoch,
+    /// The digest of the package to upgrade to.
+    pub package_digest: PackageDigest,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ContractUpgradeProposedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ContractUpgradeProposed;
+}
+
+impl TryFrom<SuiEvent> for ContractUpgradeProposedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, package_digest) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            package_digest,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+/// Sui event that a contract upgrade has received a quorum of votes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContractUpgradeQuorumReachedEvent {
+    /// The epoch in which the contract upgrade was proposed.
+    pub epoch: Epoch,
+    /// The digest of the package to upgrade to.
+    pub package_digest: PackageDigest,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for ContractUpgradeQuorumReachedEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::ContractUpgradeQuorumReached;
+}
+
+impl TryFrom<SuiEvent> for ContractUpgradeQuorumReachedEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, package_digest) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            package_digest,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap package events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum PackageEvent {
     /// Contract upgraded event.
     ContractUpgraded(ContractUpgradedEvent),
+    /// Contract upgrade proposed event.
+    ContractUpgradeProposed(ContractUpgradeProposedEvent),
+    /// Contract upgrade quorum reached event.
+    ContractUpgradeQuorumReached(ContractUpgradeQuorumReachedEvent),
 }
 
 impl PackageEvent {
@@ -603,6 +669,8 @@ impl PackageEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             PackageEvent::ContractUpgraded(event) => event.event_id,
+            PackageEvent::ContractUpgradeProposed(event) => event.event_id,
+            PackageEvent::ContractUpgradeQuorumReached(event) => event.event_id,
         }
     }
 
@@ -610,6 +678,8 @@ impl PackageEvent {
     pub fn event_epoch(&self) -> Epoch {
         match self {
             PackageEvent::ContractUpgraded(event) => event.epoch,
+            PackageEvent::ContractUpgradeProposed(event) => event.epoch,
+            PackageEvent::ContractUpgradeQuorumReached(event) => event.epoch,
         }
     }
 
@@ -617,6 +687,8 @@ impl PackageEvent {
     pub fn name(&self) -> &'static str {
         match self {
             PackageEvent::ContractUpgraded(_) => "ContractUpgraded",
+            PackageEvent::ContractUpgradeProposed(_) => "ContractUpgradeProposed",
+            PackageEvent::ContractUpgradeQuorumReached(_) => "ContractUpgradeQuorumReached",
         }
     }
 }

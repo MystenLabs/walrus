@@ -178,6 +178,8 @@ impl TelemetryLabel for PackageEvent {
     fn label(&self) -> &'static str {
         match self {
             PackageEvent::ContractUpgraded(_) => "contract-upgraded",
+            PackageEvent::ContractUpgradeProposed(_) => "contract-upgrade-proposed",
+            PackageEvent::ContractUpgradeQuorumReached(_) => "contract-upgrade-quorum-reached",
             _ => "unknown-package-event",
         }
     }

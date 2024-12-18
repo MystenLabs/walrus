@@ -8,7 +8,7 @@ use std::string::String;
 use sui::{bag::{Self, Bag}, balance::{Self, Balance}, table::{Self, Table}};
 use wal::wal::WAL;
 use walrus::{
-    commission::{Self, Auth, Receiver},
+    auth::{Self, Authenticated, Authorized},
     messages,
     node_metadata::NodeMetadata,
     pending_values::{Self, PendingValues},
@@ -47,7 +47,7 @@ const EWithdrawDirectly: u64 = 13;
 /// Incorrect commission rate.
 const EIncorrectCommissionRate: u64 = 14;
 /// Trying to collect commission or change receiver without authorization.
-const ECommissionAuthorizationFailure: u64 = 15;
+const EAuthorizationFailure: u64 = 15;
 
 /// Represents the state of the staking pool.
 public enum PoolState has copy, drop, store {
@@ -147,7 +147,9 @@ public struct StakingPool has key, store {
     /// The commission that the pool has received from the rewards.
     commission: Balance<WAL>,
     /// An Object or an address which can claim the commission.
-    commission_receiver: Receiver,
+    commission_receiver: Authorized,
+    /// An Object or address that can authorize governance actions, such as upgrades.
+    governance_authorized: Authorized,
     /// Reserved for future use and migrations.
     extra_fields: Bag,
 }
@@ -221,7 +223,8 @@ public(package) fun new(
         num_shares: 0,
         rewards_pool: balance::zero(),
         commission: balance::zero(),
-        commission_receiver: commission::receiver_address(ctx.sender()),
+        commission_receiver: auth::authorized_address(ctx.sender()),
+        governance_authorized: auth::authorized_address(ctx.sender()),
         extra_fields: bag::new(ctx),
     }
 }
@@ -607,16 +610,33 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
 
 // === Accessors ===
 
-/// Returns the ID of the pool.
-public(package) fun commission_receiver(pool: &StakingPool): &Receiver { &pool.commission_receiver }
+/// Returns the governance authorized object for the pool.
+public(package) fun governance_authorized(pool: &StakingPool): &Authorized {
+    &pool.governance_authorized
+}
+
+/// Sets the governance authorized object for the pool.
+public(package) fun set_governance_authorized(
+    pool: &mut StakingPool,
+    authenticated: Authenticated,
+    authorized: Authorized,
+) {
+    assert!(authenticated.matches(&pool.governance_authorized), EAuthorizationFailure);
+    pool.governance_authorized = authorized
+}
+
+/// Returns the commission receiver for the pool.
+public(package) fun commission_receiver(pool: &StakingPool): &Authorized {
+    &pool.commission_receiver
+}
 
 /// Sets the commission receiver for the pool.
 public(package) fun set_commission_receiver(
     pool: &mut StakingPool,
-    auth: Auth,
-    receiver: Receiver,
+    auth: Authenticated,
+    receiver: Authorized,
 ) {
-    assert!(auth.matches(&pool.commission_receiver), ECommissionAuthorizationFailure);
+    assert!(auth.matches(&pool.commission_receiver), EAuthorizationFailure);
     pool.commission_receiver = receiver
 }
 
@@ -628,8 +648,8 @@ public(package) fun commission_amount(pool: &StakingPool): u64 { pool.commission
 
 /// Withdraws the commission from the pool. Amount is optional, if not provided,
 /// the full commission is withdrawn.
-public(package) fun collect_commission(pool: &mut StakingPool, auth: Auth): Balance<WAL> {
-    assert!(auth.matches(&pool.commission_receiver), ECommissionAuthorizationFailure);
+public(package) fun collect_commission(pool: &mut StakingPool, auth: Authenticated): Balance<WAL> {
+    assert!(auth.matches(&pool.commission_receiver), EAuthorizationFailure);
     pool.commission.withdraw_all()
 }
 

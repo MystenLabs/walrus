@@ -957,6 +957,12 @@ impl StorageNode {
                     .await?;
                 event_handle.mark_as_complete();
             }
+            PackageEvent::ContractUpgradeProposed(_) => {
+                event_handle.mark_as_complete();
+            }
+            PackageEvent::ContractUpgradeQuorumReached(_) => {
+                event_handle.mark_as_complete();
+            }
             _ => bail!("unknown package event type: {:?}", package_event),
         }
         Ok(())

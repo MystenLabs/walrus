@@ -5,8 +5,7 @@
 module walrus::e2e_tests;
 
 use std::unit_test::assert_eq;
-use sui::test_scenario;
-use walrus::{commission, e2e_runner, staking_pool, test_node::{Self, TestStorageNode}, test_utils};
+use walrus::{auth, e2e_runner, staking_pool, test_node::{Self, TestStorageNode}, test_utils};
 
 const COMMISSION_RATE: u16 = 0;
 const STORAGE_PRICE: u64 = 5;
@@ -501,7 +500,7 @@ fun test_epoch_change_with_rewards_and_commission() {
     // each node is getting 470 in rewards, 10% of that is - 47 - commission
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let auth = commission::auth_as_object(node.cap());
+            let auth = auth::authenticate_with_object(node.cap());
             let commission = staking.collect_commission(node.node_id(), auth, ctx);
 
             // deny_list_node has 10% less rewards
@@ -752,35 +751,6 @@ fun withdraw_rewards_before_joining_committee() {
 
     nodes.destroy!(|node| node.destroy());
     excluded_node.destroy();
-    runner.destroy();
-}
-
-#[test]
-fun test_emergency_upgrade() {
-    use walrus::upgrade::EmergencyUpgradeCap;
-    use sui::package;
-
-    let admin = @0xA11CE;
-    let mut runner = e2e_runner::prepare(admin).build();
-
-    let emergency_cap: EmergencyUpgradeCap = runner.scenario().take_from_address(admin);
-    runner.tx_with_upgrade_manager!(admin, |staking, system, upgrade_manager, _| {
-        // Check that the new package id is not set before the upgrade
-        assert!(system.new_package_id().is_none() && staking.new_package_id().is_none());
-
-        let upgrade_ticket = upgrade_manager.authorize_emergency_upgrade(
-            &emergency_cap,
-            vector<u8>[],
-        );
-        let receipt = package::test_upgrade(upgrade_ticket);
-        upgrade_manager.commit_upgrade(staking, system, receipt);
-
-        // Check that the new package id is set after the upgrade and is the same for both the
-        // system and staking objects.
-        assert!(system.new_package_id().is_some());
-        assert_eq!(system.new_package_id(), staking.new_package_id());
-    });
-    test_scenario::return_to_address(admin, emergency_cap);
     runner.destroy();
 }
 

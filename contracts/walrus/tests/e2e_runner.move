@@ -4,9 +4,20 @@
 module walrus::e2e_runner;
 
 use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}, test_utils};
-use walrus::{init, staking::Staking, system::System, upgrade::UpgradeManager};
+use walrus::{
+    init,
+    node_metadata,
+    staking::Staking,
+    system::System,
+    test_node::{Self, TestStorageNode},
+    test_utils as walrus_test_utils,
+    upgrade::UpgradeManager
+};
 
 const MAX_EPOCHS_AHEAD: u32 = 104;
+const DEFAULT_EPOCH_ZERO_DURATION: u64 = 100000000;
+const DEFAULT_EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000 / 2;
+const DEFAULT_N_SHARDS: u16 = 100;
 
 // === Tests Runner ===
 
@@ -69,9 +80,9 @@ public fun n_shards(mut self: InitBuilder, n: u16): InitBuilder {
 /// Build the test runner with the given parameters.
 public fun build(self: InitBuilder): TestRunner {
     let InitBuilder { admin, epoch_duration, epoch_zero_duration, n_shards } = self;
-    let epoch_zero_duration = epoch_zero_duration.destroy_or!(100000000);
-    let epoch_duration = epoch_duration.destroy_or!(7 * 24 * 60 * 60 * 1000 / 2);
-    let n_shards = n_shards.destroy_or!(100);
+    let epoch_zero_duration = epoch_zero_duration.destroy_or!(DEFAULT_EPOCH_ZERO_DURATION);
+    let epoch_duration = epoch_duration.destroy_or!(DEFAULT_EPOCH_DURATION);
+    let n_shards = n_shards.destroy_or!(DEFAULT_N_SHARDS);
 
     let mut scenario = test_scenario::begin(admin);
     let clock = clock::create_for_testing(scenario.ctx());
@@ -119,6 +130,9 @@ public fun epoch(self: &mut TestRunner): u32 {
     test_scenario::return_shared(system);
     epoch
 }
+
+/// Returns the default epoch duration.
+public fun default_epoch_duration(): u64 { DEFAULT_EPOCH_DURATION }
 
 /// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
 /// `System`, and `TxContext` as arguments.
@@ -170,4 +184,66 @@ public macro fun tx_with_upgrade_manager(
 /// Destroy the test runner and all resources.
 public fun destroy(self: TestRunner) {
     test_utils::destroy(self)
+}
+
+#[allow(lint(self_transfer), unused_mut_ref)]
+public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>) {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = prepare(admin).build();
+    let commission_rate: u16 = 0;
+    let storage_price: u64 = 5;
+    let write_price: u64 = 1;
+    let node_capacity: u64 = 1_000_000_000;
+
+    // === register candidates ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let cap = staking.register_candidate(
+                node.name(),
+                node.network_address(),
+                node_metadata::default(),
+                node.bls_pk(),
+                node.network_key(),
+                node.create_proof_of_possession(epoch),
+                commission_rate,
+                storage_price,
+                write_price,
+                node_capacity,
+                ctx,
+            );
+            node.set_storage_node_cap(cap);
+        });
+    });
+
+    // === stake with each node ===
+
+    nodes.do_ref!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, ctx| {
+            let coin = walrus_test_utils::mint(1000, ctx);
+            let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
+            transfer::public_transfer(staked_wal, ctx.sender());
+        });
+    });
+
+    // === advance clock and end voting ===
+    // === check if epoch state is changed correctly ==
+
+    runner.clock().increment_for_testing(DEFAULT_EPOCH_ZERO_DURATION);
+    runner.tx!(admin, |staking, system, _| {
+        staking.voting_end(runner.clock());
+        staking.initiate_epoch_change(system, runner.clock());
+        nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
+    });
+
+    // === send epoch sync done messages from all nodes ===
+    let epoch = runner.epoch();
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |staking, _, _| {
+            staking.epoch_sync_done(node.cap_mut(), epoch, runner.clock());
+        });
+    });
+
+    (runner, nodes)
 }

@@ -108,6 +108,18 @@ public struct DenyListBlobDeleted has copy, drop {
     blob_id: u256,
 }
 
+/// Signals that a new contract upgrade has been proposed.
+public struct ContractUpgradeProposed has copy, drop {
+    epoch: u32,
+    package_digest: vector<u8>,
+}
+
+/// Signals that a contract upgrade proposal has received a quorum of votes.
+public struct ContractUpgradeQuorumReached has copy, drop {
+    epoch: u32,
+    package_digest: vector<u8>,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -199,4 +211,12 @@ public(package) fun emit_deny_list_update(
 
 public(package) fun emit_deny_listed_blob_deleted(epoch: u32, blob_id: u256) {
     event::emit(DenyListBlobDeleted { epoch, blob_id })
+}
+
+public(package) fun emit_contract_upgrade_proposed(epoch: u32, package_digest: vector<u8>) {
+    event::emit(ContractUpgradeProposed { epoch, package_digest })
+}
+
+public(package) fun emit_contract_upgrade_quorum_reached(epoch: u32, package_digest: vector<u8>) {
+    event::emit(ContractUpgradeQuorumReached { epoch, package_digest })
 }
