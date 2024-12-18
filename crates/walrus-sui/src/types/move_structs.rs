@@ -104,7 +104,7 @@ pub struct StorageNode {
     pub network_public_key: NetworkPublicKey,
     #[cfg(feature = "walrus-mainnet")]
     /// The metadata for the pool.
-    node_metadata: ObjectID,
+    pub metadata: ObjectID,
     /// The indices of the shards held by the storage node.
     #[serde(default, skip_deserializing)]
     pub shard_ids: Vec<ShardIndex>,

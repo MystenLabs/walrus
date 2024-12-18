@@ -1608,6 +1608,8 @@ impl StorageNodeTestConfig {
             next_epoch_public_key: None,
             network_public_key: self.network_key_pair.public().clone(),
             shard_ids: self.shards.clone(),
+            #[cfg(feature = "walrus-mainnet")]
+            metadata: ObjectID::random(),
         }
     }
 
@@ -1751,6 +1753,7 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
             network_public_key: NetworkKeyPair::generate().public().clone(),
             name: String::new(),
             network_address: NetworkAddress("host:0".to_owned()),
+            metadata: ObjectID::random(),
         })
         .collect();
 
