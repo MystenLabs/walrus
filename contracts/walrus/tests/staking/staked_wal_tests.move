@@ -38,6 +38,40 @@ fun staked_wal_lifecycle() {
 }
 
 #[test]
+// Scenario: Test the staked WAL flow
+fun withdrawing_wal_lifecycle() {
+    let ctx = &mut tx_context::dummy();
+    let node_id = ctx.fresh_object_address().to_id();
+    let mut staked_wal = staked_wal::mint(node_id, mint_balance(100), 1, ctx);
+    staked_wal.set_withdrawing(2);
+
+    // assert that the staked WAL is created correctly
+    assert_eq!(staked_wal.value(), 100);
+    assert_eq!(staked_wal.node_id(), node_id);
+    assert_eq!(staked_wal.activation_epoch(), 1);
+    assert_eq!(staked_wal.withdraw_epoch(), 2);
+
+    // test that splitting works correctly and copies the parameters
+    let other = staked_wal.split(50, ctx);
+    assert_eq!(other.value(), 50);
+    assert_eq!(other.node_id(), node_id);
+    assert_eq!(other.activation_epoch(), 1);
+    assert_eq!(other.withdraw_epoch(), 2);
+    assert_eq!(staked_wal.value(), 50);
+
+    // test that joining works correctly
+    staked_wal.join(other);
+    assert_eq!(staked_wal.value(), 100);
+    assert_eq!(staked_wal.node_id(), node_id);
+    assert_eq!(staked_wal.activation_epoch(), 1);
+    assert_eq!(staked_wal.withdraw_epoch(), 2);
+
+    // test that the staked WAL can be burned
+    let principal = staked_wal.into_balance();
+    assert_eq!(principal.destroy_for_testing(), 100);
+}
+
+#[test]
 fun destroy_zero() {
     let ctx = &mut tx_context::dummy();
     let node_id = ctx.fresh_object_address().to_id();
@@ -63,19 +97,6 @@ fun try_split_zero() {
     sw.split(0, ctx).destroy_zero();
 
     abort
-}
-
-#[test, expected_failure(abort_code = staked_wal::ENotStaked)]
-fun try_split_withdrawing() {
-    let ctx = &mut tx_context::dummy();
-    let node_id = ctx.fresh_object_address().to_id();
-    let mut sw = staked_wal::mint(node_id, mint_balance(2000), 1, ctx);
-
-    sw.set_withdrawing(2);
-    let sw2 = sw.split(500, ctx);
-
-    destroy(sw2);
-    destroy(sw);
 }
 
 #[test, expected_failure(abort_code = staked_wal::EInvalidAmount)]

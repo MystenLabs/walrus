@@ -165,7 +165,6 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 ///
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
 /// Aborts if the `amount` is zero.
-/// Aborts if the staked WAL is in the `Withdrawing` state.
 public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWal {
     assert!(sw.principal.value() > amount, EInvalidAmount);
     assert!(amount > 0, EInvalidAmount);
@@ -176,6 +175,15 @@ public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWa
             StakedWal {
                 id: object::new(ctx),
                 state: sw.state, // state is preserved
+                node_id: sw.node_id,
+                principal: sw.principal.split(amount),
+                activation_epoch: sw.activation_epoch,
+            }
+        },
+        StakedWalState::Withdrawing { withdraw_epoch } => {
+            StakedWal {
+                id: object::new(ctx),
+                state: StakedWalState::Withdrawing { withdraw_epoch },
                 node_id: sw.node_id,
                 principal: sw.principal.split(amount),
                 activation_epoch: sw.activation_epoch,
