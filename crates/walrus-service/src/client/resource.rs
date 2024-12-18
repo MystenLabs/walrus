@@ -64,6 +64,7 @@ impl PriceComputation {
 
 /// The operation performed on blob and storage resources to register a blob.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RegisterBlobOp {
     /// The storage and blob resources are purchased from scratch.
     RegisterFromScratch {

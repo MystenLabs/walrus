@@ -50,6 +50,7 @@ use crate::client::cli::{format_event_id, HumanReadableFrost};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum EventOrObjectId {
     /// The variant representing an event ID.
     Event(EventID),
@@ -85,6 +86,7 @@ pub enum BlobStoreResult {
         ///
         /// The object ID of the registered blob is used in place of the event ID when the blob is
         /// deletable, already certified, and owned by the client.
+        #[serde(flatten)]
         event_or_object: EventOrObjectId,
         /// The epoch until which the blob is stored (exclusive).
         #[schema(value_type = u64)]
