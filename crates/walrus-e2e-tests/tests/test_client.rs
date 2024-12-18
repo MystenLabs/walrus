@@ -36,13 +36,12 @@ use walrus_service::{
             NotEnoughSlivers,
         },
         StoreWhen,
-        WalrusWriteClient,
     },
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
-    types::{BlobEvent, ContractEvent},
+    types::{move_structs::SharedBlob, BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -805,15 +804,16 @@ async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     test_post_store_action -> TestResult : [
-        keep: (PostStoreAction::Keep, 1, 0),
+        keep: (PostStoreAction::Keep, 4, 0),
         transfer: (
             PostStoreAction::TransferTo(
                 SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address")
             ),
             0,
-            1
+            4
         ),
         burn: (PostStoreAction::Burn, 0, 0),
+        share: (PostStoreAction::Share, 0, 0)
     ]
 }
 async fn test_post_store_action(
@@ -825,11 +825,12 @@ async fn test_post_store_action(
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
 
-    let blob = walrus_test_utils::random_data(314);
-    client
+    let blob_data = walrus_test_utils::random_data_list(314, 4);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let results = client
         .as_ref()
-        .write_blob(
-            &blob,
+        .reserve_and_store_blobs_retry_epoch(
+            &blobs,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -850,5 +851,37 @@ async fn test_post_store_action(
         .await?;
     assert_eq!(target_address_blobs.len(), n_target_blobs);
 
+    if post_store == PostStoreAction::Share {
+        for result in results {
+            match result {
+                BlobStoreResult::NewlyCreated {
+                    shared_blob_object,
+                    blob_object,
+                    ..
+                } => {
+                    let shared_blob: SharedBlob = client
+                        .as_ref()
+                        .sui_client()
+                        .read_client
+                        .get_object(shared_blob_object.unwrap())
+                        .await?;
+                    assert_eq!(shared_blob.funds, 0);
+                    assert_eq!(shared_blob.blob.id, blob_object.id);
+                }
+                _ => panic!("expect newly created blob"),
+            }
+        }
+    } else {
+        for result in results {
+            match result {
+                BlobStoreResult::NewlyCreated {
+                    shared_blob_object, ..
+                } => {
+                    assert!(shared_blob_object.is_none());
+                }
+                _ => panic!("expect newly created blob"),
+            }
+        }
+    }
     Ok(())
 }

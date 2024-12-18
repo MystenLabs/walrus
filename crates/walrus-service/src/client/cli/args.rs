@@ -189,6 +189,11 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         deletable: bool,
+
+        /// Whether to put the blob into a shared blob object.
+        #[clap(long, action)]
+        #[serde(default)]
+        shared_blob: bool,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -806,6 +811,7 @@ mod tests {
             dry_run: false,
             force: false,
             deletable: false,
+            shared_blob: false,
         })
     }
 

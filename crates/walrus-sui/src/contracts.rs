@@ -287,6 +287,16 @@ pub mod blob {
     contract_ident!(fn blob::burn);
 }
 
+/// Module for tags corresponding to the Move module `shared_blob`.
+pub mod shared_blob {
+    use super::*;
+
+    contract_ident!(struct shared_blob::SharedBlob);
+    contract_ident!(fn shared_blob::new);
+    contract_ident!(fn shared_blob::fund);
+    contract_ident!(fn shared_blob::extend);
+}
+
 /// Module for tags corresponding to the Move module `blob_events`.
 pub mod events {
     use super::*;

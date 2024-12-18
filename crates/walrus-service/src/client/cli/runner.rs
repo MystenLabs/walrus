@@ -134,6 +134,7 @@ impl ClientCommandRunner {
                 dry_run,
                 force,
                 deletable,
+                shared_blob,
             } => {
                 self.store(
                     files,
@@ -141,6 +142,7 @@ impl ClientCommandRunner {
                     dry_run,
                     StoreWhen::always(force),
                     BlobPersistence::from_deletable(deletable),
+                    PostStoreAction::from_shared_blob(shared_blob),
                 )
                 .await
             }
@@ -301,6 +303,7 @@ impl ClientCommandRunner {
         dry_run: bool,
         store_when: StoreWhen,
         persistence: BlobPersistence,
+        post_store: PostStoreAction,
     ) -> Result<()> {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
@@ -366,7 +369,7 @@ impl ClientCommandRunner {
                     epochs,
                     store_when,
                     persistence,
-                    PostStoreAction::Keep,
+                    post_store,
                 )
                 .await?;
             let blobs_len = blobs.len();

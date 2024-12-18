@@ -110,6 +110,8 @@ pub enum BlobStoreResult {
         resource_operation: RegisterBlobOp,
         /// The storage cost, excluding gas.
         cost: u64,
+        /// The shared blob object ID if created.
+        shared_blob_object: Option<ObjectID>,
     },
     /// The blob is known to Walrus but was marked as invalid.
     ///

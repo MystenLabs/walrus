@@ -648,7 +648,8 @@ impl Client<SuiContractClient> {
             .await?;
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
-        self.sui_client
+        let shared_blob_object_map = self
+            .sui_client
             .certify_blobs(&blobs_with_certificates, post_store)
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
@@ -671,6 +672,7 @@ impl Client<SuiContractClient> {
                     },
                     resource_operation,
                     cost,
+                    shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
                 }
             })
             .collect();

@@ -653,3 +653,18 @@ where
 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::dynamic_field::Field;
 }
+
+/// Sui type for a `SharedBlob`.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SharedBlob {
+    /// The object ID of the shared blob.
+    pub id: ObjectID,
+    /// The blob.
+    pub blob: Blob,
+    /// The funds that can be used to store the blob.
+    pub funds: u64,
+}
+
+impl AssociatedContractStruct for SharedBlob {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::shared_blob::SharedBlob;
+}

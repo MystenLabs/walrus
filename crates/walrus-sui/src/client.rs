@@ -43,7 +43,7 @@ use crate::{
     contracts,
     types::{
         move_errors::MoveExecutionError,
-        move_structs::EpochState,
+        move_structs::{EpochState, SharedBlob},
         Blob,
         BlobEvent,
         Committee,
@@ -214,7 +214,7 @@ impl BlobPersistence {
 }
 
 /// The action to be performed for newly-created blobs.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostStoreAction {
     /// Burn the blob object.
     Burn,
@@ -222,6 +222,21 @@ pub enum PostStoreAction {
     TransferTo(SuiAddress),
     /// Keep the blob object in the wallet that created it.
     Keep,
+    /// Put the blob into a shared blob object.
+    Share,
+}
+
+impl PostStoreAction {
+    /// Constructs [`Self`] based on the value of a `shared_blob` flag.
+    ///
+    /// If `shared_blob` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
+    pub fn from_shared_blob(shared_blob: bool) -> Self {
+        if shared_blob {
+            Self::Share
+        } else {
+            Self::Keep
+        }
+    }
 }
 
 /// Result alias for functions returning a `SuiClientError`.
@@ -422,13 +437,15 @@ impl SuiContractClient {
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
     /// returns the certified blob.
+    ///
+    /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     // NB: This intentionally takes an owned `Blob` object even though it is not required, as the
     // corresponding object on Sui will be changed in the process.
     pub async fn certify_blobs(
         &self,
         blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
         post_store: PostStoreAction,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
@@ -445,15 +462,42 @@ impl SuiContractClient {
                     pt_builder.burn_blob(blob.id.into()).await?;
                 }
                 PostStoreAction::Keep => (),
+                PostStoreAction::Share => {
+                    pt_builder.new_shared_blob(blob.id.into()).await?;
+                }
             }
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        if res.errors.is_empty() {
-            Ok(())
+
+        if !res.errors.is_empty() {
+            return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
+        }
+
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        if post_store == PostStoreAction::Share {
+            let object_ids = get_created_sui_object_ids_by_type(
+                &res,
+                &contracts::shared_blob::SharedBlob
+                    .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+            )?;
+            ensure!(
+                object_ids.len() == blobs_with_certificates.len(),
+                "unexpected number of shared blob objects created: {} expected {}",
+                object_ids.len(),
+                blobs_with_certificates.len()
+            );
+
+            // Fetch and fetch the SharedBlob object and parse the blob ID.
+            let mut shared_blob_objects = HashMap::new();
+            for object_id in object_ids {
+                let shared_blob: SharedBlob = self.sui_client().get_sui_object(object_id).await?;
+                shared_blob_objects.insert(shared_blob.blob.blob_id, object_id);
+            }
+            Ok(shared_blob_objects)
         } else {
-            Err(anyhow!("could not certify blob: {:?}", res.errors).into())
+            Ok(HashMap::new())
         }
     }
 
