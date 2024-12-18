@@ -607,6 +607,11 @@ public fun shard_transfer_failed(
 
 // === Accessors ===
 
+/// Returns the metadata of the node with the given `ID`.
+public(package) fun node_metadata(self: &StakingInnerV1, node_id: ID): NodeMetadata {
+    self.pools[node_id].node_info().metadata()
+}
+
 /// Returns the Option with next committee.
 public(package) fun next_committee(self: &StakingInnerV1): &Option<Committee> {
     &self.next_committee

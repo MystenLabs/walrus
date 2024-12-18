@@ -75,6 +75,11 @@ public(package) fun public_key(self: &StorageNodeInfo): &Element<UncompressedG1>
     &self.public_key
 }
 
+/// Return the name of the storage node.
+public(package) fun metadata(self: &StorageNodeInfo): NodeMetadata {
+    *self.metadata.borrow()
+}
+
 /// Return the public key of the storage node for the next epoch.
 public(package) fun next_epoch_public_key(self: &StorageNodeInfo): &Element<UncompressedG1> {
     self.next_epoch_public_key.borrow_with_default(&self.public_key)

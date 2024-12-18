@@ -467,6 +467,11 @@ fun test_epoch_change_with_rewards_and_commission() {
     runner.destroy();
 }
 
+#[test]
+fun node_update_metadata() {
+    
+}
+
 #[test, expected_failure(abort_code = staking_pool::EInvalidProofOfPossession)]
 fun test_register_invalid_pop_epoch() {
     let admin = @0xA11CE;

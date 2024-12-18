@@ -150,7 +150,12 @@ public fun set_node_capacity_vote(self: &mut Staking, cap: &StorageNodeCap, node
     self.inner_mut().set_node_capacity_vote(cap, node_capacity);
 }
 
-// === Update Node Parameters ===
+// === Get/ Update Node Parameters ===
+
+/// Get `NodeMetadata` for the given node.
+public fun node_metadata(self: &mut Staking, node_id: ID): NodeMetadata {
+    self.inner().node_metadata(node_id)
+}
 
 /// Sets the public key of a node to be used starting from the next epoch for which the node is
 /// selected.
