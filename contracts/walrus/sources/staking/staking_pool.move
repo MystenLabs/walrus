@@ -305,11 +305,11 @@ public(package) fun request_withdraw_stake(
     };
 
     let principal_amount = staked_wal.value();
-    let shares_amount = pool
+    let share_amount = pool
         .exchange_rate_at_epoch(staked_wal.activation_epoch())
-        .convert_to_shares_amount(principal_amount);
+        .convert_to_share_amount(principal_amount);
 
-    pool.pending_shares_withdraw.insert_or_add(withdraw_epoch, shares_amount);
+    pool.pending_shares_withdraw.insert_or_add(withdraw_epoch, share_amount);
     staked_wal.set_withdrawing(withdraw_epoch);
 }
 
@@ -335,16 +335,16 @@ public(package) fun withdraw_stake(
     assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
     assert!(activation_epoch <= wctx.epoch(), EActivationEpochNotReached);
 
-    let shares_amount = pool
+    let share_amount = pool
         .exchange_rate_at_epoch(activation_epoch)
-        .convert_to_shares_amount(staked_wal.value());
+        .convert_to_share_amount(staked_wal.value());
 
     let withdraw_epoch = staked_wal.withdraw_epoch();
 
     // calculate the total amount to withdraw by converting token amount via the exchange rate
     let wal_amount = pool
         .exchange_rate_at_epoch(withdraw_epoch)
-        .convert_to_wal_amount(shares_amount);
+        .convert_to_wal_amount(share_amount);
     let principal = staked_wal.into_balance();
     let rewards_amount = if (wal_amount >= principal.value()) {
         wal_amount - principal.value()
@@ -416,7 +416,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
         let activation_epoch = epoch - 1;
         let shares_for_epoch = pool
             .exchange_rate_at_epoch(activation_epoch)
-            .convert_to_shares_amount(epoch_value);
+            .convert_to_share_amount(epoch_value);
 
         pre_active_shares_withdraw = pre_active_shares_withdraw + shares_for_epoch;
     });
@@ -445,7 +445,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     pool.wal_balance = pool.wal_balance - pending_withdrawal;
 
     // Recalculate the total number of shares according to the exchange rate.
-    pool.num_shares = exchange_rate.convert_to_shares_amount(pool.wal_balance);
+    pool.num_shares = exchange_rate.convert_to_share_amount(pool.wal_balance);
 }
 
 // === Pool parameters ===
@@ -579,7 +579,7 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
         let activation_epoch = *old_epoch - 1;
         let shares_for_epoch = pool
             .exchange_rate_at_epoch(activation_epoch)
-            .convert_to_shares_amount(*wal_value);
+            .convert_to_share_amount(*wal_value);
 
         pre_active_shares_withdraw = pre_active_shares_withdraw + shares_for_epoch;
     });
