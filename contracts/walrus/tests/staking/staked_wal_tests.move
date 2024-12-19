@@ -4,7 +4,6 @@
 module walrus::staked_wal_tests;
 
 use std::unit_test::assert_eq;
-use sui::test_utils::destroy;
 use walrus::{staked_wal, test_utils::mint_balance};
 
 #[test]

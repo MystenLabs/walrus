@@ -19,7 +19,6 @@ const ENotWithdrawing: u64 = 0;
 const EMetadataMismatch: u64 = 1;
 const EInvalidAmount: u64 = 2;
 const ENonZeroPrincipal: u64 = 3;
-const ENotStaked: u64 = 4;
 /// Trying to mark stake as withdrawing when it is already marked as withdrawing.
 const EAlreadyWithdrawing: u64 = 6;
 
