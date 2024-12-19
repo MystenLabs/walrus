@@ -70,6 +70,10 @@ public struct VotingParams has copy, drop, store {
     node_capacity: u64,
 }
 
+/// Represents a single staking pool for a token. Even though it is never
+/// transferred or shared, the `key` ability is added for discoverability
+/// in the `ObjectTable`.
+/// 
 /// High level overview of the staking pool:
 /// The pool maintains a balance of WAL 'wal_balance' that is increased
 /// when stakes/rewards are added to the pool, and is decreased when
@@ -90,11 +94,6 @@ public struct VotingParams has copy, drop, store {
 /// the amount of WAL that was locked using the exchange rate at the time
 /// of the lock, and then convert it to the amount of WAL that corresponds
 /// to the current share price.
-///
- 
-/// Represents a single staking pool for a token. Even though it is never
-/// transferred or shared, the `key` ability is added for discoverability
-/// in the `ObjectTable`.
 public struct StakingPool has key, store {
     id: UID,
     /// The current state of the pool.
