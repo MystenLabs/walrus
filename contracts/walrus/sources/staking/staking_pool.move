@@ -353,8 +353,8 @@ public(package) fun withdraw_stake(
         }
         // note that if the stake is in state Withdrawing, it can either be
         // from a pre-active withdrawal, but then
-        // (in_current_committee || in_next_committee) true since otherwise
-        // it was an early withdrawal, or from a standard two step withdrawal,
+        // (in_current_committee || in_next_committee) is true since it was
+        // an early withdrawal, or from a standard two step withdrawal,
         // which is handled below.
     } else {
         // normal two-step withdrawals
