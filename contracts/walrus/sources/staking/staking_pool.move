@@ -271,6 +271,8 @@ public(package) fun stake(
 public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,
+    in_current_committee: bool,
+    in_next_committee: bool,
     wctx: &WalrusContext,
 ) {
     assert!(staked_wal.value() > 0);
@@ -278,11 +280,11 @@ public(package) fun request_withdraw_stake(
     assert!(staked_wal.is_staked());
 
     // only allow requesting if the stake cannot be withdrawn directly
-    assert!(!staked_wal.can_withdraw_early(wctx), EWithdrawDirectly);
+    assert!(!staked_wal.can_withdraw_early(in_next_committee, wctx), EWithdrawDirectly);
 
     // early withdrawal request: only possible if activation epoch has not been
     // reached, and the stake is already counted for the next committee selection
-    if (staked_wal.activation_epoch() > wctx.epoch()) {
+    if (staked_wal.activation_epoch() == wctx.epoch() + 1) {
         let withdraw_epoch = staked_wal.activation_epoch() + 1;
         // register principal in the early withdrawals, the value will get converted to
         // the token amount in the `process_pending_stake` function
@@ -295,12 +297,12 @@ public(package) fun request_withdraw_stake(
 
     // If the node is in the committee, the stake will be withdrawn in E+2,
     // otherwise in E+1.
-    // TODO: add a check that the node is in the committee: `node_in_committee &&`
-    // let node_in_committee = wctx.committee().contains(pool.id.as_inner());
-    let withdraw_epoch = if (wctx.committee_selected()) {
+    let withdraw_epoch = if (in_next_committee) {
         wctx.epoch() + 2
-    } else {
+    } else if (in_current_committee) {
         wctx.epoch() + 1
+    } else {
+        abort EWithdrawDirectly
     };
 
     let principal_amount = staked_wal.value();
@@ -316,6 +318,8 @@ public(package) fun request_withdraw_stake(
 public(package) fun withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: StakedWal,
+    in_current_committee: bool,
+    in_next_committee: bool,
     wctx: &WalrusContext,
 ): Balance<WAL> {
     assert!(staked_wal.value() > 0, EZeroStake);
@@ -323,27 +327,45 @@ public(package) fun withdraw_stake(
 
     let activation_epoch = staked_wal.activation_epoch();
 
-    // early withdrawal in the case when committee before activation epoch hasn't
-    // been selected. covers both E+1 and E+2 cases.
-    if (staked_wal.can_withdraw_early(wctx)) {
+    // one step, early withdrawal in the case when committee before
+    // activation epoch hasn't been selected. covers both E+1 and E+2 cases.
+    if (staked_wal.can_withdraw_early(in_next_committee, wctx)) {
         pool.pending_stake.reduce(activation_epoch, staked_wal.value());
         return staked_wal.into_balance()
     };
 
-    assert!(staked_wal.is_withdrawing(), ENotWithdrawing);
-    assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
-    assert!(activation_epoch <= wctx.epoch(), EActivationEpochNotReached);
+    let wal_amount = if (!in_current_committee && !in_next_committee && staked_wal.is_staked()) {
+        // one step withdrawal for an inactive node
+        if (activation_epoch > wctx.epoch()) {
+            // not even active stake yet, remove from pending stake
+            pool.pending_stake.reduce(activation_epoch, staked_wal.value());
+            staked_wal.value()
+        } else {
+            // active stake, remove it with the current epoch as the withdraw epoch
+            let share_amount = pool
+                .exchange_rate_at_epoch(activation_epoch)
+                .convert_to_share_amount(staked_wal.value());
+            pool.pending_shares_withdraw.insert_or_add(wctx.epoch(), share_amount);
+            let wal_amount = pool
+                .exchange_rate_at_epoch(wctx.epoch())
+                .convert_to_wal_amount(share_amount);
+            wal_amount
+        }
+    } else {
+        // normal two-step withdrawals
+        assert!(staked_wal.is_withdrawing(), ENotWithdrawing);
+        assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
+        assert!(activation_epoch <= wctx.epoch(), EActivationEpochNotReached);
 
-    let share_amount = pool
-        .exchange_rate_at_epoch(activation_epoch)
-        .convert_to_share_amount(staked_wal.value());
+        let share_amount = pool
+            .exchange_rate_at_epoch(activation_epoch)
+            .convert_to_share_amount(staked_wal.value());
+        let wal_amount = pool
+            .exchange_rate_at_epoch(staked_wal.withdraw_epoch())
+            .convert_to_wal_amount(share_amount);
+        wal_amount
+    };
 
-    let withdraw_epoch = staked_wal.withdraw_epoch();
-
-    // calculate the total amount to withdraw by converting token amount via the exchange rate
-    let wal_amount = pool
-        .exchange_rate_at_epoch(withdraw_epoch)
-        .convert_to_wal_amount(share_amount);
     let principal = staked_wal.into_balance();
     let rewards_amount = if (wal_amount >= principal.value()) {
         wal_amount - principal.value()

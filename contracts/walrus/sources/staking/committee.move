@@ -20,6 +20,11 @@ public struct Committee(VecMap<ID, vector<u16>>) has copy, drop, store;
 /// assigned any shards.
 public(package) fun empty(): Committee { Committee(vec_map::empty()) }
 
+/// Check if the given `ID` is in the `Committee`.
+public(package) fun contains(cmt: &Committee, node_id: &ID): bool {
+    cmt.0.contains(node_id)
+}
+
 /// Initializes the committee with the given `assigned_number` of shards per
 /// node. Shards are assigned sequentially to each node.
 ///

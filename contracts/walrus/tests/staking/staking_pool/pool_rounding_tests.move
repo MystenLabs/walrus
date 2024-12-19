@@ -30,13 +30,13 @@ fun split_odd_number_of_rewards_pool_leftovers_failure() {
     pool.advance_epoch(mint_balance(201), &wctx);
     assert_eq!(pool.wal_balance(), 401);
 
-    pool.request_withdraw_stake(&mut staked_a, &wctx);
-    pool.request_withdraw_stake(&mut staked_b, &wctx);
+    pool.request_withdraw_stake(&mut staked_a, true, false, &wctx);
+    pool.request_withdraw_stake(&mut staked_b, true, false, &wctx);
 
     let (wctx, _) = test.next_epoch();
 
-    let balance_a = pool.withdraw_stake(staked_a, &wctx);
-    let balance_b = pool.withdraw_stake(staked_b, &wctx);
+    let balance_a = pool.withdraw_stake(staked_a, true, false, &wctx);
+    let balance_b = pool.withdraw_stake(staked_b, true, false, &wctx);
 
     assert_eq!(balance_a.destroy_for_testing(), 200);
     assert_eq!(balance_b.destroy_for_testing(), 200);
@@ -75,10 +75,10 @@ fun commission_rounding_success() {
     assert_eq!(pool.commission_amount(), 20); // 9%
     assert_eq!(pool.wal_balance(), 282);
 
-    pool.request_withdraw_stake(&mut staked_a, &wctx);
+    pool.request_withdraw_stake(&mut staked_a, true, false, &wctx);
 
     let (wctx, ctx) = test.next_epoch();
-    let balance_a = pool.withdraw_stake(staked_a, &wctx);
+    let balance_a = pool.withdraw_stake(staked_a, true, false, &wctx);
     assert_eq!(balance_a.destroy_for_testing(), 282); // 100 + 183 rewards?
 
     let auth = walrus::commission::auth_as_sender(ctx);

@@ -409,7 +409,15 @@ public(package) fun request_withdraw_stake(
     _ctx: &mut TxContext,
 ) {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.node_id()].request_withdraw_stake(staked_wal, wctx);
+    let node_id = staked_wal.node_id();
+    self
+        .pools[staked_wal.node_id()]
+        .request_withdraw_stake(
+            staked_wal,
+            self.committee.contains(&node_id),
+            self.next_committee.is_some_and!(|cmt| cmt.contains(&node_id)),
+            wctx,
+        );
 }
 
 /// Perform the withdrawal of the staked WAL, returning the amount to the caller.
@@ -421,7 +429,16 @@ public(package) fun withdraw_stake(
     ctx: &mut TxContext,
 ): Coin<WAL> {
     let wctx = &self.new_walrus_context();
-    self.pools[staked_wal.node_id()].withdraw_stake(staked_wal, wctx).into_coin(ctx)
+    let node_id = staked_wal.node_id();
+    self
+        .pools[staked_wal.node_id()]
+        .withdraw_stake(
+            staked_wal,
+            self.committee.contains(&node_id),
+            self.next_committee.is_some_and!(|cmt| cmt.contains(&node_id)),
+            wctx,
+        )
+        .into_coin(ctx)
 }
 
 // === System ===

@@ -81,8 +81,13 @@ public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
 ///
 /// The staked WAL can be withdrawn early if:
 /// - activation epoch is current epoch + 2
-/// - activation epoch is current epoch + 1 and committee hasn't been selected
-public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bool {
+/// - activation epoch is current epoch + 1 and !node_in_next_committee
+///   (or committee not selected yet)
+public(package) fun can_withdraw_early(
+    sw: &StakedWal,
+    node_in_next_committee: bool,
+    wctx: &WalrusContext,
+): bool {
     if (sw.is_withdrawing()) {
         return false
     };
@@ -91,7 +96,7 @@ public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bo
     let current_epoch = wctx.epoch();
 
     activation_epoch == current_epoch + 2 ||
-    (sw.activation_epoch == current_epoch + 1 && !wctx.committee_selected())
+    (sw.activation_epoch == current_epoch + 1 && !node_in_next_committee)
 }
 
 // === Accessors ===

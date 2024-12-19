@@ -22,13 +22,13 @@ fun collect_commission_with_rewards() {
 
     let (wctx, _) = test.next_epoch();
     pool.advance_epoch(mint_balance(0), &wctx);
-    pool.request_withdraw_stake(&mut sw1, &wctx);
+    pool.request_withdraw_stake(&mut sw1, true, false, &wctx);
 
     let (wctx, ctx) = test.next_epoch();
     pool.advance_epoch(mint_balance(10_000), &wctx);
 
     // Alice's stake: 1000 + 9000 (90%) rewards
-    assert_eq!(pool.withdraw_stake(sw1, &wctx).destroy_for_testing(), 10_000);
+    assert_eq!(pool.withdraw_stake(sw1, true, false, &wctx).destroy_for_testing(), 10_000);
     assert_eq!(pool.commission_amount(), 1000);
 
     // Commission is 10% -> 1000
