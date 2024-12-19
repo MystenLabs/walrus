@@ -141,3 +141,67 @@ fun withdraw_after_the_pool_became_inactive_alternative() {
 
     destroy(pool);
 }
+
+#[test, expected_failure(abort_code = walrus::staking_pool::EWithdrawDirectly)]
+// Scenario:
+// - try to request withdrawal for an inactive pool
+fun try_to_request_withdrawal_for_inactive_pool() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+
+    // Alice stakes after committee selection, stake applied E+1
+    // And she performs the withdrawal right away
+    let mut sw1 = pool.stake(mint_balance(1000), &wctx, ctx);
+    assert_eq!(sw1.activation_epoch(), E1);
+    assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+
+    let (_, _) = test.next_epoch(); // E1
+    let (wctx, _) = test.next_epoch(); // E2
+
+    pool.request_withdraw_stake(&mut sw1, false, false, &wctx);
+
+    sw1.destroy_for_testing();
+    destroy(pool);
+}
+
+#[test]
+// Scenario:
+// - withdraw pre-active stake from inactive pool
+fun direct_withdraw_for_inactive_pool_pre_active_stake() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+
+    let sw1 = pool.stake(mint_balance(1000), &wctx, ctx);
+    assert_eq!(sw1.activation_epoch(), E1);
+    assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+    let balance = pool.withdraw_stake(sw1, false, false, &wctx);
+    assert_eq!(balance.destroy_for_testing(), 1000);
+
+    let (_, _) = test.next_epoch(); // E1
+    assert_eq!(pool.wal_balance_at_epoch(E1), 0);
+
+    destroy(pool);
+}
+
+#[test]
+// Scenario:
+// - withdraw active stake from inactive pool
+fun direct_withdraw_for_inactive_pool_active_stake() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current();
+    let mut pool = pool().build(&wctx, ctx);
+
+    let sw1 = pool.stake(mint_balance(1000), &wctx, ctx);
+    assert_eq!(sw1.activation_epoch(), E1);
+    assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+
+    let (_, _) = test.next_epoch(); // E1
+    assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
+
+    let balance = pool.withdraw_stake(sw1, false, false, &wctx);
+    assert_eq!(balance.destroy_for_testing(), 1000);
+
+    destroy(pool);
+}
