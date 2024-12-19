@@ -351,6 +351,11 @@ public(package) fun withdraw_stake(
                 .convert_to_wal_amount(share_amount);
             wal_amount
         }
+        // note that if the stake is in state Withdrawing, it can either be
+        // from a pre-active withdrawal, but then
+        // (in_current_committee || in_next_committee) true since otherwise
+        // it was an early withdrawal, or from a standard two step withdrawal,
+        // which is handled below.
     } else {
         // normal two-step withdrawals
         assert!(staked_wal.is_withdrawing(), ENotWithdrawing);
