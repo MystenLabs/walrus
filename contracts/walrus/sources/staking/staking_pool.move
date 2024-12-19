@@ -73,7 +73,7 @@ public struct VotingParams has copy, drop, store {
 /// Represents a single staking pool for a token. Even though it is never
 /// transferred or shared, the `key` ability is added for discoverability
 /// in the `ObjectTable`.
-/// 
+///
 /// High level overview of the staking pool:
 /// The pool maintains a balance of WAL 'wal_balance' that is increased
 /// when stakes/rewards are added to the pool, and is decreased when
