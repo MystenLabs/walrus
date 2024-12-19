@@ -134,7 +134,10 @@ impl BlobInfoTable {
         tracing::debug!(?operation, "updating blob info");
 
         let mut batch = self.aggregate_blob_info.batch();
-        self.merge_blob_info_batch(&mut batch, &event.blob_id(), &operation)?;
+        batch.partial_merge_batch(
+            &self.aggregate_blob_info,
+            [(event.blob_id(), operation.to_bytes())],
+        )?;
         #[cfg(feature = "walrus-mainnet")]
         if let Some(object_id) = event.object_id() {
             let per_object_operation =
@@ -153,18 +156,19 @@ impl BlobInfoTable {
         latest_handled_index.map_or(false, |i| event_index <= i)
     }
 
-    pub fn merge_blob_info_batch(
+    pub fn set_metadata_stored<'a>(
         &self,
-        batch: &mut DBBatch,
+        batch: &'a mut DBBatch,
         blob_id: &BlobId,
-        operand: &BlobInfoMergeOperand,
-    ) -> Result<(), TypedStoreError> {
-        batch.partial_merge_batch(&self.aggregate_blob_info, [(blob_id, operand.to_bytes())])?;
-        Ok(())
-    }
-
-    pub fn delete(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        batch.delete_batch(&self.aggregate_blob_info, [blob_id])
+        metadata_stored: bool,
+    ) -> Result<&'a mut DBBatch, TypedStoreError> {
+        batch.partial_merge_batch(
+            &self.aggregate_blob_info,
+            [(
+                blob_id,
+                &BlobInfoMergeOperand::MarkMetadataStored(metadata_stored).to_bytes(),
+            )],
+        )
     }
 
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
@@ -203,7 +207,7 @@ impl BlobInfoTable {
         operand: &BlobInfoMergeOperand,
     ) -> Result<(), TypedStoreError> {
         let mut batch = self.batch();
-        self.merge_blob_info_batch(&mut batch, blob_id, operand)?;
+        batch.partial_merge_batch(&self.aggregate_blob_info, [(blob_id, operand.to_bytes())])?;
         batch.write()
     }
 

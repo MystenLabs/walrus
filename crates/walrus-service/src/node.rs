@@ -822,7 +822,7 @@ impl StorageNode {
         self.blob_sync_handler
             .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;
-        self.inner.storage.delete_blob(&event.blob_id, false)?;
+        self.inner.storage.delete_blob_data(&event.blob_id)?;
 
         event_handle.mark_as_complete();
         Ok(())

@@ -30,7 +30,7 @@ use walrus_core::{
 use walrus_sui::types::BlobEvent;
 
 use self::{
-    blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, BlobInfoTable},
+    blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
     event_cursor_table::EventCursorTable,
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
@@ -341,11 +341,8 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
         batch.insert_batch(&self.metadata, [(blob_id, metadata)])?;
-        self.blob_info.merge_blob_info_batch(
-            &mut batch,
-            blob_id,
-            &BlobInfoMergeOperand::MarkMetadataStored(true),
-        )?;
+        self.blob_info
+            .set_metadata_stored(&mut batch, blob_id, true)?;
         batch.write()
     }
 
@@ -423,19 +420,12 @@ impl Storage {
             .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
-    /// Deletes the provided [`BlobId`] from the storage.
+    /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
     #[tracing::instrument(skip_all)]
-    pub fn delete_blob(
-        &self,
-        blob_id: &BlobId,
-        delete_blob_info: bool,
-    ) -> Result<(), TypedStoreError> {
+    pub fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
-        self.delete_metadata(&mut batch, blob_id, !delete_blob_info)?;
+        self.delete_metadata(&mut batch, blob_id, true)?;
         self.delete_slivers(&mut batch, blob_id)?;
-        if delete_blob_info {
-            self.blob_info.delete(&mut batch, blob_id)?;
-        }
         batch.write()?;
         Ok(())
     }
@@ -449,11 +439,7 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         batch.delete_batch(&self.metadata, [blob_id])?;
         if update_blob_info {
-            self.blob_info.merge_blob_info_batch(
-                batch,
-                blob_id,
-                &BlobInfoMergeOperand::MarkMetadataStored(false),
-            )?;
+            self.blob_info.set_metadata_stored(batch, blob_id, false)?;
         }
         Ok(())
     }
@@ -603,6 +589,7 @@ pub(crate) mod tests {
 
     use blob_info::{
         BlobCertificationStatus,
+        BlobInfoMergeOperand,
         BlobInfoV1,
         BlobStatusChangeType,
         PermanentBlobInfoV1,
