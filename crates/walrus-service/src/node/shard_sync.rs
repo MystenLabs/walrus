@@ -137,6 +137,10 @@ impl ShardSyncHandler {
             let (blob_id, blob_info) = blob_info?;
 
             self.node
+                .metrics
+                .sync_blob_metadata_progress
+                .set(blob_id.first_two_bytes() as i64);
+            self.node
                 .get_or_recover_blob_metadata(
                     &blob_id,
                     blob_info
@@ -144,6 +148,8 @@ impl ShardSyncHandler {
                         .expect("certified blob must have certified epoch set"),
                 )
                 .await?;
+
+            self.node.metrics.sync_blob_metadata_count.inc();
         }
         tracing::info!("finished syncing blob metadata");
         Ok(())
