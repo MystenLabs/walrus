@@ -151,7 +151,7 @@ fun request_withdraw_when_can_withdraw_directly() {
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
     assert_eq!(sw1.activation_epoch(), E1);
 
-    pool.request_withdraw_stake(&mut sw1, true, true, &wctx);
+    pool.request_withdraw_stake(&mut sw1, true, false, &wctx);
 
     destroy(pool);
     destroy(sw1);

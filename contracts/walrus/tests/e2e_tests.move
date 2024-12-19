@@ -669,11 +669,11 @@ fun withdraw_rewards_before_joining_committee() {
 
     // === withdraw stake from excluded node ===
 
-    let mut staked_wal = runner.scenario().take_from_address(excluded_node.sui_address());
+    let staked_wal = runner.scenario().take_from_address(excluded_node.sui_address());
     runner.tx!(excluded_node.sui_address(), |staking, _, ctx| {
-        staking.request_withdraw_stake(&mut staked_wal, ctx);
+        let coin = staking.withdraw_stake(staked_wal, ctx);
+        coin.burn_for_testing();
     });
-    test_scenario::return_to_address(excluded_node.sui_address(), staked_wal);
 
     // === add stake to excluded node again ===
 
