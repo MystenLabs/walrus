@@ -401,7 +401,18 @@ public(package) fun advance_epoch(
 public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusContext) {
     let current_epoch = wctx.epoch();
 
-    // Get the exchange rate to use for all conversions and store it for future use.
+    // Set the exchange rate for the current epoch.
+    let exchange_rate = pool_exchange_rate::new(
+        pool.wal_balance,
+        pool.num_shares,
+    );
+    pool.exchange_rates.add(current_epoch, exchange_rate);
+
+    // Process additions.
+    pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
+
+    // Process withdrawals.
+
     // each value in pending withdrawals contains the principal which became
     // active in the previous epoch. so unlike other pending values, we need to
     // flush it one by one, recalculating the exchange rate and pool token amount
@@ -419,24 +430,12 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 
         pre_active_shares_withdraw = pre_active_shares_withdraw + shares_for_epoch;
     });
-
     // don't forget to flush the early withdrawals since we worked on a copy
     let _ = pool.pre_active_withdrawals.flush(current_epoch);
 
-    // do the withdrawals reduction for both
-    let exchange_rate = pool_exchange_rate::new(
-        pool.wal_balance,
-        pool.num_shares,
-    );
-    pool.exchange_rates.add(current_epoch, exchange_rate);
-
-    // Process additions.
-    pool.wal_balance = pool.wal_balance + pool.pending_stake.flush(current_epoch);
-
-    // Process withdrawals.
-    let token_withdraw = pool.pending_shares_withdraw.flush(wctx.epoch());
+    let shares_withdraw = pool.pending_shares_withdraw.flush(wctx.epoch());
     let pending_withdrawal = exchange_rate.convert_to_wal_amount(
-        token_withdraw + pre_active_shares_withdraw,
+        shares_withdraw + pre_active_shares_withdraw,
     );
 
     // Check that the amount is not higher than the pool balance
@@ -582,9 +581,9 @@ public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
 
         pre_active_shares_withdraw = pre_active_shares_withdraw + shares_for_epoch;
     });
-    let token_withdraw = pool.pending_shares_withdraw.value_at(epoch);
+    let shares_withdraw = pool.pending_shares_withdraw.value_at(epoch);
     let pending_withdrawal = exchange_rate.convert_to_wal_amount(
-        token_withdraw + pre_active_shares_withdraw,
+        shares_withdraw + pre_active_shares_withdraw,
     );
 
     pool.wal_balance + pool.pending_stake.value_at(epoch) - pending_withdrawal
