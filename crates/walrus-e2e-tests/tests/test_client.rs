@@ -862,8 +862,8 @@ async fn test_post_store_action(
                     let shared_blob: SharedBlob = client
                         .as_ref()
                         .sui_client()
-                        .read_client
-                        .get_object(shared_blob_object.unwrap())
+                        .sui_client()
+                        .get_sui_object(shared_blob_object.unwrap())
                         .await?;
                     assert_eq!(shared_blob.funds, 0);
                     assert_eq!(shared_blob.blob.id, blob_object.id);

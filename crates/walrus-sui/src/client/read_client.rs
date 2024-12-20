@@ -733,21 +733,6 @@ impl SuiReadClient {
     pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
         self.sui_client.backoff_config()
     }
-
-    /// Returns the parsed object for the given [`ObjectID`].
-    pub async fn get_object<T: AssociatedContractStruct>(
-        &self,
-        object_id: ObjectID,
-    ) -> Result<T, anyhow::Error> {
-        let obj = self
-            .sui_client
-            .get_object_with_options(
-                object_id,
-                SuiObjectDataOptions::new().with_bcs().with_type(),
-            )
-            .await?;
-        Ok(get_sui_object_from_object_response(&obj)?)
-    }
 }
 
 enum WhichCommittee {

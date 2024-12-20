@@ -284,10 +284,11 @@ impl RetriableSuiClient {
         self.sui_client.governance_api()
     }
 
-    // Other wrapper methods.
-
+    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
+    pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,
     {
@@ -303,6 +304,8 @@ impl RetriableSuiClient {
         })
         .await
     }
+
+    // Other wrapper methods.
 
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub(crate) async fn get_sui_objects<U>(

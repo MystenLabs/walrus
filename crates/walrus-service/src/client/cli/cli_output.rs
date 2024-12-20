@@ -116,8 +116,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
-                    Cost (excluding gas): {} {}\n\
-                    Shared blob object ID (if created): {}\n",
+                    Cost (excluding gas): {} {}{}",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
@@ -131,7 +130,8 @@ impl CliOutput for BlobStoreResultWithPath {
                     HumanReadableBytes(resource_operation.encoded_length()),
                     HumanReadableFrost::from(*cost),
                     operation_str,
-                    shared_blob_object.map_or_else(|| "N/A".to_string(), |id| id.to_string())
+                    shared_blob_object
+                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id))
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {

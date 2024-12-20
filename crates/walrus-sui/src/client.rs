@@ -475,29 +475,37 @@ impl SuiContractClient {
             return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
         }
 
-        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-        if post_store == PostStoreAction::Share {
-            let object_ids = get_created_sui_object_ids_by_type(
-                &res,
-                &contracts::shared_blob::SharedBlob
-                    .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
-            )?;
-            ensure!(
-                object_ids.len() == blobs_with_certificates.len(),
-                "unexpected number of shared blob objects created: {} expected {}",
-                object_ids.len(),
-                blobs_with_certificates.len()
-            );
+        if post_store != PostStoreAction::Share {
+            return Ok(HashMap::new());
+        }
 
-            // Fetch and fetch the SharedBlob object and parse the blob ID.
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        let object_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            object_ids.len() == blobs_with_certificates.len(),
+            "unexpected number of shared blob objects created: {} expected {}",
+            object_ids.len(),
+            blobs_with_certificates.len()
+        );
+
+        // If there is only one blob, we can directly return the mapping.
+        if object_ids.len() == 1 {
+            Ok(HashMap::from([(
+                blobs_with_certificates[0].0.blob_id,
+                object_ids[0],
+            )]))
+        } else {
+            // Fetch each SharedBlob object to get its corresponding blob ID.
             let mut shared_blob_objects = HashMap::new();
             for object_id in object_ids {
                 let shared_blob: SharedBlob = self.sui_client().get_sui_object(object_id).await?;
                 shared_blob_objects.insert(shared_blob.blob.blob_id, object_id);
             }
             Ok(shared_blob_objects)
-        } else {
-            Ok(HashMap::new())
         }
     }
 
