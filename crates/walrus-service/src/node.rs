@@ -1064,16 +1064,17 @@ impl StorageNode {
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
         if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
-            self.node_catch_up_process_epoch_change_start(event_handle, event)
+            self.process_epoch_change_start_while_catching_up(event_handle, event)
                 .await
         } else {
-            self.node_in_sync_process_epoch_change_start(event_handle, event)
+            self.process_epoch_change_start_when_node_is_in_sync(event_handle, event)
                 .await
         }
     }
 
-    /// The node is in RecoveryCatchUp mode and processing the epoch change start event.
-    async fn node_catch_up_process_epoch_change_start(
+    /// Processes the epoch change start event while the node is in
+    /// [`RecoveryCatchUp`][NodeStatus::RecoveryCatchUp] mode.
+    async fn process_epoch_change_start_while_catching_up(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1099,9 +1100,7 @@ impl StorageNode {
             .current_committee()
             .contains(self.inner.public_key())
         {
-            tracing::info!(
-                "node is not in the current committee, set node status to Standby status"
-            );
+            tracing::info!("node is not in the current committee, set node status to 'Standby'");
             self.inner.set_node_status(NodeStatus::Standby)?;
             event_handle.mark_as_complete();
             return Ok(());
@@ -1126,9 +1125,9 @@ impl StorageNode {
         Ok(())
     }
 
-    /// The node is up-to-date with the epoch and event processing. Process the epoch change start
-    /// event.
-    async fn node_in_sync_process_epoch_change_start(
+    /// Processes the epoch change start event when the node is up-to-date with the epoch and event
+    /// processing.
+    async fn process_epoch_change_start_when_node_is_in_sync(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -1143,35 +1142,31 @@ impl StorageNode {
             .cancel_all_expired_syncs_and_mark_events_completed()
             .await?;
 
-        let active_committees = self.inner.committee_service.active_committees();
-        let current_node_status = self.inner.storage.node_status()?;
+        let is_in_current_committee = self
+            .inner
+            .committee_service
+            .active_committees()
+            .current_committee()
+            .contains(self.inner.public_key());
+        let is_new_node_joining_committee =
+            self.inner.storage.node_status()? == NodeStatus::Standby && is_in_current_committee;
 
-        if current_node_status == NodeStatus::Standby
-            && active_committees
-                .current_committee()
-                .contains(self.inner.public_key())
-        {
-            tracing::info!(
-                "node is in Standby status just became a new committee member, \
-                process shard changes"
-            );
-            self.process_shard_changes_in_new_epoch(event_handle, event, true)
-                .await
-        } else {
-            if current_node_status != NodeStatus::Standby
-                && !active_committees
-                    .current_committee()
-                    .contains(self.inner.public_key())
-            {
-                // The reason we set the node status to Standby here is that the node is not in the
-                // current committee, and therefore from this epoch, it won't sync any blob
-                // metadata. In the case it becomes committee member again, it needs to sync blob
-                // metadata again.
-                self.inner.set_node_status(NodeStatus::Standby)?;
-            }
-            self.process_shard_changes_in_new_epoch(event_handle, event, false)
-                .await
+        if !is_in_current_committee {
+            // The reason we set the node status to Standby here is that the node is not in the
+            // current committee, and therefore from this epoch, it won't sync any blob
+            // metadata. In the case it becomes committee member again, it needs to sync blob
+            // metadata again.
+            self.inner.set_node_status(NodeStatus::Standby)?;
         }
+
+        if is_new_node_joining_committee {
+            tracing::info!(
+                "node just became a committee member; changing status from 'Standby' to 'Active' \
+                and processing shard changes"
+            );
+        }
+        self.process_shard_changes_in_new_epoch(event_handle, event, is_new_node_joining_committee)
+            .await
     }
 
     /// Starts the node recovery process.

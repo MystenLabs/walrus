@@ -68,15 +68,15 @@ pub struct WouldBlockError;
 // fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
-    /// The node is in recovery mode and syncing metadata.
+    /// The node is up-to-date with events but not a committee member.
     Standby,
-    /// The node is active and processing events.
+    /// The node is a committee member and up-to-date with events.
     Active,
     /// The node is in recovery mode and syncing metadata.
     RecoverMetadata,
     /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
-    /// The node is in recovery mode and processing events.
+    /// The node is in recovery mode and recovering missing slivers.
     RecoveryInProgress(Epoch),
 }
 
@@ -84,11 +84,11 @@ impl NodeStatus {
     /// Used to convert `NodeStatus` to `i64` for metrics.
     pub fn to_i64(&self) -> i64 {
         match self {
-            NodeStatus::Active => 0,
-            NodeStatus::RecoveryCatchUp => 1,
-            NodeStatus::RecoveryInProgress(_) => 2,
-            NodeStatus::RecoverMetadata => 3,
-            NodeStatus::Standby => 4,
+            NodeStatus::Standby => 0,
+            NodeStatus::Active => 1,
+            NodeStatus::RecoverMetadata => 2,
+            NodeStatus::RecoveryCatchUp => 3,
+            NodeStatus::RecoveryInProgress(_) => 4,
         }
     }
 }
@@ -96,11 +96,11 @@ impl NodeStatus {
 impl Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            NodeStatus::Standby => write!(f, "Standby"),
             NodeStatus::Active => write!(f, "Active"),
+            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
-            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
-            NodeStatus::Standby => write!(f, "Standby"),
         }
     }
 }
