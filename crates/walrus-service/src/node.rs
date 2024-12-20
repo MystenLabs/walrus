@@ -625,6 +625,11 @@ impl StorageNode {
                         );
                         self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
                     }
+
+                    // If the node is not lagging behind, see if we need to fix the node status.
+                    // TODO(WAL-490): remove this once all the nodes are using 1.7.3 or later
+                    // version.
+                    self.fix_standby_node_status()?;
                 }
             }
 
@@ -639,6 +644,32 @@ impl StorageNode {
         }
 
         bail!("event stream for blob events stopped")
+    }
+
+    // In 1.7, we introduced an incompatible change to the node status, where the old active
+    // status before 1.7 is mapped to the new Standby status in 1.7. This function
+    // is a temporary fix to map the old active status to the new Active status if we see that
+    // a node is in Standby status and is in both the current and previous committees.
+    fn fix_standby_node_status(&self) -> anyhow::Result<()> {
+        tracing::info!("checking standby node status");
+        // Do a DB read here to make sure we read the on disk status.
+        if self.inner.storage.node_status()? == NodeStatus::Standby {
+            let active_committees = self.inner.committee_service.active_committees();
+            let node_public_key = self.inner.public_key();
+            if active_committees
+                .current_committee()
+                .contains(node_public_key)
+                && active_committees
+                    .previous_committee()
+                    .is_some_and(|c| c.contains(node_public_key))
+            {
+                tracing::info!(
+                    "node is in Standby status and is up-to-date, set node status to Active"
+                );
+                self.inner.set_node_status(NodeStatus::Active)?;
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]

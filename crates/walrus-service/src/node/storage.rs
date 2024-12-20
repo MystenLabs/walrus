@@ -59,6 +59,9 @@ pub struct WouldBlockError;
 //          \          /            \      |
 //           v        v              \     v
 //          RecoverMetadata  -------> Active
+//
+// Important: this enum is committed to database. Do not modify the existing fields. Only add new
+// fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
     /// The node is in recovery mode and syncing metadata.

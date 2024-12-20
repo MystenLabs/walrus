@@ -54,6 +54,8 @@ use crate::node::{
     StorageNodeInner,
 };
 
+// Important: this enum is committed to database. Do not modify the existing fields. Only add new
+// fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
     /// Initial status of the shard when just created.
