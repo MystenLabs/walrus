@@ -411,7 +411,7 @@ public(package) fun request_withdraw_stake(
     let wctx = &self.new_walrus_context();
     let node_id = staked_wal.node_id();
     self
-        .pools[staked_wal.node_id()]
+        .pools[node_id]
         .request_withdraw_stake(
             staked_wal,
             self.committee.contains(&node_id),
@@ -431,7 +431,7 @@ public(package) fun withdraw_stake(
     let wctx = &self.new_walrus_context();
     let node_id = staked_wal.node_id();
     self
-        .pools[staked_wal.node_id()]
+        .pools[node_id]
         .withdraw_stake(
             staked_wal,
             self.committee.contains(&node_id),
