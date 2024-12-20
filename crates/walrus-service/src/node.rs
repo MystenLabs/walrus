@@ -726,11 +726,6 @@ impl StorageNode {
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
         // invariant violations and interference between different events.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
-            let event_handle = EventHandle::new(
-                element_index,
-                stream_element.element.event_id(),
-                self.inner.clone(),
-            );
             let node_status = self.inner.storage.node_status()?;
             let span = tracing::info_span!(
                 parent: &Span::current(),
@@ -785,6 +780,11 @@ impl StorageNode {
             ensure!(should_write || should_process, "event stream out of sync");
 
             if should_process {
+                let event_handle = EventHandle::new(
+                    element_index as usize,
+                    stream_element.element.event_id(),
+                    self.inner.clone(),
+                );
                 self.process_event(event_handle, stream_element.clone())
                     .inspect_err(|err| {
                         let span = tracing::Span::current();
