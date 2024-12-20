@@ -16,13 +16,13 @@ const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%
 
 // === Errors ===
 const EInvalidSubsidyRate: u64 = 0;
-const EInsufficientSubsidyFunds: u64 = 1;
 
 // === Structs ===
 
-/// Capability to perform admin operations.
+/// Capability to perform admin operations, tied to a specific Subsidies object.
 public struct AdminCap has key {
     id: UID,
+    subsidies_id: ID,
 }
 
 /// Subsidy rates are expressed in basis points (1/100 of a percent).
@@ -37,13 +37,15 @@ public struct Subsidies has key, store {
 
 /// Creates a new `Subsidies` object and an `AdminCap`.
 public fun new(ctx: &mut TxContext): AdminCap {
-    transfer::share_object(Subsidies {
+    let subsidies = Subsidies {
         id: object::new(ctx),
         buyer_subsidy_rate: 0,
         storage_node_subsidy_rate: 0,
         subsidy_pool: balance::zero(),
-    });
-    AdminCap { id: object::new(ctx) }
+    };
+    let admin_cap = AdminCap { id: object::new(ctx), subsidies_id: object::id(&subsidies) };
+    transfer::share_object(subsidies);
+    admin_cap
 }
 
 /// Creates a new `Subsidies` object with initial rates and funds and an `AdminCap`.
@@ -55,13 +57,15 @@ public fun new_with_initial_rates_and_funds(
 ): AdminCap {
     assert!(initial_buyer_subsidy_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
     assert!(initial_storage_node_subsidy_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
-    transfer::share_object(Subsidies {
+    let subsidies = Subsidies {
         id: object::new(ctx),
         buyer_subsidy_rate: initial_buyer_subsidy_rate,
         storage_node_subsidy_rate: initial_storage_node_subsidy_rate,
         subsidy_pool: initial_funds.into_balance(),
-    });
-    AdminCap { id: object::new(ctx) }
+    };
+    let admin_cap = AdminCap { id: object::new(ctx), subsidies_id: object::id(&subsidies) };
+    transfer::share_object(subsidies);
+    admin_cap
 }
 
 /// Add additional funds to the subsidy pool.
@@ -70,13 +74,15 @@ public fun add_funds(self: &mut Subsidies, funds: Coin<WAL>) {
 }
 
 /// Set the subsidy rate for buyers.
-public fun set_buyer_subsidy_rate(self: &mut Subsidies, _: &AdminCap, new_rate: u16) {
+public fun set_buyer_subsidy_rate(self: &mut Subsidies, cap: &AdminCap, new_rate: u16) {
+    assert!(cap.subsidies_id == object::id(self), 0);
     assert!(new_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
     self.buyer_subsidy_rate = new_rate;
 }
 
 /// Set the subsidy rate for storage nodes.
-public fun set_storage_node_subsidy_rate(self: &mut Subsidies, _: &AdminCap, new_rate: u16) {
+public fun set_storage_node_subsidy_rate(self: &mut Subsidies, cap: &AdminCap, new_rate: u16) {
+    assert!(cap.subsidies_id == object::id(self), 0);
     assert!(new_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
     self.storage_node_subsidy_rate = new_rate;
 }
@@ -99,15 +105,13 @@ public fun extend_blob(
         cost * (self.storage_node_subsidy_rate as u64) / (MAX_SUBSIDY_RATE as u64);
     let total_subsidy = buyer_subsidy_amount + storage_node_subsidy_amount;
 
-    // Ensure sufficient funds in subsidy pool.
-    assert!(self.subsidy_pool.value() >= total_subsidy, EInsufficientSubsidyFunds);
-
-    let subsidy_balance = self.subsidy_pool.split(total_subsidy);
-    payment.join(subsidy_balance.into_coin(ctx));
-
-    // add the whole payment amount to the system because the system object does not know that part of it is coming from subsidization
-    // system handles distribution of subsidy to the nodes.
-    system.add_subsidy(payment, epochs_ahead);
+    if (self.subsidy_pool.value() >= total_subsidy) {
+        let subsidy_balance = self.subsidy_pool.split(total_subsidy);
+        payment.join(subsidy_balance.into_coin(ctx));
+        system.add_subsidy(payment, epochs_ahead);
+    } else {
+        system.add_subsidy(payment, epochs_ahead);
+    }
 }
 
 /// Reserves storage space and applies the buyer and storage node subsidies.
@@ -129,16 +133,13 @@ public fun reserve_space(
 
     let total_subsidy = buyer_subsidy_amount + storage_node_subsidy_amount;
 
-    // Ensure sufficient funds in subsidy pool.
-    assert!(self.subsidy_pool.value() >= total_subsidy, EInsufficientSubsidyFunds);
-
-    let subsidy_balance = self.subsidy_pool.split(total_subsidy);
-    payment.join(subsidy_balance.into_coin(ctx));
-
-    // add the whole payment amount to the system because the system object does not know that part of it is coming from subsidization
-    // system handles distribution of subsidy to the nodes.
-    system.add_subsidy(payment, epochs_ahead);
-
+    if (self.subsidy_pool.value() >= total_subsidy) {
+        let subsidy_balance = self.subsidy_pool.split(total_subsidy);
+        payment.join(subsidy_balance.into_coin(ctx));
+        system.add_subsidy(payment, epochs_ahead);
+    } else {
+        system.add_subsidy(payment, epochs_ahead);
+    };
     storage
 }
 
