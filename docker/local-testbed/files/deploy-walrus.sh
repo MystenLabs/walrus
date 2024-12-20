@@ -7,7 +7,7 @@ EPOCH_DURATION=${EPOCH_DURATION:-1h}
 
 rm -rf walrus-docs
 git clone https://github.com/MystenLabs/walrus-docs.git
-cp -r walrus-docs/contracts /opt/walrus
+cp -r walrus-docs/contracts /opt/walrus/testnet-contracts
 
 cd /opt/walrus
 
