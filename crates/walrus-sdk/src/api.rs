@@ -234,6 +234,20 @@ pub struct ServiceHealthInfo {
     pub shard_detail: Option<ShardStatusDetail>,
 }
 
+/// The status of the shards for which the node is responsible.
+#[derive(Debug, Default, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnedShardStatus {
+    /// The number of owned shards in an unknown state.
+    pub unknown: usize,
+    /// The number of owned shards that are up-to-date for the epoch.
+    pub ready: usize,
+    /// The number of owned shards that are being transferred to the node.
+    pub in_transfer: usize,
+    /// The number of owned shards that are being recovered.
+    pub in_recovery: usize,
+}
+
 /// Summary of the shard statuses.
 ///
 /// Summarises the number of nodes for which this node is responsible, as well as those that are
@@ -243,16 +257,10 @@ pub struct ServiceHealthInfo {
 pub struct ShardStatusSummary {
     /// The number of shards, for which this node is responsible.
     ///
-    /// Their statuses are summarized in `unknown`, `ready`, `in_transfer`, and `in_recovery`.
+    /// Their statuses are summarized in `owned_shard_status`.
     pub owned: usize,
-    /// The number of owned shards in an unknown state.
-    pub unknown: usize,
-    /// The number of owned shards that are up-to-date for the epoch.
-    pub ready: usize,
-    /// The number of owned shards that are being transferred to the node.
-    pub in_transfer: usize,
-    /// The number of owned shards that are being recovered.
-    pub in_recovery: usize,
+    /// The statuses of the shards for which this node is responsible.
+    pub owned_shard_status: OwnedShardStatus,
     /// The number of shards, no longer owned by the node, that are read only,
     /// i.e., only serving reads from this node.
     pub read_only: usize,

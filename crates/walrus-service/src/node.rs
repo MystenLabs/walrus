@@ -1675,10 +1675,10 @@ fn increment_shard_summary(
     debug_assert!(is_owned);
     summary.owned += 1;
     match status {
-        ApiShardStatus::Unknown => summary.unknown += 1,
-        ApiShardStatus::Ready => summary.ready += 1,
-        ApiShardStatus::InTransfer => summary.in_transfer += 1,
-        ApiShardStatus::InRecovery => summary.in_recovery += 1,
+        ApiShardStatus::Unknown => summary.owned_shard_status.unknown += 1,
+        ApiShardStatus::Ready => summary.owned_shard_status.ready += 1,
+        ApiShardStatus::InTransfer => summary.owned_shard_status.in_transfer += 1,
+        ApiShardStatus::InRecovery => summary.owned_shard_status.in_recovery += 1,
         // We do not expect owned shards to be read-only.
         _ => (),
     }
