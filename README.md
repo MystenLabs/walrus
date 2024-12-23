@@ -98,6 +98,10 @@ machine for manual testing. All you need to do is run the script `scripts/local-
 The script generates configuration that you can use when [running the Walrus
 client](#using-the-walrus-client) and prints the path to that configuration file.
 
+In addition, one can spin up a local grafana instance to visualize the metrics collected by the
+storage nodes. This can be done via `cd docker/grafana-local; docker compose up`. This should work
+with the default storage node configuration.
+
 Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
 is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
 [start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
