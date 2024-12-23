@@ -74,6 +74,7 @@ public fun add_funds(self: &mut Subsidies, funds: Coin<WAL>) {
     self.subsidy_pool.join(funds.into_balance());
 }
 
+/// Check if the admin cap is valid for this subsidies object.
 fun check_admin(self: &Subsidies, admin_cap: &AdminCap) {
     assert!(object::id(self) == admin_cap.subsidies_id, EUnauthorizedAdminCap);
 }
@@ -106,12 +107,26 @@ fun apply_subsidies(
         cost * (self.storage_node_subsidy_rate as u64) / (MAX_SUBSIDY_RATE as u64);
     let total_subsidy = buyer_subsidy_amount + storage_node_subsidy_amount;
 
-    if (self.subsidy_pool.value() >= total_subsidy) {
-        let subsidy_balance = self.subsidy_pool.split(total_subsidy);
+    // Apply subsidy up to the available amount in the pool
+    let actual_subsidy = if (self.subsidy_pool.value() >= total_subsidy) {
+        total_subsidy
+    } else {
+        self.subsidy_pool.value()
+    };
+
+    if (actual_subsidy > 0) {
+        let subsidy_balance = self.subsidy_pool.split(actual_subsidy);
         payment.join(subsidy_balance.into_coin(ctx));
     };
+
+    // Correct cost accounting after subsidy
+    let cost_after_subsidy = cost - actual_subsidy;
     let payment_value = payment.value();
-    add_subsidy_to_system(payment, payment_value, system, epochs_ahead, ctx);
+
+    // The amount to pay *after* subsidy
+    let amount_to_system = payment_value - (payment_value - cost_after_subsidy);
+
+    add_subsidy_to_system(payment, amount_to_system, system, epochs_ahead, ctx);
 }
 
 /// Adds a subsidy to the system by taking a `Coin` and epochs ahead.

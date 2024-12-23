@@ -103,7 +103,7 @@ public struct BlobIdDerivation has drop {
 }
 
 /// Derives the blob_id for a blob given the root_hash, encoding_type and size.
-public(package) fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
+public fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
     let blob_id_struct = BlobIdDerivation {
         encoding_type,
         size,
@@ -175,7 +175,7 @@ public(package) fun new(
 
 /// Certifies that a blob will be available in the storage system until the end epoch of the
 /// storage associated with it, given a [`CertifiedBlobMessage`].
-public(package) fun certify_with_certified_msg(
+public fun certify_with_certified_msg(
     blob: &mut Blob,
     current_epoch: u32,
     message: CertifiedBlobMessage,

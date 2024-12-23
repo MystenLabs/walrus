@@ -213,7 +213,7 @@ public(package) fun inner(system: &System): &SystemStateInnerV1 {
 // === Testing ===
 
 #[test_only]
-public(package) fun new_for_testing(): System {
+public fun new_for_testing(): System {
     let ctx = &mut tx_context::dummy();
     let mut system = System { id: object::new(ctx), version: VERSION };
     let system_state_inner = system_state_inner::new_for_testing();
