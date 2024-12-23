@@ -3,8 +3,8 @@
 
 /// Module: `subsidies`
 ///
-/// This module allows adding funds to a subsidy pool, setting the rate of subsidies, and reserving storage space
-// while providing a discounted cost based on the current subsidy rate.
+/// This module allows adding funds to a subsidy pool, setting the rate of subsidies, and
+/// reserving storage space while providing a discounted cost based on the current subsidy rate.
 module subsidies::subsidies;
 
 use sui::{balance::{Self, Balance}, coin::{Self, Coin}};
