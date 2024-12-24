@@ -6,17 +6,18 @@ use std::{
     sync::Arc,
 };
 
+use futures::{stream::FuturesUnordered, StreamExt};
 #[cfg(msim)]
-use sui_macros::fail_point_if;
+use sui_macros::{fail_point_arg, fail_point_if};
 use tokio::sync::Mutex;
-use walrus_core::ShardIndex;
+use walrus_core::{BlobId, ShardIndex};
 use walrus_sdk::error::ServiceError;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{
     config::ShardSyncConfig,
     errors::SyncShardClientError,
-    storage::{ShardStatus, ShardStorage},
+    storage::{blob_info::BlobInfo, ShardStatus, ShardStorage},
     NodeStatus,
     StorageNodeInner,
 };
@@ -119,39 +120,90 @@ impl ShardSyncHandler {
 
         #[cfg(msim)]
         {
-            let mut sync_blob_metadata_error = false;
-            fail_point_if!("fail_point_shard_sync_recovery_metadata_error", || {
-                sync_blob_metadata_error = true
-            });
-            if sync_blob_metadata_error {
-                return Err(SyncShardClientError::Internal(anyhow::anyhow!(
-                    "fail point triggered sync blob metadata error"
-                )));
+            inject_recovery_metadata_failure_before_fetch()?;
+        }
+
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(
+            self.config.max_concurrent_metadata_fetch,
+        ));
+        let mut futures = FuturesUnordered::new();
+        let mut active_count = 0;
+
+        #[cfg(msim)]
+        let mut scan_count = 0; // Used to trigger fail point
+
+        for blob_info in blob_infos {
+            let (blob_id, blob_info) = blob_info?;
+            let node_clone = self.node.clone();
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("semaphore should not been dropped");
+
+            // TODO(WAL-478):
+            //   - create a end point that can transfer multiple blob metadata at once.
+            futures.push(tokio::spawn(async move {
+                Self::sync_single_blob_metadata(permit, node_clone, blob_id, blob_info).await
+            }));
+            active_count += 1;
+
+            #[cfg(msim)]
+            {
+                scan_count += 1;
+                inject_recovery_metadata_failure_during_fetch(scan_count)?;
+            }
+
+            // Wait for a task to complete if we've reached max concurrent limit
+            while active_count >= self.config.max_concurrent_metadata_fetch {
+                match futures.next().await {
+                    Some(Ok(result)) => {
+                        result?;
+                        active_count -= 1;
+                    }
+                    Some(Err(error)) => return Err(SyncShardClientError::Internal(error.into())),
+                    None => break, // All futures completed
+                }
             }
         }
 
-        // TODO(WAL-478):
-        //   - create a end point that can transfer multiple blob metadata at once.
-        //   - do this in parallel to speed up the sync.
-        for blob_info in blob_infos {
-            let (blob_id, blob_info) = blob_info?;
-
-            self.node
-                .metrics
-                .sync_blob_metadata_progress
-                .set(blob_id.first_two_bytes() as i64);
-            self.node
-                .get_or_recover_blob_metadata(
-                    &blob_id,
-                    blob_info
-                        .initial_certified_epoch()
-                        .expect("certified blob must have certified epoch set"),
-                )
-                .await?;
-
-            self.node.metrics.sync_blob_metadata_count.inc();
+        // Wait for all tasks to complete
+        while let Some(result) = futures.next().await {
+            match result {
+                Ok(result) => result?,
+                Err(error) => return Err(SyncShardClientError::Internal(error.into())),
+            };
         }
+
         tracing::info!("finished syncing blob metadata");
+        Ok(())
+    }
+
+    /// Syncs a single blob metadata.
+    async fn sync_single_blob_metadata(
+        permit: tokio::sync::OwnedSemaphorePermit,
+        node: Arc<StorageNodeInner>,
+        blob_id: BlobId,
+        blob_info: BlobInfo,
+    ) -> Result<(), SyncShardClientError> {
+        let _permit = permit; // Keep permit alive for the duration of the task
+
+        node.metrics
+            .sync_blob_metadata_progress
+            .set(blob_id.first_two_bytes() as i64);
+
+        let result = node
+            .get_or_recover_blob_metadata(
+                &blob_id,
+                blob_info
+                    .initial_certified_epoch()
+                    .expect("certified blob must have certified epoch set"),
+            )
+            .await;
+
+        node.metrics.sync_blob_metadata_count.inc();
+
+        result?;
         Ok(())
     }
 
@@ -396,6 +448,54 @@ fn check_no_retry_fail_point() -> bool {
     let mut no_retry = false;
     sui_macros::fail_point_if!("fail_point_shard_sync_no_retry", || { no_retry = true });
     no_retry
+}
+
+// Inject a failure point to simulate a sync failure.
+#[cfg(msim)]
+fn inject_recovery_metadata_failure_before_fetch() -> Result<(), SyncShardClientError> {
+    let mut sync_blob_metadata_error = false;
+    fail_point_if!(
+        "fail_point_shard_sync_recovery_metadata_error_before_fetch",
+        || {
+            sync_blob_metadata_error = true;
+        }
+    );
+
+    if sync_blob_metadata_error {
+        return Err(SyncShardClientError::Internal(anyhow::anyhow!(
+            "fail point triggered sync blob metadata error before fetching"
+        )));
+    }
+    Ok(())
+}
+
+// Inject a failure point to simulate a sync failure.
+#[cfg(msim)]
+fn inject_recovery_metadata_failure_during_fetch(
+    scan_count: u64,
+) -> Result<(), SyncShardClientError> {
+    let mut sync_blob_metadata_error = false;
+    fail_point_arg!(
+        "fail_point_shard_sync_recovery_metadata_error_during_fetch",
+        |trigger_at: u64| {
+            tracing::info!(
+                trigger_index = ?trigger_at,
+                blob_count = ?scan_count,
+                fail_point = "fail_point_shard_sync_recovery_metadata_error_during_fetch",
+            );
+            if trigger_at == scan_count {
+                sync_blob_metadata_error = true;
+            }
+        }
+    );
+
+    if sync_blob_metadata_error {
+        return Err(SyncShardClientError::Internal(anyhow::anyhow!(
+            "fail point triggered sync blob metadata error during fetching"
+        )));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

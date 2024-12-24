@@ -334,6 +334,8 @@ pub struct ShardSyncConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "blob_certified_check_interval_secs")]
     pub blob_certified_check_interval: Duration,
+    /// The number of metadata to fetch in parallel.
+    pub max_concurrent_metadata_fetch: usize,
 }
 
 impl Default for ShardSyncConfig {
@@ -344,6 +346,7 @@ impl Default for ShardSyncConfig {
             shard_sync_retry_max_backoff: Duration::from_secs(600),
             max_concurrent_blob_recovery_during_shard_recovery: 5,
             blob_certified_check_interval: Duration::from_secs(60),
+            max_concurrent_metadata_fetch: 10,
         }
     }
 }
