@@ -328,3 +328,7 @@ fun new_id(ctx: &mut TxContext): ID {
 public(package) fun new_package_id(system: &System): Option<ID> {
     system.new_package_id
 }
+
+public(package) fun destroy_for_testing(self: System) {
+    sui::test_utils::destroy(self);
+}

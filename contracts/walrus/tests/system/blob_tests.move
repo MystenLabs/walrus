@@ -27,7 +27,7 @@ const EPOCH: u32 = 0;
 const N_COINS: u64 = 1_000_000_000;
 
 #[test]
-public fun test_blob_register_happy_path(): system::System {
+fun blob_register_happy_path() {
     let mut system: system::System = system::new_for_testing();
 
     let storage = get_storage_resource(&mut system, SIZE, 3);
@@ -35,25 +35,24 @@ public fun test_blob_register_happy_path(): system::System {
     let blob = register_default_blob(&mut system, storage, false);
 
     blob.burn();
-    system
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = blob::EResourceSize)]
-public fun test_blob_insufficient_space(): system::System {
+fun blob_insufficient_space() {
     let mut system: system::System = system::new_for_testing();
 
     // Get a storage resource that is too small.
     let storage = get_storage_resource(&mut system, SIZE / 2, 3);
 
     // Test fails here
-    let blob = register_default_blob(&mut system, storage, false);
+    let _blob = register_default_blob(&mut system, storage, false);
 
-    blob.burn();
-    system
+    abort
 }
 
 #[test]
-public fun test_blob_certify_happy_path(): system::System {
+fun blob_certify_happy_path() {
     let mut system: system::System = system::new_for_testing();
 
     let storage = get_storage_resource(&mut system, SIZE, 3);
@@ -69,11 +68,11 @@ public fun test_blob_certify_happy_path(): system::System {
     assert!(blob.certified_epoch().is_some());
 
     blob.burn();
-    system
+    system.destroy_for_testing();
 }
 
 #[test]
-public fun test_blob_certify_single_function(): system::System {
+fun blob_certify_single_function() {
     let sk = test_utils::bls_sk_for_testing();
 
     // Create a new system object
@@ -96,29 +95,11 @@ public fun test_blob_certify_single_function(): system::System {
     assert!(blob1.certified_epoch().is_some());
 
     blob1.burn();
-    system
+    system.destroy_for_testing();
 }
 
-// #[test, expected_failure(abort_code = blob::EWrongEpoch)]
-// public fun test_blob_certify_bad_epoch(): system::System {
-//     let mut system: system::System = system::new_for_testing();
-
-//     let storage = get_storage_resource(&mut system, SIZE, 3);
-
-//     let mut blob = register_default_blob(&mut system, storage, false);
-
-//     // Certify message for wrong epoch.
-//     let certify_message = messages::certified_blob_message_for_testing(EPOCH + 1, blob.blob_id());
-
-//     // Try to certify. Test fails here.
-//     blob.certify_with_certified_msg(system.epoch(), certify_message);
-
-//     blob.burn();
-//     system
-// }
-
 #[test, expected_failure(abort_code = blob::EInvalidBlobId)]
-public fun test_blob_certify_bad_blob_id(): system::System {
+fun blob_certify_bad_blob_id() {
     let mut system: system::System = system::new_for_testing();
 
     let storage = get_storage_resource(&mut system, SIZE, 3);
@@ -131,12 +112,11 @@ public fun test_blob_certify_bad_blob_id(): system::System {
     // Try to certify. Test fails here.
     blob.certify_with_certified_msg(system.epoch(), certify_message);
 
-    blob.burn();
-    system
+    abort
 }
 
 #[test]
-public fun test_certified_blob_message() {
+fun certified_blob_message() {
     let blob_id = default_blob_id();
     let message_bytes = messages::certified_message_bytes(EPOCH, blob_id);
     let msg = messages::new_certified_message(message_bytes, EPOCH, 10);
@@ -146,7 +126,7 @@ public fun test_certified_blob_message() {
 }
 
 #[test, expected_failure(abort_code = bcs::EOutOfRange)]
-public fun test_certified_blob_message_too_short() {
+fun certified_blob_message_too_short() {
     let mut msg_bytes = messages::certified_message_bytes(EPOCH, default_blob_id());
     // Shorten message
     let _ = msg_bytes.pop_back();
@@ -157,7 +137,7 @@ public fun test_certified_blob_message_too_short() {
 }
 
 #[test]
-public fun test_blob_extend_happy_path(): system::System {
+fun blob_extend_happy_path() {
     let ctx = &mut tx_context::dummy();
     let mut system: system::System = system::new_for_testing();
 
@@ -191,11 +171,11 @@ public fun test_blob_extend_happy_path(): system::System {
 
     storage_long.destroy();
     blob.burn();
-    system
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = storage_resource::EIncompatibleEpochs)]
-public fun test_blob_extend_bad_period(): system::System {
+fun blob_extend_bad_period() {
     let ctx = &mut tx_context::dummy();
     let mut system: system::System = system::new_for_testing();
 
@@ -224,13 +204,11 @@ public fun test_blob_extend_bad_period(): system::System {
     // Now try to extend the blob. Test fails here.
     system.extend_blob_with_resource(&mut blob, trailing_storage);
 
-    storage_long.destroy();
-    blob.burn();
-    system
+    abort
 }
 
 #[test]
-public fun test_direct_extend_happy(): system::System {
+fun direct_extend_happy() {
     let mut system: system::System = system::new_for_testing();
     let initial_duration = 3;
     let extension = 3;
@@ -253,11 +231,11 @@ public fun test_direct_extend_happy(): system::System {
 
     fake_coin.burn_for_testing();
     blob.burn();
-    system
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = blob::ENotCertified)]
-public fun test_direct_extend_not_certified(): system::System {
+fun direct_extend_not_certified() {
     let mut system: system::System = system::new_for_testing();
     let initial_duration = 3;
     let extension = 3;
@@ -271,14 +249,11 @@ public fun test_direct_extend_not_certified(): system::System {
     // Now try to extend the blob with another 3 epochs
     let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
     system.extend_blob(&mut blob, extension, &mut fake_coin);
-
-    fake_coin.burn_for_testing();
-    blob.burn();
-    system
+    abort
 }
 
 #[test, expected_failure(abort_code = blob::EResourceBounds)]
-public fun test_direct_extend_expired(): system::System {
+fun direct_extend_expired() {
     let mut system: system::System = system::new_for_testing();
     let initial_duration = 1;
     let extension = 3;
@@ -297,20 +272,18 @@ public fun test_direct_extend_expired(): system::System {
     let (_, balances) = system
         .advance_epoch(committee, epoch_params_for_testing())
         .into_keys_values();
-        
+
     balances.do!(|b| { b.destroy_for_testing(); });
 
     let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
     // Now extend the blob with another 3 epochs. Test fails here.
     system.extend_blob(&mut blob, extension, &mut fake_coin);
 
-    fake_coin.burn_for_testing();
-    blob.burn();
-    system
+    abort
 }
 
 #[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
-public fun test_direct_extend_too_long(): system::System {
+fun direct_extend_too_long() {
     let mut system: system::System = system::new_for_testing();
     let initial_duration = 3;
     let extension = MAX_EPOCHS_AHEAD;
@@ -328,13 +301,11 @@ public fun test_direct_extend_too_long(): system::System {
     // Try to extend the blob with max epochs. Test fails here.
     system.extend_blob(&mut blob, extension, &mut fake_coin);
 
-    fake_coin.burn_for_testing();
-    blob.burn();
-    system
+    abort
 }
 
 #[test]
-public fun test_delete_blob(): system::System {
+fun delete_blob() {
     let mut system: system::System = system::new_for_testing();
 
     let storage = get_storage_resource(&mut system, SIZE, 3);
@@ -354,11 +325,11 @@ public fun test_delete_blob(): system::System {
     let storage = system.delete_blob(blob);
 
     storage.destroy();
-    system
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = blob::EBlobNotDeletable)]
-public fun test_delete_undeletable_blob(): system::System {
+fun delete_undeletable_blob() {
     let mut system: system::System = system::new_for_testing();
 
     let storage = get_storage_resource(&mut system, SIZE, 3);
@@ -375,16 +346,15 @@ public fun test_delete_undeletable_blob(): system::System {
     assert!(blob.certified_epoch().is_some());
 
     // Now delete the blob. Test fails here.
-    let storage = system.delete_blob(blob);
+    let _storage = system.delete_blob(blob);
 
-    storage.destroy();
-    system
+    abort
 }
 
 // === Metadata ===
 
 #[test]
-public fun test_blob_add_metadata(): system::System {
+fun blob_add_metadata() {
     call_function_with_default_blob!(|blob| {
         let metadata = metadata::new();
         blob.add_metadata(metadata);
@@ -398,7 +368,7 @@ public fun test_blob_add_metadata(): system::System {
 }
 
 #[test, expected_failure(abort_code = blob::EDuplicateMetadata)]
-public fun test_blob_add_metadata_already_exists(): system::System {
+fun blob_add_metadata_already_exists() {
     call_function_with_default_blob!(|blob| {
         let metadata1 = metadata::new();
         blob.add_metadata(metadata1);
@@ -410,7 +380,7 @@ public fun test_blob_add_metadata_already_exists(): system::System {
 }
 
 #[test, expected_failure(abort_code = blob::EMissingMetadata)]
-public fun test_blob_take_metadata_nonexistent(): system::System {
+fun blob_take_metadata_nonexistent() {
     call_function_with_default_blob!(|blob| {
         // Try to take the metadata from a blob without metadata. Test fails here.
         blob.take_metadata();
@@ -418,7 +388,7 @@ public fun test_blob_take_metadata_nonexistent(): system::System {
 }
 
 #[test, expected_failure(abort_code = blob::EMissingMetadata)]
-public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
+fun blob_insert_metadata_pair_nonexistent() {
     call_function_with_default_blob!(|blob| {
         // Try to insert metadata into a blob without metadata. Test fails here.
         blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value1".to_string());
@@ -426,7 +396,7 @@ public fun test_blob_insert_metadata_pair_nonexistent(): system::System {
 }
 
 #[test, expected_failure(abort_code = blob::EMissingMetadata)]
-public fun test_blob_remove_metadata_pair_nonexistent(): system::System {
+fun blob_remove_metadata_pair_nonexistent() {
     call_function_with_default_blob!(|blob| {
         // Try to remove metadata from a blob without metadata. Test fails here.
         blob.remove_metadata_pair(&b"key1".to_string());
@@ -477,7 +447,7 @@ fun default_blob_id(): u256 {
 ///
 /// Creates the system, registers the default blob, and calls the given function with the blob.
 /// Finally, it destroys the blob and returns the system.
-macro fun call_function_with_default_blob($f: |&mut Blob| -> ()): system::System {
+macro fun call_function_with_default_blob($f: |&mut Blob| -> ()) {
     let mut system: system::System = system::new_for_testing();
     let storage = get_storage_resource(&mut system, SIZE, 3);
     let mut blob = register_default_blob(&mut system, storage, false);
@@ -487,5 +457,5 @@ macro fun call_function_with_default_blob($f: |&mut Blob| -> ()): system::System
 
     // Cleanup.
     blob.burn();
-    system
+    system.destroy_for_testing();
 }
