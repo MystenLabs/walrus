@@ -184,6 +184,7 @@ public fun update_deny_list(
     self.inner_mut().update_deny_list(cap, signature, members_bitmap, message)
 }
 
+/// Delete a blob that is deny listed by f+1 members.
 public fun delete_deny_listed_blob(
     self: &System,
     signature: vector<u8>,

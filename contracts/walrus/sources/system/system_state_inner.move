@@ -4,7 +4,7 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::{balance::Balance, coin::Coin};
+use sui::{balance::Balance, coin::Coin, vec_map::{Self, VecMap}};
 use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
@@ -13,6 +13,7 @@ use walrus::{
     epoch_parameters::EpochParams,
     event_blob::{Self, EventBlobCertificationState, new_attestation},
     events,
+    extended_field::{Self, ExtendedField},
     messages,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
@@ -55,6 +56,7 @@ public struct SystemStateInnerV1 has key, store {
     future_accounting: FutureAccountingRingBuffer,
     /// Event blob certification state
     event_blob_certification_state: EventBlobCertificationState,
+    deny_list_sizes: ExtendedField<VecMap<ID, u64>>,
 }
 
 /// Creates an empty system state with a capacity of zero and an empty
@@ -74,24 +76,24 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
         write_price_per_unit_size: 0,
         future_accounting,
         event_blob_certification_state,
+        deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
     }
 }
 
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
 /// Called by the epoch change function that connects `Staking` and `System`.
-/// Returns
-/// the balance of the rewards from the previous epoch.
+/// Returns the balance of the rewards from the previous epoch.
 public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
     new_epoch_params: EpochParams,
 ): Balance<WAL> {
     // Check new committee is valid, the existence of a committee for the next
-    // epoch
-    // is proof that the time has come to move epochs.
+    // epoch is proof that the time has come to move epochs.
     let old_epoch = self.epoch();
     let new_epoch = old_epoch + 1;
+    let old_committee = self.committee;
 
     assert!(new_committee.epoch() == new_epoch, EIncorrectCommittee);
     self.committee = new_committee;
@@ -111,8 +113,59 @@ public(package) fun advance_epoch(
 
     // Update storage based on the accounts data.
     self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
-    accounts_old_epoch.unwrap_balance()
+    let total_rewards = accounts_old_epoch.unwrap_balance();
+
+    // use the old committee to distribute rewards;
+    let (node_ids, weights) = old_committee.to_vec_map().into_keys_values();
+    let total_rewards_value = total_rewards.value() as u128;
+    let mut rewards_distribution = vec_map::empty();
+    let mut sum_stored = 0;
+
+    let deny_list_sizes = self.deny_list_sizes.borrow();
+
+    // let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
+    // let stored = (weight as u128) * ((self.used_capacity_size - deny_list_size) as u128);
+    node_ids.zip_do!(weights, |node_id, weight| {
+        let stored = weight as u128;
+        sum_stored = sum_stored + stored;
+        rewards_distribution.insert(node_id, stored * total_rewards_value);
+    });
+
+    rewards_distribution.size().do!(|i| {
+        let (node_id, rewards) = rewards_distribution.get_entry_by_idx_mut(i);
+
+        *rewards = *rewards / sum_stored;
+    });
+
+    // std::debug::print(&sui::hex::encode(node_id.to_bytes()));
+    // std::debug::print(rewards);
+
+    total_rewards
 }
+
+// (total used capacity - denylist) * number of shards = ratio for distribution;
+// for (node in nodes) {
+//    total_used_capacity - denylist_size = size of the blobs they are storing
+// }
+// size of the blobs the node is storing * number of shards they are storing = share of the rewards
+// sum of the numbers = total
+// get it for all of the nodes + sum it up / total = percent
+
+// for each of the nodes:
+// - how much are they storing off the overall blobs (???)
+// -
+
+// for all nodes: stored[node_idx] = weight[node_idx]; //  * (used_capacity - deny_list_size[node_idx])
+// total_stored = sum(stored)
+// for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
+
+// assumptions:
+// 1. the values stored in the denylist are for the current committee;
+// let (_, values) = (*self.deny_list_sizes.borrow()).into_keys_values();
+// let total_deny_list_size = values.fold!(0, |acc, x| acc + x);
+// let max_capacity_size = self.used_capacity_size - total_deny_list_size;
+// let rewards_ratio = {
+// };
 
 /// Allow buying a storage reservation for a given period of epochs.
 public(package) fun reserve_space(
@@ -242,7 +295,7 @@ public(package) fun certify_blob(
             signers_bitmap,
             message,
         );
-    assert!(certified_msg.cert_epoch() == self.epoch());
+    assert!(certified_msg.cert_epoch() == self.epoch(), EInvalidIdEpoch);
 
     let certified_blob_msg = certified_msg.certify_blob_message();
     blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
@@ -528,12 +581,14 @@ public(package) fun register_deny_list_update(
 /// Perform the update of the deny list; register updated root and sequence in
 /// the `StorageNodeCap`.
 public(package) fun update_deny_list(
-    self: &SystemStateInnerV1,
+    self: &mut SystemStateInnerV1,
     cap: &mut StorageNodeCap,
     signature: vector<u8>,
     members_bitmap: vector<u8>,
     message: vector<u8>,
 ) {
+    assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
+
     let certified_message = self
         .committee
         .verify_quorum_in_epoch(signature, members_bitmap, message);
@@ -541,20 +596,23 @@ public(package) fun update_deny_list(
     let epoch = certified_message.cert_epoch();
     let message = certified_message.deny_list_update_message();
     let node_id = message.storage_node_id();
+    let size = message.size();
 
-    assert!(epoch == self.epoch());
+    assert!(epoch == self.epoch(), EInvalidIdEpoch);
     assert!(node_id == cap.node_id());
     assert!(cap.deny_list_sequence() < message.sequence_number());
     assert!(cap.deny_list_root() != message.root());
 
-    cap.set_deny_list_properties(message.root(), message.sequence_number());
+    // update deny_list properties in the cap
+    cap.set_deny_list_properties(message.root(), message.sequence_number(), size);
 
-    // now deal with the size parameter ???
-    // we need to register it somewhere, the idea rn is to move it to the
-    // staking pool and store there (given that we already access staking pool
-    // in the advance epoch);
-
-    let _ = message.size();
+    // then register the update in the system storage
+    let sizes = self.deny_list_sizes.borrow_mut();
+    if (sizes.contains(&node_id)) {
+        *&mut sizes[&node_id] = message.size();
+    } else {
+        sizes.insert(node_id, message.size());
+    };
 }
 
 /// Certify that a blob is on the deny list for at least one honest node. Emit
@@ -572,7 +630,7 @@ public(package) fun delete_deny_listed_blob(
     let epoch = certified_message.cert_epoch();
     let message = certified_message.deny_list_blob_deleted_message();
 
-    assert!(epoch == self.epoch());
+    assert!(epoch == self.epoch(), EInvalidIdEpoch);
 
     events::emit_deny_listed_blob_deleted(epoch, message.blob_id());
 }
@@ -596,6 +654,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         write_price_per_unit_size: 1,
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
+        deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
     }
 }
 
@@ -612,6 +671,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         write_price_per_unit_size: 1,
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
+        deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
     }
 }
 

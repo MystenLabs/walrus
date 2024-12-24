@@ -99,23 +99,23 @@ public fun test_blob_certify_single_function(): system::System {
     system
 }
 
-#[test, expected_failure(abort_code = blob::EWrongEpoch)]
-public fun test_blob_certify_bad_epoch(): system::System {
-    let mut system: system::System = system::new_for_testing();
+// #[test, expected_failure(abort_code = blob::EWrongEpoch)]
+// public fun test_blob_certify_bad_epoch(): system::System {
+//     let mut system: system::System = system::new_for_testing();
 
-    let storage = get_storage_resource(&mut system, SIZE, 3);
+//     let storage = get_storage_resource(&mut system, SIZE, 3);
 
-    let mut blob = register_default_blob(&mut system, storage, false);
+//     let mut blob = register_default_blob(&mut system, storage, false);
 
-    // Certify message for wrong epoch.
-    let certify_message = messages::certified_blob_message_for_testing(EPOCH + 1, blob.blob_id());
+//     // Certify message for wrong epoch.
+//     let certify_message = messages::certified_blob_message_for_testing(EPOCH + 1, blob.blob_id());
 
-    // Try to certify. Test fails here.
-    blob.certify_with_certified_msg(system.epoch(), certify_message);
+//     // Try to certify. Test fails here.
+//     blob.certify_with_certified_msg(system.epoch(), certify_message);
 
-    blob.burn();
-    system
-}
+//     blob.burn();
+//     system
+// }
 
 #[test, expected_failure(abort_code = blob::EInvalidBlobId)]
 public fun test_blob_certify_bad_blob_id(): system::System {

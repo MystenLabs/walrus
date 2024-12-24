@@ -64,12 +64,7 @@ public(package) fun unwrap_balance(self: FutureAccounting): Balance<WAL> {
 
 #[test_only]
 public(package) fun burn_for_testing(self: FutureAccounting) {
-    let FutureAccounting {
-        rewards_to_distribute,
-        ..,
-    } = self;
-
-    rewards_to_distribute.destroy_for_testing();
+    self.unwrap_balance().destroy_for_testing();
 }
 
 /// A ring buffer holding future accounts for a continuous range of epochs.
