@@ -690,3 +690,6 @@ public(package) fun is_empty(pool: &StakingPool): bool {
 
 #[test_only]
 public(package) fun num_shares(pool: &StakingPool): u64 { pool.num_shares }
+
+#[test_only]
+public(package) fun latest_epoch(pool: &StakingPool): u32 { pool.latest_epoch }

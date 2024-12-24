@@ -4,7 +4,7 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::{balance::Balance, coin::Coin, vec_map::{Self, VecMap}};
+use sui::{balance::{Self, Balance}, coin::Coin, vec_map::{Self, VecMap}};
 use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
@@ -57,6 +57,7 @@ public struct SystemStateInnerV1 has key, store {
     /// Event blob certification state
     event_blob_certification_state: EventBlobCertificationState,
     deny_list_sizes: ExtendedField<VecMap<ID, u64>>,
+    leftover_rewards: Balance<WAL>,
 }
 
 /// Creates an empty system state with a capacity of zero and an empty
@@ -77,6 +78,7 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
         future_accounting,
         event_blob_certification_state,
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
+        leftover_rewards: balance::zero(),
     }
 }
 
@@ -88,7 +90,7 @@ public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
     new_epoch_params: EpochParams,
-): Balance<WAL> {
+): VecMap<ID, Balance<WAL>> {
     // Check new committee is valid, the existence of a committee for the next
     // epoch is proof that the time has come to move epochs.
     let old_epoch = self.epoch();
@@ -113,7 +115,10 @@ public(package) fun advance_epoch(
 
     // Update storage based on the accounts data.
     self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
-    let total_rewards = accounts_old_epoch.unwrap_balance();
+    let mut total_rewards = accounts_old_epoch.unwrap_balance();
+    total_rewards.join(self.leftover_rewards.withdraw_all());
+
+    // === Rewards distribution ===
 
     // use the old committee to distribute rewards;
     let (node_ids, weights) = old_committee.to_vec_map().into_keys_values();
@@ -122,6 +127,8 @@ public(package) fun advance_epoch(
     let mut sum_stored = 0;
 
     let deny_list_sizes = self.deny_list_sizes.borrow();
+
+    let mut rewards = vec_map::empty();
 
     // let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
     // let stored = (weight as u128) * ((self.used_capacity_size - deny_list_size) as u128);
@@ -132,15 +139,12 @@ public(package) fun advance_epoch(
     });
 
     rewards_distribution.size().do!(|i| {
-        let (node_id, rewards) = rewards_distribution.get_entry_by_idx_mut(i);
-
-        *rewards = *rewards / sum_stored;
+        let (node_id, amount) = rewards_distribution.get_entry_by_idx(i);
+        rewards.insert(*node_id, total_rewards.split((*amount / sum_stored) as u64));
     });
 
-    // std::debug::print(&sui::hex::encode(node_id.to_bytes()));
-    // std::debug::print(rewards);
-
-    total_rewards
+    self.leftover_rewards.join(total_rewards);
+    rewards
 }
 
 // (total used capacity - denylist) * number of shards = ratio for distribution;
@@ -655,6 +659,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
+        leftover_rewards: balance::zero(),
     }
 }
 
@@ -672,6 +677,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
+        leftover_rewards: balance::zero(),
     }
 }
 

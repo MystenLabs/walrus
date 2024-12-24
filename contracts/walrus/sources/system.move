@@ -5,7 +5,7 @@
 /// Module: system
 module walrus::system;
 
-use sui::{balance::Balance, coin::Coin, dynamic_object_field};
+use sui::{balance::Balance, coin::Coin, dynamic_object_field, vec_map::VecMap};
 use wal::wal::WAL;
 use walrus::{
     blob::Blob,
@@ -236,7 +236,7 @@ public(package) fun advance_epoch(
     self: &mut System,
     new_committee: BlsCommittee,
     new_epoch_params: EpochParams,
-): Balance<WAL> {
+): VecMap<ID, Balance<WAL>> {
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
 

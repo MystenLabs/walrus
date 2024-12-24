@@ -294,8 +294,11 @@ public fun test_direct_extend_expired(): system::System {
 
     // Advance the epoch
     let committee = test_utils::new_bls_committee_for_testing(1);
-    let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
-    epoch_balance.destroy_for_testing();
+    let (_, balances) = system
+        .advance_epoch(committee, epoch_params_for_testing())
+        .into_keys_values();
+        
+    balances.do!(|b| { b.destroy_for_testing(); });
 
     let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
     // Now extend the blob with another 3 epochs. Test fails here.

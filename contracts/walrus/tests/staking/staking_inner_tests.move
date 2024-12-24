@@ -4,7 +4,7 @@
 module walrus::staking_inner_tests;
 
 use std::unit_test::assert_eq;
-use sui::{balance, clock, test_utils::destroy};
+use sui::{clock, test_utils::destroy, vec_map};
 use walrus::{staking_inner, storage_node, test_utils as test};
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -65,7 +65,12 @@ fun test_staking_active_set() {
 
     // trigger `advance_epoch` to update the committee
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(
+        vec_map::from_keys_values(
+            vector[pool_one, pool_two, pool_three],
+            vector[test::mint_balance(0), test::mint_balance(0), test::mint_balance(0)],
+        ),
+    );
 
     // we expect:
     // - all 3 pools have been advanced
@@ -132,7 +137,12 @@ fun test_epoch_sync_done() {
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(
+        vec_map::from_keys_values(
+            vector[pool_one, pool_two],
+            vector[test::mint_balance(0), test::mint_balance(0)],
+        ),
+    );
 
     clock.increment_for_testing(EPOCH_DURATION);
 
@@ -173,7 +183,12 @@ fun test_epoch_sync_done_duplicate() {
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(
+        vec_map::from_keys_values(
+            vector[pool_one, pool_two],
+            vector[test::mint_balance(0), test::mint_balance(0)],
+        ),
+    );
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
     let epoch = staking.epoch();
@@ -207,7 +222,12 @@ fun test_epoch_sync_wrong_epoch() {
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(
+        vec_map::from_keys_values(
+            vector[pool_one],
+            vector[test::mint_balance(0)],
+        ),
+    );
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
 

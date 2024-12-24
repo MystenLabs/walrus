@@ -534,7 +534,7 @@ fun dhondt(
 public(package) fun initiate_epoch_change(
     self: &mut StakingInnerV1,
     clock: &Clock,
-    rewards: Balance<WAL>,
+    rewards: VecMap<ID, Balance<WAL>>,
 ) {
     let last_epoch_change = match (self.epoch_state) {
         EpochState::NextParamsSelected(last_epoch_change) => last_epoch_change,
@@ -552,7 +552,10 @@ public(package) fun initiate_epoch_change(
 /// Sets the next epoch of the system and emits the epoch change start event.
 ///
 /// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
-public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balance<WAL>) {
+public(package) fun advance_epoch(
+    self: &mut StakingInnerV1,
+    rewards: VecMap<ID, Balance<WAL>>,
+) {
     assert!(self.next_committee.is_some(), EWrongEpochState);
 
     self.epoch = self.epoch + 1;
@@ -564,33 +567,24 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
 
     // Distribute the rewards.
 
-    // Add any leftover rewards to the rewards to distribute.
-    rewards.join(self.leftover_rewards.withdraw_all());
-    let rewards_per_shard = rewards.value() / (self.n_shards as u64);
-
     // Take the `ActiveSet` into the function scope just once.
     let active_set = self.active_set.borrow_mut();
 
     // Find nodes that just joined, and advance their epoch.
     let (_, new_ids) = committee::diff(&self.previous_committee, &self.committee);
+
     new_ids.do!(|node_id| {
         let pool = &mut self.pools[node_id];
         pool.advance_epoch(balance::zero(), wctx);
         active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
-    // Distribute the rewards to the nodes in the previous committee.
-    let previous_committee = self.previous_committee.inner();
-    previous_committee.size().do!(|i| {
-        let (node_id, shards) = previous_committee.get_entry_by_idx(i);
-        let pool = &mut self.pools[*node_id];
-
-        pool.advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
-        active_set.update(*node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
+    let (node_ids, rewards) = rewards.into_keys_values();
+    rewards.zip_do!(node_ids, |node_reward, node_id| {
+        let pool = &mut self.pools[node_id];
+        pool.advance_epoch(node_reward, wctx);
+        active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
-
-    // Save any leftover rewards due to rounding.
-    self.leftover_rewards.join(rewards);
 
     // Emit epoch change start event.
     events::emit_epoch_change_start(self.epoch);
