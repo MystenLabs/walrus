@@ -100,8 +100,6 @@ public struct StakingInnerV1 has key, store {
     next_epoch_params: Option<EpochParams>,
     /// The state of the current epoch.
     epoch_state: EpochState,
-    /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
-    leftover_rewards: Balance<WAL>,
     /// The public keys for the next epoch. The keys are stored in a sorted `VecMap`, and mirror
     /// the order of the nodes in the `next_committee`. The value is set in the `select_committee`
     /// function and consumed in the `next_bls_committee` function.
@@ -132,7 +130,6 @@ public(package) fun new(
         previous_committee: committee::empty(),
         next_epoch_params: option::none(),
         epoch_state: EpochState::EpochChangeDone(clock.timestamp_ms()),
-        leftover_rewards: balance::zero(),
         next_epoch_public_keys: extended_field::new(vec_map::empty(), ctx),
     }
 }
@@ -552,10 +549,7 @@ public(package) fun initiate_epoch_change(
 /// Sets the next epoch of the system and emits the epoch change start event.
 ///
 /// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
-public(package) fun advance_epoch(
-    self: &mut StakingInnerV1,
-    rewards: VecMap<ID, Balance<WAL>>,
-) {
+public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID, Balance<WAL>>) {
     assert!(self.next_committee.is_some(), EWrongEpochState);
 
     self.epoch = self.epoch + 1;
