@@ -127,49 +127,29 @@ public(package) fun advance_epoch(
     let mut sum_stored = 0;
 
     let deny_list_sizes = self.deny_list_sizes.borrow();
-
     let mut rewards = vec_map::empty();
 
-    // let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
-    // let stored = (weight as u128) * ((self.used_capacity_size - deny_list_size) as u128);
     node_ids.zip_do!(weights, |node_id, weight| {
-        let stored = weight as u128;
+        let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
+        let stored = (weight as u128) * ((self.used_capacity_size - deny_list_size) as u128);
+
         sum_stored = sum_stored + stored;
         rewards_distribution.insert(node_id, stored * total_rewards_value);
     });
 
+    // for all nodes: stored[node_idx] = weight[node_idx]; //  * (used_capacity - deny_list_size[node_idx])
+    // total_stored = sum(stored)
+    // for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
+
     rewards_distribution.size().do!(|i| {
-        let (node_id, amount) = rewards_distribution.get_entry_by_idx(i);
-        rewards.insert(*node_id, total_rewards.split((*amount / sum_stored) as u64));
+        let (node_id, stored) = rewards_distribution.get_entry_by_idx(i);
+        let reward = total_rewards.split((*stored / sum_stored.max(1)) as u64);
+        rewards.insert(*node_id, reward);
     });
 
     self.leftover_rewards.join(total_rewards);
     rewards
 }
-
-// (total used capacity - denylist) * number of shards = ratio for distribution;
-// for (node in nodes) {
-//    total_used_capacity - denylist_size = size of the blobs they are storing
-// }
-// size of the blobs the node is storing * number of shards they are storing = share of the rewards
-// sum of the numbers = total
-// get it for all of the nodes + sum it up / total = percent
-
-// for each of the nodes:
-// - how much are they storing off the overall blobs (???)
-// -
-
-// for all nodes: stored[node_idx] = weight[node_idx]; //  * (used_capacity - deny_list_size[node_idx])
-// total_stored = sum(stored)
-// for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
-
-// assumptions:
-// 1. the values stored in the denylist are for the current committee;
-// let (_, values) = (*self.deny_list_sizes.borrow()).into_keys_values();
-// let total_deny_list_size = values.fold!(0, |acc, x| acc + x);
-// let max_capacity_size = self.used_capacity_size - total_deny_list_size;
-// let rewards_ratio = {
-// };
 
 /// Allow buying a storage reservation for a given period of epochs.
 public(package) fun reserve_space(

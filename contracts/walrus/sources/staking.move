@@ -223,9 +223,6 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
         staking_inner.next_epoch_params(),
     );
 
-    // get the vec_map, pass it to the initiate_epoch_change...
-    // do the computation for denylist updates
-
     staking_inner.initiate_epoch_change(clock, rewards);
 }
 
