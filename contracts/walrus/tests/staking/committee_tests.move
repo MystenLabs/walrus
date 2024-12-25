@@ -175,7 +175,7 @@ fun reject_invalid_shard_assignment() {
         ),
     );
 
-    assert!(cmt2.is_sorted());
+    assert!(!cmt2.is_sorted()); // not happens implicitly
 
     // expect transaction to fail (different number of shards)
     let _ = cmt2.transition(

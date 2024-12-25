@@ -125,7 +125,7 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         new_cmt.insert(key, current_shards);
     });
 
-    Committee(new_cmt).sort()
+    Committee(new_cmt)
 }
 
 #[syntax(index)]
@@ -202,7 +202,7 @@ public(package) fun diff(cmt_1: &Committee, cmt_2: &Committee): (vector<ID>, vec
     (diff_1, diff_2)
 }
 
-/// Uses insertion sort to sort the committee by the node ID transformed into `u256`.
+/// Uses insertion sort to sort the committee by the node ID represented as `u256`.
 ///
 /// We sort by keys, but every swap operation also swaps the values, so the
 /// committee is sorted by node ID and the shards are kept in place.

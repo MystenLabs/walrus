@@ -24,6 +24,7 @@ use walrus::{
     events,
     extended_field::{Self, ExtendedField},
     node_metadata::NodeMetadata,
+    sort,
     staked_wal::StakedWal,
     staking_pool::{Self, StakingPool},
     storage_node::StorageNodeCap,
@@ -460,12 +461,12 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
     let distribution = vec_map::from_keys_values(active_ids, shards);
 
     // sorts the distribution by node ID to simplify the transition.
-    let distribution = walrus::sort::sort_vec_map_by_node_id!(distribution);
+    let distribution = sort::sort_vec_map_by_node_id!(distribution);
 
     // if we're dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there's at least 1 node in the set.
     let committee = if (self.committee.size() == 0) committee::initialize(distribution)
-    else self.committee.transition(distribution);
+    else self.committee.transition(distribution).sort();
 
     assert!(committee.is_sorted()); // sanity check
 
