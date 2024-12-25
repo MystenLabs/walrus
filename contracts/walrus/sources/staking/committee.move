@@ -177,7 +177,6 @@ public(package) fun diff(cmt_1: &Committee, cmt_2: &Committee): (vector<ID>, vec
 
         // in LHS, but not in RHS
         if (lhs.to_address().to_u256() < rhs.to_address().to_u256()) {
-
             i = i + 1;
             diff_1.push_back(*lhs);
             continue
