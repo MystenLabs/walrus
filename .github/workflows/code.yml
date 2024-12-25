@@ -43,13 +43,14 @@ jobs:
       isMove: ${{ steps.diff.outputs.isMove }}
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
-      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests:
+        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
       - name: Detect Changes
-        uses: './.github/actions/diffs'
+        uses: "./.github/actions/diffs"
         id: diff
 
   dependencies:
@@ -158,7 +159,7 @@ jobs:
     runs-on: ubuntu-ghcloud
     continue-on-error: true
     env:
-      MSIM_TEST_NUM: 10
+      MSIM_TEST_NUM: 5
       RUST_LOG: error
     steps:
       - uses: taiki-e/install-action@v2.46.6

@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
+use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
 use tokio::{task::JoinHandle, time::Duration};
@@ -381,10 +382,10 @@ impl SimStorageNodeHandle {
                     crate::node::events::event_processor::EventProcessorRuntimeConfig {
                         rpc_address: sui_config.rpc.clone(),
                         event_polling_interval: Duration::from_millis(100),
-                        db_path: tempfile::tempdir()
+                        db_path: nondeterministic!(tempfile::tempdir()
                             .expect("temporary directory creation must succeed")
                             .path()
-                            .to_path_buf(),
+                            .to_path_buf()),
                     };
                 let system_config = crate::node::events::event_processor::SystemConfig {
                     system_object_id: sui_config.system_object,
@@ -1637,7 +1638,9 @@ impl TestClusterBuilder {
                     builder,
                     self.sui_cluster_handle.clone(),
                     self.system_context.clone(),
-                    tempfile::tempdir().expect("temporary directory creation must succeed"),
+                    nondeterministic!(
+                        tempfile::tempdir().expect("temporary directory creation must succeed")
+                    ),
                     start_node_from_beginning,
                 )
                 .await?,
@@ -2148,10 +2151,10 @@ pub mod test_cluster {
             let processor_config = EventProcessorRuntimeConfig {
                 rpc_address: event_processor_config.rest_url.clone(),
                 event_polling_interval: Duration::from_millis(100),
-                db_path: tempfile::tempdir()
+                db_path: nondeterministic!(tempfile::tempdir()
                     .expect("temporary directory creation must succeed")
                     .path()
-                    .to_path_buf(),
+                    .to_path_buf()),
             };
             let system_config = SystemConfig {
                 system_pkg_id: sui_read_client.get_system_package_id(),
@@ -2193,7 +2196,7 @@ pub mod test_cluster {
 
 /// Creates a new [`StorageNodeConfig`] object for testing.
 pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
-    let temp_dir = TempDir::new().expect("able to create a temporary directory");
+    let temp_dir = nondeterministic!(TempDir::new().expect("able to create a temporary directory"));
     let rest_api_address = unused_socket_address(false);
     WithTempDir {
         inner: StorageNodeConfig {
@@ -2247,7 +2250,8 @@ async fn wait_for_event_processor_to_start(
 
 /// Returns an empty storage, with the column families for the specified shards already created.
 pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
-    let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+    let temp_dir =
+        nondeterministic!(tempfile::tempdir().expect("temporary directory creation must succeed"));
     let db_config = DatabaseConfig::default();
     let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
         .expect("storage creation must succeed");
