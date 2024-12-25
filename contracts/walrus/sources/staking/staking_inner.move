@@ -6,11 +6,13 @@ module walrus::staking_inner;
 use std::string::String;
 use sui::{
     balance::{Self, Balance},
+    bls12381::UncompressedG1,
     clock::Clock,
     coin::Coin,
+    group_ops::Element,
     object_table::{Self, ObjectTable},
     priority_queue::{Self, PriorityQueue},
-    vec_map
+    vec_map::{Self, VecMap}
 };
 use wal::wal::WAL;
 use walrus::{
@@ -100,6 +102,10 @@ public struct StakingInnerV1 has key, store {
     epoch_state: EpochState,
     /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
     leftover_rewards: Balance<WAL>,
+    /// The public keys for the next epoch. The keys are stored in a sorted `VecMap`, and mirror
+    /// the order of the nodes in the `next_committee`. The value is set in the `select_committee`
+    /// function and consumed in the `next_bls_committee` function.
+    next_epoch_public_keys: ExtendedField<VecMap<ID, Element<UncompressedG1>>>,
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
@@ -127,6 +133,7 @@ public(package) fun new(
         next_epoch_params: option::none(),
         epoch_state: EpochState::EpochChangeDone(clock.timestamp_ms()),
         leftover_rewards: balance::zero(),
+        next_epoch_public_keys: extended_field::new(vec_map::empty(), ctx),
     }
 }
 
@@ -452,11 +459,23 @@ public(package) fun select_committee(self: &mut StakingInnerV1) {
     let (active_ids, shards) = self.apportionment();
     let distribution = vec_map::from_keys_values(active_ids, shards);
 
+    // sorts the distribution by node ID to simplify the transition.
+    let distribution = walrus::sort::sort_vec_map_by_node_id!(distribution);
+
     // if we're dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there's at least 1 node in the set.
     let committee = if (self.committee.size() == 0) committee::initialize(distribution)
     else self.committee.transition(distribution);
 
+    assert!(committee.is_sorted()); // sanity check
+
+    // inherently sorted by node ID
+    let public_keys = vec_map::from_keys_values(
+        committee.inner().keys(),
+        committee.inner().keys().map!(|id| *self.pools[id].node_info().next_epoch_public_key()),
+    );
+
+    self.next_epoch_public_keys.swap(public_keys);
     self.next_committee = option::some(committee);
 }
 
@@ -554,20 +573,25 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balanc
     rewards.join(self.leftover_rewards.withdraw_all());
     let rewards_per_shard = rewards.value() / (self.n_shards as u64);
 
-    // Add any nodes that are new in the committee to the previous shard assignments
-    // without any shards, s.t. we call advance_epoch on them and update the active set.
-    let mut prev_shard_assignments = *self.previous_committee.inner();
-    self.committee.inner().keys().do!(|node_id| if (!prev_shard_assignments.contains(&node_id)) {
-        prev_shard_assignments.insert(node_id, vector[]);
-    });
-    let (node_ids, shard_assignments) = prev_shard_assignments.into_keys_values();
+    // Take the `ActiveSet` into the function scope just once.
+    let active_set = self.active_set.borrow_mut();
 
-    node_ids.zip_do!(shard_assignments, |node_id, shards| {
-        self.pools[node_id].advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
-        self
-            .active_set
-            .borrow_mut()
-            .update(node_id, self.pools[node_id].wal_balance_at_epoch(wctx.epoch() + 1));
+    // Find nodes that just joined, and advance their epoch.
+    let (_, new_ids) = committee::diff(&self.previous_committee, &self.committee);
+    new_ids.do!(|node_id| {
+        let pool = &mut self.pools[node_id];
+        pool.advance_epoch(balance::zero(), wctx);
+        active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
+    });
+
+    // Distribute the rewards to the nodes in the previous committee.
+    let previous_committee = self.previous_committee.inner();
+    previous_committee.size().do!(|i| {
+        let (node_id, shards) = previous_committee.get_entry_by_idx(i);
+        let pool = &mut self.pools[*node_id];
+
+        pool.advance_epoch(rewards.split(rewards_per_shard * shards.length()), wctx);
+        active_set.update(*node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
     // Save any leftover rewards due to rounding.
@@ -655,13 +679,24 @@ public(package) fun previous_committee(self: &StakingInnerV1): &Committee {
 }
 
 /// Construct the BLS committee for the next epoch.
-public(package) fun next_bls_committee(self: &StakingInnerV1): BlsCommittee {
+public(package) fun next_bls_committee(self: &mut StakingInnerV1): BlsCommittee {
     assert!(self.next_committee.is_some(), ENextCommitteeIsEmpty);
+
+    let public_keys = self.next_epoch_public_keys.swap(vec_map::empty());
+    let (pk_ids, public_keys) = public_keys.into_keys_values();
     let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
-    let members = ids.zip_map!(shard_assignments, |id, shards| {
-        let pk = self.pools[id].node_info().next_epoch_public_key();
-        bls_aggregate::new_bls_committee_member(*pk, shards.length() as u16, id)
+
+    let members = vector::tabulate!(ids.length(), |i| {
+        let node_id = ids[i];
+        let shards = shard_assignments[i];
+        let pk_node_id = pk_ids[i];
+        let pk = public_keys[i];
+
+        // sanity check that the keys are in the same order
+        assert!(&node_id == pk_node_id);
+        bls_aggregate::new_bls_committee_member(pk, shards.length() as u16, node_id)
     });
+
     bls_aggregate::new_bls_committee(self.epoch + 1, members)
 }
 
