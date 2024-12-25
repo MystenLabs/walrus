@@ -686,6 +686,8 @@ public(package) fun next_bls_committee(self: &mut StakingInnerV1): BlsCommittee 
     let (pk_ids, public_keys) = public_keys.into_keys_values();
     let (ids, shard_assignments) = (*self.next_committee.borrow().inner()).into_keys_values();
 
+    // All of the sets are guaranteed to be sorted and of the same length.
+    // Therefore, we can safely iterate over them in parallel.
     let members = vector::tabulate!(ids.length(), |i| {
         let node_id = ids[i];
         let shards = shard_assignments[i];
