@@ -7,6 +7,7 @@
 module walrus::committee;
 
 use sui::vec_map::{Self, VecMap};
+use walrus::sort;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -32,7 +33,9 @@ public(package) fun contains(cmt: &Committee, node_id: &ID): bool {
 /// - The values of assigned_number are <= 1000 (i.e., the limit of a vector)
 public(package) fun initialize(assigned_number: VecMap<ID, u16>): Committee {
     let mut shard_idx: u16 = 0;
-    let (keys, values) = assigned_number.into_keys_values();
+    let sorted_assignments = sort::sort_vec_map_by_node_id!(assigned_number);
+    let (keys, values) = sorted_assignments.into_keys_values();
+
     let cmt = vec_map::from_keys_values(
         keys,
         values.map!(|v| vector::tabulate!(v as u64, |_| {
@@ -122,7 +125,7 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         new_cmt.insert(key, current_shards);
     });
 
-    Committee(new_cmt)
+    Committee(new_cmt).sort()
 }
 
 #[syntax(index)]
@@ -144,4 +147,72 @@ public(package) fun inner(cmt: &Committee): &VecMap<ID, vector<u16>> {
 /// Copy the inner representation of the committee.
 public(package) fun to_inner(cmt: &Committee): VecMap<ID, vector<u16>> {
     cmt.0
+}
+
+/// Finds the difference between two committees, returns the difference in two
+/// sets of nodes, one set for nodes that are in the first committee but not in
+/// the second, and the other set is vice versa.
+///
+/// Requires both committees to be sorted, so we can do a linear scan.
+public(package) fun diff(cmt_1: &Committee, cmt_2: &Committee): (vector<ID>, vector<ID>) {
+    assert!(cmt_1.is_sorted());
+    assert!(cmt_2.is_sorted());
+
+    let mut i = 0;
+    let mut j = 0;
+    let mut diff_1 = vector[];
+    let mut diff_2 = vector[];
+    let lhs_size = cmt_1.size();
+    let rhs_size = cmt_2.size();
+
+    while (i < lhs_size && j < rhs_size) {
+        let (lhs, _) = cmt_1.0.get_entry_by_idx(i);
+        let (rhs, _) = cmt_2.0.get_entry_by_idx(j);
+
+        if (lhs == rhs) {
+            i = i + 1;
+            j = j + 1;
+            continue
+        };
+
+        // in LHS, but not in RHS
+        if (lhs.to_address().to_u256() < rhs.to_address().to_u256()) {
+
+            i = i + 1;
+            diff_1.push_back(*lhs);
+            continue
+        };
+
+        // in RHS, but not in LHS
+        diff_2.push_back(*rhs);
+        j = j + 1;
+    };
+
+    while (i < lhs_size) {
+        let (lhs, _) = cmt_1.0.get_entry_by_idx(i);
+        diff_1.push_back(*lhs);
+        i = i + 1;
+    };
+
+    while (j < rhs_size) {
+        let (rhs, _) = cmt_2.0.get_entry_by_idx(j);
+        diff_2.push_back(*rhs);
+        j = j + 1;
+    };
+
+    (diff_1, diff_2)
+}
+
+/// Uses insertion sort to sort the committee by the node ID transformed into `u256`.
+///
+/// We sort by keys, but every swap operation also swaps the values, so the
+/// committee is sorted by node ID and the shards are kept in place.
+public(package) fun sort(cmt: Committee): Committee {
+    let Committee(cmt) = cmt;
+    Committee(sort::sort_vec_map_by_node_id!(cmt))
+}
+
+/// Check if the committee is sorted by the node ID.
+public(package) fun is_sorted(cmt: &Committee): bool {
+    sort::is_vec_map_sorted_by_node_id!(&cmt.0)
 }
