@@ -15,6 +15,8 @@ const EInvalidShardAssignment: u64 = 0;
 
 /// Represents the current committee in the system. Each node in the committee
 /// has assigned shard IDs.
+///
+/// The `VecMap` inside the `Committee` is guaranteed to be sorted by the node ID.
 public struct Committee(VecMap<ID, vector<u16>>) has copy, drop, store;
 
 /// Creates an empty committee. Only relevant for epoch 0, when no nodes are
@@ -125,7 +127,7 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         new_cmt.insert(key, current_shards);
     });
 
-    Committee(new_cmt)
+    Committee(sort::sort_vec_map_by_node_id!(new_cmt))
 }
 
 #[syntax(index)]
@@ -202,15 +204,7 @@ public(package) fun diff(cmt_1: &Committee, cmt_2: &Committee): (vector<ID>, vec
     (diff_1, diff_2)
 }
 
-/// Uses insertion sort to sort the committee by the node ID represented as `u256`.
-///
-/// We sort by keys, but every swap operation also swaps the values, so the
-/// committee is sorted by node ID and the shards are kept in place.
-public(package) fun sort(cmt: Committee): Committee {
-    let Committee(cmt) = cmt;
-    Committee(sort::sort_vec_map_by_node_id!(cmt))
-}
-
+#[test_only]
 /// Check if the committee is sorted by the node ID.
 public(package) fun is_sorted(cmt: &Committee): bool {
     sort::is_vec_map_sorted_by_node_id!(&cmt.0)

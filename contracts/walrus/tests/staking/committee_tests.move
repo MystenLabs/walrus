@@ -175,7 +175,7 @@ fun reject_invalid_shard_assignment() {
         ),
     );
 
-    assert!(!cmt2.is_sorted()); // not happens implicitly
+    assert!(cmt2.is_sorted());
 
     // expect transaction to fail (different number of shards)
     let _ = cmt2.transition(
@@ -203,5 +203,5 @@ fun cmt(ids: vector<address>): Committee {
             ids.map!(|addr| addr.to_id()),
             vector::tabulate!(size, |i| i as u16),
         ),
-    ).sort()
+    )
 }
