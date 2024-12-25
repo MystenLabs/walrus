@@ -11,8 +11,9 @@ use sui::vec_map::{Self, VecMap};
 /// Uses the insertion sort algorithm, given that the `VecMap` is already mostly sorted.
 public macro fun sort_vec_map_by_node_id<$V>($self: VecMap<ID, $V>): VecMap<ID, $V> {
     let self = $self;
-    let (mut keys, mut values) = self.into_keys_values();
 
+    if (self.length() <= 1) return self;
+    let (mut keys, mut values) = self.into_keys_values();
     let mut i = 1;
     let len = keys.length();
 
@@ -32,6 +33,8 @@ public macro fun sort_vec_map_by_node_id<$V>($self: VecMap<ID, $V>): VecMap<ID, 
 /// Check if the given `VecMap` is sorted by the node ID transformed into `u256`.
 public macro fun is_vec_map_sorted_by_node_id<$V>($self: &VecMap<ID, $V>): bool {
     let self = $self;
+
+    if (self.length() <= 1) return true;
     let len = self.size();
     let mut i = 1;
     while (i < len) {
