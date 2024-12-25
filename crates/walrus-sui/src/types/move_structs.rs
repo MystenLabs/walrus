@@ -427,6 +427,9 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) epoch_state: EpochState,
     /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
     pub(crate) leftover_rewards: u64,
+    #[cfg(feature = "walrus-mainnet")]
+    /// Extended field holding public keys for the next epoch.
+    pub(crate) next_epoch_public_keys: ObjectID,
 }
 
 impl AssociatedContractStruct for StakingInnerV1 {
