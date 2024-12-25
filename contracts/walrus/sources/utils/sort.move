@@ -12,10 +12,10 @@ use sui::vec_map::{Self, VecMap};
 public macro fun sort_vec_map_by_node_id<$V>($self: VecMap<ID, $V>): VecMap<ID, $V> {
     let self = $self;
 
-    if (self.length() <= 1) return self;
+    if (self.size() <= 1) return self;
     let (mut keys, mut values) = self.into_keys_values();
-    let mut i = 1;
     let len = keys.length();
+    let mut i = 1;
 
     while (i < len) {
         let mut j = i;
@@ -34,8 +34,8 @@ public macro fun sort_vec_map_by_node_id<$V>($self: VecMap<ID, $V>): VecMap<ID, 
 public macro fun is_vec_map_sorted_by_node_id<$V>($self: &VecMap<ID, $V>): bool {
     let self = $self;
 
-    if (self.length() <= 1) return true;
     let len = self.size();
+    if (len <= 1) return true;
     let mut i = 1;
     while (i < len) {
         let (lhs, _) = self.get_entry_by_idx(i - 1);
