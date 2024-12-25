@@ -689,14 +689,14 @@ public(package) fun next_bls_committee(self: &mut StakingInnerV1): BlsCommittee 
     // All of the sets are guaranteed to be sorted and of the same length.
     // Therefore, we can safely iterate over them in parallel.
     let members = vector::tabulate!(ids.length(), |i| {
-        let node_id = ids[i];
-        let shards = shard_assignments[i];
-        let pk_node_id = pk_ids[i];
+        let node_id = &ids[i];
+        let shards = shard_assignments[i].length() as u16;
+        let pk_node_id = &pk_ids[i];
         let pk = public_keys[i];
 
         // sanity check that the keys are in the same order
-        assert!(&node_id == pk_node_id);
-        bls_aggregate::new_bls_committee_member(pk, shards.length() as u16, node_id)
+        assert!(node_id == pk_node_id);
+        bls_aggregate::new_bls_committee_member(pk, shards, *node_id)
     });
 
     bls_aggregate::new_bls_committee(self.epoch + 1, members)
