@@ -155,11 +155,8 @@ public(package) fun to_inner(cmt: &Committee): VecMap<ID, vector<u16>> {
 /// sets of nodes, one set for nodes that are in the first committee but not in
 /// the second, and the other set is vice versa.
 ///
-/// Requires both committees to be sorted, so we can do a linear scan.
+/// Committee is always sorted by the node ID, so the diff algorithm is simple.
 public(package) fun diff(cmt_1: &Committee, cmt_2: &Committee): (vector<ID>, vector<ID>) {
-    assert!(cmt_1.is_sorted());
-    assert!(cmt_2.is_sorted());
-
     let mut i = 0;
     let mut j = 0;
     let mut diff_1 = vector[];
