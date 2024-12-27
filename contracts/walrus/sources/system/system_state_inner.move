@@ -121,7 +121,7 @@ public(package) fun advance_epoch(
 
     // === Rewards distribution ===
 
-    // for all nodes: stored[node_idx] = weight[node_idx]; //  * (used_capacity - deny_list_size[node_idx])
+    // for all nodes: stored[node_idx] = weight[node_idx] * (used_capacity - deny_list_size[node_idx])
     // total_stored = sum(stored)
     // for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
 
@@ -187,8 +187,10 @@ fun reserve_space_without_payment(
     self.used_capacity_size = self.used_capacity_size + storage_amount;
 
     // Account the space to reclaim in the future.
-    let final_account = self.future_accounting.ring_lookup_mut(epochs_ahead - 1);
-    final_account.increase_storage_to_reclaim(storage_amount);
+    self
+        .future_accounting
+        .ring_lookup_mut(epochs_ahead - 1)
+        .increase_storage_to_reclaim(storage_amount);
 
     let self_epoch = self.epoch();
 
@@ -352,18 +354,15 @@ fun process_storage_payments(
     end_offset: u32,
     payment: &mut Coin<WAL>,
 ) {
-    let storage_units = storage_units_from_size(storage_size);
+    let storage_units = storage_units_from_size!(storage_size);
     let period_payment_due = self.storage_price_per_unit_size * storage_units;
     let coin_balance = payment.balance_mut();
 
     start_offset.range_do!(end_offset, |i| {
-        let accounts = self.future_accounting.ring_lookup_mut(i);
-
         // Distribute rewards
-        let rewards_balance = accounts.rewards_balance();
         // Note this will abort if the balance is not enough.
         let epoch_payment = coin_balance.split(period_payment_due);
-        rewards_balance.join(epoch_payment);
+        self.future_accounting.ring_lookup_mut(i).rewards_balance().join(epoch_payment);
     });
 }
 
@@ -381,9 +380,7 @@ public(package) fun certify_event_blob(
     assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
 
-    let cap_attestion = cap.last_event_blob_attestation();
-    if (cap_attestion.is_some()) {
-        let attestation = cap_attestion.destroy_some();
+    cap.last_event_blob_attestation().do!(|attestation| {
         assert!(
             attestation.last_attested_event_blob_epoch() < self.epoch() ||
                 ending_checkpoint_sequence_num >
@@ -393,6 +390,7 @@ public(package) fun certify_event_blob(
         let latest_certified_checkpoint_seq_num = self
             .event_blob_certification_state
             .get_latest_certified_checkpoint_sequence_number();
+
         if (latest_certified_checkpoint_seq_num.is_some()) {
             let latest_certified_cp_seq_num = latest_certified_checkpoint_seq_num.destroy_some();
             assert!(
@@ -407,7 +405,7 @@ public(package) fun certify_event_blob(
                 EIncorrectAttestation,
             );
         }
-    };
+    });
 
     let attestation = new_attestation(ending_checkpoint_sequence_num, epoch);
     cap.set_last_event_blob_attestation(attestation);
@@ -431,11 +429,7 @@ public(package) fun certify_event_blob(
     let num_shards = self.n_shards();
     let epochs_ahead = self.future_accounting.max_epochs_ahead();
     let storage = self.reserve_space_without_payment(
-        encoded_blob_length(
-            size,
-            encoding_type,
-            num_shards,
-        ),
+        encoded_blob_length(size, encoding_type, num_shards),
         epochs_ahead,
         ctx,
     );
@@ -492,9 +486,11 @@ public(package) fun add_subsidy(
     let leftover_rewards = subsidy_balance.value() % (epochs_ahead as u64);
 
     epochs_ahead.do!(|i| {
-        let accounts = self.future_accounting.ring_lookup_mut(i);
-        let rewards_balance = accounts.rewards_balance();
-        rewards_balance.join(subsidy_balance.split(reward_per_epoch));
+        self
+            .future_accounting
+            .ring_lookup_mut(i)
+            .rewards_balance()
+            .join(subsidy_balance.split(reward_per_epoch));
     });
 
     // Add leftover rewards to the first epoch's accounting.
@@ -533,11 +529,12 @@ public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
 }
 
 public(package) fun write_price(self: &SystemStateInnerV1, write_size: u64): u64 {
-    let storage_units = storage_units_from_size(write_size);
+    let storage_units = storage_units_from_size!(write_size);
     self.write_price_per_unit_size * storage_units
 }
 
-fun storage_units_from_size(size: u64): u64 {
+macro fun storage_units_from_size($size: u64): u64 {
+    let size = $size;
     size.divide_and_round_up(BYTES_PER_UNIT_SIZE)
 }
 
