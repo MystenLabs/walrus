@@ -573,8 +573,8 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID,
         active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
-    // fill-in the nodes that just joined and don't have rewards
-    new_ids.do!(|node_id| if (!node_ids.contains(&node_id)) {
+    // fill-in the nodes that just joined and don't have rewards yet
+    new_ids.do!(|node_id| {
         let pool = &mut self.pools[node_id];
         pool.advance_epoch(balance::zero(), wctx);
         active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
