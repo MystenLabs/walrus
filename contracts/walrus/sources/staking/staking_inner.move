@@ -642,8 +642,8 @@ public(package) fun next_committee(self: &StakingInnerV1): &Option<Committee> {
 }
 
 /// Returns the next epoch parameters if set, otherwise aborts with an error.
-public(package) fun next_epoch_params(self: &StakingInnerV1): EpochParams {
-    *self.next_epoch_params.borrow()
+public(package) fun next_epoch_params(self: &StakingInnerV1): &EpochParams {
+    self.next_epoch_params.borrow()
 }
 
 /// Get the current epoch.

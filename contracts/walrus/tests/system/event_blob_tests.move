@@ -167,7 +167,7 @@ public fun test_event_blob_certify_change_epoch() {
     let mut new_committee = *system.committee();
     new_committee.increment_epoch_for_testing();
     let (_, balances) = system
-        .advance_epoch(new_committee, walrus::epoch_parameters::epoch_params_for_testing())
+        .advance_epoch(new_committee, &walrus::epoch_parameters::epoch_params_for_testing())
         .into_keys_values();
 
     balances.do!(|b| { b.destroy_for_testing(); });

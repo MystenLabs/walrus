@@ -89,7 +89,7 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
 public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
-    new_epoch_params: EpochParams,
+    new_epoch_params: &EpochParams,
 ): VecMap<ID, Balance<WAL>> {
     // Check new committee is valid, the existence of a committee for the next
     // epoch is proof that the time has come to move epochs.

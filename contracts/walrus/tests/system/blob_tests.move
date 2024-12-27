@@ -270,7 +270,7 @@ fun direct_extend_expired() {
     // Advance the epoch
     let committee = test_utils::new_bls_committee_for_testing(1);
     let (_, balances) = system
-        .advance_epoch(committee, epoch_params_for_testing())
+        .advance_epoch(committee, &epoch_params_for_testing())
         .into_keys_values();
 
     balances.do!(|b| { b.destroy_for_testing(); });

@@ -37,7 +37,7 @@ public fun test_invalidate_happy(): system::System {
 
     1u32.range_do_eq!(5, |epoch| {
         let committee = test_utils::new_bls_committee_for_testing(epoch);
-        let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
+        let epoch_balance = system.advance_epoch(committee, &epoch_params_for_testing());
         let (_, values) = epoch_balance.into_keys_values();
         values.do!(|b| { b.destroy_for_testing(); });
     });
@@ -67,7 +67,7 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
 
     1u32.range_do_eq!(5, |epoch| {
         let committee = test_utils::new_bls_committee_for_testing(epoch);
-        let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
+        let epoch_balance = system.advance_epoch(committee, &epoch_params_for_testing());
         let (_, values) = epoch_balance.into_keys_values();
         values.do!(|b| { b.destroy_for_testing(); });
     });

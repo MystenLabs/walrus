@@ -235,7 +235,7 @@ public(package) fun committee_mut(self: &mut System): &mut BlsCommittee {
 public(package) fun advance_epoch(
     self: &mut System,
     new_committee: BlsCommittee,
-    new_epoch_params: EpochParams,
+    new_epoch_params: &EpochParams,
 ): VecMap<ID, Balance<WAL>> {
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
 }
