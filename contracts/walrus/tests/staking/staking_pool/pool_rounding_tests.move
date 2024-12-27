@@ -48,7 +48,7 @@ fun split_odd_number_of_rewards_pool_leftovers_failure() {
 
     pool.destroy_empty(); // fails because there's dust in the `staked_wal`
 
-    abort 1337
+    abort
 }
 
 #[test]

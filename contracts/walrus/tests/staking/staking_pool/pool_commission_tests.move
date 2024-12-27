@@ -156,5 +156,5 @@ fun set_incorrect_commission_rate_fail() {
 
     pool.set_next_commission(100_01, &wctx);
 
-    abort 1337 // unreachable
+    abort
 }

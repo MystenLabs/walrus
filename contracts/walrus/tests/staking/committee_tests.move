@@ -15,11 +15,11 @@ fun empty_committee() {
 
 #[test]
 fun default_scenario() {
-    let n1 = @0x1.to_id();
-    let n2 = @0x2.to_id();
-    let n3 = @0x3.to_id();
-    let n4 = @0x4.to_id();
-    let n5 = @0x5.to_id();
+    let n1 = @1.to_id();
+    let n2 = @2.to_id();
+    let n3 = @3.to_id();
+    let n4 = @4.to_id();
+    let n5 = @5.to_id();
 
     // Initialize the committee with 2 shards per node, 5 nodes, 10 shards in total
     let cmt = committee::initialize(
@@ -107,7 +107,7 @@ fun default_scenario() {
 
 #[test]
 fun ignore_empty_assignments() {
-    let (n1, n2, n3, n4, n5) = (@0x1, @0x2, @0x3, @0x4, @0x5);
+    let (n1, n2, n3, n4, n5) = (@1, @2, @3, @4, @5);
 
     // expect n4 and n5 to be ignored
     let cmt = committee::initialize(
@@ -158,7 +158,7 @@ fun large_set_assignments_2() {
 
 #[test, expected_failure(abort_code = committee::EInvalidShardAssignment)]
 fun reject_invalid_shard_assignment() {
-    let (n1, n2, n3) = (@0x1.to_id(), @0x2.to_id(), @0x3.to_id());
+    let (n1, n2, n3) = (@1.to_id(), @2.to_id(), @3.to_id());
 
     let cmt = committee::initialize(
         vec_map::from_keys_values(
@@ -188,12 +188,12 @@ fun reject_invalid_shard_assignment() {
 
 #[test]
 fun diff_at_different_sizes() {
-    let cmt_1 = cmt(vector[@0x1, @0x2, @0x3]);
-    let cmt_2 = cmt(vector[@0x2, @0x3, @0x4]);
+    let cmt_1 = cmt(vector[@1, @2, @3]);
+    let cmt_2 = cmt(vector[@2, @3, @4]);
     let (left, right) = committee::diff(&cmt_1, &cmt_2);
 
-    assert_eq!(left, vector[@0x1.to_id()]);
-    assert_eq!(right, vector[@0x4.to_id()]);
+    assert_eq!(left, vector[@1.to_id()]);
+    assert_eq!(right, vector[@4.to_id()]);
 }
 
 fun cmt(ids: vector<address>): Committee {

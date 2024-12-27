@@ -186,12 +186,14 @@ public(package) fun diff(cmt_1: &Committee, cmt_2: &Committee): (vector<ID>, vec
         j = j + 1;
     };
 
+    // fill in the rest, if any, for the LHS
     while (i < lhs_size) {
         let (lhs, _) = cmt_1.0.get_entry_by_idx(i);
         diff_1.push_back(*lhs);
         i = i + 1;
     };
 
+    // fill in the rest, if any, for the RHS
     while (j < rhs_size) {
         let (rhs, _) = cmt_2.0.get_entry_by_idx(j);
         diff_2.push_back(*rhs);

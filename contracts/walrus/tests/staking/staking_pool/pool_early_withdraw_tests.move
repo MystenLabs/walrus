@@ -133,7 +133,7 @@ fun request_withdraw_after_committee_selection() {
     let (wctx, _ctx) = test.select_committee();
     let _ = pool.withdraw_stake(sw1, true, true, &wctx).destroy_for_testing();
 
-    destroy(pool);
+    abort
 }
 
 #[test, expected_failure(abort_code = walrus::staking_pool::EWithdrawDirectly)]
@@ -153,8 +153,7 @@ fun request_withdraw_when_can_withdraw_directly() {
 
     pool.request_withdraw_stake(&mut sw1, true, false, &wctx);
 
-    destroy(pool);
-    destroy(sw1);
+    abort
 }
 
 #[test]

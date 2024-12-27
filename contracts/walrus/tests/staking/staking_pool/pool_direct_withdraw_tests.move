@@ -161,8 +161,7 @@ fun try_to_request_withdrawal_for_inactive_pool() {
 
     pool.request_withdraw_stake(&mut sw1, false, false, &wctx);
 
-    sw1.destroy_for_testing();
-    destroy(pool);
+    abort
 }
 
 #[test]

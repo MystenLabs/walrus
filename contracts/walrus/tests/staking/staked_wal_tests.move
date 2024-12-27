@@ -146,5 +146,5 @@ fun unable_to_destroy_non_zero() {
 
     sw.destroy_zero();
 
-    abort 1337 // keeping this abort due to a bug in tree-sitter
+    abort
 }
