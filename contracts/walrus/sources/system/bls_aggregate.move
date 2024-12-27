@@ -21,8 +21,6 @@ public struct BlsCommitteeMember has copy, drop, store {
     public_key: Element<UncompressedG1>,
     weight: u16,
     node_id: ID,
-    // The size of the deny list. Kept for easier access during the reward computation.
-    // deny_list_size: u64,
 }
 
 /// This represents a BLS signing committee for a given epoch.

@@ -121,35 +121,32 @@ public(package) fun advance_epoch(
 
     // === Rewards distribution ===
 
-    // use the old committee to distribute rewards;
-    let (node_ids, weights) = old_committee.to_vec_map().into_keys_values();
-    let total_rewards_value = total_rewards.value() as u128;
-    let mut rewards_distribution = vec_map::empty();
-    let mut sum_stored = 0;
+    // for all nodes: stored[node_idx] = weight[node_idx]; //  * (used_capacity - deny_list_size[node_idx])
+    // total_stored = sum(stored)
+    // for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
 
+    // use the old committee to distribute rewards;
     let deny_list_sizes = self.deny_list_sizes.borrow();
-    let mut rewards = vec_map::empty();
+    let (node_ids, weights) = old_committee.to_vec_map().into_keys_values();
+    let mut stored_vec = vector[];
+    let mut total_stored = 0;
 
     node_ids.zip_do!(weights, |node_id, weight| {
         let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
         let stored = (weight as u128) * ((self.used_capacity_size - deny_list_size) as u128);
 
-        sum_stored = sum_stored + stored;
-        rewards_distribution.insert(node_id, stored * total_rewards_value);
+        total_stored = total_stored + stored;
+        stored_vec.push_back(stored);
     });
 
-    // for all nodes: stored[node_idx] = weight[node_idx]; //  * (used_capacity - deny_list_size[node_idx])
-    // total_stored = sum(stored)
-    // for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
-
-    rewards_distribution.size().do!(|i| {
-        let (node_id, stored) = rewards_distribution.get_entry_by_idx(i);
-        let reward = total_rewards.split((*stored / sum_stored.max(1)) as u64);
-        rewards.insert(*node_id, reward);
+    let total_stored = total_stored.max(1); // avoid division by zero
+    let total_rewards_value = total_rewards.value() as u128;
+    let reward_values = stored_vec.map!(|stored| {
+        total_rewards.split((stored * total_rewards_value / total_stored) as u64)
     });
 
-    self.leftover_rewards.join(total_rewards);
-    rewards
+    self.leftover_rewards.join(total_rewards); // store the leftover rewards
+    vec_map::from_keys_values(node_ids, reward_values)
 }
 
 /// Allow buying a storage reservation for a given period of epochs.
