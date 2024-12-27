@@ -4,7 +4,7 @@
 #[test_only]
 module walrus::system_state_inner_tests;
 
-use sui::{clock, test_utils::destroy};
+use sui::test_utils::destroy;
 use walrus::{storage_accounting as sa, system_state_inner, test_utils::mint};
 
 fun add_subsidy_test(rewards: u64, epochs_ahead: u32) {
@@ -70,7 +70,6 @@ fun test_add_subsidy_uneven_distribution() {
 #[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
 fun test_add_subsidy_zero_epochs_ahead_fail() {
     let ctx = &mut tx_context::dummy();
-    let clock = clock::create_for_testing(ctx);
     let mut system = system_state_inner::new_for_testing();
 
     let subsidy = mint(1000, ctx);
@@ -78,6 +77,5 @@ fun test_add_subsidy_zero_epochs_ahead_fail() {
     // Test adding rewards for 0 epochs ahead (should fail)
     system.add_subsidy(subsidy, 0);
 
-    destroy(system);
-    clock.destroy_for_testing();
+    abort
 }

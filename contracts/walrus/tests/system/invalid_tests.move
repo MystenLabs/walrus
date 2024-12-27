@@ -32,7 +32,7 @@ public fun test_invalid_blob_ok() {
 }
 
 #[test]
-public fun test_invalidate_happy(): system::System {
+public fun test_invalidate_happy() {
     let mut system = system::new_for_testing();
 
     1u32.range_do_eq!(5, |epoch| {
@@ -58,11 +58,11 @@ public fun test_invalidate_happy(): system::System {
 
     assert!(blob_id == BLOB_ID);
 
-    system
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = messages::EIncorrectEpoch)]
-public fun test_system_invalid_id_wrong_epoch(): system::System {
+public fun test_system_invalid_id_wrong_epoch() {
     let mut system = system::new_for_testing();
 
     1u32.range_do_eq!(5, |epoch| {
@@ -86,5 +86,5 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
         invalid_blob_message,
     );
 
-    system
+    abort
 }

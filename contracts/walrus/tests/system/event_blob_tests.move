@@ -354,7 +354,7 @@ fun set_storage_node_caps(
     let mut index = 0;
     node_ids.do!(|node_id| {
         let storage_cap = storage_node::new_cap(node_id, ctx);
-        nodes.borrow_mut(index).set_storage_node_cap(storage_cap);
+        nodes[index].set_storage_node_cap(storage_cap);
         index = index + 1;
     });
 }
