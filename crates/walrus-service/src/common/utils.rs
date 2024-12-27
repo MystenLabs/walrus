@@ -352,12 +352,6 @@ impl MetricPushRuntime {
             .context("meteric push runtime creation failed")?;
         let _guard = runtime.enter();
 
-        // associate a default tls provider for this runtime
-        let tls_provider = rustls::crypto::ring::default_provider();
-        tls_provider
-            .install_default()
-            .expect("unable to install default tls provider for rustls in MetricPushRuntime");
-
         let metric_push_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
