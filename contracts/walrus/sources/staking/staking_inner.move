@@ -557,9 +557,8 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID,
     self.committee = self.next_committee.extract(); // overwrites the current committee
     self.epoch_state = EpochState::EpochChangeSync(0);
 
+    // Wctx is already for the new epoch.
     let wctx = &self.new_walrus_context();
-
-    // Distribute the rewards.
 
     // Take the `ActiveSet` into the function scope just once.
     let active_set = self.active_set.borrow_mut();
@@ -567,16 +566,17 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID,
     // Find nodes that just joined, and advance their epoch.
     let (_, new_ids) = committee::diff(&self.previous_committee, &self.committee);
 
-    new_ids.do!(|node_id| {
-        let pool = &mut self.pools[node_id];
-        pool.advance_epoch(balance::zero(), wctx);
-        active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
-    });
-
     let (node_ids, rewards) = rewards.into_keys_values();
     rewards.zip_do!(node_ids, |node_reward, node_id| {
         let pool = &mut self.pools[node_id];
         pool.advance_epoch(node_reward, wctx);
+        active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
+    });
+
+    // fill-in the nodes that just joined and don't have rewards
+    new_ids.do!(|node_id| if (!node_ids.contains(&node_id)) {
+        let pool = &mut self.pools[node_id];
+        pool.advance_epoch(balance::zero(), wctx);
         active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
 

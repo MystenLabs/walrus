@@ -115,6 +115,7 @@ public(package) fun advance_epoch(
 
     // Update storage based on the accounts data.
     self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
+
     let mut total_rewards = accounts_old_epoch.unwrap_balance();
     total_rewards.join(self.leftover_rewards.withdraw_all());
 
