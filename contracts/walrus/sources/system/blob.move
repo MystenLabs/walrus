@@ -175,7 +175,7 @@ public(package) fun new(
 
 /// Certifies that a blob will be available in the storage system until the end epoch of the
 /// storage associated with it, given a [`CertifiedBlobMessage`].
-public fun certify_with_certified_msg(
+public(package) fun certify_with_certified_msg(
     blob: &mut Blob,
     current_epoch: u32,
     message: CertifiedBlobMessage,
@@ -311,4 +311,28 @@ public fun insert_or_update_metadata_pair(self: &mut Blob, key: String, value: S
 /// Aborts if the metadata does not exist.
 public fun remove_metadata_pair(self: &mut Blob, key: &String): (String, String) {
     self.metadata().remove(key)
+}
+
+#[test_only]
+public fun certify_with_certified_msg_for_testing(
+    blob: &mut Blob,
+    current_epoch: u32,
+    message: CertifiedBlobMessage,
+) {
+    // Check that the blob is registered in the system
+    assert!(blob.blob_id() == message.certified_blob_id(), EInvalidBlobId);
+
+    // Check that the blob is not already certified
+    assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
+
+    // Check that the message is from the current epoch
+    assert!(message.certified_epoch() == current_epoch, EWrongEpoch);
+
+    // Check that the storage in the blob is still valid
+    assert!(message.certified_epoch() < blob.storage.end_epoch(), EResourceBounds);
+
+    // Mark the blob as certified
+    blob.certified_epoch.fill(message.certified_epoch());
+
+    blob.emit_certified(false);
 }
