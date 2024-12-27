@@ -138,8 +138,8 @@ fun apply_subsidies(
     let (buyer_subsidy, system_subsidy) = if (self.subsidy_pool.value() >= total_subsidy) {
         (buyer_subsidy, system_subsidy)
     } else {
-        // If we don't have enough in the pool to pay the full subsidies, split the remainder proportionally
-        // between the buyer and system subsidies.
+        // If we don't have enough in the pool to pay the full subsidies,
+        // split the remainder proportionally between the buyer and system subsidies.
         let pool_value = self.subsidy_pool.value();
         let total_subsidy_rate = self.buyer_subsidy_rate + self.system_subsidy_rate;
         let buyer_subsidy =
