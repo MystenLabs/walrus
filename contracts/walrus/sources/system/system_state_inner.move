@@ -89,7 +89,11 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
 /// Called by the epoch change function that connects `Staking` and `System`.
-/// Returns the balance of the rewards from the previous epoch.
+/// Returns the mapping of node IDs from the old committee to the rewards they
+/// received in the epoch.
+///
+/// Note: VecMap must contain values only for the nodes from the previous
+/// committee, the `staking` part of the system relies on this assumption.
 public(package) fun advance_epoch(
     self: &mut SystemStateInnerV1,
     new_committee: BlsCommittee,
@@ -124,11 +128,16 @@ public(package) fun advance_epoch(
 
     let mut total_rewards = accounts_old_epoch.unwrap_balance();
 
-    // for all: stored[node_idx] = weight[node_idx] * (used_capacity - deny_list_size[node_idx])
-    // total_stored = sum(stored)
-    // for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
+    // to perform the calculation of rewards, we account for the deny list sizes
+    // in comparison to the used capacity size, and the weights of the nodes in
+    // the committee.
+    //
+    // specific reward for a node is calculated as:
+    // reward = (weight * (used_capacity_size - deny_list_size)) / total_stored * total_rewards
+    // where `total_stored` is the sum of all nodes' values.
+    //
+    // leftover rewards are added to the next epoch's accounting to avoid rounding errors.
 
-    // use the old committee to distribute rewards;
     let deny_list_sizes = self.deny_list_sizes.borrow();
     let (node_ids, weights) = old_committee.to_vec_map().into_keys_values();
     let mut stored_vec = vector[];
