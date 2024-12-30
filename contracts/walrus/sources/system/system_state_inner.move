@@ -38,6 +38,8 @@ const EInvalidAccountingEpoch: u64 = 5;
 const EIncorrectAttestation: u64 = 6;
 const ERepeatedAttestation: u64 = 7;
 const ENotCommitteeMember: u64 = 8;
+const EIncorrectDenyListSequence: u64 = 9;
+const EIncorrectDenyListNode: u64 = 10;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -571,7 +573,7 @@ public(package) fun register_deny_list_update(
     deny_list_sequence: u64,
 ) {
     assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
-    assert!(deny_list_sequence > cap.deny_list_sequence());
+    assert!(deny_list_sequence > cap.deny_list_sequence(), EIncorrectDenyListSequence);
 
     events::emit_register_deny_list_update(
         self.epoch(),
@@ -602,8 +604,8 @@ public(package) fun update_deny_list(
     let size = message.size();
 
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
-    assert!(node_id == cap.node_id());
-    assert!(cap.deny_list_sequence() < message.sequence_number());
+    assert!(node_id == cap.node_id(), EIncorrectDenyListNode);
+    assert!(cap.deny_list_sequence() < message.sequence_number(), EIncorrectDenyListSequence);
 
     let deny_list_root = message.root();
     let sequence_number = message.sequence_number();
