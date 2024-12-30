@@ -679,14 +679,14 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
 }
 
 #[test_only]
-public(package) fun get_event_blob_certification_state(
+public(package) fun event_blob_certification_state(
     system: &SystemStateInnerV1,
 ): &EventBlobCertificationState {
     &system.event_blob_certification_state
 }
 
 #[test_only]
-public(package) fun get_future_accounting(
+public(package) fun future_accounting_mut(
     self: &mut SystemStateInnerV1,
 ): &mut FutureAccountingRingBuffer {
     &mut self.future_accounting

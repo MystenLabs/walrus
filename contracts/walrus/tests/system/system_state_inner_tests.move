@@ -20,7 +20,7 @@ fun add_subsidy_test(rewards: u64, epochs_ahead: u32) {
     // Distribute the rewards across epochs.
     epochs_ahead.do!(|i| {
         let expected_reward = base_reward + if ((i as u64) < leftovers) { 1 } else { 0 };
-        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), i));
+        let rb = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), i));
         assert!(rb.value() == expected_reward);
     });
 
@@ -58,11 +58,11 @@ fun test_add_subsidy_uneven_distribution() {
     // The first epoch should get 2 more rewards than the others. They are the leftover_rewards.
     let first_epoch_rewards = reward_per_epoch + 2;
 
-    let rb0 = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), 0));
+    let rb0 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), 0));
     assert!(rb0.value() == first_epoch_rewards);
-    let rb1 = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), 1));
+    let rb1 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), 1));
     assert!(rb1.value() == reward_per_epoch);
-    let rb2 = sa::rewards_balance(sa::ring_lookup_mut(system.get_future_accounting(), 2));
+    let rb2 = sa::rewards_balance(sa::ring_lookup_mut(system.future_accounting_mut(), 2));
     assert!(rb2.value() == reward_per_epoch);
     destroy(system);
 }
