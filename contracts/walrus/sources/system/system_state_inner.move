@@ -145,6 +145,8 @@ public(package) fun advance_epoch(
         total_rewards.split((stored * total_rewards_value / total_stored) as u64)
     });
 
+    
+
     self.leftover_rewards.join(total_rewards); // store the leftover rewards
     vec_map::from_keys_values(node_ids, reward_values)
 }
@@ -551,6 +553,7 @@ public(package) fun register_deny_list_update(
     assert!(deny_list_sequence > cap.deny_list_sequence());
 
     events::emit_register_deny_list_update(
+        self.epoch(),
         deny_list_root,
         deny_list_sequence,
         cap.node_id(),
@@ -580,10 +583,12 @@ public(package) fun update_deny_list(
     assert!(epoch == self.epoch(), EInvalidIdEpoch);
     assert!(node_id == cap.node_id());
     assert!(cap.deny_list_sequence() < message.sequence_number());
-    assert!(cap.deny_list_root() != message.root());
+
+    let deny_list_root = message.root();
+    let sequence_number = message.sequence_number();
 
     // update deny_list properties in the cap
-    cap.set_deny_list_properties(message.root(), message.sequence_number(), size);
+    cap.set_deny_list_properties(deny_list_root, sequence_number, size);
 
     // then register the update in the system storage
     let sizes = self.deny_list_sizes.borrow_mut();
@@ -592,6 +597,13 @@ public(package) fun update_deny_list(
     } else {
         sizes.insert(node_id, message.size());
     };
+
+    events::emit_deny_list_update(
+        self.epoch(),
+        deny_list_root,
+        sequence_number,
+        cap.node_id(),
+    );
 }
 
 /// Certify that a blob is on the deny list for at least one honest node. Emit

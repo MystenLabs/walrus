@@ -88,6 +88,7 @@ public struct ContractUpgraded has copy, drop {
 
 /// Signals that a Denylist update has started.
 public struct RegisterDenyListUpdate has copy, drop {
+    epoch: u32,
     root: u256,
     sequence_number: u64,
     node_id: ID,
@@ -95,6 +96,7 @@ public struct RegisterDenyListUpdate has copy, drop {
 
 /// Signals that a Denylist update has been certified.
 public struct DenyListUpdate has copy, drop {
+    epoch: u32,
     root: u256,
     sequence_number: u64,
     node_id: ID,
@@ -178,19 +180,21 @@ public(package) fun emit_contract_upgraded(epoch: u32, package_id: ID, version: 
 }
 
 public(package) fun emit_register_deny_list_update(
+    epoch: u32,
     root: u256,
     sequence_number: u64,
     node_id: ID,
 ) {
-    event::emit(RegisterDenyListUpdate { root, sequence_number, node_id })
+    event::emit(RegisterDenyListUpdate { epoch, root, sequence_number, node_id })
 }
 
 public(package) fun emit_deny_list_update(
+    epoch: u32,
     root: u256,
     sequence_number: u64,
     node_id: ID,
 ) {
-    event::emit(DenyListUpdate { root, sequence_number, node_id })
+    event::emit(DenyListUpdate { epoch, root, sequence_number, node_id })
 }
 
 public(package) fun emit_deny_listed_blob_deleted(
