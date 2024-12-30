@@ -24,7 +24,6 @@ use walrus::{
     events,
     extended_field::{Self, ExtendedField},
     node_metadata::NodeMetadata,
-    sort,
     staked_wal::StakedWal,
     staking_pool::{Self, StakingPool},
     storage_node::StorageNodeCap,
@@ -53,7 +52,7 @@ const ENoStake: u64 = 3;
 const ENotInCommittee: u64 = 4;
 const ECommitteeSelected: u64 = 5;
 const ENextCommitteeIsEmpty: u64 = 6;
-
+const EPoolNotFound: u64 = 7;
 // TODO: remove this once the module is implemented.
 const ENotImplemented: u64 = 264;
 
@@ -452,8 +451,6 @@ public(package) fun withdraw_stake(
 // === System ===
 
 /// Selects the committee for the next epoch.
-///
-/// TODO: current solution is temporary, we need to have a proper algorithm for shard assignment.
 public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 
@@ -551,8 +548,6 @@ public(package) fun initiate_epoch_change(
 }
 
 /// Sets the next epoch of the system and emits the epoch change start event.
-///
-/// TODO: `advance_epoch` needs to be either pre or post handled by each staking pool as well.
 public(package) fun advance_epoch(self: &mut StakingInnerV1, mut rewards: Balance<WAL>) {
     assert!(self.next_committee.is_some(), EWrongEpochState);
 
@@ -633,7 +628,7 @@ public(package) fun epoch_sync_done(
 /// - also checks that for the provided shards, this function has not been called before
 /// - if so, slashes both nodes and emits an event that allows the receiving node to start
 ///     shard recovery
-public fun shard_transfer_failed(
+public(package) fun shard_transfer_failed(
     _staking: &mut StakingInnerV1,
     _cap: &StorageNodeCap,
     _other_node_id: ID,
@@ -701,6 +696,25 @@ public(package) fun next_bls_committee(self: &mut StakingInnerV1): BlsCommittee 
 /// Check if a node with the given `ID` exists in the staking pools.
 public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
     self.pools.contains(node_id)
+}
+
+// === Utility functions ===
+
+/// Calculate the rewards for an amount with value `staked_principal`, staked in the pool with
+/// the given `node_id` between `activation_epoch` and `last_epoch`.
+public(package) fun calculate_rewards(
+    self: &StakingInnerV1,
+    node_id: ID,
+    staked_principal: u64,
+    activation_epoch: u32,
+    last_epoch: u32,
+): u64 {
+    if (!self.pools.contains(node_id)) {
+        abort EPoolNotFound
+    };
+
+    let pool = &self.pools[node_id];
+    pool.calculate_rewards(staked_principal, activation_epoch, last_epoch)
 }
 
 // === Internal ===
