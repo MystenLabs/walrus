@@ -521,7 +521,7 @@ pub(crate) struct SystemStateInnerV1 {
     /// Event blob certification state.
     pub event_blob_certification_state: EventBlobCertificationState,
     #[cfg(feature = "walrus-mainnet")]
-    /// Extended field with the size of the deny list for commitee members.
+    /// Extended field with the size of the deny list for committee members.
     pub deny_list_sized: ObjectID,
 }
 
