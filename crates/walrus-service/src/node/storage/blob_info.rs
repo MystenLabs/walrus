@@ -520,6 +520,7 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
             BlobEvent::InvalidBlobID(event) => event.into(),
             BlobEvent::DenyListBlobDeleted(_) => {
                 // TODO: Implement this with the deny list on the Rust side.
+                // TODO: WAL-424
                 todo!("DenyListBlobDeleted")
             }
         }

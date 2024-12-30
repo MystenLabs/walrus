@@ -893,6 +893,7 @@ impl StorageNode {
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
+                // TODO: WAL-424
                 todo!("DenyListBlobDeleted event handling");
             }
         }
