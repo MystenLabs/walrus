@@ -124,7 +124,7 @@ public(package) fun advance_epoch(
 
     let mut total_rewards = accounts_old_epoch.unwrap_balance();
 
-    // for all nodes: stored[node_idx] = weight[node_idx] * (used_capacity - deny_list_size[node_idx])
+    // for all: stored[node_idx] = weight[node_idx] * (used_capacity - deny_list_size[node_idx])
     // total_stored = sum(stored)
     // for all nodes: reward_per_node[node_idx] = stored[node_idx]*total_reward_value / total_stored
 
