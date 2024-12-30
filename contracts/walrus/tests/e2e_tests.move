@@ -365,7 +365,7 @@ fun test_epoch_change_with_rewards_and_commission() {
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                10_00, // 10.00% commission
+                100_00, // 100.00% commission
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -441,6 +441,7 @@ fun test_epoch_change_with_rewards_and_commission() {
     // === sign a message for the first node to update deny list size ===
 
     let node = &nodes[0];
+    let deny_list_node = nodes[0].node_id();
     let certified_message = node.update_deny_list_message(runner.epoch(), 2u256, 10_000_000, 1);
     let (signature, members_bitmap) = nodes.quorum_sign(certified_message);
 
@@ -502,7 +503,14 @@ fun test_epoch_change_with_rewards_and_commission() {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let auth = commission::auth_as_object(node.cap());
             let commission = staking.collect_commission(node.node_id(), auth, ctx);
-            assert_eq!(commission.burn_for_testing(), 47);
+
+            // deny_list_node has 10% less rewards
+            // all nodes claim 100% of their rewards
+            if (node.node_id() == deny_list_node) {
+                assert_eq!(commission.burn_for_testing(), 472);
+            } else {
+                assert_eq!(commission.burn_for_testing(), 477);
+            };
         });
     });
 
