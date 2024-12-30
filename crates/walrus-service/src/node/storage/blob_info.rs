@@ -518,6 +518,7 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
             BlobEvent::Certified(event) => event.into(),
             BlobEvent::Deleted(event) => event.into(),
             BlobEvent::InvalidBlobID(event) => event.into(),
+            BlobEvent::DenyListBlobDeleted(_) => todo!("DenyListBlobDeleted"),
         }
     }
 }

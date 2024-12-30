@@ -4,6 +4,7 @@
 //! Walrus event type bindings. Replicates the move event types in Rust.
 
 use anyhow::anyhow;
+use move_core_types::u256::U256;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
@@ -190,6 +191,36 @@ impl TryFrom<SuiEvent> for InvalidBlobId {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Sui event that a deny listed blob has been deleted.
+pub struct DenyListBlobDeleted {
+    /// The epoch in which the deny listed blob was deleted.
+    pub epoch: Epoch,
+    /// The blob ID of the deny listed blob.
+    pub blob_id: BlobId,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for DenyListBlobDeleted {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::DenyListBlobDeleted;
+}
+
+impl TryFrom<SuiEvent> for DenyListBlobDeleted {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        Ok(Self {
+            epoch,
+            blob_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
 /// Enum to wrap blob events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlobEvent {
@@ -201,6 +232,8 @@ pub enum BlobEvent {
     Deleted(BlobDeleted),
     /// An invalid blob ID event.
     InvalidBlobID(InvalidBlobId),
+    /// A deny list blob deleted event.
+    DenyListBlobDeleted(DenyListBlobDeleted),
 }
 
 impl From<BlobRegistered> for BlobEvent {
@@ -257,6 +290,12 @@ impl From<InvalidBlobId> for ContractEvent {
     }
 }
 
+impl From<DenyListBlobDeleted> for BlobEvent {
+    fn from(value: DenyListBlobDeleted) -> Self {
+        Self::DenyListBlobDeleted(value)
+    }
+}
+
 impl BlobEvent {
     /// Returns the blob ID contained in the wrapped event.
     pub fn blob_id(&self) -> BlobId {
@@ -265,6 +304,7 @@ impl BlobEvent {
             BlobEvent::Certified(event) => event.blob_id,
             BlobEvent::Deleted(event) => event.blob_id,
             BlobEvent::InvalidBlobID(event) => event.blob_id,
+            BlobEvent::DenyListBlobDeleted(event) => event.blob_id,
         }
     }
 
@@ -275,6 +315,7 @@ impl BlobEvent {
             BlobEvent::Certified(event) => Some(event.object_id),
             BlobEvent::Deleted(event) => Some(event.object_id),
             BlobEvent::InvalidBlobID(_) => None,
+            BlobEvent::DenyListBlobDeleted(_) => None,
         }
     }
 
@@ -285,6 +326,7 @@ impl BlobEvent {
             BlobEvent::Certified(event) => event.event_id,
             BlobEvent::Deleted(event) => event.event_id,
             BlobEvent::InvalidBlobID(event) => event.event_id,
+            BlobEvent::DenyListBlobDeleted(event) => event.event_id,
         }
     }
 
@@ -295,6 +337,7 @@ impl BlobEvent {
             BlobEvent::Certified(event) => event.epoch,
             BlobEvent::Deleted(event) => event.epoch,
             BlobEvent::InvalidBlobID(event) => event.epoch,
+            BlobEvent::DenyListBlobDeleted(event) => event.epoch,
         }
     }
 
@@ -305,6 +348,7 @@ impl BlobEvent {
             BlobEvent::Certified(_) => "BlobCertified",
             BlobEvent::Deleted(_) => "BlobDeleted",
             BlobEvent::InvalidBlobID(_) => "InvalidBlobID",
+            BlobEvent::DenyListBlobDeleted(_) => "DenyListBlobDeleted",
         }
     }
 }
@@ -317,6 +361,10 @@ impl TryFrom<SuiEvent> for BlobEvent {
             contracts::events::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
             contracts::events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
             contracts::events::InvalidBlobID => Ok(BlobEvent::InvalidBlobID(value.try_into()?)),
+            contracts::events::BlobDeleted => Ok(BlobEvent::Deleted(value.try_into()?)),
+            contracts::events::DenyListBlobDeleted => Ok(BlobEvent::DenyListBlobDeleted(
+                value.try_into()?,
+            )),
             _ => Err(anyhow!("could not convert to blob event: {}", value)),
         }
     }
@@ -574,6 +622,92 @@ impl PackageEvent {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Sui event that a deny list update has been registered.
+pub struct RegisterDenyListUpdateEvent {
+    /// The epoch in which the deny list update was registered.
+    pub epoch: Epoch,
+    /// The root hash of the deny list update.
+    pub root: U256,
+    /// The deny list update ID.
+    pub sequence_number: u64,
+    /// The ID of the event.
+    pub node_id: ObjectID,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for RegisterDenyListUpdateEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::RegisterDenyListUpdate;
+}
+
+impl TryFrom<SuiEvent> for RegisterDenyListUpdateEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            root,
+            sequence_number,
+            node_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Sui event that a deny list has been updated.
+pub struct UpdateDenyListEvent {
+    /// The epoch in which the deny list was updated.
+    pub epoch: Epoch,
+    /// The deny list update ID.
+    pub deny_list_update_id: ObjectID,
+    /// The deny list update hash.
+    pub deny_list_update_hash: Vec<u8>,
+    /// The ID of the event.
+    pub event_id: EventID,
+}
+
+/// Enum to wrap deny list events.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum DenyListEvent {
+    /// Deny list update registered.
+    RegisterDenyListUpdate(RegisterDenyListUpdateEvent),
+    /// Deny list updated.
+    UpdateDenyList(UpdateDenyListEvent),
+}
+
+impl DenyListEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            DenyListEvent::RegisterDenyListUpdate(event) => event.event_id,
+            DenyListEvent::UpdateDenyList(event) => event.event_id,
+        }
+    }
+
+    /// The epoch corresponding to the deny list event.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            DenyListEvent::RegisterDenyListUpdate(event) => event.epoch,
+            DenyListEvent::UpdateDenyList(event) => event.epoch,
+        }
+    }
+
+    /// The name of the event.
+    pub fn name(&self) -> &'static str {
+        match self {
+            DenyListEvent::RegisterDenyListUpdate(_) => "RegisterDenyListUpdate",
+            DenyListEvent::UpdateDenyList(_) => "UpdateDenyList",
+        }
+    }
+}
+
 /// Enum to wrap contract events used in event streaming.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractEvent {
@@ -583,6 +717,8 @@ pub enum ContractEvent {
     EpochChangeEvent(EpochChangeEvent),
     /// Events related to package maintenance.
     PackageEvent(PackageEvent),
+    /// Events related to deny list.
+    DenyListEvent(DenyListEvent),
 }
 
 impl ContractEvent {
@@ -592,6 +728,7 @@ impl ContractEvent {
             ContractEvent::BlobEvent(event) => event.event_id(),
             ContractEvent::EpochChangeEvent(event) => event.event_id(),
             ContractEvent::PackageEvent(event) => event.event_id(),
+            ContractEvent::DenyListEvent(event) => event.event_id(),
         }
     }
 
@@ -601,6 +738,7 @@ impl ContractEvent {
             ContractEvent::BlobEvent(event) => Some(event.blob_id()),
             ContractEvent::EpochChangeEvent(_) => None,
             ContractEvent::PackageEvent(_) => None,
+            ContractEvent::DenyListEvent(_) => None,
         }
     }
 
@@ -610,6 +748,7 @@ impl ContractEvent {
             ContractEvent::BlobEvent(event) => event.event_epoch(),
             ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
             ContractEvent::PackageEvent(event) => event.event_epoch(),
+            ContractEvent::DenyListEvent(event) => event.event_epoch(),
         }
     }
 }

@@ -25,7 +25,7 @@ public fun test_event_blob_certify_happy_path() {
     // Total of 10 nodes all with equal weights
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
     let mut index = 0;
     while (index < 10) {
@@ -49,7 +49,7 @@ public fun test_event_blob_certify_happy_path() {
         index = index + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing()
 }
 
 #[test, expected_failure(abort_code = system_state_inner::ERepeatedAttestation)]
@@ -59,7 +59,7 @@ public fun test_event_blob_certify_repeated_attestation() {
     // Total of 10 nodes
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
 
     system.certify_event_blob(
@@ -86,7 +86,7 @@ public fun test_event_blob_certify_repeated_attestation() {
     );
 
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = system_state_inner::EIncorrectAttestation)]
@@ -96,7 +96,7 @@ public fun test_multiple_event_blobs_in_flight() {
     // Total of 10 nodes
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob1 = blob::derive_blob_id(0xabc, RED_STUFF, SIZE);
     let blob2 = blob::derive_blob_id(0xdef, RED_STUFF, SIZE);
 
@@ -127,7 +127,7 @@ public fun test_multiple_event_blobs_in_flight() {
         index = index + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test]
@@ -137,7 +137,7 @@ public fun test_event_blob_certify_change_epoch() {
     // Total of 10 nodes
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
     let mut index = 0;
     while (index < 6) {
@@ -205,7 +205,7 @@ public fun test_event_blob_certify_change_epoch() {
         index = index + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test]
@@ -215,7 +215,7 @@ public fun test_certify_invalid_blob_id() {
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
 
     // Create a constant bad blob ID that will be used throughout the test
     let bad_blob_id = blob::derive_blob_id(0xbeef, RED_STUFF, SIZE);
@@ -274,7 +274,7 @@ public fun test_certify_invalid_blob_id() {
         i = i + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test]
@@ -284,7 +284,7 @@ public fun test_block_blob_events() {
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
 
     let mut i: u256 = 0;
     while (i < 30) {
@@ -332,15 +332,15 @@ public fun test_block_blob_events() {
         i = i + 1;
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 // === Helper functions ===
 
 fun set_storage_node_caps(
     system: &System,
-    ctx: &mut TxContext,
     nodes: &mut vector<TestStorageNode>,
+    ctx: &mut TxContext,
 ) {
     let (node_ids, _values) = system.committee().to_vec_map().into_keys_values();
     let mut index = 0;

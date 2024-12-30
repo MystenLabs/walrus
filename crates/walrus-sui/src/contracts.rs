@@ -301,6 +301,9 @@ pub mod events {
     contract_ident!(struct events::ShardsReceived);
     contract_ident!(struct events::ShardRecoveryStart);
     contract_ident!(struct events::ContractUpgraded);
+    contract_ident!(struct events::RegisterDenyListUpdate);
+    contract_ident!(struct events::DenyListUpdate);
+    contract_ident!(struct events::DenyListBlobDeleted);
 }
 
 /// Module for tags corresponding to the Move module `extended_field`.

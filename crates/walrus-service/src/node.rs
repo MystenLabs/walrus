@@ -857,6 +857,9 @@ impl StorageNode {
                 self.process_package_event(event_handle, package_event)
                     .await?;
             }
+            EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
+                todo!("DenyListEvent event handling");
+            }
             EventStreamElement::CheckpointBoundary => {
                 event_handle.mark_as_complete();
             }
@@ -887,6 +890,9 @@ impl StorageNode {
             }
             BlobEvent::InvalidBlobID(event) => {
                 self.process_blob_invalid_event(event_handle, event).await?;
+            }
+            BlobEvent::DenyListBlobDeleted(_) => {
+                todo!("DenyListBlobDeleted event handling");
             }
         }
         Ok(())
