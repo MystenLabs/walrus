@@ -894,6 +894,9 @@ impl StorageNode {
             }
             BlobEvent::DenyListBlobDeleted(_) => {
                 // TODO: WAL-424
+                // it's fine to panic here with a todo!, because in order to trigger this event, we
+                // need f+1 signatures and until the rust integration is implemented no such event
+                // should be emitted.
                 todo!("DenyListBlobDeleted event handling");
             }
         }
