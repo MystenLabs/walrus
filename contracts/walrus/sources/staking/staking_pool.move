@@ -678,7 +678,7 @@ public(package) fun is_empty(pool: &StakingPool): bool {
 }
 
 /// Calculate the rewards for an amount with value `staked_principal`, staked in the pool between
-/// `activation_epoch` and `last_epoch`.
+/// `activation_epoch` and `withdraw_epoch`.
 public(package) fun calculate_rewards(
     pool: &StakingPool,
     staked_principal: u64,

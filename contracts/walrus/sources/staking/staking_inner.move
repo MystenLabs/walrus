@@ -701,20 +701,16 @@ public(package) fun has_pool(self: &StakingInnerV1, node_id: ID): bool {
 // === Utility functions ===
 
 /// Calculate the rewards for an amount with value `staked_principal`, staked in the pool with
-/// the given `node_id` between `activation_epoch` and `last_epoch`.
+/// the given `node_id` between `activation_epoch` and `withdraw_epoch`.
 public(package) fun calculate_rewards(
     self: &StakingInnerV1,
     node_id: ID,
     staked_principal: u64,
     activation_epoch: u32,
-    last_epoch: u32,
+    withdraw_epoch: u32,
 ): u64 {
-    if (!self.pools.contains(node_id)) {
-        abort EPoolNotFound
-    };
-
-    let pool = &self.pools[node_id];
-    pool.calculate_rewards(staked_principal, activation_epoch, last_epoch)
+    assert!(self.pools.contains(node_id), EPoolNotFound);
+    self.pools[node_id].calculate_rewards(staked_principal, activation_epoch, withdraw_epoch)
 }
 
 // === Internal ===
