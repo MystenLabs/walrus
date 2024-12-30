@@ -6,7 +6,6 @@
 use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
-// use move_core_types::u256::U256;
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,

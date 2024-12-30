@@ -4,7 +4,6 @@
 //! Walrus event type bindings. Replicates the move event types in Rust.
 
 use anyhow::anyhow;
-use move_core_types::u256::U256;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
@@ -628,7 +627,7 @@ pub struct RegisterDenyListUpdateEvent {
     /// The epoch in which the deny list update was registered.
     pub epoch: Epoch,
     /// The root hash of the deny list update.
-    pub root: U256,
+    pub root: [u8; 32],
     /// The deny list update ID.
     pub sequence_number: u64,
     /// The ID of the event.
@@ -665,7 +664,7 @@ pub struct DenyListUpdateEvent {
     /// The epoch in which the deny list update was registered.
     pub epoch: Epoch,
     /// The root hash of the deny list update.
-    pub root: U256,
+    pub root: [u8; 32],
     /// The deny list update ID.
     pub sequence_number: u64,
     /// The ID of the event.
