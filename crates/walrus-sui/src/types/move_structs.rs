@@ -6,7 +6,7 @@
 use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
-use move_core_types::u256::U256;
+// use move_core_types::u256::U256;
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -149,7 +149,7 @@ pub struct StorageNodeCap {
     pub last_event_blob_attestation: Option<EventBlobAttestation>,
     #[cfg(feature = "walrus-mainnet")]
     /// The root of the deny list.
-    pub deny_list_root: U256,
+    pub deny_list_root: [u8; 32],
     #[cfg(feature = "walrus-mainnet")]
     /// The sequence number of the deny list.
     pub deny_list_sequence_number: u64,

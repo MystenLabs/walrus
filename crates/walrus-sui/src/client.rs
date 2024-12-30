@@ -118,7 +118,7 @@ pub enum SuiClientError {
         "storage capability object already exists in the account and cannot register another\n\
         object ID: {0}"
     )]
-    CapabilityObjectAlreadyExists(StorageNodeCap),
+    CapabilityObjectAlreadyExists(ObjectID),
 }
 
 /// Metadata for a blob object on Sui.
@@ -535,7 +535,7 @@ impl SuiContractClient {
             .await?;
 
         if let Some(cap) = existing_capability_object {
-            return Err(SuiClientError::CapabilityObjectAlreadyExists(cap));
+            return Err(SuiClientError::CapabilityObjectAlreadyExists(cap.id));
         }
 
         // Lock the wallet here to ensure there are no race conditions with object references.
