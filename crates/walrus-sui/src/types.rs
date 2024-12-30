@@ -20,12 +20,15 @@ pub use events::{
     BlobRegistered,
     ContractEvent,
     ContractUpgradedEvent,
+    DenyListEvent,
+    DenyListUpdateEvent,
     EpochChangeDone,
     EpochChangeEvent,
     EpochChangeStart,
     EpochParametersSelected,
     InvalidBlobId,
     PackageEvent,
+    RegisterDenyListUpdateEvent,
 };
 
 pub mod move_structs;

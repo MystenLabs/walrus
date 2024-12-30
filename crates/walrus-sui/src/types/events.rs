@@ -698,7 +698,6 @@ impl TryFrom<SuiEvent> for DenyListUpdateEvent {
 
 /// Enum to wrap deny list events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub enum DenyListEvent {
     /// Deny list update registered.
     RegisterDenyListUpdate(RegisterDenyListUpdateEvent),

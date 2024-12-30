@@ -12,8 +12,16 @@ use prometheus::{
     Opts,
     Registry,
 };
+use sui_types::deny_list_v1::DenyList;
 pub(crate) use telemetry::with_label;
-use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent, PackageEvent};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobEvent,
+    ContractEvent,
+    DenyListEvent,
+    EpochChangeEvent,
+    PackageEvent,
+};
 
 use crate::{
     common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric},
@@ -172,6 +180,15 @@ impl TelemetryLabel for PackageEvent {
         match self {
             PackageEvent::ContractUpgraded(_) => "contract-upgraded",
             _ => "unknown-package-event",
+        }
+    }
+}
+
+impl TelemetryLabel for DenyListEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            DenyListEvent::DenyListUpdate(_) => "deny-list-updated",
+            DenyListEvent::RegisterDenyListUpdate(_) => "deny-list-deleted",
         }
     }
 }
