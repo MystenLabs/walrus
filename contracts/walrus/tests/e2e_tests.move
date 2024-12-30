@@ -443,7 +443,7 @@ fun test_epoch_change_with_rewards_and_commission() {
     let node = &nodes[0];
     let deny_list_node = nodes[0].node_id();
     let certified_message = node.update_deny_list_message(runner.epoch(), 2u256, 10_000_000, 1);
-    let (signature, members_bitmap) = nodes.quorum_sign(certified_message);
+    let (signature, members_bitmap) = nodes.sign(certified_message);
 
     // === send the message from the first node
     let node = &mut nodes[0];
@@ -785,9 +785,9 @@ fun test_emergency_upgrade() {
 }
 
 // local alias for simplicity
-use fun quorum_sign as vector.quorum_sign;
+use fun sign as vector.sign;
 
-fun quorum_sign(nodes: &vector<TestStorageNode>, message: vector<u8>): (vector<u8>, vector<u8>) {
+fun sign(nodes: &vector<TestStorageNode>, message: vector<u8>): (vector<u8>, vector<u8>) {
     let signatures = nodes.map_ref!(|node| node.sign_message(message));
     let members_bitmap = test_utils::signers_to_bitmap(
         &vector::tabulate!(nodes.length(), |i| i as u16),
