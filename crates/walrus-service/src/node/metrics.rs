@@ -12,7 +12,6 @@ use prometheus::{
     Opts,
     Registry,
 };
-use sui_types::deny_list_v1::DenyList;
 pub(crate) use telemetry::with_label;
 use walrus_sui::types::{
     BlobCertified,
