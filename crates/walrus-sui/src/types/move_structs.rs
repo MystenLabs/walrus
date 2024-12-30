@@ -425,6 +425,7 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) next_epoch_params: Option<EpochParams>,
     /// The state of the current epoch.
     pub(crate) epoch_state: EpochState,
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
     pub(crate) leftover_rewards: u64,
     #[cfg(feature = "walrus-mainnet")]
