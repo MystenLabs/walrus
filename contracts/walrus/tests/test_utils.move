@@ -375,7 +375,7 @@ public fun new_bls_committee_with_multiple_members_for_testing(
 /// Converts a vector of signers to a bitmap.
 /// The set of signers MUST be signed.
 public fun signers_to_bitmap(signers: &vector<u16>): vector<u8> {
-    let mut bitmap: vector<u8> = vector::empty();
+    let mut bitmap: vector<u8> = vector[];
     let mut next_byte = 0;
     signers.do_ref!(|signer| {
         let signer = *signer as u64;

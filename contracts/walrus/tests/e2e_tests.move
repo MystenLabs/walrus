@@ -6,7 +6,7 @@ module walrus::e2e_tests;
 
 use std::unit_test::assert_eq;
 use sui::test_scenario;
-use walrus::{commission, e2e_runner, staking_pool, test_node, test_utils};
+use walrus::{commission, e2e_runner, staking_pool, test_node::{Self, TestStorageNode}, test_utils};
 
 const COMMISSION_RATE: u16 = 0;
 const STORAGE_PRICE: u64 = 5;
@@ -379,7 +379,7 @@ fun test_epoch_change_with_rewards_and_commission() {
 
     nodes.do_ref!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let coin = test_utils::mint(1000, ctx);
+            let coin = test_utils::mint(1_000_000_000, ctx);
             let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
             transfer::public_transfer(staked_wal, ctx.sender());
         });
@@ -416,6 +416,51 @@ fun test_epoch_change_with_rewards_and_commission() {
         transfer::public_transfer(coin, ctx.sender());
     });
 
+    // === register deny list update with each node (for tests) ===
+
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |_, system, _| {
+            system.register_deny_list_update(node.cap_mut(), @1.to_u256(), 1);
+        });
+
+        // make sure that the event was emitted
+        assert_eq!(runner.last_tx_effects().num_user_events(), 1);
+    });
+
+    // === register once more, now with incremented sequence number ===
+
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |_, system, _| {
+            system.register_deny_list_update(node.cap_mut(), @2.to_u256(), 2);
+        });
+
+        // make sure that the event was emitted
+        assert_eq!(runner.last_tx_effects().num_user_events(), 1);
+    });
+
+    // === sign a message for the first node to update deny list size ===
+
+    let node = &nodes[0];
+    let certified_message = node.update_deny_list_message(runner.epoch(), 2u256, 10_000_000, 1);
+    let (signature, members_bitmap) = nodes.quorum_sign(certified_message);
+
+    // === send the message from the first node
+    let node = &mut nodes[0];
+    runner.tx!(node.sui_address(), |_, system, _| {
+        system.update_deny_list(node.cap_mut(), signature, members_bitmap, certified_message);
+
+        // check the VecMap with sizes
+        let deny_list_sizes = system.inner().deny_list_sizes();
+
+        assert_eq!(deny_list_sizes.size(), 1);
+        assert!(deny_list_sizes.contains(&node.node_id()));
+        assert_eq!(*deny_list_sizes.get(&node.node_id()), 10_000_000);
+    });
+
+    assert_eq!(runner.last_tx_effects().num_user_events(), 1); // update deny list event emitted
+    assert_eq!(node.cap().deny_list_root(), 2u256); // deny list root updated
+    assert_eq!(node.cap().deny_list_sequence(), 1); // sequence number incremented
+
     // === perform another epoch change ===
     // === check if epoch state is changed correctly ==
 
@@ -432,8 +477,8 @@ fun test_epoch_change_with_rewards_and_commission() {
     runner.tx!(admin, |staking, system, _| {
         staking.initiate_epoch_change(system, runner.clock());
 
-        assert!(system.epoch() == 2);
-        assert!(system.committee().n_shards() == N_SHARDS);
+        assert_eq!(system.epoch(), 2);
+        assert_eq!(system.committee().n_shards(), N_SHARDS);
 
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
     });
@@ -458,7 +503,7 @@ fun test_epoch_change_with_rewards_and_commission() {
             let auth = commission::auth_as_object(node.cap());
             let commission = staking.collect_commission(node.node_id(), auth, ctx);
             assert_eq!(commission.burn_for_testing(), 47);
-        })
+        });
     });
 
     // === cleanup ===
@@ -703,7 +748,7 @@ fun withdraw_rewards_before_joining_committee() {
 }
 
 #[test]
-public fun test_emergency_upgrade() {
+fun test_emergency_upgrade() {
     use walrus::upgrade::EmergencyUpgradeCap;
     use sui::package;
 
@@ -729,4 +774,17 @@ public fun test_emergency_upgrade() {
     });
     test_scenario::return_to_address(admin, emergency_cap);
     runner.destroy();
+}
+
+// local alias for simplicity
+use fun quorum_sign as vector.quorum_sign;
+
+fun quorum_sign(nodes: &vector<TestStorageNode>, message: vector<u8>): (vector<u8>, vector<u8>) {
+    let signatures = nodes.map_ref!(|node| node.sign_message(message));
+    let members_bitmap = test_utils::signers_to_bitmap(
+        &vector::tabulate!(nodes.length(), |i| i as u16),
+    );
+    let signature = test_utils::bls_aggregate_sigs(&signatures);
+
+    (signature, members_bitmap)
 }

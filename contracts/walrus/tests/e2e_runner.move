@@ -140,6 +140,11 @@ public macro fun tx(
     test_scenario::return_shared(system);
 }
 
+/// Returns TransactionEffects of the last transaction.
+public fun last_tx_effects(runner: &mut TestRunner): test_scenario::TransactionEffects {
+    runner.scenario().next_tx(@1)
+}
+
 /// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
 /// `System`, `UpgradeManager`, and `TxContext` as arguments.
 public macro fun tx_with_upgrade_manager(

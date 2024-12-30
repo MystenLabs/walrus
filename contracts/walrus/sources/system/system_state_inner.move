@@ -56,6 +56,12 @@ public struct SystemStateInnerV1 has key, store {
     future_accounting: FutureAccountingRingBuffer,
     /// Event blob certification state
     event_blob_certification_state: EventBlobCertificationState,
+    /// Sizes of deny lists for storage nodes. Only current committee members
+    /// can register their updates in this map. Hence, we don't expect it to bloat.
+    ///
+    /// Max number of stored entries is ~6500. If there's any concern about the
+    /// performance of the map, it can be cleaned up as a side effect of the
+    /// updates / registrations.
     deny_list_sizes: ExtendedField<VecMap<ID, u64>>,
 }
 
@@ -529,6 +535,16 @@ public(package) fun n_shards(self: &SystemStateInnerV1): u16 {
 public(package) fun write_price(self: &SystemStateInnerV1, write_size: u64): u64 {
     let storage_units = storage_units_from_size!(write_size);
     self.write_price_per_unit_size * storage_units
+}
+
+#[test_only]
+public(package) fun deny_list_sizes(self: &SystemStateInnerV1): &VecMap<ID, u64> {
+    self.deny_list_sizes.borrow()
+}
+
+#[test_only]
+public(package) fun deny_list_sizes_mut(self: &mut SystemStateInnerV1): &mut VecMap<ID, u64> {
+    self.deny_list_sizes.borrow_mut()
 }
 
 macro fun storage_units_from_size($size: u64): u64 {
