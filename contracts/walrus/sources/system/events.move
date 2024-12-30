@@ -197,9 +197,6 @@ public(package) fun emit_deny_list_update(
     event::emit(DenyListUpdate { epoch, root, sequence_number, node_id })
 }
 
-public(package) fun emit_deny_listed_blob_deleted(
-    epoch: u32,
-    blob_id: u256,
-) {
+public(package) fun emit_deny_listed_blob_deleted(epoch: u32, blob_id: u256) {
     event::emit(DenyListBlobDeleted { epoch, blob_id })
 }

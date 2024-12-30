@@ -4,8 +4,8 @@
 #[test_only]
 module walrus::ringbuffer_tests;
 
-use walrus::storage_accounting::{Self as sa, FutureAccountingRingBuffer};
 use sui::test_utils::destroy;
+use walrus::storage_accounting::{Self as sa, FutureAccountingRingBuffer};
 
 #[test]
 public fun test_basic_ring_buffer() {
