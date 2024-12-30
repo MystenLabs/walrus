@@ -204,6 +204,10 @@ public fun reserve_space(
 
 // === Accessors ===
 
+public fun admin_cap_subsidies_id(admin_cap: &AdminCap): ID {
+    admin_cap.subsidies_id
+}
+
 /// Returns the current value of the subsidy pool.
 public fun subsidy_pool_value(self: &Subsidies): u64 {
     self.subsidy_pool.value()

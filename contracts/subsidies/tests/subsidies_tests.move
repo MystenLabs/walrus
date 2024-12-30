@@ -4,8 +4,8 @@
 #[test_only]
 module subsidies::subsidies_tests;
 
-use subsidies::subsidies;
-use sui::coin::Coin;
+use subsidies::subsidies::{Self, Subsidies};
+use sui::{coin::Coin, test_scenario as test};
 use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
@@ -23,6 +23,57 @@ const SIZE: u64 = 5_000_000;
 const EPOCH: u32 = 0;
 
 const N_COINS: u64 = 1_000_000_000;
+
+#[test]
+fun test_new() {
+    let user = @0xa11ce;
+    let mut test = test::begin(user);
+
+    let admin_cap = subsidies::new(test.ctx());
+
+    test.next_tx(user);
+    let subsidies = test.take_shared<Subsidies>();
+
+    assert!(subsidies.buyer_subsidy_rate() == 0);
+    assert!(subsidies.system_subsidy_rate() == 0);
+    assert!(subsidies.subsidy_pool_value() == 0);
+    assert!(admin_cap.admin_cap_subsidies_id() == object::id(&subsidies));
+
+    admin_cap.destroy_admin_cap();
+    subsidies.destroy_subsidies();
+
+    test.end();
+}
+
+#[test]
+fun test_new_with_initial_rates_and_funds_public_fn() {
+    let user = @0xa11ce;
+    let mut test = test::begin(user);
+
+    let initial_buyer_subsidy_rate: u16 = 5_00; // 5%
+    let initial_storage_node_subsidy_rate: u16 = 10_00; // 10%
+    let initial_funds_value = 1_000_000;
+
+    let admin_cap = subsidies::new_with_initial_rates_and_funds(
+        initial_buyer_subsidy_rate,
+        initial_storage_node_subsidy_rate,
+        mint(initial_funds_value, test.ctx()),
+        test.ctx(),
+    );
+
+    test.next_tx(user);
+    let subsidies = test.take_shared<Subsidies>();
+
+    assert!(subsidies.buyer_subsidy_rate() == initial_buyer_subsidy_rate);
+    assert!(subsidies.system_subsidy_rate() == initial_storage_node_subsidy_rate);
+    assert!(subsidies.subsidy_pool_value() == initial_funds_value);
+    assert!(admin_cap.admin_cap_subsidies_id() == object::id(&subsidies));
+
+    admin_cap.destroy_admin_cap();
+    subsidies.destroy_subsidies();
+
+    test.end();
+}
 
 #[test]
 fun test_new_subsidy_object(): System {
