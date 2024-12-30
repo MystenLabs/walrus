@@ -4,7 +4,7 @@
 #[allow(unused_variable, unused_mut_parameter, unused_field)]
 module walrus::system_state_inner;
 
-use sui::{balance::{Self, Balance}, coin::Coin, vec_map::{Self, VecMap}};
+use sui::{balance::Balance, coin::Coin, vec_map::{Self, VecMap}};
 use wal::wal::WAL;
 use walrus::{
     blob::{Self, Blob},
@@ -57,7 +57,6 @@ public struct SystemStateInnerV1 has key, store {
     /// Event blob certification state
     event_blob_certification_state: EventBlobCertificationState,
     deny_list_sizes: ExtendedField<VecMap<ID, u64>>,
-    leftover_rewards: Balance<WAL>,
 }
 
 /// Creates an empty system state with a capacity of zero and an empty
@@ -78,7 +77,6 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
         future_accounting,
         event_blob_certification_state,
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
-        leftover_rewards: balance::zero(),
     }
 }
 
@@ -116,10 +114,9 @@ public(package) fun advance_epoch(
     // Update storage based on the accounts data.
     self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
 
-    let mut total_rewards = accounts_old_epoch.unwrap_balance();
-    total_rewards.join(self.leftover_rewards.withdraw_all());
-
     // === Rewards distribution ===
+
+    let mut total_rewards = accounts_old_epoch.unwrap_balance();
 
     // for all nodes: stored[node_idx] = weight[node_idx] * (used_capacity - deny_list_size[node_idx])
     // total_stored = sum(stored)
@@ -145,9 +142,8 @@ public(package) fun advance_epoch(
         total_rewards.split((stored * total_rewards_value / total_stored) as u64)
     });
 
-    
-
-    self.leftover_rewards.join(total_rewards); // store the leftover rewards
+    // add the leftover rewards to the next epoch
+    self.future_accounting.ring_lookup_mut(0).rewards_balance().join(total_rewards);
     vec_map::from_keys_values(node_ids, reward_values)
 }
 
@@ -646,7 +642,6 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
-        leftover_rewards: balance::zero(),
     }
 }
 
@@ -664,7 +659,6 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         future_accounting: storage_accounting::ring_new(104),
         event_blob_certification_state: event_blob::create_with_empty_state(),
         deny_list_sizes: extended_field::new(vec_map::empty(), ctx),
-        leftover_rewards: balance::zero(),
     }
 }
 
