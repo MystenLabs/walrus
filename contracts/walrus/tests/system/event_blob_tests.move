@@ -4,7 +4,6 @@
 #[test_only]
 module walrus::event_blob_tests;
 
-use sui::test_utils::destroy;
 use walrus::{
     blob,
     storage_node,
