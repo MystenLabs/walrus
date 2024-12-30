@@ -187,7 +187,7 @@ impl TelemetryLabel for DenyListEvent {
     fn label(&self) -> &'static str {
         match self {
             DenyListEvent::DenyListUpdate(_) => "deny-list-updated",
-            DenyListEvent::RegisterDenyListUpdate(_) => "deny-list-deleted",
+            DenyListEvent::RegisterDenyListUpdate(_) => "register-deny-list-update",
         }
     }
 }
