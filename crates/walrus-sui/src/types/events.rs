@@ -362,9 +362,9 @@ impl TryFrom<SuiEvent> for BlobEvent {
             contracts::events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
             contracts::events::InvalidBlobID => Ok(BlobEvent::InvalidBlobID(value.try_into()?)),
             contracts::events::BlobDeleted => Ok(BlobEvent::Deleted(value.try_into()?)),
-            contracts::events::DenyListBlobDeleted => Ok(BlobEvent::DenyListBlobDeleted(
-                value.try_into()?,
-            )),
+            contracts::events::DenyListBlobDeleted => {
+                Ok(BlobEvent::DenyListBlobDeleted(value.try_into()?))
+            }
             _ => Err(anyhow!("could not convert to blob event: {}", value)),
         }
     }
