@@ -147,7 +147,7 @@ fun test_set_system_subsidy_rate_invalid() {
 }
 
 #[test]
-fun test_extend_blob_no_funds_no_subsidies(): (walrus::system::System, Coin<WAL>, Blob) {
+fun test_extend_blob_no_funds_no_subsidies(): (System, Coin<WAL>, Blob) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -177,7 +177,7 @@ fun test_extend_blob_no_funds_no_subsidies(): (walrus::system::System, Coin<WAL>
 }
 
 #[test]
-fun test_extend_blob_no_funds_buyer_subsidies(): (walrus::system::System, Coin<WAL>, Blob) {
+fun test_extend_blob_no_funds_buyer_subsidies(): (System, Coin<WAL>, Blob) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -206,7 +206,7 @@ fun test_extend_blob_no_funds_buyer_subsidies(): (walrus::system::System, Coin<W
 }
 
 #[test]
-fun test_extend_blob_no_funds_storage_node_subsidies(): (walrus::system::System, Coin<WAL>, Blob) {
+fun test_extend_blob_no_funds_storage_node_subsidies(): (System, Coin<WAL>, Blob) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -235,7 +235,7 @@ fun test_extend_blob_no_funds_storage_node_subsidies(): (walrus::system::System,
 }
 
 #[test]
-fun test_extend_blob_funds_with_subsidies(): (walrus::system::System, Coin<WAL>, Blob) {
+fun test_extend_blob_funds_with_subsidies(): (System, Coin<WAL>, Blob) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -266,7 +266,7 @@ fun test_extend_blob_funds_with_subsidies(): (walrus::system::System, Coin<WAL>,
 }
 
 #[test]
-fun test_reserve_space_no_funds_no_subsidies(): (walrus::system::System, Coin<WAL>, Storage) {
+fun test_reserve_space_no_funds_no_subsidies(): (System, Coin<WAL>, Storage) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -284,7 +284,7 @@ fun test_reserve_space_no_funds_no_subsidies(): (walrus::system::System, Coin<WA
 }
 
 #[test]
-fun test_reserve_space_no_funds_buyer_subsidies(): (walrus::system::System, Coin<WAL>, Storage) {
+fun test_reserve_space_no_funds_buyer_subsidies(): (System, Coin<WAL>, Storage) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -303,11 +303,7 @@ fun test_reserve_space_no_funds_buyer_subsidies(): (walrus::system::System, Coin
 }
 
 #[test]
-fun test_reserve_space_no_funds_storage_node_subsidies(): (
-    walrus::system::System,
-    Coin<WAL>,
-    Storage,
-) {
+fun test_reserve_space_no_funds_storage_node_subsidies(): (System, Coin<WAL>, Storage) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -326,7 +322,7 @@ fun test_reserve_space_no_funds_storage_node_subsidies(): (
 }
 
 #[test]
-fun test_reserve_space_funds_with_subsidies(): (walrus::system::System, Coin<WAL>, Storage) {
+fun test_reserve_space_funds_with_subsidies(): (System, Coin<WAL>, Storage) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -348,11 +344,47 @@ fun test_reserve_space_funds_with_subsidies(): (walrus::system::System, Coin<WAL
 }
 
 #[test]
-fun test_reserve_space_insufficient_funds_with_subsidies(): (
-    walrus::system::System,
-    Coin<WAL>,
-    Storage,
-) {
+fun test_reserve_space_no_funds_no_subsidies_zero_storage(): (System, Coin<WAL>, Storage) {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
+    let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
+
+    let mut payment = mint(1000, ctx);
+
+    let storage = subsidies.reserve_space(&mut system, 0, 3, &mut payment, ctx);
+
+    assert!(payment.value() == 1000);
+    assert!(subsidies.subsidy_pool_value() == 0);
+
+    subsidies::destroy_admin_cap(admin_cap);
+    subsidies::destroy_subsidies(subsidies);
+    (system, payment, storage)
+}
+
+#[test]
+fun test_reserve_space_funds_with_subsidies_full_pool_consumption(): (System, Coin<WAL>, Storage) {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
+    let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
+    let initial_funds_value = 100;
+    subsidies.add_funds(mint(initial_funds_value, ctx));
+    subsidies.set_buyer_subsidy_rate(&admin_cap, 10_00); // 10%
+    subsidies.set_system_subsidy_rate(&admin_cap, 10_00); // 10%
+
+    let mut payment = mint(1000, ctx);
+
+    let storage = subsidies.reserve_space(&mut system, SIZE, 3, &mut payment, ctx);
+
+    assert!(payment.value() == 932);
+    assert!(subsidies.subsidy_pool_value() == 86);
+
+    subsidies::destroy_admin_cap(admin_cap);
+    subsidies::destroy_subsidies(subsidies);
+    (system, payment, storage)
+}
+
+#[test]
+fun test_reserve_space_insufficient_funds_with_subsidies(): (System, Coin<WAL>, Storage) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing();
     let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
@@ -394,6 +426,82 @@ fun get_storage_resource(system: &mut System, unencoded_size: u64, epochs_ahead:
     );
     fake_coin.burn_for_testing();
     storage
+}
+
+#[test]
+fun test_extend_blob_funds_with_subsidies_full_pool_consumption(): (System, Coin<WAL>, Blob) {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
+    let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
+    let initial_funds_value = 150;
+    subsidies.add_funds(mint(initial_funds_value, ctx));
+    subsidies.set_buyer_subsidy_rate(&admin_cap, 10_00); // 10%
+    subsidies.set_system_subsidy_rate(&admin_cap, 10_00); // 10%
+
+    let mut payment = mint(1000, ctx);
+    let storage = get_storage_resource(&mut system, SIZE, 3);
+
+    let mut blob = register_default_blob(&mut system, storage, false);
+    let certify_message = messages::certified_blob_message_for_testing(EPOCH, blob.blob_id());
+    // Set certify
+    blob.certify_with_certified_msg_for_testing(system.epoch(), certify_message);
+    // Assert certified
+    assert!(blob.certified_epoch().is_some());
+    let initial_blob_storage_end = blob.storage().end_epoch();
+
+    subsidies.extend_blob(&mut system, &mut blob, 3, &mut payment, ctx);
+
+    assert!(blob.storage().end_epoch() == initial_blob_storage_end + 3);
+    assert!(subsidies.subsidy_pool_value() == 76);
+
+    subsidies::destroy_admin_cap(admin_cap);
+    subsidies::destroy_subsidies(subsidies);
+
+    (system, payment, blob)
+}
+
+#[test]
+fun test_subsidies_with_zero_buyer_rate(): (System, Coin<WAL>, Storage) {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
+    let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
+    let initial_funds_value = 1_000_000;
+    subsidies.add_funds(mint(initial_funds_value, ctx));
+    subsidies.set_buyer_subsidy_rate(&admin_cap, 0); // 0%
+    subsidies.set_system_subsidy_rate(&admin_cap, 10_00); // 10%
+
+    let mut payment = mint(1000, ctx);
+
+    let storage = subsidies.reserve_space(&mut system, SIZE, 3, &mut payment, ctx);
+
+    assert!(payment.value() == 925);
+    assert!(subsidies.subsidy_pool_value() == 999_993);
+
+    subsidies::destroy_admin_cap(admin_cap);
+    subsidies::destroy_subsidies(subsidies);
+    (system, payment, storage)
+}
+
+#[test]
+fun test_subsidies_with_zero_system_rate(): (System, Coin<WAL>, Storage) {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing();
+    let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
+    let initial_funds_value = 1_000_000;
+    subsidies.add_funds(mint(initial_funds_value, ctx));
+    subsidies.set_buyer_subsidy_rate(&admin_cap, 10_00); // 10%
+    subsidies.set_system_subsidy_rate(&admin_cap, 0); // 0%
+
+    let mut payment = mint(1000, ctx);
+
+    let storage = subsidies.reserve_space(&mut system, SIZE, 3, &mut payment, ctx);
+
+    assert!(payment.value() == 932);
+    assert!(subsidies.subsidy_pool_value() == 999_993);
+
+    subsidies::destroy_admin_cap(admin_cap);
+    subsidies::destroy_subsidies(subsidies);
+    (system, payment, storage)
 }
 
 fun register_default_blob(system: &mut System, storage: Storage, deletable: bool): Blob {
