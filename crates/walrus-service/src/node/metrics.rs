@@ -182,7 +182,7 @@ impl TelemetryLabel for ContractEvent {
             ContractEvent::BlobEvent(event) => event.label(),
             ContractEvent::EpochChangeEvent(event) => event.label(),
             ContractEvent::PackageEvent(event) => event.label(),
-            ContractEvent::DenyListEvent(_event) => todo!("DenyListEvent"),
+            ContractEvent::DenyListEvent(event) => event.label(),
         }
     }
 }

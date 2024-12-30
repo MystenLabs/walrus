@@ -858,7 +858,8 @@ impl StorageNode {
                     .await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::DenyListEvent(_event)) => {
-                todo!("DenyListEvent event handling");
+                // TODO: Implement DenyListEvent handling
+                event_handle.mark_as_complete();
             }
             EventStreamElement::CheckpointBoundary => {
                 event_handle.mark_as_complete();

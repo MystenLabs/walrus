@@ -661,15 +661,39 @@ impl TryFrom<SuiEvent> for RegisterDenyListUpdateEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Sui event that a deny list has been updated.
-pub struct UpdateDenyListEvent {
-    /// The epoch in which the deny list was updated.
+pub struct DenyListUpdateEvent {
+    /// The epoch in which the deny list update was registered.
     pub epoch: Epoch,
+    /// The root hash of the deny list update.
+    pub root: U256,
     /// The deny list update ID.
-    pub deny_list_update_id: ObjectID,
-    /// The deny list update hash.
-    pub deny_list_update_hash: Vec<u8>,
+    pub sequence_number: u64,
+    /// The ID of the event.
+    pub node_id: ObjectID,
     /// The ID of the event.
     pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for DenyListUpdateEvent {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::DenyListUpdate;
+}
+
+impl TryFrom<SuiEvent> for DenyListUpdateEvent {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            epoch,
+            root,
+            sequence_number,
+            node_id,
+            event_id: sui_event.id,
+        })
+    }
 }
 
 /// Enum to wrap deny list events.
@@ -679,7 +703,7 @@ pub enum DenyListEvent {
     /// Deny list update registered.
     RegisterDenyListUpdate(RegisterDenyListUpdateEvent),
     /// Deny list updated.
-    UpdateDenyList(UpdateDenyListEvent),
+    DenyListUpdate(DenyListUpdateEvent),
 }
 
 impl DenyListEvent {
@@ -687,7 +711,7 @@ impl DenyListEvent {
     pub fn event_id(&self) -> EventID {
         match self {
             DenyListEvent::RegisterDenyListUpdate(event) => event.event_id,
-            DenyListEvent::UpdateDenyList(event) => event.event_id,
+            DenyListEvent::DenyListUpdate(event) => event.event_id,
         }
     }
 
@@ -695,7 +719,7 @@ impl DenyListEvent {
     pub fn event_epoch(&self) -> Epoch {
         match self {
             DenyListEvent::RegisterDenyListUpdate(event) => event.epoch,
-            DenyListEvent::UpdateDenyList(event) => event.epoch,
+            DenyListEvent::DenyListUpdate(event) => event.epoch,
         }
     }
 
@@ -703,7 +727,7 @@ impl DenyListEvent {
     pub fn name(&self) -> &'static str {
         match self {
             DenyListEvent::RegisterDenyListUpdate(_) => "RegisterDenyListUpdate",
-            DenyListEvent::UpdateDenyList(_) => "UpdateDenyList",
+            DenyListEvent::DenyListUpdate(_) => "DenyListUpdate",
         }
     }
 }
@@ -787,6 +811,15 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::ContractUpgraded => Ok(ContractEvent::PackageEvent(
                 PackageEvent::ContractUpgraded(value.try_into()?),
+            )),
+            contracts::events::RegisterDenyListUpdate => Ok(ContractEvent::DenyListEvent(
+                DenyListEvent::RegisterDenyListUpdate(value.try_into()?),
+            )),
+            contracts::events::DenyListUpdate => Ok(ContractEvent::DenyListEvent(
+                DenyListEvent::DenyListUpdate(value.try_into()?),
+            )),
+            contracts::events::DenyListBlobDeleted => Ok(ContractEvent::BlobEvent(
+                BlobEvent::DenyListBlobDeleted(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }
