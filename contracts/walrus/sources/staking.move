@@ -299,6 +299,23 @@ public fun epoch(staking: &Staking): u32 {
     staking.inner().epoch()
 }
 
+// === Utility functions ===
+
+/// Calculate the rewards for an amount with value `staked_principal`, staked in the pool with
+/// the given `node_id` between `activation_epoch` and `withdraw_epoch`.
+///
+/// This function can be used with `dev_inspect` to calculate the expected rewards for a `StakedWal`
+/// object or, more generally, the returns provided by a given node over a given period.
+public fun calculate_rewards(
+    staking: &Staking,
+    node_id: ID,
+    staked_principal: u64,
+    activation_epoch: u32,
+    withdraw_epoch: u32,
+): u64 {
+    staking.inner().calculate_rewards(node_id, staked_principal, activation_epoch, withdraw_epoch)
+}
+
 // === Upgrade ===
 
 public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID) {

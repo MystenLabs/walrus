@@ -334,22 +334,21 @@ public(package) fun withdraw_stake(
         return staked_wal.into_balance()
     };
 
-    let wal_amount = if (!in_current_committee && !in_next_committee && staked_wal.is_staked()) {
+    let rewards_amount = if (
+        !in_current_committee && !in_next_committee && staked_wal.is_staked()
+    ) {
         // one step withdrawal for an inactive node
         if (activation_epoch > wctx.epoch()) {
             // not even active stake yet, remove from pending stake
             pool.pending_stake.reduce(activation_epoch, staked_wal.value());
-            staked_wal.value()
+            0
         } else {
             // active stake, remove it with the current epoch as the withdraw epoch
             let share_amount = pool
                 .exchange_rate_at_epoch(activation_epoch)
                 .convert_to_share_amount(staked_wal.value());
             pool.pending_shares_withdraw.insert_or_add(wctx.epoch(), share_amount);
-            let wal_amount = pool
-                .exchange_rate_at_epoch(wctx.epoch())
-                .convert_to_wal_amount(share_amount);
-            wal_amount
+            pool.calculate_rewards(staked_wal.value(), activation_epoch, wctx.epoch())
         }
         // note that if the stake is in state Withdrawing, it can either be
         // from a pre-active withdrawal, but then
@@ -361,20 +360,10 @@ public(package) fun withdraw_stake(
         assert!(staked_wal.is_withdrawing(), ENotWithdrawing);
         assert!(staked_wal.withdraw_epoch() <= wctx.epoch(), EWithdrawEpochNotReached);
         assert!(activation_epoch <= wctx.epoch(), EActivationEpochNotReached);
-
-        let share_amount = pool
-            .exchange_rate_at_epoch(activation_epoch)
-            .convert_to_share_amount(staked_wal.value());
-        let wal_amount = pool
-            .exchange_rate_at_epoch(staked_wal.withdraw_epoch())
-            .convert_to_wal_amount(share_amount);
-        wal_amount
+        pool.calculate_rewards(staked_wal.value(), activation_epoch, staked_wal.withdraw_epoch())
     };
 
     let principal = staked_wal.into_balance();
-    let rewards_amount = if (wal_amount >= principal.value()) {
-        wal_amount - principal.value()
-    } else 0;
 
     // withdraw rewards. due to rounding errors, there's a chance that the
     // rewards amount is higher than the rewards pool, in this case, we
@@ -686,6 +675,23 @@ public(package) fun is_empty(pool: &StakingPool): bool {
     pool.commission.value() == 0 &&
     pool.wal_balance == 0 &&
     non_empty == 0
+}
+
+/// Calculate the rewards for an amount with value `staked_principal`, staked in the pool between
+/// `activation_epoch` and `withdraw_epoch`.
+public(package) fun calculate_rewards(
+    pool: &StakingPool,
+    staked_principal: u64,
+    activation_epoch: u32,
+    withdraw_epoch: u32,
+): u64 {
+    let shares = pool
+        .exchange_rate_at_epoch(activation_epoch)
+        .convert_to_share_amount(staked_principal);
+    let wal_amount = pool.exchange_rate_at_epoch(withdraw_epoch).convert_to_wal_amount(shares);
+    if (wal_amount >= staked_principal) {
+        wal_amount - staked_principal
+    } else 0
 }
 
 #[test_only]
