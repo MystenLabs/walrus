@@ -6,6 +6,7 @@
 use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
+use move_core_types::u256::U256;
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -146,6 +147,15 @@ pub struct StorageNodeCap {
     pub last_epoch_sync_done: Epoch,
     /// The last event blob attestation from the storage node.
     pub last_event_blob_attestation: Option<EventBlobAttestation>,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The root of the deny list.
+    pub deny_list_root: U256,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The sequence number of the deny list.
+    pub deny_list_sequence_number: u64,
+    #[cfg(feature = "walrus-mainnet")]
+    /// The size of the deny list.
+    pub deny_list_size: u64,
 }
 
 impl AssociatedContractStruct for StorageNodeCap {
@@ -510,6 +520,9 @@ pub(crate) struct SystemStateInnerV1 {
     pub future_accounting: FutureAccountingRingBuffer,
     /// Event blob certification state.
     pub event_blob_certification_state: EventBlobCertificationState,
+    #[cfg(feature = "walrus-mainnet")]
+    /// Extended field with the size of the deny list for commitee members.
+    pub deny_list_sized: ObjectID,
 }
 
 impl AssociatedContractStruct for SystemStateInnerV1 {
