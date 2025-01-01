@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2.7.5
+      - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
 
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2.7.5
+      - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Build Rust code
@@ -106,11 +106,11 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.46.6
+      - uses: taiki-e/install-action@v2.47.2
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2.7.5
+      - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
@@ -123,11 +123,11 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.46.6
+      - uses: taiki-e/install-action@v2.47.2
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2.7.5
+      - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
@@ -162,7 +162,7 @@ jobs:
       MSIM_TEST_NUM: 5
       RUST_LOG: error
     steps:
-      - uses: taiki-e/install-action@v2.46.6
+      - uses: taiki-e/install-action@v2.47.2
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
