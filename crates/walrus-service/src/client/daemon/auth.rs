@@ -108,7 +108,7 @@ pub struct Jwt<S> {
     _phantom: PhantomData<Claim>,
 }
 
-#[pin_project(project = JwtFutureProj, project_replace = JwtFutureProjOwn)]
+#[pin_project(project = JwtFutureProj)]
 pub enum JwtFuture<
     TService: Service<Request<ReqBody>, Response = Response<ResBody>>,
     ReqBody,
