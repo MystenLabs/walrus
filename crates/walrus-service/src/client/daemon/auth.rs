@@ -15,6 +15,7 @@ use crate::client::config::AuthConfig;
 
 /// Claim follow RFC7519 with extra storage parameters: address, epoch
 #[derive(Clone, Deserialize, Debug)]
+#[cfg_attr(test, derive(serde::Serialize))]
 struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp)
@@ -113,7 +114,6 @@ pub enum JwtFuture<
     ReqBody,
     ResBody,
 > {
-    Error,
     ValidateError(StatusCode),
     WaitForFuture {
         #[pin]
@@ -131,13 +131,6 @@ where
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         match self.as_mut().project() {
-            JwtFutureProj::Error => {
-                let response = Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Default::default())
-                    .unwrap();
-                Poll::Ready(Ok(response))
-            }
             JwtFutureProj::ValidateError(code) => {
                 let response = Response::builder()
                     .status(*code)
@@ -169,8 +162,8 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        match req.headers().typed_try_get::<Authorization<Bearer>>() {
-            Ok(Some(bearer)) => {
+        match req.headers().typed_get::<Authorization<Bearer>>() {
+            Some(bearer) => {
                 let mut validation = Validation::default();
                 let secret = if let Some(secret) = &self.auth_config.secret {
                     secret
@@ -220,11 +213,7 @@ where
                     Err(code) => Self::Future::ValidateError(code),
                 }
             }
-            Ok(None) => {
-                let future = self.inner.call(req);
-                Self::Future::WaitForFuture { future }
-            }
-            Err(_) => Self::Future::Error,
+            None => Self::Future::ValidateError(StatusCode::UNAUTHORIZED),
         }
     }
 }
@@ -242,7 +231,14 @@ fn check_query(queries: Option<&str>, field: &str, value: impl Display) -> bool 
 
 #[cfg(test)]
 mod tests {
+    use axum::{routing::get, Router};
+    use http_body_util::Empty;
+    use jsonwebtoken::{encode, EncodingKey, Header};
+    use rand::distributions::{Alphanumeric, DistString};
+    use tower::{ServiceBuilder, ServiceExt};
+
     use super::*;
+
     #[test]
     fn query() {
         let query_example: &'static str = "epochs=100&send_object_to=0x1";
@@ -263,5 +259,202 @@ mod tests {
         let empty_example: &'static str = "";
         assert!(check_query(Some(empty_example), "epochs", 100));
         assert!(check_query(Some(empty_example), "send_object_to", "0x1"));
+    }
+
+    #[tokio::test]
+    async fn auth_layer() {
+        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let auth_config = AuthConfig {
+            secret: Some(secret.as_str().into()),
+            expiring_sec: 0,
+            verify_upload: false,
+        };
+        let claim = Claim {
+            iat: None,
+            exp: u64::MAX,
+            address: None,
+            epoch: None,
+        };
+        let encode_key = EncodingKey::from_secret(secret.as_bytes());
+        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
+
+        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+
+        let router = Router::new().route("/", get(|| async {}).route_layer(publisher_layers));
+
+        // Test token missing
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Empty::new()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        // Invalid Test bearer missing
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header("authorization", token.clone())
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        // Test valid
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn verify_upload() {
+        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let auth_config = AuthConfig {
+            secret: Some(secret.as_str().into()),
+            expiring_sec: 0,
+            verify_upload: true,
+        };
+        let claim = Claim {
+            iat: None,
+            exp: u64::MAX,
+            address: Some("0x1".to_string()),
+            epoch: Some(1),
+        };
+        let encode_key = EncodingKey::from_secret(secret.as_bytes());
+        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
+
+        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+
+        let router =
+            Router::new().route("/v1/store", get(|| async {}).route_layer(publisher_layers));
+
+        // Test invalid epoch
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store?epochs=100")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Test invalid address
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store?epochs=1&send_object_to=0x2")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Test valid
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store?epochs=1&send_object_to=0x1")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn verify_upload_skip_check_token() {
+        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let auth_config = AuthConfig {
+            secret: None,
+            expiring_sec: 0,
+            verify_upload: true,
+        };
+        let claim = Claim {
+            iat: None,
+            exp: u64::MAX,
+            address: Some("0x1".to_string()),
+            epoch: Some(1),
+        };
+        let encode_key = EncodingKey::from_secret(secret.as_bytes());
+        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
+
+        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+
+        let router =
+            Router::new().route("/v1/store", get(|| async {}).route_layer(publisher_layers));
+
+        // Test invalid epoch
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store?epochs=100")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Test invalid address
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store?epochs=1&send_object_to=0x2")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Test valid
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store?epochs=1&send_object_to=0x1")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

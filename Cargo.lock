@@ -11605,6 +11605,7 @@ dependencies = [
  "futures-util",
  "git-version",
  "home",
+ "http-body-util",
  "humantime",
  "indicatif",
  "indoc",

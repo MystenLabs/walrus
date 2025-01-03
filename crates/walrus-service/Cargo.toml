@@ -129,6 +129,7 @@ walrus-test-utils = { workspace = true, optional = true }
 walrus-utils.workspace = true
 
 [dev-dependencies]
+http-body-util = "0.1.1"
 mockall.workspace = true
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
