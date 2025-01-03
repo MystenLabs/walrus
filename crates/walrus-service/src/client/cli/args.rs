@@ -7,6 +7,7 @@ use std::{net::SocketAddr, num::NonZeroU16, path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
+use jsonwebtoken::Algorithm;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
@@ -466,11 +467,18 @@ pub struct PublisherArgs {
     #[serde(default)]
     pub keep: bool,
     /// If set, the publisher will verify the JWT token.
-    /// If API Gatewate already check the token, we can skip the signature validation
+    /// If API Gateway already check the token, we can skip the signature validation
+    /// The secret can be hexyl string start with `0x`.
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
-    /// If set and greater than 0, exp will be check based on `iat`
+    /// If unset, the jwt algorithm will be HMAC.
+    /// Following algorithms are supported "HS256", "HS384", "HS512", "ES256", "ES384", "RS256",
+    /// "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA"
+    #[clap(long)]
+    #[serde(default)]
+    pub jwt_algorithm: Option<Algorithm>,
+    /// If set and greater than 0, `exp` will be check based on `iat`
     #[clap(long)]
     #[serde(default)]
     pub jwt_expiring_sec: u64,
@@ -852,6 +860,7 @@ mod tests {
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
                 keep: false,
                 jwt_decode_secret: None,
+                jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
             },

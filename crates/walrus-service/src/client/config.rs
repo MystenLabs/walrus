@@ -9,6 +9,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use jsonwebtoken::Algorithm;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
@@ -22,7 +23,10 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::common::utils::{self, LoadConfig};
+use crate::{
+    client::error::ConfigError,
+    common::utils::{self, LoadConfig},
+};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -99,7 +103,9 @@ pub enum ExchangeObjectConfig {
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthConfig {
     /// The scecret for JWT decode
-    pub(crate) secret: Option<String>,
+    pub(crate) secret: Option<Vec<u8>>,
+    /// The algorithm for JWT
+    pub(crate) algorithm: Option<Algorithm>,
     /// If not 0, publisher will verify the expiring seconds
     pub(crate) expiring_sec: u64,
     /// verify upload file size and address for `send_object_to`
@@ -107,10 +113,27 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    pub fn new(secret: String) -> Self {
-        Self {
-            secret: Some(secret),
-            ..Default::default()
+    pub fn new(secret: String) -> Result<Self, ConfigError> {
+        if secret.starts_with("0x") {
+            if secret.len() % 2 != 0 {
+                Err(ConfigError::DecodeError("jwt-decode-secret"))
+            } else {
+                let mut s = Vec::new();
+                for i in (2..secret.len()).step_by(2) {
+                    let int = u8::from_str_radix(&secret[i..i + 2], 16)
+                        .map_err(|_| ConfigError::DecodeError("jwt-decode-secret"))?;
+                    s.push(int);
+                }
+                Ok(Self {
+                    secret: Some(s),
+                    ..Default::default()
+                })
+            }
+        } else {
+            Ok(Self {
+                secret: Some(secret.into_bytes()),
+                ..Default::default()
+            })
         }
     }
 }
@@ -482,6 +505,7 @@ mod tests {
     use sui_types::base_types::ObjectID;
     use walrus_test_utils::Result as TestResult;
 
+    use super::*;
     use crate::client::ExchangeObjectConfig;
 
     /// Serializes a default config to the example file when tests are run.
@@ -538,6 +562,17 @@ mod tests {
             ]),
             serde_yaml::from_str(yaml)?
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_auth_config() -> TestResult {
+        let c = AuthConfig::new("0xff".into())?;
+        assert_eq!(c.secret, Some(vec![255]));
+
+        assert!(AuthConfig::new("0xf".into()).is_err());
+        assert!(AuthConfig::new("0xfg".into()).is_err());
 
         Ok(())
     }

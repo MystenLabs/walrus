@@ -5,7 +5,7 @@ use std::{fmt::Display, future::Future, marker::PhantomData, pin::Pin, task::Pol
 
 use axum::http::{Request, Response, StatusCode};
 use axum_extra::headers::{authorization::Bearer, Authorization, HeaderMapExt};
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use pin_project::pin_project;
 use serde::Deserialize;
 use tower::{Layer, Service};
@@ -164,21 +164,42 @@ where
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
         match req.headers().typed_get::<Authorization<Bearer>>() {
             Some(bearer) => {
-                let mut validation = Validation::default();
-                let secret = if let Some(secret) = &self.auth_config.secret {
-                    secret
+                let mut validation = if self.auth_config.secret.is_some() {
+                    self.auth_config
+                        .algorithm
+                        .map(Validation::new)
+                        .unwrap_or_default()
+                } else {
+                    Validation::default()
+                };
+
+                let decode_key = if let Some(secret) = &self.auth_config.secret {
+                    match self.auth_config.algorithm {
+                        None
+                        | Some(Algorithm::HS256)
+                        | Some(Algorithm::HS384)
+                        | Some(Algorithm::HS512) => DecodingKey::from_secret(secret),
+                        Some(Algorithm::EdDSA) => DecodingKey::from_ed_der(secret),
+                        Some(Algorithm::ES256) | Some(Algorithm::ES384) => {
+                            DecodingKey::from_ec_der(secret)
+                        }
+                        Some(Algorithm::RS256)
+                        | Some(Algorithm::RS384)
+                        | Some(Algorithm::RS512)
+                        | Some(Algorithm::PS256)
+                        | Some(Algorithm::PS384)
+                        | Some(Algorithm::PS512) => DecodingKey::from_rsa_der(secret),
+                    }
                 } else {
                     validation.insecure_disable_signature_validation();
-                    ""
+                    DecodingKey::from_secret(&[])
                 };
+
                 if self.auth_config.expiring_sec > 0 {
                     validation.set_required_spec_claims(&["exp", "iat"]);
                 }
-                match Claim::from_token(
-                    bearer.token().trim(),
-                    &DecodingKey::from_secret(secret.as_bytes()),
-                    &validation,
-                ) {
+
+                match Claim::from_token(bearer.token().trim(), &decode_key, &validation) {
                     Ok(claim) => {
                         let mut valid_upload = true;
                         if self.auth_config.expiring_sec > 0
@@ -235,9 +256,11 @@ mod tests {
     use http_body_util::Empty;
     use jsonwebtoken::{encode, EncodingKey, Header};
     use rand::distributions::{Alphanumeric, DistString};
+    use ring::signature::{self, Ed25519KeyPair, KeyPair};
     use tower::{ServiceBuilder, ServiceExt};
 
     use super::*;
+    use crate::client::config::AuthConfig;
 
     #[test]
     fn query() {
@@ -266,6 +289,7 @@ mod tests {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let auth_config = AuthConfig {
             secret: Some(secret.as_str().into()),
+            algorithm: None,
             expiring_sec: 0,
             verify_upload: false,
         };
@@ -327,6 +351,7 @@ mod tests {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let auth_config = AuthConfig {
             secret: Some(secret.as_str().into()),
+            algorithm: None,
             expiring_sec: 0,
             verify_upload: true,
         };
@@ -394,7 +419,8 @@ mod tests {
     async fn verify_upload_skip_check_token() {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let auth_config = AuthConfig {
-            secret: None,
+            secret: None, // No secret, and skip verify token
+            algorithm: None,
             expiring_sec: 0,
             verify_upload: true,
         };
@@ -448,6 +474,158 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/v1/store?epochs=1&send_object_to=0x1")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn verify_exp() {
+        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let auth_config = AuthConfig {
+            secret: Some(secret.as_str().into()),
+            algorithm: None,
+            expiring_sec: u64::MAX - 1,
+            verify_upload: false,
+        };
+        let valid_claim = Claim {
+            iat: Some(0),
+            exp: u64::MAX - 1,
+            address: None,
+            epoch: None,
+        };
+        let invalid_claim = Claim {
+            iat: Some(0),
+            exp: u64::MAX,
+            address: None,
+            epoch: None,
+        };
+        let invalid_claim2 = Claim {
+            iat: None,
+            exp: u64::MAX,
+            address: None,
+            epoch: None,
+        };
+
+        let encode_key = EncodingKey::from_secret(secret.as_bytes());
+        let valid_token = encode(&Header::default(), &valid_claim, &encode_key).unwrap();
+        let invalid_token = encode(&Header::default(), &invalid_claim, &encode_key).unwrap();
+        let invalid_token2 = encode(&Header::default(), &invalid_claim2, &encode_key).unwrap();
+
+        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+
+        let router =
+            Router::new().route("/v1/store", get(|| async {}).route_layer(publisher_layers));
+
+        // Test invalid token
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store")
+                    .header("authorization", format!("Bearer {invalid_token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Test invalid token
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store")
+                    .header("authorization", format!("Bearer {invalid_token2}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+
+        // Test valid token
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/store")
+                    .header("authorization", format!("Bearer {valid_token}"))
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn eddsa_auth() {
+        let doc =
+            signature::Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
+        let pair = Ed25519KeyPair::from_pkcs8(doc.as_ref()).unwrap();
+        let public_key = pair.public_key().as_ref().to_vec();
+        let secret = format!("0x{}", hex::encode(&public_key));
+        let mut auth_config = AuthConfig::new(secret).unwrap();
+        auth_config.algorithm = Some(jsonwebtoken::Algorithm::EdDSA);
+
+        let claim = Claim {
+            iat: None,
+            exp: u64::MAX,
+            address: None,
+            epoch: None,
+        };
+        let encode_key = EncodingKey::from_ed_der(doc.as_ref());
+        let token = encode(
+            &Header::new(jsonwebtoken::Algorithm::EdDSA),
+            &claim,
+            &encode_key,
+        )
+        .unwrap();
+
+        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+
+        let router = Router::new().route("/", get(|| async {}).route_layer(publisher_layers));
+
+        // Test token missing
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri("/").body(Empty::new()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        // Invalid Test bearer missing
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header("authorization", token.clone())
+                    .body(Empty::new())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        // Test valid
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),

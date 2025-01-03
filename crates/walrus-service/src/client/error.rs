@@ -22,6 +22,13 @@ pub enum StoreError {
     Confirmation(NodeError),
 }
 
+/// Transforming arguments to config, failed.
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("the content of `{0}` could not be decoded")]
+    DecodeError(&'static str),
+}
+
 /// The sliver could not be stored on the node.
 #[derive(Debug, thiserror::Error)]
 #[error("the sliver could not be stored")]

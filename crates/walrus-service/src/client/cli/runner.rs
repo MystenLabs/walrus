@@ -471,9 +471,10 @@ impl ClientCommandRunner {
                 .jwt_decode_secret
                 .take()
                 .map(AuthConfig::new)
-                .unwrap_or_default();
+                .unwrap_or(Ok(AuthConfig::default()))?;
             c.expiring_sec = args.jwt_expiring_sec;
             c.verify_upload = args.jwt_verify_upload;
+            c.algorithm = args.jwt_algorithm;
             Some(c)
         } else {
             None
@@ -516,7 +517,16 @@ impl ClientCommandRunner {
 
     pub(crate) async fn daemon(self, registry: &Registry, mut args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
-        let auth_config = args.jwt_decode_secret.take().map(AuthConfig::new);
+        let auth_config = if let Some(secret) = args.jwt_decode_secret.take() {
+            let mut c = AuthConfig::new(secret).map_err(anyhow::Error::msg)?;
+            c.expiring_sec = args.jwt_expiring_sec;
+            c.verify_upload = args.jwt_verify_upload;
+            c.algorithm = args.jwt_algorithm;
+            Some(c)
+        } else {
+            None
+        };
+
         let client = get_contract_client(
             self.config?,
             self.wallet,

@@ -129,8 +129,10 @@ walrus-test-utils = { workspace = true, optional = true }
 walrus-utils.workspace = true
 
 [dev-dependencies]
+hex = "0.4.3"
 http-body-util = "0.1.1"
 mockall.workspace = true
+ring = "0.17.8"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-proc-macros.workspace = true
