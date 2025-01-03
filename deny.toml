@@ -104,6 +104,7 @@ allow-git = [
   "https://github.com/mystenmark/tokio-madsim-fork",
   "https://github.com/wlmyng/jsonrpsee",
   "https://github.com/zhiburt/tabled",
+  "https://www.github.com/MystenLabs/mysten-sim.git",
 ]
 
 [sources.allow-org]

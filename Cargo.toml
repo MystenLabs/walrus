@@ -125,3 +125,8 @@ inherits = "test"
 overflow-checks = true
 # opt-level 1 gives >5x speedup for simulator tests without slowing down build times very much.
 opt-level = 1
+
+# TODO: Remove this once Sui 1.41 is released.
+[patch."https://github.com/MystenLabs/mysten-sim.git"]
+msim = { git = "https://www.github.com/MystenLabs/mysten-sim.git", rev = "2a170f4cd81c5cd10f5e4a5e810068f3045f41b6" }
+msim-macros = { git = "https://www.github.com/MystenLabs/mysten-sim.git", rev = "2a170f4cd81c5cd10f5e4a5e810068f3045f41b6" }
