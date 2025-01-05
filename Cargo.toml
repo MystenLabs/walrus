@@ -22,9 +22,9 @@ license = "Apache-2.0"
 version = "1.8.0"
 
 [workspace.dependencies]
-anyhow = "1.0.94"
+anyhow = "1.0.95"
 async-channel = "2.3.1"
-async-trait = "0.1.83"
+async-trait = "0.1.84"
 axum = { version = "0.7.9", default-features = false, features = ["http2", "tokio"] }
 axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
@@ -41,7 +41,7 @@ futures = { version = "0.3.31", default-features = false, features = ["async-awa
 futures-timer = "=3.0.2" # required for MSIM
 futures-util = "0.3.30"
 git-version = "0.3.9"
-home = "0.5.9"
+home = "0.5.11"
 humantime = "2.1.0"
 hyper = "1"
 indicatif = "0.17.9"
@@ -61,16 +61,16 @@ prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
 raptorq = "2.0.0"
-rcgen = "0.13.1"
+rcgen = "0.13.2"
 regex = "1"
-reqwest = { version = "0.12.9", default-features = false, features = ["http2", "json", "rustls-tls"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
 rustls = { version = "0.23.20", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
-serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.133"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.134"
 serde_test = "1.0.177"
-serde_with = { version = "3.11", features = ["base64"] }
+serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 snap = "1.1.0"
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.2" }
@@ -87,7 +87,7 @@ sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.2" }
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.2" }
-tempfile = "3.14.0"
+tempfile = "3.15.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.2" }
 thiserror = "2.0.7"
 tokio = { version = "=1.38.1", features = ["macros", "rt-multi-thread", "signal"] }
