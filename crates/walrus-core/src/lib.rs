@@ -46,6 +46,8 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
+#[cfg(feature = "walrus-mainnet")]
+use crate::metadata::BlobMetadataApi;
 pub mod bft;
 pub mod encoding;
 pub mod inconsistency;
@@ -107,8 +109,8 @@ impl BlobId {
         let merkle_root = blob_metadata.compute_root_hash();
         let blob_id = Self::from_metadata(
             merkle_root,
-            blob_metadata.encoding_type,
-            blob_metadata.unencoded_length,
+            blob_metadata.encoding_type(),
+            blob_metadata.unencoded_length(),
         );
         tracing::debug!(%blob_id, "computed blob ID from metadata");
         blob_id

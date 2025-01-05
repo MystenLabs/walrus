@@ -9,11 +9,12 @@ license.workspace = true
 [features]
 sui-types = ["dep:sui-types"]
 test-utils = ["walrus-test-utils"]
-walrus-mainnet = []
+walrus-mainnet = ["dep:enum_dispatch"]
 
 [dependencies]
 base64.workspace = true
 bcs.workspace = true
+enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 rand.workspace = true
 raptorq.workspace = true

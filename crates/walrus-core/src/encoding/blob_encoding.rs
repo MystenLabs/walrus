@@ -631,6 +631,8 @@ mod tests {
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
+    #[cfg(feature = "walrus-mainnet")]
+    use crate::metadata::BlobMetadataApi;
     use crate::metadata::UnverifiedBlobMetadataWithId;
 
     param_test! {
@@ -720,7 +722,10 @@ mod tests {
         matrix.write_primary_metadata(&mut expected_metadata);
         matrix.write_secondary_metadata(&mut expected_metadata);
 
-        assert_eq!(matrix.get_metadata().metadata().hashes, expected_metadata);
+        assert_eq!(
+            matrix.get_metadata().metadata().hashes(),
+            &expected_metadata
+        );
     }
 
     #[test]
@@ -797,7 +802,7 @@ mod tests {
         // obtained in the `encode_with_metadata` function.
         for (sliver_pair, pair_meta) in sliver_pairs_2
             .iter()
-            .zip(blob_metadata_2.metadata().hashes.iter())
+            .zip(blob_metadata_2.metadata().hashes().iter())
         {
             let pair_hash = sliver_pair
                 .pair_leaf_input::<Blake2b256>(&config)

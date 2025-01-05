@@ -11193,6 +11193,7 @@ dependencies = [
  "base64 0.22.1",
  "bcs",
  "criterion",
+ "enum_dispatch",
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=2f502fd8570fe4e9cff36eea5bbd6fef22002898)",
  "rand 0.8.5",
  "raptorq",

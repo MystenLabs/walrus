@@ -12,6 +12,8 @@ use std::{
 
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
+#[cfg(feature = "walrus-mainnet")]
+use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     encoding::Primary,
     merkle::Node,
@@ -189,7 +191,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .get_blob_encoder(&blob)?
         .encode_with_metadata();
     let mut metadata = metadata.metadata().to_owned();
-    metadata.hashes[1].primary_hash = Node::Digest([0; 32]);
+    metadata.mut_inner().hashes[1].primary_hash = Node::Digest([0; 32]);
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 

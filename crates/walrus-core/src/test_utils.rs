@@ -117,11 +117,7 @@ pub fn blob_metadata() -> BlobMetadata {
             secondary_hash: Node::Digest([(i % 256) as u8; 32]),
         })
         .collect();
-    BlobMetadata {
-        encoding_type: EncodingType::RedStuff,
-        unencoded_length: 62_831,
-        hashes,
-    }
+    BlobMetadata::new(EncodingType::RedStuff, 62_831, hashes)
 }
 
 /// Returns an arbitrary unverified metadata object with blob ID.

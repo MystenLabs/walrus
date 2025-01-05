@@ -6,6 +6,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+walrus-mainnet = []
+
 [dev-dependencies]
 anyhow.workspace = true
 prometheus.workspace = true

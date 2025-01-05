@@ -13,6 +13,7 @@ use std::{
 use blob_info::BlobInfoIterator;
 #[cfg(feature = "walrus-mainnet")]
 use blob_info::PerObjectBlobInfo;
+use event_cursor_table::EventIdWithProgress;
 use itertools::Itertools;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
@@ -384,7 +385,7 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
         &self,
-    ) -> Result<Option<(EventID, u64)>, TypedStoreError> {
+    ) -> Result<Option<EventIdWithProgress>, TypedStoreError> {
         self.event_cursor.get_event_cursor_and_next_index()
     }
 
@@ -930,10 +931,19 @@ pub(crate) mod tests {
         for ((seq_id, cursor), expected_observed) in cursors.iter().zip(expected_sequence) {
             storage.maybe_advance_event_cursor(*seq_id, cursor)?;
 
+            #[cfg(not(feature = "walrus-mainnet"))]
             assert_eq!(
                 storage
                     .get_event_cursor_and_next_index()?
                     .map(|(event_id, _)| event_id),
+                Some(cursor_lookup[expected_observed])
+            );
+
+            #[cfg(feature = "walrus-mainnet")]
+            assert_eq!(
+                storage
+                    .get_event_cursor_and_next_index()?
+                    .map(|e| e.event_id()),
                 Some(cursor_lookup[expected_observed])
             );
         }

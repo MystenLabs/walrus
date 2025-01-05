@@ -7,6 +7,8 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 use utoipa::ToSchema;
+#[cfg(feature = "walrus-mainnet")]
+use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, EpochCount};
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{

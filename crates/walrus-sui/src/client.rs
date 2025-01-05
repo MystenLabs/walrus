@@ -27,6 +27,8 @@ use sui_types::{
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use transaction_builder::{WalrusPtbBuilder, MAX_BURNS_PER_PTB};
+#[cfg(feature = "walrus-mainnet")]
+use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     ensure,
     merkle::Node as MerkleNode,
@@ -147,9 +149,9 @@ impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
         Ok(Self {
             blob_id: *metadata.blob_id(),
             root_hash: metadata.metadata().compute_root_hash(),
-            unencoded_size: metadata.metadata().unencoded_length,
+            unencoded_size: metadata.metadata().unencoded_length(),
             encoded_size,
-            encoding_type: metadata.metadata().encoding_type,
+            encoding_type: metadata.metadata().encoding_type(),
         })
     }
 }

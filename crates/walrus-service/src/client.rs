@@ -22,6 +22,8 @@ use tokio::{
 };
 use tracing::{Instrument as _, Level};
 use utils::WeightedResult;
+#[cfg(feature = "walrus-mainnet")]
+use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
@@ -972,7 +974,7 @@ impl<T> Client<T> {
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
-                metadata.metadata().unencoded_length,
+                metadata.metadata().unencoded_length(),
                 &self.encoding_config,
             );
         tracing::debug!(
@@ -1201,7 +1203,7 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length)
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
             .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
@@ -1212,7 +1214,7 @@ impl<T> Client<T> {
                 &enough_source_symbols,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
-                        metadata.metadata().unencoded_length,
+                        metadata.metadata().unencoded_length(),
                         &self.encoding_config,
                     ),
             )
@@ -1287,7 +1289,7 @@ impl<T> Client<T> {
             .next(
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
-                        metadata.metadata().unencoded_length,
+                        metadata.metadata().unencoded_length(),
                         &self.encoding_config,
                     ),
             )

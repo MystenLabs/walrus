@@ -120,12 +120,13 @@ impl WriteClient {
         let n_shards = self.client.as_ref().encoding_config().n_shards();
 
         // Make primary sliver 0 inconsistent.
-        metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
+        metadata.mut_inner().hashes[0].primary_hash = Node::Digest([0; 32]);
         // If the committee has 7 members, make a second sliver inconsistent.
         if n_members >= 7 {
             // Sliver `n_shards/2` will be held by a different node if the shards are assigned
             // sequentially.
-            metadata.hashes[(n_shards.get() / 2) as usize].primary_hash = Node::Digest([0; 32]);
+            metadata.mut_inner().hashes[(n_shards.get() / 2) as usize].primary_hash =
+                Node::Digest([0; 32]);
         }
 
         let blob_id = BlobId::from_sliver_pair_metadata(&metadata);

@@ -34,6 +34,8 @@ use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
+#[cfg(feature = "walrus-mainnet")]
+use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
     ensure,
@@ -688,9 +690,15 @@ impl StorageNode {
 
     async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
         let storage = &self.inner.storage;
+        #[cfg(not(feature = "walrus-mainnet"))]
         let (from_event_id, next_event_index) = storage
             .get_event_cursor_and_next_index()?
             .map_or((None, 0), |(cursor, index)| (Some(cursor), index));
+
+        #[cfg(feature = "walrus-mainnet")]
+        let (from_event_id, next_event_index) = storage
+            .get_event_cursor_and_next_index()?
+            .map_or((None, 0), |e| (Some(e.event_id()), e.next_event_index()));
         Ok(EventStreamCursor::new(from_event_id, next_event_index))
     }
 
@@ -987,11 +995,21 @@ impl StorageNode {
 
     #[tracing::instrument(skip_all)]
     fn next_event_index(&self) -> anyhow::Result<u64> {
-        Ok(self
+        #[cfg(not(feature = "walrus-mainnet"))]
+        let result = self
             .inner
             .storage
             .get_event_cursor_and_next_index()?
-            .map_or(0, |(_, index)| index))
+            .map_or(0, |(_, index)| index);
+
+        #[cfg(feature = "walrus-mainnet")]
+        let result = self
+            .inner
+            .storage
+            .get_event_cursor_and_next_index()?
+            .map_or(0, |e| e.next_event_index());
+
+        Ok(result)
     }
 
     #[tracing::instrument(skip_all)]
@@ -1861,7 +1879,7 @@ impl ServiceState for StorageNodeInner {
 
         self.metrics
             .uploaded_metadata_unencoded_blob_bytes
-            .observe(verified_metadata_with_id.as_ref().unencoded_length as f64);
+            .observe(verified_metadata_with_id.as_ref().unencoded_length() as f64);
         self.metrics.metadata_stored_total.inc();
 
         Ok(true)
@@ -2673,7 +2691,7 @@ mod tests {
 
             // Change metadata
             let mut metadata = metadata.metadata().to_owned();
-            metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
+            metadata.mut_inner().hashes[0].primary_hash = Node::Digest([0; 32]);
             let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
             let metadata = UnverifiedBlobMetadataWithId::new(blob_id, metadata);
 
@@ -3358,12 +3376,21 @@ mod tests {
 
         // The cursor should not have moved beyond that of blob2 registration, since blob2 is yet
         // to be synced.
+        #[cfg(not(feature = "walrus-mainnet"))]
         let latest_cursor = cluster.nodes[0]
             .storage_node
             .inner
             .storage
             .get_event_cursor_and_next_index()?
             .map(|(cursor, _)| cursor);
+
+        #[cfg(feature = "walrus-mainnet")]
+        let latest_cursor = cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .get_event_cursor_and_next_index()?
+            .map(|e| e.event_id());
         assert_eq!(latest_cursor, Some(blob2_registered_event.event_id));
 
         Ok(())

@@ -18,6 +18,8 @@ use sui_types::{
     event::EventID,
 };
 use utoipa::ToSchema;
+#[cfg(feature = "walrus-mainnet")]
+use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     bft,
     encoding::{
@@ -183,7 +185,7 @@ impl BlobIdOutput {
         Self {
             blob_id: *metadata.blob_id(),
             file: file.to_owned(),
-            unencoded_length: metadata.metadata().unencoded_length,
+            unencoded_length: metadata.metadata().unencoded_length(),
         }
     }
 }
