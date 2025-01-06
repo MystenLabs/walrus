@@ -227,11 +227,11 @@ pub enum PostStoreAction {
 }
 
 impl PostStoreAction {
-    /// Constructs [`Self`] based on the value of a `shared_blob` flag.
+    /// Constructs [`Self`] based on the value of a `share` flag.
     ///
-    /// If `shared_blob` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
-    pub fn from_shared_blob(shared_blob: bool) -> Self {
-        if shared_blob {
+    /// If `share` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
+    pub fn from_share(share: bool) -> Self {
+        if share {
             Self::Share
         } else {
             Self::Keep
@@ -499,13 +499,16 @@ impl SuiContractClient {
                 object_ids[0],
             )]))
         } else {
-            // Fetch each SharedBlob object to get its corresponding blob ID.
-            let mut shared_blob_objects = HashMap::new();
-            for object_id in object_ids {
-                let shared_blob: SharedBlob = self.sui_client().get_sui_object(object_id).await?;
-                shared_blob_objects.insert(shared_blob.blob.blob_id, object_id);
-            }
-            Ok(shared_blob_objects)
+            // Fetch all SharedBlob objects and collect them as a mapping blob id
+            // to shared blob object id.
+            let shared_blobs = self
+                .sui_client()
+                .get_sui_objects::<SharedBlob>(object_ids)
+                .await?;
+            Ok(shared_blobs
+                .into_iter()
+                .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
+                .collect())
         }
     }
 
