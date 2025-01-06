@@ -23,6 +23,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             Duration::from_secs(60 * 60),
             &[1, 1],
             false,
+            false,
             Some(10),
             ClientCommunicationConfig::default_for_test(),
             None,
@@ -75,5 +76,36 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             tracing::debug!("element: {:?}", i);
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore E2E tests by default"]
+async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
+    let (_sui_cluster, _cluster, client) =
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
+            Duration::from_secs(60 * 60),
+            &[1, 1],
+            false,
+            true,
+            Some(10),
+            ClientCommunicationConfig::default_for_test(),
+            None,
+        )
+        .await?;
+
+    // Wait 30s to download enough number of checkpoints
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    if let Some(blob) = client
+        .inner
+        .sui_client()
+        .read_client
+        .last_certified_event_blob()
+        .await
+        .unwrap()
+    {
+        panic!("Event blob should not be written: {:?}", blob);
+    };
     Ok(())
 }

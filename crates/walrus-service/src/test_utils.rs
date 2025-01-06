@@ -9,6 +9,7 @@
 
 use std::{
     borrow::Borrow,
+    default::Default,
     net::{SocketAddr, TcpStream},
     num::NonZeroU16,
     path::PathBuf,
@@ -160,6 +161,7 @@ pub trait StorageNodeHandleTrait {
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
         start_node: bool,
+        disable_event_blob_writer: bool,
     ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
     where
         Self: Sized;
@@ -224,6 +226,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         _system_context: Option<SystemContext>,
         _storage_dir: TempDir,
         _start_node: bool,
+        _disable_event_blob_writer: bool,
     ) -> anyhow::Result<Self> {
         builder.build().await
     }
@@ -482,6 +485,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
         start_node: bool,
+        disable_event_blob_writer: bool,
     ) -> anyhow::Result<Self>
     where
         Self: Sized,
@@ -492,6 +496,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
                 system_context.expect("System context must be provided"),
                 storage_dir,
                 start_node,
+                false,
             )
             .await
     }
@@ -528,6 +533,7 @@ pub struct StorageNodeHandleBuilder {
     contract_service: Option<Arc<dyn SystemContractService>>,
     run_rest_api: bool,
     run_node: bool,
+    disable_event_blob_writer: bool,
     test_config: Option<StorageNodeTestConfig>,
     initial_epoch: Option<Epoch>,
     storage_node_capability: Option<StorageNodeCap>,
@@ -592,6 +598,12 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable the node's event loop being started on build.
     pub fn with_node_started(mut self, run_node: bool) -> Self {
         self.run_node = run_node;
+        self
+    }
+
+    /// Enable or disable event blob writer on the node.
+    pub fn with_disabled_event_blob_writer(mut self, disable: bool) -> Self {
+        self.disable_event_blob_writer = disable;
         self
     }
 
@@ -716,6 +728,7 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             public_host: Some(node_info.rest_api_address.ip().to_string()),
             blocklist_path: self.blocklist_path,
+            disable_event_blob_writer: self.disable_event_blob_writer,
             ..storage_node_config().inner
         };
 
@@ -834,6 +847,7 @@ impl StorageNodeHandleBuilder {
         system_context: SystemContext,
         storage_dir: TempDir,
         start_node: bool,
+        disable_event_blob_writer: bool,
     ) -> anyhow::Result<SimStorageNodeHandle> {
         let node_info = self
             .test_config
@@ -847,6 +861,7 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             public_host: Some(node_info.rest_api_address.ip().to_string()),
             event_provider_config: EventProviderConfig::CheckpointBasedEventProcessor(None),
+            disable_event_blob_writer,
             sui: Some(SuiConfig {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
                 system_object: system_context.system_object,
@@ -905,6 +920,7 @@ impl Default for StorageNodeHandleBuilder {
             storage: Default::default(),
             run_rest_api: Default::default(),
             run_node: Default::default(),
+            disable_event_blob_writer: Default::default(),
             contract_service: None,
             test_config: None,
             initial_epoch: None,
@@ -1413,6 +1429,7 @@ pub struct TestClusterBuilder {
     start_node_from_beginning: Vec<bool>,
     num_checkpoints_per_blob: Option<u32>,
     blocklist_files: Vec<Option<PathBuf>>,
+    disable_event_blob_writer: Vec<bool>,
 }
 
 impl TestClusterBuilder {
@@ -1565,6 +1582,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the disable event blob writer flag for each storage node.
+    pub fn with_disable_event_blob_writer(mut self, disable_event_blob_writer: Vec<bool>) -> Self {
+        self.disable_event_blob_writer = disable_event_blob_writer;
+        self
+    }
+
     /// Sets the sui wallet config directory for each storage node.
     pub fn with_blocklist_files(mut self, blocklist_files: Vec<PathBuf>) -> Self {
         self.blocklist_files = blocklist_files.into_iter().map(Some).collect();
@@ -1594,12 +1617,15 @@ impl TestClusterBuilder {
         for (
             (
                 (
-                    ((((config, event_provider), service), contract_service), capability),
-                    node_wallet_dir,
+                    (
+                        ((((config, event_provider), service), contract_service), capability),
+                        node_wallet_dir,
+                    ),
+                    start_node_from_beginning,
                 ),
-                start_node_from_beginning,
+                blocklist_file,
             ),
-            blocklist_file,
+            disable_event_blob_writer,
         ) in self
             .storage_node_configs
             .into_iter()
@@ -1610,6 +1636,7 @@ impl TestClusterBuilder {
             .zip(self.node_wallet_dirs.into_iter())
             .zip(self.start_node_from_beginning.into_iter())
             .zip(self.blocklist_files.into_iter())
+            .zip(self.disable_event_blob_writer.into_iter())
         {
             let local_identity = config.key_pair.public().clone();
             let builder = StorageNodeHandle::builder()
@@ -1619,7 +1646,8 @@ impl TestClusterBuilder {
                 .with_node_started(true)
                 .with_storage_node_capability(capability)
                 .with_node_wallet_dir(node_wallet_dir)
-                .with_blocklist_file(blocklist_file);
+                .with_blocklist_file(blocklist_file)
+                .with_disabled_event_blob_writer(disable_event_blob_writer);
 
             let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
             {
@@ -1663,6 +1691,7 @@ impl TestClusterBuilder {
                         tempfile::tempdir().expect("temporary directory creation must succeed")
                     ),
                     start_node_from_beginning,
+                    disable_event_blob_writer,
                 )
                 .await?,
             );
@@ -1778,6 +1807,7 @@ impl Default for TestClusterBuilder {
             node_wallet_dirs: shard_assignment.iter().map(|_| None).collect(),
             start_node_from_beginning: shard_assignment.iter().map(|_| true).collect(),
             blocklist_files: shard_assignment.iter().map(|_| None).collect(),
+            disable_event_blob_writer: shard_assignment.iter().map(|_| false).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -1960,6 +1990,7 @@ pub mod test_cluster {
             epoch_duration,
             node_weights,
             use_legacy_event_processor,
+            false,
             None,
             communication_config,
             blocklist_dir,
@@ -1973,6 +2004,7 @@ pub mod test_cluster {
         epoch_duration: Duration,
         node_weights: &[u16],
         use_legacy_event_processor: bool,
+        disable_event_blob_writer: bool,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
         blocklist_dir: Option<PathBuf>,
@@ -2021,6 +2053,7 @@ pub mod test_cluster {
         let mut contract_clients = vec![];
         let mut node_wallet_dirs = vec![];
         let mut blocklist_files = vec![];
+        let mut disable_event_blob_writers = vec![];
         for (i, _) in members.iter().enumerate() {
             let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
                 .await?
@@ -2037,6 +2070,7 @@ pub mod test_cluster {
             contract_clients.push(client);
             let blocklist_dir = blocklist_dir.clone().unwrap_or(temp_dir);
             blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
+            disable_event_blob_writers.push(disable_event_blob_writer);
         }
         let contract_clients_refs = contract_clients
             .iter()
@@ -2141,6 +2175,7 @@ pub mod test_cluster {
                     .map(|&initial_staking_amount| initial_staking_amount > 0)
                     .collect(),
             )
+            .with_disable_event_blob_writer(disable_event_blob_writers)
             .with_blocklist_files(blocklist_files);
 
         let cluster = {
@@ -2250,6 +2285,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 ..Default::default()
             },
             event_provider_config: EventProviderConfig::LegacyEventProvider,
+            disable_event_blob_writer: false,
             commission_rate: 0,
             voting_params: VotingParams {
                 storage_price: 5,

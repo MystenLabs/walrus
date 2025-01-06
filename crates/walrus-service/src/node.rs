@@ -421,7 +421,7 @@ pub struct StorageNode {
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
-    event_blob_writer_factory: EventBlobWriterFactory,
+    event_blob_writer_factory: Option<EventBlobWriterFactory>,
 }
 
 /// The internal state of a Walrus storage node.
@@ -520,12 +520,17 @@ impl StorageNode {
         let node_recovery_handler =
             NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
         node_recovery_handler.restart_recovery()?;
-        let event_blob_writer_factory = EventBlobWriterFactory::new(
-            &config.storage_path,
-            inner.clone(),
-            registry,
-            node_params.num_checkpoints_per_blob,
-        )?;
+
+        let event_blob_writer_factory = if !config.disable_event_blob_writer {
+            Some(EventBlobWriterFactory::new(
+                &config.storage_path,
+                inner.clone(),
+                registry,
+                node_params.num_checkpoints_per_blob,
+            )?)
+        } else {
+            None
+        };
 
         Ok(StorageNode {
             inner,
@@ -608,7 +613,7 @@ impl StorageNode {
         &self,
         event_blob_writer_cursor: EventStreamCursor,
         storage_node_cursor: EventStreamCursor,
-        event_blob_writer: &mut EventBlobWriter,
+        event_blob_writer: &mut Option<EventBlobWriter>,
     ) -> anyhow::Result<(
         Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
         usize,
@@ -654,15 +659,17 @@ impl StorageNode {
         }
 
         let mut event_blob_writer_repositioned = false;
-        let event_blob_writer_index = event_blob_writer_cursor.element_index as usize;
-        if self.should_reposition_cursor(event_blob_writer_index, actual_event_index) {
-            tracing::info!(
-                "Repositioning event blob writer cursor from {} to {}",
-                event_blob_writer_index,
-                actual_event_index
-            );
-            event_blob_writer.update(init_state).await?;
-            event_blob_writer_repositioned = true;
+        if let Some(writer) = event_blob_writer {
+            let event_blob_writer_index = event_blob_writer_cursor.element_index as usize;
+            if self.should_reposition_cursor(event_blob_writer_index, actual_event_index) {
+                tracing::info!(
+                    "Repositioning event blob writer cursor from {} to {}",
+                    event_blob_writer_index,
+                    actual_event_index
+                );
+                writer.update(init_state).await?;
+                event_blob_writer_repositioned = true;
+            }
         }
 
         if !storage_node_cursor_repositioned && !event_blob_writer_repositioned {
@@ -711,13 +718,15 @@ impl StorageNode {
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
-        let writer_cursor = self
-            .event_blob_writer_factory
-            .event_cursor()
-            .unwrap_or_default();
+        let writer_cursor = match self.event_blob_writer_factory {
+            Some(ref factory) => factory.event_cursor().unwrap_or_default(),
+            None => EventStreamCursor::new(None, u64::MAX),
+        };
         let storage_node_cursor = self.storage_node_cursor().await?;
-        let mut event_blob_writer = self.event_blob_writer_factory.create().await?;
-
+        let mut event_blob_writer = match &self.event_blob_writer_factory {
+            Some(factory) => Some(factory.create().await?),
+            None => None,
+        };
         let (event_stream, next_event_index) = self
             .continue_event_stream(
                 writer_cursor.clone(),
@@ -803,9 +812,9 @@ impl StorageNode {
             }
 
             if should_write {
-                event_blob_writer
-                    .write(stream_element.clone(), element_index)
-                    .await?;
+                if let Some(writer) = &mut event_blob_writer {
+                    writer.write(stream_element.clone(), element_index).await?;
+                }
             }
         }
 

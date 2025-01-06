@@ -102,6 +102,9 @@ pub struct StorageNodeConfig {
     /// Sui config.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub event_provider_config: EventProviderConfig,
+    /// Enable/disable event blob writer
+    #[serde(default)]
+    pub disable_event_blob_writer: bool,
     /// The commission rate of the storage node, in basis points.
     #[cfg(not(feature = "walrus-mainnet"))]
     #[serde(default)]
@@ -141,6 +144,7 @@ impl Default for StorageNodeConfig {
             tls: Default::default(),
             shard_sync_config: Default::default(),
             event_provider_config: Default::default(),
+            disable_event_blob_writer: Default::default(),
             commission_rate: 0,
             voting_params: VotingParams {
                 storage_price: defaults::storage_price(),

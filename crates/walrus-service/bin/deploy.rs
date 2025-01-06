@@ -143,6 +143,10 @@ struct GenerateDryRunConfigsArgs {
     /// Use the legacy event processor instead of the standard checkpoint-based event processor.
     #[clap(long, action)]
     use_legacy_event_provider: bool,
+    /// Disable the event blob writer.
+    /// This will disable the event blob writer and the event blob writer service.
+    #[clap(long, action)]
+    disable_event_blob_writer: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -241,6 +245,7 @@ mod commands {
             set_db_path,
             faucet_cooldown,
             use_legacy_event_provider,
+            disable_event_blob_writer,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -293,6 +298,7 @@ mod commands {
             faucet_cooldown.map(|duration| duration.into()),
             &mut admin_wallet,
             use_legacy_event_provider,
+            disable_event_blob_writer,
         )
         .await?;
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {

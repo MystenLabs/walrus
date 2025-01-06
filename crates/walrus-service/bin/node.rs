@@ -229,6 +229,9 @@ struct ConfigArgs {
     #[clap(long, action)]
     /// Use the legacy event provider instead of the standard checkpoint-based event processor.
     use_legacy_event_provider: bool,
+    #[clap(long, action)]
+    /// Disable event blob writer
+    disable_event_blob_writer: bool,
     #[clap(long, default_value_t = REST_API_PORT)]
     /// The port on which the storage node will serve requests.
     public_port: u16,
@@ -601,6 +604,7 @@ mod commands {
             public_host,
             sui_rpc,
             use_legacy_event_provider,
+            disable_event_blob_writer,
             public_port,
             rest_api_address,
             metrics_address,
@@ -666,6 +670,7 @@ mod commands {
             },
             commission_rate,
             event_provider_config,
+            disable_event_blob_writer,
             name,
             ..Default::default()
         };
