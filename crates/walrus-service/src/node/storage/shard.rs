@@ -783,7 +783,7 @@ impl ShardStorage {
                     #[cfg(feature = "walrus-mainnet")]
                     batch.insert_batch(
                         &self.primary_slivers,
-                        [(blob_id, &PrimarySliverData::V1(primary.clone()))],
+                        [(blob_id, &PrimarySliverData::from(primary.clone()))],
                     )?;
                 }
                 Sliver::Secondary(secondary) => {
@@ -793,7 +793,7 @@ impl ShardStorage {
                     #[cfg(feature = "walrus-mainnet")]
                     batch.insert_batch(
                         &self.secondary_slivers,
-                        [(blob_id, &SecondarySliverData::V1(secondary.clone()))],
+                        [(blob_id, &SecondarySliverData::from(secondary.clone()))],
                     )?;
                 }
             }
