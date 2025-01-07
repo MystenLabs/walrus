@@ -478,6 +478,18 @@ public(package) fun withdraw_stake(
 
 // === System ===
 
+/// Compute the next committee. This function can be called to preview the
+/// next committee without actually performing an epoch change.
+public fun compute_next_committee(self: &StakingInnerV1): Committee {
+    let (active_ids, shards) = self.apportionment();
+    let distribution = vec_map::from_keys_values(active_ids, shards);
+
+    // if we are dealing with the first epoch, we need to assign the shards to the
+    // nodes in a sequential manner. Assuming there is at least 1 node in the set.
+    if (self.committee.size() == 0) committee::initialize(distribution)
+    else self.committee.transition(distribution)
+}
+
 /// Selects the committee for the next epoch.
 public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
@@ -654,18 +666,6 @@ public(package) fun shard_transfer_failed(
     _shard_ids: vector<u16>,
 ) {
     abort ENotImplemented
-}
-
-/// Compute the next committee. This function can be called to preview the
-/// next committee without actually performing an epoch change.
-public fun compute_next_committee(self: &StakingInnerV1): Committee {
-    let (active_ids, shards) = self.apportionment();
-    let distribution = vec_map::from_keys_values(active_ids, shards);
-
-    // if we are dealing with the first epoch, we need to assign the shards to the
-    // nodes in a sequential manner. Assuming there is at least 1 node in the set.
-    if (self.committee.size() == 0) committee::initialize(distribution)
-    else self.committee.transition(distribution)
 }
 
 // === Accessors ===
