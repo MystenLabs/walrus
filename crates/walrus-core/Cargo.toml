@@ -7,8 +7,8 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-test-utils = ["walrus-test-utils"]
 sui-types = ["dep:sui-types"]
+test-utils = ["walrus-test-utils"]
 
 [dependencies]
 base64.workspace = true

@@ -31,7 +31,7 @@ x509-cert.workspace = true
 axum.workspace = true
 axum-server.workspace = true
 rcgen.workspace = true
-walrus-core = { workspace = true, features = ["test-utils", "sui-types"] }
+walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
 walrus-test-utils.workspace = true
 
 [lints]
