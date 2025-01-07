@@ -405,6 +405,7 @@ type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
 /// Sui type for inner staking object
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct StakingInnerV1 {
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// The object ID
     pub(crate) id: ObjectID,
     /// The number of shards in the system.
@@ -506,6 +507,7 @@ impl AssociatedContractStruct for SystemObjectForDeserialization {
 /// Sui type for inner system object.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct SystemStateInnerV1 {
+    #[cfg(not(feature = "walrus-mainnet"))]
     /// The object ID of the inner object.
     pub id: ObjectID,
     /// The current committee of the Walrus instance.

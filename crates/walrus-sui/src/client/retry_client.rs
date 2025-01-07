@@ -330,6 +330,7 @@ impl RetriableSuiClient {
         .await
     }
 
+    #[allow(unused)]
     pub(crate) async fn get_dynamic_field_object<K, V>(
         &self,
         parent: ObjectID,

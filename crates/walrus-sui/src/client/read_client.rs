@@ -572,7 +572,7 @@ impl SuiReadClient {
         }
         let inner = self
             .sui_client
-            .get_dynamic_field_object::<u64, SystemStateInnerV1>(
+            .get_dynamic_field::<u64, SystemStateInnerV1>(
                 self.system_object_id,
                 TypeTag::U64,
                 version,
@@ -622,11 +622,7 @@ impl SuiReadClient {
         }
         let inner = self
             .sui_client
-            .get_dynamic_field_object::<u64, StakingInnerV1>(
-                self.staking_object_id,
-                TypeTag::U64,
-                version,
-            )
+            .get_dynamic_field::<u64, StakingInnerV1>(self.staking_object_id, TypeTag::U64, version)
             .await?;
         let staking_object = StakingObject {
             id,

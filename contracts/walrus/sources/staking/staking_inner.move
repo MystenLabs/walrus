@@ -70,9 +70,7 @@ public enum EpochState has copy, drop, store {
 }
 
 /// The inner object for the staking part of the system.
-public struct StakingInnerV1 has key, store {
-    /// The object ID
-    id: UID,
+public struct StakingInnerV1 has store {
     /// The number of shards in the system.
     n_shards: u16,
     /// The duration of an epoch in ms. Does not affect the first (zero) epoch.
@@ -116,7 +114,6 @@ public(package) fun new(
     ctx: &mut TxContext,
 ): StakingInnerV1 {
     StakingInnerV1 {
-        id: object::new(ctx),
         n_shards,
         epoch_duration,
         first_epoch_start: epoch_zero_duration + clock.timestamp_ms(),

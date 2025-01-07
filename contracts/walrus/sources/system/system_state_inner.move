@@ -43,8 +43,7 @@ const EIncorrectDenyListNode: u64 = 10;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
-public struct SystemStateInnerV1 has key, store {
-    id: UID,
+public struct SystemStateInnerV1 has store {
     /// The current committee, with the current epoch.
     committee: BlsCommittee,
     // Some accounting
@@ -74,9 +73,7 @@ public(package) fun create_empty(max_epochs_ahead: u32, ctx: &mut TxContext): Sy
     assert!(max_epochs_ahead <= MAX_MAX_EPOCHS_AHEAD, EInvalidMaxEpochsAhead);
     let future_accounting = storage_accounting::ring_new(max_epochs_ahead);
     let event_blob_certification_state = event_blob::create_with_empty_state();
-    let id = object::new(ctx);
     SystemStateInnerV1 {
-        id,
         committee,
         total_capacity_size: 0,
         used_capacity_size: 0,
@@ -658,9 +655,7 @@ use walrus::test_utils;
 public(package) fun new_for_testing(): SystemStateInnerV1 {
     let committee = test_utils::new_bls_committee_for_testing(0);
     let ctx = &mut tx_context::dummy();
-    let id = object::new(ctx);
     SystemStateInnerV1 {
-        id,
         committee,
         total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,
@@ -675,9 +670,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
 #[test_only]
 public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): SystemStateInnerV1 {
     let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(0, ctx);
-    let id = object::new(ctx);
     SystemStateInnerV1 {
-        id,
         committee,
         total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,

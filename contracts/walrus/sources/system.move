@@ -5,7 +5,7 @@
 /// Module: system
 module walrus::system;
 
-use sui::{balance::Balance, coin::Coin, dynamic_object_field, vec_map::VecMap};
+use sui::{balance::Balance, coin::Coin, dynamic_field, vec_map::VecMap};
 use wal::wal::WAL;
 use walrus::{
     blob::Blob,
@@ -41,7 +41,7 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
         new_package_id: option::none(),
     };
     let system_state_inner = system_state_inner::create_empty(max_epochs_ahead, ctx);
-    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     transfer::share_object(system);
 }
 
@@ -264,11 +264,11 @@ public(package) fun migrate(system: &mut System) {
     assert!(system.version < VERSION, EInvalidMigration);
 
     // Move the old system state inner to the new version.
-    let system_state_inner: SystemStateInnerV1 = dynamic_object_field::remove(
+    let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
         &mut system.id,
         system.version,
     );
-    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system.version = VERSION;
 
     // Set the new package id.
@@ -281,13 +281,13 @@ public(package) fun migrate(system: &mut System) {
 /// Get a mutable reference to `SystemStateInner` from the `System`.
 fun inner_mut(system: &mut System): &mut SystemStateInnerV1 {
     assert!(system.version == VERSION);
-    dynamic_object_field::borrow_mut(&mut system.id, VERSION)
+    dynamic_field::borrow_mut(&mut system.id, VERSION)
 }
 
 /// Get an immutable reference to `SystemStateInner` from the `System`.
 public(package) fun inner(system: &System): &SystemStateInnerV1 {
     assert!(system.version == VERSION);
-    dynamic_object_field::borrow(&system.id, VERSION)
+    dynamic_field::borrow(&system.id, VERSION)
 }
 
 // === Testing ===
@@ -302,7 +302,7 @@ public fun new_for_testing(): System {
         new_package_id: option::none(),
     };
     let system_state_inner = system_state_inner::new_for_testing();
-    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system
 }
 
@@ -315,7 +315,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         new_package_id: option::none(),
     };
     let system_state_inner = system_state_inner::new_for_testing_with_multiple_members(ctx);
-    dynamic_object_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system
 }
 
