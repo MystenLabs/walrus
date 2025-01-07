@@ -65,7 +65,7 @@ struct DeploySystemContractArgs {
     #[clap(long, default_value = "./testnet-contracts/walrus")]
     contract_path: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
-    #[arg(long, default_value_t = 500_000_000)]
+    #[arg(long, default_value_t = 1_000_000_000)]
     gas_budget: u64,
     /// The total number of shards. The shards are distributed evenly among the storage nodes.
     // TODO: accept non-even shard distributions #377
