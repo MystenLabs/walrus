@@ -487,7 +487,7 @@ impl SuiContractClient {
         )?;
         ensure!(
             object_ids.len() == blobs_with_certificates.len(),
-            "unexpected number of shared blob objects created: {} expected {}",
+            "unexpected number of shared blob objects created: {} (expected {})",
             object_ids.len(),
             blobs_with_certificates.len()
         );
