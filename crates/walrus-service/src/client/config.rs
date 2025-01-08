@@ -99,14 +99,14 @@ pub enum ExchangeObjectConfig {
     Multiple(Vec<ObjectID>),
 }
 
-/// Configure for publisher authentication
+/// Configuration for the JWT authentication on the publisher.
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct AuthConfig {
-    /// The scecret for JWT decode
+    /// The secret with which to authenticate the JWT.
     pub(crate) secret: Option<Vec<u8>>,
-    /// The algorithm for JWT
+    /// The authentication algorithm for the JWT.
     pub(crate) algorithm: Option<Algorithm>,
-    /// If not 0, publisher will verify the expiring seconds
+    /// The duration, in seconds, after which the publisher will consider the JWT as expired.
     pub(crate) expiring_sec: u64,
     /// verify upload file size and address for `send_object_to`
     pub(crate) verify_upload: bool,

@@ -467,23 +467,32 @@ pub struct PublisherArgs {
     #[serde(default)]
     pub keep: bool,
     /// If set, the publisher will verify the JWT token.
-    /// If API Gateway already check the token, we can skip the signature validation
-    /// The secret can be hexyl string start with `0x`.
+    ///
+    /// If not specified, the verification is disabled.
+    /// This is useful, e.g., in case the API Gateway has already checked the token.
+    /// The secret can be hex string, starting with `0x`.
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
-    /// If unset, the jwt algorithm will be HMAC.
-    /// Following algorithms are supported "HS256", "HS384", "HS512", "ES256", "ES384", "RS256",
-    /// "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA"
+    /// If unset, the JWT authentication algorithm will be HMAC.
+    ///
+    /// The following algorithms are supported: "HS256", "HS384", "HS512", "ES256", "ES384",
+    /// "RS256", "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA".
     #[clap(long)]
     #[serde(default)]
     pub jwt_algorithm: Option<Algorithm>,
-    /// If set and greater than 0, `exp` will be check based on `iat`
+    /// If set and greater than 0, the publisher will check if the JWT token is expired based on
+    /// the "issued at" (`iat`) value.
     #[clap(long)]
     #[serde(default)]
     pub jwt_expiring_sec: u64,
-    /// - Verify `epochs` in query should be the same as `epoch` in JWT claim if set
-    /// - Verify `send_object_to` in query should be the same as `address` in JWT claim if set
+    /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
+    ///
+    /// Specifically, the publisher will:
+    /// - Verify that the number of `epochs` in query is the the same as `epoch` in the JWT, if
+    ///   present;
+    /// - Verify that the `send_object_to` field in the query is the same as the `address` in the
+    ///   JWT, if present;
     // TODO: /// - Verify the size/hash of uploaded file
     #[clap(long)]
     #[serde(default)]

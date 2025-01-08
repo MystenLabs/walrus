@@ -18,17 +18,17 @@ use crate::client::config::AuthConfig;
 #[cfg_attr(test, derive(serde::Serialize))]
 struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Token is issued at (timestamp)
+    /// Token is issued at (timestamp).
     pub iat: Option<u64>,
 
-    /// Token is expired at (timestamp)
+    /// Token is expires at (timestamp).
     pub exp: u64,
 
     /// Address is the sui blob object owner
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
 
-    /// Epoch is the storage time
+    /// The number of epochs the blob should be stored for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epoch: Option<u32>,
 }

@@ -22,7 +22,7 @@ pub enum StoreError {
     Confirmation(NodeError),
 }
 
-/// Transforming arguments to config, failed.
+/// The contents of the publisher's authentication config are invalid.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("the content of `{0}` could not be decoded")]
