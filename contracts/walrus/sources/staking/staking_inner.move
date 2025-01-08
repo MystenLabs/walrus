@@ -478,9 +478,8 @@ public(package) fun withdraw_stake(
 
 // === System ===
 
-/// Compute the next committee. This function can be called to preview the
-/// next committee without actually performing an epoch change.
-public fun compute_next_committee(self: &StakingInnerV1): Committee {
+/// Computes the committee for the next epoch.
+fun calculate_committee(self: &StakingInnerV1): Committee {
     let (active_ids, shards) = self.apportionment();
     let distribution = vec_map::from_keys_values(active_ids, shards);
 
@@ -490,17 +489,17 @@ public fun compute_next_committee(self: &StakingInnerV1): Committee {
     else self.committee.transition(distribution)
 }
 
+/// Compute the next committee. This function can be called to preview the
+/// next committee without actually performing an epoch change.
+public fun compute_next_committee(self: &StakingInnerV1): Committee {
+    calculate_committee(self)
+}
+
 /// Selects the committee for the next epoch.
 public(package) fun select_committee(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 
-    let (active_ids, shards) = self.apportionment();
-    let distribution = vec_map::from_keys_values(active_ids, shards);
-
-    // if we're dealing with the first epoch, we need to assign the shards to the
-    // nodes in a sequential manner. Assuming there's at least 1 node in the set.
-    let committee = if (self.committee.size() == 0) committee::initialize(distribution)
-    else self.committee.transition(distribution);
+    let committee = calculate_committee(self);
 
     // inherently sorted by node ID
     let public_keys = vec_map::from_keys_values(
