@@ -15,7 +15,7 @@ use walrus_service::{
 use walrus_test_utils::Result as TestResult;
 
 #[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
+#[walrus_simtest(flavor = "multi_thread")]
 async fn nodes_drive_epoch_change() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
     let epoch_duration = Duration::from_secs(5);
