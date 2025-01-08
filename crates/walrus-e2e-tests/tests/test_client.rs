@@ -538,6 +538,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     Ok(())
 }
 
+#[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blocklist() -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
