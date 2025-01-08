@@ -224,36 +224,31 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             "configuring the publisher endpoint",
         );
 
-        match auth_config {
-            Some(auth_config) => {
-                let publisher_layers = ServiceBuilder::new()
-                    .layer(JwtLayer::new(auth_config))
-                    .layer(DefaultBodyLimit::max(max_body_limit))
-                    .layer(HandleErrorLayer::new(handle_publisher_error))
-                    .layer(LoadShedLayer::new())
-                    .layer(BufferLayer::new(max_request_buffer_size))
-                    .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
-                self.router = self.router.route(
-                    BLOB_PUT_ENDPOINT,
-                    put(routes::put_blob)
-                        .route_layer(publisher_layers)
-                        .options(routes::store_blob_options),
-                );
-            }
-            _ => {
-                let publisher_layers = ServiceBuilder::new()
-                    .layer(DefaultBodyLimit::max(max_body_limit))
-                    .layer(HandleErrorLayer::new(handle_publisher_error))
-                    .layer(LoadShedLayer::new())
-                    .layer(BufferLayer::new(max_request_buffer_size))
-                    .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
-                self.router = self.router.route(
-                    BLOB_PUT_ENDPOINT,
-                    put(routes::put_blob)
-                        .route_layer(publisher_layers)
-                        .options(routes::store_blob_options),
-                );
-            }
+        let base_layers = ServiceBuilder::new()
+            .layer(DefaultBodyLimit::max(max_body_limit))
+            .layer(HandleErrorLayer::new(handle_publisher_error))
+            .layer(LoadShedLayer::new())
+            .layer(BufferLayer::new(max_request_buffer_size))
+            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
+
+        if let Some(auth_config) = auth_config {
+            self.router = self.router.route(
+                BLOB_PUT_ENDPOINT,
+                put(routes::put_blob)
+                    .route_layer(
+                        ServiceBuilder::new()
+                            .layer(JwtLayer::new(auth_config))
+                            .layer(base_layers),
+                    )
+                    .options(routes::store_blob_options),
+            );
+        } else {
+            self.router = self.router.route(
+                BLOB_PUT_ENDPOINT,
+                put(routes::put_blob)
+                    .route_layer(base_layers)
+                    .options(routes::store_blob_options),
+            );
         }
         self
     }
