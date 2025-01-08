@@ -41,6 +41,7 @@ const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
 const MIN_NODES_FOR_SHARDS_LIMIT: u8 = 20;
 
 /// The maximum number of shards per node as a denominator of the total number of shards.
+/// Must be less than MIN_NODES_FOR_SHARDS_LIMIT to ensure that all shards can be assigned.
 const SHARDS_LIMIT_DENOMINATOR: u8 = 10; // 10%
 
 // The delta between the epoch change finishing and selecting the next epoch parameters in ms.
@@ -559,6 +560,7 @@ fun dhondt(
     while (n_shards_distributed != n_shards) {
         // Get the node with the highest quotient, assign an additional shard and adjust the
         // quotient.
+        // quotients is non-empty since SHARDS_LIMIT_DENOMINATOR <= MIN_NODES_FOR_SHARDS_LIMIT.
         let (_quotient, tie_breaker, index) = quotients.pop_max();
         *&mut shards[index] = shards[index] + 1;
         if (shards[index] != max_shards) {
