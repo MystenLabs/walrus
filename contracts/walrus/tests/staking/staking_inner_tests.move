@@ -309,6 +309,37 @@ fun test_larger_dhondt_inputs_100_nodes_fixed_stake() {
 }
 
 #[test]
+fun test_dhondt_without_max_shards() {
+    let stakes = vector[600, 100, 200, 100];
+    let expected = vector[600, 100, 200, 100];
+    dhondt_case(1000, stakes, expected);
+
+    // max nodes for which max shards is not used
+    let stakes = vector::tabulate!(19, |i| {
+        if (i == 5) 820
+        else 10
+    });
+    let expected = vector::tabulate!(19, |i| {
+        if (i == 5) 820
+        else 10
+    });
+    dhondt_case(1000, stakes, expected);
+}
+
+#[test]
+fun test_dhondt_with_max_shards() {
+    let stakes = vector::tabulate!(21, |i| {
+        if (i == 5) 200
+        else 20
+    });
+    let expected = vector::tabulate!(21, |i| {
+        if (i == 5) 100
+        else 45
+    });
+    dhondt_case(1000, stakes, expected);
+}
+
+#[test]
 fun test_larger_dhondt_inputs_1000_nodes_fixed_stake() {
     let stake_basis_points = vector::tabulate!(1000, |i| {
         if (i < 50) 125

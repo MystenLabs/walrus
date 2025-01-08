@@ -37,6 +37,12 @@ const MIN_STAKE: u64 = 0;
 /// TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
 const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
 
+/// The minimum number of nodes for the shards limit to be applied.
+const MIN_NODES_FOR_SHARDS_LIMIT: u8 = 20;
+
+/// The maximum number of shards per node as a denominator of the total number of shards.
+const SHARED_LIMIT_DENOMINATOR: u8 = 10; // 10%
+
 // The delta between the epoch change finishing and selecting the next epoch parameters in ms.
 // Currently half of an epoch.
 // TODO: currently replaced by the epoch duration / 2. Consider making this a separate system
@@ -526,6 +532,10 @@ fun dhondt(
     let n_shards = n_shards as u64;
     assert!(total_stake > 0, ENoStake);
 
+    // Limit the number of shards per node if there are enough nodes.
+    let max_shards = if (n_nodes >= (MIN_NODES_FOR_SHARDS_LIMIT as u64))
+        n_shards / (SHARED_LIMIT_DENOMINATOR as u64) else n_shards;
+
     // Initial assignment following Hagenbach-Bischoff.
     // This assigns an initial number of shards to each node, s.t. this does not exceed the final
     // assignment.
@@ -533,12 +543,14 @@ fun dhondt(
     // is the amount of stake that guarantees receiving a shard with the d'Hondt method. By
     // dividing the stake per node by this distribution number and rounding down (integer
     // division), we therefore get a lower bound for the number of shards assigned to the node.
-    let mut shards = stake.map_ref!(|s| *s / (total_stake / (n_shards + 1) + 1));
+    let mut shards = stake.map_ref!(|s| (*s / (total_stake / (n_shards + 1) + 1)).min(max_shards));
     // Set up quotients priority queue.
     let mut quotients = apportionment_queue::new();
     n_nodes.do!(|index| {
-        let quotient = uq64_64::from_quotient(stake[index] as u128, shards[index] as u128 + 1);
-        quotients.insert(quotient, node_priorities[index], index);
+        if (shards[index] != max_shards) {
+            let quotient = uq64_64::from_quotient(stake[index] as u128, shards[index] as u128 + 1);
+            quotients.insert(quotient, node_priorities[index], index);
+        };
     });
 
     if (n_nodes == 0) return vector[];
@@ -549,8 +561,10 @@ fun dhondt(
         // quotient.
         let (_quotient, tie_breaker, index) = quotients.pop_max();
         *&mut shards[index] = shards[index] + 1;
-        let quotient = uq64_64::from_quotient(stake[index] as u128, shards[index] as u128 + 1);
-        quotients.insert(quotient, tie_breaker, index);
+        if (shards[index] != max_shards) {
+            let quotient = uq64_64::from_quotient(stake[index] as u128, shards[index] as u128 + 1);
+            quotients.insert(quotient, tie_breaker, index);
+        };
         n_shards_distributed = n_shards_distributed + 1;
     };
     shards.map!(|s| s as u16)
