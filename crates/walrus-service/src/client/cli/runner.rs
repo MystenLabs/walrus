@@ -253,8 +253,8 @@ impl ClientCommandRunner {
         };
         utils::export_contract_info(
             registry,
-            &config.system_object,
-            &config.staking_object,
+            &config.contract_config.system_object,
+            &config.contract_config.staking_object,
             utils::load_wallet_context(&self.wallet_path)
                 .and_then(|mut wallet| wallet.active_address())
                 .ok(),

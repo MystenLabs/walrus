@@ -350,8 +350,8 @@ impl StorageNodeBuilder {
                     };
                     let system_config = SystemConfig {
                         system_pkg_id: read_client.get_system_package_id(),
-                        system_object_id: sui_config.system_object,
-                        staking_object_id: sui_config.staking_object,
+                        system_object_id: sui_config.contract_config.system_object,
+                        staking_object_id: sui_config.contract_config.staking_object,
                     };
                     Box::new(
                         EventProcessor::new(

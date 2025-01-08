@@ -5,7 +5,7 @@
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
 
-use std::{fmt::Debug, future::Future, str::FromStr};
+use std::{collections::BTreeMap, fmt::Debug, future::Future, str::FromStr};
 
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -19,6 +19,8 @@ use sui_sdk::{
         Balance,
         Coin,
         ObjectsPage,
+        SuiMoveNormalizedModule,
+        SuiMoveNormalizedType,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiObjectResponseQuery,
@@ -34,6 +36,7 @@ use sui_types::{
     TypeTag,
 };
 use tracing::Level;
+use walrus_core::ensure;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
@@ -268,6 +271,23 @@ impl RetriableSuiClient {
         .await
     }
 
+    /// Returns a map consisting of the move package name and the normalized module.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_normalized_move_modules_by_package`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn get_normalized_move_modules_by_package(
+        &self,
+        package_id: ObjectID,
+    ) -> SuiRpcResult<BTreeMap<String, SuiMoveNormalizedModule>> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client
+                .read_api()
+                .get_normalized_move_modules_by_package(package_id)
+                .await
+        })
+        .await
+    }
+
     /// Returns a reference to the [`EventApi`].
     ///
     /// Internally calls the [`SuiClient::event_api`] function. Note that no retries are
@@ -379,25 +399,35 @@ impl RetriableSuiClient {
         &self,
         system_object_id: ObjectID,
     ) -> SuiClientResult<ObjectID> {
+        let system_object = self
+            .get_sui_object::<SystemObjectForDeserialization>(system_object_id)
+            .await?;
+
+        let pkg_id = system_object.package_id;
+        Ok(pkg_id)
+    }
+
+    /// Returns the package ID from the type of the given object.
+    ///
+    /// Note: This returns the package address from the object type, not the newest package ID.
+    pub(crate) async fn get_package_id_from_object(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<ObjectID> {
         let response = self
             .get_object_with_options(
-                system_object_id,
+                object_id,
                 SuiObjectDataOptions::default().with_type().with_bcs(),
             )
             .await
-            .map_err(|error| {
-                tracing::debug!(%error, "unable to get the Walrus system object");
-                SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+            .inspect_err(|error| {
+                tracing::debug!(%error, %object_id, "unable to get the object");
             })?;
 
-        let system_object =
-            get_sui_object_from_object_response::<SystemObjectForDeserialization>(&response)
-                .map_err(|error| {
-                    tracing::debug!(%error, "error when trying to deserialize the system object");
-                    SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-                })?;
-
-        let pkg_id = system_object.package_id;
+        let pkg_id =
+            crate::utils::get_package_id_from_object_response(&response).inspect_err(|error| {
+                tracing::debug!(%error, %object_id, "unable to get the package ID from the object");
+            })?;
         Ok(pkg_id)
     }
 
@@ -422,6 +452,56 @@ impl RetriableSuiClient {
             .into_iter()
             .map(|origin| ((origin.module_name, origin.datatype_name), origin.package))
             .collect())
+    }
+
+    /// Retrieves the WAL type from the walrus package by getting the type tag of the `Balance`
+    /// in the `StakedWal` Move struct.
+    #[tracing::instrument(err, skip(self))]
+    pub(crate) async fn wal_type_from_package(
+        &self,
+        package_id: ObjectID,
+    ) -> SuiClientResult<String> {
+        let normalized_move_modules = self
+            .get_normalized_move_modules_by_package(package_id)
+            .await?;
+
+        let staked_wal_struct = normalized_move_modules
+            .get("staked_wal")
+            .and_then(|module| module.structs.get("StakedWal"))
+            .ok_or_else(|| SuiClientError::WalTypeNotFound(package_id))?;
+        let principal_field_type = staked_wal_struct.fields.iter().find_map(|field| {
+            if field.name == "principal" {
+                Some(&field.type_)
+            } else {
+                None
+            }
+        });
+        let Some(SuiMoveNormalizedType::Struct {
+            ref type_arguments, ..
+        }) = principal_field_type
+        else {
+            return Err(SuiClientError::WalTypeNotFound(package_id));
+        };
+        let wal_type = type_arguments
+            .first()
+            .ok_or_else(|| SuiClientError::WalTypeNotFound(package_id))?;
+        let SuiMoveNormalizedType::Struct {
+            address,
+            module,
+            name,
+            ..
+        } = wal_type
+        else {
+            return Err(SuiClientError::WalTypeNotFound(package_id));
+        };
+        ensure!(
+            module == "wal" && name == "WAL",
+            SuiClientError::WalTypeNotFound(package_id)
+        );
+        let wal_type = format!("{address}::{module}::{name}");
+
+        tracing::debug!(?wal_type, "WAL type");
+        Ok(wal_type)
     }
 
     /// Gets a backoff strategy, seeded from the internal RNG.

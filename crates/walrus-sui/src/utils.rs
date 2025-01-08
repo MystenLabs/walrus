@@ -82,6 +82,20 @@ pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: 
     storage_units_from_size(encoded_length) * price_per_unit_size
 }
 
+/// Gets the package address from an object response.
+///
+/// Note: This returns the package address from the object type, not the newest package ID.
+pub(crate) fn get_package_id_from_object_response(
+    object_response: &SuiObjectResponse,
+) -> Result<ObjectID> {
+    let sui_types::base_types::ObjectType::Struct(move_object_type) =
+        object_response.object()?.object_type()?
+    else {
+        anyhow::bail!("response does not contain a move struct object");
+    };
+    Ok(move_object_type.address().into())
+}
+
 /// Gets the objects of the given type that were created in a transaction.
 ///
 /// All the object ids of the objects created in the transaction, and of type represented by the

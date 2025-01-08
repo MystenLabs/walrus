@@ -848,7 +848,6 @@ impl EventProcessor {
             clients.sui_client.clone(),
             system_objects.staking_object_id,
             system_objects.system_object_id,
-            Some(system_objects.system_pkg_id),
             next_checkpoint,
             recovery_path,
         )

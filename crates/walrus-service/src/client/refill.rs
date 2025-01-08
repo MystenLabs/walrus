@@ -170,7 +170,10 @@ impl Refiller {
 
     /// The WAL coin type.
     pub fn wal_coin_type(&self) -> String {
-        self.contract_client.read_client().wal_coin_type()
+        self.contract_client
+            .read_client()
+            .wal_coin_type()
+            .to_owned()
     }
 
     /// Sends SUI to the specified address.

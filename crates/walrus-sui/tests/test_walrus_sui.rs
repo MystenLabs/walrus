@@ -56,18 +56,19 @@ async fn initialize_contract_and_wallet(
 
     // TODO(#793): make this nicer, s.t. we don't throw away the wallet with the storage node cap.
     // Fix once the testbed setup is ready.
-    let (system_object, staking_object) = node_wallet
+    let system_context = node_wallet
         .and_then_async(|wallet| publish_with_default_system(&mut admin_wallet.inner, wallet))
         .await?
         .inner;
+    let contract_config = system_context.contract_config();
+
     Ok((
         sui_cluster,
         admin_wallet
             .and_then_async(|wallet| {
                 SuiContractClient::new(
                     wallet,
-                    system_object,
-                    staking_object,
+                    &contract_config,
                     ExponentialBackoffConfig::default(),
                     GAS_BUDGET,
                 )
@@ -379,10 +380,11 @@ async fn test_register_candidate() -> anyhow::Result<()> {
 async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
-
+    // TODO(WAL-230): Use exchange package ID once published separately.
+    let exchange_package = walrus_client.as_ref().read_client().get_system_package_id();
     let exchange_id = walrus_client
         .as_ref()
-        .create_and_fund_exchange(1_000_000)
+        .create_and_fund_exchange(exchange_package, 1_000_000)
         .await?;
 
     let exchange_val = 100_000;
@@ -433,7 +435,7 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
         .sui_client()
         .get_balance(
             client_1_address,
-            Some(client_2.as_ref().read_client().wal_coin_type()),
+            Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
         )
         .await?
         .coin_object_count;
@@ -482,7 +484,7 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
             .sui_client()
             .get_balance(
                 client_1_address,
-                Some(client_2.as_ref().read_client().wal_coin_type())
+                Some(client_2.as_ref().read_client().wal_coin_type().to_owned()),
             )
             .await?
             .coin_object_count,

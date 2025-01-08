@@ -341,17 +341,23 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
+    let contract_config = system_ctx.contract_config();
+
     // Create WAL exchange.
     let contract_client = SuiContractClient::new(
         admin_wallet,
-        system_ctx.system_object,
-        system_ctx.staking_object,
+        &contract_config,
         ExponentialBackoffConfig::default(),
         gas_budget,
     )
     .await?;
+
     let exchange_object = contract_client
-        .create_and_fund_exchange(WAL_AMOUNT_EXCHANGE)
+        .create_and_fund_exchange(
+            // TODO(WAL-230): Use exchange package ID once published separately.
+            contract_client.read_client().get_system_package_id(),
+            WAL_AMOUNT_EXCHANGE,
+        )
         .await?;
 
     println!(
@@ -418,11 +424,11 @@ pub async fn create_client_config(
     )
     .await?;
 
+    let contract_config = system_ctx.contract_config();
+
     // Create the client config.
     let client_config = client::Config {
-        system_object: system_ctx.system_object,
-        staking_object: system_ctx.staking_object,
-        walrus_package: Some(system_ctx.package_id),
+        contract_config,
         exchange_object: Some(ExchangeObjectConfig::One(exchange_object)),
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
@@ -538,11 +544,11 @@ pub async fn create_storage_node_configs(
             wallets[i].config.path().to_path_buf()
         };
 
+        let contract_config = testbed_config.system_ctx.contract_config();
+
         let sui = Some(SuiConfig {
             rpc: rpc.clone(),
-            system_object: testbed_config.system_ctx.system_object,
-            staking_object: testbed_config.system_ctx.staking_object,
-            walrus_package: Some(testbed_config.system_ctx.package_id),
+            contract_config,
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             backoff_config: ExponentialBackoffConfig::default(),

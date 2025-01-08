@@ -1908,7 +1908,12 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient},
+        client::{
+            contract_config::ContractConfig,
+            retry_client::RetriableSuiClient,
+            SuiContractClient,
+            SuiReadClient,
+        },
         test_utils::{
             self,
             system_setup::{
@@ -2088,6 +2093,9 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
+        let contract_config =
+            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
+
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             RetriableSuiClient::new_from_wallet(
@@ -2095,8 +2103,7 @@ pub mod test_cluster {
                 ExponentialBackoffConfig::default(),
             )
             .await?,
-            system_ctx.system_object,
-            system_ctx.staking_object,
+            &contract_config,
         )
         .await?;
 
@@ -2182,9 +2189,7 @@ pub mod test_cluster {
             SuiContractClient::new_with_read_client(wallet, DEFAULT_GAS_BUDGET, sui_read_client)
         })?;
         let config = Config {
-            system_object: system_ctx.system_object,
-            staking_object: system_ctx.staking_object,
-            walrus_package: Some(system_ctx.package_id),
+            contract_config,
             exchange_object: None,
             wallet_config: None,
             communication_config,

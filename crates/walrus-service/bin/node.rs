@@ -202,12 +202,6 @@ struct ConfigArgs {
     /// Object ID of the Walrus staking object.
     staking_object: ObjectID,
     #[clap(long)]
-    /// The Walrus package ID.
-    ///
-    /// If not provided, the original package ID will be fetched from the Sui network based on the
-    /// provided system and staking object IDs.
-    walrus_package: Option<ObjectID>,
-    #[clap(long)]
     /// Initial storage capacity of this node in bytes.
     ///
     /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
@@ -337,7 +331,10 @@ mod commands {
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
-    use walrus_sui::{client::ReadClient as _, types::NetworkAddress};
+    use walrus_sui::{
+        client::{contract_config::ContractConfig, ReadClient as _},
+        types::NetworkAddress,
+    };
     use walrus_utils::backoff::ExponentialBackoffConfig;
 
     use super::*;
@@ -389,8 +386,8 @@ mod commands {
         if let Some(config) = config.sui.as_ref() {
             utils::export_contract_info(
                 &metrics_runtime.registry,
-                &config.system_object,
-                &config.staking_object,
+                &config.contract_config.system_object,
+                &config.contract_config.staking_object,
                 utils::load_wallet_context(&Some(config.wallet_config.clone()))
                     .and_then(|mut wallet| wallet.active_address())
                     .ok(),
@@ -594,7 +591,6 @@ mod commands {
         ConfigArgs {
             system_object,
             staking_object,
-            walrus_package,
             node_capacity,
             public_host,
             sui_rpc,
@@ -640,6 +636,8 @@ mod commands {
                 '--public-port' option."
         );
 
+        let contract_config = ContractConfig::new(system_object, staking_object);
+
         let config = StorageNodeConfig {
             storage_path,
             protocol_key_pair: PathOrInPlace::from_path(protocol_key_path),
@@ -650,9 +648,7 @@ mod commands {
             metrics_address,
             sui: Some(SuiConfig {
                 rpc: sui_rpc,
-                system_object,
-                staking_object,
-                walrus_package,
+                contract_config,
                 wallet_config,
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
@@ -762,8 +758,8 @@ impl EventProcessorRuntime {
         };
         let system_config = SystemConfig {
             system_pkg_id: sui_config.new_read_client().await?.get_system_package_id(),
-            system_object_id: sui_config.system_object,
-            staking_object_id: sui_config.staking_object,
+            system_object_id: sui_config.contract_config.system_object,
+            staking_object_id: sui_config.contract_config.staking_object,
         };
         Ok(Arc::new(
             EventProcessor::new(

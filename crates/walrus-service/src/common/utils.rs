@@ -754,16 +754,15 @@ pub async fn collect_event_blobs_for_catchup(
     sui_client: RetriableSuiClient,
     staking_object_id: ObjectID,
     system_object_id: ObjectID,
-    package_id: Option<ObjectID>,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
 ) -> Result<Vec<BlobId>> {
-    let sui_read_client =
-        SuiReadClient::new(sui_client, system_object_id, staking_object_id).await?;
+    use walrus_sui::client::contract_config::ContractConfig;
+
+    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
+    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
     let config = crate::client::Config {
-        system_object: system_object_id,
-        staking_object: staking_object_id,
-        walrus_package: package_id,
+        contract_config,
         exchange_object: None,
         wallet_config: None,
         communication_config: crate::client::ClientCommunicationConfig::default(),

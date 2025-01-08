@@ -7,6 +7,7 @@ use core::fmt;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use contract_config::ContractConfig;
 use retry_client::RetriableSuiClient;
 use sui_sdk::{
     rpc_types::{
@@ -69,6 +70,8 @@ pub mod retry_client;
 pub mod transaction_builder;
 use crate::types::move_structs::EventBlob;
 
+pub mod contract_config;
+
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
 pub enum SuiClientError {
@@ -101,6 +104,9 @@ pub enum SuiClientError {
         activated in your Sui wallet"
     )]
     WalrusPackageNotFound(ObjectID),
+    /// The type of the `WAL` coin could not be found.
+    #[error("the type of the WAL coin could not be found in the package {0}")]
+    WalTypeNotFound(ObjectID),
     /// The specified event ID is not associated with a Walrus event.
     #[error("no corresponding blob event found for {0:?}")]
     NoCorrespondingBlobEvent(EventID),
@@ -255,15 +261,13 @@ impl SuiContractClient {
     /// Constructor for [`SuiContractClient`].
     pub async fn new(
         wallet: WalletContext,
-        system_object: ObjectID,
-        staking_object: ObjectID,
+        contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
         let read_client = SuiReadClient::new(
             RetriableSuiClient::new_from_wallet(&wallet, backoff_config).await?,
-            system_object,
-            staking_object,
+            contract_config,
         )
         .await?;
         Self::new_with_read_client(wallet, gas_budget, read_client)
@@ -291,7 +295,7 @@ impl SuiContractClient {
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
     pub fn sui_client(&self) -> &RetriableSuiClient {
-        &self.read_client.sui_client
+        self.read_client.sui_client()
     }
 
     /// Returns a reference to the inner wallet context.
@@ -700,14 +704,20 @@ impl SuiContractClient {
 
     /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with
     /// `amount` FROST, and returns its object ID.
-    pub async fn create_and_fund_exchange(&self, amount: u64) -> SuiClientResult<ObjectID> {
+    pub async fn create_and_fund_exchange(
+        &self,
+        exchange_package: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<ObjectID> {
         tracing::info!("creating a new SUI/WAL exchange");
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder.create_and_fund_exchange(amount).await?;
+        pt_builder
+            .create_and_fund_exchange(exchange_package, amount)
+            .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let exchange_id = get_created_sui_object_ids_by_type(
@@ -874,7 +884,10 @@ impl SuiContractClient {
         let sui_balance = self.sui_client().get_balance(self.address(), None).await?;
         let wal_balance = self
             .sui_client()
-            .get_balance(self.address(), Some(self.read_client().wal_coin_type()))
+            .get_balance(
+                self.address(),
+                Some(self.read_client().wal_coin_type().to_owned()),
+            )
             .await?;
 
         if wal_balance.coin_object_count > 1 {

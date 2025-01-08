@@ -29,7 +29,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
-    client::{ReadClient, SuiClientError, SuiContractClient},
+    client::{contract_config::ContractConfig, ReadClient, SuiClientError, SuiContractClient},
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
@@ -55,7 +55,7 @@ pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
 pub async fn publish_with_default_system(
     admin_wallet: &mut WalletContext,
     node_wallet: WalletContext,
-) -> Result<(ObjectID, ObjectID)> {
+) -> Result<SystemContext> {
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
@@ -99,7 +99,7 @@ pub async fn publish_with_default_system(
     // call vote end
     end_epoch_zero(&contract_client).await?;
 
-    Ok((system_context.system_object, system_context.staking_object))
+    Ok(system_context)
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -123,14 +123,13 @@ impl SystemContext {
         backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(
-            wallet,
-            self.system_object,
-            self.staking_object,
-            backoff_config,
-            gas_budget,
-        )
-        .await
+        let contract_config = self.contract_config();
+        SuiContractClient::new(wallet, &contract_config, backoff_config, gas_budget).await
+    }
+
+    /// Returns the contract config for the system.
+    pub fn contract_config(&self) -> ContractConfig {
+        ContractConfig::new(self.system_object, self.staking_object)
     }
 }
 

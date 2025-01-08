@@ -15,6 +15,7 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
 use walrus_sui::client::{
+    contract_config::ContractConfig,
     retry_client::RetriableSuiClient,
     SuiClientError,
     SuiContractClient,
@@ -27,13 +28,9 @@ use crate::common::utils::{self, LoadConfig};
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
-    /// The Walrus system object ID.
-    pub system_object: ObjectID,
-    /// The Walrus staking object ID.
-    pub staking_object: ObjectID,
-    /// The Walrus package ID.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub walrus_package: Option<ObjectID>,
+    /// The Walrus contract config.
+    #[serde(flatten)]
+    pub contract_config: ContractConfig,
     /// The WAL exchange object ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exchange_object: Option<ExchangeObjectConfig>,
@@ -51,7 +48,7 @@ impl Config {
         &self,
         sui_client: RetriableSuiClient,
     ) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new(sui_client, self.system_object, self.staking_object).await
+        SuiReadClient::new(sui_client, &self.contract_config).await
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
@@ -62,8 +59,7 @@ impl Config {
     ) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
             wallet,
-            self.system_object,
-            self.staking_object,
+            &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,
         )
@@ -456,6 +452,7 @@ mod tests {
 
     use rand::{rngs::StdRng, SeedableRng};
     use sui_types::base_types::ObjectID;
+    use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;
 
     use crate::client::ExchangeObjectConfig;
@@ -467,10 +464,12 @@ mod tests {
     #[test]
     fn test_serialize_default_config() {
         let mut rng = StdRng::seed_from_u64(42);
-        let config = super::Config {
+        let contract_config = ContractConfig {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
-            walrus_package: Some(ObjectID::random_from_rng(&mut rng)),
+        };
+        let config = super::Config {
+            contract_config,
             exchange_object: Some(super::ExchangeObjectConfig::Multiple(vec![
                 ObjectID::random_from_rng(&mut rng),
                 ObjectID::random_from_rng(&mut rng),

@@ -22,7 +22,7 @@ use serde_with::{
     DurationSeconds,
     SerializeAs,
 };
-use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
+use sui_sdk::wallet_context::WalletContext;
 use walrus_core::keys::{
     KeyPairParseError,
     NetworkKeyPair,
@@ -31,7 +31,7 @@ use walrus_core::keys::{
     TaggedKeyPair,
 };
 use walrus_sui::{
-    client::{SuiClientError, SuiContractClient, SuiReadClient},
+    client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
     types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -360,13 +360,9 @@ impl Default for ShardSyncConfig {
 pub struct SuiConfig {
     /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
     pub rpc: String,
-    /// Object ID of the Walrus system object.
-    pub system_object: ObjectID,
-    /// Object ID of the Walrus staking object.
-    pub staking_object: ObjectID,
-    /// Object ID of the Walrus package.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub walrus_package: Option<ObjectID>,
+    /// Configuration of the contract packages and shared objects.
+    #[serde(flatten)]
+    pub contract_config: ContractConfig,
     /// Interval with which events are polled, in milliseconds.
     #[serde_as(as = "serde_with::DurationMilliSeconds")]
     #[serde(
@@ -390,8 +386,7 @@ impl SuiConfig {
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
         SuiReadClient::new_for_rpc(
             &self.rpc,
-            self.system_object,
-            self.staking_object,
+            &self.contract_config,
             self.backoff_config.clone(),
         )
         .await
@@ -401,8 +396,7 @@ impl SuiConfig {
     pub async fn new_contract_client(&self) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
             WalletContext::new(&self.wallet_config, None, None)?,
-            self.system_object,
-            self.staking_object,
+            &self.contract_config,
             self.backoff_config.clone(),
             self.gas_budget,
         )
