@@ -19,18 +19,18 @@ pub enum StorageConfirmation {
 /// Indicates the persistence of a blob.
 ///
 /// For deletable blobs the object ID of the associated Sui object is included.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlobPersistenceType {
-    /// The blob is deletable and was with the given object ID.
+    /// The blob is permanent.
+    Permanent,
+    /// The blob is deletable and has the given object ID.
     Deletable {
         /// The object ID of the associated Sui object.
         object_id: SuiObjectId,
     },
-    /// The blob is permanent.
-    Permanent,
 }
 
-/// The message body for a `StorageConfirmationMsg`,
+/// The message body for a [`Confirmation`],
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StorageConfirmationBody {
     /// The blob id of the blob that is being confirmed.
@@ -41,7 +41,7 @@ pub struct StorageConfirmationBody {
 }
 
 /// A Confirmation that a storage node has stored all respective slivers
-/// of a permanent blob in their shards.
+/// of a blob in their shards.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "ProtocolMessage<StorageConfirmationBody>")]
 pub struct Confirmation(pub(crate) ProtocolMessage<StorageConfirmationBody>);
@@ -129,8 +129,8 @@ mod tests {
         );
         assert_eq!(
             encoded[39..],
-            // BlobPersistenceType::Permanent should be encoded as 1
-            bcs::to_bytes(&1u8).expect("successful encoding")
+            // BlobPersistenceType::Permanent should be encoded as 0
+            bcs::to_bytes(&0u8).expect("successful encoding")
         );
     }
 
@@ -156,8 +156,8 @@ mod tests {
         );
         assert_eq!(
             encoded[39..40],
-            // BlobPersistenceType::Deletable should be encoded as 0, followed by the object ID
-            bcs::to_bytes(&0u8).expect("successful encoding")
+            // BlobPersistenceType::Deletable should be encoded as 1, followed by the object ID
+            bcs::to_bytes(&1u8).expect("successful encoding")
         );
         assert_eq!(
             encoded[40..],

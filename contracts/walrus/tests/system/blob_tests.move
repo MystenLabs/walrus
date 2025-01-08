@@ -101,6 +101,37 @@ fun blob_certify_single_function() {
     system.destroy_for_testing();
 }
 
+#[test]
+fun blob_certify_deletable_blob() {
+    let sk = test_utils::bls_sk_for_testing();
+
+    // Create a new system object
+    let mut system: system::System = system::new_for_testing();
+
+    // Get some space for a few epochs
+    let storage = get_storage_resource(&mut system, SIZE, 3);
+
+    // Register a Blob
+    let mut blob1 = register_default_blob(&mut system, storage, true);
+
+    // BCS confirmation message for epoch 0 and blob id `blob_id` with intents
+    let confirmation_message = messages::certified_deletable_message_bytes(
+        EPOCH,
+        default_blob_id(),
+        blob1.object_id(),
+    );
+    // Signature from private key scalar(117) on `confirmation`
+    let signature = bls_min_pk_sign(&confirmation_message, &sk);
+    // Set certify
+    system.certify_blob(&mut blob1, signature, signers_to_bitmap(&vector[0]), confirmation_message);
+
+    // Assert certified
+    assert!(blob1.certified_epoch().is_some());
+
+    blob1.burn();
+    system.destroy_for_testing();
+}
+
 #[test, expected_failure(abort_code = blob::EInvalidBlobPersistenceType)]
 fun blob_certify_deletable_msg_for_permanent_blob() {
     let sk = test_utils::bls_sk_for_testing();

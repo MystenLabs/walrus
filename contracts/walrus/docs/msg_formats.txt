@@ -48,8 +48,8 @@ blobs, followed by the object id of the deletable blob if it is a deletable blob
 
 ```
 enum BlobPersistenceType {
-    Deletable { object_id: [u8; 32] },
     Permanent,
+    Deletable { object_id: [u8; 32] },
 }
 ```
 

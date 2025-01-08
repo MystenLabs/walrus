@@ -1951,11 +1951,8 @@ impl ServiceState for StorageNodeInner {
             );
         }
 
-        let confirmation = Confirmation::new(
-            self.current_epoch(),
-            *blob_id,
-            blob_persistence_type.clone(),
-        );
+        let confirmation =
+            Confirmation::new(self.current_epoch(), *blob_id, *blob_persistence_type);
         let signed = sign_message(confirmation, self.protocol_key_pair.clone()).await?;
 
         self.metrics.storage_confirmations_issued_total.inc();

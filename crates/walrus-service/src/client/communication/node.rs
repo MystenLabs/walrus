@@ -253,12 +253,7 @@ impl<'a, W> NodeCommunication<'a, W> {
         })?;
 
         let _ = confirmation
-            .verify(
-                self.public_key(),
-                epoch,
-                *blob_id,
-                blob_persistence_type.clone(),
-            )
+            .verify(self.public_key(), epoch, *blob_id, *blob_persistence_type)
             .map_err(NodeError::other)?;
 
         Ok(confirmation)

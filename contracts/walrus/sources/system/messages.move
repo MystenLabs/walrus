@@ -94,8 +94,8 @@ public struct CertifiedMessage has drop {
 
 /// The persistence type of a blob. Used for storage confirmation.
 public enum BlobPersistenceType has copy, drop {
-    Deletable { object_id: ID },
     Permanent,
+    Deletable { object_id: ID },
 }
 
 /// Message type for certifying a blob.
@@ -327,11 +327,11 @@ public(package) fun object_id(self: &BlobPersistenceType): ID {
 public(package) fun peel_blob_persistence_type(bcs: &mut BCS): BlobPersistenceType {
     let type_id = bcs.peel_u8();
     if (type_id == 0) {
-        let object_id = bcs.peel_address().to_id();
-        return BlobPersistenceType::Deletable { object_id }
+        return BlobPersistenceType::Permanent
     };
     if (type_id == 1) {
-        return BlobPersistenceType::Permanent
+        let object_id = bcs.peel_address().to_id();
+        return BlobPersistenceType::Deletable { object_id }
     };
     abort EInvalidBlobPersistenceType
 }
@@ -366,27 +366,29 @@ public fun certified_deletable_blob_message_for_testing(
 }
 
 #[test_only]
-public fun certified_permanent_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
+fun certified_message_bytes(
+    epoch: u32,
+    blob_id: u256,
+    blob_persistence_type: BlobPersistenceType,
+): vector<u8> {
     let mut message = vector<u8>[];
     message.push_back(BLOB_CERT_MSG_TYPE);
     message.push_back(INTENT_VERSION);
     message.push_back(APP_ID);
     message.append(bcs::to_bytes(&epoch));
     message.append(bcs::to_bytes(&blob_id));
-    message.append(bcs::to_bytes(&BlobPersistenceType::Permanent));
+    message.append(bcs::to_bytes(&blob_persistence_type));
     message
 }
 
 #[test_only]
+public fun certified_permanent_message_bytes(epoch: u32, blob_id: u256): vector<u8> {
+    certified_message_bytes(epoch, blob_id, BlobPersistenceType::Permanent)
+}
+
+#[test_only]
 public fun certified_deletable_message_bytes(epoch: u32, blob_id: u256, object_id: ID): vector<u8> {
-    let mut message = vector<u8>[];
-    message.push_back(BLOB_CERT_MSG_TYPE);
-    message.push_back(INTENT_VERSION);
-    message.push_back(APP_ID);
-    message.append(bcs::to_bytes(&epoch));
-    message.append(bcs::to_bytes(&blob_id));
-    message.append(bcs::to_bytes(&BlobPersistenceType::Deletable { object_id }));
-    message
+    certified_message_bytes(epoch, blob_id, BlobPersistenceType::Deletable { object_id })
 }
 
 #[test_only]
