@@ -18,6 +18,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
+use crate::client::config::AuthConfig;
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -521,6 +522,24 @@ impl PublisherArgs {
             max_body_size = self.format_max_body_size(),
             message
         );
+    }
+
+    pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
+        if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
+            let mut config = self
+                .jwt_decode_secret
+                .take()
+                .map(AuthConfig::new)
+                .unwrap_or(Ok(AuthConfig::default()))?;
+            config.expiring_sec = self.jwt_expiring_sec;
+            config.verify_upload = self.jwt_verify_upload;
+            config.algorithm = self.jwt_algorithm;
+            tracing::info!("Auth config applied: {config:?}");
+            Ok(Some(config))
+        } else {
+            tracing::info!("Auth disabled");
+            Ok(None)
+        }
     }
 }
 

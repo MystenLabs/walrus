@@ -54,7 +54,7 @@ use crate::{
             CliOutput,
             HumanReadableMist,
         },
-        config::{AuthConfig, ExchangeObjectConfig},
+        config::ExchangeObjectConfig,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -463,22 +463,7 @@ impl ClientCommandRunner {
             &args,
         )
         .await?;
-        let auth_config = if args.jwt_decode_secret.is_some()
-            || args.jwt_expiring_sec > 0
-            || args.jwt_verify_upload
-        {
-            let mut c = args
-                .jwt_decode_secret
-                .take()
-                .map(AuthConfig::new)
-                .unwrap_or(Ok(AuthConfig::default()))?;
-            c.expiring_sec = args.jwt_expiring_sec;
-            c.verify_upload = args.jwt_verify_upload;
-            c.algorithm = args.jwt_algorithm;
-            Some(c)
-        } else {
-            None
-        };
+        let auth_config = args.generate_auth_config()?;
 
         ClientDaemon::new_publisher(
             client,
@@ -517,15 +502,7 @@ impl ClientCommandRunner {
 
     pub(crate) async fn daemon(self, registry: &Registry, mut args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
-        let auth_config = if let Some(secret) = args.jwt_decode_secret.take() {
-            let mut c = AuthConfig::new(secret).map_err(anyhow::Error::msg)?;
-            c.expiring_sec = args.jwt_expiring_sec;
-            c.verify_upload = args.jwt_verify_upload;
-            c.algorithm = args.jwt_algorithm;
-            Some(c)
-        } else {
-            None
-        };
+        let auth_config = args.generate_auth_config()?;
 
         let client = get_contract_client(
             self.config?,
