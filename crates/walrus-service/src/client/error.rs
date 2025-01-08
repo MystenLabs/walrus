@@ -22,12 +22,9 @@ pub enum StoreError {
     Confirmation(NodeError),
 }
 
-/// The contents of the publisher's authentication config are invalid.
 #[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("the content of `{0}` could not be decoded")]
-    DecodeError(&'static str),
-}
+#[error("the content of `{0}` could not be decoded")]
+pub struct DecodeError(pub &'static str);
 
 /// The sliver could not be stored on the node.
 #[derive(Debug, thiserror::Error)]

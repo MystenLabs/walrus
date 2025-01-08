@@ -24,7 +24,7 @@ use walrus_sui::client::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    client::error::ConfigError,
+    client::error::DecodeError,
     common::utils::{self, LoadConfig},
 };
 
@@ -113,15 +113,15 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    pub fn new(secret: String) -> Result<Self, ConfigError> {
+    pub fn new(secret: String) -> Result<Self, DecodeError> {
         if secret.starts_with("0x") {
             if secret.len() % 2 != 0 {
-                Err(ConfigError::DecodeError("jwt-decode-secret"))
+                Err(DecodeError("jwt-decode-secret"))
             } else {
                 let mut s = Vec::new();
                 for i in (2..secret.len()).step_by(2) {
                     let int = u8::from_str_radix(&secret[i..i + 2], 16)
-                        .map_err(|_| ConfigError::DecodeError("jwt-decode-secret"))?;
+                        .map_err(|_| DecodeError("jwt-decode-secret"))?;
                     s.push(int);
                 }
                 Ok(Self {
