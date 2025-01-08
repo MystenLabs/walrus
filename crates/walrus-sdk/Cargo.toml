@@ -6,6 +6,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+walrus-mainnet = ["walrus-core/walrus-mainnet"]
+
 [dependencies]
 bcs.workspace = true
 fastcrypto.workspace = true

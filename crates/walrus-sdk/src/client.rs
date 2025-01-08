@@ -65,6 +65,9 @@ const SLIVER_STATUS_TEMPLATE: &str =
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
 #[cfg(feature = "walrus-mainnet")]
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
+#[cfg(not(feature = "walrus-mainnet"))]
+const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation";
+#[cfg(feature = "walrus-mainnet")]
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
 const RECOVERY_URL_TEMPLATE: &str =
@@ -135,10 +138,20 @@ impl UrlEndpoints {
         blob_id: &BlobId,
         object_id: &ObjectID,
     ) -> (Url, &'static str) {
-        (
-            self.blob_resource(blob_id, &format!("confirmation/deletable/{object_id}")),
-            DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE,
-        )
+        if cfg!(feature = "walrus-mainnet") {
+            (
+                self.blob_resource(blob_id, &format!("confirmation/deletable/{object_id}")),
+                DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE,
+            )
+        } else {
+            (
+                // On testnet, we use the same URL for both permanent and deletable blobs.
+                // The message format does not include the BlobPersistenceType, so the
+                // confirmation is the same for both.
+                self.blob_resource(blob_id, "confirmation"),
+                DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE,
+            )
+        }
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> (Url, &'static str) {
@@ -973,16 +986,25 @@ mod tests {
         test_blob_url_endpoint: [
             blob: (|e| e.blob_resource(&BLOB_ID, ""), ""),
             metadata: (|e| e.metadata(&BLOB_ID).0, "metadata"),
-            #[cfg(not(feature = "mainnet-contracts"))]
+            #[cfg(not(feature = "walrus-mainnet"))]
             permanent_confirmation: (
                 |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent).0,
                 "confirmation"
             ),
-            #[cfg(feature = "mainnet-contracts")]
+            #[cfg(feature = "walrus-mainnet")]
             permanent_confirmation: (
                 |e| e.confirmation(&BLOB_ID, &BlobPersistenceType::Permanent).0,
                 "confirmation/permanent"
             ),
+            #[cfg(not(feature = "walrus-mainnet"))]
+            deletable_confirmation: (
+                |e| e.confirmation(
+                    &BLOB_ID,
+                    &BlobPersistenceType::Deletable { object_id: SuiObjectId([42; 32]) }
+                ).0,
+                "confirmation"
+            ),
+            #[cfg(feature = "walrus-mainnet")]
             deletable_confirmation: (
                 |e| e.confirmation(
                     &BLOB_ID,

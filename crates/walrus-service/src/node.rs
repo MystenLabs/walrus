@@ -2277,6 +2277,7 @@ mod tests {
             );
 
             assert_eq!(confirmation.as_ref().contents().blob_id, BLOB_ID);
+            #[cfg(feature = "walrus-mainnet")]
             assert_eq!(
                 confirmation.as_ref().contents().blob_type,
                 BlobPersistenceType::Permanent
