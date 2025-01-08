@@ -375,6 +375,52 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Adds a call to fund a shared blob.
+    pub async fn fund_shared_blob(
+        &mut self,
+        shared_blob_object_id: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        self.fill_wal_balance(amount).await?;
+        let shared_blob_arg = self.pt_builder.obj(
+            self.read_client
+                .object_arg_for_shared_obj(shared_blob_object_id, Mutability::Mutable)
+                .await?,
+        )?;
+        // Split the amount from the main WAL coin.
+        let split_main_coin_arg = self.wal_coin_arg()?;
+        let split_amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self.pt_builder.command(Command::SplitCoins(
+            split_main_coin_arg,
+            vec![split_amount_arg],
+        ));
+
+        let args = vec![shared_blob_arg, split_coin];
+        self.move_call(contracts::shared_blob::fund, args)?;
+        self.reduce_wal_balance(amount)?;
+        Ok(())
+    }
+
+    /// Adds a call to extend a shared blob.
+    pub async fn extend_shared_blob(
+        &mut self,
+        shared_blob_object_id: ObjectID,
+        epochs_ahead: Epoch,
+    ) -> SuiClientResult<()> {
+        let shared_blob_arg = self.pt_builder.obj(
+            self.read_client
+                .object_arg_for_shared_obj(shared_blob_object_id, Mutability::Mutable)
+                .await?,
+        )?;
+        let args = vec![
+            shared_blob_arg,
+            self.system_arg(Mutability::Mutable).await?,
+            self.pt_builder.pure(epochs_ahead)?,
+        ];
+        self.move_call(contracts::shared_blob::extend, args)?;
+        Ok(())
+    }
+
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.
     pub async fn transfer<I: IntoIterator<Item = ArgumentOrOwnedObject>>(
         &mut self,

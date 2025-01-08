@@ -217,6 +217,78 @@ impl ClientCommandRunner {
                 burn_selection,
                 yes,
             } => self.burn_blobs(burn_selection, yes.into()).await,
+
+            CliCommands::Fund {
+                shared_blob_obj_id,
+                amount,
+            } => {
+                let sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let spinner = styled_spinner();
+                spinner.set_message("funding blob...");
+
+                sui_client
+                    .fund_shared_blob(shared_blob_obj_id, amount)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
+                spinner.finish_with_message("done");
+                println!(
+                    "{} The blob has been funded with {} FROST",
+                    success(),
+                    amount
+                );
+                Ok(())
+            }
+
+            CliCommands::Extend {
+                shared_blob_obj_id,
+                epochs_ahead,
+            } => {
+                let sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let spinner = styled_spinner();
+                spinner.set_message("extending blob...");
+
+                sui_client
+                    .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
+                spinner.finish_with_message("done");
+                println!(
+                    "{} The blob has been extended by {} epochs",
+                    success(),
+                    epochs_ahead
+                );
+                Ok(())
+            }
+
+            CliCommands::Share { blob_obj_id } => {
+                let sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let spinner = styled_spinner();
+                spinner.set_message("sharing blob...");
+
+                let shared_blob_obj_id = sui_client
+                    .share_blob(blob_obj_id)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e))?;
+
+                spinner.finish_with_message("done");
+                println!(
+                    "{} The blob has been shared with id: {}",
+                    success(),
+                    shared_blob_obj_id
+                );
+                Ok(())
+            }
         }
     }
 
