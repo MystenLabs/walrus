@@ -305,6 +305,8 @@ pub struct CommitteeServiceConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
+    /// The number of additional symbols to fetch when recovering a sliver.
+    pub sliver_recovery_fetching_additional_symbols: usize,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -317,6 +319,7 @@ impl Default for CommitteeServiceConfig {
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
+            sliver_recovery_fetching_additional_symbols: 10,
         }
     }
 }

@@ -210,21 +210,21 @@ where
         // Since recovery currently consumes the symbols, rather than copy the symbols in every
         // case to handle the rare cases when we fail to *decode* the sliver despite collecting the
         // required number of symbols, we instead retry the entire process with an increased amount.
-        let mut additional_symbols = 0;
+        let mut additional_required_symbols = 0;
         loop {
             if let Some(result) = self
-                .recover_with_additional_symbols(additional_symbols)
+                .recover_with_additional_symbols(additional_required_symbols)
                 .await
             {
                 return result;
             }
-            additional_symbols += 1;
+            additional_required_symbols += 1;
         }
     }
 
     async fn recover_with_additional_symbols(
         &mut self,
-        additional_symbols: usize,
+        additional_required_symbols: usize,
     ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
         let mut committee_listener = self.shared.subscribe_to_committee_changes();
         let mut collected_symbols: HashMap<ShardIndex, RecoverySymbol<MerkleProof>> =
@@ -244,7 +244,7 @@ where
             let epoch_certified = self.epoch_certified;
             tokio::select! {
                 result = self.collect_recovery_symbols(
-                    &mut collected_symbols, additional_symbols, &weak_committee
+                    &mut collected_symbols, additional_required_symbols, &weak_committee
                 ) => {
                     match result {
                         Ok(n_symbols) => {
@@ -277,13 +277,14 @@ where
         }
     }
 
-    fn total_symbols_required(&self, additional_symbols: usize) -> usize {
+    fn total_symbols_required(&self, additional_required_symbols: usize) -> usize {
         let min_symbols_for_recovery = if self.sliver_type == SliverType::Primary {
             encoding::min_symbols_for_recovery::<Primary>
         } else {
             encoding::min_symbols_for_recovery::<Secondary>
         };
-        usize::from(min_symbols_for_recovery(self.metadata.n_shards())) + additional_symbols
+        usize::from(min_symbols_for_recovery(self.metadata.n_shards()))
+            + additional_required_symbols
     }
 
     /// Request and store recovery symbols in `self.collected_symbols`.
@@ -293,10 +294,17 @@ where
     async fn collect_recovery_symbols(
         &mut self,
         collected_symbols: &mut HashMap<ShardIndex, RecoverySymbol<MerkleProof>>,
-        additional_symbols: usize,
+        additional_required_symbols: usize,
         weak_committee: &Weak<Committee>,
     ) -> Result<usize, usize> {
-        let total_symbols_required = self.total_symbols_required(additional_symbols);
+        let total_symbols_required = self.total_symbols_required(additional_required_symbols);
+        // We fetch additional symbols to improve the sliver recovery latency. The tail latency
+        // of fetching a symbol may be high, which may greatly affect the recovery latency given
+        // that we need to fetch hundreds of symbols.
+        let additional_symbols_to_fetch = self
+            .shared
+            .config
+            .sliver_recovery_fetching_additional_symbols;
         let n_symbols_still_required = total_symbols_required - collected_symbols.len();
         debug_assert_ne!(n_symbols_still_required, 0);
         tracing::debug!(
@@ -318,12 +326,16 @@ where
         // the collected_symbols.
         let mut pending_requests = self
             .requests_iter(weak_committee, &mut shard_order, collected_symbols)
-            .take(n_symbols_still_required)
+            .take(n_symbols_still_required + additional_symbols_to_fetch)
             .collect::<FuturesUnordered<_>>();
 
         while let Some(response) = pending_requests.next().await {
             if let Some((shard_index, symbol)) = response {
                 collected_symbols.insert(shard_index, symbol);
+                if collected_symbols.len() >= total_symbols_required {
+                    // We have collected enough symbols, stop fetching more.
+                    break;
+                }
             } else {
                 // Request failed and was logged, replenish the future.
                 if let Some(future) = self
@@ -335,9 +347,8 @@ where
             }
         }
 
-        debug_assert!(pending_requests.is_empty());
         let total_symbols_collected = collected_symbols.len();
-        if total_symbols_collected == total_symbols_required {
+        if total_symbols_collected >= total_symbols_required {
             Ok(total_symbols_collected)
         } else {
             Err(total_symbols_required - total_symbols_collected)
