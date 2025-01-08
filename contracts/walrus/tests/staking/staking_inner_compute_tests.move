@@ -36,9 +36,9 @@ fun test_compute_even_distribution() {
     let pool_two = test::pool().register(&mut staking, ctx);
     let pool_three = test::pool().register(&mut staking, ctx);
 
-    let wal_alice = staking.stake_with_pool(test::mint(1000, ctx), pool_one, ctx);
-    let wal_bob = staking.stake_with_pool(test::mint(1000, ctx), pool_two, ctx);
-    let wal_karl = staking.stake_with_pool(test::mint(1000, ctx), pool_three, ctx);
+    let wal_alice = staking.stake_with_pool(test::mint(1_000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint(1_000, ctx), pool_two, ctx);
+    let wal_karl = staking.stake_with_pool(test::mint(1_000, ctx), pool_three, ctx);
 
     let committee = staking.compute_next_committee();
 
@@ -130,8 +130,8 @@ fun test_compute_large_committee() {
     });
 
     let committee = staking.compute_next_committee();
-
     assert!(committee.size() == 20);
+
     destroy(staking);
     destroy(staked_wals);
     clock.destroy_for_testing();

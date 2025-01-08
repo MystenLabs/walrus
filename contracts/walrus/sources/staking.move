@@ -10,6 +10,7 @@ use sui::{clock::Clock, coin::Coin, dynamic_object_field as df};
 use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
+    committee::Committee,
     node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
@@ -169,6 +170,11 @@ public(package) fun check_governance_authorization(
 /// Returns the current node weight for the given node id.
 public(package) fun get_current_node_weight(staking: &Staking, node_id: ID): u16 {
     staking.inner().get_current_node_weight(node_id)
+}
+
+/// Computes the committee for the next epoch.
+public fun compute_next_committee(staking: &Staking): Committee {
+    staking.inner().compute_next_committee()
 }
 
 // === Voting ===
