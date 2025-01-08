@@ -41,7 +41,7 @@ const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
 const MIN_NODES_FOR_SHARDS_LIMIT: u8 = 20;
 
 /// The maximum number of shards per node as a denominator of the total number of shards.
-const SHARED_LIMIT_DENOMINATOR: u8 = 10; // 10%
+const SHARDS_LIMIT_DENOMINATOR: u8 = 10; // 10%
 
 // The delta between the epoch change finishing and selecting the next epoch parameters in ms.
 // Currently half of an epoch.
@@ -534,7 +534,7 @@ fun dhondt(
 
     // Limit the number of shards per node if there are enough nodes.
     let max_shards = if (n_nodes >= (MIN_NODES_FOR_SHARDS_LIMIT as u64))
-        n_shards / (SHARED_LIMIT_DENOMINATOR as u64) else n_shards;
+        n_shards / (SHARDS_LIMIT_DENOMINATOR as u64) else n_shards;
 
     // Initial assignment following Hagenbach-Bischoff.
     // This assigns an initial number of shards to each node, s.t. this does not exceed the final
