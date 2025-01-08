@@ -21,16 +21,16 @@ struct Claim {
     /// Token is issued at (timestamp).
     pub iat: Option<u64>,
 
-    /// Token is expires at (timestamp).
+    /// Token expires at (timestamp).
     pub exp: u64,
 
-    /// Address is the sui blob object owner
+    /// The owner address of the sui blob object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub address: Option<String>,
+    pub send_object_to: Option<String>,
 
     /// The number of epochs the blob should be stored for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub epoch: Option<u32>,
+    pub epochs: Option<u32>,
 }
 
 impl Claim {
@@ -211,15 +211,15 @@ where
                         }
                         if self.auth_config.verify_upload {
                             let query = req.uri().query();
-                            if let Some(epoch) = claim.epoch {
-                                if !check_query(query, "epochs", epoch.to_string()) {
-                                    error!("upload with invalid epoch: {}", epoch);
+                            if let Some(epochs) = claim.epochs {
+                                if !check_query(query, "epochs", epochs.to_string()) {
+                                    error!("upload with invalid epochs: {}", epochs);
                                     valid_upload = false;
                                 }
                             }
-                            if let Some(address) = claim.address {
-                                if !check_query(query, "send_object_to", &address) {
-                                    error!("upload to an invalid address: {}", address);
+                            if let Some(send_object_to) = claim.send_object_to {
+                                if !check_query(query, "send_object_to", &send_object_to) {
+                                    error!("upload to an invalid address: {}", send_object_to);
                                     valid_upload = false;
                                 }
                             }
@@ -296,8 +296,8 @@ mod tests {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
-            address: None,
-            epoch: None,
+            send_object_to: None,
+            epochs: None,
         };
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
@@ -358,8 +358,8 @@ mod tests {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
-            address: Some("0x1".to_string()),
-            epoch: Some(1),
+            send_object_to: Some("0x1".to_string()),
+            epochs: Some(1),
         };
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
@@ -427,8 +427,8 @@ mod tests {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
-            address: Some("0x1".to_string()),
-            epoch: Some(1),
+            send_object_to: Some("0x1".to_string()),
+            epochs: Some(1),
         };
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
@@ -496,20 +496,20 @@ mod tests {
         let valid_claim = Claim {
             iat: Some(0),
             exp: u64::MAX - 1,
-            address: None,
-            epoch: None,
+            send_object_to: None,
+            epochs: None,
         };
         let invalid_claim = Claim {
             iat: Some(0),
             exp: u64::MAX,
-            address: None,
-            epoch: None,
+            send_object_to: None,
+            epochs: None,
         };
         let invalid_claim2 = Claim {
             iat: None,
             exp: u64::MAX,
-            address: None,
-            epoch: None,
+            send_object_to: None,
+            epochs: None,
         };
 
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
@@ -581,8 +581,8 @@ mod tests {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
-            address: None,
-            epoch: None,
+            send_object_to: None,
+            epochs: None,
         };
         let encode_key = EncodingKey::from_ed_der(doc.as_ref());
         let token = encode(
