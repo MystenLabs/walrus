@@ -320,18 +320,12 @@ public fun bls_sk_for_testing(): vector<u8> {
 
 /// Returns 10 bls secret keys.
 public fun bls_secret_keys_for_testing(): vector<vector<u8>> {
-    vector[
-        x"DEADBEEF",
-        x"BEEF",
-        x"CAFE",
-        x"C0DE",
-        x"C0FFEE",
-        x"DEAD",
-        x"DECADE",
-        x"DEC0DE",
-        x"FACE",
-        x"F00D",
-    ].map!(|key| pad_bls_sk(&key))
+    let mut res = vector[];
+    10u64.do!(|i| {
+        let sk = bls12381::scalar_from_u64(1 + (i as u64));
+        res.push_back(*sk.bytes());
+    });
+    res
 }
 
 /// Aggregates the given signatures into one signature.
