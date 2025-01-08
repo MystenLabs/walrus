@@ -846,8 +846,8 @@ impl EventProcessor {
 
         let blobs = collect_event_blobs_for_catchup(
             clients.sui_client.clone(),
-            system_objects.system_object_id,
             system_objects.staking_object_id,
+            system_objects.system_object_id,
             Some(system_objects.system_pkg_id),
             next_checkpoint,
             recovery_path,
