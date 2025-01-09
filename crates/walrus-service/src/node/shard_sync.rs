@@ -262,7 +262,14 @@ impl ShardSyncHandler {
             current_epoch
         );
 
-        // TODO(#705): implement rate limiting for shard syncs.
+        // Panics if error occurs.
+        let permit = self
+            .shard_sync_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("Failed to acquire shard sync semaphore");
+
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
         let Entry::Vacant(entry) = shard_sync_in_progress.entry(shard_storage.id()) else {
             // We have checked the shard_sync_in_progress map before starting the sync task. So,
@@ -290,8 +297,6 @@ impl ShardSyncHandler {
             let directly_recover_shard = Arc::new(Mutex::new(false));
 
             backoff::retry(backoff, || async {
-                // A simple approach to limit the number of concurrent shard syncs, without considering the priority of the syncs.
-                let _permit = shard_sync_handler_clone.shard_sync_semaphore.acquire().await;
                 metrics::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
                 let recover_shard = *directly_recover_shard.lock().await;
                 let sync_result = shard_storage
@@ -302,7 +307,6 @@ impl ShardSyncHandler {
                         recover_shard,
                     )
                     .await;
-
                 match sync_result {
                     Ok(_) => {
                         metrics::with_label!(node_clone.metrics.shard_sync_total, "complete").inc();
@@ -378,6 +382,7 @@ impl ShardSyncHandler {
                     .epoch_sync_done(current_epoch)
                     .await;
             }
+            drop(permit);
         });
         entry.insert(shard_sync_task);
     }
@@ -413,6 +418,34 @@ mod tests {
             .build()
             .await
             .unwrap()
+    }
+
+    #[tokio::test(start_paused = false)]
+    async fn test_shard_syncs_with_concurrency_limit() {
+        let cluster = create_test_cluster(&[&[0, 1, 2]]).await;
+        for i in [0, 2] {
+            cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .shard_storage(ShardIndex(i))
+                .expect("Failed to get shard storage")
+                .update_status_in_test(ShardStatus::ActiveSync)
+                .expect("Failed to update shard status");
+        }
+
+        let mut config = ShardSyncConfig::default();
+        config.shard_sync_concurrency = 1;
+        let shard_sync_handler = ShardSyncHandler::new(
+            cluster.nodes[0].storage_node.inner.clone(),
+            config,
+        );
+
+        shard_sync_handler
+            .restart_syncs()
+            .await
+            .expect("Failed to restart syncs");
+        assert_eq!(shard_sync_handler.current_sync_task_count().await, 1);
     }
 
     #[tokio::test(start_paused = false)]
