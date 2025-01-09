@@ -534,8 +534,7 @@ fun dhondt(
     assert!(total_stake > 0, ENoStake);
 
     // Limit the number of shards per node if there are enough nodes.
-    let max_shards = if (n_nodes >= (MIN_NODES_FOR_SHARDS_LIMIT as u64))
-        n_shards / (SHARDS_LIMIT_DENOMINATOR as u64) else n_shards;
+    let max_shards = max_shards_per_node(n_nodes, n_shards);
 
     // Initial assignment following Hagenbach-Bischoff.
     // This assigns an initial number of shards to each node, s.t. this does not exceed the final
@@ -570,6 +569,17 @@ fun dhondt(
         n_shards_distributed = n_shards_distributed + 1;
     };
     shards.map!(|s| s as u16)
+}
+
+/// Returns the maximum number of shards per node.
+fun max_shards_per_node(n_nodes: u64, n_shards: u64): u64 {
+    if (n_nodes >= (MIN_NODES_FOR_SHARDS_LIMIT as u64)) {
+        n_shards / (SHARDS_LIMIT_DENOMINATOR as u64)
+    } else {
+        (n_shards * (MIN_NODES_FOR_SHARDS_LIMIT as u64)).divide_and_round_up(
+            n_nodes * (SHARDS_LIMIT_DENOMINATOR as u64),
+        )
+    }
 }
 
 /// Initiates the epoch change if the current time allows.
