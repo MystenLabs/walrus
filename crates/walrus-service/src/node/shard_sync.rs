@@ -111,6 +111,11 @@ impl ShardSyncHandler {
     }
 
     /// Syncs the certified blob metadata before the current epoch.
+    ///
+    /// This function performs the following steps:
+    /// 1. Retrieves all certified blob info from storage before the current epoch
+    /// 2. Processes blobs concurrently up to max_concurrent_metadata_fetch limit
+    /// 3. For each blob, syncs its metadata using sync_single_blob_metadata
     async fn sync_certified_blob_metadata(&self) -> Result<(), SyncShardClientError> {
         tracing::info!("start syncing blob metadata");
         let blob_infos = self
@@ -123,9 +128,6 @@ impl ShardSyncHandler {
             inject_recovery_metadata_failure_before_fetch()?;
         }
 
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(
-            self.config.max_concurrent_metadata_fetch,
-        ));
         let mut futures = FuturesUnordered::new();
         let mut active_count = 0;
 
@@ -135,17 +137,12 @@ impl ShardSyncHandler {
         for blob_info in blob_infos {
             let (blob_id, blob_info) = blob_info?;
             let node_clone = self.node.clone();
-            let permit = semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("semaphore should not been dropped");
 
             // TODO(WAL-478):
             //   - create a end point that can transfer multiple blob metadata at once.
-            futures.push(tokio::spawn(async move {
-                Self::sync_single_blob_metadata(permit, node_clone, blob_id, blob_info).await
-            }));
+            futures.push(Self::sync_single_blob_metadata(
+                node_clone, blob_id, blob_info,
+            ));
             active_count += 1;
 
             #[cfg(msim)]
@@ -156,23 +153,17 @@ impl ShardSyncHandler {
 
             // Wait for a task to complete if we've reached max concurrent limit
             while active_count >= self.config.max_concurrent_metadata_fetch {
-                match futures.next().await {
-                    Some(Ok(result)) => {
-                        result?;
-                        active_count -= 1;
-                    }
-                    Some(Err(error)) => return Err(SyncShardClientError::Internal(error.into())),
-                    None => break, // All futures completed
+                // Process one completed future
+                if let Some(result) = futures.next().await {
+                    result.map_err(|e| SyncShardClientError::Internal(e.into()))?;
                 }
+                active_count -= 1;
             }
         }
 
-        // Wait for all tasks to complete
+        // Wait for remaining tasks to complete
         while let Some(result) = futures.next().await {
-            match result {
-                Ok(result) => result?,
-                Err(error) => return Err(SyncShardClientError::Internal(error.into())),
-            };
+            result.map_err(|e| SyncShardClientError::Internal(e.into()))?;
         }
 
         tracing::info!("finished syncing blob metadata");
@@ -181,13 +172,10 @@ impl ShardSyncHandler {
 
     /// Syncs a single blob metadata.
     async fn sync_single_blob_metadata(
-        permit: tokio::sync::OwnedSemaphorePermit,
         node: Arc<StorageNodeInner>,
         blob_id: BlobId,
         blob_info: BlobInfo,
     ) -> Result<(), SyncShardClientError> {
-        let _permit = permit; // Keep permit alive for the duration of the task
-
         node.metrics
             .sync_blob_metadata_progress
             .set(blob_id.first_two_bytes() as i64);
