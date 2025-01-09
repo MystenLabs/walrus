@@ -595,7 +595,7 @@ impl Client<SuiContractClient> {
         let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
-            "retrieved {} blobs statuses",
+            "retrieved {} blob statuses",
             blob_id_to_metadata_with_status.len()
         );
 
@@ -615,7 +615,7 @@ impl Client<SuiContractClient> {
             .await?;
         tracing::info!(
             duration = ?store_op_timer.elapsed(),
-            "{} blobs resources obtained",
+            "{} blob resources obtained",
             store_operations.len()
         );
 

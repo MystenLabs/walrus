@@ -121,14 +121,10 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         // TODO(mlegner): Document error responses. (#178, #462)
     ),
 )]
-// TODO(giac): remove the force parameter from the publisher (breaking change),
-// and remove the allow(deprecated).
-#[allow(deprecated)]
 pub(super) async fn put_blob<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
     Query(PublisherQuery {
         epochs,
-        force: _force,
         deletable,
         send_object_to,
     }): Query<PublisherQuery>,
@@ -206,12 +202,6 @@ pub(super) struct PublisherQuery {
     /// The default is 1 epoch.
     #[serde(default = "default_epochs")]
     epochs: EpochCount,
-    /// This parameter is deprecated and will be removed in the future.
-    ///
-    /// It is currently ignored by the publisher
-    #[deprecated]
-    #[serde(default)]
-    force: bool,
     /// If true, the publisher creates a deletable blob instead of a permanent one.
     #[serde(default)]
     deletable: bool,

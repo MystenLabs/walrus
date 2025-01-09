@@ -36,7 +36,7 @@ pub struct App {
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(short, long, verbatim_doc_comment)]
+    #[clap(long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
@@ -51,11 +51,11 @@ pub struct App {
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(short, long, verbatim_doc_comment)]
+    #[clap(long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub wallet: Option<PathBuf>,
     /// The gas budget for transactions.
-    #[clap(short, long, default_value_t = default::gas_budget())]
+    #[clap(long, default_value_t = default::gas_budget())]
     #[serde(default = "default::gas_budget")]
     pub gas_budget: u64,
     /// Write output as JSON.
@@ -168,8 +168,8 @@ pub enum CliCommands {
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(short, long)]
-        epochs: Option<EpochCount>,
+        #[clap(long)]
+        epochs: EpochCount,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -204,7 +204,7 @@ pub enum CliCommands {
         /// The file path where to write the blob.
         ///
         /// If unset, prints the blob to stdout.
-        #[clap(short, long)]
+        #[clap(long)]
         #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
         out: Option<PathBuf>,
         /// The URL of the Sui RPC node to use.
@@ -228,7 +228,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         file_or_blob_id: FileOrBlobId,
         /// Timeout for status requests to storage nodes.
-        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1s")]
+        #[clap(long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
         /// The URL of the Sui RPC node to use.
@@ -255,7 +255,7 @@ pub enum CliCommands {
         /// The number of shards for which to compute the blob ID.
         ///
         /// If not specified, the number of shards is read from chain.
-        #[clap(short, long)]
+        #[clap(long)]
         #[serde(default)]
         n_shards: Option<NonZeroU16>,
         /// The URL of the Sui RPC node to use.
@@ -285,7 +285,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         target: FileOrBlobIdOrObjectId,
         /// Proceed to delete the blob without confirmation.
-        #[clap(short, long, action)]
+        #[clap(long, action)]
         #[serde(default)]
         yes: bool,
         /// Disable checking the status of the blob after deletion.
@@ -300,7 +300,7 @@ pub enum CliCommands {
         #[clap(long)]
         /// The object ID of the storage node to stake with.
         node_id: ObjectID,
-        #[clap(short, long, default_value_t = default::staking_amount_frost())]
+        #[clap(long, default_value_t = default::staking_amount_frost())]
         #[serde(default = "default::staking_amount_frost")]
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
         amount: u64,
@@ -321,7 +321,7 @@ pub enum CliCommands {
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
         /// Timeout for the faucet call.
-        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1min")]
+        #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
@@ -332,7 +332,7 @@ pub enum CliCommands {
         ///
         /// This takes precedence over the value in the config file.
         exchange_id: Option<ObjectID>,
-        #[clap(short, long, default_value_t = default::exchange_amount_mist())]
+        #[clap(long, default_value_t = default::exchange_amount_mist())]
         #[serde(default = "default::exchange_amount_mist")]
         /// The amount of MIST to exchange for WAL/FROST.
         amount: u64,
@@ -356,7 +356,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         burn_selection: BurnSelection,
         /// Proceed to burn the blobs without confirmation.
-        #[clap(short, long, action)]
+        #[clap(long, action)]
         #[serde(default)]
         yes: bool,
     },
@@ -507,7 +507,7 @@ pub struct RpcArg {
     /// If unset, the wallet configuration is applied (if set), or the fullnode at
     /// `fullnode.testnet.sui.io:443` is used.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde(default)]
     pub(crate) rpc_url: Option<String>,
 }
@@ -516,7 +516,7 @@ pub struct RpcArg {
 #[serde(rename_all = "camelCase")]
 pub struct DaemonArgs {
     /// The address to which to bind the service.
-    #[clap(short, long, default_value_t = default::bind_address())]
+    #[clap(long, default_value_t = default::bind_address())]
     #[serde(default = "default::bind_address")]
     pub(crate) bind_address: SocketAddr,
     /// Socket address on which the Prometheus server should export its metrics.
@@ -535,11 +535,11 @@ pub struct DaemonArgs {
 #[group(required = true, multiple = false)]
 pub struct FileOrBlobId {
     /// The file containing the blob to be checked.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
@@ -578,20 +578,20 @@ pub struct FileOrBlobIdOrObjectId {
     /// The file containing the blob to be deleted.
     ///
     /// This is equivalent to calling `blob-id` on the file, and then deleting with `--blob-id`.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be deleted.
     ///
     /// This command deletes _all_ owned blob objects matching the provided blob ID.
-    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
     /// The object ID of the blob object to be deleted.
     ///
     /// This command deletes only the blob object with the given object ID.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) object_id: Option<ObjectID>,
@@ -695,15 +695,10 @@ impl BurnSelection {
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
-    use walrus_core::EpochCount;
     use walrus_sui::utils::SuiNetwork;
 
     pub(crate) fn gas_budget() -> u64 {
         100_000_000
-    }
-
-    pub(crate) fn epochs() -> EpochCount {
-        1
     }
 
     pub(crate) fn max_body_size_kib() -> usize {
@@ -787,7 +782,7 @@ mod tests {
 
     use super::*;
 
-    const STORE_STR: &str = r#"{"store": {"files": ["README.md"]}}"#;
+    const STORE_STR: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
@@ -807,7 +802,7 @@ mod tests {
     fn store_command() -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epochs: None,
+            epochs: 1,
             dry_run: false,
             force: false,
             deletable: false,
