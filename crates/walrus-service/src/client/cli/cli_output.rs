@@ -33,9 +33,12 @@ use crate::client::{
         DryRunOutput,
         ExampleBlobInfo,
         ExchangeOutput,
+        ExtendBlobOutput,
+        FundSharedBlobOutput,
         InfoDevOutput,
         InfoOutput,
         ReadOutput,
+        ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
         WalletOutput,
@@ -584,6 +587,36 @@ impl CliOutput for ExchangeOutput {
             "{} Exchanged {} for WAL.",
             success(),
             HumanReadableMist::from(self.amount_sui),
+        );
+    }
+}
+
+impl CliOutput for ShareBlobOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} The blob has been shared, object id: {}",
+            success(),
+            self.shared_blob_object_id
+        );
+    }
+}
+
+impl CliOutput for FundSharedBlobOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} The blob has been funded with {}",
+            success(),
+            HumanReadableFrost::from(self.amount)
+        );
+    }
+}
+
+impl CliOutput for ExtendBlobOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} The blob has been extended by {} epochs",
+            success(),
+            self.epochs_ahead
         );
     }
 }

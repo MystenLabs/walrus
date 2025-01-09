@@ -63,8 +63,11 @@ use crate::{
             DeleteOutput,
             DryRunOutput,
             ExchangeOutput,
+            ExtendBlobOutput,
+            FundSharedBlobOutput,
             InfoOutput,
             ReadOutput,
+            ShareBlobOutput,
             StakeOutput,
             WalletOutput,
         },
@@ -218,7 +221,7 @@ impl ClientCommandRunner {
                 yes,
             } => self.burn_blobs(burn_selection, yes.into()).await,
 
-            CliCommands::Fund {
+            CliCommands::FundSharedBlob {
                 shared_blob_obj_id,
                 amount,
             } => {
@@ -231,16 +234,10 @@ impl ClientCommandRunner {
 
                 sui_client
                     .fund_shared_blob(shared_blob_obj_id, amount)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e))?;
+                    .await?;
 
                 spinner.finish_with_message("done");
-                println!(
-                    "{} The blob has been funded with {} FROST",
-                    success(),
-                    amount
-                );
-                Ok(())
+                FundSharedBlobOutput { amount }.print_output(self.json)
             }
 
             CliCommands::Extend {
@@ -256,19 +253,16 @@ impl ClientCommandRunner {
 
                 sui_client
                     .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e))?;
+                    .await?;
 
                 spinner.finish_with_message("done");
-                println!(
-                    "{} The blob has been extended by {} epochs",
-                    success(),
-                    epochs_ahead
-                );
-                Ok(())
+                ExtendBlobOutput { epochs_ahead }.print_output(self.json)
             }
 
-            CliCommands::Share { blob_obj_id } => {
+            CliCommands::Share {
+                blob_obj_id,
+                amount,
+            } => {
                 let sui_client = self
                     .config?
                     .new_contract_client(self.wallet?, self.gas_budget)
@@ -276,18 +270,15 @@ impl ClientCommandRunner {
                 let spinner = styled_spinner();
                 spinner.set_message("sharing blob...");
 
-                let shared_blob_obj_id = sui_client
-                    .share_blob(blob_obj_id)
-                    .await
-                    .map_err(|e| anyhow::anyhow!(e))?;
+                let shared_blob_object_id = sui_client
+                    .share_and_maybe_fund_blob(blob_obj_id, amount)
+                    .await?;
 
                 spinner.finish_with_message("done");
-                println!(
-                    "{} The blob has been shared with id: {}",
-                    success(),
-                    shared_blob_obj_id
-                );
-                Ok(())
+                ShareBlobOutput {
+                    shared_blob_object_id,
+                }
+                .print_output(self.json)
             }
         }
     }

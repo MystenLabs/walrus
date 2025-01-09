@@ -493,3 +493,27 @@ pub struct ExchangeOutput {
     /// The amount of SUI exchanged (in MIST).
     pub amount_sui: u64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus share` command.
+pub struct ShareBlobOutput {
+    /// The shared blob object ID.
+    pub shared_blob_object_id: ObjectID,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus fund-shared-blob` command.
+pub struct FundSharedBlobOutput {
+    /// The amount of FROST funded.
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus extend` command.
+pub struct ExtendBlobOutput {
+    /// The number of epochs extended by.
+    pub epochs_ahead: u32,
+}

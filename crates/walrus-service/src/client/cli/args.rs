@@ -371,7 +371,7 @@ pub enum CliCommands {
     },
 
     /// Fund a shared blob.
-    Fund {
+    FundSharedBlob {
         /// The object ID of the shared blob to fund.
         #[clap(long)]
         shared_blob_obj_id: ObjectID,
@@ -393,6 +393,9 @@ pub enum CliCommands {
         /// The object ID of the (owned) blob to share.
         #[clap(long)]
         blob_obj_id: ObjectID,
+        /// If specified, share and directly fund the blob.
+        #[clap(long)]
+        amount: Option<u64>,
     },
 }
 

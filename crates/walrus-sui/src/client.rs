@@ -1101,8 +1101,12 @@ impl SuiContractClient {
         Ok(())
     }
 
-    /// Shares the blob object with the given object ID.
-    pub async fn share_blob(&self, blob_obj_id: ObjectID) -> SuiClientResult<ObjectID> {
+    /// Shares the blob object with the given object ID. If amount is specified, also fund the blob.
+    pub async fn share_and_maybe_fund_blob(
+        &self,
+        blob_obj_id: ObjectID,
+        amount: Option<u64>,
+    ) -> SuiClientResult<ObjectID> {
         let blob: Blob = self
             .read_client
             .sui_client
@@ -1110,7 +1114,20 @@ impl SuiContractClient {
             .await?;
         let wallet = self.wallet().await;
         let mut pt_builder = self.transaction_builder();
-        pt_builder.new_shared_blob(blob.id.into()).await?;
+
+        if let Some(amount) = amount {
+            #[cfg(feature = "walrus-mainnet")]
+            pt_builder
+                .new_funded_shared_blob(blob.id.into(), amount)
+                .await?;
+            #[cfg(not(feature = "walrus-mainnet"))]
+            return Err(SuiClientError::Internal(anyhow::anyhow!(
+                "do not support new funded shared blob"
+            )));
+        } else {
+            pt_builder.new_shared_blob(blob.id.into()).await?;
+        }
+
         let (ptb, _) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let shared_blob_obj_id = get_created_sui_object_ids_by_type(

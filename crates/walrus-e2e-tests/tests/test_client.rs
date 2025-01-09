@@ -830,10 +830,11 @@ async fn test_share_blobs() -> TestResult {
         (blob_object.storage.end_epoch, blob_object.id)
     };
 
+    // Share the blob without funding.
     let shared_blob_object_id = client
         .as_ref()
         .sui_client()
-        .share_blob(blob_object_id)
+        .share_and_maybe_fund_blob(blob_object_id, None)
         .await?;
     let shared_blob: SharedBlob = client
         .as_ref()
@@ -843,6 +844,7 @@ async fn test_share_blobs() -> TestResult {
         .await?;
     assert_eq!(shared_blob.funds, 0);
 
+    // Fund the shared blob.
     client
         .as_ref()
         .sui_client()
@@ -856,6 +858,7 @@ async fn test_share_blobs() -> TestResult {
         .await?;
     assert_eq!(shared_blob.funds, 1000000000);
 
+    // Extend the shared blob.
     client
         .as_ref()
         .sui_client()
