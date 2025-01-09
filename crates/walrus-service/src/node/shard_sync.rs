@@ -12,6 +12,7 @@ use tokio::sync::{Mutex, Semaphore};
 use walrus_core::ShardIndex;
 use walrus_sdk::error::ServiceError;
 use walrus_utils::backoff::{self, ExponentialBackoff};
+use rand::Rng;
 
 use super::{
     config::ShardSyncConfig,
@@ -263,6 +264,7 @@ impl ShardSyncHandler {
         );
 
         // Panics if error occurs.
+        // The rate limit is enforced by the semaphore, without considering the priority of the syncs.
         let permit = self
             .shard_sync_semaphore
             .clone()
@@ -435,7 +437,8 @@ mod tests {
         }
 
         let mut config = ShardSyncConfig::default();
-        config.shard_sync_concurrency = 1;
+        let concurrency = rand::thread_rng().gen_range(1..3);
+        config.shard_sync_concurrency = concurrency;
         let shard_sync_handler = ShardSyncHandler::new(
             cluster.nodes[0].storage_node.inner.clone(),
             config,
@@ -445,7 +448,7 @@ mod tests {
             .restart_syncs()
             .await
             .expect("Failed to restart syncs");
-        assert_eq!(shard_sync_handler.current_sync_task_count().await, 1);
+        assert_eq!(shard_sync_handler.current_sync_task_count().await, concurrency);
     }
 
     #[tokio::test(start_paused = false)]
