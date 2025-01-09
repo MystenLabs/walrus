@@ -154,7 +154,6 @@ fn main() -> anyhow::Result<()> {
 
     match args.command {
         Commands::DeploySystemContract(args) => commands::deploy_system_contract(args)?,
-
         Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
     }
     Ok(())

@@ -109,7 +109,7 @@ export TMPDIR=$(mktemp -d)
 root_dir="$(git rev-parse --show-toplevel)"
 export SIMTEST_STATIC_INIT_MOVE="$root_dir/testnet-contracts/walrus"
 
-cargo ${CARGO_COMMAND[@]} \
+cargo "${CARGO_COMMAND[@]}" \
   --config "build.rustflags = [$RUST_FLAGS]" \
   "${cargo_patch_args[@]}" \
   "$@"

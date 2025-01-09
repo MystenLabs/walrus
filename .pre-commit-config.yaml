@@ -13,6 +13,17 @@ repos:
     hooks:
       - id: editorconfig-checker
         alias: ec
+  - repo: local
+    hooks:
+      - id: shellcheck
+        args: ["--severity=error"]
+        name: shellcheck
+        description: Test shell scripts with shellcheck
+        entry: shellcheck
+        # Note that this relies on https://github.com/shellcheck-py/shellcheck-py.
+        language: python
+        types: [shell]
+        require_serial: true # shellcheck can detect sourcing this way
   - repo: https://github.com/google/yamlfmt
     rev: v0.14.0
     hooks:
