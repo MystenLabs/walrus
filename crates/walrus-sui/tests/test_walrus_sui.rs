@@ -7,6 +7,7 @@ use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::bail;
 use fastcrypto::traits::ToFromBytes;
+use sui_types::base_types::SuiAddress;
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::EncodingConfig,
@@ -371,6 +372,79 @@ async fn test_register_candidate() -> anyhow::Result<()> {
         second_registration_result,
         Err(SuiClientError::CapabilityObjectAlreadyExists(_))
     ));
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_set_authorized() -> anyhow::Result<()> {
+    use sui_types::base_types::ObjectID;
+    use walrus_sui::types::move_structs::Authorized;
+
+    _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let protocol_key_pair = ProtocolKeyPair::generate();
+    let network_key_pair = NetworkKeyPair::generate();
+
+    let registration_params =
+        NodeRegistrationParams::new_for_test(protocol_key_pair.public(), network_key_pair.public());
+
+    let proof_of_possession = utils::generate_proof_of_possession(
+        &protocol_key_pair,
+        &walrus_client.inner,
+        &registration_params,
+        walrus_client.inner.current_epoch().await?,
+    );
+
+    let cap = walrus_client
+        .inner
+        .register_candidate(&registration_params, proof_of_possession.clone())
+        .await?;
+
+    // Set the commission receiver to a new address
+    let new_address = SuiAddress::random_for_testing_only();
+    walrus_client
+        .as_ref()
+        .set_commission_receiver(cap.node_id, Authorized::Address(new_address))
+        .await?;
+
+    let commission_receiver = walrus_client
+        .as_ref()
+        .read_client()
+        .get_staking_pool(cap.node_id)
+        .await?
+        .commission_receiver;
+    assert_eq!(commission_receiver, Authorized::Address(new_address));
+
+    // Set the governance authorized to the storage node cap
+    walrus_client
+        .as_ref()
+        .set_governance_authorized(cap.node_id, Authorized::Object(cap.id))
+        .await?;
+
+    let governance_authorized = walrus_client
+        .as_ref()
+        .read_client()
+        .get_staking_pool(cap.node_id)
+        .await?
+        .governance_authorized;
+    assert_eq!(governance_authorized, Authorized::Object(cap.id));
+
+    // Set the governance authorized to another object using the storage node cap to authenticate
+    let object_id = ObjectID::random();
+    walrus_client
+        .as_ref()
+        .set_governance_authorized(cap.node_id, Authorized::Object(object_id))
+        .await?;
+
+    let governance_authorized = walrus_client
+        .as_ref()
+        .read_client()
+        .get_staking_pool(cap.node_id)
+        .await?
+        .governance_authorized;
+    assert_eq!(governance_authorized, Authorized::Object(object_id));
 
     Ok(())
 }

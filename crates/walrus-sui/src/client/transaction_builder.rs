@@ -10,14 +10,16 @@ use std::{
 };
 
 use fastcrypto::traits::ToFromBytes;
+use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
-    base_types::{ObjectID, SuiAddress},
+    base_types::{ObjectID, ObjectType, SuiAddress},
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
     Identifier,
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
 };
+use tracing::instrument;
 use walrus_core::{
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     Epoch,
@@ -36,7 +38,11 @@ use super::{
 };
 use crate::{
     contracts::{self, FunctionTag},
-    types::{move_structs::WalExchange, NodeMetadata, NodeRegistrationParams},
+    types::{
+        move_structs::{Authorized, WalExchange},
+        NodeMetadata,
+        NodeRegistrationParams,
+    },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };
 
@@ -585,6 +591,23 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
+    /// Adds a call to update the node metadata by first creating the metadata and then calling
+    /// `set_node_metadata` with the metadata argument.
+    pub async fn set_node_metadata(
+        &mut self,
+        storage_node_cap: ArgumentOrOwnedObject,
+        node_metadata: &NodeMetadata,
+    ) -> SuiClientResult<()> {
+        let metadata_arg = self.create_node_metadata(node_metadata).await?;
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(storage_node_cap).await?,
+            metadata_arg,
+        ];
+        self.walrus_move_call(contracts::staking::set_node_metadata, args)?;
+        Ok(())
+    }
+
     /// Sends `amount` WAL to `recipient`.
     pub async fn pay_wal(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
         self.fill_wal_balance(amount).await?;
@@ -596,6 +619,107 @@ impl WalrusPtbBuilder {
         self.transfer(Some(recipient), vec![split_coin.into()])
             .await?;
         self.reduce_wal_balance(amount)?;
+        Ok(())
+    }
+
+    /// Authenticates the sender address. Returns an `Authenticated` Move type as result argument.
+    pub fn authenticate_sender(&mut self) -> SuiClientResult<Argument> {
+        let result_arg = self.walrus_move_call(contracts::auth::authenticate_sender, vec![])?;
+        Ok(result_arg)
+    }
+
+    /// Authenticates using an object as capability. Returns an `Authenticated` Move type as result
+    /// argument.
+    ///
+    /// Since the move call is generic, we need the object ID here to determine the correct type
+    /// argument (instead of allowing an `ArgumentOrOwnedObject`).
+    pub async fn authenticate_with_object(
+        &mut self,
+        object: ObjectID,
+    ) -> SuiClientResult<Argument> {
+        let object_data = self
+            .read_client
+            .sui_client()
+            .get_object_with_options(object, SuiObjectDataOptions::new().with_type())
+            .await?
+            .data
+            .ok_or_else(|| anyhow::anyhow!("no object data returned"))?;
+        let ObjectType::Struct(object_type) = object_data.object_type()? else {
+            return Err(anyhow::anyhow!("object is not a struct").into());
+        };
+        let object_ref = object_data.object_ref();
+        let object_arg = self
+            .pt_builder
+            .obj(ObjectArg::ImmOrOwnedObject(object_ref))?;
+        let result_arg = self.walrus_move_call(
+            contracts::auth::authenticate_with_object.with_type_params(&[object_type.into()]),
+            vec![object_arg],
+        )?;
+        Ok(result_arg)
+    }
+
+    /// Creates an `Authorized` Move type for the given address and returns it as result argument.
+    pub fn authorized_address(&mut self, address: SuiAddress) -> SuiClientResult<Argument> {
+        let address_arg = self.pt_builder.pure(address)?;
+        let result_arg =
+            self.walrus_move_call(contracts::auth::authorized_address, vec![address_arg])?;
+        Ok(result_arg)
+    }
+
+    /// Creates an `Authorized` Move type for the given object and returns it as result argument.
+    pub fn authorized_object(&mut self, object_id: ObjectID) -> SuiClientResult<Argument> {
+        let object_id_arg = self.pt_builder.pure(object_id)?;
+        let result_arg =
+            self.walrus_move_call(contracts::auth::authorized_object, vec![object_id_arg])?;
+        Ok(result_arg)
+    }
+
+    #[instrument(err, skip(self))]
+    /// Creates an `Authorized` Move type for the given address or object and returns it as result
+    /// argument.
+    pub fn authorized_address_or_object(
+        &mut self,
+        authorized: Authorized,
+    ) -> SuiClientResult<Argument> {
+        match authorized {
+            Authorized::Address(address) => self.authorized_address(address),
+            Authorized::Object(object_id) => self.authorized_object(object_id),
+        }
+    }
+
+    #[instrument(err, skip(self))]
+    /// Sets the commission receiver for the node.
+    pub async fn set_commission_receiver(
+        &mut self,
+        node_id: ObjectID,
+        authenticated: Argument,
+        receiver: Argument,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.pt_builder.pure(node_id)?,
+            authenticated,
+            receiver,
+        ];
+        self.walrus_move_call(contracts::staking::set_commission_receiver, args)?;
+        Ok(())
+    }
+
+    #[instrument(err, skip(self))]
+    /// Sets the governance authorized object for the pool.
+    pub async fn set_governance_authorized(
+        &mut self,
+        node_id: ObjectID,
+        authenticated: Argument,
+        authorized: Argument,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.pt_builder.pure(node_id)?,
+            authenticated,
+            authorized,
+        ];
+        self.walrus_move_call(contracts::staking::set_governance_authorized, args)?;
         Ok(())
     }
 

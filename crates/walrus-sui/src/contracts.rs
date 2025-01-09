@@ -92,8 +92,6 @@ pub struct FunctionTag<'a> {
     pub module: &'a str,
     /// Type parameters of the function.
     pub type_params: Vec<TypeTag>,
-    /// Number of Sui objects that are outputs of the function.
-    pub n_object_outputs: u16,
 }
 
 impl FunctionTag<'_> {
@@ -177,16 +175,12 @@ macro_rules! contract_ident {
         };
     };
     (fn $modname:ident::$itemname:ident) => {
-        contract_ident!(fn $modname::$itemname, 0);
-    };
-    (fn $modname:ident::$itemname:ident, $n_out:expr) => {
         #[allow(non_upper_case_globals)]
         #[doc=stringify!([FunctionTag] for the Move function $modname::$itemname)]
         pub const $itemname: FunctionTag = FunctionTag {
             module: stringify!($modname),
             name: stringify!($itemname),
             type_params: vec![],
-            n_object_outputs: $n_out,
         };
     };
 }
@@ -195,8 +189,8 @@ macro_rules! contract_ident {
 pub mod storage_resource {
     use super::*;
 
-    contract_ident!(fn storage_resource::split_by_epoch, 1);
-    contract_ident!(fn storage_resource::split_by_size, 1);
+    contract_ident!(fn storage_resource::split_by_epoch);
+    contract_ident!(fn storage_resource::split_by_size);
     contract_ident!(fn storage_resource::fuse_periods);
     contract_ident!(fn storage_resource::fuse_amount);
     contract_ident!(fn storage_resource::fuse);
@@ -208,11 +202,11 @@ pub mod system {
     use super::*;
 
     contract_ident!(struct system::System);
-    contract_ident!(fn system::reserve_space, 1);
-    contract_ident!(fn system::register_blob, 1);
+    contract_ident!(fn system::reserve_space);
+    contract_ident!(fn system::register_blob);
     contract_ident!(fn system::certify_blob);
     contract_ident!(fn system::invalidate_blob_id);
-    contract_ident!(fn system::delete_blob, 1);
+    contract_ident!(fn system::delete_blob);
     contract_ident!(fn system::certify_event_blob);
 }
 
@@ -235,11 +229,14 @@ pub mod staking {
     use super::*;
 
     contract_ident!(struct staking::Staking);
-    contract_ident!(fn staking::register_candidate, 1);
-    contract_ident!(fn staking::stake_with_pool, 1);
+    contract_ident!(fn staking::register_candidate);
+    contract_ident!(fn staking::stake_with_pool);
     contract_ident!(fn staking::voting_end);
     contract_ident!(fn staking::initiate_epoch_change);
     contract_ident!(fn staking::epoch_sync_done);
+    contract_ident!(fn staking::set_node_metadata);
+    contract_ident!(fn staking::set_commission_receiver);
+    contract_ident!(fn staking::set_governance_authorized);
 }
 
 /// Module for tags corresponding to the Move module `staking_inner`.
@@ -276,7 +273,7 @@ pub mod storage_node {
 
     contract_ident!(struct storage_node::StorageNodeInfo);
     contract_ident!(struct storage_node::StorageNodeCap);
-    contract_ident!(fn storage_node::create_storage_node_info, 1);
+    contract_ident!(fn storage_node::create_storage_node_info);
 }
 
 /// Module for tags corresponding to the Move module `blob`.
@@ -318,6 +315,16 @@ pub mod events {
     contract_ident!(struct events::ContractUpgradeQuorumReached);
 }
 
+/// Module for tags corresponding to the Move module `auth`.
+pub mod auth {
+    use super::*;
+
+    contract_ident!(fn auth::authenticate_sender);
+    contract_ident!(fn auth::authenticate_with_object);
+    contract_ident!(fn auth::authorized_address);
+    contract_ident!(fn auth::authorized_object);
+}
+
 /// Module for tags corresponding to the Move module `extended_field`.
 pub mod extended_field {
     use super::*;
@@ -329,7 +336,7 @@ pub mod extended_field {
 pub mod node_metadata {
     use super::*;
 
-    contract_ident!(fn node_metadata::new, 1);
+    contract_ident!(fn node_metadata::new);
 }
 
 /// Module for tags corresponding to the Move module `wal_exchange`.
@@ -339,20 +346,20 @@ pub mod wal_exchange {
     contract_ident!(struct wal_exchange::AdminCap);
     contract_ident!(struct wal_exchange::Exchange);
     contract_ident!(struct wal_exchange::ExchangeRate);
-    contract_ident!(fn wal_exchange::new_exchange_rate, 1);
-    contract_ident!(fn wal_exchange::new, 1);
-    contract_ident!(fn wal_exchange::new_funded, 1);
+    contract_ident!(fn wal_exchange::new_exchange_rate);
+    contract_ident!(fn wal_exchange::new);
+    contract_ident!(fn wal_exchange::new_funded);
     contract_ident!(fn wal_exchange::add_wal);
     contract_ident!(fn wal_exchange::add_sui);
     contract_ident!(fn wal_exchange::add_all_wal);
     contract_ident!(fn wal_exchange::add_all_sui);
-    contract_ident!(fn wal_exchange::withdraw_wal, 1);
-    contract_ident!(fn wal_exchange::withdraw_sui, 1);
+    contract_ident!(fn wal_exchange::withdraw_wal);
+    contract_ident!(fn wal_exchange::withdraw_sui);
     contract_ident!(fn wal_exchange::set_exchange_rate);
-    contract_ident!(fn wal_exchange::exchange_all_for_wal, 1);
-    contract_ident!(fn wal_exchange::exchange_for_wal, 1);
-    contract_ident!(fn wal_exchange::exchange_all_for_sui, 1);
-    contract_ident!(fn wal_exchange::exchange_for_sui, 1);
+    contract_ident!(fn wal_exchange::exchange_all_for_wal);
+    contract_ident!(fn wal_exchange::exchange_for_wal);
+    contract_ident!(fn wal_exchange::exchange_all_for_sui);
+    contract_ident!(fn wal_exchange::exchange_for_sui);
 }
 
 /// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.

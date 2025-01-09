@@ -367,6 +367,11 @@ impl SuiReadClient {
         ContractConfig::new(self.system_object_id, self.staking_object_id)
     }
 
+    /// Returns the staking pool for the given node ID.
+    pub async fn get_staking_pool(&self, node_id: ObjectID) -> SuiClientResult<StakingPool> {
+        self.sui_client.get_sui_object(node_id).await
+    }
+
     fn walrus_package_id(&self) -> RwLockReadGuard<ObjectID> {
         self.walrus_package_id
             .read()

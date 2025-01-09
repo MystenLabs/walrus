@@ -13,6 +13,7 @@ use sui_sdk::{
     rpc_types::{
         Coin,
         SuiExecutionStatus,
+        SuiObjectDataOptions,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
@@ -23,7 +24,7 @@ use sui_types::{
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::ProgrammableTransaction,
+    transaction::{Argument, ProgrammableTransaction},
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -44,7 +45,7 @@ use crate::{
     contracts,
     types::{
         move_errors::MoveExecutionError,
-        move_structs::{EpochState, SharedBlob},
+        move_structs::{Authorized, EpochState, SharedBlob},
         Blob,
         BlobEvent,
         Committee,
@@ -81,6 +82,9 @@ pub enum SuiClientError {
     /// Error resulting from a Sui-SDK call.
     #[error(transparent)]
     SuiSdkError(#[from] sui_sdk::error::Error),
+    /// Other errors resulting from Sui crates.
+    #[error(transparent)]
+    SuiError(#[from] sui_types::error::SuiError),
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(MoveExecutionError),
@@ -125,6 +129,9 @@ pub enum SuiClientError {
         object ID: {0}"
     )]
     CapabilityObjectAlreadyExists(ObjectID),
+    /// The sender is not authorized to perform the action on the pool.
+    #[error("the sender is not authorized to perform the action on the pool with node ID {0}")]
+    NotAuthorizedForPool(ObjectID),
 }
 
 /// Metadata for a blob object on Sui.
@@ -243,6 +250,15 @@ impl PostStoreAction {
             Self::Keep
         }
     }
+}
+
+/// Enum to select between different pool operations that require authorization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PoolOperationWithAuthorization {
+    /// The operation relates to the commission.
+    Commission,
+    /// The operation relates to the governance.
+    Governance,
 }
 
 /// Result alias for functions returning a `SuiClientError`.
@@ -700,6 +716,104 @@ impl SuiContractClient {
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
+    }
+
+    /// Sets the commission receiver for the node.
+    pub async fn set_commission_receiver(
+        &self,
+        node_id: ObjectID,
+        receiver: Authorized,
+    ) -> SuiClientResult<()> {
+        self.set_authorized_for_pool(
+            node_id,
+            PoolOperationWithAuthorization::Commission,
+            receiver,
+        )
+        .await
+    }
+
+    /// Sets the governance authorized entity for the pool.
+    pub async fn set_governance_authorized(
+        &self,
+        node_id: ObjectID,
+        authorized: Authorized,
+    ) -> SuiClientResult<()> {
+        self.set_authorized_for_pool(
+            node_id,
+            PoolOperationWithAuthorization::Governance,
+            authorized,
+        )
+        .await
+    }
+
+    async fn set_authorized_for_pool(
+        &self,
+        node_id: ObjectID,
+        operation: PoolOperationWithAuthorization,
+        authorized: Authorized,
+    ) -> SuiClientResult<()> {
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        let authenticated_arg = self
+            .get_authenticated_arg_for_pool(&mut pt_builder, node_id, operation)
+            .await?;
+        let authorized_arg = pt_builder.authorized_address_or_object(authorized)?;
+        match operation {
+            PoolOperationWithAuthorization::Commission => {
+                pt_builder
+                    .set_commission_receiver(node_id, authenticated_arg, authorized_arg)
+                    .await?;
+            }
+            PoolOperationWithAuthorization::Governance => {
+                pt_builder
+                    .set_governance_authorized(node_id, authenticated_arg, authorized_arg)
+                    .await?;
+            }
+        }
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
+    /// Given the node ID, checks if the sender is authorized to perform the operation (either as
+    /// sender or by owning the corresponding object) and returns an `Authenticated` Move type as
+    /// result argument.
+    async fn get_authenticated_arg_for_pool(
+        &self,
+        pt_builder: &mut WalrusPtbBuilder,
+        node_id: ObjectID,
+        operation: PoolOperationWithAuthorization,
+    ) -> SuiClientResult<Argument> {
+        let pool = self.read_client.get_staking_pool(node_id).await?;
+        let authorized = match operation {
+            PoolOperationWithAuthorization::Commission => pool.commission_receiver,
+            PoolOperationWithAuthorization::Governance => pool.governance_authorized,
+        };
+        match authorized {
+            Authorized::Address(receiver) => {
+                ensure!(
+                    receiver == self.wallet_address,
+                    SuiClientError::NotAuthorizedForPool(node_id)
+                );
+                pt_builder.authenticate_sender()
+            }
+            Authorized::Object(receiver) => {
+                let object = self
+                    .sui_client()
+                    .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
+                    .await?;
+                ensure!(
+                    object
+                        .owner()
+                        .ok_or_else(|| anyhow!("no object owner returned from rpc"))?
+                        .get_owner_address()?
+                        == self.wallet_address,
+                    SuiClientError::NotAuthorizedForPool(node_id)
+                );
+                pt_builder.authenticate_with_object(receiver).await
+            }
+        }
     }
 
     /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with

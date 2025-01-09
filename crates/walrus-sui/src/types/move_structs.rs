@@ -13,7 +13,10 @@ use serde::{
     Serialize,
     Serializer,
 };
-use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
+use sui_types::{
+    base_types::{ObjectID, SuiAddress},
+    messages_checkpoint::CheckpointSequenceNumber,
+};
 use walrus_core::{
     messages::BlobPersistenceType,
     BlobId,
@@ -211,17 +214,17 @@ pub struct VotingParams {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-/// The receiver of the commission.
-enum Authorized {
+/// The authorized object or address for commission or governance.
+pub enum Authorized {
     /// Address receiver.
-    Address(ObjectID),
+    Address(SuiAddress),
     /// Object receiver.
-    ObjectID(ObjectID),
+    Object(ObjectID),
 }
 
 /// Represents a single staking pool.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub(crate) struct StakingPool {
+pub struct StakingPool {
     id: ObjectID,
     /// The current state of the pool.
     state: PoolState,
@@ -255,9 +258,9 @@ pub(crate) struct StakingPool {
     /// Collected commission.
     commission: u64,
     /// The receiver of the commission.
-    commission_receiver: Authorized,
+    pub commission_receiver: Authorized,
     /// The authorization object to vote for governance actions, e.g. upgrade the contract.
-    governance_authorized: Authorized,
+    pub governance_authorized: Authorized,
     #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,
 }
