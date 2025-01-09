@@ -342,6 +342,8 @@ pub struct ShardSyncConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "blob_certified_check_interval_secs")]
     pub blob_certified_check_interval: Duration,
+    /// Maximum number of concurrent shard syncs allowed per node.
+    pub shard_sync_concurrency: usize,
 }
 
 impl Default for ShardSyncConfig {
@@ -352,6 +354,7 @@ impl Default for ShardSyncConfig {
             shard_sync_retry_max_backoff: Duration::from_secs(600),
             max_concurrent_blob_recovery_during_shard_recovery: 5,
             blob_certified_check_interval: Duration::from_secs(60),
+            shard_sync_concurrency: 10,
         }
     }
 }

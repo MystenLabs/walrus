@@ -8,7 +8,7 @@ use std::{
 
 #[cfg(msim)]
 use sui_macros::fail_point_if;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use walrus_core::ShardIndex;
 use walrus_sdk::error::ServiceError;
 use walrus_utils::backoff::{self, ExponentialBackoff};
@@ -28,6 +28,7 @@ pub struct ShardSyncHandler {
     node: Arc<StorageNodeInner>,
     shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, tokio::task::JoinHandle<()>>>>,
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    shard_sync_semaphore: Arc<Semaphore>,
     config: ShardSyncConfig,
 }
 
@@ -37,6 +38,7 @@ impl ShardSyncHandler {
             node,
             shard_sync_in_progress: Arc::new(Mutex::new(HashMap::new())),
             task_handle: Arc::new(Mutex::new(None)),
+            shard_sync_semaphore: Arc::new(Semaphore::new(config.shard_sync_concurrency)),
             config,
         }
     }
@@ -288,6 +290,8 @@ impl ShardSyncHandler {
             let directly_recover_shard = Arc::new(Mutex::new(false));
 
             backoff::retry(backoff, || async {
+                // A simple approach to limit the number of concurrent shard syncs, without considering the priority of the syncs.
+                let _permit = shard_sync_handler_clone.shard_sync_semaphore.acquire().await;
                 metrics::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
                 let recover_shard = *directly_recover_shard.lock().await;
                 let sync_result = shard_storage
