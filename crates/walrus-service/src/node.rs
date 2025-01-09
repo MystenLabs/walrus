@@ -4446,14 +4446,35 @@ mod tests {
             Ok(())
         }
 
-        #[walrus_simtest]
-        async fn sync_shard_recovery_metadata_restart() -> TestResult {
+        // Tests that shard sync can be resumed from a specific progress point.
+        simtest_param_test! {
+            sync_shard_recovery_metadata_restart -> TestResult: [
+                fail_before_start_fetching: (true),
+                fail_during_fetching: (false),
+            ]
+        }
+        async fn sync_shard_recovery_metadata_restart(
+            fail_before_start_fetching: bool,
+        ) -> TestResult {
             telemetry_subscribers::init_for_testing();
 
             let (cluster, blob_details, storage_dst, shard_storage_dst) =
                 setup_cluster_for_shard_sync_tests().await?;
 
-            register_fail_point_if("fail_point_shard_sync_recovery_metadata_error", || true);
+            if fail_before_start_fetching {
+                register_fail_point_if(
+                    "fail_point_shard_sync_recovery_metadata_error_before_fetch",
+                    || true,
+                );
+            } else {
+                let total_blobs = blob_details.len() as u64;
+                // Randomly pick a blob index to inject failure.
+                let break_index = rand::thread_rng().gen_range(0..total_blobs);
+                register_fail_point_arg(
+                    "fail_point_shard_sync_recovery_metadata_error_during_fetch",
+                    move || -> Option<u64> { Some(break_index) },
+                );
+            }
 
             storage_dst.remove_storage_for_shards(&[ShardIndex(1)])?;
             storage_dst.clear_metadata_in_test()?;
@@ -4472,7 +4493,11 @@ mod tests {
 
             assert!(shard_storage_dst.status().unwrap() == ShardStatus::None);
 
-            clear_fail_point("fail_point_shard_sync_recovery_metadata_error");
+            if fail_before_start_fetching {
+                clear_fail_point("fail_point_shard_sync_recovery_metadata_error_before_fetch");
+            } else {
+                clear_fail_point("fail_point_shard_sync_recovery_metadata_error_during_fetch");
+            }
 
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
