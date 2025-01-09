@@ -41,7 +41,7 @@ const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
 const MIN_NODES_FOR_SHARDS_LIMIT: u8 = 20;
 
 /// The maximum number of shards per node as a denominator of the total number of shards.
-/// When the number of nodes is smaller than MIN_NODES_FOR_SHARDS_LIMIT, the shards limit 
+/// When the number of nodes is smaller than MIN_NODES_FOR_SHARDS_LIMIT, the shards limit
 /// is multiplied by MIN_NODES_FOR_SHARDS_LIMIT / number of nodes.
 const SHARDS_LIMIT_DENOMINATOR: u8 = 10; // 10%
 
