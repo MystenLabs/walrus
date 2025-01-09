@@ -78,7 +78,8 @@ jobs:
     name: Check license headers
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install licensesnip@1.5.0
+      # TODO: Consider repointing this to the upstream version again when https://github.com/notken12/licensesnip/pull/10 is merged.
+      - run: cargo install --git https://github.com/wbbradley/licensesnip --rev a1037505417d06a3 licensesnip
       - run: licensesnip check
 
   check-all:

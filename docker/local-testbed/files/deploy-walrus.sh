@@ -1,6 +1,6 @@
+#!/bin/bash
 # Copyright (c) Mysten Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
-#!/bin/bash
 
 # use EPOCH_DURATION to set the epoch duration, default is 1h
 EPOCH_DURATION=${EPOCH_DURATION:-1h}
