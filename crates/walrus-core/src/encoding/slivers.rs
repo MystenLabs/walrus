@@ -28,7 +28,7 @@ use super::{
     Symbols,
 };
 #[cfg(feature = "walrus-mainnet")]
-use crate::metadata::BlobMetadataApi;
+use crate::metadata::BlobMetadataApi as _;
 use crate::{
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},

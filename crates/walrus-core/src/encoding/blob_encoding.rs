@@ -632,7 +632,7 @@ mod tests {
 
     use super::*;
     #[cfg(feature = "walrus-mainnet")]
-    use crate::metadata::BlobMetadataApi;
+    use crate::metadata::BlobMetadataApi as _;
     use crate::metadata::UnverifiedBlobMetadataWithId;
 
     param_test! {

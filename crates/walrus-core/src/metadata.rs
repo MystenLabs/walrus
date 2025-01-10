@@ -195,7 +195,8 @@ pub struct BlobMetadata {
 
 #[cfg(not(feature = "walrus-mainnet"))]
 impl BlobMetadata {
-    /// Creates a new [`BlobMetadata`] with the given encoding type, unencoded length, and sliver.
+    /// Creates a new [`BlobMetadata`] with the given encoding type, unencoded length, and sliver
+    /// hashes.
     pub fn new(
         encoding_type: EncodingType,
         unencoded_length: u64,
@@ -322,6 +323,7 @@ pub enum BlobMetadata {
 #[cfg(feature = "walrus-mainnet")]
 impl BlobMetadata {
     /// Creates a new [`BlobMetadata`] with the given encoding type, unencoded length, and sliver
+    /// hashes.
     pub fn new(
         encoding_type: EncodingType,
         unencoded_length: u64,
