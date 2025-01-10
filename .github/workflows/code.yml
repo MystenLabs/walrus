@@ -99,8 +99,8 @@ jobs:
       - name: Build Rust code
         run: cargo build --workspace --verbose
 
-  test-mainnet:
-    name: Test Rust code with mainnet contracts
+  test:
+    name: Test Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
@@ -114,23 +114,6 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
       - name: Run tests
-        run: cargo nextest run --workspace --profile ci --run-ignored all
-
-  test:
-    name: Test Rust code with testnet contracts
-    needs: diff
-    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
-    runs-on: ubuntu-ghcloud
-    steps:
-      - uses: taiki-e/install-action@v2.47.2
-        with:
-          tool: cargo-nextest
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2.7.7
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
-          shared-key: v0-rust-test
-      - name: Run tests with testnet contracts
         run: cargo nextest run --workspace --profile ci --run-ignored all
 
   test-coverage:
@@ -152,7 +135,7 @@ jobs:
           path: code-coverage-results.md
 
   simtests:
-    name: Run all simtests with testnet contracts
+    name: Run all simtests
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
@@ -166,7 +149,7 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@v4
       - run: ./scripts/simtest/install.sh
-      - name: Run tests with testnet contracts
+      - name: Run tests
         run: cargo simtest simtest --profile simtest
 
   test-move:
@@ -228,7 +211,6 @@ jobs:
       - lint
       - build
       - test
-      - test-mainnet
       - simtests
       - test-move
     runs-on: ubuntu-latest
