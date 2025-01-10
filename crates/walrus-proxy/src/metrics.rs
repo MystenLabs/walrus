@@ -108,7 +108,7 @@ pub fn start_prometheus_server(listener: TcpListener) {
 }
 
 async fn metrics(
-    Extension(registry_service): Extension<Registry>,
+    Extension(registry_service): Extension<&Registry>,
     Extension(pod_health): Extension<HealthCheckMetrics>,
 ) -> (StatusCode, String) {
     let mut metric_families = registry_service.gather();
