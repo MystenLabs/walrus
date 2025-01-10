@@ -240,12 +240,8 @@ pub async fn register_committee_and_stake(
         .zip(contract_clients)
         .zip(amounts_to_stake)
     {
-        let proof_of_possession = crate::utils::generate_proof_of_possession(
-            bls_sk,
-            contract_client,
-            storage_node_params,
-            current_epoch,
-        );
+        let proof_of_possession =
+            crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
         let node_cap = contract_client
             .register_candidate(storage_node_params, proof_of_possession)
             .await?;

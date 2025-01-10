@@ -5,9 +5,10 @@
 
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    str::FromStr as _,
     time::Duration,
 };
 
@@ -23,12 +24,10 @@ use serde_with::{
     SerializeAs,
 };
 use sui_sdk::wallet_context::WalletContext;
-use walrus_core::keys::{
-    KeyPairParseError,
-    NetworkKeyPair,
-    ProtocolKeyPair,
-    SupportedKeyPair,
-    TaggedKeyPair,
+use sui_types::base_types::SuiAddress;
+use walrus_core::{
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
+    messages::ProofOfPossession,
 };
 use walrus_sui::{
     client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
@@ -46,29 +45,27 @@ use crate::{
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StorageNodeConfig {
-    /// Directory in which to persist the database
+    /// The name of the storage node that is set in the staking pool on chain.
+    pub name: String,
+    /// Directory in which to persist the database.
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
-    /// File path to the blocklist
+    /// File path to the blocklist.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocklist_path: Option<PathBuf>,
-    /// Option config to tune storage db
+    /// Optional config to tune storage database.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db_config: Option<DatabaseConfig>,
-    /// Key pair used in Walrus protocol messages
+    /// Key pair used in Walrus protocol messages.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
     /// The host name or public IP address of the node.
-    // TODO: Make this non-optional when cleaning up the config files (#407).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public_host: Option<String>,
+    pub public_host: String,
     /// The port on which the storage node will serve requests.
-    // TODO: Make this non-optional when cleaning up the config files (#407).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public_port: Option<u16>,
+    pub public_port: u16,
     /// Socket address on which the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
@@ -110,9 +107,6 @@ pub struct StorageNodeConfig {
     pub commission_rate: u16,
     /// The parameters for the staking pool.
     pub voting_params: VotingParams,
-    /// Name of the storage node.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     /// Metadata of the storage node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<NodeMetadata>,
@@ -129,8 +123,8 @@ impl Default for StorageNodeConfig {
             db_config: Default::default(),
             protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
             network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
-            public_host: Some(defaults::rest_api_address().ip().to_string()),
-            public_port: Some(defaults::rest_api_port()),
+            public_host: defaults::rest_api_address().ip().to_string(),
+            public_port: defaults::rest_api_port(),
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),
             rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
@@ -154,6 +148,13 @@ impl Default for StorageNodeConfig {
 }
 
 impl StorageNodeConfig {
+    /// Loads the keys from disk into memory.
+    pub fn load_keys(&mut self) -> Result<(), anyhow::Error> {
+        self.protocol_key_pair.load()?;
+        self.network_key_pair.load()?;
+        Ok(())
+    }
+
     /// Returns the network key pair.
     ///
     /// # Panics
@@ -177,15 +178,17 @@ impl StorageNodeConfig {
     }
 
     /// Converts the configuration into registration parameters used for node registration.
-    pub fn to_registration_params(
-        &self,
-        public_address: NetworkAddress,
-        name: String,
-    ) -> NodeRegistrationParams {
+    pub fn to_registration_params(&self) -> NodeRegistrationParams {
         let network_key_pair = self.network_key_pair();
         let protocol_key_pair = self.protocol_key_pair();
+        let public_port = self.public_port;
+        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&self.public_host) {
+            NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
+        } else {
+            NetworkAddress(format!("{}:{}", self.public_host, public_port))
+        };
         NodeRegistrationParams {
-            name,
+            name: self.name.clone(),
             network_address: public_address,
             public_key: protocol_key_pair.public().clone(),
             network_public_key: network_key_pair.public().clone(),
@@ -621,6 +624,18 @@ where
     }
 }
 
+/// Parameters that allow registering a node with a third party.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeRegistrationParamsForThirdPartyRegistration {
+    /// The node registration parameters.
+    pub node_registration_params: NodeRegistrationParams,
+    /// The proof of possession authorizing the third party to register the node.
+    pub proof_of_possession: ProofOfPossession,
+    /// The wallet address of the node. This is required to send the storage-node capability to the
+    /// node.
+    pub wallet_address: SuiAddress,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{io::Write as _, str::FromStr};
@@ -702,6 +717,7 @@ mod tests {
         protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
         network_key_pair:\n  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY\n\
         public_host: 31.41.59.26\n\
+        public_port: 12345\n\
         voting_params:
             storage_price: 5
             write_price: 1
@@ -734,6 +750,7 @@ db_config:
 protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
 network_key_pair:  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
 public_host: node.walrus.space
+public_port: 9185
 metrics_address: 173.199.90.181:9184
 rest_api_address: 173.199.90.181:9185
 sui:

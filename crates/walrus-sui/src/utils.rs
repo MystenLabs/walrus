@@ -40,7 +40,6 @@ use walrus_core::{
 use crate::{
     client::{SuiClientResult, SuiContractClient},
     contracts::AssociatedContractStruct,
-    types::NodeRegistrationParams,
 };
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
@@ -407,13 +406,21 @@ pub async fn request_sui_from_faucet(
 pub fn generate_proof_of_possession(
     bls_sk: &ProtocolKeyPair,
     contract_client: &SuiContractClient,
-    registration_params: &NodeRegistrationParams,
     current_epoch: Epoch,
 ) -> SignedMessage<ProofOfPossessionMsg> {
-    let sui_address = contract_client.address().to_inner();
+    generate_proof_of_possession_for_address(bls_sk, contract_client.address(), current_epoch)
+}
+
+/// Generate a proof of possession of node private key for a storage node with an explicitly
+/// specified Sui address.
+pub fn generate_proof_of_possession_for_address(
+    bls_sk: &ProtocolKeyPair,
+    sui_address: SuiAddress,
+    current_epoch: Epoch,
+) -> SignedMessage<ProofOfPossessionMsg> {
     bls_sk.sign_message(&ProofOfPossessionMsg::new(
         current_epoch,
-        sui_address,
-        registration_params.public_key.clone(),
+        sui_address.to_inner(),
+        bls_sk.public().clone(),
     ))
 }

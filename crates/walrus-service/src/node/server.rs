@@ -79,8 +79,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
                     .tls
                     .server_name
                     .clone()
-                    .or_else(|| config.public_host.clone())
-                    .unwrap_or_else(|| config.rest_api_address.ip().to_string()),
+                    .unwrap_or_else(|| config.public_host.clone()),
                 network_key_pair: config.network_key_pair().clone(),
             })
         };

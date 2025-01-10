@@ -103,7 +103,7 @@ pub struct NodeMetadata {
 }
 
 /// Node parameters needed to register a node.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeRegistrationParams {
     /// Name of the storage node.
     pub name: String,
