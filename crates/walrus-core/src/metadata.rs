@@ -6,7 +6,6 @@
 use alloc::vec::Vec;
 use core::num::NonZeroU16;
 
-#[cfg(feature = "walrus-mainnet")]
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
@@ -181,105 +180,7 @@ impl<const V: bool> AsRef<BlobMetadata> for BlobMetadataWithId<V> {
     }
 }
 
-#[cfg(not(feature = "walrus-mainnet"))]
-/// Metadata about a blob, without its corresponding [`BlobId`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BlobMetadata {
-    /// The type of encoding used to erasure encode the blob.
-    pub encoding_type: EncodingType,
-    /// The length of the unencoded blob.
-    pub unencoded_length: u64,
-    /// The hashes over the slivers of the blob.
-    pub hashes: Vec<SliverPairMetadata>,
-}
-
-#[cfg(not(feature = "walrus-mainnet"))]
-impl BlobMetadata {
-    /// Creates a new [`BlobMetadata`] with the given encoding type, unencoded length, and sliver
-    /// hashes.
-    pub fn new(
-        encoding_type: EncodingType,
-        unencoded_length: u64,
-        hashes: Vec<SliverPairMetadata>,
-    ) -> BlobMetadata {
-        BlobMetadata {
-            encoding_type,
-            unencoded_length,
-            hashes,
-        }
-    }
-
-    /// Return the hash of the sliver pair at the given index and type.
-    pub fn get_sliver_hash(
-        &self,
-        sliver_pair_index: SliverPairIndex,
-        sliver_type: SliverType,
-    ) -> Option<&MerkleNode> {
-        self.hashes.get(sliver_pair_index.as_usize()).map(
-            |sliver_pair_metadata| match sliver_type {
-                SliverType::Primary => &sliver_pair_metadata.primary_hash,
-                SliverType::Secondary => &sliver_pair_metadata.secondary_hash,
-            },
-        )
-    }
-
-    /// Returns the root hash of the Merkle tree over the sliver pairs.
-    pub fn compute_root_hash(&self) -> MerkleNode {
-        MerkleTree::<Blake2b256>::build(
-            self.hashes
-                .iter()
-                .map(|h| h.pair_leaf_input::<Blake2b256>()),
-        )
-        .root()
-    }
-
-    /// Returns the symbol size associated with the blob.
-    pub fn symbol_size(
-        &self,
-        encoding_config: &EncodingConfig,
-    ) -> Result<NonZeroU16, DataTooLargeError> {
-        encoding_config.symbol_size_for_blob(self.unencoded_length)
-    }
-
-    /// Returns the encoded size of the blob.
-    ///
-    /// This infers the number of shards from the length of the `hashes` vector.
-    ///
-    /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the
-    /// `unencoded_length` cannot be encoded
-    pub fn encoded_size(&self) -> Option<u64> {
-        encoded_blob_length_for_n_shards(
-            NonZeroU16::new(self.hashes.len().try_into().ok()?)?,
-            self.unencoded_length,
-        )
-    }
-
-    /// Returns the encoding type of the blob.
-    pub fn encoding_type(&self) -> EncodingType {
-        self.encoding_type
-    }
-
-    /// Returns the unencoded length of the blob.
-    pub fn unencoded_length(&self) -> u64 {
-        self.unencoded_length
-    }
-
-    /// Returns the hashes of the sliver pairs of the blob.
-    pub fn hashes(&self) -> &Vec<SliverPairMetadata> {
-        &self.hashes
-    }
-
-    /// Returns a mutable reference to the inner [`BlobMetadata`].
-    ///
-    /// This is only available in tests.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn mut_inner(&mut self) -> &mut BlobMetadata {
-        self
-    }
-}
-
 /// Trait for the API of [`BlobMetadata`].
-#[cfg(feature = "walrus-mainnet")]
 #[enum_dispatch]
 pub trait BlobMetadataApi {
     /// Return the hash of the sliver pair at the given index and type.
@@ -312,7 +213,6 @@ pub trait BlobMetadataApi {
 }
 
 /// Metadata about a blob.
-#[cfg(feature = "walrus-mainnet")]
 #[enum_dispatch(BlobMetadataApi)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlobMetadata {
@@ -320,7 +220,6 @@ pub enum BlobMetadata {
     V1(BlobMetadataV1),
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl BlobMetadata {
     /// Creates a new [`BlobMetadata`] with the given encoding type, unencoded length, and sliver
     /// hashes.
@@ -348,7 +247,6 @@ impl BlobMetadata {
 }
 
 /// Metadata about a blob, without its corresponding [`BlobId`].
-#[cfg(feature = "walrus-mainnet")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobMetadataV1 {
     /// The type of encoding used to erasure encode the blob.
@@ -359,7 +257,6 @@ pub struct BlobMetadataV1 {
     pub hashes: Vec<SliverPairMetadata>,
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl BlobMetadataApi for BlobMetadataV1 {
     /// Return the hash of the sliver pair at the given index and type.
     fn get_sliver_hash(

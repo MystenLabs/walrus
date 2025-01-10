@@ -8,7 +8,6 @@ use std::sync::{
 };
 
 use rocksdb::{MergeOperands, Options};
-#[cfg(feature = "walrus-mainnet")]
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tracing::Level;
@@ -23,17 +22,13 @@ use super::{event_sequencer::EventSequencer, DatabaseConfig};
 const CURSOR_KEY: [u8; 6] = *b"cursor";
 const COLUMN_FAMILY_NAME: &str = "event_cursor";
 
-#[cfg(not(feature = "walrus-mainnet"))]
-pub type EventIdWithProgress = (EventID, u64);
 type ProgressMergeOperand = (EventID, u64);
 
-#[cfg(feature = "walrus-mainnet")]
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub enum EventIdWithProgress {
     V1(EventIdWithProgressV1),
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl EventIdWithProgress {
     pub fn event_id(&self) -> EventID {
         match self {
@@ -48,7 +43,6 @@ impl EventIdWithProgress {
     }
 }
 
-#[cfg(feature = "walrus-mainnet")]
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct EventIdWithProgressV1 {
     event_id: EventID,
@@ -121,9 +115,6 @@ impl EventCursorTable {
         cursor: EventID,
         next_index: u64,
     ) -> Result<(), TypedStoreError> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        self.inner.insert(&CURSOR_KEY, &(cursor, next_index))?;
-        #[cfg(feature = "walrus-mainnet")]
         self.inner.insert(
             &CURSOR_KEY,
             &EventIdWithProgress::V1(EventIdWithProgressV1 {
@@ -141,13 +132,7 @@ impl EventCursorTable {
 
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
         let entry = self.inner.get(&CURSOR_KEY)?;
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let result = entry.map_or(0, |(_, count)| count);
-
-        #[cfg(feature = "walrus-mainnet")]
-        let result = entry.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index);
-
-        Ok(result)
+        Ok(entry.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index))
     }
 
     /// Returns the current event cursor and the next event index.
@@ -221,25 +206,13 @@ fn update_cursor_and_progress(
             .expect("merge operand should be decodable");
         tracing::trace!(?current_val, ?cursor, increment, "updating event cursor");
 
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let updated_progress = current_val.map_or(0, |(_, progress)| progress) + increment;
-
-        #[cfg(feature = "walrus-mainnet")]
         let updated_progress =
             current_val.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index) + increment;
 
-        #[cfg(not(feature = "walrus-mainnet"))]
-        {
-            current_val = Some((cursor, updated_progress));
-        }
-
-        #[cfg(feature = "walrus-mainnet")]
-        {
-            current_val = Some(EventIdWithProgress::V1(EventIdWithProgressV1 {
-                event_id: cursor,
-                next_event_index: updated_progress,
-            }));
-        }
+        current_val = Some(EventIdWithProgress::V1(EventIdWithProgressV1 {
+            event_id: cursor,
+            next_event_index: updated_progress,
+        }));
     }
 
     current_val.map(|value| bcs::to_bytes(&value).expect("this can be BCS-encoded"))

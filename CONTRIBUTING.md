@@ -82,16 +82,6 @@ The Move formatter can then be run manually by executing:
 prettier-move --write <path-to-move-file-or-folder>
 ```
 
-## Testnet/Mainnet Versions
-
-To allow breaking changes in the contracts, CLI options, APIs, DB tables, and configuration files,
-while keeping the binaries built and deployed for Testnet backwards-compatible, we gate any
-incompatible changes in the Rust code behind the `walrus-mainnet` feature.
-
-If you make any changes to the contracts that necessitates corresponding changes in Rust, make sure
-to gate these changes behind the feature, e.g. by adding the `#[cfg(feature = "walrus-mainnet")]`
-attribute. The same applies to breaking changes in the CLI, APIs, DB tables, and configuration files.
-
 ## Tests
 
 The majority of our code is covered by automatic unit and integration tests which you can run
@@ -105,7 +95,7 @@ contracts as deployed on testnet, for which the contracts are located in `testne
 For the first option, you can run these tests as follows:
 
 ```sh
-cargo nextest run --run-ignored ignored-only --features walrus-mainnet
+cargo nextest run --run-ignored ignored-only
 ```
 
 For the second option, simply run:
@@ -132,11 +122,10 @@ For running tests, start the external cluster with `sui start`, set the environm
 CLUSTER_CONFIG_DIR="$PWD/target/sui-start"
 SUI_CONFIG_DIR="$CLUSTER_CONFIG_DIR" sui start&
 SUI_PID=$!
-SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored --features walrus-mainnet
+SUI_TEST_CONFIG_DIR="$CLUSTER_CONFIG_DIR" cargo test -- --ignored
 ```
 
-This runs the tests with the newest contract version. To run them with the testnet version,
-run them without the `--features walrus-mainnet` flag.
+This runs the tests with the newest contract version.
 
 After the tests have completed, you can stop the cluster:
 
@@ -181,7 +170,7 @@ To run simulation tests, first install the `cargo simtest` tool:
 You can then run all simtests with
 
 ```sh
-cargo simtest --features walrus-mainnet
+cargo simtest
 ```
 
 Further information about the simtest framework is available

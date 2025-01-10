@@ -166,7 +166,6 @@ pub struct DatabaseConfig {
     pub(super) node_status: DatabaseTableOptions,
     pub(super) metadata: DatabaseTableOptions,
     pub(super) blob_info: DatabaseTableOptions,
-    #[cfg(feature = "walrus-mainnet")]
     pub(super) per_object_blob_info: DatabaseTableOptions,
     pub(super) event_cursor: DatabaseTableOptions,
     pub(super) shard: DatabaseTableOptions,
@@ -204,7 +203,6 @@ impl Default for DatabaseConfig {
             node_status: DatabaseTableOptions::default(),
             metadata: DatabaseTableOptions::optimized_for_blobs(),
             blob_info: DatabaseTableOptions::default(),
-            #[cfg(feature = "walrus-mainnet")]
             per_object_blob_info: DatabaseTableOptions::default(),
             event_cursor: DatabaseTableOptions::default(),
             shard: DatabaseTableOptions::optimized_for_blobs(),

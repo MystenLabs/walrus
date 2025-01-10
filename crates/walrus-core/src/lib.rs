@@ -46,7 +46,6 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
-#[cfg(feature = "walrus-mainnet")]
 use crate::metadata::BlobMetadataApi as _;
 pub mod bft;
 pub mod encoding;

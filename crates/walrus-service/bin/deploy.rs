@@ -56,13 +56,8 @@ struct DeploySystemContractArgs {
     /// specify a custom Sui network, pass a string of the format `<RPC_URL>;<FAUCET_URL>`.
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
-    #[cfg(feature = "walrus-mainnet")]
     /// The directory in which the contracts are located.
     #[clap(long, default_value = "./contracts/walrus")]
-    contract_path: PathBuf,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    /// The directory in which the contracts are located.
-    #[clap(long, default_value = "./testnet-contracts/walrus")]
     contract_path: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
     #[arg(long, default_value_t = 1_000_000_000)]

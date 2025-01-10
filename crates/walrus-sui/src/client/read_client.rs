@@ -236,23 +236,10 @@ impl SuiReadClient {
         sui_client: RetriableSuiClient,
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
-        // TODO(WAL-474): remove this when removing the `walrus-mainnet` feature flag.
-        package_id: Option<ObjectID>,
     ) -> SuiClientResult<Self> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let walrus_package_id = package_id.unwrap_or(
-            // We use `unwrap_or` here because we want to call the function even if the package ID
-            // is provided to check if the system and staking objects exist.
-            sui_client
-                .get_system_package_id_from_system_object(system_object_id)
-                .await?,
-        );
-        #[cfg(feature = "walrus-mainnet")]
         let walrus_package_id = sui_client
             .get_system_package_id_from_system_object(system_object_id)
             .await?;
-        #[cfg(feature = "walrus-mainnet")]
-        let _ = package_id; // Drop to avoid unused variable warning.
         let type_origin_map = sui_client
             .type_origin_map_for_package(walrus_package_id)
             .await?;
@@ -273,11 +260,10 @@ impl SuiReadClient {
         rpc_address: S,
         system_object: ObjectID,
         staking_object: ObjectID,
-        package_id: Option<ObjectID>,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
         let client = RetriableSuiClient::new_for_rpc(rpc_address, backoff_config).await?;
-        Self::new(client, system_object, staking_object, package_id).await
+        Self::new(client, system_object, staking_object).await
     }
 
     pub(crate) async fn object_arg_for_shared_obj(
@@ -555,7 +541,6 @@ impl SuiReadClient {
         )
     }
 
-    #[cfg(feature = "walrus-mainnet")]
     async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization {
             id,
@@ -587,25 +572,6 @@ impl SuiReadClient {
         })
     }
 
-    #[cfg(not(feature = "walrus-mainnet"))]
-    async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
-        let SystemObjectForDeserialization { id, version } = self
-            .sui_client
-            .get_sui_object(self.system_object_id)
-            .await?;
-        let inner = self
-            .sui_client
-            .get_dynamic_field_object::<u64, SystemStateInnerV1>(
-                self.system_object_id,
-                TypeTag::U64,
-                version,
-            )
-            .await?;
-        let system_object = SystemObject { id, version, inner };
-        Ok(system_object)
-    }
-
-    #[cfg(feature = "walrus-mainnet")]
     async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
         let StakingObjectForDeserialization {
             id,
@@ -631,24 +597,6 @@ impl SuiReadClient {
             new_package_id,
             inner,
         };
-        Ok(staking_object)
-    }
-
-    #[cfg(not(feature = "walrus-mainnet"))]
-    async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
-        let StakingObjectForDeserialization { id, version } = self
-            .sui_client
-            .get_sui_object(self.staking_object_id)
-            .await?;
-        let inner = self
-            .sui_client
-            .get_dynamic_field_object::<u64, StakingInnerV1>(
-                self.staking_object_id,
-                TypeTag::U64,
-                version,
-            )
-            .await?;
-        let staking_object = StakingObject { id, version, inner };
         Ok(staking_object)
     }
 
@@ -896,13 +844,6 @@ impl ReadClient for SuiReadClient {
         })
     }
 
-    #[cfg(not(feature = "walrus-mainnet"))]
-    async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
-        let staking_object = self.get_staking_object().await?.inner;
-        Ok(staking_object.active_set.nodes.into_iter().collect())
-    }
-
-    #[cfg(feature = "walrus-mainnet")]
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
         use crate::types::move_structs::ActiveSet;
 
@@ -918,14 +859,11 @@ impl ReadClient for SuiReadClient {
     }
 
     async fn refresh_package_id(&self) -> SuiClientResult<()> {
-        if cfg!(feature = "walrus-mainnet") {
-            let walrus_package_id = self
-                .sui_client
-                .get_system_package_id_from_system_object(self.system_object_id)
-                .await?;
-            self.refresh_package_id_with_id(walrus_package_id).await?;
-        }
-        Ok(())
+        let walrus_package_id = self
+            .sui_client
+            .get_system_package_id_from_system_object(self.system_object_id)
+            .await?;
+        self.refresh_package_id_with_id(walrus_package_id).await
     }
 }
 

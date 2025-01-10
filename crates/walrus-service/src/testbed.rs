@@ -71,12 +71,8 @@ pub struct TestbedNodeConfig {
     /// The network key of the node.
     #[serde_as(as = "Base64")]
     pub network_keypair: NetworkKeyPair,
-    #[cfg(feature = "walrus-mainnet")]
     /// The commission rate of the storage node.
     pub commission_rate: u16,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    /// The commission rate of the storage node.
-    pub commission_rate: u64,
     /// The vote for the storage price per unit.
     pub storage_price: u64,
     /// The vote for the write price per unit.
@@ -350,7 +346,6 @@ pub async fn deploy_walrus_contract(
         admin_wallet,
         system_ctx.system_object,
         system_ctx.staking_object,
-        Some(system_ctx.package_id),
         ExponentialBackoffConfig::default(),
         gas_budget,
     )

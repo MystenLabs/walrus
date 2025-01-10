@@ -12,13 +12,11 @@ use std::{
 
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
-#[cfg(feature = "walrus-mainnet")]
-use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     encoding::Primary,
     merkle::Node,
     messages::BlobPersistenceType,
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     EpochCount,
     SliverPairIndex,

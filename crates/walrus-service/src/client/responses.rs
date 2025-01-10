@@ -18,8 +18,6 @@ use sui_types::{
     event::EventID,
 };
 use utoipa::ToSchema;
-#[cfg(feature = "walrus-mainnet")]
-use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     bft,
     encoding::{
@@ -30,7 +28,7 @@ use walrus_core::{
         metadata_length_for_n_shards,
         source_symbols_for_n_shards,
     },
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     NetworkPublicKey,

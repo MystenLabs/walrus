@@ -25,7 +25,6 @@ use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-#[cfg(feature = "walrus-mainnet")]
 use storage::blob_info::PerObjectBlobInfoApi;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::event::EventID;
@@ -34,8 +33,6 @@ use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
-#[cfg(feature = "walrus-mainnet")]
-use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
     ensure,
@@ -52,7 +49,12 @@ use walrus_core::{
         StorageConfirmation,
         SyncShardResponse,
     },
-    metadata::{BlobMetadataWithId, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+    metadata::{
+        BlobMetadataApi as _,
+        BlobMetadataWithId,
+        UnverifiedBlobMetadataWithId,
+        VerifiedBlobMetadataWithId,
+    },
     BlobId,
     Epoch,
     InconsistencyProof,
@@ -690,12 +692,6 @@ impl StorageNode {
 
     async fn storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
         let storage = &self.inner.storage;
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let (from_event_id, next_event_index) = storage
-            .get_event_cursor_and_next_index()?
-            .map_or((None, 0), |(cursor, index)| (Some(cursor), index));
-
-        #[cfg(feature = "walrus-mainnet")]
         let (from_event_id, next_event_index) = storage
             .get_event_cursor_and_next_index()?
             .map_or((None, 0), |e| (Some(e.event_id()), e.next_event_index()));
@@ -995,21 +991,11 @@ impl StorageNode {
 
     #[tracing::instrument(skip_all)]
     fn next_event_index(&self) -> anyhow::Result<u64> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let result = self
+        Ok(self
             .inner
             .storage
             .get_event_cursor_and_next_index()?
-            .map_or(0, |(_, index)| index);
-
-        #[cfg(feature = "walrus-mainnet")]
-        let result = self
-            .inner
-            .storage
-            .get_event_cursor_and_next_index()?
-            .map_or(0, |e| e.next_event_index());
-
-        Ok(result)
+            .map_or(0, |e| e.next_event_index()))
     }
 
     #[tracing::instrument(skip_all)]
@@ -1948,7 +1934,6 @@ impl ServiceState for StorageNodeInner {
             ComputeStorageConfirmationError::NotFullyStored,
         );
 
-        #[cfg(feature = "walrus-mainnet")]
         if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
             let per_object_info = self
                 .storage
@@ -2287,7 +2272,6 @@ mod tests {
             );
 
             assert_eq!(confirmation.as_ref().contents().blob_id, BLOB_ID);
-            #[cfg(feature = "walrus-mainnet")]
             assert_eq!(
                 confirmation.as_ref().contents().blob_type,
                 BlobPersistenceType::Permanent
@@ -3371,15 +3355,6 @@ mod tests {
 
         // The cursor should not have moved beyond that of blob2 registration, since blob2 is yet
         // to be synced.
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let latest_cursor = cluster.nodes[0]
-            .storage_node
-            .inner
-            .storage
-            .get_event_cursor_and_next_index()?
-            .map(|(cursor, _)| cursor);
-
-        #[cfg(feature = "walrus-mainnet")]
         let latest_cursor = cluster.nodes[0]
             .storage_node
             .inner

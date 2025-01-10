@@ -631,9 +631,7 @@ mod tests {
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
-    #[cfg(feature = "walrus-mainnet")]
-    use crate::metadata::BlobMetadataApi as _;
-    use crate::metadata::UnverifiedBlobMetadataWithId;
+    use crate::metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId};
 
     param_test! {
         test_matrix_construction: [

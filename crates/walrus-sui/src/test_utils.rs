@@ -378,7 +378,6 @@ pub async fn new_contract_client_on_sui_test_cluster(
 ) -> anyhow::Result<WithTempDir<SuiContractClient>> {
     let system_object = existing_client.read_client().get_system_object_id();
     let staking_object = existing_client.read_client().get_staking_object_id();
-    let package_id = existing_client.read_client().get_system_package_id();
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
         .and_then_async(|wallet| {
@@ -386,7 +385,6 @@ pub async fn new_contract_client_on_sui_test_cluster(
                 wallet,
                 system_object,
                 staking_object,
-                Some(package_id),
                 existing_client.read_client().backoff_config().clone(),
                 DEFAULT_GAS_BUDGET,
             )

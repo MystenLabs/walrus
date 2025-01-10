@@ -10,15 +10,12 @@ use std::{
     sync::{Arc, RwLock, TryLockError},
 };
 
-use blob_info::BlobInfoIterator;
-#[cfg(feature = "walrus-mainnet")]
-use blob_info::PerObjectBlobInfo;
+use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
 use event_cursor_table::EventIdWithProgress;
 use itertools::Itertools;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
-#[cfg(feature = "walrus-mainnet")]
 use sui_types::base_types::ObjectID;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
@@ -373,7 +370,6 @@ impl Storage {
     }
 
     /// Returns the per-object blob info for `object_id`.
-    #[cfg(feature = "walrus-mainnet")]
     pub(crate) fn get_per_object_info(
         &self,
         object_id: &ObjectID,
@@ -931,15 +927,6 @@ pub(crate) mod tests {
         for ((seq_id, cursor), expected_observed) in cursors.iter().zip(expected_sequence) {
             storage.maybe_advance_event_cursor(*seq_id, cursor)?;
 
-            #[cfg(not(feature = "walrus-mainnet"))]
-            assert_eq!(
-                storage
-                    .get_event_cursor_and_next_index()?
-                    .map(|(event_id, _)| event_id),
-                Some(cursor_lookup[expected_observed])
-            );
-
-            #[cfg(feature = "walrus-mainnet")]
             assert_eq!(
                 storage
                     .get_event_cursor_and_next_index()?

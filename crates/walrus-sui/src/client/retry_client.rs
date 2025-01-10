@@ -397,14 +397,7 @@ impl RetriableSuiClient {
                     SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
                 })?;
 
-        #[cfg(feature = "walrus-mainnet")]
         let pkg_id = system_object.package_id;
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let pkg_id =
-            crate::utils::get_package_id_from_object_response(&response).map_err(|error| {
-                tracing::debug!(%error, "unable to get the Walrus package ID");
-                SuiClientError::WalrusSystemObjectDoesNotExist(system_object.id)
-            })?;
         Ok(pkg_id)
     }
 

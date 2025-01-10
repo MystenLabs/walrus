@@ -51,13 +51,7 @@ impl Config {
         &self,
         sui_client: RetriableSuiClient,
     ) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new(
-            sui_client,
-            self.system_object,
-            self.staking_object,
-            self.walrus_package,
-        )
-        .await
+        SuiReadClient::new(sui_client, self.system_object, self.staking_object).await
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
@@ -70,7 +64,6 @@ impl Config {
             wallet,
             self.system_object,
             self.staking_object,
-            self.walrus_package,
             self.backoff_config().clone(),
             gas_budget,
         )

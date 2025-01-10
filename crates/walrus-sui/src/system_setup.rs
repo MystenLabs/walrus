@@ -230,12 +230,8 @@ pub async fn create_system_and_staking_objects(
     let init_cap_ref = wallet.get_object_ref(init_cap).await?;
     let init_cap_arg = pt_builder.input(init_cap_ref.into())?;
 
-    #[cfg(feature = "walrus-mainnet")]
     let upgrade_cap_ref = wallet.get_object_ref(upgrade_cap).await?;
-    #[cfg(feature = "walrus-mainnet")]
     let upgrade_cap_arg = pt_builder.input(upgrade_cap_ref.into())?;
-    #[cfg(not(feature = "walrus-mainnet"))]
-    let _ = upgrade_cap; // drop to avoid unused variable
 
     let epoch_zero_duration_arg = pt_builder.pure(epoch_zero_duration_millis)?;
     let epoch_duration_arg = pt_builder.pure(epoch_duration_millis)?;
@@ -255,7 +251,6 @@ pub async fn create_system_and_staking_objects(
         vec![],
         vec![
             init_cap_arg,
-            #[cfg(feature = "walrus-mainnet")]
             upgrade_cap_arg,
             epoch_zero_duration_arg,
             epoch_duration_arg,
@@ -265,10 +260,7 @@ pub async fn create_system_and_staking_objects(
         ],
     );
 
-    #[cfg(feature = "walrus-mainnet")]
     pt_builder.transfer_arg(wallet.active_address()?, result);
-    #[cfg(not(feature = "walrus-mainnet"))]
-    let _ = result; // drop to avoid unused variable
 
     // finalize transaction
     let ptb = pt_builder.finish();

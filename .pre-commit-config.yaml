@@ -56,7 +56,7 @@ repos:
         pass_filenames: false
       - id: cargo-test
         name: cargo-test
-        entry: cargo nextest run --features walrus-mainnet
+        entry: cargo nextest run
         language: rust
         files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
         pass_filenames: false

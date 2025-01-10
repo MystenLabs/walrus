@@ -264,14 +264,6 @@ impl WalrusPtbBuilder {
         blob_object: ArgumentOrOwnedObject,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let signers = {
-            let mut signers = certificate.signers.clone();
-            signers.sort_unstable();
-            signers
-        };
-
-        #[cfg(feature = "walrus-mainnet")]
         let signers = Self::signers_to_bitmap(&certificate.signers);
 
         let certify_args = vec![
@@ -285,7 +277,6 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    #[cfg(feature = "walrus-mainnet")]
     fn signers_to_bitmap(signers: &[u16]) -> Vec<u8> {
         let mut bitmap = vec![0; signers.len().div_ceil(8)];
         for signer in signers {
@@ -440,14 +431,6 @@ impl WalrusPtbBuilder {
         &mut self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let signers = {
-            let mut signers = certificate.signers.clone();
-            signers.sort_unstable();
-            signers
-        };
-
-        #[cfg(feature = "walrus-mainnet")]
         let signers = Self::signers_to_bitmap(&certificate.signers);
 
         let invalidate_args = vec![
@@ -531,14 +514,12 @@ impl WalrusPtbBuilder {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<Argument> {
-        #[cfg(feature = "walrus-mainnet")]
         let node_metadata_arg = self.create_node_metadata(&node_parameters.metadata).await?;
         let args = vec![
             self.staking_arg(Mutability::Mutable).await?,
             self.pt_builder.pure(&node_parameters.name)?,
             self.pt_builder
                 .pure(node_parameters.network_address.to_string())?,
-            #[cfg(feature = "walrus-mainnet")]
             node_metadata_arg,
             self.pt_builder
                 .pure(node_parameters.public_key.as_bytes())?,

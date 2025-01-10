@@ -759,7 +759,7 @@ pub async fn collect_event_blobs_for_catchup(
     recovery_path: &Path,
 ) -> Result<Vec<BlobId>> {
     let sui_read_client =
-        SuiReadClient::new(sui_client, system_object_id, staking_object_id, package_id).await?;
+        SuiReadClient::new(sui_client, system_object_id, staking_object_id).await?;
     let config = crate::client::Config {
         system_object: system_object_id,
         staking_object: staking_object_id,

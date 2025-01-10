@@ -35,7 +35,6 @@ pub enum BlobPersistenceType {
 pub struct StorageConfirmationBody {
     /// The blob id of the blob that is being confirmed.
     pub blob_id: BlobId,
-    #[cfg(feature = "walrus-mainnet")]
     /// Whether the blob is permanent or deletable.
     /// For deletable blobs, the object id of the blob is included.
     pub blob_type: BlobPersistenceType,
@@ -52,13 +51,7 @@ impl Confirmation {
 
     /// Creates a new confirmation message for the provided blob ID.
     pub fn new(epoch: Epoch, blob_id: BlobId, blob_type: BlobPersistenceType) -> Self {
-        let message_contents = StorageConfirmationBody {
-            blob_id,
-            #[cfg(feature = "walrus-mainnet")]
-            blob_type,
-        };
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let _ = blob_type;
+        let message_contents = StorageConfirmationBody { blob_id, blob_type };
         Self(ProtocolMessage {
             intent: Intent::storage(IntentType::BLOB_CERT_MSG),
             epoch,
@@ -101,16 +94,10 @@ impl SignedStorageConfirmation {
         blob_id: BlobId,
         blob_type: BlobPersistenceType,
     ) -> Result<Confirmation, MessageVerificationError> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let _ = blob_type;
         self.verify_signature_and_contents(
             public_key,
             epoch,
-            &StorageConfirmationBody {
-                blob_id,
-                #[cfg(feature = "walrus-mainnet")]
-                blob_type,
-            },
+            &StorageConfirmationBody { blob_id, blob_type },
         )
     }
 }
@@ -141,15 +128,11 @@ mod tests {
             encoded[7..39],
             bcs::to_bytes(&BLOB_ID).expect("successful encoding")
         );
-        if cfg!(feature = "walrus-mainnet") {
-            assert_eq!(
-                encoded[39..],
-                // BlobPersistenceType::Permanent should be encoded as 0
-                bcs::to_bytes(&0u8).expect("successful encoding")
-            );
-        } else {
-            assert!(encoded[39..].is_empty());
-        }
+        assert_eq!(
+            encoded[39..],
+            // BlobPersistenceType::Permanent should be encoded as 0
+            bcs::to_bytes(&0u8).expect("successful encoding")
+        );
     }
 
     #[test]
@@ -172,18 +155,14 @@ mod tests {
             encoded[7..39],
             bcs::to_bytes(&BLOB_ID).expect("successful encoding")
         );
-        if cfg!(feature = "walrus-mainnet") {
-            assert_eq!(
-                encoded[39..40],
-                // BlobPersistenceType::Deletable should be encoded as 1, followed by the object ID
-                bcs::to_bytes(&1u8).expect("successful encoding")
-            );
-            assert_eq!(
-                encoded[40..],
-                bcs::to_bytes(&object_id).expect("successful encoding")
-            );
-        } else {
-            assert!(encoded[39..].is_empty());
-        }
+        assert_eq!(
+            encoded[39..40],
+            // BlobPersistenceType::Deletable should be encoded as 1, followed by the object ID
+            bcs::to_bytes(&1u8).expect("successful encoding")
+        );
+        assert_eq!(
+            encoded[40..],
+            bcs::to_bytes(&object_id).expect("successful encoding")
+        );
     }
 }

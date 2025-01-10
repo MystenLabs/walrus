@@ -6,10 +6,6 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
-
-[features]
-walrus-mainnet = ["walrus-core/walrus-mainnet", "walrus-sui/walrus-mainnet"]
-
 [dependencies]
 aws-config = "1.5.10"
 aws-runtime = "1.4.4"

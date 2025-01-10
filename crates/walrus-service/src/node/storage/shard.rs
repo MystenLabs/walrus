@@ -136,20 +136,17 @@ enum ShardLastSyncStatus {
 }
 
 /// Primary sliver data stored in the database.
-#[cfg(feature = "walrus-mainnet")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PrimarySliverData {
     V1(PrimarySliver),
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl From<PrimarySliver> for PrimarySliverData {
     fn from(sliver: PrimarySliver) -> Self {
         Self::V1(sliver)
     }
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl From<PrimarySliverData> for PrimarySliver {
     fn from(data: PrimarySliverData) -> Self {
         match data {
@@ -159,20 +156,17 @@ impl From<PrimarySliverData> for PrimarySliver {
 }
 
 /// Secondary sliver data stored in the database.
-#[cfg(feature = "walrus-mainnet")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SecondarySliverData {
     V1(SecondarySliver),
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl From<SecondarySliver> for SecondarySliverData {
     fn from(sliver: SecondarySliver) -> Self {
         Self::V1(sliver)
     }
 }
 
-#[cfg(feature = "walrus-mainnet")]
 impl From<SecondarySliverData> for SecondarySliver {
     fn from(data: SecondarySliverData) -> Self {
         match data {
@@ -185,13 +179,7 @@ impl From<SecondarySliverData> for SecondarySliver {
 pub struct ShardStorage {
     id: ShardIndex,
     shard_status: DBMap<(), ShardStatus>,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    primary_slivers: DBMap<BlobId, PrimarySliver>,
-    #[cfg(feature = "walrus-mainnet")]
     primary_slivers: DBMap<BlobId, PrimarySliverData>,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    secondary_slivers: DBMap<BlobId, SecondarySliver>,
-    #[cfg(feature = "walrus-mainnet")]
     secondary_slivers: DBMap<BlobId, SecondarySliverData>,
     shard_sync_progress: DBMap<(), ShardSyncProgress>,
     pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
@@ -272,24 +260,12 @@ impl ShardStorage {
         sliver: &Sliver,
     ) -> Result<(), TypedStoreError> {
         match sliver {
-            Sliver::Primary(primary) => {
-                #[cfg(not(feature = "walrus-mainnet"))]
-                let result = self.primary_slivers.insert(blob_id, primary);
-                #[cfg(feature = "walrus-mainnet")]
-                let result = self
-                    .primary_slivers
-                    .insert(blob_id, &PrimarySliverData::from(primary.clone()));
-                result
-            }
-            Sliver::Secondary(secondary) => {
-                #[cfg(not(feature = "walrus-mainnet"))]
-                let result = self.secondary_slivers.insert(blob_id, secondary);
-                #[cfg(feature = "walrus-mainnet")]
-                let result = self
-                    .secondary_slivers
-                    .insert(blob_id, &SecondarySliverData::from(secondary.clone()));
-                result
-            }
+            Sliver::Primary(primary) => self
+                .primary_slivers
+                .insert(blob_id, &PrimarySliverData::from(primary.clone())),
+            Sliver::Secondary(secondary) => self
+                .secondary_slivers
+                .insert(blob_id, &SecondarySliverData::from(secondary.clone())),
         }
     }
 
@@ -320,14 +296,9 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let result = self.primary_slivers.get(blob_id);
-        #[cfg(feature = "walrus-mainnet")]
-        let result = self
-            .primary_slivers
+        self.primary_slivers
             .get(blob_id)
-            .map(|s| s.map(|s| s.into()));
-        result
+            .map(|s| s.map(|s| s.into()))
     }
 
     /// Retrieves the stored secondary sliver for the given blob ID.
@@ -336,14 +307,9 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
-        #[cfg(not(feature = "walrus-mainnet"))]
-        let result = self.secondary_slivers.get(blob_id);
-        #[cfg(feature = "walrus-mainnet")]
-        let result = self
-            .secondary_slivers
+        self.secondary_slivers
             .get(blob_id)
-            .map(|s| s.map(|s| s.into()));
-        result
+            .map(|s| s.map(|s| s.into()))
     }
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
@@ -778,9 +744,6 @@ impl ShardStorage {
             match sliver {
                 Sliver::Primary(primary) => {
                     assert_eq!(sliver_type, SliverType::Primary);
-                    #[cfg(not(feature = "walrus-mainnet"))]
-                    batch.insert_batch(&self.primary_slivers, [(blob_id, primary)])?;
-                    #[cfg(feature = "walrus-mainnet")]
                     batch.insert_batch(
                         &self.primary_slivers,
                         [(blob_id, &PrimarySliverData::from(primary.clone()))],
@@ -788,9 +751,6 @@ impl ShardStorage {
                 }
                 Sliver::Secondary(secondary) => {
                     assert_eq!(sliver_type, SliverType::Secondary);
-                    #[cfg(not(feature = "walrus-mainnet"))]
-                    batch.insert_batch(&self.secondary_slivers, [(blob_id, secondary)])?;
-                    #[cfg(feature = "walrus-mainnet")]
                     batch.insert_batch(
                         &self.secondary_slivers,
                         [(blob_id, &SecondarySliverData::from(secondary.clone()))],

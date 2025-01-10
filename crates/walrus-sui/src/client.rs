@@ -27,13 +27,11 @@ use sui_types::{
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use transaction_builder::{WalrusPtbBuilder, MAX_BURNS_PER_PTB};
-#[cfg(feature = "walrus-mainnet")]
-use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     ensure,
     merkle::Node as MerkleNode,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
-    metadata::BlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, BlobMetadataWithId},
     BlobId,
     EncodingType,
     Epoch,
@@ -259,7 +257,6 @@ impl SuiContractClient {
         wallet: WalletContext,
         system_object: ObjectID,
         staking_object: ObjectID,
-        package_id: Option<ObjectID>,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
@@ -267,7 +264,6 @@ impl SuiContractClient {
             RetriableSuiClient::new_from_wallet(&wallet, backoff_config).await?,
             system_object,
             staking_object,
-            package_id,
         )
         .await?;
         Self::new_with_read_client(wallet, gas_budget, read_client)

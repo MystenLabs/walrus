@@ -60,10 +60,6 @@ pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index
 pub const SLIVER_STATUS_ENDPOINT: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
 /// The path to get blob confirmations for permanent blobs.
-#[cfg(not(feature = "walrus-mainnet"))]
-pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation";
-/// The path to get blob confirmations for permanent blobs.
-#[cfg(feature = "walrus-mainnet")]
 pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 /// The path to get blob confirmations for deletable blobs.
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =

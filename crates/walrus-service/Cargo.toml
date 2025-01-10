@@ -47,7 +47,6 @@ test-utils = [
   "walrus-core/test-utils",
   "walrus-sui/test-utils",
 ]
-walrus-mainnet = ["walrus-core/walrus-mainnet", "walrus-sdk/walrus-mainnet", "walrus-sui/walrus-mainnet"]
 
 [dependencies]
 anyhow.workspace = true

@@ -13,9 +13,7 @@ use std::{
 use enum_dispatch::enum_dispatch;
 use rocksdb::{MergeOperands, Options};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-#[cfg(feature = "walrus-mainnet")]
-use sui_types::base_types::ObjectID;
-use sui_types::event::EventID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use tracing::Level;
 use typed_store::{
     rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
@@ -26,29 +24,20 @@ use walrus_core::{BlobId, Epoch};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
-#[cfg(feature = "walrus-mainnet")]
-pub(crate) use self::per_object_blob_info::PerObjectBlobInfo;
-#[cfg(feature = "walrus-mainnet")]
-pub(crate) use self::per_object_blob_info::PerObjectBlobInfoApi;
-#[cfg(feature = "walrus-mainnet")]
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
+pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{database_config::DatabaseTableOptions, DatabaseConfig};
 
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
-    #[cfg(feature = "walrus-mainnet")]
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
 }
 
 impl BlobInfoTable {
-    #[cfg(feature = "walrus-mainnet")]
     const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "aggregate_blob_info";
-    #[cfg(feature = "walrus-mainnet")]
     const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "per_object_blob_info";
-    #[cfg(not(feature = "walrus-mainnet"))]
-    const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "blob_info";
     const EVENT_INDEX_COLUMN_FAMILY_NAME: &'static str = "latest_handled_event_index";
 
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
@@ -58,7 +47,6 @@ impl BlobInfoTable {
             &ReadWriteOptions::default(),
             false,
         )?;
-        #[cfg(feature = "walrus-mainnet")]
         let per_object_blob_info = DBMap::reopen(
             database,
             Some(Self::PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME),
@@ -74,7 +62,6 @@ impl BlobInfoTable {
 
         Ok(Self {
             aggregate_blob_info,
-            #[cfg(feature = "walrus-mainnet")]
             per_object_blob_info,
             latest_handled_event_index,
         })
@@ -88,7 +75,6 @@ impl BlobInfoTable {
             |_, _, _| None,
         );
 
-        #[cfg(feature = "walrus-mainnet")]
         let per_object_blob_info_options = {
             let mut options = db_config.per_object_blob_info.to_options();
             options.set_merge_operator(
@@ -104,7 +90,6 @@ impl BlobInfoTable {
                 Self::AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME,
                 blob_info_options,
             ),
-            #[cfg(feature = "walrus-mainnet")]
             (
                 Self::PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME,
                 per_object_blob_info_options,
@@ -142,7 +127,6 @@ impl BlobInfoTable {
             &self.aggregate_blob_info,
             [(event.blob_id(), operation.to_bytes())],
         )?;
-        #[cfg(feature = "walrus-mainnet")]
         if let Some(object_id) = event.object_id() {
             let per_object_operation =
                 PerObjectBlobInfoMergeOperand::from_blob_info_merge_operand(operation)
@@ -198,7 +182,6 @@ impl BlobInfoTable {
     }
 
     /// Returns the per-object blob info for `object_id`.
-    #[cfg(feature = "walrus-mainnet")]
     pub fn get_per_object_info(
         &self,
         object_id: &ObjectID,
@@ -386,7 +369,6 @@ impl ToBytes for BlobInfoMergeOperand {}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(super) struct BlobStatusChangeInfo {
-    #[cfg(feature = "walrus-mainnet")]
     pub(super) blob_id: BlobId,
     pub(super) deletable: bool,
     pub(super) epoch: Epoch,
@@ -415,7 +397,6 @@ impl BlobInfoMergeOperand {
         Self::ChangeStatus {
             change_type,
             change_info: BlobStatusChangeInfo {
-                #[cfg(feature = "walrus-mainnet")]
                 blob_id: walrus_core::test_utils::blob_id_from_u64(42),
                 deletable,
                 epoch,
@@ -433,7 +414,6 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
             end_epoch,
             event_id,
             deletable,
-            #[cfg(feature = "walrus-mainnet")]
             blob_id,
             ..
         } = value;
@@ -443,7 +423,6 @@ impl From<&BlobRegistered> for BlobInfoMergeOperand {
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
-                #[cfg(feature = "walrus-mainnet")]
                 blob_id: *blob_id,
             },
             change_type: BlobStatusChangeType::Register,
@@ -459,7 +438,6 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
             event_id,
             deletable,
             is_extension,
-            #[cfg(feature = "walrus-mainnet")]
             blob_id,
             ..
         } = value;
@@ -468,7 +446,6 @@ impl From<&BlobCertified> for BlobInfoMergeOperand {
             epoch: *epoch,
             end_epoch: *end_epoch,
             status_event: *event_id,
-            #[cfg(feature = "walrus-mainnet")]
             blob_id: *blob_id,
         };
         let change_type = if *is_extension {
@@ -490,7 +467,6 @@ impl From<&BlobDeleted> for BlobInfoMergeOperand {
             end_epoch,
             was_certified,
             event_id,
-            #[cfg(feature = "walrus-mainnet")]
             blob_id,
             ..
         } = value;
@@ -503,7 +479,6 @@ impl From<&BlobDeleted> for BlobInfoMergeOperand {
                 epoch: *epoch,
                 end_epoch: *end_epoch,
                 status_event: *event_id,
-                #[cfg(feature = "walrus-mainnet")]
                 blob_id: *blob_id,
             },
         }
@@ -931,8 +906,7 @@ impl PermanentBlobInfoV1 {
             end_epoch: new_end_epoch,
             status_event: new_status_event,
             deletable,
-            #[cfg(feature = "walrus-mainnet")]
-                blob_id: _,
+            blob_id: _,
         } = change_info;
         assert!(!deletable);
 
@@ -1110,8 +1084,7 @@ impl Mergeable for BlobInfoV1 {
                     epoch: _,
                     end_epoch,
                     status_event,
-                    #[cfg(feature = "walrus-mainnet")]
-                        blob_id: _,
+                    blob_id: _,
                 },
         } = operand
         else {
@@ -1240,7 +1213,6 @@ impl Mergeable for BlobInfo {
     }
 }
 
-#[cfg(feature = "walrus-mainnet")]
 mod per_object_blob_info {
     use super::*;
 

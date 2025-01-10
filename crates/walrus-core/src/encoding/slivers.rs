@@ -27,13 +27,11 @@ use super::{
     SliverRecoveryOrVerificationError,
     Symbols,
 };
-#[cfg(feature = "walrus-mainnet")]
-use crate::metadata::BlobMetadataApi as _;
 use crate::{
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{MerkleAuth, MerkleProof, MerkleTree, Node, DIGEST_LEN},
-    metadata::{BlobMetadata, SliverPairMetadata},
+    metadata::{BlobMetadata, BlobMetadataApi as _, SliverPairMetadata},
     utils,
     SliverIndex,
     SliverPairIndex,

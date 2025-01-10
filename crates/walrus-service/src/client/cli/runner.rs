@@ -17,11 +17,10 @@ use rand::seq::SliceRandom;
 use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
-#[cfg(feature = "walrus-mainnet")]
-use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
     ensure,
+    metadata::BlobMetadataApi as _,
     BlobId,
     EpochCount,
 };

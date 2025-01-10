@@ -106,11 +106,6 @@ pub struct StorageNodeConfig {
     #[serde(default)]
     pub disable_event_blob_writer: bool,
     /// The commission rate of the storage node, in basis points.
-    #[cfg(not(feature = "walrus-mainnet"))]
-    #[serde(default)]
-    pub commission_rate: u64,
-    /// The commission rate of the storage node, in basis points.
-    #[cfg(feature = "walrus-mainnet")]
     #[serde(default)]
     pub commission_rate: u16,
     /// The parameters for the staking pool.
@@ -397,7 +392,6 @@ impl SuiConfig {
             &self.rpc,
             self.system_object,
             self.staking_object,
-            self.walrus_package,
             self.backoff_config.clone(),
         )
         .await
@@ -409,7 +403,6 @@ impl SuiConfig {
             WalletContext::new(&self.wallet_config, None, None)?,
             self.system_object,
             self.staking_object,
-            self.walrus_package,
             self.backoff_config.clone(),
             self.gas_budget,
         )

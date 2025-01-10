@@ -38,17 +38,12 @@ const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
 
 /// Provides the default contract path for testing for the package with name `package`.
 pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
-    let contract_dir = if cfg!(feature = "walrus-mainnet") {
-        "contracts"
-    } else {
-        "testnet-contracts"
-    };
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
         .unwrap()
         .parent()
         .unwrap()
-        .join(contract_dir)
+        .join("contracts")
         .join(package))
 }
 
@@ -132,7 +127,6 @@ impl SystemContext {
             wallet,
             self.system_object,
             self.staking_object,
-            Some(self.package_id),
             backoff_config,
             gas_budget,
         )

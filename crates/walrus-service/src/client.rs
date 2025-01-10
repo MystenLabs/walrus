@@ -22,14 +22,12 @@ use tokio::{
 };
 use tracing::{Instrument as _, Level};
 use utils::WeightedResult;
-#[cfg(feature = "walrus-mainnet")]
-use walrus_core::metadata::BlobMetadataApi;
 use walrus_core::{
     bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     EpochCount,

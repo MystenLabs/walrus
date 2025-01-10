@@ -68,7 +68,6 @@ async fn initialize_contract_and_wallet(
                     wallet,
                     system_object,
                     staking_object,
-                    None,
                     ExponentialBackoffConfig::default(),
                     GAS_BUDGET,
                 )
