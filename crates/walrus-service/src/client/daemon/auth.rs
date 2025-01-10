@@ -100,7 +100,7 @@ impl<S> Layer<S> for JwtLayer {
     }
 }
 
-/// Middleware for validating a valid JWT token is present on "authorization: bearer <token>"
+/// Middleware for validating that a valid JWT token is present in "authorization: bearer <token>".
 #[derive(Clone)]
 pub struct Jwt<S> {
     inner: S,
