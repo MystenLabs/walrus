@@ -181,6 +181,7 @@ impl ClientCommandRunner {
             CliCommands::GenerateSuiWallet {
                 path,
                 sui_network,
+                use_faucet,
                 faucet_timeout,
             } => {
                 let wallet_path = if let Some(path) = path {
@@ -203,7 +204,7 @@ impl ClientCommandRunner {
                     }
                 };
 
-                self.generate_sui_wallet(&wallet_path, sui_network, faucet_timeout)
+                self.generate_sui_wallet(&wallet_path, sui_network, use_faucet, faucet_timeout)
                     .await
             }
 
@@ -642,9 +643,11 @@ impl ClientCommandRunner {
         self,
         path: &Path,
         sui_network: SuiNetwork,
+        use_faucet: bool,
         faucet_timeout: Duration,
     ) -> Result<()> {
-        let wallet_address = generate_sui_wallet(sui_network, path, faucet_timeout).await?;
+        let wallet_address =
+            generate_sui_wallet(sui_network, path, use_faucet, faucet_timeout).await?;
         WalletOutput { wallet_address }.print_output(self.json)
     }
 

@@ -320,6 +320,10 @@ pub enum CliCommands {
         #[clap(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
+        /// Whether to attempt to get SUI tokens from the faucet.
+        #[clap(long, action)]
+        #[serde(default)]
+        use_faucet: bool,
         /// Timeout for the faucet call.
         #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
         #[serde(default = "default::faucet_timeout")]

@@ -76,8 +76,8 @@ struct Args {
 enum Commands {
     /// Generate Sui wallet, keys, and configuration for a Walrus node.
     ///
-    /// This overwrites existing files in the configuration directory.
-    /// Fails if the specified directory does not exist yet.
+    /// Attempts to create the specified directory. Fails if the directory is not empty (unless
+    /// the `--force` option is provided).
     Setup {
         #[clap(long)]
         /// The path to the directory in which to set up wallet and node configuration.
@@ -90,11 +90,17 @@ enum Commands {
         /// Available options are `devnet`, `testnet`, and `localnet`.
         #[clap(long, default_value = "testnet")]
         sui_network: SuiNetwork,
+        /// Whether to attempt to get SUI tokens from the faucet.
+        #[clap(long, action)]
+        use_faucet: bool,
         /// Timeout for the faucet call.
         #[clap(long, default_value = "1min")]
         faucet_timeout: Duration,
         #[clap(flatten)]
         config_args: ConfigArgs,
+        /// Overwrite existing files.
+        #[clap(long)]
+        force: bool,
     },
 
     /// Register a new node with the Walrus storage network.
@@ -141,6 +147,9 @@ enum Commands {
         path_args: PathArgs,
         #[clap(flatten)]
         config_args: ConfigArgs,
+        /// Overwrite existing files.
+        #[clap(long)]
+        force: bool,
     },
 
     /// Repair a corrupted RocksDB database due to non-clean shutdowns.
@@ -255,7 +264,8 @@ struct ConfigArgs {
 #[derive(Debug, Clone, clap::Args)]
 struct PathArgs {
     #[clap(long)]
-    /// The output path for the generated configuration file.
+    /// The output path for the generated configuration file. If the file already exists, it is
+    /// not overwritten and the operation will fail unless the `--force` option is provided.
     config_path: PathBuf,
     #[clap(long)]
     /// The path where the Walrus database will be stored.
@@ -283,14 +293,18 @@ fn main() -> anyhow::Result<()> {
             config_directory,
             storage_path,
             sui_network,
+            use_faucet,
             faucet_timeout,
             config_args,
+            force,
         } => commands::setup(
             config_directory,
             storage_path,
             sui_network,
+            use_faucet,
             faucet_timeout.into(),
             config_args,
+            force,
         )?,
 
         Commands::Register { config_path, name } => commands::register_node(config_path, name)?,
@@ -314,7 +328,8 @@ fn main() -> anyhow::Result<()> {
         Commands::GenerateConfig {
             path_args,
             config_args,
-        } => commands::generate_config(path_args, config_args)?,
+            force,
+        } => commands::generate_config(path_args, config_args, force)?,
 
         Commands::RepairDb { db_path } => commands::repair_db(db_path)?,
     }
@@ -511,12 +526,8 @@ mod commands {
             "Generating {key_type} key pair and writing it to '{}'",
             path.display()
         );
-        let mut file = if force {
-            File::create(path)
-        } else {
-            File::create_new(path)
-        }
-        .with_context(|| format!("Cannot create the keyfile '{}'", path.display()))?;
+        let mut file = create_file(path, force)
+            .with_context(|| format!("Cannot create the keyfile '{}'", path.display()))?;
 
         file.write_all(
             match key_type {
@@ -605,6 +616,7 @@ mod commands {
             commission_rate,
             name,
         }: ConfigArgs,
+        force: bool,
     ) -> anyhow::Result<()> {
         let sui_rpc = if let Some(rpc) = sui_rpc {
             rpc
@@ -668,11 +680,19 @@ mod commands {
 
         // Generate and write config file.
         let yaml_config =
-            serde_yaml::to_string(&config).context("Failed to serialize configuration to YAML")?;
-        fs::write(&config_path, yaml_config)
-            .context("Failed to write the generated configuration to a file")?;
+            serde_yaml::to_string(&config).context("failed to serialize configuration to YAML")?;
+        let mut file = create_file(&config_path, force).with_context(|| {
+            format!(
+                "failed to create the config file '{}'",
+                config_path.display()
+            )
+        })?;
+        file.write_all(yaml_config.as_bytes()).context(format!(
+            "failed to write the generated configuration to '{}'",
+            config_path.display()
+        ))?;
         println!(
-            "Storage node configuration written to '{}'",
+            "storage node configuration written to '{}'",
             config_path.display()
         );
         Ok(())
@@ -692,9 +712,22 @@ mod commands {
         config_directory: PathBuf,
         storage_path: PathBuf,
         sui_network: SuiNetwork,
+        use_faucet: bool,
         faucet_timeout: Duration,
         config_args: ConfigArgs,
+        force: bool,
     ) -> anyhow::Result<()> {
+        fs::create_dir_all(&config_directory).context(format!(
+            "failed to create the config directory '{}'",
+            config_directory.display()
+        ))?;
+        if !force && config_directory.read_dir()?.next().is_some() {
+            bail!(
+                "the specified configuration directory '{}' is not empty; \
+                use the '--force' option to overwrite existing files",
+                config_directory.display()
+            );
+        }
         let config_path = config_directory.join("walrus-node.yaml");
         let protocol_key_path = config_directory.join("protocol.key");
         let network_key_path = config_directory.join("network.key");
@@ -709,7 +742,8 @@ mod commands {
         keygen(&network_key_path, KeyType::Network, true)?;
 
         let wallet_address =
-            utils::generate_sui_wallet(sui_network, &wallet_config, faucet_timeout).await?;
+            utils::generate_sui_wallet(sui_network, &wallet_config, use_faucet, faucet_timeout)
+                .await?;
         println!(
             "Successfully generated a new Sui wallet with address {}",
             wallet_address
@@ -724,7 +758,18 @@ mod commands {
                 wallet_config,
             },
             config_args,
+            force,
         )
+    }
+
+    /// Creates a new file at the given path. If force is true, overwrites any existing file.
+    /// Otherwise, fails if the file already exists.
+    fn create_file(path: &Path, force: bool) -> Result<File, std::io::Error> {
+        if force {
+            File::create(path)
+        } else {
+            File::create_new(path)
+        }
     }
 }
 

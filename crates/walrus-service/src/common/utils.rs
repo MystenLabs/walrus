@@ -569,6 +569,7 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
 pub async fn generate_sui_wallet(
     sui_network: SuiNetwork,
     path: &Path,
+    use_faucet: bool,
     faucet_timeout: Duration,
 ) -> Result<SuiAddress> {
     tracing::info!(
@@ -579,25 +580,27 @@ pub async fn generate_sui_wallet(
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 
-    tracing::info!("attempting to get SUI from faucet...");
-    match tokio::time::timeout(
-        faucet_timeout,
-        walrus_sui::utils::request_sui_from_faucet(
-            wallet_address,
-            &sui_network,
-            &wallet.get_client().await?,
-        ),
-    )
-    .await
-    {
-        Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
-        Ok(Err(error)) => {
-            tracing::warn!(
-                ?error,
-                "an error occurred when trying to get SUI from the faucet"
-            )
+    if use_faucet {
+        tracing::info!("attempting to get SUI from faucet...");
+        match tokio::time::timeout(
+            faucet_timeout,
+            walrus_sui::utils::request_sui_from_faucet(
+                wallet_address,
+                &sui_network,
+                &wallet.get_client().await?,
+            ),
+        )
+        .await
+        {
+            Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    ?error,
+                    "an error occurred when trying to get SUI from the faucet"
+                )
+            }
+            Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
         }
-        Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
     }
 
     Ok(wallet_address)
