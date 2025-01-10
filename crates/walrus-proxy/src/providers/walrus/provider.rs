@@ -21,12 +21,6 @@ use super::query::{get_walrus_committee, NodeInfo};
 use crate::{register_metric, Allower};
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
-    // register_counter_vec!(
-    //     "json_rpc_state",
-    //     "Number of successful/failed requests made.",
-    //     &["rpc_method", "status"]
-    // )
-    // .unwrap()
     register_metric!(CounterVec::new(
         Opts::new(
             "json_rpc_state",
@@ -37,16 +31,6 @@ static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
     .unwrap())
 });
 static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
-    // register_histogram_vec!(
-    //     "json_rpc_duration_seconds",
-    //     "The json-rpc latencies in seconds.",
-    //     &["rpc_method"],
-    //     vec![
-    //         0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096, 0.8192,
-    //         1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0
-    //     ],
-    // )
-    // .unwrap()
     register_metric!(HistogramVec::new(
         HistogramOpts::new(
             "json_rpc_duration_seconds",

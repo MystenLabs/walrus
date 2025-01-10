@@ -19,18 +19,20 @@ use tracing::Level;
 // Walrus proxy prom registry, to avoid collisions with prometheus in some
 // shared counters from other crates, namely sui-proxy
 pub(crate) static WALRUS_PROXY_PROM_REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
-// Function to access the registry
-pub(crate) fn walrus_proxy_prom_registry() -> &'static Registry {
+
+/// Function to access the registry
+pub fn walrus_proxy_prom_registry() -> &'static Registry {
     &WALRUS_PROXY_PROM_REGISTRY
 }
 /// macro to register metrics into the walrus proxy (local) default registry
 #[macro_export]
 macro_rules! register_metric {
     ($metric:expr) => {{
+        let m = $metric;
         $crate::metrics::walrus_proxy_prom_registry()
-            .register(Box::new($metric))
+            .register(Box::new(m.clone()))
             .unwrap();
-        $metric
+        m
     }};
 }
 

@@ -49,7 +49,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
-
+    let _registry_guard = metrics::walrus_proxy_prom_registry();
     let args = Args::parse();
 
     let config: ProxyConfig = load(args.config)?;
