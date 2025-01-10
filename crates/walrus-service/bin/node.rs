@@ -196,7 +196,7 @@ struct SetupArgs {
     #[clap(long, action)]
     use_faucet: bool,
     /// Timeout for the faucet call.
-    #[clap(long, default_value = "1min")]
+    #[clap(long, default_value = "1min", requires = "use_faucet")]
     faucet_timeout: Duration,
     #[clap(flatten)]
     config_args: ConfigArgs,

@@ -325,7 +325,12 @@ pub enum CliCommands {
         #[serde(default)]
         use_faucet: bool,
         /// Timeout for the faucet call.
-        #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
+        #[clap(
+            long,
+            value_parser = humantime::parse_duration,
+            default_value = "1min",
+            requires = "use_faucet")
+        ]
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
