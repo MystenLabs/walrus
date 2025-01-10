@@ -78,7 +78,7 @@ fn uptime_metric(registry: Registry) {
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
 pub fn start_prometheus_server(listener: TcpListener) -> Registry {
-    let registry = Registry::new();
+    let registry = walrus_proxy_prom_registry().to_owned();
 
     uptime_metric(registry.clone());
 
