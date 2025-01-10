@@ -213,7 +213,7 @@ where
                             let query = req.uri().query();
                             if let Some(epochs) = claim.epochs {
                                 if !check_query(query, "epochs", epochs.to_string()) {
-                                    error!("upload with invalid epochs: {}", epochs);
+                                    tracing::error!(epochs, "upload with invalid epochs");
                                     valid_upload = false;
                                 }
                             }
