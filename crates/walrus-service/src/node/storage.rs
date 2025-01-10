@@ -342,6 +342,16 @@ impl Storage {
             .insert(metadata.blob_id(), metadata.metadata())
     }
 
+    /// Store the metadata without updating blob info. This is only used during storing metadata for
+    /// event blobs which are stored without getting registered first.
+    #[tracing::instrument(skip_all)]
+    pub fn update_blob_info_with_metadata(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        let mut batch = self.metadata.batch();
+        self.blob_info
+            .set_metadata_stored(&mut batch, blob_id, true)?;
+        batch.write()
+    }
+
     /// Store the verified metadata.
     #[tracing::instrument(skip_all)]
     pub fn put_verified_metadata(
