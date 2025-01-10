@@ -1109,21 +1109,16 @@ impl SuiContractClient {
     ) -> SuiClientResult<ObjectID> {
         let blob: Blob = self
             .read_client
-            .sui_client
+            .sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let wallet = self.wallet().await;
         let mut pt_builder = self.transaction_builder();
 
         if let Some(amount) = amount {
-            #[cfg(feature = "walrus-mainnet")]
             pt_builder
                 .new_funded_shared_blob(blob.id.into(), amount)
                 .await?;
-            #[cfg(not(feature = "walrus-mainnet"))]
-            return Err(SuiClientError::Internal(anyhow::anyhow!(
-                "do not support new funded shared blob"
-            )));
         } else {
             pt_builder.new_shared_blob(blob.id.into()).await?;
         }
