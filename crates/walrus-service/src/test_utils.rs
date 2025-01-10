@@ -389,8 +389,8 @@ impl SimStorageNodeHandle {
                             .to_path_buf()),
                     };
                 let system_config = crate::node::events::event_processor::SystemConfig {
-                    system_object_id: sui_config.system_object,
-                    staking_object_id: sui_config.staking_object,
+                    system_object_id: sui_config.contract_config.system_object,
+                    staking_object_id: sui_config.contract_config.staking_object,
                     system_pkg_id: sui_read_client.get_system_package_id(),
                 };
                 Box::new(
@@ -846,6 +846,8 @@ impl StorageNodeHandleBuilder {
         start_node: bool,
         disable_event_blob_writer: bool,
     ) -> anyhow::Result<SimStorageNodeHandle> {
+        use walrus_sui::client::contract_config::ContractConfig;
+
         let node_info = self
             .test_config
             .expect("test config must be provided to spawn a storage node");
@@ -861,9 +863,10 @@ impl StorageNodeHandleBuilder {
             disable_event_blob_writer,
             sui: Some(SuiConfig {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
-                system_object: system_context.system_object,
-                staking_object: system_context.staking_object,
-                walrus_package: Some(system_context.package_id),
+                contract_config: ContractConfig::new(
+                    system_context.system_object,
+                    system_context.staking_object,
+                ),
                 wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
