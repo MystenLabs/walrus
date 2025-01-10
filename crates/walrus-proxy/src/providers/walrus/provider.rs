@@ -12,7 +12,6 @@ use fastcrypto::{
     secp256r1::Secp256r1PublicKey,
     traits::{EncodeDecodeBase64, ToFromBytes},
 };
-
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use tracing::{debug, error, info};

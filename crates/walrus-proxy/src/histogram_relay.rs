@@ -12,7 +12,10 @@ use axum::{extract::Extension, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
 use prometheus::{
     proto::{Metric, MetricFamily},
-    CounterVec, HistogramOpts, HistogramVec, Opts,
+    CounterVec,
+    HistogramOpts,
+    HistogramVec,
+    Opts,
 };
 use tower::ServiceBuilder;
 use tower_http::{
