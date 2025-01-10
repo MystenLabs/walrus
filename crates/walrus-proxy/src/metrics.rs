@@ -58,7 +58,7 @@ impl HealthCheck {
 }
 
 /// a simple uptime metric
-fn uptime_metric(registry: Registry) {
+fn uptime_metric(registry: &Registry) {
     // Define the uptime counter
     let opts = Opts::new("uptime_seconds", "Uptime in seconds");
     let uptime_counter = IntCounter::with_opts(opts).unwrap();
@@ -77,10 +77,10 @@ fn uptime_metric(registry: Registry) {
 
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
-pub fn start_prometheus_server(listener: TcpListener) -> Registry {
-    let registry = walrus_proxy_prom_registry().to_owned();
+pub fn start_prometheus_server(listener: TcpListener) {
+    let registry = walrus_proxy_prom_registry();
 
-    uptime_metric(registry.clone());
+    uptime_metric(registry);
 
     let pod_health_data = Arc::new(RwLock::new(HealthCheck::new()));
 
@@ -88,7 +88,7 @@ pub fn start_prometheus_server(listener: TcpListener) -> Registry {
         .route(METRICS_ROUTE, get(metrics))
         .route(POD_HEALTH_ROUTE, get(pod_health))
         .route(POD_LIVENESS_ROUTE, get(liveness))
-        .layer(Extension(registry.clone()))
+        .layer(Extension(registry))
         .layer(Extension(pod_health_data.clone()))
         .layer(
             ServiceBuilder::new().layer(
@@ -105,8 +105,6 @@ pub fn start_prometheus_server(listener: TcpListener) -> Registry {
         let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         axum::serve(listener, app).await.unwrap();
     });
-
-    registry
 }
 
 async fn metrics(
