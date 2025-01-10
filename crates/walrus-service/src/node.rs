@@ -27,7 +27,7 @@ use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 #[cfg(feature = "walrus-mainnet")]
 use storage::blob_info::PerObjectBlobInfoApi;
-use sui_macros::fail_point_async;
+use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
@@ -694,6 +694,26 @@ impl StorageNode {
         Ok(EventStreamCursor::new(from_event_id, next_event_index))
     }
 
+    #[cfg(not(msim))]
+    async fn get_storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
+        self.storage_node_cursor().await
+    }
+
+    // A version of `get_storage_node_cursor` that can be used in simtest which can control the
+    // initial cursor.
+    #[cfg(msim)]
+    async fn get_storage_node_cursor(&self) -> anyhow::Result<EventStreamCursor> {
+        let mut cursor = self.storage_node_cursor().await?;
+        fail_point_arg!(
+            "storage_node_initial_cursor",
+            |update_cursor: EventStreamCursor| {
+                tracing::info!("updating storage node cursor to {:?}", update_cursor);
+                cursor = update_cursor;
+            }
+        );
+        Ok(cursor)
+    }
+
     /// Returns whether the storage node cursor should be repositioned.
     ///
     /// The storage node cursor should be repositioned if the storage node cursor is behind the
@@ -726,7 +746,8 @@ impl StorageNode {
             Some(ref factory) => factory.event_cursor().unwrap_or_default(),
             None => EventStreamCursor::new(None, u64::MAX),
         };
-        let storage_node_cursor = self.storage_node_cursor().await?;
+        let storage_node_cursor = self.get_storage_node_cursor().await?;
+
         let mut event_blob_writer = match &self.event_blob_writer_factory {
             Some(factory) => Some(factory.create().await?),
             None => None,
@@ -768,26 +789,10 @@ impl StorageNode {
                 "error.type" = field::Empty,
             );
 
-            if let Some(epoch_at_start) = maybe_epoch_at_start {
-                if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                    tracing::debug!("checking the first contract event if we're severely lagging");
-                    // Clear the starting epoch, so that we never make this check again.
-                    maybe_epoch_at_start = None;
-
-                    // Checks if the node is severely lagging behind.
-                    if node_status != NodeStatus::RecoveryCatchUp
-                        && event.event_epoch() + 1 < epoch_at_start
-                    {
-                        tracing::warn!(
-                            "the current epoch ({}) is far ahead of the event epoch ({}); \
-                            node entering recovery mode",
-                            epoch_at_start,
-                            event.event_epoch()
-                        );
-                        self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
-                    }
-                }
-            }
+            fail_point_arg!("event_processing_epoch_check", |epoch: Epoch| {
+                tracing::info!("updating epoch check to {:?}", epoch);
+                maybe_epoch_at_start = Some(epoch);
+            });
 
             let element_index = u64::try_from(element_index).expect("should fit into a u64");
             let should_write = element_index >= writer_cursor.element_index;
@@ -795,6 +800,29 @@ impl StorageNode {
             ensure!(should_write || should_process, "event stream out of sync");
 
             if should_process {
+                if let Some(epoch_at_start) = maybe_epoch_at_start {
+                    if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
+                        tracing::debug!(
+                            "checking the first contract event if we're severely lagging"
+                        );
+                        // Clear the starting epoch, so that we never make this check again.
+                        maybe_epoch_at_start = None;
+
+                        // Checks if the node is severely lagging behind.
+                        if node_status != NodeStatus::RecoveryCatchUp
+                            && event.event_epoch() + 1 < epoch_at_start
+                        {
+                            tracing::warn!(
+                                "the current epoch ({}) is far ahead of the event epoch ({}); \
+                                node entering recovery mode",
+                                epoch_at_start,
+                                event.event_epoch()
+                            );
+                            self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                        }
+                    }
+                }
+
                 let event_handle = EventHandle::new(
                     element_index as usize,
                     stream_element.element.event_id(),
@@ -4606,6 +4634,40 @@ mod tests {
             unblock.notify_one();
             wait_until_events_processed(&cluster.nodes[0], processed_event_count_initial + 2)
                 .await?;
+
+            Ok(())
+        }
+
+        // Tests that storage node lag check is not affected by the blob writer cursor.
+        #[walrus_simtest]
+        async fn event_blob_cursor_should_not_affect_node_state() -> TestResult {
+            let _ = tracing_subscriber::fmt::try_init();
+
+            // Set the initial cursor to a high value to simulate a severe lag to
+            // blob writer cursor.
+            register_fail_point_arg(
+                "storage_node_initial_cursor",
+                || -> Option<EventStreamCursor> {
+                    Some(EventStreamCursor::new(Some(event_id_for_testing()), 10000))
+                },
+            );
+
+            // Set the epoch check to a high value to simulate a severe lag to epoch check.
+            register_fail_point_arg("event_processing_epoch_check", || -> Option<Epoch> {
+                Some(100)
+            });
+
+            // Create a cluster and send some events.
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]]).await?;
+            events.send(BlobRegistered::for_testing(BLOB_ID).into())?;
+            tokio::time::sleep(Duration::from_secs(10)).await;
+
+            // Expect that the node is not in recovery catch up mode because the lag check should
+            // not be triggered.
+            assert_ne!(
+                cluster.nodes[0].storage_node.inner.storage.node_status()?,
+                NodeStatus::RecoveryCatchUp
+            );
 
             Ok(())
         }

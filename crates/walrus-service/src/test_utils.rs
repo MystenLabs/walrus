@@ -161,7 +161,6 @@ pub trait StorageNodeHandleTrait {
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
         start_node: bool,
-        disable_event_blob_writer: bool,
     ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
     where
         Self: Sized;
@@ -226,7 +225,6 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         _system_context: Option<SystemContext>,
         _storage_dir: TempDir,
         _start_node: bool,
-        _disable_event_blob_writer: bool,
     ) -> anyhow::Result<Self> {
         builder.build().await
     }
@@ -485,7 +483,6 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
         start_node: bool,
-        disable_event_blob_writer: bool,
     ) -> anyhow::Result<Self>
     where
         Self: Sized,
@@ -1691,7 +1688,6 @@ impl TestClusterBuilder {
                         tempfile::tempdir().expect("temporary directory creation must succeed")
                     ),
                     start_node_from_beginning,
-                    disable_event_blob_writer,
                 )
                 .await?,
             );
