@@ -858,7 +858,7 @@ impl StorageNodeHandleBuilder {
             protocol_key_pair: node_info.key_pair.into(),
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
-            public_host: Some(node_info.rest_api_address.ip().to_string()),
+            public_host: node_info.rest_api_address.ip().to_string(),
             event_provider_config: EventProviderConfig::CheckpointBasedEventProcessor(None),
             disable_event_blob_writer,
             sui: Some(SuiConfig {
