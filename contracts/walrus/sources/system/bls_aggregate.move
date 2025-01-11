@@ -209,8 +209,12 @@ fun verify_certificate_and_weight(
     let mut offset: u64 = 0;
 
     // The signers bitmap must be exactly long enough to hold all members.
-    let excess_bits = signers_bitmap.length() * 8 - self.members.length();
-    assert!(excess_bits >= 0 && excess_bits < 8, EInvalidBitmap);
+    let signers_bit_length = signers_bitmap.length() * 8;
+    assert!(
+        signers_bit_length >= self.members.length()
+            && signers_bit_length <= self.members.length() + 8,
+        EInvalidBitmap,
+    );
 
     signers_bitmap.do_ref!(|byte| {
         (8u8).do!(|i| {

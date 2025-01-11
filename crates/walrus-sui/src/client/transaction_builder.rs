@@ -19,6 +19,7 @@ use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
 };
+use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
@@ -42,6 +43,7 @@ use crate::{
         move_structs::{Authorized, WalExchange},
         NodeMetadata,
         NodeRegistrationParams,
+        SystemObject,
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };
@@ -100,6 +102,11 @@ pub struct WalrusPtbBuilder {
     wal_coin_arg: Option<Argument>,
     sender_address: SuiAddress,
     args_to_consume: HashSet<Argument>,
+    // TODO(WAL-512): revisit caching system/staking objects in the read client
+    /// Caches the system object to allow reading information about e.g. the committee size.
+    /// Since the Ptb builder is not long-lived (i.e. transactions may anyway fail across epoch
+    /// boundaries), we can cache it for the builder's lifetime.
+    system_object: OnceCell<SystemObject>,
 }
 
 impl Debug for WalrusPtbBuilder {
@@ -128,6 +135,7 @@ impl WalrusPtbBuilder {
             wal_coin_arg: None,
             sender_address,
             args_to_consume: HashSet::new(),
+            system_object: OnceCell::new(),
         }
     }
 
@@ -288,7 +296,7 @@ impl WalrusPtbBuilder {
         blob_object: ArgumentOrOwnedObject,
         certificate: &ConfirmationCertificate,
     ) -> SuiClientResult<()> {
-        let signers = Self::signers_to_bitmap(&certificate.signers);
+        let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         let certify_args = vec![
             self.system_arg(Mutability::Immutable).await?,
@@ -301,14 +309,15 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    fn signers_to_bitmap(signers: &[u16]) -> Vec<u8> {
-        let mut bitmap = vec![0; signers.len().div_ceil(8)];
+    async fn signers_to_bitmap(&self, signers: &[u16]) -> SuiClientResult<Vec<u8>> {
+        let committee_size = self.system_object().await?.committee_size() as usize;
+        let mut bitmap = vec![0; committee_size.div_ceil(8)];
         for signer in signers {
             let byte_index = signer / 8;
             let bit_index = signer % 8;
             bitmap[byte_index as usize] |= 1 << bit_index;
         }
-        bitmap
+        Ok(bitmap)
     }
 
     /// Adds a call to `certify_event_blob` to the `pt_builder`.
@@ -468,7 +477,7 @@ impl WalrusPtbBuilder {
         &mut self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        let signers = Self::signers_to_bitmap(&certificate.signers);
+        let signers = self.signers_to_bitmap(&certificate.signers).await?;
 
         let invalidate_args = vec![
             self.system_arg(Mutability::Immutable).await?,
@@ -785,5 +794,11 @@ impl WalrusPtbBuilder {
 
     fn add_result_to_be_consumed(&mut self, arg: Argument) {
         self.args_to_consume.insert(arg);
+    }
+
+    async fn system_object(&self) -> SuiClientResult<&SystemObject> {
+        self.system_object
+            .get_or_try_init(|| self.read_client.get_system_object())
+            .await
     }
 }

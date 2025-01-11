@@ -327,13 +327,13 @@ pub struct EventBlobCertificationState {
 pub struct StakingObject {
     /// Object id of the Sui object.
     pub id: ObjectID,
-    /// The version of the system object.
+    /// The version of the staking object.
     pub version: u64,
     /// The package ID of the staking object.
     pub package_id: ObjectID,
     /// The new package ID of the staking object.
     pub(crate) new_package_id: Option<ObjectID>,
-    /// The inner system state.
+    /// The inner staking state.
     pub(crate) inner: StakingInnerV1,
 }
 
@@ -472,6 +472,13 @@ pub struct SystemObject {
     pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
     pub(crate) inner: SystemStateInnerV1,
+}
+
+impl SystemObject {
+    /// Returns the number of members in the committee.
+    pub(crate) fn committee_size(&self) -> u16 {
+        self.inner.committee.members.len() as u16
+    }
 }
 
 /// Sui type for outer system object. Used for deserialization.
