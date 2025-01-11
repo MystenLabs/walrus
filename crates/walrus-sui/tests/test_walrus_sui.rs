@@ -392,7 +392,6 @@ async fn test_set_authorized() -> anyhow::Result<()> {
     let proof_of_possession = utils::generate_proof_of_possession(
         &protocol_key_pair,
         &walrus_client.inner,
-        &registration_params,
         walrus_client.inner.current_epoch().await?,
     );
 
