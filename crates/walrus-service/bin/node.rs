@@ -273,6 +273,15 @@ struct ConfigArgs {
     #[clap(long, default_value_t = 0)]
     /// The commission rate of the storage node, in basis points.
     commission_rate: u16,
+    /// The image URL of the storage node.
+    #[clap(long, default_value = "")]
+    image_url: String,
+    /// The project URL of the storage node.
+    #[clap(long, default_value = "")]
+    project_url: String,
+    /// The description of the storage node.
+    #[clap(long, default_value = "")]
+    description: String,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -343,7 +352,10 @@ mod commands {
     use tokio::task::JoinSet;
     use walrus_core::ensure;
     use walrus_service::utils;
-    use walrus_sui::client::{contract_config::ContractConfig, ReadClient as _};
+    use walrus_sui::{
+        client::{contract_config::ContractConfig, ReadClient as _},
+        types::NodeMetadata,
+    };
     use walrus_utils::backoff::ExponentialBackoffConfig;
 
     use super::*;
@@ -590,6 +602,9 @@ mod commands {
             write_price,
             commission_rate,
             name,
+            image_url,
+            project_url,
+            description,
         }: ConfigArgs,
         force: bool,
     ) -> anyhow::Result<StorageNodeConfig> {
@@ -638,6 +653,7 @@ mod commands {
             ObjectID::ZERO
         });
         let contract_config = ContractConfig::new(system_object, staking_object);
+        let metadata = NodeMetadata::new(image_url, project_url, description);
 
         let config = StorageNodeConfig {
             storage_path,
@@ -664,6 +680,7 @@ mod commands {
             event_provider_config,
             disable_event_blob_writer,
             name,
+            metadata,
             ..Default::default()
         };
 

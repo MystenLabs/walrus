@@ -594,7 +594,7 @@ pub async fn create_storage_node_configs(
                 node_capacity: node.node_capacity,
             },
             metrics_push: None,
-            metadata: None,
+            metadata: Default::default(),
         });
     }
 

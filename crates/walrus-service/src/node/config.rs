@@ -108,8 +108,8 @@ pub struct StorageNodeConfig {
     /// The parameters for the staking pool.
     pub voting_params: VotingParams,
     /// Metadata of the storage node.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<NodeMetadata>,
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub metadata: NodeMetadata,
     /// Metric push configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics_push: Option<MetricsConfig>,
@@ -142,7 +142,7 @@ impl Default for StorageNodeConfig {
             },
             name: Default::default(),
             metrics_push: None,
-            metadata: None,
+            metadata: Default::default(),
         }
     }
 }
@@ -196,7 +196,7 @@ impl StorageNodeConfig {
             storage_price: self.voting_params.storage_price,
             write_price: self.voting_params.write_price,
             node_capacity: self.voting_params.node_capacity,
-            metadata: self.metadata.clone().unwrap_or_default(),
+            metadata: self.metadata.clone(),
         }
     }
 }
