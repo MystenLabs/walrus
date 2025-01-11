@@ -638,3 +638,14 @@ pub struct SharedBlob {
 impl AssociatedContractStruct for SharedBlob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::shared_blob::SharedBlob;
 }
+
+/// Sui type for the key of an extended field.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct Key {
+    /// To match empty struct in Move.
+    pub dummy_field: bool,
+}
+
+impl AssociatedContractStruct for Key {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::extended_field::Key;
+}

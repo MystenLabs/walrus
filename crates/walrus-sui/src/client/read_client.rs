@@ -54,6 +54,7 @@ use crate::{
         move_structs::{
             EpochState,
             EventBlob,
+            Key,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
@@ -863,9 +864,13 @@ impl ReadClient for SuiReadClient {
         let active_set_id = staking_object.inner.active_set;
         let key_tag = contracts::extended_field::Key
             .to_move_struct_tag_with_type_map(&self.type_origin_map(), &[])?;
-        let active_set: ActiveSet = self
+        let active_set = self
             .sui_client
-            .get_dynamic_field(active_set_id, key_tag.into(), ())
+            .get_dynamic_field::<Key, ActiveSet>(
+                active_set_id,
+                key_tag.into(),
+                Key { dummy_field: false },
+            )
             .await?;
         Ok(active_set.nodes.into_iter().collect())
     }
