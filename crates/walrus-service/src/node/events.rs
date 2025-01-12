@@ -24,6 +24,7 @@ use walrus_utils::checkpoint_downloader::AdaptiveDownloaderConfig;
 pub mod event_blob;
 pub mod event_blob_writer;
 pub mod event_processor;
+pub mod event_processor_runtime;
 
 /// Configuration for event processing.
 #[serde_as]

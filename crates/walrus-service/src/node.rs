@@ -25,6 +25,7 @@ use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
+pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
@@ -94,11 +95,35 @@ use self::{
     committee::{CommitteeService, NodeCommitteeService},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    errors::IndexOutOfRange,
+    errors::{
+        BlobStatusError,
+        ComputeStorageConfirmationError,
+        InconsistencyProofError,
+        IndexOutOfRange,
+        InvalidEpochError,
+        RetrieveMetadataError,
+        RetrieveSliverError,
+        RetrieveSymbolError,
+        ShardNotAssigned,
+        StoreMetadataError,
+        StoreSliverError,
+        SyncShardServiceError,
+    },
+    events::{
+        event_blob_writer::EventBlobWriterFactory,
+        event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
+        EventProcessorConfig,
+        EventStreamCursor,
+        EventStreamElement,
+        PositionedStreamEvent,
+    },
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
     storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
+    system_events::{EventManager, SuiSystemEventProvider},
 };
+use crate::{client::Blocklist, common::utils::ShardDiff};
+
 pub mod committee;
 pub mod config;
 pub mod contract_service;
@@ -115,37 +140,7 @@ mod shard_sync;
 mod start_epoch_change_finisher;
 
 pub(crate) mod errors;
-use errors::{
-    BlobStatusError,
-    ComputeStorageConfirmationError,
-    InconsistencyProofError,
-    InvalidEpochError,
-    RetrieveMetadataError,
-    RetrieveSliverError,
-    RetrieveSymbolError,
-    ShardNotAssigned,
-    StoreMetadataError,
-    StoreSliverError,
-    SyncShardServiceError,
-};
-
 mod storage;
-pub use storage::{DatabaseConfig, NodeStatus, Storage};
-
-use crate::{
-    client::Blocklist,
-    common::utils::ShardDiff,
-    node::{
-        events::{
-            event_blob_writer::EventBlobWriterFactory,
-            event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-            EventStreamCursor,
-            EventStreamElement,
-            PositionedStreamEvent,
-        },
-        system_events::{EventManager, SuiSystemEventProvider},
-    },
-};
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
