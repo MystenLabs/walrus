@@ -242,10 +242,9 @@ pub enum CliCommands {
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
-        /// Print extended information for developers.
-        #[clap(long, action)]
-        #[serde(default)]
-        dev: bool,
+        /// The specific info command to run
+        #[command(subcommand)]
+        command: Option<InfoCommands>,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -369,6 +368,40 @@ pub enum CliCommands {
         #[serde(default)]
         yes: bool,
     },
+}
+
+/// Subcommands for the Info command
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum InfoCommands {
+    /// Print basic system information
+    Basic,
+    // /// Print extended information for developers
+    // Dev {
+    //     /// The URL of the Sui RPC node to use.
+    //     #[clap(flatten)]
+    //     #[serde(flatten)]
+    //     rpc_arg: RpcArg,
+    // },
+    /// Print storage statistics
+    Epochs {
+        /// Show detailed storage breakdown
+        #[clap(long, action)]
+        #[serde(default)]
+        detailed: bool,
+    },
+    /// Print network information
+    Nodes {
+        /// Show node details
+        #[clap(long, action)]
+        #[serde(default)]
+        show_nodes: bool,
+    },
+    /// Print information about the current blob size limits
+    BlobSize,
+    /// Print information about the current price of storage
+    Price,
 }
 
 /// The daemon commands for the Walrus client.

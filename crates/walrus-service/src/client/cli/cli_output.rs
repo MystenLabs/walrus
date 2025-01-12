@@ -34,7 +34,11 @@ use crate::client::{
         ExampleBlobInfo,
         ExchangeOutput,
         InfoDevOutput,
+        InfoEpochOutput,
         InfoOutput,
+        InfoPriceOutput,
+        InfoSizeOutput,
+        InfoStorageOutput,
         ReadOutput,
         StakeOutput,
         StorageNodeInfo,
@@ -400,6 +404,102 @@ impl CliOutput for InfoOutput {
             );
             print_storage_node_table(n_shards, storage_nodes);
         };
+    }
+}
+
+impl CliOutput for InfoEpochOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            current_epoch,
+            epoch_duration,
+            max_epochs_ahead,
+        } = self;
+
+        printdoc!(
+            "
+            {heading}
+            Current epoch: {current_epoch}
+            Epoch duration: {hr_epoch_duration}
+            Blobs can be stored for at most {max_epochs_ahead} epochs in the future.
+            ",
+            heading = "Epochs and storage duration".bold().walrus_teal(),
+            hr_epoch_duration = humantime::format_duration(*epoch_duration),
+        );
+    }
+}
+
+impl CliOutput for InfoStorageOutput {
+    fn print_cli_output(&self) {
+        let Self { n_shards, n_nodes } = self;
+
+        printdoc!(
+            "
+            {heading}
+            Number of storage nodes: {n_nodes}
+            Number of shards: {n_shards}
+            ",
+            heading = "Storage nodes".bold().walrus_teal(),
+        );
+    }
+}
+
+impl CliOutput for InfoSizeOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            storage_unit_size: unit_size,
+            max_blob_size,
+        } = self;
+
+        printdoc!(
+            "
+            {heading}
+            Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
+            Storage unit: {hr_storage_unit}
+            ",
+            heading = "Blob size".bold().walrus_teal(),
+            hr_max_blob = HumanReadableBytes(*max_blob_size),
+            hr_storage_unit = HumanReadableBytes(*unit_size),
+            max_blob_size_sep = thousands_separator(*max_blob_size),
+        );
+    }
+}
+
+impl CliOutput for InfoPriceOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
+            marginal_size,
+            metadata_price,
+            marginal_price,
+            example_blobs,
+        } = self;
+
+        printdoc!(
+            "
+            {price_heading}
+            (Conversion rate: 1 WAL = 1,000,000,000 FROST)
+            Price per encoded storage unit: {hr_storage_price_per_unit_size}
+            Additional price for each write: {hr_write_price_per_unit_size}
+            Price to store metadata: {metadata_price}
+            Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
+
+            {price_examples_heading}
+            {example_blob_output}
+            ",
+            price_heading = "Approximate storage prices per epoch".bold().walrus_teal(),
+            hr_storage_price_per_unit_size = HumanReadableFrost::from(*storage_price_per_unit_size),
+            hr_write_price_per_unit_size = HumanReadableFrost::from(*write_price_per_unit_size),
+            metadata_price = HumanReadableFrost::from(*metadata_price),
+            marginal_size = HumanReadableBytes(*marginal_size),
+            marginal_price = HumanReadableFrost::from(*marginal_price),
+            price_examples_heading = "Total price for example blob sizes".bold().walrus_teal(),
+            example_blob_output = example_blobs
+                .iter()
+                .map(ExampleBlobInfo::cli_output)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
     }
 }
 

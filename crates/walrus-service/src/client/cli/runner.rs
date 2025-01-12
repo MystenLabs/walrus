@@ -36,6 +36,7 @@ use super::args::{
     DaemonCommands,
     FileOrBlobId,
     FileOrBlobIdOrObjectId,
+    InfoCommands,
     PublisherArgs,
     RpcArg,
     UserConfirmation,
@@ -155,8 +156,14 @@ impl ClientCommandRunner {
 
             CliCommands::Info {
                 rpc_arg: RpcArg { rpc_url },
-                dev,
-            } => self.info(rpc_url, dev).await,
+                command,
+            } => match command {
+                None | Some(InfoCommands::Basic) => self.info(rpc_url, false).await,
+                Some(InfoCommands::Epochs { .. }) => self.info(rpc_url, true).await,
+                Some(InfoCommands::Nodes { .. }) => self.info(rpc_url, true).await,
+                Some(InfoCommands::BlobSize) => self.info(rpc_url, true).await,
+                Some(InfoCommands::Price) => self.info(rpc_url, true).await,
+            },
 
             CliCommands::BlobId {
                 file,

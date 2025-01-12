@@ -252,6 +252,160 @@ pub(crate) struct InfoOutput {
     pub(crate) dev_info: Option<InfoDevOutput>,
 }
 
+impl InfoOutput {
+    pub async fn get_system_info(
+        sui_read_client: &impl ReadClient,
+        dev: bool,
+    ) -> anyhow::Result<Self> {
+        let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
+        let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
+        let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
+        let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
+
+        let dev_info = if dev {
+            Some(InfoDevOutput::get_system_dev_info(sui_read_client).await?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            current_epoch: epoch_info.current_epoch,
+            epoch_duration: epoch_info.epoch_duration,
+            max_epochs_ahead: epoch_info.max_epochs_ahead,
+            n_shards: storage_info.n_shards,
+            n_nodes: storage_info.n_nodes,
+            storage_unit_size: size_info.storage_unit_size,
+            max_blob_size: size_info.max_blob_size,
+            storage_price_per_unit_size: price_info.storage_price_per_unit_size,
+            write_price_per_unit_size: price_info.write_price_per_unit_size,
+            metadata_price: price_info.metadata_price,
+            marginal_size: price_info.marginal_size,
+            marginal_price: price_info.marginal_price,
+            example_blobs: price_info.example_blobs,
+            dev_info,
+        })
+    }
+}
+
+/// The output of the `info` command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoEpochOutput {
+    pub(crate) current_epoch: Epoch,
+    pub(crate) epoch_duration: Duration,
+    pub(crate) max_epochs_ahead: u32,
+}
+
+impl InfoEpochOutput {
+    pub async fn get_epoch_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let fixed_params = sui_read_client.fixed_system_parameters().await?;
+
+        Ok(Self {
+            current_epoch: committee.epoch,
+            epoch_duration: fixed_params.epoch_duration,
+            max_epochs_ahead: fixed_params.max_epochs_ahead,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoStorageOutput {
+    pub(crate) n_shards: NonZeroU16,
+    pub(crate) n_nodes: usize,
+}
+
+impl InfoStorageOutput {
+    pub async fn get_storage_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+
+        Ok(Self {
+            n_shards: committee.n_shards(),
+            n_nodes: committee.n_members(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoSizeOutput {
+    pub(crate) storage_unit_size: u64,
+    pub(crate) max_blob_size: u64,
+}
+
+impl InfoSizeOutput {
+    pub async fn get_size_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+
+        Ok(Self {
+            storage_unit_size: BYTES_PER_UNIT_SIZE,
+            max_blob_size: max_blob_size_for_n_shards(committee.n_shards()),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoPriceOutput {
+    pub(crate) storage_price_per_unit_size: u64,
+    pub(crate) write_price_per_unit_size: u64,
+    pub(crate) marginal_size: u64,
+    pub(crate) metadata_price: u64,
+    pub(crate) marginal_price: u64,
+    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+}
+
+impl InfoPriceOutput {
+    pub async fn get_price_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
+        let n_shards = committee.n_shards();
+
+        // Calculate marginal size and price
+        let mut marginal_size = 1024 * 1024; // Start with 1 MiB
+        while marginal_size > max_blob_size_for_n_shards(n_shards) {
+            marginal_size /= 4;
+        }
+
+        let metadata_storage_size =
+            (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
+        let metadata_price =
+            storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
+
+        let marginal_price = storage_units_from_size(
+            encoded_slivers_length_for_n_shards(n_shards, marginal_size)
+                .expect("we can encode 1 MiB"),
+        ) * storage_price_per_unit_size;
+
+        // Calculate example blobs
+        let example_blob_0 = max_blob_size_for_n_shards(n_shards).next_power_of_two() / 1024;
+        let example_blob_1 = example_blob_0 * 32;
+        let example_blobs = [
+            example_blob_0,
+            example_blob_1,
+            max_blob_size_for_n_shards(n_shards),
+        ]
+        .into_iter()
+        .map(|unencoded_size| {
+            ExampleBlobInfo::new(unencoded_size, n_shards, storage_price_per_unit_size)
+                .expect("we can encode the given examples")
+        })
+        .collect();
+
+        Ok(Self {
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
+            marginal_size,
+            metadata_price,
+            marginal_price,
+            example_blobs,
+        })
+    }
+}
+
 /// Additional dev info for the `info` command.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -268,6 +422,46 @@ pub(crate) struct InfoDevOutput {
     pub(crate) next_storage_nodes: Option<Vec<StorageNodeInfo>>,
     #[serde(skip_serializing)]
     pub(crate) committee: Committee,
+}
+
+impl InfoDevOutput {
+    pub async fn get_system_dev_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let next_committee = sui_read_client.next_committee().await?;
+        let stake_assignment = sui_read_client.stake_assignment().await?;
+
+        let n_shards = committee.n_shards();
+        let (n_primary_source_symbols, n_secondary_source_symbols) =
+            source_symbols_for_n_shards(n_shards);
+
+        let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
+        let max_blob_size = max_blob_size_for_n_shards(n_shards);
+        let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
+            .expect("we can compute the encoded length of the max blob size");
+
+        let f = bft::max_n_faulty(n_shards);
+        let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
+        let next_storage_nodes = next_committee
+            .as_ref()
+            .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
+
+        let metadata_storage_size =
+            (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
+
+        Ok(Self {
+            n_primary_source_symbols,
+            n_secondary_source_symbols,
+            metadata_storage_size,
+            max_sliver_size,
+            max_encoded_blob_size,
+            max_faulty_shards: f,
+            min_correct_shards: n_shards.get() - f,
+            quorum_threshold: 2 * f + 1,
+            storage_nodes,
+            next_storage_nodes,
+            committee,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -358,101 +552,6 @@ impl ExampleBlobInfo {
             HumanReadableBytes(self.encoded_size),
             HumanReadableFrost::from(self.price)
         )
-    }
-}
-
-impl InfoOutput {
-    /// Computes the Walrus system information after reading relevant data from the Walrus system
-    /// object on chain.
-    pub async fn get_system_info(
-        sui_read_client: &impl ReadClient,
-        dev: bool,
-    ) -> anyhow::Result<Self> {
-        // TODO(giac): reduce the number of RPC calls by exposing the system and staking objects
-        // directly (#1222).
-        let committee = sui_read_client.current_committee().await?;
-        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
-            .storage_and_write_price_per_unit_size()
-            .await?;
-        let fixed_params = sui_read_client.fixed_system_parameters().await?;
-        let next_committee = sui_read_client.next_committee().await?;
-        let stake_assignment = sui_read_client.stake_assignment().await?;
-
-        let current_epoch = committee.epoch;
-        let n_shards = committee.n_shards();
-        let (n_primary_source_symbols, n_secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards);
-
-        let n_nodes = committee.n_members();
-        let max_blob_size = max_blob_size_for_n_shards(n_shards);
-
-        let metadata_storage_size =
-            (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
-        let metadata_price =
-            storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
-
-        // Make sure our marginal size can actually be encoded.
-        let mut marginal_size = 1024 * 1024; // Start with 1 MiB.
-        while marginal_size > max_blob_size {
-            marginal_size /= 4;
-        }
-        let marginal_price = storage_units_from_size(
-            encoded_slivers_length_for_n_shards(n_shards, marginal_size)
-                .expect("we can encode 1 MiB"),
-        ) * storage_price_per_unit_size;
-
-        let example_blob_0 = max_blob_size.next_power_of_two() / 1024;
-        let example_blob_1 = example_blob_0 * 32;
-        let example_blobs = [example_blob_0, example_blob_1, max_blob_size]
-            .into_iter()
-            .map(|unencoded_size| {
-                ExampleBlobInfo::new(unencoded_size, n_shards, storage_price_per_unit_size)
-                    .expect("we can encode the given examples")
-            })
-            .collect();
-
-        let dev_info = dev.then_some({
-            let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
-            let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
-                .expect("we can compute the encoded length of the max blob size");
-            let f = bft::max_n_faulty(n_shards);
-            let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
-
-            let next_storage_nodes = next_committee
-                .as_ref()
-                .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
-
-            InfoDevOutput {
-                n_primary_source_symbols,
-                n_secondary_source_symbols,
-                metadata_storage_size,
-                max_sliver_size,
-                max_encoded_blob_size,
-                max_faulty_shards: f,
-                min_correct_shards: n_shards.get() - f,
-                quorum_threshold: 2 * f + 1,
-                storage_nodes,
-                next_storage_nodes,
-                committee,
-            }
-        });
-
-        Ok(Self {
-            storage_unit_size: BYTES_PER_UNIT_SIZE,
-            storage_price_per_unit_size,
-            write_price_per_unit_size,
-            current_epoch,
-            n_shards,
-            n_nodes,
-            max_blob_size,
-            metadata_price,
-            marginal_size,
-            marginal_price,
-            example_blobs,
-            epoch_duration: fixed_params.epoch_duration,
-            max_epochs_ahead: fixed_params.max_epochs_ahead,
-            dev_info,
-        })
     }
 }
 
