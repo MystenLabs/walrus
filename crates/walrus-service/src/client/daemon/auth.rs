@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fmt::Display, future::Future, marker::PhantomData, pin::Pin, task::Poll};
+use std::{future::Future, marker::PhantomData, pin::Pin, task::Poll};
 
 use axum::http::{Request, Response, StatusCode};
 use axum_extra::headers::{authorization::Bearer, Authorization, HeaderMapExt};
@@ -239,10 +239,10 @@ where
     }
 }
 
-fn check_query(queries: Option<&str>, field: &str, value: impl Display) -> bool {
+fn check_query(queries: Option<&str>, field: &str, value: impl AsRef<str>) -> bool {
     if let Some(queries) = queries {
-        for q in queries.split('&') {
-            if q.starts_with(field) && q != format!("{field:}={value:}") {
+        for (key, var) in querystr::querify(queries) {
+            if key == field && var != value.as_ref() {
                 return false;
             }
         }
@@ -265,22 +265,30 @@ mod tests {
     #[test]
     fn query() {
         let query_example: &'static str = "epochs=100&send_object_to=0x1";
-        assert!(check_query(Some(query_example), "epochs", 100));
+        assert!(check_query(Some(query_example), "epochs", 100.to_string()));
         assert!(check_query(Some(query_example), "send_object_to", "0x1"));
-        assert!(!check_query(Some(query_example), "epochs", 1));
+        assert!(!check_query(Some(query_example), "epochs", 1.to_string()));
         assert!(!check_query(Some(query_example), "send_object_to", "0x9"));
 
         let no_sender_example: &'static str = "epochs=100";
-        assert!(check_query(Some(no_sender_example), "epochs", 100));
+        assert!(check_query(
+            Some(no_sender_example),
+            "epochs",
+            100.to_string()
+        ));
         assert!(check_query(
             Some(no_sender_example),
             "send_object_to",
             "0x1"
         ));
-        assert!(!check_query(Some(no_sender_example), "epochs", 1));
+        assert!(!check_query(
+            Some(no_sender_example),
+            "epochs",
+            1.to_string()
+        ));
 
         let empty_example: &'static str = "";
-        assert!(check_query(Some(empty_example), "epochs", 100));
+        assert!(check_query(Some(empty_example), "epochs", 100.to_string()));
         assert!(check_query(Some(empty_example), "send_object_to", "0x1"));
     }
 
