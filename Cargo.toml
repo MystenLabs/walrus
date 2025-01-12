@@ -32,7 +32,7 @@ bcs = "0.1.6"
 byteorder = "1.5.0"
 bytes = { version = "1.9.0", features = ["serde"] }
 chrono = "0.4"
-clap = { version = "4.5.23", features = ["derive"] }
+clap = { version = "4.5.26", features = ["derive"] }
 colored = "2.2.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
@@ -65,7 +65,7 @@ rcgen = "0.13.2"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.20", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.21", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
@@ -89,7 +89,7 @@ syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
 tempfile = "3.15.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
-thiserror = "2.0.7"
+thiserror = "2.0.11"
 tokio = { version = "=1.38.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
@@ -103,7 +103,7 @@ typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.
 url = "2.5.4"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
-uuid = { version = "1.11.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.11.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
