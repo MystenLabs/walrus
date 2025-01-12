@@ -294,7 +294,14 @@ impl CliOutput for InfoOutput {
             dev_info,
         } = self;
 
-        println!("\n{}", "Walrus system information".bold());
+        // NOTE: keep text in sync with changes in the contracts.
+        printdoc!(
+            "
+
+            {top_heading}
+            ",
+            top_heading = "Walrus system information".bold(),
+        );
 
         // Print epoch info
         InfoEpochOutput {
@@ -489,7 +496,7 @@ impl CliOutput for InfoDevOutput {
                     .walrus_purple()
             );
             print_storage_node_table(n_shards, storage_nodes);
-        }
+        };
     }
 }
 
