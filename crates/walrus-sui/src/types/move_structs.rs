@@ -640,8 +640,9 @@ impl AssociatedContractStruct for SharedBlob {
 }
 
 /// Sui type for the key of an extended field.
+// TODO(WAL-513): investigate why this is needed.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct Key {
+pub(crate) struct Key {
     /// To match empty struct in Move.
     pub dummy_field: bool,
 }
