@@ -376,32 +376,17 @@ pub enum CliCommands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InfoCommands {
     /// Print basic system information
-    Basic,
-    // /// Print extended information for developers
-    // Dev {
-    //     /// The URL of the Sui RPC node to use.
-    //     #[clap(flatten)]
-    //     #[serde(flatten)]
-    //     rpc_arg: RpcArg,
-    // },
-    /// Print storage statistics
-    Epochs {
-        /// Show detailed storage breakdown
-        #[clap(long, action)]
-        #[serde(default)]
-        detailed: bool,
-    },
+    All,
+    //// Print storage statistics
+    Epoch,
     /// Print network information
-    Nodes {
-        /// Show node details
-        #[clap(long, action)]
-        #[serde(default)]
-        show_nodes: bool,
-    },
+    Storage,
     /// Print information about the current blob size limits
-    BlobSize,
+    Size,
     /// Print information about the current price of storage
     Price,
+    /// Print extended information for developers
+    Dev,
 }
 
 /// The daemon commands for the Walrus client.

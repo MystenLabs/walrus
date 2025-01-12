@@ -64,7 +64,12 @@ use crate::{
             DeleteOutput,
             DryRunOutput,
             ExchangeOutput,
+            InfoDevOutput,
+            InfoEpochOutput,
             InfoOutput,
+            InfoPriceOutput,
+            InfoSizeOutput,
+            InfoStorageOutput,
             ReadOutput,
             StakeOutput,
             WalletOutput,
@@ -157,13 +162,7 @@ impl ClientCommandRunner {
             CliCommands::Info {
                 rpc_arg: RpcArg { rpc_url },
                 command,
-            } => match command {
-                None | Some(InfoCommands::Basic) => self.info(rpc_url, false).await,
-                Some(InfoCommands::Epochs { .. }) => self.info(rpc_url, true).await,
-                Some(InfoCommands::Nodes { .. }) => self.info(rpc_url, true).await,
-                Some(InfoCommands::BlobSize) => self.info(rpc_url, true).await,
-                Some(InfoCommands::Price) => self.info(rpc_url, true).await,
-            },
+            } => self.info(rpc_url, command).await,
 
             CliCommands::BlobId {
                 file,
@@ -428,7 +427,11 @@ impl ClientCommandRunner {
         .print_output(self.json)
     }
 
-    pub(crate) async fn info(self, rpc_url: Option<String>, dev: bool) -> Result<()> {
+    pub(crate) async fn info(
+        self,
+        rpc_url: Option<String>,
+        command: Option<InfoCommands>,
+    ) -> Result<()> {
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -437,9 +440,27 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        InfoOutput::get_system_info(&sui_read_client, dev)
-            .await?
-            .print_output(self.json)
+
+        match command {
+            None | Some(InfoCommands::All) => InfoOutput::get_system_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Epoch) => InfoEpochOutput::get_epoch_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Storage) => InfoStorageOutput::get_storage_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Size) => InfoSizeOutput::get_size_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Dev) => InfoDevOutput::get_system_dev_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+        }
     }
 
     pub(crate) async fn blob_id(

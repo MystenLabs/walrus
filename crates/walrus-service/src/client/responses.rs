@@ -253,20 +253,11 @@ pub(crate) struct InfoOutput {
 }
 
 impl InfoOutput {
-    pub async fn get_system_info(
-        sui_read_client: &impl ReadClient,
-        dev: bool,
-    ) -> anyhow::Result<Self> {
+    pub async fn get_system_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
-
-        let dev_info = if dev {
-            Some(InfoDevOutput::get_system_dev_info(sui_read_client).await?)
-        } else {
-            None
-        };
 
         Ok(Self {
             current_epoch: epoch_info.current_epoch,
@@ -282,7 +273,7 @@ impl InfoOutput {
             marginal_size: price_info.marginal_size,
             marginal_price: price_info.marginal_price,
             example_blobs: price_info.example_blobs,
-            dev_info,
+            dev_info: None,
         })
     }
 }
@@ -298,13 +289,15 @@ pub(crate) struct InfoEpochOutput {
 
 impl InfoEpochOutput {
     pub async fn get_epoch_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
-        let committee = sui_read_client.current_committee().await?;
+        let current_epoch = sui_read_client.current_epoch().await?;
         let fixed_params = sui_read_client.fixed_system_parameters().await?;
+        let epoch_duration = fixed_params.epoch_duration;
+        let max_epochs_ahead = fixed_params.max_epochs_ahead;
 
         Ok(Self {
-            current_epoch: committee.epoch,
-            epoch_duration: fixed_params.epoch_duration,
-            max_epochs_ahead: fixed_params.max_epochs_ahead,
+            current_epoch,
+            epoch_duration,
+            max_epochs_ahead,
         })
     }
 }
@@ -410,6 +403,7 @@ impl InfoPriceOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InfoDevOutput {
+    pub(crate) n_shards: NonZeroU16,
     pub(crate) n_primary_source_symbols: NonZeroU16,
     pub(crate) n_secondary_source_symbols: NonZeroU16,
     pub(crate) max_sliver_size: u64,
@@ -449,6 +443,7 @@ impl InfoDevOutput {
             (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
 
         Ok(Self {
+            n_shards,
             n_primary_source_symbols,
             n_secondary_source_symbols,
             metadata_storage_size,
