@@ -278,20 +278,10 @@ impl CliOutput for BlobIdConversionOutput {
 impl CliOutput for InfoOutput {
     fn print_cli_output(&self) {
         let Self {
-            storage_unit_size,
-            storage_price_per_unit_size,
-            write_price_per_unit_size,
-            current_epoch,
-            n_shards,
-            n_nodes,
-            max_blob_size,
-            metadata_price,
-            marginal_size,
-            marginal_price,
-            example_blobs,
-            epoch_duration,
-            max_epochs_ahead,
-            dev_info,
+            epoch_info,
+            storage_info,
+            size_info,
+            price_info,
         } = self;
 
         // NOTE: keep text in sync with changes in the contracts.
@@ -304,42 +294,16 @@ impl CliOutput for InfoOutput {
         );
 
         // Print epoch info
-        InfoEpochOutput {
-            current_epoch: *current_epoch,
-            epoch_duration: *epoch_duration,
-            max_epochs_ahead: *max_epochs_ahead,
-        }
-        .print_cli_output();
+        epoch_info.print_cli_output();
 
         // Print storage info
-        InfoStorageOutput {
-            n_shards: *n_shards,
-            n_nodes: *n_nodes,
-        }
-        .print_cli_output();
+        storage_info.print_cli_output();
 
         // Print size info
-        InfoSizeOutput {
-            storage_unit_size: *storage_unit_size,
-            max_blob_size: *max_blob_size,
-        }
-        .print_cli_output();
+        size_info.print_cli_output();
 
         // Print price info
-        InfoPriceOutput {
-            storage_price_per_unit_size: *storage_price_per_unit_size,
-            write_price_per_unit_size: *write_price_per_unit_size,
-            marginal_size: *marginal_size,
-            metadata_price: *metadata_price,
-            marginal_price: *marginal_price,
-            example_blobs: example_blobs.clone(),
-        }
-        .print_cli_output();
-
-        // Print dev info if available
-        if let Some(dev_info) = dev_info {
-            dev_info.print_cli_output();
-        }
+        price_info.print_cli_output();
     }
 }
 
@@ -353,6 +317,7 @@ impl CliOutput for InfoEpochOutput {
 
         printdoc!(
             "
+
             {heading}
             Current epoch: {current_epoch}
             Epoch duration: {hr_epoch_duration}
@@ -370,6 +335,7 @@ impl CliOutput for InfoStorageOutput {
 
         printdoc!(
             "
+
             {heading}
             Number of storage nodes: {n_nodes}
             Number of shards: {n_shards}
@@ -388,6 +354,7 @@ impl CliOutput for InfoSizeOutput {
 
         printdoc!(
             "
+
             {heading}
             Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
             Storage unit: {hr_storage_unit}
@@ -413,6 +380,7 @@ impl CliOutput for InfoPriceOutput {
 
         printdoc!(
             "
+
             {price_heading}
             (Conversion rate: 1 WAL = 1,000,000,000 FROST)
             Price per encoded storage unit: {hr_storage_price_per_unit_size}
@@ -459,6 +427,7 @@ impl CliOutput for InfoDevOutput {
         let (min_nodes_above, shards_above) = committee.min_nodes_above_f();
         printdoc!(
             "
+
             {encoding_heading}
             Number of primary source symbols: {n_primary_source_symbols}
             Number of secondary source symbols: {n_secondary_source_symbols}

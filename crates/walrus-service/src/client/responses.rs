@@ -235,21 +235,10 @@ pub(crate) struct BlobStatusOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InfoOutput {
-    pub(crate) current_epoch: Epoch,
-    pub(crate) n_shards: NonZeroU16,
-    pub(crate) n_nodes: usize,
-    pub(crate) storage_unit_size: u64,
-    pub(crate) storage_price_per_unit_size: u64,
-    pub(crate) write_price_per_unit_size: u64,
-    pub(crate) max_blob_size: u64,
-    pub(crate) marginal_size: u64,
-    pub(crate) metadata_price: u64,
-    pub(crate) marginal_price: u64,
-    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
-    pub(crate) epoch_duration: Duration,
-    pub(crate) max_epochs_ahead: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) dev_info: Option<InfoDevOutput>,
+    pub(crate) epoch_info: InfoEpochOutput,
+    pub(crate) storage_info: InfoStorageOutput,
+    pub(crate) size_info: InfoSizeOutput,
+    pub(crate) price_info: InfoPriceOutput,
 }
 
 impl InfoOutput {
@@ -260,20 +249,10 @@ impl InfoOutput {
         let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
 
         Ok(Self {
-            current_epoch: epoch_info.current_epoch,
-            epoch_duration: epoch_info.epoch_duration,
-            max_epochs_ahead: epoch_info.max_epochs_ahead,
-            n_shards: storage_info.n_shards,
-            n_nodes: storage_info.n_nodes,
-            storage_unit_size: size_info.storage_unit_size,
-            max_blob_size: size_info.max_blob_size,
-            storage_price_per_unit_size: price_info.storage_price_per_unit_size,
-            write_price_per_unit_size: price_info.write_price_per_unit_size,
-            metadata_price: price_info.metadata_price,
-            marginal_size: price_info.marginal_size,
-            marginal_price: price_info.marginal_price,
-            example_blobs: price_info.example_blobs,
-            dev_info: None,
+            epoch_info,
+            storage_info,
+            size_info,
+            price_info,
         })
     }
 }
