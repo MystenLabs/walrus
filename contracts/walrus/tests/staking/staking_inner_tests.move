@@ -157,6 +157,48 @@ fun test_epoch_sync_done() {
     clock.destroy_for_testing();
 }
 
+// sui move test -i 4000000000 test_limits
+// - works with TEMP_ACTIVE_SET_SIZE_LIMIT = 1000
+// - fails with TEMP_ACTIVE_SET_SIZE_LIMIT = 1050 (MEMORY_LIMIT_EXCEEDED)
+#[test]
+fun test_limits() {
+    let ctx = &mut tx_context::dummy();
+    let mut clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(0, EPOCH_DURATION, 1000, &clock, ctx);
+
+    let n_pools = 1100u64;
+    let n_selected = 1000u64; // should equal to TEMP_ACTIVE_SET_SIZE_LIMIT
+    
+    let mut pools = vector[];
+    n_pools.do!(|_| pools.push_back(test::pool().name(b"pool".to_string()).register(&mut staking, ctx)));
+    let mut users = vector[];
+    n_pools.do!(|i| users.push_back(staking.stake_with_pool(test::mint(700000 - i, ctx), pools[i], ctx)));
+
+    // trigger `advance_epoch` to update the committee and set the epoch state to sync
+    staking.select_committee();
+    staking.advance_epoch(vec_map::empty()); // no rewards for E0
+
+    clock.increment_for_testing(EPOCH_DURATION);
+
+    let epoch = staking.epoch();
+    n_selected.min(n_pools).do!(|i| {
+        let mut cap = storage_node::new_cap(pools[i], ctx);
+        staking.epoch_sync_done(&mut cap, epoch, &clock);
+        staking.set_next_commission(&cap, 10000);
+        staking.set_storage_price_vote(&cap, 100000000);
+        staking.set_write_price_vote(&cap, 100000000);
+        staking.set_node_capacity_vote(&cap, 10000000000000);
+        cap.destroy_cap_for_testing();
+    });
+    assert!(staking.is_epoch_sync_done());
+
+
+
+    users.do!(|user| destroy(user));
+    destroy(staking);
+    clock.destroy_for_testing();
+}
+
 #[test, expected_failure(abort_code = staking_inner::EDuplicateSyncDone)]
 fun test_epoch_sync_done_duplicate() {
     let ctx = &mut tx_context::dummy();
