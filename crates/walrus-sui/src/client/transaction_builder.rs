@@ -103,6 +103,7 @@ pub struct WalrusPtbBuilder {
     sender_address: SuiAddress,
     args_to_consume: HashSet<Argument>,
     // TODO(WAL-512): revisit caching system/staking objects in the read client
+    // TODO(WAL-514): potentially remove if no longer needed
     /// Caches the system object to allow reading information about e.g. the committee size.
     /// Since the Ptb builder is not long-lived (i.e. transactions may anyway fail across epoch
     /// boundaries), we can cache it for the builder's lifetime.
@@ -309,6 +310,7 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    // TODO(WAL-514): simplify and remove rpc call
     async fn signers_to_bitmap(&self, signers: &[u16]) -> SuiClientResult<Vec<u8>> {
         let committee_size = self.system_object().await?.committee_size() as usize;
         let mut bitmap = vec![0; committee_size.div_ceil(8)];
