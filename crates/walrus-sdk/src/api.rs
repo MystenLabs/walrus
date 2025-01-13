@@ -211,7 +211,7 @@ pub enum StoredOnNodeStatus {
 }
 
 /// Represents information about the health of the storage node service.
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, Serialize, Clone, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceHealthInfo {
     /// The uptime of the service.

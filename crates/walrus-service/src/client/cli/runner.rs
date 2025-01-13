@@ -66,6 +66,7 @@ use crate::{
             FundSharedBlobOutput,
             InfoOutput,
             ReadOutput,
+            ServiceHealthInfoOutput,
             ShareBlobOutput,
             StakeOutput,
             WalletOutput,
@@ -159,6 +160,12 @@ impl ClientCommandRunner {
                 rpc_arg: RpcArg { rpc_url },
                 dev,
             } => self.info(rpc_url, dev).await,
+
+            CliCommands::Health {
+                node_id,
+                detail,
+                rpc_arg: RpcArg { rpc_url },
+            } => self.health(rpc_url, node_id, detail).await,
 
             CliCommands::BlobId {
                 file,
@@ -494,6 +501,25 @@ impl ClientCommandRunner {
         )
         .await?;
         InfoOutput::get_system_info(&sui_read_client, dev)
+            .await?
+            .print_output(self.json)
+    }
+
+    pub(crate) async fn health(
+        self,
+        rpc_url: Option<String>,
+        node_id: ObjectID,
+        detail: bool,
+    ) -> Result<()> {
+        let config = self.config?;
+        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+            &config,
+            rpc_url,
+            self.wallet,
+            self.wallet_path.is_none(),
+        )
+        .await?;
+        ServiceHealthInfoOutput::get_health_info(&sui_read_client, node_id, detail)
             .await?
             .print_output(self.json)
     }

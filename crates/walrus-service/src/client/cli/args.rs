@@ -247,6 +247,20 @@ pub enum CliCommands {
         #[serde(default)]
         dev: bool,
     },
+    /// Print health information for the storage node.
+    Health {
+        /// The URL of the Sui RPC node to use.
+        #[clap(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+        /// The node ID of the storage node to print health information for.
+        #[clap(long)]
+        node_id: ObjectID,
+        /// Print detailed health information.
+        #[clap(long, action)]
+        #[serde(default)]
+        detail: bool,
+    },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
         /// The file containing the blob for which to compute the blob ID.

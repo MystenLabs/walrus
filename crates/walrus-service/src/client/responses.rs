@@ -35,7 +35,10 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_sdk::{
+    api::{BlobStatus, ServiceHealthInfo},
+    client::Client,
+};
 use walrus_sui::{
     client::ReadClient,
     types::{Blob, Committee, NetworkAddress, StakedWal, StorageNode},
@@ -518,4 +521,37 @@ pub struct FundSharedBlobOutput {
 pub struct ExtendBlobOutput {
     /// The number of epochs extended by.
     pub epochs_ahead: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus health` command.
+pub(crate) struct ServiceHealthInfoOutput {
+    /// The health information of the service.
+    pub health_info: ServiceHealthInfo,
+}
+
+impl ServiceHealthInfoOutput {
+    /// Computes the Walrus system information after reading relevant data from the Walrus system
+    /// object on chain.
+    pub async fn get_health_info(
+        sui_read_client: &impl ReadClient,
+        node_id: ObjectID,
+        detail: bool,
+    ) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let Some(storage_node) = committee
+            .members()
+            .iter()
+            .find(|node| node.node_id == node_id)
+        else {
+            return Err(anyhow::anyhow!("node {node_id} not found in committee"));
+        };
+        let client = Client::for_storage_node(
+            &storage_node.network_address.0,
+            &storage_node.network_public_key,
+        )?;
+        let health_info = client.get_server_health_info(detail).await?;
+        Ok(Self { health_info })
+    }
 }
