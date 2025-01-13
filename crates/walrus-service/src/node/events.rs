@@ -14,6 +14,7 @@ use std::{
 use anyhow::bail;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationSeconds};
 use sui_rpc_api::Client;
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, Epoch};
@@ -25,14 +26,16 @@ pub mod event_blob_writer;
 pub mod event_processor;
 
 /// Configuration for event processing.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct EventProcessorConfig {
-    /// The REST URL of the full node.
-    pub rest_url: String,
     /// Event pruning interval.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "pruning_interval_secs")]
     pub pruning_interval: Duration,
     /// Configuration options for the pipelined checkpoint fetcher.
-    pub adaptive_downloader_config: Option<AdaptiveDownloaderConfig>,
+    pub adaptive_downloader_config: AdaptiveDownloaderConfig,
     /// Minimum checkpoint lag threshold for event blob based catch-up.
     ///
     /// Specifies the minimum number of checkpoints the system must be behind
@@ -42,20 +45,13 @@ pub struct EventProcessorConfig {
     pub event_stream_catchup_min_checkpoint_lag: u64,
 }
 
-impl EventProcessorConfig {
-    /// Creates a new config with the default pruning interval of 1h.
-    pub fn new_with_default_pruning_interval(rest_url: String) -> Self {
+impl Default for EventProcessorConfig {
+    fn default() -> Self {
         Self {
-            rest_url,
             pruning_interval: Duration::from_secs(3600),
-            adaptive_downloader_config: Some(AdaptiveDownloaderConfig::default()),
+            adaptive_downloader_config: Default::default(),
             event_stream_catchup_min_checkpoint_lag: 20_000,
         }
-    }
-
-    /// Returns the checkpoint adaptive downloader configuration.
-    pub fn adaptive_downloader_config(&self) -> AdaptiveDownloaderConfig {
-        self.adaptive_downloader_config.clone().unwrap_or_default()
     }
 }
 

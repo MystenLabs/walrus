@@ -11512,6 +11512,7 @@ dependencies = [
  "rocksdb",
  "serde",
  "serde_json",
+ "serde_with",
  "sui-rpc-api",
  "sui-types",
  "tempfile",

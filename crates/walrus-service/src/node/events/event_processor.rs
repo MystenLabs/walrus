@@ -566,7 +566,7 @@ impl EventProcessor {
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
             client.clone(),
             stores.checkpoint_store.clone(),
-            config.adaptive_downloader_config(),
+            config.adaptive_downloader_config.clone(),
             registry,
         )?;
         let metrics = EventProcessorMetrics::new(registry);
@@ -597,7 +597,7 @@ impl EventProcessor {
         let latest_checkpoint = client.get_latest_checkpoint().await?;
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = config.rest_url.clone();
+        let url = runtime_config.rpc_address.clone();
         let sui_client = SuiClientBuilder::default()
             .build(&url)
             .await

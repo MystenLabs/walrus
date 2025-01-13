@@ -63,7 +63,6 @@ struct DeploySystemContractArgs {
     #[arg(long, default_value_t = 1_000_000_000)]
     gas_budget: u64,
     /// The total number of shards. The shards are distributed evenly among the storage nodes.
-    // TODO: accept non-even shard distributions #377
     #[arg(long, default_value = "1000")]
     n_shards: NonZeroU16,
     /// The epoch duration.

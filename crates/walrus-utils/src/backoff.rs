@@ -5,13 +5,20 @@ use std::{future::Future, num::Saturating, time::Duration};
 
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationMilliSeconds};
 
 /// Wrapper for the configuration for the exponential backoff strategy.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct ExponentialBackoffConfig {
     /// The minimum backoff duration.
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "min_backoff_millis")]
     pub min_backoff: Duration,
     /// The maximum backoff duration.
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "max_backoff_millis")]
     pub max_backoff: Duration,
     /// The maximum number of retries.
     ///

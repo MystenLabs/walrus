@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 /// Configuration for the contract packages and shared objects.
 pub struct ContractConfig {
     /// Object ID of the Walrus system object.

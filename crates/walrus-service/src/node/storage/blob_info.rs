@@ -68,7 +68,7 @@ impl BlobInfoTable {
     }
 
     pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
-        let mut blob_info_options = db_config.blob_info.to_options();
+        let mut blob_info_options = db_config.blob_info().to_options();
         blob_info_options.set_merge_operator(
             "merge blob info",
             merge_mergeable::<BlobInfo>,
@@ -76,7 +76,7 @@ impl BlobInfoTable {
         );
 
         let per_object_blob_info_options = {
-            let mut options = db_config.per_object_blob_info.to_options();
+            let mut options = db_config.per_object_blob_info().to_options();
             options.set_merge_operator(
                 "merge per object blob info",
                 merge_mergeable::<PerObjectBlobInfo>,

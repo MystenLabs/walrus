@@ -24,7 +24,6 @@ required-features = ["deploy"]
 [features]
 client = [
   "dep:colored",
-  "dep:indoc",
   "dep:prettytable",
 ]
 default = ["client", "deploy", "node"]
@@ -73,7 +72,7 @@ git-version.workspace = true
 home.workspace = true
 humantime.workspace = true
 indicatif.workspace = true
-indoc = { workspace = true, optional = true }
+indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
 mime = { workspace = true, optional = true }

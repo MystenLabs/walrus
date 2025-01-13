@@ -54,7 +54,6 @@ use crate::{
             CliOutput,
             HumanReadableMist,
         },
-        config::ExchangeObjectConfig,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -657,18 +656,17 @@ impl ClientCommandRunner {
         amount: u64,
     ) -> Result<()> {
         let config = self.config?;
-        let exchange_id = match (exchange_id, &config.exchange_object) {
-            (Some(exchange_id), _) => Some(exchange_id),
-            (None, None) => None,
-            (None, Some(ExchangeObjectConfig::One(exchange_id))) => Some(*exchange_id),
-            (None, Some(ExchangeObjectConfig::Multiple(exchange_ids))) => {
-                exchange_ids.choose(&mut rand::thread_rng()).copied()
-            }
-        }
-        .context(
-            "Object ID of exchange object must be specified either in the config file or as a \
+        let exchange_id = exchange_id
+            .or_else(|| {
+                config
+                    .exchange_objects
+                    .choose(&mut rand::thread_rng())
+                    .copied()
+            })
+            .context(
+                "Object ID of exchange object must be specified either in the config file or as a \
             command-line argument.",
-        )?;
+            )?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
         tracing::info!(
             "exchanging {} for WAL using exchange object {exchange_id}",

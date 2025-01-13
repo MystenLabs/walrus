@@ -3,42 +3,39 @@
 
 use rocksdb::{DBCompressionType, Options};
 use serde::{Deserialize, Serialize};
-use serde_with::skip_serializing_none;
 
 /// Options for configuring a column family.
-#[serde_with::serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
 pub struct DatabaseTableOptions {
-    // Set it to true to enable key-value separation.
+    /// Set it to true to enable key-value separation.
     enable_blob_files: Option<bool>,
-    // Values at or above this threshold will be written
-    // to blob files during flush or compaction
+    /// Values at or above this threshold will be written to blob files during flush or compaction.
     min_blob_size: Option<u64>,
-    // The size limit for blob files.
+    /// The size limit for blob files.
     blob_file_size: Option<u64>,
-    // The compression type to use for blob files.
-    // All blobs in the same file are compressed using the same algorithm.
+    /// The compression type to use for blob files.
+    /// All blobs in the same file are compressed using the same algorithm.
     blob_compression_type: Option<String>,
-    // Set this to true to make BlobDB actively relocate valid blobs from the oldest
-    // blob files as they are encountered during compaction
+    /// Set this to true to make BlobDB actively relocate valid blobs from the oldest
+    /// blob files as they are encountered during compaction.
     enable_blob_garbage_collection: Option<bool>,
-    // The cutoff that the GC logic uses to determine which blob files should be considered “old.”
+    /// The cutoff that the GC logic uses to determine which blob files should be considered “old.”
     blob_garbage_collection_age_cutoff: Option<f64>,
-    // If the ratio of garbage in the oldest blob files exceeds this threshold, targeted compactions
-    // are scheduled in order to force garbage collecting the blob files in question, assuming they
-    // are all eligible based on the value of blob_garbage_collection_age_cutoff above. This can
-    // help reduce space amplification in the case of skewed workloads where the affected files
-    // would not otherwise be picked up for compaction.
+    /// If the ratio of garbage in the oldest blob files exceeds this threshold, targeted
+    /// compactions are scheduled in order to force garbage collecting the blob files in question,
+    /// assuming they are all eligible based on the value of blob_garbage_collection_age_cutoff
+    /// above. This can help reduce space amplification in the case of skewed workloads where the
+    /// affected files would not otherwise be picked up for compaction.
     blob_garbage_collection_force_threshold: Option<f64>,
-    // When set, BlobDB will prefetch data from blob files in chunks of the configured size during
-    // compaction
+    /// When set, BlobDB will prefetch data from blob files in chunks of the configured size during
+    /// compaction.
     blob_compaction_read_ahead_size: Option<u64>,
-    // Size of the write buffer in bytes
+    /// Size of the write buffer in bytes.
     write_buffer_size: Option<usize>,
-    // The target file size for level-1 files in bytes
+    /// The target file size for level-1 files in bytes.
     target_file_size_base: Option<u64>,
-    // The maximum total data size for level 1 in bytes
+    /// The maximum total data size for level 1 in bytes.
     max_bytes_for_level_base: Option<u64>,
 }
 
@@ -129,9 +126,7 @@ impl DatabaseTableOptions {
 }
 
 /// RocksDB options applied to the overall database.
-#[serde_with::serde_as]
-#[skip_serializing_none]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct GlobalDatabaseOptions {
     /// The maximum number of open files
     pub max_open_files: Option<i32>,
@@ -159,40 +154,81 @@ impl From<&GlobalDatabaseOptions> for Options {
 
 /// Database configuration for Walrus storage nodes.
 #[serde_with::serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct DatabaseConfig {
+    /// Global database options.
     pub(super) global: GlobalDatabaseOptions,
-    pub(super) node_status: DatabaseTableOptions,
-    pub(super) metadata: DatabaseTableOptions,
-    pub(super) blob_info: DatabaseTableOptions,
-    pub(super) per_object_blob_info: DatabaseTableOptions,
-    pub(super) event_cursor: DatabaseTableOptions,
-    pub(super) shard: DatabaseTableOptions,
-    pub(super) shard_status: DatabaseTableOptions,
-    pub(super) shard_sync_progress: DatabaseTableOptions,
-    pub(super) pending_recover_slivers: DatabaseTableOptions,
+    /// Default database table options used by all tables except for slivers and metadata.
+    pub(super) default: DatabaseTableOptions,
+    /// Database table options applied to sliver and metadata tables.
+    pub(super) optimized_for_blobs: DatabaseTableOptions,
+    /// Node status database options.
+    pub(super) node_status: Option<DatabaseTableOptions>,
+    /// Metadata database options.
+    pub(super) metadata: Option<DatabaseTableOptions>,
+    /// Blob info database options.
+    pub(super) blob_info: Option<DatabaseTableOptions>,
+    /// Per object blob info database options.
+    pub(super) per_object_blob_info: Option<DatabaseTableOptions>,
+    /// Event cursor database options.
+    pub(super) event_cursor: Option<DatabaseTableOptions>,
+    /// Shard database options.
+    pub(super) shard: Option<DatabaseTableOptions>,
+    /// Shard status database options.
+    pub(super) shard_status: Option<DatabaseTableOptions>,
+    /// Shard sync progress database options.
+    pub(super) shard_sync_progress: Option<DatabaseTableOptions>,
+    /// Pending recover slivers database options.
+    pub(super) pending_recover_slivers: Option<DatabaseTableOptions>,
 }
 
 impl DatabaseConfig {
-    /// Returns the shard configuration.
+    /// Returns the node status database option.
+    pub fn node_status(&self) -> &DatabaseTableOptions {
+        self.node_status.as_ref().unwrap_or(&self.default)
+    }
+
+    /// Returns the metadata database option.
+    pub fn metadata(&self) -> &DatabaseTableOptions {
+        self.metadata.as_ref().unwrap_or(&self.optimized_for_blobs)
+    }
+
+    /// Returns the blob info database option.
+    pub fn blob_info(&self) -> &DatabaseTableOptions {
+        self.blob_info.as_ref().unwrap_or(&self.default)
+    }
+
+    /// Returns the per object blob info database option.
+    pub fn per_object_blob_info(&self) -> &DatabaseTableOptions {
+        self.per_object_blob_info.as_ref().unwrap_or(&self.default)
+    }
+
+    /// Returns the event cursor database option.
+    pub fn event_cursor(&self) -> &DatabaseTableOptions {
+        self.event_cursor.as_ref().unwrap_or(&self.default)
+    }
+
+    /// Returns the shard database option.
     pub fn shard(&self) -> &DatabaseTableOptions {
-        &self.shard
+        self.shard.as_ref().unwrap_or(&self.optimized_for_blobs)
     }
 
     /// Returns the shard status database option.
     pub fn shard_status(&self) -> &DatabaseTableOptions {
-        &self.shard_status
+        self.shard_status.as_ref().unwrap_or(&self.default)
     }
 
     /// Returns the shard sync progress database option.
     pub fn shard_sync_progress(&self) -> &DatabaseTableOptions {
-        &self.shard_sync_progress
+        self.shard_sync_progress.as_ref().unwrap_or(&self.default)
     }
 
     /// Returns the pending recover slivers database option.
     pub fn pending_recover_slivers(&self) -> &DatabaseTableOptions {
-        &self.pending_recover_slivers
+        self.pending_recover_slivers
+            .as_ref()
+            .unwrap_or(&self.default)
     }
 }
 
@@ -200,15 +236,17 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             global: GlobalDatabaseOptions::default(),
-            node_status: DatabaseTableOptions::default(),
-            metadata: DatabaseTableOptions::optimized_for_blobs(),
-            blob_info: DatabaseTableOptions::default(),
-            per_object_blob_info: DatabaseTableOptions::default(),
-            event_cursor: DatabaseTableOptions::default(),
-            shard: DatabaseTableOptions::optimized_for_blobs(),
-            shard_status: DatabaseTableOptions::default(),
-            shard_sync_progress: DatabaseTableOptions::default(),
-            pending_recover_slivers: DatabaseTableOptions::default(),
+            default: DatabaseTableOptions::default(),
+            optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
+            node_status: None,
+            metadata: None,
+            blob_info: None,
+            per_object_blob_info: None,
+            event_cursor: None,
+            shard: None,
+            shard_status: None,
+            shard_sync_progress: None,
+            pending_recover_slivers: None,
         }
     }
 }

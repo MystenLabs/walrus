@@ -60,7 +60,7 @@ use walrus_sui::{
 };
 
 use super::active_committees::ActiveCommittees;
-use crate::node::config::MetricsConfig;
+use crate::node::config::MetricsPushConfig;
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -328,7 +328,7 @@ pub struct EnableMetricsPush {
     /// the network keys we use to identify the client using this push config
     pub network_key_pair: Arc<Secp256r1KeyPair>,
     /// the url, timeouts, etc used to push the metrics
-    pub config: MetricsConfig,
+    pub config: MetricsPushConfig,
 }
 
 /// MetricPushRuntime to manage the metric push task.
@@ -353,7 +353,7 @@ impl MetricPushRuntime {
         let _guard = runtime.enter();
 
         let metric_push_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
+            let mut interval = tokio::time::interval(mp_config.config.push_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
             tracing::info!("starting metrics push to '{}'", &mp_config.config.push_url);
@@ -401,8 +401,7 @@ fn create_push_client() -> reqwest::Client {
         .expect("unable to build client")
 }
 
-#[derive(Deserialize, Serialize)]
-#[allow(missing_debug_implementations)]
+#[derive(Debug, Deserialize, Serialize)]
 /// MetricPayload holds static labels and metric data
 /// the static labels are always sent and will be merged within the proxy
 pub struct MetricPayload {
@@ -766,7 +765,7 @@ pub async fn collect_event_blobs_for_catchup(
     let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
     let config = crate::client::Config {
         contract_config,
-        exchange_object: None,
+        exchange_objects: vec![],
         wallet_config: None,
         communication_config: crate::client::ClientCommunicationConfig::default(),
     };
