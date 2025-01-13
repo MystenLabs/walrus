@@ -239,6 +239,8 @@ pub(crate) struct InfoOutput {
     pub(crate) storage_info: InfoStorageOutput,
     pub(crate) size_info: InfoSizeOutput,
     pub(crate) price_info: InfoPriceOutput,
+    pub(crate) committee_info: InfoCommitteeOutput,
+    pub(crate) bft_info: InfoBftOutput,
 }
 
 impl InfoOutput {
@@ -247,12 +249,16 @@ impl InfoOutput {
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
+        let committee_info = InfoCommitteeOutput::get_committee_info(sui_read_client).await?;
+        let bft_info = InfoBftOutput::get_bft_info(sui_read_client).await?;
 
         Ok(Self {
             epoch_info,
             storage_info,
             size_info,
             price_info,
+            committee_info,
+            bft_info,
         })
     }
 }

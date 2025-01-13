@@ -286,6 +286,8 @@ impl CliOutput for InfoOutput {
             storage_info,
             size_info,
             price_info,
+            committee_info,
+            bft_info,
         } = self;
 
         // NOTE: keep text in sync with changes in the contracts.
@@ -308,6 +310,12 @@ impl CliOutput for InfoOutput {
 
         // Print price info
         price_info.print_cli_output();
+
+        // Print BFT info
+        bft_info.print_cli_output();
+
+        // Print committee info
+        committee_info.print_cli_output();
     }
 }
 
@@ -437,14 +445,14 @@ impl CliOutput for InfoCommitteeOutput {
 
             {node_heading}
             ",
-            encoding_heading = "(dev) Encoding parameters and sizes".bold().walrus_purple(),
+            encoding_heading = "Encoding parameters and sizes".bold().walrus_purple(),
             hr_metadata = HumanReadableBytes(*metadata_storage_size),
             metadata_storage_size_sep = thousands_separator(*metadata_storage_size),
             hr_sliver = HumanReadableBytes(*max_sliver_size),
             max_sliver_size_sep = thousands_separator(*max_sliver_size),
             hr_encoded = HumanReadableBytes(*max_encoded_blob_size),
             max_encoded_blob_size_sep = thousands_separator(*max_encoded_blob_size),
-            node_heading = "(dev) Storage node details and shard distribution"
+            node_heading = "Storage node details and shard distribution"
                 .bold()
                 .walrus_purple()
         );
@@ -453,7 +461,7 @@ impl CliOutput for InfoCommitteeOutput {
         if let Some(storage_nodes) = next_storage_nodes.as_ref() {
             println!(
                 "{}",
-                "\n(dev) Next committee: Storage node details and shard distribution"
+                "\nNext committee: Storage node details and shard distribution"
                     .bold()
                     .walrus_purple()
             );
