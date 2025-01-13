@@ -4,7 +4,7 @@ blocklist_path: null
 db_config:
   global:
     max_open_files: 512000
-  default:
+  standard:
     enable_blob_files: false
     min_blob_size: 0
     blob_file_size: 0

@@ -5,7 +5,7 @@ use rocksdb::{DBCompressionType, Options};
 use serde::{Deserialize, Serialize};
 
 /// Options for configuring a column family.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct DatabaseTableOptions {
     /// Set it to true to enable key-value separation.
@@ -39,8 +39,8 @@ pub struct DatabaseTableOptions {
     max_bytes_for_level_base: Option<u64>,
 }
 
-impl Default for DatabaseTableOptions {
-    fn default() -> Self {
+impl DatabaseTableOptions {
+    fn standard() -> Self {
         Self {
             enable_blob_files: Some(false),
             min_blob_size: Some(0),
@@ -55,9 +55,7 @@ impl Default for DatabaseTableOptions {
             max_bytes_for_level_base: Some(512 << 20),
         }
     }
-}
 
-impl DatabaseTableOptions {
     fn optimized_for_blobs() -> Self {
         Self {
             enable_blob_files: Some(true),
@@ -153,6 +151,18 @@ impl From<&GlobalDatabaseOptions> for Options {
 }
 
 /// Database configuration for Walrus storage nodes.
+///
+/// The `standard` options are applied to all tables except for slivers and metadata. The
+/// `optimized_for_blobs` options are applied to sliver and metadata tables.
+///
+/// Options for all individual tables can be set as well through the `node_status`, `metadata`,
+/// `blob_info`, `per_object_blob_info`, `event_cursor`, `shard`, `shard_status`,
+/// `shard_sync_progress`, and `pending_recover_slivers` fields.
+///
+/// **Warning:** Note that the configuration is currently not properly hierarchical. For example, if
+/// the `metadata` options are defined, they are *not* merged with the `optimized_for_blobs` or
+/// `standard` options. Any options that should not be `None` need to be set explicitly, even if
+/// they are equal to those from the `standard` or `optimized_for_blobs` options.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
@@ -160,7 +170,7 @@ pub struct DatabaseConfig {
     /// Global database options.
     pub(super) global: GlobalDatabaseOptions,
     /// Default database table options used by all tables except for slivers and metadata.
-    pub(super) default: DatabaseTableOptions,
+    pub(super) standard: DatabaseTableOptions,
     /// Database table options applied to sliver and metadata tables.
     pub(super) optimized_for_blobs: DatabaseTableOptions,
     /// Node status database options.
@@ -186,7 +196,7 @@ pub struct DatabaseConfig {
 impl DatabaseConfig {
     /// Returns the node status database option.
     pub fn node_status(&self) -> &DatabaseTableOptions {
-        self.node_status.as_ref().unwrap_or(&self.default)
+        self.node_status.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the metadata database option.
@@ -196,17 +206,17 @@ impl DatabaseConfig {
 
     /// Returns the blob info database option.
     pub fn blob_info(&self) -> &DatabaseTableOptions {
-        self.blob_info.as_ref().unwrap_or(&self.default)
+        self.blob_info.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the per object blob info database option.
     pub fn per_object_blob_info(&self) -> &DatabaseTableOptions {
-        self.per_object_blob_info.as_ref().unwrap_or(&self.default)
+        self.per_object_blob_info.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the event cursor database option.
     pub fn event_cursor(&self) -> &DatabaseTableOptions {
-        self.event_cursor.as_ref().unwrap_or(&self.default)
+        self.event_cursor.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the shard database option.
@@ -216,19 +226,19 @@ impl DatabaseConfig {
 
     /// Returns the shard status database option.
     pub fn shard_status(&self) -> &DatabaseTableOptions {
-        self.shard_status.as_ref().unwrap_or(&self.default)
+        self.shard_status.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the shard sync progress database option.
     pub fn shard_sync_progress(&self) -> &DatabaseTableOptions {
-        self.shard_sync_progress.as_ref().unwrap_or(&self.default)
+        self.shard_sync_progress.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the pending recover slivers database option.
     pub fn pending_recover_slivers(&self) -> &DatabaseTableOptions {
         self.pending_recover_slivers
             .as_ref()
-            .unwrap_or(&self.default)
+            .unwrap_or(&self.standard)
     }
 }
 
@@ -236,7 +246,7 @@ impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
             global: GlobalDatabaseOptions::default(),
-            default: DatabaseTableOptions::default(),
+            standard: DatabaseTableOptions::standard(),
             optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
             node_status: None,
             metadata: None,
@@ -248,5 +258,52 @@ impl Default for DatabaseConfig {
             shard_sync_progress: None,
             pending_recover_slivers: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use indoc::indoc;
+    use walrus_test_utils::Result as TestResult;
+
+    use super::*;
+
+    #[test]
+    fn test_optimized_for_blobs_database_config() -> TestResult {
+        let yaml = indoc! {"
+            default:
+                blob_compression_type: none
+                enable_blob_garbage_collection: false
+            optimized_for_blobs:
+                enable_blob_files: true
+                min_blob_size: 0
+                blob_file_size: 1000
+            shard:
+                blob_garbage_collection_force_threshold: 0.5
+        "};
+
+        let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+
+        let shard_options = config.shard();
+        assert_eq!(
+            shard_options,
+            &DatabaseTableOptions {
+                blob_garbage_collection_force_threshold: Some(0.5),
+                ..Default::default()
+            }
+        );
+
+        let optimized_for_blobs_options = config.optimized_for_blobs;
+        assert_eq!(
+            optimized_for_blobs_options,
+            DatabaseTableOptions {
+                enable_blob_files: Some(true),
+                min_blob_size: Some(0),
+                blob_file_size: Some(1000),
+                ..Default::default()
+            }
+        );
+
+        Ok(())
     }
 }
