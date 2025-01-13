@@ -500,6 +500,8 @@ pub struct ExchangeOutput {
 pub struct ShareBlobOutput {
     /// The shared blob object ID.
     pub shared_blob_object_id: ObjectID,
+    /// The amount of FROST if funded.
+    pub amount: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

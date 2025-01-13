@@ -1116,6 +1116,7 @@ impl SuiContractClient {
         let mut pt_builder = self.transaction_builder();
 
         if let Some(amount) = amount {
+            ensure!(amount > 0, "must fund with non-zero amount");
             pt_builder
                 .new_funded_shared_blob(blob.id.into(), amount)
                 .await?;

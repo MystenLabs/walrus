@@ -594,9 +594,14 @@ impl CliOutput for ExchangeOutput {
 impl CliOutput for ShareBlobOutput {
     fn print_cli_output(&self) {
         println!(
-            "{} The blob has been shared, object id: {}",
+            "{} The blob has been shared, object id: {} {}",
             success(),
-            self.shared_blob_object_id
+            self.shared_blob_object_id,
+            if let Some(amount) = self.amount {
+                format!(", funded with {}", HumanReadableFrost::from(amount))
+            } else {
+                "".to_string()
+            }
         );
     }
 }

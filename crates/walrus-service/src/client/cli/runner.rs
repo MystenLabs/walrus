@@ -277,6 +277,7 @@ impl ClientCommandRunner {
                 spinner.finish_with_message("done");
                 ShareBlobOutput {
                     shared_blob_object_id,
+                    amount,
                 }
                 .print_output(self.json)
             }
