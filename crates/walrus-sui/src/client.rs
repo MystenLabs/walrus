@@ -1068,6 +1068,76 @@ impl SuiContractClient {
 
         Ok(())
     }
+
+    /// Funds the shared blob object.
+    pub async fn fund_shared_blob(
+        &self,
+        shared_blob_obj_id: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .fund_shared_blob(shared_blob_obj_id, amount)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
+    /// Extends the shared object epoch.
+    pub async fn extend_shared_blob(
+        &self,
+        shared_blob_obj_id: ObjectID,
+        epochs_ahead: u32,
+    ) -> SuiClientResult<()> {
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
+    /// Shares the blob object with the given object ID. If amount is specified, also fund the blob.
+    pub async fn share_and_maybe_fund_blob(
+        &self,
+        blob_obj_id: ObjectID,
+        amount: Option<u64>,
+    ) -> SuiClientResult<ObjectID> {
+        let blob: Blob = self
+            .read_client
+            .sui_client()
+            .get_sui_object(blob_obj_id)
+            .await?;
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+
+        if let Some(amount) = amount {
+            ensure!(amount > 0, "must fund with non-zero amount");
+            pt_builder
+                .new_funded_shared_blob(blob.id.into(), amount)
+                .await?;
+        } else {
+            pt_builder.new_shared_blob(blob.id.into()).await?;
+        }
+
+        let (ptb, _) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        let shared_blob_obj_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            shared_blob_obj_id.len() == 1,
+            "unexpected number of `SharedBlob`s created: {}",
+            shared_blob_obj_id.len()
+        );
+        Ok(shared_blob_obj_id[0])
+    }
 }
 
 impl ReadClient for SuiContractClient {

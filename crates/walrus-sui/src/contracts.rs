@@ -290,6 +290,7 @@ pub mod shared_blob {
 
     contract_ident!(struct shared_blob::SharedBlob);
     contract_ident!(fn shared_blob::new);
+    contract_ident!(fn shared_blob::new_funded);
     contract_ident!(fn shared_blob::fund);
     contract_ident!(fn shared_blob::extend);
 }

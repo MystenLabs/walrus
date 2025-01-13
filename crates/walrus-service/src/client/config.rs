@@ -11,6 +11,7 @@ use std::{
 use itertools::Itertools;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationMilliSeconds};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::encoding::{EncodingConfig, Primary};
@@ -26,14 +27,14 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 use crate::common::utils::{self, LoadConfig};
 
 /// Config for the client.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Config {
     /// The Walrus contract config.
     #[serde(flatten)]
     pub contract_config: ContractConfig,
     /// The WAL exchange object ID.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exchange_object: Option<ExchangeObjectConfig>,
+    #[serde(default)]
+    pub exchange_objects: Vec<ObjectID>,
     /// Path to the wallet configuration.
     #[serde(default, deserialize_with = "utils::resolve_home_dir_option")]
     pub wallet_config: Option<PathBuf>,
@@ -74,18 +75,9 @@ impl Config {
 
 impl LoadConfig for Config {}
 
-/// Represents one or more exchange objects to be used for SUI/WAL exchange.
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum ExchangeObjectConfig {
-    /// A single exchange is configured.
-    One(ObjectID),
-    /// Multiple exchanges are configured. A random one is chosen to perform the exchange.
-    Multiple(Vec<ObjectID>),
-}
-
 /// Configuration for the communication parameters of the client
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct ClientCommunicationConfig {
     /// The maximum number of open connections the client can have at any one time for writes.
@@ -97,7 +89,7 @@ pub struct ClientCommunicationConfig {
     /// by the client to `n - 2f`, depending on the number of shards `n`.
     pub max_concurrent_sliver_reads: Option<usize>,
     /// The maximum number of nodes the client contacts to get the blob metadata in parallel.
-    pub max_concurrent_metadata_reads: Option<usize>,
+    pub max_concurrent_metadata_reads: usize,
     /// The maximum number of nodes the client contacts to get a blob status in parallel.
     pub max_concurrent_status_reads: Option<usize>,
     /// The maximum amount of data (in bytes) associated with concurrent requests.
@@ -114,6 +106,8 @@ pub struct ClientCommunicationConfig {
     pub sliver_write_extra_time: SliverWriteExtraTime,
     /// The delay for which the client waits before storing data to ensure that storage nodes have
     /// seen the registration event.
+    #[serde(rename = "registration_delay_millis")]
+    #[serde_as(as = "DurationMilliSeconds")]
     pub registration_delay: Duration,
     /// The maximum total blob size allowed to store if multiple blobs are uploaded.
     pub max_total_blob_size: usize,
@@ -125,7 +119,7 @@ impl Default for ClientCommunicationConfig {
             disable_native_certs: true,
             max_concurrent_writes: Default::default(),
             max_concurrent_sliver_reads: Default::default(),
-            max_concurrent_metadata_reads: Default::default(),
+            max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),
             max_concurrent_status_reads: Default::default(),
             max_data_in_flight: Default::default(),
             reqwest_config: Default::default(),
@@ -133,7 +127,7 @@ impl Default for ClientCommunicationConfig {
             disable_proxy: Default::default(),
             sliver_write_extra_time: Default::default(),
             registration_delay: Duration::from_millis(200),
-            max_total_blob_size: 1024 * 1024 * 1024_usize, // 1GiB
+            max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
         }
     }
 }
@@ -191,9 +185,7 @@ impl CommunicationLimits {
         let max_concurrent_sliver_reads = communication_config
             .max_concurrent_sliver_reads
             .unwrap_or(default::max_concurrent_sliver_reads(n_shards));
-        let max_concurrent_metadata_reads = communication_config
-            .max_concurrent_metadata_reads
-            .unwrap_or(default::max_concurrent_metadata_reads());
+        let max_concurrent_metadata_reads = communication_config.max_concurrent_metadata_reads;
         let max_concurrent_status_reads = communication_config
             .max_concurrent_status_reads
             .unwrap_or(default::max_concurrent_status_reads(n_shards));
@@ -281,7 +273,7 @@ impl CommunicationLimits {
 }
 
 /// Configuration for retries towards the storage nodes.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(default)]
 pub struct RequestRateConfig {
     /// The maximum number of connections the client can open towards each node.
@@ -300,23 +292,28 @@ impl Default for RequestRateConfig {
 }
 
 /// Configuration for the parameters of the `reqwest` client.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
 pub struct ReqwestConfig {
     /// Total request timeout, applied from when the request starts connecting until the response
     /// body has finished.
-    #[serde(default = "default::total_timeout")]
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "total_timeout_millis")]
     pub total_timeout: Duration,
     /// Timeout for idle sockets to be kept alive. Pass `None` to disable.
-    #[serde(default = "default::pool_idle_timeout")]
+    #[serde_as(as = "Option<DurationMilliSeconds>")]
+    #[serde(rename = "pool_idle_timeout_millis")]
     pub pool_idle_timeout: Option<Duration>,
     /// Timeout for receiving an acknowledgement of the keep-alive ping.
-    #[serde(default = "default::http2_keep_alive_timeout")]
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "http2_keep_alive_timeout_millis")]
     pub http2_keep_alive_timeout: Duration,
     /// Ping every such interval to keep the connection alive.
-    #[serde(default = "default::http2_keep_alive_interval")]
+    #[serde_as(as = "Option<DurationMilliSeconds>")]
+    #[serde(rename = "http2_keep_alive_interval_millis")]
     pub http2_keep_alive_interval: Option<Duration>,
     /// Sets whether HTTP2 keep-alive should apply while the connection is idle.
-    #[serde(default = "default::http2_keep_alive_while_idle")]
     pub http2_keep_alive_while_idle: bool,
 }
 
@@ -419,11 +416,15 @@ pub(crate) mod default {
 }
 
 /// The additional time allowed to sliver writes, to allow for more nodes to receive them.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(default)]
 pub struct SliverWriteExtraTime {
     /// The multiplication factor for the time it took to store n-f sliver.
     pub factor: f64,
     /// The minimum extra time.
+    #[serde(rename = "base_millis")]
+    #[serde_as(as = "DurationMilliSeconds")]
     pub base: Duration,
 }
 
@@ -448,71 +449,128 @@ impl Default for SliverWriteExtraTime {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use rand::{rngs::StdRng, SeedableRng};
-    use sui_types::base_types::ObjectID;
-    use walrus_sui::client::contract_config::ContractConfig;
+    use indoc::indoc;
+    use rand::{rngs::StdRng, SeedableRng as _};
     use walrus_test_utils::Result as TestResult;
 
-    use crate::client::ExchangeObjectConfig;
+    use super::*;
 
     /// Serializes a default config to the example file when tests are run.
     ///
     /// This test ensures that the `client_config_example.yaml` is kept in sync with the config
     /// struct in this file.
     #[test]
-    fn test_serialize_default_config() {
+    fn check_and_update_example_config() -> TestResult {
+        const EXAMPLE_CONFIG_PATH: &str = "client_config_example.yaml";
+
         let mut rng = StdRng::seed_from_u64(42);
         let contract_config = ContractConfig {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
         };
-        let config = super::Config {
+        let config = Config {
             contract_config,
-            exchange_object: Some(super::ExchangeObjectConfig::Multiple(vec![
+            exchange_objects: vec![
                 ObjectID::random_from_rng(&mut rng),
                 ObjectID::random_from_rng(&mut rng),
-            ])),
+            ],
             wallet_config: None,
             communication_config: Default::default(),
         };
+
         let serialized = serde_yaml::to_string(&config).unwrap();
-        std::fs::write("client_config_example.yaml", serialized).unwrap();
-    }
-
-    #[test]
-    fn test_deserialize_single_exchange_object() -> TestResult {
-        let yaml = "---\n\
-            0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac";
-
-        assert_eq!(
-            ExchangeObjectConfig::One(ObjectID::from_str(
-                "0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac"
-            )?),
-            serde_yaml::from_str(yaml)?
+        let configs_are_in_sync = std::fs::read_to_string(EXAMPLE_CONFIG_PATH)? == serialized;
+        std::fs::write(EXAMPLE_CONFIG_PATH, serialized.clone()).unwrap();
+        assert!(
+            configs_are_in_sync,
+            "example configuration was out of sync; was updated automatically"
         );
 
         Ok(())
     }
 
     #[test]
-    fn test_deserialize_multiple_exchange_objects() -> TestResult {
-        let yaml = "---\n\
-            - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac\n\
-            - 0x26a8a417b553b18d13027c23e8016c3466b81e7083225436b55143c127f3c0cb";
+    fn parses_minimal_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+        "};
 
-        assert_eq!(
-            ExchangeObjectConfig::Multiple(vec![
-                ObjectID::from_str(
-                    "0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac"
-                )?,
-                ObjectID::from_str(
-                    "0x26a8a417b553b18d13027c23e8016c3466b81e7083225436b55143c127f3c0cb"
-                )?
-            ]),
-            serde_yaml::from_str(yaml)?
-        );
+        let _: Config = serde_yaml::from_str(yaml)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_no_exchange_object_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects: []
+        "};
+
+        let config: Config = serde_yaml::from_str(yaml)?;
+        assert!(config.exchange_objects.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_single_exchange_object_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects:
+                - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+        "};
+
+        let config: Config = serde_yaml::from_str(yaml)?;
+        assert_eq!(config.exchange_objects.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_multiple_exchange_objects_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects:
+                - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                - 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+        "};
+
+        let config: Config = serde_yaml::from_str(yaml)?;
+        assert_eq!(config.exchange_objects.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_partial_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects:
+                - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+            wallet_config: path/to/wallet
+            communication_config:
+                max_concurrent_writes: 42
+                max_data_in_flight: 1000
+                reqwest_config:
+                    total_timeout_millis: 30000
+                    http2_keep_alive_while_idle: false
+                request_rate_config:
+                    max_node_connections: 10
+                    backoff_config:
+                        min_backoff_millis: 1000
+                disable_proxy: false
+                sliver_write_extra_time:
+                    factor: 0.5
+                max_total_blob_size: 1073741824
+        "};
+
+        let _: Config = serde_yaml::from_str(yaml)?;
 
         Ok(())
     }

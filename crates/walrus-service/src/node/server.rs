@@ -75,11 +75,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             })
         } else {
             Some(TlsCertificateSource::GenerateSelfSigned {
-                server_name: config
-                    .tls
-                    .server_name
-                    .clone()
-                    .unwrap_or_else(|| config.public_host.clone()),
+                server_name: config.public_host.clone(),
                 network_key_pair: config.network_key_pair().clone(),
             })
         };

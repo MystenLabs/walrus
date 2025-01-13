@@ -15,7 +15,6 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
-use config::EventProviderConfig;
 use epoch_change_driver::EpochChangeDriver;
 use events::event_blob_writer::EventBlobWriter;
 use fastcrypto::traits::KeyPair;
@@ -140,7 +139,6 @@ use crate::{
         events::{
             event_blob_writer::EventBlobWriterFactory,
             event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-            EventProcessorConfig,
             EventStreamCursor,
             EventStreamElement,
             PositionedStreamEvent,
@@ -335,38 +333,31 @@ impl StorageNodeBuilder {
                 .as_ref()
                 .expect("this is always created if self.event_manager.is_none()");
 
-            match &config.event_provider_config {
-                EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
-                    let event_processor_config =
-                        event_processor_config.clone().unwrap_or_else(|| {
-                            EventProcessorConfig::new_with_default_pruning_interval(
-                                sui_config.rpc.clone(),
-                            )
-                        });
-                    let processor_config = EventProcessorRuntimeConfig {
-                        rpc_address: sui_config.rpc.clone(),
-                        event_polling_interval: sui_config.event_polling_interval,
-                        db_path: config.storage_path.join("events"),
-                    };
-                    let system_config = SystemConfig {
-                        system_pkg_id: read_client.get_system_package_id(),
-                        system_object_id: sui_config.contract_config.system_object,
-                        staking_object_id: sui_config.contract_config.staking_object,
-                    };
-                    Box::new(
-                        EventProcessor::new(
-                            &event_processor_config,
-                            processor_config,
-                            system_config,
-                            &metrics_registry,
-                        )
-                        .await?,
-                    )
-                }
-                EventProviderConfig::LegacyEventProvider => Box::new(SuiSystemEventProvider::new(
+            if config.use_legacy_event_provider {
+                Box::new(SuiSystemEventProvider::new(
                     read_client.clone(),
                     sui_config.event_polling_interval,
-                )),
+                ))
+            } else {
+                let processor_config = EventProcessorRuntimeConfig {
+                    rpc_address: sui_config.rpc.clone(),
+                    event_polling_interval: sui_config.event_polling_interval,
+                    db_path: config.storage_path.join("events"),
+                };
+                let system_config = SystemConfig {
+                    system_pkg_id: read_client.get_system_package_id(),
+                    system_object_id: sui_config.contract_config.system_object,
+                    staking_object_id: sui_config.contract_config.staking_object,
+                };
+                Box::new(
+                    EventProcessor::new(
+                        &config.event_processor_config,
+                        processor_config,
+                        system_config,
+                        &metrics_registry,
+                    )
+                    .await?,
+                )
             }
         };
 
@@ -479,7 +470,7 @@ impl StorageNode {
         } else {
             Storage::open(
                 config.storage_path.as_path(),
-                config.db_config.clone().unwrap_or_default(),
+                config.db_config.clone(),
                 MetricConf::new("storage"),
             )?
         };

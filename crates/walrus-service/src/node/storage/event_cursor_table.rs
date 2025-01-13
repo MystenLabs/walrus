@@ -101,7 +101,7 @@ impl EventCursorTable {
     }
 
     pub fn options(config: &DatabaseConfig) -> (&'static str, Options) {
-        let mut options = config.event_cursor.to_options();
+        let mut options = config.event_cursor().to_options();
         options.set_merge_operator(
             "update_cursor_and_progress",
             update_cursor_and_progress,

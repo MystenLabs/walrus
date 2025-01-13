@@ -520,14 +520,14 @@ impl Storage {
     fn node_status_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
         (
             Self::NODE_STATUS_COLUMN_FAMILY_NAME,
-            db_config.node_status.to_options(),
+            db_config.node_status().to_options(),
         )
     }
 
     fn metadata_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
         (
             Self::METADATA_COLUMN_FAMILY_NAME,
-            db_config.metadata.to_options(),
+            db_config.metadata().to_options(),
         )
     }
 

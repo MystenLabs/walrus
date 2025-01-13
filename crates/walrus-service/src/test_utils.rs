@@ -79,7 +79,7 @@ use crate::{
             NodeCommitteeService,
         },
         config,
-        config::{EventProviderConfig, StorageNodeConfig},
+        config::StorageNodeConfig,
         contract_service::SystemContractService,
         errors::SyncShardClientError,
         events::{
@@ -372,43 +372,35 @@ impl SimStorageNodeHandle {
         // Starts the event processor thread if the node is configured to use the checkpoint
         // based event processor.
         let sui_read_client = sui_config.new_read_client().await?;
-        let event_provider: Box<dyn EventManager> = match &config.event_provider_config {
-            EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
-                let event_processor_config = event_processor_config.clone().unwrap_or_else(|| {
-                    crate::node::events::EventProcessorConfig::new_with_default_pruning_interval(
-                        sui_config.rpc.clone(),
-                    )
-                });
-                let processor_config =
-                    crate::node::events::event_processor::EventProcessorRuntimeConfig {
-                        rpc_address: sui_config.rpc.clone(),
-                        event_polling_interval: Duration::from_millis(100),
-                        db_path: nondeterministic!(tempfile::tempdir()
-                            .expect("temporary directory creation must succeed")
-                            .path()
-                            .to_path_buf()),
-                    };
-                let system_config = crate::node::events::event_processor::SystemConfig {
-                    system_object_id: sui_config.contract_config.system_object,
-                    staking_object_id: sui_config.contract_config.staking_object,
-                    system_pkg_id: sui_read_client.get_system_package_id(),
+        let event_provider: Box<dyn EventManager> = if config.use_legacy_event_provider {
+            Box::new(crate::node::system_events::SuiSystemEventProvider::new(
+                sui_read_client.clone(),
+                Duration::from_millis(100),
+            ))
+        } else {
+            let processor_config =
+                crate::node::events::event_processor::EventProcessorRuntimeConfig {
+                    rpc_address: sui_config.rpc.clone(),
+                    event_polling_interval: Duration::from_millis(100),
+                    db_path: nondeterministic!(tempfile::tempdir()
+                        .expect("temporary directory creation must succeed")
+                        .path()
+                        .to_path_buf()),
                 };
-                Box::new(
-                    EventProcessor::new(
-                        &event_processor_config,
-                        processor_config,
-                        system_config,
-                        &metrics_registry,
-                    )
-                    .await?,
+            let system_config = crate::node::events::event_processor::SystemConfig {
+                system_object_id: sui_config.contract_config.system_object,
+                staking_object_id: sui_config.contract_config.staking_object,
+                system_pkg_id: sui_read_client.get_system_package_id(),
+            };
+            Box::new(
+                EventProcessor::new(
+                    &config.event_processor_config,
+                    processor_config,
+                    system_config,
+                    &metrics_registry,
                 )
-            }
-            EventProviderConfig::LegacyEventProvider => {
-                Box::new(crate::node::system_events::SuiSystemEventProvider::new(
-                    sui_read_client.clone(),
-                    Duration::from_millis(100),
-                ))
-            }
+                .await?,
+            )
         };
 
         // Starts the event processor thread if it is configured, otherwise it produces a JoinHandle
@@ -859,7 +851,8 @@ impl StorageNodeHandleBuilder {
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
-            event_provider_config: EventProviderConfig::CheckpointBasedEventProcessor(None),
+            event_processor_config: Default::default(),
+            use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
@@ -2141,18 +2134,13 @@ pub mod test_cluster {
             .with_committee_services(&committee_services)
             .with_system_contract_services(&node_contract_services);
 
-        let event_processor_config =
-            EventProcessorConfig::new_with_default_pruning_interval(sui_cluster.rpc_url().clone());
+        let event_processor_config = Default::default();
         let cluster_builder = if use_legacy_event_processor {
-            setup_legacy_event_processors(
-                &event_processor_config,
-                sui_read_client.clone(),
-                cluster_builder,
-            )
-            .await?
+            setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
         } else {
             setup_checkpoint_based_event_processors(
                 &event_processor_config,
+                &sui_cluster.rpc_url(),
                 sui_read_client.clone(),
                 cluster_builder,
                 system_ctx.system_object,
@@ -2193,7 +2181,7 @@ pub mod test_cluster {
         })?;
         let config = Config {
             contract_config,
-            exchange_object: None,
+            exchange_objects: vec![],
             wallet_config: None,
             communication_config,
         };
@@ -2209,6 +2197,7 @@ pub mod test_cluster {
 
     async fn setup_checkpoint_based_event_processors(
         event_processor_config: &EventProcessorConfig,
+        rpc_url: &str,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
         system_object_id: ObjectID,
@@ -2217,7 +2206,7 @@ pub mod test_cluster {
         let mut event_processors = vec![];
         for _ in test_cluster_builder.storage_node_test_configs().iter() {
             let processor_config = EventProcessorRuntimeConfig {
-                rpc_address: event_processor_config.rest_url.clone(),
+                rpc_address: rpc_url.to_string(),
                 event_polling_interval: Duration::from_millis(100),
                 db_path: nondeterministic!(tempfile::tempdir()
                     .expect("temporary directory creation must succeed")
@@ -2243,7 +2232,6 @@ pub mod test_cluster {
     }
 
     async fn setup_legacy_event_processors(
-        _event_processor_config: &EventProcessorConfig,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
     ) -> anyhow::Result<TestClusterBuilder> {
@@ -2274,7 +2262,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_api_address,
             metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
-            db_config: None,
+            db_config: Default::default(),
             blocklist_path: None,
             sui: None,
             blob_recovery: Default::default(),
@@ -2285,7 +2273,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 shard_sync_retry_max_backoff: Duration::from_secs(10),
                 ..Default::default()
             },
-            event_provider_config: EventProviderConfig::LegacyEventProvider,
+            event_processor_config: Default::default(),
+            use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,
             voting_params: VotingParams {

@@ -41,8 +41,8 @@ use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBack
 
 use super::{SuiClientError, SuiClientResult};
 use crate::{
-    contracts::{AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{SuiDynamicField, SystemObjectForDeserialization},
+    contracts::{self, AssociatedContractStruct, TypeOriginMap},
+    types::move_structs::{Key, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
 };
 
@@ -351,6 +351,20 @@ impl RetriableSuiClient {
                 .collect::<Result<Vec<_>, _>>()
         })
         .await
+    }
+
+    pub(crate) async fn get_extended_field<V>(
+        &self,
+        object_id: ObjectID,
+        type_origin_map: &TypeOriginMap,
+    ) -> SuiClientResult<V>
+    where
+        V: DeserializeOwned,
+    {
+        let key_tag = contracts::extended_field::Key
+            .to_move_struct_tag_with_type_map(type_origin_map, &[])?;
+        self.get_dynamic_field::<Key, V>(object_id, key_tag.into(), Key { dummy_field: false })
+            .await
     }
 
     #[allow(unused)]

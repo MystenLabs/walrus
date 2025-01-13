@@ -46,6 +46,7 @@ jobs:
       isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
+      isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
       - name: Detect Changes
@@ -201,6 +202,33 @@ jobs:
             repository.
 
             cc @karlwuest @mlegner
+
+  example-config-warning:
+    name: Check if the PR touches any of the example config files
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isExampleConfig == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post a warning if the PR touches an example config file
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            **Warning:** This PR modifies one of the example config files. Please consider the
+            following:
+
+            - Make sure the changes are backwards compatible with the current configuration.
+            - Make sure any added parameters follow the conventions of the existing parameters; in
+              particular, durations should take seconds or milliseconds using the naming convention
+              `_secs` or `_millis`, respectively.
+            - If there are added optional parameter sections, it should be possible to specify them
+              partially. A useful pattern there is to implement `Default` for the struct and derive
+              `#[serde(default)]` on it, see `BlobRecoveryConfig` as an example.
+            - You may need to update the [walrus-docs](https://github.com/MystenLabs/walrus-docs)
+              repository to reflect the changes.
 
   check-all:
     name: Check if all code checks succeeded

@@ -801,6 +801,80 @@ async fn test_burn_blobs() -> TestResult {
     Ok(())
 }
 
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_share_blobs() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let blob = walrus_test_utils::random_data(314);
+    let result = client
+        .as_ref()
+        .reserve_and_store_blobs(
+            &[blob.as_slice()],
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let (end_epoch, blob_object_id) = {
+        let BlobStoreResult::NewlyCreated { blob_object, .. } = result
+            .into_iter()
+            .next()
+            .expect("expect one blob store result")
+        else {
+            panic!("expect newly stored blob")
+        };
+        (blob_object.storage.end_epoch, blob_object.id)
+    };
+
+    // Share the blob without funding.
+    let shared_blob_object_id = client
+        .as_ref()
+        .sui_client()
+        .share_and_maybe_fund_blob(blob_object_id, None)
+        .await?;
+    let shared_blob: SharedBlob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(shared_blob_object_id)
+        .await?;
+    assert_eq!(shared_blob.funds, 0);
+
+    // Fund the shared blob.
+    client
+        .as_ref()
+        .sui_client()
+        .fund_shared_blob(shared_blob_object_id, 1000000000)
+        .await?;
+    let shared_blob: SharedBlob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(shared_blob_object_id)
+        .await?;
+    assert_eq!(shared_blob.funds, 1000000000);
+
+    // Extend the shared blob.
+    client
+        .as_ref()
+        .sui_client()
+        .extend_shared_blob(shared_blob_object_id, 100)
+        .await?;
+    let shared_blob: SharedBlob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(shared_blob_object_id)
+        .await?;
+    assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
+    assert_eq!(shared_blob.funds, 999999500);
+    Ok(())
+}
+
 const TARGET_ADDRESS: [u8; SUI_ADDRESS_LENGTH] = [42; SUI_ADDRESS_LENGTH];
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]

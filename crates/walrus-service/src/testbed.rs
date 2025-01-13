@@ -44,11 +44,10 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    client::{self, ClientCommunicationConfig, ExchangeObjectConfig},
+    client::{self, ClientCommunicationConfig},
     common::utils::LoadConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
-        EventProviderConfig,
         StorageNodeConfig,
         SuiConfig,
     },
@@ -241,7 +240,6 @@ pub struct DeployTestbedContractParameters<'a> {
     pub max_epochs_ahead: EpochCount,
 }
 
-// Todo: Refactor configs #377
 /// Create and deploy a Walrus contract.
 pub async fn deploy_walrus_contract(
     DeployTestbedContractParameters {
@@ -429,7 +427,7 @@ pub async fn create_client_config(
     // Create the client config.
     let client_config = client::Config {
         contract_config,
-        exchange_object: Some(ExchangeObjectConfig::One(exchange_object)),
+        exchange_objects: vec![exchange_object],
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };
@@ -560,12 +558,6 @@ pub async fn create_storage_node_configs(
             .or(set_config_dir.map(|path| path.join(&name)))
             .unwrap_or_else(|| working_dir.join(&name));
 
-        let event_provider_config = if use_legacy_event_provider {
-            EventProviderConfig::LegacyEventProvider
-        } else {
-            EventProviderConfig::CheckpointBasedEventProcessor(None)
-        };
-
         storage_node_configs.push(StorageNodeConfig {
             name: node.name.clone(),
             storage_path,
@@ -580,12 +572,13 @@ pub async fn create_storage_node_configs(
             metrics_address,
             rest_api_address,
             sui,
-            db_config: None,
+            db_config: Default::default(),
             rest_graceful_shutdown_period_secs: None,
             blob_recovery: Default::default(),
             tls: Default::default(),
             shard_sync_config: Default::default(),
-            event_provider_config,
+            event_processor_config: Default::default(),
+            use_legacy_event_provider,
             disable_event_blob_writer,
             commission_rate: node.commission_rate,
             voting_params: VotingParams {

@@ -33,13 +33,7 @@ use walrus_core::{
 };
 use walrus_service::{
     node::{
-        config::{
-            self,
-            defaults::REST_API_PORT,
-            EventProviderConfig,
-            StorageNodeConfig,
-            SuiConfig,
-        },
+        config::{self, defaults::REST_API_PORT, StorageNodeConfig, SuiConfig},
         events::{
             event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
             EventProcessorConfig,
@@ -346,7 +340,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use config::{EventProviderConfig, NodeRegistrationParamsForThirdPartyRegistration};
+    use config::NodeRegistrationParamsForThirdPartyRegistration;
     use rocksdb::{Options, DB};
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
@@ -422,7 +416,8 @@ mod commands {
                 .sui
                 .clone()
                 .expect("SUI configuration must be present"),
-            config.event_provider_config.clone(),
+            config.event_processor_config.clone(),
+            config.use_legacy_event_provider,
             &config.storage_path,
             &metrics_runtime.registry,
             cancel_token.child_token(),
@@ -625,12 +620,6 @@ mod commands {
                 .clone()
         };
 
-        let event_provider_config = if use_legacy_event_provider {
-            EventProviderConfig::LegacyEventProvider
-        } else {
-            EventProviderConfig::CheckpointBasedEventProcessor(None)
-        };
-
         // Do a minor sanity check that the user has not included a port in the hostname.
         ensure!(
             !public_host.contains(':'),
@@ -677,7 +666,7 @@ mod commands {
                 node_capacity: node_capacity.as_u64(),
             },
             commission_rate,
-            event_provider_config,
+            use_legacy_event_provider,
             disable_event_blob_writer,
             name,
             metadata,
@@ -863,7 +852,8 @@ impl EventProcessorRuntime {
 
     fn start(
         sui_config: SuiConfig,
-        event_provider_config: EventProviderConfig,
+        event_processor_config: EventProcessorConfig,
+        use_legacy_event_provider: bool,
         db_path: &Path,
         metrics_registry: &Registry,
         cancel_token: CancellationToken,
@@ -877,43 +867,34 @@ impl EventProcessorRuntime {
         let _guard = runtime.enter();
 
         let (event_manager, event_processor_handle): (Box<dyn EventManager>, _) =
-            match event_provider_config {
-                EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
-                    let event_processor_config = event_processor_config.unwrap_or_else(|| {
-                        EventProcessorConfig::new_with_default_pruning_interval(
-                            sui_config.rpc.clone(),
-                        )
-                    });
-                    let event_processor = runtime.block_on(async {
-                        Self::build_event_processor(
-                            sui_config.clone(),
-                            &event_processor_config,
-                            db_path,
-                            metrics_registry,
-                        )
-                        .await
-                    })?;
-                    let cloned_event_processor = event_processor.clone();
-                    let event_processor_handle = tokio::spawn(async move {
-                        let result = cloned_event_processor.start(cancel_token).await;
-                        if let Err(ref error) = result {
-                            tracing::error!(?error, "event manager exited with an error");
-                        }
-                        result
-                    });
-                    (Box::new(event_processor), event_processor_handle)
-                }
-                EventProviderConfig::LegacyEventProvider => {
-                    let read_client =
-                        runtime.block_on(async { sui_config.new_read_client().await })?;
-                    (
-                        Box::new(SuiSystemEventProvider::new(
-                            read_client,
-                            sui_config.event_polling_interval,
-                        )),
-                        tokio::spawn(async { std::future::pending().await }),
+            if use_legacy_event_provider {
+                let read_client = runtime.block_on(async { sui_config.new_read_client().await })?;
+                (
+                    Box::new(SuiSystemEventProvider::new(
+                        read_client,
+                        sui_config.event_polling_interval,
+                    )),
+                    tokio::spawn(async { std::future::pending().await }),
+                )
+            } else {
+                let event_processor = runtime.block_on(async {
+                    Self::build_event_processor(
+                        sui_config.clone(),
+                        &event_processor_config,
+                        db_path,
+                        metrics_registry,
                     )
-                }
+                    .await
+                })?;
+                let cloned_event_processor = event_processor.clone();
+                let event_processor_handle = tokio::spawn(async move {
+                    let result = cloned_event_processor.start(cancel_token).await;
+                    if let Err(ref error) = result {
+                        tracing::error!(?error, "event manager exited with an error");
+                    }
+                    result
+                });
+                (Box::new(event_processor), event_processor_handle)
             };
 
         Ok((

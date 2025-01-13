@@ -368,6 +368,34 @@ pub enum CliCommands {
         #[serde(default)]
         yes: bool,
     },
+
+    /// Fund a shared blob.
+    FundSharedBlob {
+        /// The object ID of the shared blob to fund.
+        #[clap(long)]
+        shared_blob_obj_id: ObjectID,
+        /// The amount of FROST (smallest unit of WAL token) to fund the shared blob with.
+        #[clap(long)]
+        amount: u64,
+    },
+    /// Extend a shared blob.
+    Extend {
+        /// The object ID of the shared blob to extend.
+        #[clap(long)]
+        shared_blob_obj_id: ObjectID,
+        /// The number of epochs to extend the shared blob for.
+        #[clap(long)]
+        epochs_ahead: EpochCount,
+    },
+    /// Share a blob.
+    Share {
+        /// The object ID of the (owned) blob to share.
+        #[clap(long)]
+        blob_obj_id: ObjectID,
+        /// If specified, share and directly fund the blob.
+        #[clap(long)]
+        amount: Option<u64>,
+    },
 }
 
 /// Subcommands for the Info command

@@ -20,6 +20,7 @@ use serde_with::{
     ser::SerializeAsWrap,
     serde_as,
     DeserializeAs,
+    DurationMilliSeconds,
     DurationSeconds,
     SerializeAs,
 };
@@ -43,7 +44,7 @@ use crate::{
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct StorageNodeConfig {
     /// The name of the storage node that is set in the staking pool on chain.
     pub name: String,
@@ -51,18 +52,19 @@ pub struct StorageNodeConfig {
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
     /// File path to the blocklist.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub blocklist_path: Option<PathBuf>,
-    /// Optional config to tune storage database.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub db_config: Option<DatabaseConfig>,
+    /// Optional "config" to tune storage database.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub db_config: DatabaseConfig,
     /// Key pair used in Walrus protocol messages.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
-    /// The host name or public IP address of the node.
+    /// The host name or public IP address of the node. This is used in the on-chain data and for
+    /// generating self-signed certificates if TLS is enabled.
     pub public_host: String,
     /// The port on which the storage node will serve requests.
     pub public_port: u16,
@@ -77,12 +79,12 @@ pub struct StorageNodeConfig {
     /// Set explicitly to None to wait indefinitely.
     #[serde(
         default = "defaults::rest_graceful_shutdown_period_secs",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "defaults::is_none",
         with = "serde_with::rust::double_option"
     )]
     pub rest_graceful_shutdown_period_secs: Option<Option<u64>>,
     /// Sui config for the node
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub sui: Option<SuiConfig>,
     /// Configuration of blob synchronization
     #[serde(default, skip_serializing_if = "defaults::is_default")]
@@ -93,14 +95,18 @@ pub struct StorageNodeConfig {
     /// Configuration for shard synchronization.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub shard_sync_config: ShardSyncConfig,
-    /// Configuration for the event provider.
+    /// Configuration for the event processor.
     ///
-    /// By default, the checkpoint-based event processor is used with the normal RPC node from the
-    /// Sui config.
+    /// This is ignored if `use_legacy_event_provider` is set to `true`.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub event_provider_config: EventProviderConfig,
-    /// Enable/disable event blob writer
-    #[serde(default)]
+    pub event_processor_config: EventProcessorConfig,
+    /// Use the legacy event provider.
+    ///
+    /// This is deprecated and will be removed in the future.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub use_legacy_event_provider: bool,
+    /// Disable the event-blob writer
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
     /// The commission rate of the storage node, in basis points.
     #[serde(default)]
@@ -111,18 +117,18 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub metadata: NodeMetadata,
     /// Metric push configuration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metrics_push: Option<MetricsConfig>,
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub metrics_push: Option<MetricsPushConfig>,
 }
 
 impl Default for StorageNodeConfig {
     fn default() -> Self {
         Self {
-            storage_path: PathBuf::from("db"),
+            storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
-            protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
-            network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
+            protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
+            network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
             public_host: defaults::rest_api_address().ip().to_string(),
             public_port: defaults::rest_api_port(),
             metrics_address: defaults::metrics_address(),
@@ -132,7 +138,8 @@ impl Default for StorageNodeConfig {
             blob_recovery: Default::default(),
             tls: Default::default(),
             shard_sync_config: Default::default(),
-            event_provider_config: Default::default(),
+            event_processor_config: Default::default(),
+            use_legacy_event_provider: false,
             disable_event_blob_writer: Default::default(),
             commission_rate: 0,
             voting_params: VotingParams {
@@ -201,22 +208,27 @@ impl StorageNodeConfig {
     }
 }
 
-/// Configuration for metric push
+/// Configuration for metric push.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct MetricsConfig {
-    /// the interval of time we will allow to elapse before pushing metrics
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct MetricsPushConfig {
+    /// The interval of time we will allow to elapse before pushing metrics.
     #[serde_as(as = "DurationSeconds<u64>")]
-    #[serde(default = "push_interval_seconds_default")]
-    pub push_interval_seconds: Duration,
-    /// the url that we will push metrics to
+    #[serde(
+        rename = "push_interval_secs",
+        default = "push_interval_default",
+        skip_serializing_if = "defaults::is_default"
+    )]
+    pub push_interval: Duration,
+    /// The URL that we will push metrics to.
     pub push_url: String,
-    /// static labels to provide to the push process
+    /// Static labels to provide to the push process.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub labels: Option<HashMap<String, String>>,
 }
 
 /// Configure the default push interval for metrics.
-fn push_interval_seconds_default() -> Duration {
+fn push_interval_default() -> Duration {
     Duration::from_secs(60)
 }
 
@@ -230,11 +242,6 @@ pub struct TlsConfig {
     pub disable_tls: bool,
     /// Paths to the certificate and key used to secure the REST API.
     pub pem_files: Option<TlsCertificateAndKey>,
-    /// The server name add to self-signed certificates, if used. If not provided, any self-signed
-    /// certificates will use the [`StorageNodeConfig::public_host`] if set or the IP address as the
-    /// subject name.
-    // TODO: Remove this when cleaning up the config files (#407).
-    pub server_name: Option<String>,
 }
 
 /// Paths to a TLS certificate and key.
@@ -250,7 +257,7 @@ impl LoadConfig for StorageNodeConfig {}
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct BlobRecoveryConfig {
     /// The number of in-parallel blobs synchronized
@@ -274,7 +281,7 @@ impl Default for BlobRecoveryConfig {
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct CommitteeServiceConfig {
     /// The minimum number of seconds to wait before retrying an operation.
@@ -359,15 +366,17 @@ impl Default for ShardSyncConfig {
 
 /// Sui-specific configuration for Walrus
 #[serde_with::serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SuiConfig {
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
+    /// HTTP URL of the Sui full-node RPC endpoint (including scheme). This is used in the event
+    /// processor and some other read operations; for all write operations, the RPC URL from the
+    /// wallet is used.
     pub rpc: String,
     /// Configuration of the contract packages and shared objects.
     #[serde(flatten)]
     pub contract_config: ContractConfig,
     /// Interval with which events are polled, in milliseconds.
-    #[serde_as(as = "serde_with::DurationMilliSeconds")]
+    #[serde_as(as = "DurationMilliSeconds")]
     #[serde(
         rename = "event_polling_interval_millis",
         default = "defaults::polling_interval"
@@ -408,27 +417,6 @@ impl SuiConfig {
 }
 
 impl LoadConfig for SuiConfig {}
-
-/// Configuration of the event provider.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub enum EventProviderConfig {
-    /// Use the checkpoint-based event processor implemented in `walrus_event`.
-    CheckpointBasedEventProcessor(Option<EventProcessorConfig>),
-    /// Use the legacy event provider based on polling the RPC node for events.
-    LegacyEventProvider,
-}
-
-impl Default for EventProviderConfig {
-    fn default() -> Self {
-        Self::CheckpointBasedEventProcessor(None)
-    }
-}
-
-impl From<EventProcessorConfig> for EventProviderConfig {
-    fn from(value: EventProcessorConfig) -> Self {
-        Self::CheckpointBasedEventProcessor(Some(value))
-    }
-}
 
 /// Default values for the storage-node configuration.
 pub mod defaults {
@@ -496,9 +484,18 @@ pub mod defaults {
         2000
     }
 
-    /// Returns true iff the value is the default.
+    /// Returns true iff the value is the default and we don't run in test mode.
     pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
-        t == &T::default()
+        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
+        // to generate the example configuration files.
+        !cfg!(test) && t == &T::default()
+    }
+
+    /// Returns true iff the value is `None` and we don't run in test mode.
+    pub fn is_none<T>(t: &Option<T>) -> bool {
+        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
+        // to generate the example configuration files.
+        !cfg!(test) && t.is_none()
     }
 }
 
@@ -640,11 +637,50 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
 mod tests {
     use std::{io::Write as _, str::FromStr};
 
+    use indoc::indoc;
+    use rand::{rngs::StdRng, SeedableRng as _};
+    use sui_types::base_types::ObjectID;
     use tempfile::NamedTempFile;
     use walrus_core::test_utils;
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
+
+    /// Serializes a default config to the example file when tests are run.
+    ///
+    /// This test ensures that the `node_config_example.yaml` is kept in sync with the config struct
+    /// in this file.
+    #[test]
+    fn check_and_update_example_config() -> TestResult {
+        const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let contract_config = ContractConfig {
+            system_object: ObjectID::random_from_rng(&mut rng),
+            staking_object: ObjectID::random_from_rng(&mut rng),
+        };
+        let config = StorageNodeConfig {
+            sui: Some(SuiConfig {
+                rpc: "https://fullnode.testnet.sui.io:443".to_string(),
+                contract_config,
+                event_polling_interval: defaults::polling_interval(),
+                wallet_config: PathBuf::from("/opt/walrus/config/sui_config.yaml"),
+                backoff_config: Default::default(),
+                gas_budget: defaults::gas_budget(),
+            }),
+            ..Default::default()
+        };
+
+        let serialized = serde_yaml::to_string(&config).unwrap();
+        let configs_are_in_sync = std::fs::read_to_string(EXAMPLE_CONFIG_PATH)? == serialized;
+        std::fs::write(EXAMPLE_CONFIG_PATH, serialized.clone()).unwrap();
+        assert!(
+            configs_are_in_sync,
+            "example configuration was out of sync; was updated automatically"
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn path_or_in_place_parses_value() -> TestResult {
@@ -710,65 +746,89 @@ mod tests {
     }
 
     #[test]
-    fn parses_config_file() -> TestResult {
-        let yaml = "---\n\
-        name: node-1\n\
-        storage_path: target/storage\n\
-        protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
-        network_key_pair:\n  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY\n\
-        public_host: 31.41.59.26\n\
-        public_port: 12345\n\
-        voting_params:
-            storage_price: 5
-            write_price: 1
-            node_capacity: 250000000000";
+    fn parses_minimal_config_file() -> TestResult {
+        let yaml = indoc! {"
+            name: node-1
+            storage_path: target/storage
+            protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
+            network_key_pair: As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
+            public_host: 31.41.59.26
+            public_port: 12345
+            voting_params:
+                storage_price: 5
+                write_price: 1
+                node_capacity: 250000000000
+        "};
 
-        ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?;
-
-        let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+        let config: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+        assert_eq!(
+            config.protocol_key_pair(),
+            &ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?
+        );
 
         Ok(())
     }
 
     #[test]
-    fn deserialize_partial_config() -> TestResult {
-        // editorconfig-checker-disable
-        let yaml = "\
-name: node-1
-storage_path: /opt/walrus/db
-db_config:
-  metadata:
-    target_file_size_base: 4194304
-  blob_info:
-    enable_blob_files: false
-  event_cursor:
-    enable_blob_files: false
-  shard:
-    blob_garbage_collection_force_threshold: 0.5
-  shard_status:
-    blob_garbage_collection_age_cutoff: 0.0
-protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
-network_key_pair:  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
-public_host: node.walrus.space
-public_port: 9185
-metrics_address: 173.199.90.181:9184
-rest_api_address: 173.199.90.181:9185
-sui:
-  rpc: https://fullnode.testnet.sui.io:443
-  system_object: 0x6c957cf363ec968582f24e3e1a638c968cec1fa228999c560ec7925994906315
-  staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
-  event_polling_interval_millis: 400
-  wallet_config: /opt/walrus/config/dryrun-node-1-sui.yaml
-  gas_budget: 500000000
-blob_recovery:
-  invalidity_sync_timeout_secs: 300
-voting_params:
-  storage_price: 5
-  write_price: 1
-  node_capacity: 250000000000
-  ";
-        // editorconfig-checker-enable
+    fn parses_partial_config_file() -> TestResult {
+        let yaml = indoc! {"
+            name: node-1
+            storage_path: /opt/walrus/db
+            db_config:
+                metadata:
+                    target_file_size_base: 4194304
+                default:
+                    blob_compression_type: none
+                    enable_blob_garbage_collection: false
+                optimized_for_blobs:
+                    enable_blob_files: true
+                    min_blob_size: 0
+                    blob_file_size: 1000
+                blob_info:
+                    enable_blob_files: false
+                event_cursor:
+                    enable_blob_files: false
+                shard:
+                    blob_garbage_collection_force_threshold: 0.5
+                shard_status:
+                    blob_garbage_collection_age_cutoff: 0.0
+            protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
+            network_key_pair: As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
+            public_host: node.walrus.space
+            public_port: 9185
+            metrics_address: 173.199.90.181:9184
+            rest_api_address: 173.199.90.181:9185
+            sui:
+                rpc: https://fullnode.testnet.sui.io:443
+                system_object: 0x6c957cf363ec968582f24e3e1a638c968cec1fa228999c560ec7925994906315
+                staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
+                event_polling_interval_millis: 400
+                wallet_config: /opt/walrus/config/dryrun-node-1-sui.yaml
+                gas_budget: 500000000
+                backoff_config:
+                    min_backoff_millis: 1000
+            blob_recovery:
+                invalidity_sync_timeout_secs: 300
+            voting_params:
+                storage_price: 5
+                write_price: 1
+                node_capacity: 250000000000
+            tls:
+                disable_tls: true
+            shard_sync_config:
+                sliver_count_per_sync_request: 10
+                shard_sync_retry_min_backoff_secs: 60
+            event_processor_config:
+                pruning_interval_secs: 3600
+                adaptive_downloader_config:
+                    max_workers: 5
+                    scale_down_lag_threshold: 10
+                    base_config:
+                        max_delay_millis: 1000
+        "};
+
         let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+
         Ok(())
     }
 }

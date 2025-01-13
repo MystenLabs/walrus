@@ -14,6 +14,7 @@ use anyhow::{anyhow, Result};
 use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationMilliSeconds, DurationSeconds};
 use sui_rpc_api::{client::ResponseExt, Client};
 use sui_types::{
     full_checkpoint_content::CheckpointData,
@@ -28,14 +29,20 @@ use tonic::Status;
 use typed_store::{rocks::DBMap, Map};
 
 /// Fetcher configuration options for the parallel checkpoint fetcher.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct ParallelDownloaderConfig {
     /// Number of retries per checkpoint before giving up.
     pub min_retries: u32,
     /// Initial delay before the first retry.
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "initial_delay_millis")]
     pub initial_delay: Duration,
     /// Maximum delay between retries. Once this delay is reached, the
     /// fetcher will keep retrying with this duration.
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "max_delay_millis")]
     pub max_delay: Duration,
 }
 
@@ -92,7 +99,9 @@ impl Default for ChannelConfig {
 }
 
 /// Configuration for the adaptive worker pool.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct AdaptiveDownloaderConfig {
     /// Minimum number of workers.
     pub min_workers: usize,
@@ -105,6 +114,8 @@ pub struct AdaptiveDownloaderConfig {
     /// Checkpoint lag threshold for scaling down.
     pub scale_down_lag_threshold: u64,
     /// Minimum time between scaling operations.
+    #[serde(rename = "scale_cooldown_secs")]
+    #[serde_as(as = "DurationSeconds")]
     pub scale_cooldown: Duration,
     /// Base configuration.
     pub base_config: ParallelDownloaderConfig,

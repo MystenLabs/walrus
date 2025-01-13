@@ -103,6 +103,7 @@ pub struct WalrusPtbBuilder {
     sender_address: SuiAddress,
     args_to_consume: HashSet<Argument>,
     // TODO(WAL-512): revisit caching system/staking objects in the read client
+    // TODO(WAL-514): potentially remove if no longer needed
     /// Caches the system object to allow reading information about e.g. the committee size.
     /// Since the Ptb builder is not long-lived (i.e. transactions may anyway fail across epoch
     /// boundaries), we can cache it for the builder's lifetime.
@@ -309,6 +310,7 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    // TODO(WAL-514): simplify and remove rpc call
     async fn signers_to_bitmap(&self, signers: &[u16]) -> SuiClientResult<Vec<u8>> {
         let committee_size = self.system_object().await?.committee_size() as usize;
         let mut bitmap = vec![0; committee_size.div_ceil(8)];
@@ -372,6 +374,75 @@ impl WalrusPtbBuilder {
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
         self.walrus_move_call(contracts::shared_blob::new, vec![blob_arg])?;
         self.mark_arg_as_consumed(&blob_arg);
+        Ok(())
+    }
+    /// Adds a call to create a new shared blob and fund it.
+    pub async fn new_funded_shared_blob(
+        &mut self,
+        blob_object: ArgumentOrOwnedObject,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
+        // Split the amount from the main WAL coin.
+        self.fill_wal_balance(amount).await?;
+        let split_main_coin_arg = self.wal_coin_arg()?;
+        let split_amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self.pt_builder.command(Command::SplitCoins(
+            split_main_coin_arg,
+            vec![split_amount_arg],
+        ));
+        self.walrus_move_call(
+            contracts::shared_blob::new_funded,
+            vec![blob_arg, split_coin],
+        )?;
+        self.mark_arg_as_consumed(&blob_arg);
+        self.reduce_wal_balance(amount)?;
+        Ok(())
+    }
+
+    /// Adds a call to fund a shared blob.
+    pub async fn fund_shared_blob(
+        &mut self,
+        shared_blob_object_id: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        let shared_blob_arg = self.pt_builder.obj(
+            self.read_client
+                .object_arg_for_shared_obj(shared_blob_object_id, Mutability::Mutable)
+                .await?,
+        )?;
+        // Split the amount from the main WAL coin.
+        self.fill_wal_balance(amount).await?;
+        let split_main_coin_arg = self.wal_coin_arg()?;
+        let split_amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self.pt_builder.command(Command::SplitCoins(
+            split_main_coin_arg,
+            vec![split_amount_arg],
+        ));
+
+        let args = vec![shared_blob_arg, split_coin];
+        self.walrus_move_call(contracts::shared_blob::fund, args)?;
+        self.reduce_wal_balance(amount)?;
+        Ok(())
+    }
+
+    /// Adds a call to extend a shared blob.
+    pub async fn extend_shared_blob(
+        &mut self,
+        shared_blob_object_id: ObjectID,
+        epochs_ahead: Epoch,
+    ) -> SuiClientResult<()> {
+        let shared_blob_arg = self.pt_builder.obj(
+            self.read_client
+                .object_arg_for_shared_obj(shared_blob_object_id, Mutability::Mutable)
+                .await?,
+        )?;
+        let args = vec![
+            shared_blob_arg,
+            self.system_arg(Mutability::Mutable).await?,
+            self.pt_builder.pure(epochs_ahead)?,
+        ];
+        self.walrus_move_call(contracts::shared_blob::extend, args)?;
         Ok(())
     }
 

@@ -55,7 +55,6 @@ use crate::{
             CliOutput,
             HumanReadableMist,
         },
-        config::ExchangeObjectConfig,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -64,6 +63,8 @@ use crate::{
             DeleteOutput,
             DryRunOutput,
             ExchangeOutput,
+            ExtendBlobOutput,
+            FundSharedBlobOutput,
             InfoDevOutput,
             InfoEpochOutput,
             InfoOutput,
@@ -71,6 +72,7 @@ use crate::{
             InfoSizeOutput,
             InfoStorageOutput,
             ReadOutput,
+            ShareBlobOutput,
             StakeOutput,
             WalletOutput,
         },
@@ -223,6 +225,67 @@ impl ClientCommandRunner {
                 burn_selection,
                 yes,
             } => self.burn_blobs(burn_selection, yes.into()).await,
+
+            CliCommands::FundSharedBlob {
+                shared_blob_obj_id,
+                amount,
+            } => {
+                let sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let spinner = styled_spinner();
+                spinner.set_message("funding blob...");
+
+                sui_client
+                    .fund_shared_blob(shared_blob_obj_id, amount)
+                    .await?;
+
+                spinner.finish_with_message("done");
+                FundSharedBlobOutput { amount }.print_output(self.json)
+            }
+
+            CliCommands::Extend {
+                shared_blob_obj_id,
+                epochs_ahead,
+            } => {
+                let sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let spinner = styled_spinner();
+                spinner.set_message("extending blob...");
+
+                sui_client
+                    .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+                    .await?;
+
+                spinner.finish_with_message("done");
+                ExtendBlobOutput { epochs_ahead }.print_output(self.json)
+            }
+
+            CliCommands::Share {
+                blob_obj_id,
+                amount,
+            } => {
+                let sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let spinner = styled_spinner();
+                spinner.set_message("sharing blob...");
+
+                let shared_blob_object_id = sui_client
+                    .share_and_maybe_fund_blob(blob_obj_id, amount)
+                    .await?;
+
+                spinner.finish_with_message("done");
+                ShareBlobOutput {
+                    shared_blob_object_id,
+                    amount,
+                }
+                .print_output(self.json)
+            }
         }
     }
 
@@ -685,18 +748,17 @@ impl ClientCommandRunner {
         amount: u64,
     ) -> Result<()> {
         let config = self.config?;
-        let exchange_id = match (exchange_id, &config.exchange_object) {
-            (Some(exchange_id), _) => Some(exchange_id),
-            (None, None) => None,
-            (None, Some(ExchangeObjectConfig::One(exchange_id))) => Some(*exchange_id),
-            (None, Some(ExchangeObjectConfig::Multiple(exchange_ids))) => {
-                exchange_ids.choose(&mut rand::thread_rng()).copied()
-            }
-        }
-        .context(
-            "Object ID of exchange object must be specified either in the config file or as a \
+        let exchange_id = exchange_id
+            .or_else(|| {
+                config
+                    .exchange_objects
+                    .choose(&mut rand::thread_rng())
+                    .copied()
+            })
+            .context(
+                "Object ID of exchange object must be specified either in the config file or as a \
             command-line argument.",
-        )?;
+            )?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
         tracing::info!(
             "exchanging {} for WAL using exchange object {exchange_id}",
