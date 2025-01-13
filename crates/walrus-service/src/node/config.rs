@@ -486,11 +486,15 @@ pub mod defaults {
 
     /// Returns true iff the value is the default and we don't run in test mode.
     pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
+        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
+        // to generate the example configuration files.
         !cfg!(test) && t == &T::default()
     }
 
     /// Returns true iff the value is `None` and we don't run in test mode.
     pub fn is_none<T>(t: &Option<T>) -> bool {
+        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
+        // to generate the example configuration files.
         !cfg!(test) && t.is_none()
     }
 }
