@@ -491,7 +491,7 @@ mod tests {
     use super::*;
     use crate::test_utils::{StorageNodeHandle, TestCluster};
 
-    async fn create_test_cluster<'a>(assignment: &[&[u16]]) -> TestCluster {
+    async fn create_test_cluster(assignment: &[&[u16]]) -> TestCluster {
         TestCluster::<StorageNodeHandle>::builder()
             .with_shard_assignment(assignment)
             .build()

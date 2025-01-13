@@ -2810,9 +2810,9 @@ mod tests {
         Ok((cluster, events))
     }
 
-    async fn cluster_with_partially_stored_blob<'a, F>(
+    async fn cluster_with_partially_stored_blob<F>(
         assignment: &[&[u16]],
-        blob: &'a [u8],
+        blob: &[u8],
         store_at_shard: F,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
     where
@@ -2830,9 +2830,9 @@ mod tests {
     }
 
     // Creates a test cluster with custom initial epoch and blobs that are already certified.
-    async fn cluster_with_initial_epoch_and_certified_blob<'a>(
+    async fn cluster_with_initial_epoch_and_certified_blob(
         assignment: &[&[u16]],
-        blobs: &[&'a [u8]],
+        blobs: &[&[u8]],
         initial_epoch: Epoch,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>, Vec<EncodedBlob>)> {
         let (cluster, events) = cluster_at_epoch1_without_blobs(assignment).await?;
@@ -2900,9 +2900,9 @@ mod tests {
     ///
     /// The function also takes custom function to determine the end epoch of a blob, and whether
     /// the blob should be deletable.
-    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F, G, H>(
+    async fn cluster_with_partially_stored_blobs_in_shard_0<F, G, H>(
         assignment: &[&[u16]],
-        blobs: &[&'a [u8]],
+        blobs: &[&[u8]],
         initial_epoch: Epoch,
         mut blob_index_store_at_shard_0: F,
         mut blob_index_to_end_epoch: G,
