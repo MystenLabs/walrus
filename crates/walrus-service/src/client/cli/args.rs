@@ -375,15 +375,15 @@ pub enum CliCommands {
 #[clap(rename_all = "kebab-case")]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InfoCommands {
-    /// Print basic system information
+    /// Print system information, including epoch, storage, size, and price information.
     All,
-    //// Print storage statistics
+    /// Print epoch information
     Epoch,
-    /// Print network information
+    /// Print storage information
     Storage,
-    /// Print information about the current blob size limits
+    /// Print size information
     Size,
-    /// Print information about the current price of storage
+    /// Print price information
     Price,
     /// Print extended information for developers
     Dev,
