@@ -413,8 +413,10 @@ pub enum InfoCommands {
     Size,
     /// Print price information
     Price,
-    /// Print extended information for developers
-    Dev,
+    /// Print BFT information
+    Bft,
+    /// Print committee information
+    Committee,
 }
 
 /// The daemon commands for the Walrus client.

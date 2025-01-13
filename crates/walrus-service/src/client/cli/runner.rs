@@ -65,7 +65,8 @@ use crate::{
             ExchangeOutput,
             ExtendBlobOutput,
             FundSharedBlobOutput,
-            InfoDevOutput,
+            InfoBftOutput,
+            InfoCommitteeOutput,
             InfoEpochOutput,
             InfoOutput,
             InfoPriceOutput,
@@ -520,7 +521,12 @@ impl ClientCommandRunner {
             Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::Dev) => InfoDevOutput::get_system_dev_info(&sui_read_client)
+            Some(InfoCommands::Committee) => {
+                InfoCommitteeOutput::get_committee_info(&sui_read_client)
+                    .await?
+                    .print_output(self.json)
+            }
+            Some(InfoCommands::Bft) => InfoBftOutput::get_bft_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
         }

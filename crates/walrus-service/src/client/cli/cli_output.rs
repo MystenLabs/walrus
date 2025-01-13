@@ -35,7 +35,8 @@ use crate::client::{
         ExchangeOutput,
         ExtendBlobOutput,
         FundSharedBlobOutput,
-        InfoDevOutput,
+        InfoBftOutput,
+        InfoCommitteeOutput,
         InfoEpochOutput,
         InfoOutput,
         InfoPriceOutput,
@@ -410,39 +411,29 @@ impl CliOutput for InfoPriceOutput {
     }
 }
 
-impl CliOutput for InfoDevOutput {
+impl CliOutput for InfoCommitteeOutput {
     fn print_cli_output(&self) {
         let Self {
+            n_shards,
             n_primary_source_symbols,
             n_secondary_source_symbols,
             metadata_storage_size,
             max_sliver_size,
             max_encoded_blob_size,
-            max_faulty_shards,
-            min_correct_shards,
-            quorum_threshold,
-            n_shards,
             storage_nodes,
             next_storage_nodes,
-            committee,
         } = self;
 
-        let (min_nodes_above, shards_above) = committee.min_nodes_above_f();
         printdoc!(
             "
 
             {encoding_heading}
+            Number of shards: {n_shards}
             Number of primary source symbols: {n_primary_source_symbols}
             Number of secondary source symbols: {n_secondary_source_symbols}
             Metadata size: {hr_metadata} ({metadata_storage_size_sep} B)
             Maximum sliver size: {hr_sliver} ({max_sliver_size_sep} B)
             Maximum encoded blob size: {hr_encoded} ({max_encoded_blob_size_sep} B)
-
-            {bft_heading}
-            Tolerated faults (f): {max_faulty_shards}
-            Quorum threshold (2f+1): {quorum_threshold}
-            Minimum number of correct shards (n-f): {min_correct_shards}
-            Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
 
             {node_heading}
             ",
@@ -453,7 +444,6 @@ impl CliOutput for InfoDevOutput {
             max_sliver_size_sep = thousands_separator(*max_sliver_size),
             hr_encoded = HumanReadableBytes(*max_encoded_blob_size),
             max_encoded_blob_size_sep = thousands_separator(*max_encoded_blob_size),
-            bft_heading = "(dev) BFT system information".bold().walrus_purple(),
             node_heading = "(dev) Storage node details and shard distribution"
                 .bold()
                 .walrus_purple()
@@ -469,6 +459,35 @@ impl CliOutput for InfoDevOutput {
             );
             print_storage_node_table(n_shards, storage_nodes);
         };
+    }
+}
+
+impl CliOutput for InfoBftOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            max_faulty_shards,
+            quorum_threshold,
+            min_correct_shards,
+            min_nodes_above,
+            shards_above,
+        } = self;
+
+        printdoc!(
+            "
+
+            {heading}
+            Tolerated faults (f): {max_faulty_shards}
+            Quorum threshold (2f+1): {quorum_threshold}
+            Minimum number of correct shards (n-f): {min_correct_shards}
+            Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
+            ",
+            heading = "BFT system information".bold().walrus_purple(),
+            max_faulty_shards = max_faulty_shards,
+            quorum_threshold = quorum_threshold,
+            min_correct_shards = min_correct_shards,
+            min_nodes_above = min_nodes_above,
+            shards_above = shards_above,
+        );
     }
 }
 

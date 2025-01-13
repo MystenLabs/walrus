@@ -378,27 +378,22 @@ impl InfoPriceOutput {
     }
 }
 
-/// Additional dev info for the `info` command.
+/// Committee information.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct InfoDevOutput {
+pub(crate) struct InfoCommitteeOutput {
     pub(crate) n_shards: NonZeroU16,
     pub(crate) n_primary_source_symbols: NonZeroU16,
     pub(crate) n_secondary_source_symbols: NonZeroU16,
     pub(crate) max_sliver_size: u64,
     pub(crate) metadata_storage_size: u64,
     pub(crate) max_encoded_blob_size: u64,
-    pub(crate) max_faulty_shards: u16,
-    pub(crate) min_correct_shards: u16,
-    pub(crate) quorum_threshold: u16,
     pub(crate) storage_nodes: Vec<StorageNodeInfo>,
     pub(crate) next_storage_nodes: Option<Vec<StorageNodeInfo>>,
-    #[serde(skip_serializing)]
-    pub(crate) committee: Committee,
 }
 
-impl InfoDevOutput {
-    pub async fn get_system_dev_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+impl InfoCommitteeOutput {
+    pub async fn get_committee_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
         let committee = sui_read_client.current_committee().await?;
         let next_committee = sui_read_client.next_committee().await?;
         let stake_assignment = sui_read_client.stake_assignment().await?;
@@ -412,7 +407,6 @@ impl InfoDevOutput {
         let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
             .expect("we can compute the encoded length of the max blob size");
 
-        let f = bft::max_n_faulty(n_shards);
         let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
         let next_storage_nodes = next_committee
             .as_ref()
@@ -428,12 +422,37 @@ impl InfoDevOutput {
             metadata_storage_size,
             max_sliver_size,
             max_encoded_blob_size,
-            max_faulty_shards: f,
-            min_correct_shards: n_shards.get() - f,
-            quorum_threshold: 2 * f + 1,
             storage_nodes,
             next_storage_nodes,
-            committee,
+        })
+    }
+}
+
+/// BFT system information.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoBftOutput {
+    pub(crate) max_faulty_shards: u16,
+    pub(crate) min_correct_shards: u16,
+    pub(crate) quorum_threshold: u16,
+    pub(crate) min_nodes_above: usize,
+    pub(crate) shards_above: usize,
+}
+
+impl InfoBftOutput {
+    pub async fn get_bft_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let n_shards = committee.n_shards();
+        let f = bft::max_n_faulty(n_shards);
+        let min_correct_shards = n_shards.get() - f;
+        let quorum_threshold = 2 * f + 1;
+        let (min_nodes_above, shards_above) = committee.min_nodes_above_f();
+        Ok(Self {
+            max_faulty_shards: f,
+            min_correct_shards,
+            quorum_threshold,
+            min_nodes_above,
+            shards_above,
         })
     }
 }
