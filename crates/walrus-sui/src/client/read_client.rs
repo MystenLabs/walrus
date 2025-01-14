@@ -158,7 +158,8 @@ pub trait ReadClient: Send + Sync {
     // INV: next_committee.epoch == current_committee.epoch + 1
     fn next_committee(&self) -> impl Future<Output = SuiClientResult<Option<Committee>>> + Send;
 
-    /// Returns the current storage nodes.
+    /// Returns the storage nodes in the current committee and the next committee if any.
+    /// The returned nodes are deduplicated by node ID.
     fn get_storage_nodes(&self) -> impl Future<Output = SuiClientResult<Vec<StorageNode>>> + Send;
 
     /// Returns the current epoch state.
