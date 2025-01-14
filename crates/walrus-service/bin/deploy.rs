@@ -122,9 +122,11 @@ struct DeploySystemContractArgs {
     /// The maximum number of epochs ahead for which storage can be obtained.
     #[arg(long, default_value_t = 104)]
     max_epochs_ahead: EpochCount,
-    /// Copy contracts to `working_dir` and publish from there to keep the `Move.toml` unchanged.
+    /// If not set, contracts are copied to `working_dir` and published from there to keep the
+    /// `Move.toml` unchanged. Use this flag to publish from the original directory and update
+    /// the `Move.toml` to point to the new contracts.
     #[arg(long, action)]
-    deploy_contracts_from_working_dir: bool,
+    do_not_copy_contracts: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -279,7 +281,7 @@ mod commands {
             storage_capacity,
             deterministic_keys,
             max_epochs_ahead,
-            deploy_contracts_from_working_dir,
+            do_not_copy_contracts,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -307,7 +309,7 @@ mod commands {
             epoch_duration: *epoch_duration,
             epoch_zero_duration: *epoch_zero_duration,
             max_epochs_ahead,
-            deploy_contracts_from_working_dir,
+            do_not_copy_contracts,
         })
         .await
         .context("Failed to deploy system contract")?;

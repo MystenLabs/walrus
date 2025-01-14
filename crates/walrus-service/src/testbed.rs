@@ -238,8 +238,9 @@ pub struct DeployTestbedContractParameters<'a> {
     pub epoch_duration: Duration,
     /// The maximum number of epochs ahead for which storage can be obtained.
     pub max_epochs_ahead: EpochCount,
-    /// Copy contracts to `working_dir` and publish from there to keep the `Move.toml` unchanged.
-    pub deploy_contracts_from_working_dir: bool,
+    /// If set, the contracts are not copied to `working_dir` and instead published from the
+    /// original directory.
+    pub do_not_copy_contracts: bool,
 }
 
 /// Create and deploy a Walrus contract.
@@ -259,7 +260,7 @@ pub async fn deploy_walrus_contract(
         epoch_zero_duration,
         epoch_duration,
         max_epochs_ahead,
-        deploy_contracts_from_working_dir,
+        do_not_copy_contracts,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
@@ -318,10 +319,10 @@ pub async fn deploy_walrus_contract(
     let sui_client = admin_wallet.get_client().await?;
     request_sui_from_faucet(admin_address, &sui_network, &sui_client).await?;
 
-    let deploy_directory = if deploy_contracts_from_working_dir {
-        Some(working_dir.join("contracts"))
-    } else {
+    let deploy_directory = if do_not_copy_contracts {
         None
+    } else {
+        Some(working_dir.join("contracts"))
     };
 
     let system_ctx = create_and_init_system(
@@ -359,6 +360,7 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
+    // TODO(WAL-520): create multiple exchange objects
     let exchange_object = contract_client
         .create_and_fund_exchange(system_ctx.wal_exchange_pkg_id, WAL_AMOUNT_EXCHANGE)
         .await?;
