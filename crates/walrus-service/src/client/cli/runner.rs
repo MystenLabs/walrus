@@ -25,8 +25,14 @@ use walrus_core::{
     EpochCount,
 };
 use walrus_sui::{
-    client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
-    utils::{price_for_encoded_length, SuiNetwork},
+    client::{
+        BlobPersistence,
+        ExpirySelectionPolicy,
+        PostStoreAction,
+        ReadClient,
+        SuiContractClient,
+    },
+    utils::SuiNetwork,
 };
 
 use super::args::{
@@ -387,71 +393,79 @@ impl ClientCommandRunner {
         }
 
         if dry_run {
-            tracing::info!("performing dry-run store for {} files", files.len());
-            let encoding_config = client.encoding_config();
-            let mut outputs = Vec::with_capacity(files.len());
-
-            for file in files {
-                tracing::debug!(
-                    n_shards = encoding_config.n_shards(),
-                    "encoding blob for file '{}'",
-                    file.display()
-                );
-                let metadata = encoding_config
-                    .get_blob_encoder(&read_blob_from_file(&file)?)?
-                    .compute_metadata();
-                let unencoded_size = metadata.metadata().unencoded_length();
-                let encoded_size =
-                    encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
-                        .expect("must be valid as the encoding succeeded");
-                let price_per_unit_size = client.sui_client().storage_price_per_unit_size().await?;
-                let storage_cost =
-                    price_for_encoded_length(encoded_size, price_per_unit_size, epochs);
-                outputs.push(DryRunOutput {
-                    blob_id: *metadata.blob_id(),
-                    unencoded_size,
-                    encoded_size,
-                    storage_cost,
-                });
-            }
-            outputs.print_output(self.json)
-        } else {
-            tracing::info!("storing {} files as blobs on Walrus", files.len());
-            let start_timer = std::time::Instant::now();
-            let blobs = files
-                .into_iter()
-                .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
-                .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
-            let results = client
-                .reserve_and_store_blobs_retry_epoch_with_path(
-                    &blobs,
-                    epochs,
-                    store_when,
-                    persistence,
-                    post_store,
-                )
-                .await?;
-            let blobs_len = blobs.len();
-            if results.len() != blobs_len {
-                let original_paths: Vec<_> = blobs.into_iter().map(|(path, _)| path).collect();
-                let not_stored = results
-                    .iter()
-                    .filter(|blob| !original_paths.contains(&blob.path))
-                    .map(|blob| blob.blob_store_result.blob_id())
-                    .collect::<Vec<_>>();
-                tracing::warn!(
-                    "some blobs ({}) are not stored",
-                    not_stored.into_iter().join(", ")
-                );
-            }
-            tracing::info!(
-                duration = ?start_timer.elapsed(),
-                "{} out of {} blobs stored",
-                results.len(),
-                blobs_len
-            );
-            results.print_output(self.json)
+            return Self::store_dry_run(client, files, epochs, self.json).await;
         }
+
+        tracing::info!("storing {} files as blobs on Walrus", files.len());
+        let start_timer = std::time::Instant::now();
+        let blobs = files
+            .into_iter()
+            .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
+            .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
+        let results = client
+            .reserve_and_store_blobs_retry_epoch_with_path(
+                &blobs,
+                epochs,
+                store_when,
+                persistence,
+                post_store,
+            )
+            .await?;
+        let blobs_len = blobs.len();
+        if results.len() != blobs_len {
+            let original_paths: Vec<_> = blobs.into_iter().map(|(path, _)| path).collect();
+            let not_stored = results
+                .iter()
+                .filter(|blob| !original_paths.contains(&blob.path))
+                .map(|blob| blob.blob_store_result.blob_id())
+                .collect::<Vec<_>>();
+            tracing::warn!(
+                "some blobs ({}) are not stored",
+                not_stored.into_iter().join(", ")
+            );
+        }
+        tracing::info!(
+            duration = ?start_timer.elapsed(),
+            "{} out of {} blobs stored",
+            results.len(),
+            blobs_len
+        );
+        results.print_output(self.json)
+    }
+
+    async fn store_dry_run(
+        client: Client<SuiContractClient>,
+        files: Vec<PathBuf>,
+        epochs_ahead: EpochCount,
+        json: bool,
+    ) -> Result<()> {
+        tracing::info!("performing dry-run store for {} files", files.len());
+        let encoding_config = client.encoding_config();
+        let mut outputs = Vec::with_capacity(files.len());
+
+        for file in files {
+            let blob = read_blob_from_file(&file)?;
+            let (_, metadata) = client.encode_pairs_and_metadata(&blob).await?;
+            let unencoded_size = metadata.metadata().unencoded_length();
+            let encoded_size =
+                encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
+                    .expect("must be valid as the encoding succeeded");
+            let storage_cost = client.price_computation.operation_cost(
+                &crate::client::resource::RegisterBlobOp::RegisterFromScratch {
+                    encoded_length: encoded_size,
+                    epochs_ahead,
+                },
+            );
+
+            outputs.push(DryRunOutput {
+                path: file,
+                blob_id: *metadata.blob_id(),
+                unencoded_size,
+                encoded_size,
+                storage_cost,
+            });
+        }
+        outputs.print_output(json)
     }
 
     pub(crate) async fn blob_status(
