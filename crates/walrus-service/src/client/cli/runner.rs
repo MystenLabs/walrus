@@ -5,6 +5,7 @@
 
 use std::{
     io::Write,
+    iter,
     num::NonZeroU16,
     path::{Path, PathBuf},
     time::Duration,
@@ -182,8 +183,8 @@ impl ClientCommandRunner {
                 no_status_check,
             } => self.delete(target, yes.into(), no_status_check).await,
 
-            CliCommands::Stake { node_id, amount } => {
-                self.stake_with_node_pool(node_id, amount).await
+            CliCommands::Stake { node_ids, amounts } => {
+                self.stake_with_node_pools(node_ids, amounts).await
             }
 
             CliCommands::GenerateSuiWallet {
@@ -710,9 +711,30 @@ impl ClientCommandRunner {
         .print_output(self.json)
     }
 
-    pub(crate) async fn stake_with_node_pool(self, node_id: ObjectID, amount: u64) -> Result<()> {
+    pub(crate) async fn stake_with_node_pools(
+        self,
+        node_ids: Vec<ObjectID>,
+        amounts: Vec<u64>,
+    ) -> Result<()> {
+        let n_nodes = node_ids.len();
+        if amounts.len() != n_nodes && amounts.len() != 1 {
+            anyhow::bail!(
+                "the number of amounts must be either 1 or equal to the number of node IDs"
+            );
+        }
+        let node_ids_with_amounts = if amounts.len() == 1 && n_nodes > 1 {
+            node_ids
+                .into_iter()
+                .zip(iter::repeat(amounts[0]))
+                .collect::<Vec<_>>()
+        } else {
+            node_ids
+                .into_iter()
+                .zip(amounts.into_iter())
+                .collect::<Vec<_>>()
+        };
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let staked_wal = client.stake_with_node_pool(node_id, amount).await?;
+        let staked_wal = client.stake_with_node_pools(&node_ids_with_amounts).await?;
         StakeOutput { staked_wal }.print_output(self.json)
     }
 

@@ -248,7 +248,7 @@ pub async fn register_committee_and_stake(
         // stake with storage nodes
         if *amount_to_stake > 0 {
             let _staked_wal = contract_client
-                .stake_with_pool(*amount_to_stake, node_cap.node_id)
+                .stake_with_pools(&[(node_cap.node_id, *amount_to_stake)])
                 .await?;
         }
         node_capabilities.push(node_cap);

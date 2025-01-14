@@ -634,17 +634,60 @@ impl SuiContractClient {
         self.sui_client().get_sui_object(cap_id[0]).await
     }
 
-    /// Stakes the given amount with the pool of node with `node_id`.
-    pub async fn stake_with_pool(
+    /// Registers candidate nodes, sending the resulting capability objects to the specified
+    /// addresses.
+    pub async fn register_candidates(
         &self,
-        amount_to_stake: u64,
-        node_id: ObjectID,
-    ) -> SuiClientResult<StakedWal> {
+        registration_params_with_stake_amounts: Vec<(
+            NodeRegistrationParams,
+            ProofOfPossession,
+            SuiAddress,
+        )>,
+    ) -> SuiClientResult<Vec<StorageNodeCap>> {
+        let count = registration_params_with_stake_amounts.len();
+
+        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        for (node_parameters, proof_of_possession, address) in
+            registration_params_with_stake_amounts.into_iter()
+        {
+            let cap = pt_builder
+                .register_candidate(&node_parameters, proof_of_possession)
+                .await?;
+            pt_builder.transfer(Some(address), vec![cap.into()]).await?;
+        }
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let wallet = self.wallet().await;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
+
+        let cap_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_node::StorageNodeCap
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            cap_ids.len() == count,
+            "unexpected number of StorageNodeCap created: {} (expected {count})",
+            cap_ids.len(),
+        );
+
+        self.sui_client().get_sui_objects(cap_ids).await
+    }
+
+    /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
+    /// element of the pair with the node represented by the first element of the pair in a single
+    /// PTB.
+    pub async fn stake_with_pools(
+        &self,
+        node_ids_with_amounts: &[(ObjectID, u64)],
+    ) -> SuiClientResult<Vec<StakedWal>> {
+        let count = node_ids_with_amounts.len();
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
         let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder.stake_with_pool(amount_to_stake, node_id).await?;
+        for (node_id, amount) in node_ids_with_amounts.iter() {
+            pt_builder.stake_with_pool(*amount, *node_id).await?;
+        }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
 
@@ -654,12 +697,13 @@ impl SuiContractClient {
                 .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
-            staked_wal.len() == 1,
-            "unexpected number of StakedWal objects created: {}",
-            staked_wal.len()
+            staked_wal.len() == count,
+            "unexpected number of StakedWal objects created: {} (expected {})",
+            staked_wal.len(),
+            count
         );
 
-        self.sui_client().get_sui_object(staked_wal[0]).await
+        self.sui_client().get_sui_objects(staked_wal).await
     }
 
     /// Call to end voting and finalize the next epoch parameters.

@@ -477,7 +477,7 @@ pub(crate) struct DeleteOutput {
 /// The output of the `walrus stake` command.
 pub struct StakeOutput {
     /// The staked WAL after staking.
-    pub staked_wal: StakedWal,
+    pub staked_wal: Vec<StakedWal>,
 }
 
 #[derive(Debug, Clone, Serialize)]
