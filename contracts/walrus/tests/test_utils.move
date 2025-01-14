@@ -321,7 +321,13 @@ public fun bls_sk_for_testing(): vector<u8> {
 /// Returns 10 bls secret keys.
 public fun bls_secret_keys_for_testing(): vector<vector<u8>> {
     let mut res = vector[];
-    10u64.do!(|i| {
+    // the number below implicitly sets the number of nodes in the e2e tests.
+    // tests checked:
+    //  sui move test -i 4000000000 test_init_and_first_epoch_change (just staking and epoch change)
+    //      works with 1000
+    //  sui move test -i 4000000000 test_epoch_change_with_rewards_and_commission (checks quorum)
+    //      works with 1000
+    1000u64.do!(|i| {
         let sk = bls12381::scalar_from_u64(1 + (i as u64));
         res.push_back(*sk.bytes());
     });
