@@ -258,14 +258,10 @@ pub enum CliCommands {
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
-        /// The node ID of the storage node to print health information for.
-        #[clap(long)]
-        #[serde(default)]
-        node_id: Option<ObjectID>,
-        /// The URL of the storage node to print health information for.
-        #[clap(long)]
-        #[serde(default)]
-        node_url: Option<String>,
+        /// The node selector for the storage node to print health information for.
+        #[clap(flatten)]
+        #[serde(flatten)]
+        node_selection: NodeSelection,
         /// Print detailed health information.
         #[clap(long, action)]
         #[serde(default)]
@@ -751,6 +747,26 @@ impl BurnSelection {
     pub(super) fn is_all_expired(&self) -> bool {
         self.all_expired
     }
+}
+
+/// Selector for the storage node to print health information for.
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct NodeSelection {
+    /// The ID of the storage node to print health information for.
+    #[clap(long)]
+    #[serde(default)]
+    pub node_id: Option<ObjectID>,
+    /// The URL of the storage node to print health information for.
+    #[clap(long)]
+    #[serde(default)]
+    pub node_url: Option<String>,
+    /// Print health information for all storage nodes.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub all: bool,
 }
 
 pub(crate) mod default {

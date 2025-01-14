@@ -46,7 +46,7 @@ use walrus_sui::{
 };
 
 use super::{
-    cli::{BlobIdDecimal, HumanReadableBytes},
+    cli::{BlobIdDecimal, HumanReadableBytes, NodeSelection},
     resource::RegisterBlobOp,
 };
 use crate::client::cli::{format_event_id, HumanReadableFrost};
@@ -557,45 +557,50 @@ impl ServiceHealthInfoOutput {
     /// object on chain.
     pub async fn get_health_info(
         sui_read_client: &impl ReadClient,
-        node_id: Option<ObjectID>,
-        node_url: Option<String>,
+        node_selection: NodeSelection,
         detail: bool,
     ) -> anyhow::Result<Self> {
-        // Validate that either node_id or node_url is provided, but not both
-        if node_id.is_some() && node_url.is_some() {
-            return Err(anyhow::anyhow!(
-                "Provide either node_id or node_url, not both"
-            ));
-        }
-
         let storage_nodes = Self::get_storage_nodes(sui_read_client).await?;
-        if let Some(node_id) = node_id {
-            let Some(storage_node) = storage_nodes.iter().find(|node| node.node_id == node_id)
-            else {
-                return Err(anyhow::anyhow!("node {node_id} not found in committee"));
-            };
-            let node_health = NodeHealthOutput::new(storage_node, detail).await?;
-            Ok(Self {
-                health_info: vec![node_health],
-            })
-        } else if let Some(node_url) = node_url.as_ref() {
-            let Some(storage_node) = storage_nodes
-                .iter()
-                .find(|node| &node.network_address.0 == node_url)
-            else {
-                return Err(anyhow::anyhow!("node {node_url} not found in committee"));
-            };
-            let node_health = NodeHealthOutput::new(storage_node, detail).await?;
-            Ok(Self {
-                health_info: vec![node_health],
-            })
-        } else {
-            let mut health_info = Vec::new();
-            for node in storage_nodes {
-                let node_health = NodeHealthOutput::new(&node, detail).await?;
-                health_info.push(node_health);
+        match (
+            node_selection.node_id.is_some(),
+            node_selection.node_url.is_some(),
+            node_selection.all,
+        ) {
+            (true, false, false) => {
+                let node_id = node_selection.node_id.unwrap();
+                let Some(storage_node) = storage_nodes.iter().find(|node| node.node_id == node_id)
+                else {
+                    return Err(anyhow::anyhow!("node {node_id} not found in committee"));
+                };
+                let node_health = NodeHealthOutput::new(storage_node, detail).await?;
+                Ok(Self {
+                    health_info: vec![node_health],
+                })
             }
-            Ok(Self { health_info })
+            (false, true, false) => {
+                let node_url = node_selection.node_url.unwrap();
+                let Some(storage_node) = storage_nodes
+                    .iter()
+                    .find(|node| node.network_address.0 == node_url)
+                else {
+                    return Err(anyhow::anyhow!("node {node_url} not found in committee"));
+                };
+                let node_health = NodeHealthOutput::new(storage_node, detail).await?;
+                Ok(Self {
+                    health_info: vec![node_health],
+                })
+            }
+            (false, false, true) => {
+                let mut health_info = Vec::new();
+                for node in storage_nodes {
+                    let node_health = NodeHealthOutput::new(&node, detail).await?;
+                    health_info.push(node_health);
+                }
+                Ok(Self { health_info })
+            }
+            _ => Err(anyhow::anyhow!(
+                "exactly one of `node_id`, `node_url`, or `all` must be specified"
+            )),
         }
     }
 
