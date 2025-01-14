@@ -163,9 +163,10 @@ impl ClientCommandRunner {
 
             CliCommands::Health {
                 node_id,
+                node_url,
                 detail,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.health(rpc_url, node_id, detail).await,
+            } => self.health(rpc_url, node_id, node_url, detail).await,
 
             CliCommands::BlobId {
                 file,
@@ -508,7 +509,8 @@ impl ClientCommandRunner {
     pub(crate) async fn health(
         self,
         rpc_url: Option<String>,
-        node_id: ObjectID,
+        node_id: Option<ObjectID>,
+        node_url: Option<String>,
         detail: bool,
     ) -> Result<()> {
         let config = self.config?;
@@ -519,7 +521,7 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        ServiceHealthInfoOutput::get_health_info(&sui_read_client, node_id, detail)
+        ServiceHealthInfoOutput::get_health_info(&sui_read_client, node_id, node_url, detail)
             .await?
             .print_output(self.json)
     }

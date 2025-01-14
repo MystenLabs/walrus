@@ -536,22 +536,48 @@ impl ServiceHealthInfoOutput {
     /// object on chain.
     pub async fn get_health_info(
         sui_read_client: &impl ReadClient,
-        node_id: ObjectID,
+        node_id: Option<ObjectID>,
+        node_url: Option<String>,
         detail: bool,
     ) -> anyhow::Result<Self> {
-        let committee = sui_read_client.current_committee().await?;
-        let Some(storage_node) = committee
-            .members()
-            .iter()
-            .find(|node| node.node_id == node_id)
-        else {
-            return Err(anyhow::anyhow!("node {node_id} not found in committee"));
-        };
-        let client = Client::for_storage_node(
-            &storage_node.network_address.0,
-            &storage_node.network_public_key,
-        )?;
+        let storage_nodes = Self::get_storage_nodes(sui_read_client).await?;
+        if let Some(node_id) = node_id {
+            let Some(storage_node) = storage_nodes.iter().find(|node| node.node_id == node_id)
+            else {
+                return Err(anyhow::anyhow!("node {node_id} not found in committee"));
+            };
+            Self::new(storage_node, detail).await
+        } else if let Some(node_url) = node_url.as_ref() {
+            let Some(storage_node) = storage_nodes
+                .iter()
+                .find(|node| &node.network_address.0 == node_url)
+            else {
+                return Err(anyhow::anyhow!("node {node_url} not found in committee"));
+            };
+            Self::new(storage_node, detail).await
+        } else {
+            Err(anyhow::anyhow!("node ID or URL must be provided"))
+        }
+    }
+
+    async fn new(node: &StorageNode, detail: bool) -> anyhow::Result<ServiceHealthInfoOutput> {
+        let client = Client::for_storage_node(&node.network_address.0, &node.network_public_key)?;
         let health_info = client.get_server_health_info(detail).await?;
         Ok(Self { health_info })
+    }
+
+    async fn get_storage_nodes(
+        sui_read_client: &impl ReadClient,
+    ) -> anyhow::Result<Vec<StorageNode>> {
+        let committee = sui_read_client.current_committee().await?;
+        let mut storage_nodes = committee.members().to_vec();
+        let next_committee = sui_read_client.next_committee().await?;
+        if let Some(next_storage_nodes) = next_committee
+            .as_ref()
+            .map(|next_committee| next_committee.members().to_vec())
+        {
+            storage_nodes.extend(next_storage_nodes);
+        }
+        Ok(storage_nodes)
     }
 }

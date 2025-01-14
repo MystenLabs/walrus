@@ -255,7 +255,12 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
         /// The node ID of the storage node to print health information for.
         #[clap(long)]
-        node_id: ObjectID,
+        #[serde(default)]
+        node_id: Option<ObjectID>,
+        /// The URL of the Sui RPC node to use.
+        #[clap(long)]
+        #[serde(default)]
+        node_url: Option<String>,
         /// Print detailed health information.
         #[clap(long, action)]
         #[serde(default)]
