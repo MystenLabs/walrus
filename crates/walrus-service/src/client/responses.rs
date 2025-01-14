@@ -561,6 +561,13 @@ impl ServiceHealthInfoOutput {
         node_url: Option<String>,
         detail: bool,
     ) -> anyhow::Result<Self> {
+        // Validate that either node_id or node_url is provided, but not both
+        if node_id.is_some() && node_url.is_some() {
+            return Err(anyhow::anyhow!(
+                "Provide either node_id or node_url, not both"
+            ));
+        }
+
         let storage_nodes = Self::get_storage_nodes(sui_read_client).await?;
         if let Some(node_id) = node_id {
             let Some(storage_node) = storage_nodes.iter().find(|node| node.node_id == node_id)

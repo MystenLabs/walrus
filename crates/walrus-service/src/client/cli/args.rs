@@ -248,6 +248,11 @@ pub enum CliCommands {
         dev: bool,
     },
     /// Print health information for the storage node.
+    ///
+    /// If node_id is provided, the health information for the node with the given ID is printed.
+    /// If node_url is provided, the health information for the node at the given URL is printed.
+    /// If both are provided, the health information for the node with the given ID is printed.
+    /// If neither is provided, the health information for all nodes is printed.
     Health {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
@@ -257,7 +262,7 @@ pub enum CliCommands {
         #[clap(long)]
         #[serde(default)]
         node_id: Option<ObjectID>,
-        /// The URL of the Sui RPC node to use.
+        /// The URL of the storage node to print health information for.
         #[clap(long)]
         #[serde(default)]
         node_url: Option<String>,

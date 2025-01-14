@@ -629,6 +629,8 @@ impl CliOutput for ExtendBlobOutput {
 
 impl CliOutput for ServiceHealthInfoOutput {
     fn print_cli_output(&self) {
+        println!("\n{}", "Walrus Service Health Information".bold());
+
         for (index, node) in self.health_info.iter().enumerate() {
             if index > 0 {
                 println!("\n{}", "=".repeat(80)); // Separator between multiple nodes
