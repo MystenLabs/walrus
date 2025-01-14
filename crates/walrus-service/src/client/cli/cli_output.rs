@@ -181,11 +181,13 @@ impl CliOutput for DryRunOutput {
     fn print_cli_output(&self) {
         println!(
             "{} Store dry-run succeeded.\n\
+                Path: {}\n\
                 Blob ID: {}\n\
                 Unencoded size: {}\n\
                 Encoded size (including replicated metadata): {}\n\
-                Cost (excluding gas): {}\n",
+                Cost to store as new blob (excluding gas): {}\n",
             success(),
+            self.path.display(),
             self.blob_id,
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),

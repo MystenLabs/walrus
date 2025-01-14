@@ -205,6 +205,8 @@ impl From<BlobIdDecimal> for BlobIdConversionOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DryRunOutput {
+    /// The file path to the blob.
+    pub path: PathBuf,
     /// The blob ID.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
