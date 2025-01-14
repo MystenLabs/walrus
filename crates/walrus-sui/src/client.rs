@@ -881,7 +881,7 @@ impl SuiContractClient {
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::wal_exchange::Exchange
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+                .to_move_struct_tag_with_package(exchange_package, &[])?,
         )?;
         ensure!(
             exchange_id.len() == 1,

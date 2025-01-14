@@ -81,8 +81,8 @@ struct DeploySystemContractArgs {
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The directory in which the contracts are located.
-    #[clap(long, default_value = "./contracts/walrus")]
-    contract_path: PathBuf,
+    #[clap(long, default_value = "./contracts")]
+    contract_dir: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
     #[arg(long, default_value_t = 1_000_000_000)]
     gas_budget: u64,
@@ -122,6 +122,9 @@ struct DeploySystemContractArgs {
     /// The maximum number of epochs ahead for which storage can be obtained.
     #[arg(long, default_value_t = 104)]
     max_epochs_ahead: EpochCount,
+    /// Copy contracts to `working_dir` and publish from there to keep the `Move.toml` unchanged.
+    #[arg(long, action)]
+    deploy_contracts_from_working_dir: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -263,7 +266,7 @@ mod commands {
         DeploySystemContractArgs {
             working_dir,
             sui_network,
-            contract_path,
+            contract_dir,
             gas_budget,
             n_shards,
             epoch_duration,
@@ -276,6 +279,7 @@ mod commands {
             storage_capacity,
             deterministic_keys,
             max_epochs_ahead,
+            deploy_contracts_from_working_dir,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -291,7 +295,7 @@ mod commands {
         let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: &working_dir,
             sui_network,
-            contract_path,
+            contract_dir,
             gas_budget,
             host_addresses,
             rest_api_port,
@@ -303,6 +307,7 @@ mod commands {
             epoch_duration: *epoch_duration,
             epoch_zero_duration: *epoch_zero_duration,
             max_epochs_ahead,
+            deploy_contracts_from_working_dir,
         })
         .await
         .context("Failed to deploy system contract")?;
