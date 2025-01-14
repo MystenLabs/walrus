@@ -526,9 +526,30 @@ pub struct ExtendBlobOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// The output of the `walrus health` command.
-pub(crate) struct ServiceHealthInfoOutput {
+pub(crate) struct NodeHealthOutput {
+    pub node_id: ObjectID,
+    pub node_url: String,
     /// The health information of the service.
     pub health_info: ServiceHealthInfo,
+}
+
+impl NodeHealthOutput {
+    pub async fn new(node: &StorageNode, detail: bool) -> anyhow::Result<Self> {
+        let client = Client::for_storage_node(&node.network_address.0, &node.network_public_key)?;
+        let health_info = client.get_server_health_info(detail).await?;
+        Ok(Self {
+            node_id: node.node_id,
+            node_url: node.network_address.0.clone(),
+            health_info,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus health` command.
+pub(crate) struct ServiceHealthInfoOutput {
+    pub health_info: Vec<NodeHealthOutput>,
 }
 
 impl ServiceHealthInfoOutput {
@@ -546,7 +567,10 @@ impl ServiceHealthInfoOutput {
             else {
                 return Err(anyhow::anyhow!("node {node_id} not found in committee"));
             };
-            Self::new(storage_node, detail).await
+            let node_health = NodeHealthOutput::new(storage_node, detail).await?;
+            Ok(Self {
+                health_info: vec![node_health],
+            })
         } else if let Some(node_url) = node_url.as_ref() {
             let Some(storage_node) = storage_nodes
                 .iter()
@@ -554,30 +578,40 @@ impl ServiceHealthInfoOutput {
             else {
                 return Err(anyhow::anyhow!("node {node_url} not found in committee"));
             };
-            Self::new(storage_node, detail).await
+            let node_health = NodeHealthOutput::new(storage_node, detail).await?;
+            Ok(Self {
+                health_info: vec![node_health],
+            })
         } else {
-            Err(anyhow::anyhow!("node ID or URL must be provided"))
+            let mut health_info = Vec::new();
+            for node in storage_nodes {
+                let node_health = NodeHealthOutput::new(&node, detail).await?;
+                health_info.push(node_health);
+            }
+            Ok(Self { health_info })
         }
-    }
-
-    async fn new(node: &StorageNode, detail: bool) -> anyhow::Result<ServiceHealthInfoOutput> {
-        let client = Client::for_storage_node(&node.network_address.0, &node.network_public_key)?;
-        let health_info = client.get_server_health_info(detail).await?;
-        Ok(Self { health_info })
     }
 
     async fn get_storage_nodes(
         sui_read_client: &impl ReadClient,
     ) -> anyhow::Result<Vec<StorageNode>> {
         let committee = sui_read_client.current_committee().await?;
-        let mut storage_nodes = committee.members().to_vec();
-        let next_committee = sui_read_client.next_committee().await?;
-        if let Some(next_storage_nodes) = next_committee
-            .as_ref()
-            .map(|next_committee| next_committee.members().to_vec())
-        {
-            storage_nodes.extend(next_storage_nodes);
+        let mut nodes_map: HashMap<ObjectID, StorageNode> = committee
+            .members()
+            .iter()
+            .map(|node| (node.node_id, node.clone()))
+            .collect();
+
+        if let Some(next_committee) = sui_read_client.next_committee().await? {
+            // Next committee nodes will overwrite current committee nodes with same ID
+            nodes_map.extend(
+                next_committee
+                    .members()
+                    .iter()
+                    .map(|node| (node.node_id, node.clone())),
+            );
         }
-        Ok(storage_nodes)
+
+        Ok(nodes_map.into_values().collect())
     }
 }

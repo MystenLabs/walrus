@@ -629,70 +629,79 @@ impl CliOutput for ExtendBlobOutput {
 
 impl CliOutput for ServiceHealthInfoOutput {
     fn print_cli_output(&self) {
-        printdoc!(
-            "
-
-            {top_heading}
-
-            {general_heading}
-            Uptime: {uptime}
-            Current epoch: {epoch}
-            Public key: {public_key}
-            Node status: {node_status}
-
-            {event_heading}
-            Events persisted: {persisted}
-            Events pending: {pending}
-
-            {shard_heading}
-            Owned shards: {owned}
-            Read-only shards: {read_only}
-
-            {owned_status_heading}
-            Unknown: {unknown}
-            Ready: {ready}
-            In transfer: {in_transfer}
-            In recovery: {in_recovery}
-            ",
-            top_heading = "Walrus Service Health Information".bold(),
-            general_heading = "General Information".bold().walrus_teal(),
-            uptime = humantime::format_duration(self.health_info.uptime),
-            epoch = self.health_info.epoch,
-            public_key = self.health_info.public_key,
-            node_status = self.health_info.node_status,
-            event_heading = "Event Progress".bold().walrus_teal(),
-            persisted = self.health_info.event_progress.persisted,
-            pending = self.health_info.event_progress.pending,
-            shard_heading = "Shard Summary".bold().walrus_teal(),
-            owned = self.health_info.shard_summary.owned,
-            read_only = self.health_info.shard_summary.read_only,
-            owned_status_heading = "Owned Shard Status".bold().walrus_teal(),
-            unknown = self.health_info.shard_summary.owned_shard_status.unknown,
-            ready = self.health_info.shard_summary.owned_shard_status.ready,
-            in_transfer = self
-                .health_info
-                .shard_summary
-                .owned_shard_status
-                .in_transfer,
-            in_recovery = self
-                .health_info
-                .shard_summary
-                .owned_shard_status
-                .in_recovery,
-        );
-
-        // Print shard details if available
-        if let Some(detail) = &self.health_info.shard_detail {
-            if !detail.owned.is_empty() {
-                println!("\n{}", "Owned Shard Details".bold().walrus_teal());
-                for shard in &detail.owned {
-                    println!("Shard {}: {:?}", shard.shard, shard.status);
-                }
+        for (index, node) in self.health_info.iter().enumerate() {
+            if index > 0 {
+                println!("\n{}", "=".repeat(80)); // Separator between multiple nodes
             }
-            if !detail.other.is_empty() {
-                println!("\n{}", "Other Shard Details".bold().walrus_teal());
-                for shard in &detail.other {
-                    println!("Shard {}: {:?}", shard.shard, shard.status);
+
+            printdoc!(
+                "
+                {node_heading}
+                Node ID: {node_id}
+                Node URL: {node_url}
+
+                {general_heading}
+                Uptime: {uptime}
+                Current epoch: {epoch}
+                Public key: {public_key}
+                Node status: {node_status}
+
+                {event_heading}
+                Events persisted: {persisted}
+                Events pending: {pending}
+
+                {shard_heading}
+                Owned shards: {owned}
+                Read-only shards: {read_only}
+
+                {owned_status_heading}
+                Unknown: {unknown}
+                Ready: {ready}
+                In transfer: {in_transfer}
+                In recovery: {in_recovery}
+                ",
+                node_heading = "Node Information".bold().walrus_teal(),
+                node_id = node.node_id,
+                node_url = node.node_url,
+                general_heading = "General Information".bold().walrus_teal(),
+                uptime = humantime::format_duration(node.health_info.uptime),
+                epoch = node.health_info.epoch,
+                public_key = node.health_info.public_key,
+                node_status = node.health_info.node_status,
+                event_heading = "Event Progress".bold().walrus_teal(),
+                persisted = node.health_info.event_progress.persisted,
+                pending = node.health_info.event_progress.pending,
+                shard_heading = "Shard Summary".bold().walrus_teal(),
+                owned = node.health_info.shard_summary.owned,
+                read_only = node.health_info.shard_summary.read_only,
+                owned_status_heading = "Owned Shard Status".bold().walrus_teal(),
+                unknown = node.health_info.shard_summary.owned_shard_status.unknown,
+                ready = node.health_info.shard_summary.owned_shard_status.ready,
+                in_transfer = node
+                    .health_info
+                    .shard_summary
+                    .owned_shard_status
+                    .in_transfer,
+                in_recovery = node
+                    .health_info
+                    .shard_summary
+                    .owned_shard_status
+                    .in_recovery,
+            );
+
+            // Print shard details if available
+            if let Some(detail) = &node.health_info.shard_detail {
+                if !detail.owned.is_empty() {
+                    println!("\n{}", "Owned Shard Details".bold().walrus_teal());
+                    for shard in &detail.owned {
+                        println!("Shard {}: {:?}", shard.shard, shard.status);
+                    }
+                }
+                if !detail.other.is_empty() {
+                    println!("\n{}", "Other Shard Details".bold().walrus_teal());
+                    for shard in &detail.other {
+                        println!("Shard {}: {:?}", shard.shard, shard.status);
+                    }
                 }
             }
         }
