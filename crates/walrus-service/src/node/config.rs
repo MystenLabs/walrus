@@ -661,6 +661,8 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
     pub wallet_address: SuiAddress,
 }
 
+impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
+
 #[cfg(test)]
 mod tests {
     use std::{io::Write as _, str::FromStr};

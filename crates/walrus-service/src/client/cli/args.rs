@@ -297,13 +297,17 @@ pub enum CliCommands {
     },
     /// Stake with storage node.
     Stake {
-        #[clap(long)]
         /// The object ID of the storage node to stake with.
-        node_id: ObjectID,
-        #[clap(long, default_value_t = default::staking_amount_frost())]
-        #[serde(default = "default::staking_amount_frost")]
+        #[clap(long, required=true, num_args=1.., alias("node-id"))]
+        node_ids: Vec<ObjectID>,
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
-        amount: u64,
+        ///
+        /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
+        /// values must be equal to the number of node IDs, and each amount is staked at the node
+        /// with the same index.
+        #[clap(long, alias("amount"), default_value = "1000000000")]
+        #[serde(default = "default::staking_amounts_frost")]
+        amounts: Vec<u64>,
     },
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
@@ -793,8 +797,8 @@ pub(crate) mod default {
             .expect("this is a correct socket address")
     }
 
-    pub(crate) fn staking_amount_frost() -> u64 {
-        1_000_000_000 // 1 WAL
+    pub(crate) fn staking_amounts_frost() -> Vec<u64> {
+        vec![1_000_000_000] // 1 WAL
     }
 
     pub(crate) fn exchange_amount_mist() -> u64 {
