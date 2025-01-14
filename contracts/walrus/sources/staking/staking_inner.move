@@ -485,7 +485,13 @@ public(package) fun withdraw_stake(
 
 /// Computes the committee for the next epoch.
 public(package) fun compute_next_committee(self: &StakingInnerV1): Committee {
+    use std::debug;
+
     let (active_ids, shards) = self.apportionment();
+    
+    let n = active_ids.length();
+    debug::print(&n);
+    
     let distribution = vec_map::from_keys_values(active_ids, shards);
 
     // if we are dealing with the first epoch, we need to assign the shards to the
@@ -496,19 +502,9 @@ public(package) fun compute_next_committee(self: &StakingInnerV1): Committee {
 
 /// Selects the committee for the next epoch.
 public(package) fun select_committee(self: &mut StakingInnerV1) {
-    use std::debug;
-
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 
-    let (active_ids, shards) = self.apportionment();
-    let n = active_ids.length();
-    debug::print(&n);
-    let distribution = vec_map::from_keys_values(active_ids, shards);
-
-    // if we're dealing with the first epoch, we need to assign the shards to the
-    // nodes in a sequential manner. Assuming there's at least 1 node in the set.
-    let committee = if (self.committee.size() == 0) committee::initialize(distribution)
-    else self.committee.transition(distribution);
+    let committee = self.compute_next_committee();
 
     // inherently sorted by node ID
     let public_keys = vec_map::from_keys_values(
