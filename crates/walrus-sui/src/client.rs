@@ -45,7 +45,7 @@ use crate::{
     contracts,
     types::{
         move_errors::MoveExecutionError,
-        move_structs::{Authorized, EpochState, SharedBlob},
+        move_structs::{Authorized, EpochState, SharedBlob, StorageNode},
         Blob,
         BlobEvent,
         Committee,
@@ -1179,6 +1179,10 @@ impl ReadClient for SuiContractClient {
 
     async fn next_committee(&self) -> SuiClientResult<Option<Committee>> {
         self.read_client.next_committee().await
+    }
+
+    async fn get_storage_nodes(&self) -> SuiClientResult<Vec<StorageNode>> {
+        self.read_client.get_storage_nodes().await
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

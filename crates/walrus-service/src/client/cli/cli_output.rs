@@ -631,13 +631,10 @@ impl CliOutput for ServiceHealthInfoOutput {
     fn print_cli_output(&self) {
         println!("\n{}", "Walrus Service Health Information".bold());
 
-        for (index, node) in self.health_info.iter().enumerate() {
-            if index > 0 {
-                println!("\n{}", "=".repeat(80)); // Separator between multiple nodes
-            }
-
+        for node in self.health_info.iter() {
             printdoc!(
                 "
+
                 {node_heading}
                 Node ID: {node_id}
                 Node URL: {node_url}
@@ -662,7 +659,7 @@ impl CliOutput for ServiceHealthInfoOutput {
                 In transfer: {in_transfer}
                 In recovery: {in_recovery}
                 ",
-                node_heading = "Node Information".bold().walrus_teal(),
+                node_heading = "Node Information".bold().walrus_purple(),
                 node_id = node.node_id,
                 node_url = node.node_url,
                 general_heading = "General Information".bold().walrus_teal(),

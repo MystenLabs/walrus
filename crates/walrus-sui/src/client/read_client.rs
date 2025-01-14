@@ -158,6 +158,9 @@ pub trait ReadClient: Send + Sync {
     // INV: next_committee.epoch == current_committee.epoch + 1
     fn next_committee(&self) -> impl Future<Output = SuiClientResult<Option<Committee>>> + Send;
 
+    /// Returns the current storage nodes.
+    fn get_storage_nodes(&self) -> impl Future<Output = SuiClientResult<Vec<StorageNode>>> + Send;
+
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
 
@@ -787,6 +790,27 @@ impl ReadClient for SuiReadClient {
     async fn next_committee(&self) -> SuiClientResult<Option<Committee>> {
         tracing::debug!("getting next committee from Sui");
         self.query_staking_for_committee(WhichCommittee::Next).await
+    }
+
+    async fn get_storage_nodes(&self) -> SuiClientResult<Vec<StorageNode>> {
+        let committee = self.current_committee().await?;
+        let mut nodes_map: HashMap<ObjectID, StorageNode> = committee
+            .members()
+            .iter()
+            .map(|node| (node.node_id, node.clone()))
+            .collect();
+
+        if let Some(next_committee) = self.next_committee().await? {
+            // Next committee nodes will overwrite current committee nodes with same ID
+            nodes_map.extend(
+                next_committee
+                    .members()
+                    .iter()
+                    .map(|node| (node.node_id, node.clone())),
+            );
+        }
+
+        Ok(nodes_map.into_values().collect())
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

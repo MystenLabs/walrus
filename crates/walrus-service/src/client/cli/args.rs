@@ -249,10 +249,10 @@ pub enum CliCommands {
     },
     /// Print health information for the storage node.
     ///
-    /// If node_id is provided, the health information for the node with the given ID is printed.
-    /// If node_url is provided, the health information for the node at the given URL is printed.
-    /// If both are provided, the health information for the node with the given ID is printed.
-    /// If neither is provided, the health information for all nodes is printed.
+    /// Only one of `--node_id`, `--node_url`, or `--all` can be specified.
+    /// If `node_id` is provided, the health information for the node with the given ID is printed.
+    /// If `node_url` is provided, the health information for the node at the given URL is printed.
+    /// If `all` is specified, the health information for all nodes is printed.
     Health {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]

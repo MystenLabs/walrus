@@ -560,7 +560,7 @@ impl ServiceHealthInfoOutput {
         node_selection: NodeSelection,
         detail: bool,
     ) -> anyhow::Result<Self> {
-        let storage_nodes = Self::get_storage_nodes(sui_read_client).await?;
+        let storage_nodes = sui_read_client.get_storage_nodes().await?;
         match (
             node_selection.node_id.is_some(),
             node_selection.node_url.is_some(),
@@ -602,28 +602,5 @@ impl ServiceHealthInfoOutput {
                 "exactly one of `node_id`, `node_url`, or `all` must be specified"
             )),
         }
-    }
-
-    async fn get_storage_nodes(
-        sui_read_client: &impl ReadClient,
-    ) -> anyhow::Result<Vec<StorageNode>> {
-        let committee = sui_read_client.current_committee().await?;
-        let mut nodes_map: HashMap<ObjectID, StorageNode> = committee
-            .members()
-            .iter()
-            .map(|node| (node.node_id, node.clone()))
-            .collect();
-
-        if let Some(next_committee) = sui_read_client.next_committee().await? {
-            // Next committee nodes will overwrite current committee nodes with same ID
-            nodes_map.extend(
-                next_committee
-                    .members()
-                    .iter()
-                    .map(|node| (node.node_id, node.clone())),
-            );
-        }
-
-        Ok(nodes_map.into_values().collect())
     }
 }
