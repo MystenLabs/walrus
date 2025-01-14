@@ -113,16 +113,16 @@ pub(crate) struct PublishSystemPackageResult {
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
 #[tracing::instrument(err, skip(source, destination))]
-async fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
-    tokio::fs::create_dir_all(destination.as_ref()).await?;
+fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+    std::fs::create_dir_all(destination.as_ref())?;
     for entry in WalkDir::new(source.as_ref()) {
         let entry = entry?;
         let filetype = entry.file_type();
         let dest_path = entry.path().strip_prefix(source.as_ref())?;
         if filetype.is_dir() {
-            tokio::fs::create_dir_all(destination.as_ref().join(dest_path)).await?;
+            std::fs::create_dir_all(destination.as_ref().join(dest_path))?;
         } else {
-            tokio::fs::copy(entry.path(), destination.as_ref().join(dest_path)).await?;
+            std::fs::copy(entry.path(), destination.as_ref().join(dest_path))?;
         }
     }
     Ok(())
@@ -142,7 +142,7 @@ pub async fn publish_coin_and_system_package(
     deploy_directory: Option<PathBuf>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        copy_recursively(&walrus_contract_directory, &deploy_directory).await?;
+        copy_recursively(&walrus_contract_directory, &deploy_directory)?;
         deploy_directory
     } else {
         walrus_contract_directory
