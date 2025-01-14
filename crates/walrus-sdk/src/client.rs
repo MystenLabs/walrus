@@ -66,7 +66,7 @@ const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
 const RECOVERY_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
-const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
+const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
 const SYNC_SHARD_TEMPLATE: &str = "/v1/migrate/sync_shard";
@@ -193,7 +193,7 @@ impl UrlEndpoints {
     fn inconsistency_proof<A: EncodingAxis>(&self, blob_id: &BlobId) -> (Url, &'static str) {
         let sliver_type = SliverType::for_encoding::<A>();
         (
-            self.blob_resource(blob_id, &format!("inconsistent/{sliver_type}")),
+            self.blob_resource(blob_id, &format!("inconsistencyProof/{sliver_type}")),
             INCONSISTENCY_PROOF_URL_TEMPLATE,
         )
     }
@@ -985,7 +985,7 @@ mod tests {
                 "slivers/1/primary/2"
             ),
             inconsistency_proof: (
-                |e| e.inconsistency_proof::<Primary>(&BLOB_ID).0, "inconsistent/primary"
+                |e| e.inconsistency_proof::<Primary>(&BLOB_ID).0, "inconsistencyProof/primary"
             ),
         ]
     }

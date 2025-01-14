@@ -35,14 +35,7 @@ impl NodeResponse for Response {
         }
 
         match self.json().await {
-            Ok(ServiceResponse::<()>::Error {
-                message, reason, ..
-            }) => Err(Kind::StatusWithMessage {
-                inner,
-                message,
-                service_error: reason,
-            }
-            .into()),
+            Ok(ServiceResponse::<()>::Error(status)) => Err(Kind::Status { inner, status }.into()),
             _ => {
                 tracing::debug!("unable to parse the service's JSON response");
                 Err(Kind::Reqwest(inner).into())
@@ -75,9 +68,7 @@ impl NodeResponse for Response {
             .map_err(Kind::Reqwest)?
         {
             ServiceResponse::Success { data, .. } => Ok(data),
-            ServiceResponse::Error { message, code, .. } => {
-                Err(Kind::ErrorInNonErrorMessage { message, code }.into())
-            }
+            ServiceResponse::Error(status) => Err(Kind::ErrorInNonErrorMessage(status).into()),
         }
     }
 }
