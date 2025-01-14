@@ -33,7 +33,7 @@ use walrus_sui::{
         get_default_invalid_certificate,
         new_contract_client_on_sui_test_cluster,
         new_wallet_on_sui_test_cluster,
-        system_setup::publish_with_default_system,
+        system_setup::{publish_with_default_system, SystemContext},
         TestClusterHandle,
     },
     types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
@@ -44,8 +44,11 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 const GAS_BUDGET: u64 = 1_000_000_000;
 
-async fn initialize_contract_and_wallet(
-) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<SuiContractClient>)> {
+async fn initialize_contract_and_wallet() -> anyhow::Result<(
+    Arc<TestClusterHandle>,
+    WithTempDir<SuiContractClient>,
+    SystemContext,
+)> {
     #[cfg(not(msim))]
     let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
     #[cfg(msim)]
@@ -75,6 +78,7 @@ async fn initialize_contract_and_wallet(
                 )
             })
             .await?,
+        system_context,
     ))
 }
 
@@ -91,7 +95,7 @@ async fn test_initialize_contract() -> anyhow::Result<()> {
 async fn test_register_certify_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
 
     // used to calculate the encoded size of the blob
     let encoding_config = EncodingConfig::new(NonZeroU16::new(100).unwrap());
@@ -261,7 +265,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 async fn test_invalidate_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
 
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
@@ -311,7 +315,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_get_committee() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
     let committee = walrus_client
         .as_ref()
         .read_client
@@ -342,7 +346,7 @@ async fn test_get_committee() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_register_candidate() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
     let protocol_key_pair = ProtocolKeyPair::generate();
     let network_key_pair = NetworkKeyPair::generate();
 
@@ -382,7 +386,7 @@ async fn test_set_authorized() -> anyhow::Result<()> {
     use walrus_sui::types::move_structs::Authorized;
 
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
     let protocol_key_pair = ProtocolKeyPair::generate();
     let network_key_pair = NetworkKeyPair::generate();
 
@@ -451,12 +455,11 @@ async fn test_set_authorized() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
-    // TODO(WAL-230): Use exchange package ID once published separately.
-    let exchange_package = walrus_client.as_ref().read_client().get_system_package_id();
+    let (_sui_cluster_handle, walrus_client, system_context) =
+        initialize_contract_and_wallet().await?;
     let exchange_id = walrus_client
         .as_ref()
-        .create_and_fund_exchange(exchange_package, 1_000_000)
+        .create_and_fund_exchange(system_context.wal_exchange_pkg_id, 1_000_000)
         .await?;
 
     let exchange_val = 100_000;
@@ -476,7 +479,7 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (sui_cluster_handle, client_1) = initialize_contract_and_wallet().await?;
+    let (sui_cluster_handle, client_1, _) = initialize_contract_and_wallet().await?;
 
     let original_balance = client_1.as_ref().balance(CoinType::Wal).await?;
 
