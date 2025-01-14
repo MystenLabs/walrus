@@ -227,6 +227,32 @@ pub struct MetricsPushConfig {
     pub labels: Option<HashMap<String, String>>,
 }
 
+/// MetricsPushConfig impls to set name and host labels
+/// we accept a name to use from node config and will attempt to fetch the hostname
+/// if that fetch fails, we will default to the node name from the config.
+/// these manifest as labels in metric data.
+impl MetricsPushConfig {
+    /// set metric label name = foo
+    pub fn set_name(&mut self, name: &str) {
+        self.labels
+            .get_or_insert_with(HashMap::new)
+            .insert("name".into(), name.into());
+
+        // also set the host label and try to get the hostname to do it.  if we cannot
+        // use name as a fallback.
+        let host =
+            hostname::get().map_or_else(|_| name.into(), |v| v.to_string_lossy().to_string());
+        self.set_host(host);
+    }
+
+    /// set metric label host = bar
+    fn set_host(&mut self, host: String) {
+        self.labels
+            .get_or_insert_with(HashMap::new)
+            .insert("host".into(), host.into());
+    }
+}
+
 /// Configure the default push interval for metrics.
 fn push_interval_default() -> Duration {
     Duration::from_secs(60)

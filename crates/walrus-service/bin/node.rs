@@ -425,12 +425,13 @@ mod commands {
 
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
         let metrics_push_runtime = match config.metrics_push.take() {
-            Some(config) => {
+            Some(mut mc) => {
+                mc.set_name(&config.name);
                 let network_key_pair = network_key_pair.0.clone();
                 let mp_config = EnableMetricsPush {
                     cancel: cancel_token.child_token(),
                     network_key_pair,
-                    config,
+                    config: mc,
                 };
                 Some(MetricPushRuntime::start(
                     metrics_push_registry_clone,

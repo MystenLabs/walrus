@@ -70,6 +70,7 @@ futures.workspace = true
 futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
+hostname.workspace = true
 humantime.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
