@@ -239,18 +239,29 @@ pub(crate) struct InfoOutput {
     pub(crate) storage_info: InfoStorageOutput,
     pub(crate) size_info: InfoSizeOutput,
     pub(crate) price_info: InfoPriceOutput,
-    pub(crate) committee_info: InfoCommitteeOutput,
-    pub(crate) bft_info: InfoBftOutput,
+    pub(crate) committee_info: Option<InfoCommitteeOutput>,
+    pub(crate) bft_info: Option<InfoBftOutput>,
 }
 
 impl InfoOutput {
-    pub async fn get_system_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+    pub async fn get_system_info(
+        sui_read_client: &impl ReadClient,
+        dev: bool,
+    ) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
-        let committee_info = InfoCommitteeOutput::get_committee_info(sui_read_client).await?;
-        let bft_info = InfoBftOutput::get_bft_info(sui_read_client).await?;
+        let committee_info = if dev {
+            Some(InfoCommitteeOutput::get_committee_info(sui_read_client).await?)
+        } else {
+            None
+        };
+        let bft_info = if dev {
+            Some(InfoBftOutput::get_bft_info(sui_read_client).await?)
+        } else {
+            None
+        };
 
         Ok(Self {
             epoch_info,

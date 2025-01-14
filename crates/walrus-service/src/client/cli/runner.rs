@@ -506,7 +506,10 @@ impl ClientCommandRunner {
         .await?;
 
         match command {
-            None | Some(InfoCommands::All) => InfoOutput::get_system_info(&sui_read_client)
+            None => InfoOutput::get_system_info(&sui_read_client, false)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::All) => InfoOutput::get_system_info(&sui_read_client, true)
                 .await?
                 .print_output(self.json),
             Some(InfoCommands::Epoch) => InfoEpochOutput::get_epoch_info(&sui_read_client)

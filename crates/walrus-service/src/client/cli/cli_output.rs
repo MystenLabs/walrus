@@ -291,31 +291,29 @@ impl CliOutput for InfoOutput {
         } = self;
 
         // NOTE: keep text in sync with changes in the contracts.
-        printdoc!(
-            "
+        println!("\n{}", "Walrus system information".bold().walrus_purple());
 
-            {top_heading}
-            ",
-            top_heading = "Walrus system information".bold(),
-        );
-
-        // Print epoch info
+        // Print epoch info.
         epoch_info.print_cli_output();
 
-        // Print storage info
+        // Print storage info.
         storage_info.print_cli_output();
 
         // Print size info
         size_info.print_cli_output();
 
-        // Print price info
+        // Print price info.
         price_info.print_cli_output();
 
         // Print BFT info
-        bft_info.print_cli_output();
+        if let Some(bft_info) = bft_info {
+            bft_info.print_cli_output();
+        }
 
-        // Print committee info
-        committee_info.print_cli_output();
+        // Print committee info.
+        if let Some(committee_info) = committee_info {
+            committee_info.print_cli_output();
+        }
     }
 }
 
