@@ -49,7 +49,7 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
-    types::{move_structs::SharedBlob, BlobEvent, ContractEvent},
+    types::{move_structs::SharedBlob, Blob, BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -829,6 +829,51 @@ async fn test_burn_blobs() -> TestResult {
         .await?;
     assert_eq!(blobs.len(), N_BLOBS - N_TO_DELETE);
 
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_extend_owned_blobs() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let blob = walrus_test_utils::random_data(314);
+    let result = client
+        .as_ref()
+        .reserve_and_store_blobs(
+            &[blob.as_slice()],
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let (end_epoch, blob_object_id) = {
+        let BlobStoreResult::NewlyCreated { blob_object, .. } = result
+            .into_iter()
+            .next()
+            .expect("expect one blob store result")
+        else {
+            panic!("expect newly stored blob")
+        };
+        (blob_object.storage.end_epoch, blob_object.id)
+    };
+
+    // Extend it by 5 epochs.
+    client
+        .as_ref()
+        .sui_client()
+        .extend_blob(blob_object_id, 5, 100)
+        .await?;
+
+    let blob: Blob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(blob_object_id)
+        .await?;
+    assert_eq!(blob.storage.end_epoch, end_epoch + 5);
     Ok(())
 }
 

@@ -1238,6 +1238,23 @@ impl SuiContractClient {
         })
         .await
     }
+
+    /// Extends the owned blob object with given epochs_ahead and WAL amount.
+    pub async fn extend_blob(
+        &self,
+        blob_obj_id: ObjectID,
+        epochs_ahead: EpochCount,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .extend_blob(blob_obj_id.into(), epochs_ahead, amount)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
 }
 
 impl ReadClient for SuiContractClient {

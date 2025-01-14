@@ -254,7 +254,8 @@ impl ClientCommandRunner {
             }
 
             CliCommands::Extend {
-                shared_blob_obj_id,
+                blob_obj_id,
+                shared,
                 epochs_ahead,
             } => {
                 let sui_client = self
@@ -268,9 +269,19 @@ impl ClientCommandRunner {
                 let epochs_ahead =
                     epochs_ahead.try_into_epoch_count(fixed_parames.max_epochs_ahead)?;
 
-                sui_client
-                    .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
-                    .await?;
+                if shared {
+                    sui_client
+                        .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+                        .await?;
+                } else {
+                    if let Some(amount) = amount {
+                        sui_client
+                            .extend_blob(blob_obj_id, epochs_ahead)
+                            .await?;
+                    } else {
+                        anyhow::bail!("amount must be provided when extending an owned blob");
+                    }
+                }
 
                 spinner.finish_with_message("done");
                 ExtendBlobOutput { epochs_ahead }.print_output(self.json)
