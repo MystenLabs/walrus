@@ -48,8 +48,8 @@ pub struct ProtocolNodeParameters {
     sui_network: SuiNetwork,
     #[serde(default = "ShardsAllocation::default")]
     shards_allocation: ShardsAllocation,
-    #[serde(default = "default_node_parameters::default_contract_path")]
-    contract_path: PathBuf,
+    #[serde(default = "default_node_parameters::default_contract_dir")]
+    contract_dir: PathBuf,
     #[serde(default = "config::defaults::rest_api_port")]
     rest_api_port: u16,
     #[serde(default = "config::defaults::metrics_port")]
@@ -63,7 +63,7 @@ impl Default for ProtocolNodeParameters {
         Self {
             sui_network: default_node_parameters::default_sui_network(),
             shards_allocation: ShardsAllocation::default(),
-            contract_path: default_node_parameters::default_contract_path(),
+            contract_dir: default_node_parameters::default_contract_dir(),
             rest_api_port: config::defaults::rest_api_port(),
             metrics_port: config::defaults::metrics_port(),
             event_polling_interval: config::defaults::polling_interval(),
@@ -93,8 +93,8 @@ mod default_node_parameters {
         SuiNetwork::Testnet
     }
 
-    pub fn default_contract_path() -> PathBuf {
-        PathBuf::from("./contracts/walrus")
+    pub fn default_contract_dir() -> PathBuf {
+        PathBuf::from("./contracts")
     }
 }
 
@@ -148,7 +148,7 @@ impl ProtocolCommands for TargetProtocol {
         let testbed_config = testbed::deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: parameters.settings.working_dir.as_path(),
             sui_network: parameters.node_parameters.sui_network.clone(),
-            contract_path: parameters.node_parameters.contract_path.clone(),
+            contract_dir: parameters.node_parameters.contract_dir.clone(),
             gas_budget: walrus_sui::test_utils::DEFAULT_GAS_BUDGET,
             host_addresses: ips.iter().map(|ip| ip.to_string()).collect(),
             rest_api_port: parameters.node_parameters.rest_api_port,
@@ -166,6 +166,7 @@ impl ProtocolCommands for TargetProtocol {
             epoch_duration: Duration::from_secs(3600),
             epoch_zero_duration: Duration::from_secs(0),
             max_epochs_ahead: 104,
+            do_not_copy_contracts: false,
         })
         .await
         .expect("Failed to create Walrus contract");

@@ -215,7 +215,7 @@ pub struct DeployTestbedContractParameters<'a> {
     /// The sui network to deploy the contract on.
     pub sui_network: SuiNetwork,
     /// The path of the contract.
-    pub contract_path: PathBuf,
+    pub contract_dir: PathBuf,
     /// The gas budget to use for deployment.
     pub gas_budget: u64,
     /// The hostnames or public ip addresses of the nodes.
@@ -238,6 +238,9 @@ pub struct DeployTestbedContractParameters<'a> {
     pub epoch_duration: Duration,
     /// The maximum number of epochs ahead for which storage can be obtained.
     pub max_epochs_ahead: EpochCount,
+    /// If set, the contracts are not copied to `working_dir` and instead published from the
+    /// original directory.
+    pub do_not_copy_contracts: bool,
 }
 
 /// Create and deploy a Walrus contract.
@@ -245,7 +248,7 @@ pub async fn deploy_walrus_contract(
     DeployTestbedContractParameters {
         working_dir,
         sui_network,
-        contract_path,
+        contract_dir,
         gas_budget,
         host_addresses: hosts,
         rest_api_port,
@@ -257,6 +260,7 @@ pub async fn deploy_walrus_contract(
         epoch_zero_duration,
         epoch_duration,
         max_epochs_ahead,
+        do_not_copy_contracts,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
@@ -315,8 +319,14 @@ pub async fn deploy_walrus_contract(
     let sui_client = admin_wallet.get_client().await?;
     request_sui_from_faucet(admin_address, &sui_network, &sui_client).await?;
 
+    let deploy_directory = if do_not_copy_contracts {
+        None
+    } else {
+        Some(working_dir.join("contracts"))
+    };
+
     let system_ctx = create_and_init_system(
-        contract_path,
+        contract_dir,
         &mut admin_wallet,
         InitSystemParams {
             n_shards,
@@ -325,14 +335,14 @@ pub async fn deploy_walrus_contract(
             max_epochs_ahead,
         },
         gas_budget,
-        false,
+        deploy_directory,
     )
     .await?;
 
     // Mint WAL to the admin wallet.
     mint_wal_to_addresses(
         &mut admin_wallet,
-        system_ctx.package_id,
+        system_ctx.wal_pkg_id,
         system_ctx.treasury_cap,
         &[admin_address],
         WAL_MINT_AMOUNT,
@@ -350,12 +360,9 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
+    // TODO(WAL-520): create multiple exchange objects
     let exchange_object = contract_client
-        .create_and_fund_exchange(
-            // TODO(WAL-230): Use exchange package ID once published separately.
-            contract_client.read_client().get_system_package_id(),
-            WAL_AMOUNT_EXCHANGE,
-        )
+        .create_and_fund_exchange(system_ctx.wal_exchange_pkg_id, WAL_AMOUNT_EXCHANGE)
         .await?;
 
     println!(
@@ -364,7 +371,10 @@ pub async fn deploy_walrus_contract(
             system_object: {}\n\
             staking_object: {}\n\
             exchange_object: {}",
-        system_ctx.package_id, system_ctx.system_object, system_ctx.staking_object, exchange_object
+        system_ctx.walrus_pkg_id,
+        system_ctx.system_object,
+        system_ctx.staking_object,
+        exchange_object
     );
     Ok(TestbedConfig {
         sui_network,
@@ -415,7 +425,7 @@ pub async fn create_client_config(
     // Mint WAL to the client address.
     mint_wal_to_addresses(
         admin_wallet,
-        system_ctx.package_id,
+        system_ctx.wal_pkg_id,
         system_ctx.treasury_cap,
         &[client_address],
         1_000_000 * 1_000_000_000, // 1 million WAL

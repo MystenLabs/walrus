@@ -73,6 +73,7 @@ serde_test = "1.0.177"
 serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 snap = "1.1.0"
+sui = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" } # TODO(WAL-518): remove
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
 sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }

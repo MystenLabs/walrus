@@ -8,12 +8,11 @@ use std::{
     num::NonZeroU16,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, OnceLock},
     time::Duration,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use sui_move_build::{BuildConfig, CompiledPackage};
+use sui::client_commands::{Opts, OptsWithGas, SuiClientCommands};
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
@@ -31,6 +30,7 @@ use sui_types::{
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
 };
+use walkdir::WalkDir;
 use walrus_core::{ensure, EpochCount};
 
 use crate::{
@@ -67,64 +67,32 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
         .ok_or_else(|| anyhow!("no immutable object was created"))
 }
 
-fn compile_package(package_path: &Path, for_test: bool) -> Arc<CompiledPackage> {
-    if for_test && !cfg!(msim) {
-        tracing::debug!("attempting to reuse compiled move packages");
-        static COMPILED_PACKAGE: OnceLock<Arc<CompiledPackage>> = OnceLock::new();
-        COMPILED_PACKAGE
-            .get_or_init(|| {
-                tracing::debug!("must first build move packages from source");
-                BuildConfig::new_for_testing()
-                    .build(package_path)
-                    .expect("Building package failed")
-                    .into()
-            })
-            .clone()
-    } else {
-        tracing::debug!("compiling move packages from source");
-        let build_config = if cfg!(msim) {
-            BuildConfig::new_for_testing()
-        } else {
-            BuildConfig::default()
-        };
-        let compiled_package = build_config
-            .build(package_path)
-            .expect("Building package failed");
-        Arc::new(compiled_package)
-    }
-}
-
-#[tracing::instrument(err, skip(wallet, gas_budget))]
+#[tracing::instrument(err, skip(wallet))]
 pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
     package_path: PathBuf,
-    gas_budget: u64,
-    for_test: bool,
 ) -> Result<SuiTransactionBlockResponse> {
-    let sender = wallet.active_address()?;
-    let sui = wallet.get_client().await?;
-
-    let compiled_package = compile_package(&package_path, for_test);
-    let compiled_modules = compiled_package.get_package_bytes(true);
-
-    let dep_ids: Vec<ObjectID> = compiled_package
-        .dependency_ids
-        .published
-        .values()
-        .cloned()
-        .collect();
-
-    // Build a publish transaction
-    let publish_tx = sui
-        .transaction_builder()
-        .publish(sender, compiled_modules, dep_ids, None, gas_budget)
-        .await?;
-
-    // Get a signed transaction
-    let transaction = wallet.sign_transaction(&publish_tx);
-
-    // Submit the transaction
-    let transaction_response = wallet.execute_transaction_may_fail(transaction).await?;
+    let sui_client_command = SuiClientCommands::Publish {
+        package_path,
+        build_config: Default::default(),
+        opts: OptsWithGas {
+            gas: None,
+            rest: Opts {
+                gas_budget: None,
+                dry_run: false,
+                dev_inspect: false,
+                serialize_unsigned_transaction: false,
+                serialize_signed_transaction: false,
+            },
+        },
+        skip_dependency_verification: true,
+        with_unpublished_dependencies: true,
+    };
+    let result = sui_client_command.execute(wallet).await?;
+    let transaction_response = result
+        .tx_block_response()
+        .ok_or_else(|| anyhow!("no transaction response"))?
+        .to_owned();
 
     ensure!(
         transaction_response.status_ok() == Some(true),
@@ -136,36 +104,55 @@ pub(crate) async fn publish_package(
 
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
+    pub wal_pkg_id: ObjectID,
+    pub wal_exchange_pkg_id: ObjectID,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
     pub treasury_cap_id: ObjectID,
+}
+
+/// Copy files from the `source` directory to the `destination` directory recursively.
+#[tracing::instrument(err, skip(source, destination))]
+fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+    std::fs::create_dir_all(destination.as_ref())?;
+    for entry in WalkDir::new(source.as_ref()) {
+        let entry = entry?;
+        let filetype = entry.file_type();
+        let dest_path = entry.path().strip_prefix(source.as_ref())?;
+        if filetype.is_dir() {
+            std::fs::create_dir_all(destination.as_ref().join(dest_path))?;
+        } else {
+            std::fs::copy(entry.path(), destination.as_ref().join(dest_path))?;
+        }
+    }
+    Ok(())
 }
 
 /// Publishes the `wal`, `wal_exchange`, and `walrus` packages.
 ///
 /// Returns the IDs of the walrus package and the `InitCap` as well as the `TreasuryCap`
 /// of the `WAL` coin.
-#[tracing::instrument(err, skip(wallet, gas_budget))]
+///
+/// If `deploy_directory` is provided, the contracts will be copied to this directory and published
+/// from there to keep the `Move.toml` in the original directory unchanged.
+#[tracing::instrument(err, skip(wallet))]
 pub async fn publish_coin_and_system_package(
     wallet: &mut WalletContext,
-    walrus_contract_path: PathBuf,
-    gas_budget: u64,
-    for_test: bool,
+    walrus_contract_directory: PathBuf,
+    deploy_directory: Option<PathBuf>,
 ) -> Result<PublishSystemPackageResult> {
-    // Publish `walrus` package with unpublished dependencies.
-    let transaction_response =
-        publish_package(wallet, walrus_contract_path, gas_budget, for_test).await?;
-
-    let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
-
-    let [init_cap_id] = get_created_sui_object_ids_by_type(
-        &transaction_response,
-        &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
-    )?[..] else {
-        bail!("unexpected number of InitCap objects created");
+    let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
+        copy_recursively(&walrus_contract_directory, &deploy_directory)?;
+        deploy_directory
+    } else {
+        walrus_contract_directory
     };
 
-    let wal_type_tag = TypeTag::from_str(&format!("{walrus_pkg_id}::wal::WAL"))?;
+    // Publish `wal` package.
+    let transaction_response =
+        publish_package(wallet, walrus_contract_directory.join("wal")).await?;
+    let wal_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
+    let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
 
     let treasury_cap_struct_tag = TREASURY_CAP_TAG
         .to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
@@ -174,6 +161,23 @@ pub async fn publish_coin_and_system_package(
         get_created_sui_object_ids_by_type(&transaction_response, &treasury_cap_struct_tag)?[..]
     else {
         bail!("unexpected number of TreasuryCap objects created");
+    };
+
+    // Publish `wal_exchange` package.
+    let transaction_response =
+        publish_package(wallet, walrus_contract_directory.join("wal_exchange")).await?;
+    let wal_exchange_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
+
+    // Publish `walrus` package.
+    let transaction_response =
+        publish_package(wallet, walrus_contract_directory.join("walrus")).await?;
+    let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
+
+    let [init_cap_id] = get_created_sui_object_ids_by_type(
+        &transaction_response,
+        &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
+    )?[..] else {
+        bail!("unexpected number of InitCap objects created");
     };
 
     let [upgrade_cap_id] = get_created_sui_object_ids_by_type(
@@ -185,6 +189,8 @@ pub async fn publish_coin_and_system_package(
 
     Ok(PublishSystemPackageResult {
         walrus_pkg_id,
+        wal_pkg_id,
+        wal_exchange_pkg_id,
         init_cap_id,
         upgrade_cap_id,
         treasury_cap_id,

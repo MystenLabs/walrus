@@ -19,6 +19,10 @@ ignore = [
   "RUSTSEC-2024-0384",
   # `derivative` is unmaintained.
   "RUSTSEC-2024-0388",
+  # rusoto is unmaintained (TODO: WAL-518 remove once `sui` is removed as dependency)
+  "RUSTSEC-2022-0071",
+  # `tui` is unmaintained (TODO: WAL-518 remove once `sui` is removed as dependency)
+  "RUSTSEC-2023-0049",
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -34,6 +38,7 @@ allow = [
   "Apache-2.0",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  "BSL-1.0", # allowed by sui
   "CC0-1.0",
   "ISC",
   "LicenseRef-ring",
@@ -48,6 +53,7 @@ allow = [
 # canonical license text of a valid SPDX license file.
 # [possible values: any between 0.0 and 1.0].
 confidence-threshold = 0.8
+
 
 [[licenses.clarify]]
 name = "ring"
@@ -74,6 +80,7 @@ skip = [
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
   { name = "fastcrypto", depth = 4 },
+  { name = "sui", depth = 6 },
   { name = "test-cluster", depth = 6 },
   { name = "typed-store", depth = 6 },
   # several crates depend on an older version of windows-sys
@@ -108,4 +115,7 @@ allow-git = [
 
 [sources.allow-org]
 # github.com organizations to allow git sources for
-github = ["MystenLabs"]
+github = [
+  "MystenLabs",
+  "nextest-rs", # TODO: WAL-518 remove once `sui` is removed as dependency
+]
