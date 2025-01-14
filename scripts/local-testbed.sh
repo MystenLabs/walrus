@@ -118,7 +118,7 @@ if ! $existing; then
 
     # Generate configs
     echo Generating configuration...
-    ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir --use-legacy-event-provider
+    ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir
 fi
 
 i=0
