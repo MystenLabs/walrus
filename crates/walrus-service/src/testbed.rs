@@ -39,7 +39,7 @@ use walrus_sui::{
         DEFAULT_GAS_BUDGET,
     },
     types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
-    utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
+    utils::{create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet, SuiNetwork},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -241,6 +241,9 @@ pub struct DeployTestbedContractParameters<'a> {
     /// If set, the contracts are not copied to `working_dir` and instead published from the
     /// original directory.
     pub do_not_copy_contracts: bool,
+    /// The path to the admin wallet. If not provided, a new wallet is created and SUI will be
+    /// requested from the faucet.
+    pub admin_wallet_path: Option<PathBuf>,
 }
 
 /// Create and deploy a Walrus contract.
@@ -260,6 +263,7 @@ pub async fn deploy_walrus_contract(
         epoch_zero_duration,
         epoch_duration,
         max_epochs_ahead,
+        admin_wallet_path,
         do_not_copy_contracts,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
@@ -307,17 +311,27 @@ pub async fn deploy_walrus_contract(
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
 
-    // Create wallet for publishing contracts on sui and setting up system object
-    let mut admin_wallet = create_wallet(
-        &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
-        sui_network.env(),
-        Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
-    )?;
-    let admin_address = admin_wallet.active_address()?;
+    // Load or create wallet for publishing contracts on sui and setting up system object
+    let mut admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
+        WalletContext::new(&admin_wallet_path, None, None)?
+    } else {
+        let mut admin_wallet = create_wallet(
+            &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
+            sui_network.env(),
+            Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
+        )?;
 
-    // Get coins from faucet for the wallets.
-    let sui_client = admin_wallet.get_client().await?;
-    request_sui_from_faucet(admin_address, &sui_network, &sui_client).await?;
+        // Print the wallet address.
+        println!("Admin wallet address:");
+        println!("{}", admin_wallet.active_address()?);
+        // Try to flush output
+        let _ = std::io::stdout().flush();
+
+        // Get coins from faucet for the wallet.
+        let sui_client = admin_wallet.get_client().await?;
+        request_sui_from_faucet(admin_wallet.active_address()?, &sui_network, &sui_client).await?;
+        admin_wallet
+    };
 
     let deploy_directory = if do_not_copy_contracts {
         None
@@ -339,6 +353,7 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
+    let admin_address = admin_wallet.active_address()?;
     // Mint WAL to the admin wallet.
     mint_wal_to_addresses(
         &mut admin_wallet,
@@ -407,8 +422,8 @@ pub async fn create_client_config(
     let client_address = client_wallet.active_address()?;
 
     // Get coins from faucet for the wallets.
-    let sui_client = client_wallet.get_client().await?;
-    request_sui_from_faucet(client_wallet.active_address()?, &sui_network, &sui_client).await?;
+    get_sui_from_wallet_or_faucet(client_wallet.active_address()?, admin_wallet, &sui_network)
+        .await?;
 
     let wallet_path = if let Some(final_directory) = set_config_dir {
         replace_keystore_path(&client_wallet_path, final_directory)
@@ -519,6 +534,7 @@ pub async fn create_storage_node_configs(
         NonZeroU16::new(committee_size).expect("committee size must be > 0"),
         testbed_config.sui_network,
         faucet_cooldown,
+        admin_wallet,
     )
     .await?;
 
@@ -670,6 +686,7 @@ async fn create_storage_node_wallets(
     n_nodes: NonZeroU16,
     sui_network: SuiNetwork,
     faucet_cooldown: Option<Duration>,
+    admin_wallet: &mut WalletContext,
 ) -> anyhow::Result<Vec<WalletContext>> {
     // Create wallets for the storage nodes
     let mut storage_node_wallets = (0..n_nodes.get())
@@ -686,7 +703,6 @@ async fn create_storage_node_wallets(
 
     print_wallet_addresses(&mut storage_node_wallets)?;
 
-    let sui_client = storage_node_wallets[0].get_client().await?;
     // Get coins from faucet for the wallets.
     for wallet in storage_node_wallets.iter_mut() {
         if let Some(cooldown) = faucet_cooldown {
@@ -696,7 +712,7 @@ async fn create_storage_node_wallets(
             );
             tokio::time::sleep(cooldown).await;
         }
-        request_sui_from_faucet(wallet.active_address()?, &sui_network, &sui_client).await?;
+        get_sui_from_wallet_or_faucet(wallet.active_address()?, admin_wallet, &sui_network).await?;
     }
     Ok(storage_node_wallets)
 }

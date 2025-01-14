@@ -27,6 +27,7 @@ use sui_sdk::{
 use sui_types::{
     base_types::{ObjectRef, SuiAddress},
     crypto::SignatureScheme,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{ProgrammableTransaction, TransactionData},
 };
 use walrus_core::{
@@ -400,6 +401,34 @@ pub async fn request_sui_from_faucet(
     }
     tracing::debug!("received tokens from faucet");
     Ok(())
+}
+
+/// Gets 1 SUI for `address` from the provided wallet if the wallet has at least 2 SUI, otherwise
+/// request SUI from the faucet.
+// TODO(WAL-529): Refactor and completely remove the faucet from the deploymentflow.
+pub async fn get_sui_from_wallet_or_faucet(
+    address: SuiAddress,
+    wallet: &mut WalletContext,
+    network: &SuiNetwork,
+) -> Result<()> {
+    let one_sui = 1_000_000_000;
+    let sender = wallet.active_address()?;
+    let balance = wallet
+        .get_client()
+        .await?
+        .coin_read_api()
+        .get_balance(sender, None)
+        .await?;
+    if balance.total_balance >= 2 * one_sui as u128 {
+        let mut ptb = ProgrammableTransactionBuilder::new();
+        ptb.transfer_sui(address, Some(one_sui));
+        let tx = ptb.finish();
+        sign_and_send_ptb(sender, wallet, tx, vec![], 1000000000).await?;
+        Ok(())
+    } else {
+        request_sui_from_faucet(address, network, &wallet.get_client().await?).await?;
+        Ok(())
+    }
 }
 
 /// Generate a proof of possession of node private key for a storage node.

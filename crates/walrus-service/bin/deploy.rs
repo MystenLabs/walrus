@@ -122,6 +122,9 @@ struct DeploySystemContractArgs {
     /// The maximum number of epochs ahead for which storage can be obtained.
     #[arg(long, default_value_t = 104)]
     max_epochs_ahead: EpochCount,
+    /// The path to the admin wallet. If not provided, a new wallet is created.
+    #[clap(long)]
+    admin_wallet_path: Option<PathBuf>,
     /// If not set, contracts are copied to `working_dir` and published from there to keep the
     /// `Move.toml` unchanged. Use this flag to publish from the original directory and update
     /// the `Move.toml` to point to the new contracts.
@@ -281,6 +284,7 @@ mod commands {
             storage_capacity,
             deterministic_keys,
             max_epochs_ahead,
+            admin_wallet_path,
             do_not_copy_contracts,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
@@ -309,6 +313,7 @@ mod commands {
             epoch_duration: *epoch_duration,
             epoch_zero_duration: *epoch_zero_duration,
             max_epochs_ahead,
+            admin_wallet_path,
             do_not_copy_contracts,
         })
         .await
