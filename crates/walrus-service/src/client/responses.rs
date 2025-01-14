@@ -525,7 +525,7 @@ pub struct ExtendBlobOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// The output of the `walrus health` command.
+/// The health information of a storage node.
 pub(crate) struct NodeHealthOutput {
     pub node_id: ObjectID,
     pub node_url: String,
@@ -553,8 +553,9 @@ pub(crate) struct ServiceHealthInfoOutput {
 }
 
 impl ServiceHealthInfoOutput {
-    /// Computes the Walrus system information after reading relevant data from the Walrus system
-    /// object on chain.
+    /// Collects the health information of the storage nodes.
+    /// Storage nodes are read from on-chain data, and the health information is collected from the
+    /// storage nodes themselves.
     pub async fn get_health_info(
         sui_read_client: &impl ReadClient,
         node_selection: NodeSelection,

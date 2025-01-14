@@ -749,21 +749,21 @@ impl BurnSelection {
     }
 }
 
-/// Selector for the storage node to print health information for.
+/// Selector for the storage nodes.
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[group(required = true, multiple = false)]
 pub struct NodeSelection {
-    /// The ID of the storage node to print health information for.
+    /// The ID of the storage node to be selected.
     #[clap(long)]
     #[serde(default)]
     pub node_id: Option<ObjectID>,
-    /// The URL of the storage node to print health information for.
+    /// The URL of the storage node to be selected.
     #[clap(long)]
     #[serde(default)]
     pub node_url: Option<String>,
-    /// Print health information for all storage nodes.
+    /// Select all storage nodes.
     #[clap(long, action)]
     #[serde(default)]
     pub all: bool,
