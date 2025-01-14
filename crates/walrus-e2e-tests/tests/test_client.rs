@@ -699,14 +699,14 @@ async fn test_repeated_shard_move() -> TestResult {
 
     client
         .as_ref()
-        .stake_with_node_pools(&[(
+        .stake_with_node_pool(
             walrus_cluster.nodes[1]
                 .storage_node_capability
                 .as_ref()
                 .unwrap()
                 .node_id,
             1_000_000_000,
-        )])
+        )
         .await?;
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(4).await;
@@ -721,14 +721,14 @@ async fn test_repeated_shard_move() -> TestResult {
 
     client
         .as_ref()
-        .stake_with_node_pools(&[(
+        .stake_with_node_pool(
             walrus_cluster.nodes[0]
                 .storage_node_capability
                 .as_ref()
                 .unwrap()
                 .node_id,
             500_000_000_000,
-        )])
+        )
         .await?;
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(7).await;

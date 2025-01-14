@@ -38,8 +38,8 @@ struct Args {
 #[derive(Subcommand, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum Commands {
-    /// Register nodes based on parameters exported by the `walrus-node setup` command and
-    /// optionally stake with them.
+    /// Register nodes based on parameters exported by the `walrus-node setup` command, send the
+    /// storage-node capability to the respective node's wallet, and optionally stake with them.
     RegisterNodes(RegisterNodesArgs),
     /// Deploy the Walrus system contract on the Sui network.
     DeploySystemContract(DeploySystemContractArgs),

@@ -348,7 +348,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.reserve_space(encoded_size, epochs_ahead).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -379,7 +379,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         // Build a ptb to include all register blob commands for all blobs.
         let expected_num_blobs = blob_metadata_and_storage.len();
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
@@ -423,7 +423,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         // Build a ptb to include all reserve space and register blob commands for all blobs.
         let expected_num_blobs = blob_metadata_list.len();
         for blob_metadata in blob_metadata_list.into_iter() {
@@ -467,7 +467,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         for (blob, certificate) in blobs_with_certificates.iter() {
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
             match post_store {
@@ -551,7 +551,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .certify_event_blob(
                 blob_metadata,
@@ -574,7 +574,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.invalidate_blob_id(certificate).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -614,7 +614,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .register_candidate(node_parameters, proof_of_possession)
             .await?;
@@ -646,7 +646,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Vec<StorageNodeCap>> {
         let count = registration_params_with_stake_amounts.len();
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         for (node_parameters, proof_of_possession, address) in
             registration_params_with_stake_amounts.into_iter()
         {
@@ -684,7 +684,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         for (node_id, amount) in node_ids_with_amounts.iter() {
             pt_builder.stake_with_pool(*amount, *node_id).await?;
         }
@@ -713,7 +713,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.voting_end().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -726,7 +726,7 @@ impl SuiContractClient {
     pub async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.initiate_epoch_change().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -753,7 +753,7 @@ impl SuiContractClient {
             "calling epoch_sync_done"
         );
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .epoch_sync_done(node_capability.id.into(), epoch)
             .await?;
@@ -872,7 +872,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .create_and_fund_exchange(exchange_package, amount)
             .await?;
@@ -901,7 +901,7 @@ impl SuiContractClient {
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.exchange_sui_for_wal(exchange_id, amount).await?;
         let (ptb, sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, Some(self.gas_budget + sui_cost))
@@ -973,7 +973,7 @@ impl SuiContractClient {
     pub async fn delete_blob(&self, blob_object_id: ObjectID) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.delete_blob(blob_object_id.into()).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;

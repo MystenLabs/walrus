@@ -904,6 +904,12 @@ impl Client<SuiContractClient> {
         Ok(staked_wal)
     }
 
+    /// Stakes the specified amount of WAL with the node represented by `node_id`.
+    pub async fn stake_with_node_pool(&self, node_id: ObjectID, amount: u64) -> ClientResult<()> {
+        self.stake_with_node_pools(&[(node_id, amount)]).await?;
+        Ok(())
+    }
+
     /// Exchanges the provided amount of SUI (in MIST) for WAL using the specified exchange.
     pub async fn exchange_sui_for_wal(
         &self,
