@@ -273,8 +273,6 @@ pub enum BlobStatusError {
 }
 
 /// Error returned when the epoch in a request is invalid.
-///
-/// This is a multiline
 #[derive(Debug, Clone, thiserror::Error, Serialize, RestApiError)]
 #[error("the request's epoch ({request_epoch}) is invalid, server epoch {server_epoch}")]
 #[rest_api_error(

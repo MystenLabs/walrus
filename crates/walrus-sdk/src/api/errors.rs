@@ -170,8 +170,12 @@ struct StatusInner {
     ///
     /// Always contains an [`ErrorInfo`], which provides a machine-readable
     /// representation of the of the `message` field.
-    // The array of error details can be expanded to add further details such as localized messages,
-    // or details about where exactly the error occurred.
+    // The details vector is where we can add additional, standardized extensions to the error
+    // response. For example, for internal errors we add `ErrorDetails::DebugInfo` with the ID of
+    // the current trace. Other possible "extensions" include region-localized error messages,
+    // the duration after which to retry failed requests, details as to which fields in the request
+    // are invalid and why, links to documentation, etc. The following link gives further examples
+    // https://github.com/googleapis/googleapis/blob/master/google/rpc/error_details.proto
     #[schema(value_type = Vec<Object>)]
     details: Vec<ErrorDetails>,
 }

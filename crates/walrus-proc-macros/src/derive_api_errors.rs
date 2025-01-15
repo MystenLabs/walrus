@@ -350,7 +350,7 @@ impl DeriveRestApiErrorTrait<'_> {
                             tracing::error!(?self, "errors must serialize to json objects");
                         },
                         Err(error) => {
-                            tracing::error!(?self, "serialization to json failed");
+                            tracing::error!(?self, %error, "serialization to json failed");
                         }
                     }
                 }
