@@ -142,6 +142,8 @@ jobs:
     runs-on: ubuntu-ghcloud
     env:
       MSIM_TEST_NUM: 5
+      # Use first u16 of the commit sha as test seed.
+      MSIM_TEST_SEED: ${{ fromJson(toJson(github.sha | slice(0, 4))) }}
       RUST_LOG: error
     steps:
       - uses: taiki-e/install-action@v2.47.2
