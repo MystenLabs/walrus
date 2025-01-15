@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use sui_types::base_types::ObjectID;
 use tracing::Level;
 use walrus_core::{
     encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
@@ -26,7 +27,6 @@ use walrus_core::{
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 
-use self::api::ObjectIdSchema;
 use super::{
     extract::{Authorization, Bcs},
     openapi,
@@ -68,7 +68,7 @@ pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
 pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
 /// The path to push inconsistency proofs.
-pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistent/:sliver_type";
+pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 /// The path to get the status of a blob.
 pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
@@ -85,7 +85,7 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 #[utoipa::path(
     get,
     path = api::rewrite_route(METADATA_ENDPOINT),
-    params(("blob_id" = BlobIdString,)),
+    params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "BCS encoded blob metadata", body = [u8]),
         RetrieveMetadataError
@@ -104,7 +104,7 @@ pub async fn get_metadata<S: SyncServiceState>(
 #[utoipa::path(
     get,
     path = api::rewrite_route(METADATA_STATUS_ENDPOINT),
-    params(("blob_id" = BlobIdString,)),
+    params(("blob_id" = BlobId,)),
     responses(
         (
             status = 200,
@@ -134,7 +134,7 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 #[utoipa::path(
     put,
     path = api::rewrite_route(METADATA_ENDPOINT),
-    params(("blob_id" = BlobIdString,)),
+    params(("blob_id" = BlobId,)),
     request_body(content = [u8], description = "BCS-encoded metadata octet-stream"),
     responses(
         (status = CREATED, description = "Metadata successfully stored", body = ApiSuccessMessage),
@@ -172,7 +172,7 @@ pub async fn put_metadata<S: SyncServiceState>(
     get,
     path = api::rewrite_route(SLIVER_ENDPOINT),
     params(
-        ("blob_id" = BlobIdString, ),
+        ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
         ("sliver_type" = SliverType, ),
     ),
@@ -212,7 +212,7 @@ pub async fn get_sliver<S: SyncServiceState>(
     put,
     path = api::rewrite_route(SLIVER_ENDPOINT),
     params(
-        ("blob_id" = BlobIdString, ),
+        ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
         ("sliver_type" = SliverType, )
     ),
@@ -258,7 +258,7 @@ pub async fn put_sliver<S: SyncServiceState>(
     get,
     path = api::rewrite_route(SLIVER_STATUS_ENDPOINT),
     params(
-        ("blob_id" = BlobIdString, ),
+        ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
         ("sliver_type" = SliverType, ),
     ),
@@ -298,7 +298,7 @@ pub async fn get_sliver_status<S: SyncServiceState>(
 #[utoipa::path(
     get,
     path = api::rewrite_route(PERMANENT_BLOB_CONFIRMATION_ENDPOINT),
-    params(("blob_id" = BlobIdString,)),
+    params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "A signed confirmation of storage",
         body = ApiSuccessStorageConfirmation),
@@ -323,13 +323,13 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
 /// to this storage node for the current epoch have stored their respective slivers.
 #[tracing::instrument(
     skip_all,
-    fields(walrus.blob_id = %blob_id_string.0, walrus.object_id = %object_id_schema.0),
+    fields(walrus.blob_id = %blob_id_string.0, walrus.object_id = %object_id),
     err(level = Level::DEBUG)
 )]
 #[utoipa::path(
     get,
     path = api::rewrite_route(DELETABLE_BLOB_CONFIRMATION_ENDPOINT),
-    params(("blob_id" = BlobIdString,), ("object_id" = ObjectIdSchema,)),
+    params(("blob_id" = BlobId,), ("object_id" = ObjectID,)),
     responses(
         (status = 200, description = "A signed confirmation of storage",
         body = ApiSuccessStorageConfirmation),
@@ -339,10 +339,9 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
 )]
 pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
     State(state): State<Arc<S>>,
-    Path((blob_id_string, object_id_schema)): Path<(BlobIdString, ObjectIdSchema)>,
+    Path((blob_id_string, object_id)): Path<(BlobIdString, ObjectID)>,
 ) -> Result<ApiSuccess<StorageConfirmation>, ComputeStorageConfirmationError> {
     let blob_id = blob_id_string.0;
-    let object_id = object_id_schema.0;
     let confirmation = state
         .compute_storage_confirmation(
             &blob_id,
@@ -372,7 +371,7 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
     get,
     path = api::rewrite_route(RECOVERY_ENDPOINT),
     params(
-        ("blob_id" = BlobIdString,),
+        ("blob_id" = BlobId,),
         ("sliver_pair_index" = SliverPairIndex, ),
         ("target_pair_index" = SliverPairIndex, ),
         ("sliver_type" = SliverType, )
@@ -416,7 +415,7 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 #[utoipa::path(
     post,
     path = api::rewrite_route(INCONSISTENCY_PROOF_ENDPOINT),
-    params(("blob_id" = BlobIdString,), ("sliver_type" = SliverType,)),
+    params(("blob_id" = BlobId,), ("sliver_type" = SliverType,)),
     request_body(content = [u8], description = "BCS-encoded inconsistency proof"),
     responses(
         (status = 200, description = "Signed invalid blob-id attestation",
@@ -451,7 +450,7 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
 #[utoipa::path(
     get,
     path = api::rewrite_route(BLOB_STATUS_ENDPOINT),
-    params(("blob_id" = BlobIdString,)),
+    params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "The status of the blob", body = ApiSuccessBlobStatus),
         BlobStatusError

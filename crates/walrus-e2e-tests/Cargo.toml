@@ -22,7 +22,7 @@ tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 walrus-core.workspace = true
-walrus-proc-macros.workspace = true
+walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
 walrus-sdk.workspace = true
 walrus-service = { workspace = true, features = ["test-utils"] }
 walrus-sui.workspace = true

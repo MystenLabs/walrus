@@ -76,8 +76,7 @@ pub type EpochCount = u32;
 #[derive(Debug)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(as = Epoch))]
-#[allow(dead_code)]
-pub struct EpochSchema(u32);
+pub struct EpochSchema(pub u32);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

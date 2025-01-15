@@ -994,6 +994,7 @@ mod tests {
     };
 
     use anyhow::Result;
+    use prometheus::Registry;
     use typed_store::Map;
     use walrus_core::{BlobId, ShardIndex};
     use walrus_sui::{
@@ -1017,11 +1018,12 @@ mod tests {
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 2;
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
+        let registry = Registry::new();
         let node = create_test_node().await?;
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
             node.storage_node.inner().clone(),
-            prometheus::default_registry(),
+            &registry,
             Some(10),
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
@@ -1066,10 +1068,11 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
         let node = create_test_node().await?;
+        let registry = Registry::new();
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
             node.storage_node.inner().clone(),
-            prometheus::default_registry(),
+            &registry,
             Some(10),
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
