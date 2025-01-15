@@ -593,10 +593,14 @@ async fn test_blocklist() -> TestResult {
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
-    assert!(matches!(
-        blob_read_result.unwrap_err().kind(),
-        ClientErrorKind::BlobIdBlocked(_blob_id)
-    ));
+
+    let error = blob_read_result.expect_err("result must be an error");
+
+    assert!(
+        matches!(error.kind(), ClientErrorKind::BlobIdBlocked(_)),
+        "unexpected error {:?}",
+        error
+    );
 
     // Remove the blob from the blocklist
     for blocklist in blocklists.iter_mut() {

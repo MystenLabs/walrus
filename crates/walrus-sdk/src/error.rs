@@ -43,16 +43,20 @@ impl NodeError {
         Some(StatusCode::NOT_FOUND) == self.http_status_code()
     }
 
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::FORBIDDEN`].
-    pub fn is_status_forbidden(&self) -> bool {
-        Some(StatusCode::FORBIDDEN) == self.http_status_code()
+    /// Returns true if the error is due to the blob being blocked.
+    pub fn is_blob_blocked(&self) -> bool {
+        // TODO(jsmith): use a constant shared between client and server.
+        self.status()
+            .map(|status| status.is_for_reason("FORBIDDEN_BLOB", STORAGE_NODE_ERROR_DOMAIN))
+            .unwrap_or(false)
     }
 
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::MISDIRECTED_REQUEST`].
+    /// Returns true if the error is due to the shard not being assigned to the storage node.
     pub fn is_shard_not_assigned(&self) -> bool {
-        self.http_status_code() == Some(StatusCode::MISDIRECTED_REQUEST)
+        // TODO(jsmith): use a constant shared between client and server.
+        self.status()
+            .map(|status| status.is_for_reason("SHARD_NOT_ASSIGNED", STORAGE_NODE_ERROR_DOMAIN))
+            .unwrap_or(false)
     }
 
     /// Wrap a standard error as a Node error.

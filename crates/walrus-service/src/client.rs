@@ -1235,7 +1235,7 @@ impl<T> Client<T> {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
-                        } else if error.is_status_forbidden() {
+                        } else if error.is_blob_blocked() {
                             n_forbidden += 1;
                         }
                     })
@@ -1310,7 +1310,7 @@ impl<T> Client<T> {
                     tracing::debug!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() {
                         n_not_found += 1;
-                    } else if error.is_status_forbidden() {
+                    } else if error.is_blob_blocked() {
                         n_forbidden += 1;
                     }
                     if self
@@ -1396,7 +1396,7 @@ impl<T> Client<T> {
                     let res = {
                         if error.is_status_not_found() {
                             n_not_found += weight;
-                        } else if error.is_status_forbidden() {
+                        } else if error.is_blob_blocked() {
                             n_forbidden += weight;
                         }
                         committees.is_quorum(n_not_found + n_forbidden)

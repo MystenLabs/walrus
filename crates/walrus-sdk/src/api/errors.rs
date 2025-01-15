@@ -137,6 +137,11 @@ impl Status {
         self.inner.details.push(details);
         None
     }
+
+    /// Returns true if the error's reason and domain match those specified.
+    pub fn is_for_reason(&self, reason: &str, domain: &str) -> bool {
+        self.reason() == Some(reason) && self.domain() == Some(domain)
+    }
 }
 
 impl Display for Status {
