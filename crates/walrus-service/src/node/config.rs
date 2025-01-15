@@ -253,6 +253,8 @@ impl MetricsPushConfig {
             .entry("host".into())
             .or_insert_with(|| host);
     }
+}
+
 fn push_interval_default() -> Duration {
     Duration::from_secs(60)
 }
