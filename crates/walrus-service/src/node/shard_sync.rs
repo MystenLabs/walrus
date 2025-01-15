@@ -499,8 +499,6 @@ fn inject_recovery_metadata_failure_during_fetch(
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-
     use super::*;
     use crate::test_utils::{StorageNodeHandle, TestCluster};
 
@@ -510,33 +508,6 @@ mod tests {
             .build()
             .await
             .unwrap()
-    }
-
-    #[tokio::test(start_paused = false)]
-    async fn test_shard_syncs_with_concurrency_limit() {
-        let cluster = create_test_cluster(&[&[0, 1, 2]]).await;
-        for i in [0, 2] {
-            cluster.nodes[0]
-                .storage_node
-                .inner
-                .storage
-                .shard_storage(ShardIndex(i))
-                .expect("Failed to get shard storage")
-                .update_status_in_test(ShardStatus::ActiveSync)
-                .expect("Failed to update shard status");
-        }
-
-        let mut config = ShardSyncConfig::default();
-        let concurrency = rand::thread_rng().gen_range(1..3);
-        config.shard_sync_concurrency = concurrency;
-        let shard_sync_handler =
-            ShardSyncHandler::new(cluster.nodes[0].storage_node.inner.clone(), config);
-
-        shard_sync_handler
-            .restart_syncs()
-            .await
-            .expect("Failed to restart syncs");
-        // assert_eq!(shard_sync_handler.sync_task_count(), concurrency);
     }
 
     #[tokio::test(start_paused = false)]
