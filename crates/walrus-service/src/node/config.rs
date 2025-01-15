@@ -249,7 +249,7 @@ impl MetricsPushConfig {
     fn set_host(&mut self, host: String) {
         self.labels
             .get_or_insert_with(HashMap::new)
-            .insert("host".into(), host.into());
+            .insert("host".into(), host);
     }
 }
 
