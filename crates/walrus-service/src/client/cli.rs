@@ -292,7 +292,7 @@ trait CurrencyForDisplay {
 /// The representation of a currency in a human readable format.
 #[repr(transparent)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct HumanReadableCoin<C>(C);
+pub struct HumanReadableCoin<C>(C);
 
 impl<C: CurrencyForDisplay> From<u64> for HumanReadableCoin<C> {
     fn from(value: u64) -> Self {
@@ -325,13 +325,11 @@ impl<C: CurrencyForDisplay> Display for HumanReadableCoin<C> {
 }
 
 /// The SUI coin for simple display.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct SuiCoin(u64);
+pub struct SuiCoin(u64);
 
 /// The human readable representation of the MIST and SUI coins.
-#[allow(dead_code)]
-pub(crate) type HumanReadableMist = HumanReadableCoin<SuiCoin>;
+pub type HumanReadableMist = HumanReadableCoin<SuiCoin>;
 
 impl CurrencyForDisplay for SuiCoin {
     const SUPERUNIT_NAME: &'static str = "SUI";
@@ -349,10 +347,10 @@ impl CurrencyForDisplay for SuiCoin {
 
 /// The WAL coin for simple display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct WalCoin(u64);
+pub struct WalCoin(u64);
 
 /// The human readable representation of the FROST and WAL coins.
-pub(crate) type HumanReadableFrost = HumanReadableCoin<WalCoin>;
+pub type HumanReadableFrost = HumanReadableCoin<WalCoin>;
 
 impl CurrencyForDisplay for WalCoin {
     const SUPERUNIT_NAME: &'static str = "WAL";

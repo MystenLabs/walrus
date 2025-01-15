@@ -19,18 +19,20 @@ use tracing::Level;
 // Walrus proxy prom registry, to avoid collisions with prometheus in some
 // shared counters from other crates, namely sui-proxy
 pub(crate) static WALRUS_PROXY_PROM_REGISTRY: Lazy<Registry> = Lazy::new(Registry::new);
-// Function to access the registry
-pub(crate) fn walrus_proxy_prom_registry() -> &'static Registry {
+
+/// Function to access the registry
+pub fn walrus_proxy_prom_registry() -> &'static Registry {
     &WALRUS_PROXY_PROM_REGISTRY
 }
 /// macro to register metrics into the walrus proxy (local) default registry
 #[macro_export]
 macro_rules! register_metric {
     ($metric:expr) => {{
+        let m = $metric;
         $crate::metrics::walrus_proxy_prom_registry()
-            .register(Box::new($metric))
+            .register(Box::new(m.clone()))
             .unwrap();
-        $metric
+        m
     }};
 }
 
@@ -58,7 +60,7 @@ impl HealthCheck {
 }
 
 /// a simple uptime metric
-fn uptime_metric(registry: Registry) {
+fn uptime_metric(registry: &Registry) {
     // Define the uptime counter
     let opts = Opts::new("uptime_seconds", "Uptime in seconds");
     let uptime_counter = IntCounter::with_opts(opts).unwrap();
@@ -77,10 +79,10 @@ fn uptime_metric(registry: Registry) {
 
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
-pub fn start_prometheus_server(listener: TcpListener) -> Registry {
-    let registry = Registry::new();
+pub fn start_prometheus_server(listener: TcpListener) {
+    let registry = walrus_proxy_prom_registry();
 
-    uptime_metric(registry.clone());
+    uptime_metric(registry);
 
     let pod_health_data = Arc::new(RwLock::new(HealthCheck::new()));
 
@@ -88,7 +90,7 @@ pub fn start_prometheus_server(listener: TcpListener) -> Registry {
         .route(METRICS_ROUTE, get(metrics))
         .route(POD_HEALTH_ROUTE, get(pod_health))
         .route(POD_LIVENESS_ROUTE, get(liveness))
-        .layer(Extension(registry.clone()))
+        .layer(Extension(registry))
         .layer(Extension(pod_health_data.clone()))
         .layer(
             ServiceBuilder::new().layer(
@@ -105,12 +107,10 @@ pub fn start_prometheus_server(listener: TcpListener) -> Registry {
         let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         axum::serve(listener, app).await.unwrap();
     });
-
-    registry
 }
 
 async fn metrics(
-    Extension(registry_service): Extension<Registry>,
+    Extension(registry_service): Extension<&Registry>,
     Extension(pod_health): Extension<HealthCheckMetrics>,
 ) -> (StatusCode, String) {
     let mut metric_families = registry_service.gather();

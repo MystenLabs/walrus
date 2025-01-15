@@ -79,7 +79,7 @@ use crate::{
             NodeCommitteeService,
         },
         config,
-        config::{EventProviderConfig, StorageNodeConfig},
+        config::StorageNodeConfig,
         contract_service::SystemContractService,
         errors::SyncShardClientError,
         events::{
@@ -282,6 +282,7 @@ impl SimStorageNodeHandle {
     /// node.
     pub async fn spawn_node(
         config: StorageNodeConfig,
+        num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
@@ -316,9 +317,13 @@ impl SimStorageNodeHandle {
 
                 async move {
                     let (rest_api_handle, node_handle, event_processor_handle) =
-                        Self::build_and_run_node(config, cancel_token.clone())
-                            .await
-                            .expect("Should start node successfully");
+                        Self::build_and_run_node(
+                            config,
+                            num_checkpoints_per_blob,
+                            cancel_token.clone(),
+                        )
+                        .await
+                        .expect("Should start node successfully");
 
                     startup_sender.send(true).ok();
 
@@ -355,6 +360,7 @@ impl SimStorageNodeHandle {
     /// REST API, the node, and the event processor.
     async fn build_and_run_node(
         config: StorageNodeConfig,
+        num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
         tokio::task::JoinHandle<Result<(), std::io::Error>>,
@@ -374,43 +380,35 @@ impl SimStorageNodeHandle {
         // Starts the event processor thread if the node is configured to use the checkpoint
         // based event processor.
         let sui_read_client = sui_config.new_read_client().await?;
-        let event_provider: Box<dyn EventManager> = match &config.event_provider_config {
-            EventProviderConfig::CheckpointBasedEventProcessor(event_processor_config) => {
-                let event_processor_config = event_processor_config.clone().unwrap_or_else(|| {
-                    crate::node::events::EventProcessorConfig::new_with_default_pruning_interval(
-                        sui_config.rpc.clone(),
-                    )
-                });
-                let processor_config =
-                    crate::node::events::event_processor::EventProcessorRuntimeConfig {
-                        rpc_address: sui_config.rpc.clone(),
-                        event_polling_interval: Duration::from_millis(100),
-                        db_path: nondeterministic!(tempfile::tempdir()
-                            .expect("temporary directory creation must succeed")
-                            .path()
-                            .to_path_buf()),
-                    };
-                let system_config = crate::node::events::event_processor::SystemConfig {
-                    system_object_id: sui_config.system_object,
-                    staking_object_id: sui_config.staking_object,
-                    system_pkg_id: sui_read_client.get_system_package_id(),
+        let event_provider: Box<dyn EventManager> = if config.use_legacy_event_provider {
+            Box::new(crate::node::system_events::SuiSystemEventProvider::new(
+                sui_read_client.clone(),
+                Duration::from_millis(100),
+            ))
+        } else {
+            let processor_config =
+                crate::node::events::event_processor::EventProcessorRuntimeConfig {
+                    rpc_address: sui_config.rpc.clone(),
+                    event_polling_interval: Duration::from_millis(100),
+                    db_path: nondeterministic!(tempfile::tempdir()
+                        .expect("temporary directory creation must succeed")
+                        .path()
+                        .to_path_buf()),
                 };
-                Box::new(
-                    EventProcessor::new(
-                        &event_processor_config,
-                        processor_config,
-                        system_config,
-                        &metrics_registry,
-                    )
-                    .await?,
+            let system_config = crate::node::events::event_processor::SystemConfig {
+                system_object_id: sui_config.contract_config.system_object,
+                staking_object_id: sui_config.contract_config.staking_object,
+                system_pkg_id: sui_read_client.get_system_package_id(),
+            };
+            Box::new(
+                EventProcessor::new(
+                    &config.event_processor_config,
+                    processor_config,
+                    system_config,
+                    &metrics_registry,
                 )
-            }
-            EventProviderConfig::LegacyEventProvider => {
-                Box::new(crate::node::system_events::SuiSystemEventProvider::new(
-                    sui_read_client.clone(),
-                    Duration::from_millis(100),
-                ))
-            }
+                .await?,
+            )
         };
 
         // Starts the event processor thread if it is configured, otherwise it produces a JoinHandle
@@ -430,7 +428,11 @@ impl SimStorageNodeHandle {
         };
 
         // Build storage node with the current configuration and event manager.
-        let node = StorageNode::builder()
+        let mut builder = StorageNode::builder();
+        if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
+            builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
+        };
+        let node = builder
             .with_system_event_manager(event_provider)
             .build(&config, metrics_registry.clone())
             .await?;
@@ -490,13 +492,15 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
     where
         Self: Sized,
     {
+        let num_checkpoints_per_blob = builder.num_checkpoints_per_blob.as_ref().cloned();
         builder
             .start_node(
                 sui_cluster_handle.expect("SUI cluster handle must be provided in simtest"),
                 system_context.expect("System context must be provided"),
                 storage_dir,
                 start_node,
-                false,
+                disable_event_blob_writer,
+                num_checkpoints_per_blob,
             )
             .await
     }
@@ -726,7 +730,7 @@ impl StorageNodeHandleBuilder {
             protocol_key_pair: node_info.key_pair.into(),
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
-            public_host: Some(node_info.rest_api_address.ip().to_string()),
+            public_host: node_info.rest_api_address.ip().to_string(),
             blocklist_path: self.blocklist_path,
             disable_event_blob_writer: self.disable_event_blob_writer,
             ..storage_node_config().inner
@@ -848,7 +852,10 @@ impl StorageNodeHandleBuilder {
         storage_dir: TempDir,
         start_node: bool,
         disable_event_blob_writer: bool,
+        num_checkpoints_per_blob: Option<u32>,
     ) -> anyhow::Result<SimStorageNodeHandle> {
+        use walrus_sui::client::contract_config::ContractConfig;
+
         let node_info = self
             .test_config
             .expect("test config must be provided to spawn a storage node");
@@ -859,14 +866,16 @@ impl StorageNodeHandleBuilder {
             protocol_key_pair: node_info.key_pair.into(),
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
-            public_host: Some(node_info.rest_api_address.ip().to_string()),
-            event_provider_config: EventProviderConfig::CheckpointBasedEventProcessor(None),
+            public_host: node_info.rest_api_address.ip().to_string(),
+            event_processor_config: Default::default(),
+            use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
                 rpc: sui_cluster_handle.cluster().rpc_url().to_string(),
-                system_object: system_context.system_object,
-                staking_object: system_context.staking_object,
-                walrus_package: Some(system_context.package_id),
+                contract_config: ContractConfig::new(
+                    system_context.system_object,
+                    system_context.staking_object,
+                ),
                 wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
@@ -879,9 +888,13 @@ impl StorageNodeHandleBuilder {
 
         let node_id = if start_node {
             Some(
-                SimStorageNodeHandle::spawn_node(storage_node_config.clone(), cancel_token.clone())
-                    .await
-                    .id(),
+                SimStorageNodeHandle::spawn_node(
+                    storage_node_config.clone(),
+                    num_checkpoints_per_blob,
+                    cancel_token.clone(),
+                )
+                .await
+                .id(),
             )
         } else {
             None
@@ -1734,7 +1747,6 @@ impl StorageNodeTestConfig {
             next_epoch_public_key: None,
             network_public_key: self.network_key_pair.public().clone(),
             shard_ids: self.shards.clone(),
-            #[cfg(feature = "walrus-mainnet")]
             metadata: ObjectID::random(),
         }
     }
@@ -1898,7 +1910,6 @@ pub(crate) fn test_committee_with_epoch(weights: &[u16], epoch: Epoch) -> Commit
             network_public_key: NetworkKeyPair::generate().public().clone(),
             name: String::new(),
             network_address: NetworkAddress("host:0".to_owned()),
-            #[cfg(feature = "walrus-mainnet")]
             metadata: ObjectID::random(),
         })
         .collect();
@@ -1914,7 +1925,12 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient},
+        client::{
+            contract_config::ContractConfig,
+            retry_client::RetriableSuiClient,
+            SuiContractClient,
+            SuiReadClient,
+        },
         test_utils::{
             self,
             system_setup::{
@@ -1969,6 +1985,7 @@ pub mod test_cluster {
             true,
             ClientCommunicationConfig::default_for_test(),
             None,
+            Some(10),
         )
         .await
     }
@@ -1981,6 +1998,7 @@ pub mod test_cluster {
         use_legacy_event_processor: bool,
         communication_config: ClientCommunicationConfig,
         blocklist_dir: Option<PathBuf>,
+        num_checkpoints_per_blob: Option<u32>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1991,7 +2009,7 @@ pub mod test_cluster {
             node_weights,
             use_legacy_event_processor,
             false,
-            None,
+            num_checkpoints_per_blob,
             communication_config,
             blocklist_dir,
         )
@@ -2094,6 +2112,9 @@ pub mod test_cluster {
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
+        let contract_config =
+            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
+
         // Build the walrus cluster
         let sui_read_client = SuiReadClient::new(
             RetriableSuiClient::new_from_wallet(
@@ -2101,9 +2122,7 @@ pub mod test_cluster {
                 ExponentialBackoffConfig::default(),
             )
             .await?,
-            system_ctx.system_object,
-            system_ctx.staking_object,
-            Some(system_ctx.package_id),
+            &contract_config,
         )
         .await?;
 
@@ -2138,18 +2157,13 @@ pub mod test_cluster {
             .with_committee_services(&committee_services)
             .with_system_contract_services(&node_contract_services);
 
-        let event_processor_config =
-            EventProcessorConfig::new_with_default_pruning_interval(sui_cluster.rpc_url().clone());
+        let event_processor_config = Default::default();
         let cluster_builder = if use_legacy_event_processor {
-            setup_legacy_event_processors(
-                &event_processor_config,
-                sui_read_client.clone(),
-                cluster_builder,
-            )
-            .await?
+            setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
         } else {
             setup_checkpoint_based_event_processors(
                 &event_processor_config,
+                &sui_cluster.rpc_url(),
                 sui_read_client.clone(),
                 cluster_builder,
                 system_ctx.system_object,
@@ -2189,10 +2203,8 @@ pub mod test_cluster {
             SuiContractClient::new_with_read_client(wallet, DEFAULT_GAS_BUDGET, sui_read_client)
         })?;
         let config = Config {
-            system_object: system_ctx.system_object,
-            staking_object: system_ctx.staking_object,
-            walrus_package: Some(system_ctx.package_id),
-            exchange_object: None,
+            contract_config,
+            exchange_objects: vec![],
             wallet_config: None,
             communication_config,
         };
@@ -2208,6 +2220,7 @@ pub mod test_cluster {
 
     async fn setup_checkpoint_based_event_processors(
         event_processor_config: &EventProcessorConfig,
+        rpc_url: &str,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
         system_object_id: ObjectID,
@@ -2216,7 +2229,7 @@ pub mod test_cluster {
         let mut event_processors = vec![];
         for _ in test_cluster_builder.storage_node_test_configs().iter() {
             let processor_config = EventProcessorRuntimeConfig {
-                rpc_address: event_processor_config.rest_url.clone(),
+                rpc_address: rpc_url.to_string(),
                 event_polling_interval: Duration::from_millis(100),
                 db_path: nondeterministic!(tempfile::tempdir()
                     .expect("temporary directory creation must succeed")
@@ -2242,7 +2255,6 @@ pub mod test_cluster {
     }
 
     async fn setup_legacy_event_processors(
-        _event_processor_config: &EventProcessorConfig,
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
     ) -> anyhow::Result<TestClusterBuilder> {
@@ -2267,13 +2279,13 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     let rest_api_address = unused_socket_address(false);
     WithTempDir {
         inner: StorageNodeConfig {
-            name: Some("node".to_string()),
+            name: "node".to_string(),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address,
             metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
-            db_config: None,
+            db_config: Default::default(),
             blocklist_path: None,
             sui: None,
             blob_recovery: Default::default(),
@@ -2284,7 +2296,8 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 shard_sync_retry_max_backoff: Duration::from_secs(10),
                 ..Default::default()
             },
-            event_provider_config: EventProviderConfig::LegacyEventProvider,
+            event_processor_config: Default::default(),
+            use_legacy_event_provider: false,
             disable_event_blob_writer: false,
             commission_rate: 0,
             voting_params: VotingParams {
@@ -2292,10 +2305,10 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
                 write_price: 1,
                 node_capacity: 1_000_000_000,
             },
-            public_host: Some(rest_api_address.ip().to_string()),
-            public_port: Some(rest_api_address.port()),
+            public_host: rest_api_address.ip().to_string(),
+            public_port: rest_api_address.port(),
             metrics_push: None,
-            metadata: None,
+            metadata: Default::default(),
         },
         temp_dir,
     }

@@ -297,13 +297,17 @@ pub enum CliCommands {
     },
     /// Stake with storage node.
     Stake {
-        #[clap(long)]
         /// The object ID of the storage node to stake with.
-        node_id: ObjectID,
-        #[clap(long, default_value_t = default::staking_amount_frost())]
-        #[serde(default = "default::staking_amount_frost")]
+        #[clap(long, required=true, num_args=1.., alias("node-id"))]
+        node_ids: Vec<ObjectID>,
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
-        amount: u64,
+        ///
+        /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
+        /// values must be equal to the number of node IDs, and each amount is staked at the node
+        /// with the same index.
+        #[clap(long, alias("amount"), default_value = "1000000000")]
+        #[serde(default = "default::staking_amounts_frost")]
+        amounts: Vec<u64>,
     },
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
@@ -320,8 +324,17 @@ pub enum CliCommands {
         #[clap(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
+        /// Whether to attempt to get SUI tokens from the faucet.
+        #[clap(long, action)]
+        #[serde(default)]
+        use_faucet: bool,
         /// Timeout for the faucet call.
-        #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
+        #[clap(
+            long,
+            value_parser = humantime::parse_duration,
+            default_value = "1min",
+            requires = "use_faucet")
+        ]
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
@@ -359,6 +372,34 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         yes: bool,
+    },
+
+    /// Fund a shared blob.
+    FundSharedBlob {
+        /// The object ID of the shared blob to fund.
+        #[clap(long)]
+        shared_blob_obj_id: ObjectID,
+        /// The amount of FROST (smallest unit of WAL token) to fund the shared blob with.
+        #[clap(long)]
+        amount: u64,
+    },
+    /// Extend a shared blob.
+    Extend {
+        /// The object ID of the shared blob to extend.
+        #[clap(long)]
+        shared_blob_obj_id: ObjectID,
+        /// The number of epochs to extend the shared blob for.
+        #[clap(long)]
+        epochs_ahead: EpochCount,
+    },
+    /// Share a blob.
+    Share {
+        /// The object ID of the (owned) blob to share.
+        #[clap(long)]
+        blob_obj_id: ObjectID,
+        /// If specified, share and directly fund the blob.
+        #[clap(long)]
+        amount: Option<u64>,
     },
 }
 
@@ -756,8 +797,8 @@ pub(crate) mod default {
             .expect("this is a correct socket address")
     }
 
-    pub(crate) fn staking_amount_frost() -> u64 {
-        1_000_000_000 // 1 WAL
+    pub(crate) fn staking_amounts_frost() -> Vec<u64> {
+        vec![1_000_000_000] // 1 WAL
     }
 
     pub(crate) fn exchange_amount_mist() -> u64 {

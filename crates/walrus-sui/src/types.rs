@@ -91,6 +91,7 @@ impl NetworkAddress {
 
 /// Node metadata.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
 pub struct NodeMetadata {
     /// The image URL of the storage node.
     pub image_url: String,
@@ -102,8 +103,20 @@ pub struct NodeMetadata {
     extra_fields: Vec<(String, String)>,
 }
 
+impl NodeMetadata {
+    /// Creates a new node metadata object.
+    pub fn new(image_url: String, project_url: String, description: String) -> Self {
+        Self {
+            image_url,
+            project_url,
+            description,
+            extra_fields: vec![],
+        }
+    }
+}
+
 /// Node parameters needed to register a node.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeRegistrationParams {
     /// Name of the storage node.
     pub name: String,
@@ -113,10 +126,6 @@ pub struct NodeRegistrationParams {
     pub public_key: PublicKey,
     /// The network key of the storage node.
     pub network_public_key: NetworkPublicKey,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    /// The commission rate of the storage node.
-    pub commission_rate: u64,
-    #[cfg(feature = "walrus-mainnet")]
     /// The commission rate of the storage node.
     pub commission_rate: u16,
     /// The vote for the storage price per unit.

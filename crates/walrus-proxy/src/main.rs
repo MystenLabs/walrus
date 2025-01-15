@@ -49,7 +49,7 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
-
+    let _registry_guard = metrics::walrus_proxy_prom_registry();
     let args = Args::parse();
 
     let config: ProxyConfig = load(args.config)?;
@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
 
     let remote_write_client = admin::make_reqwest_client(config.remote_write, APP_USER_AGENT);
     let histogram_relay = histogram_relay::start_prometheus_server(histogram_listener);
-    let _registry = metrics::start_prometheus_server(metrics_listener);
+    metrics::start_prometheus_server(metrics_listener);
 
     // setup committee provider
     let walrus_node_provider = providers::WalrusNodeProvider::new(

@@ -566,7 +566,7 @@ impl EventProcessor {
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
             client.clone(),
             stores.checkpoint_store.clone(),
-            config.adaptive_downloader_config(),
+            config.adaptive_downloader_config.clone(),
             registry,
         )?;
         let metrics = EventProcessorMetrics::new(registry);
@@ -597,7 +597,7 @@ impl EventProcessor {
         let latest_checkpoint = client.get_latest_checkpoint().await?;
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = config.rest_url.clone();
+        let url = runtime_config.rpc_address.clone();
         let sui_client = SuiClientBuilder::default()
             .build(&url)
             .await
@@ -848,7 +848,6 @@ impl EventProcessor {
             clients.sui_client.clone(),
             system_objects.staking_object_id,
             system_objects.system_object_id,
-            Some(system_objects.system_pkg_id),
             next_checkpoint,
             recovery_path,
         )
@@ -1002,7 +1001,7 @@ impl EventProcessor {
         let mut iterator = event_blob.peekable();
         let first_event = iterator.peek().cloned();
         let relevant_events: Vec<IndexedStreamEvent> = iterator
-            .skip_while(|event| next_event_index.map_or(false, |index| event.index < index))
+            .skip_while(|event| next_event_index.is_some_and(|index| event.index < index))
             .scan(next_event_index, |state, event| match state {
                 Some(expected_index) if event.index == *expected_index => {
                     *state = Some(*expected_index + 1);

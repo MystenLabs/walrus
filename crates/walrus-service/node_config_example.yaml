@@ -1,92 +1,109 @@
-# Example configuration for a Walrus storage node.
-#
-# Only the uncommented parameters are required.
-# Default optional values are commented out.
-
-name: walrus-node
-storage_path: /path/to/node/storage
-protocol_key_pair: /path/to/keypair
-network_key_pair: /path/to/network_keypair
+name: ''
+storage_path: /opt/walrus/db
+blocklist_path: null
+db_config:
+  global:
+    max_open_files: 512000
+  standard:
+    enable_blob_files: false
+    min_blob_size: 0
+    blob_file_size: 0
+    blob_compression_type: none
+    enable_blob_garbage_collection: false
+    blob_garbage_collection_age_cutoff: 0.0
+    blob_garbage_collection_force_threshold: 0.0
+    blob_compaction_read_ahead_size: 0
+    write_buffer_size: 67108864
+    target_file_size_base: 67108864
+    max_bytes_for_level_base: 536870912
+  optimized_for_blobs:
+    enable_blob_files: true
+    min_blob_size: 1048576
+    blob_file_size: 268435456
+    blob_compression_type: zstd
+    enable_blob_garbage_collection: true
+    blob_garbage_collection_age_cutoff: 0.5
+    blob_garbage_collection_force_threshold: 0.5
+    blob_compaction_read_ahead_size: 10485760
+    write_buffer_size: 268435456
+    target_file_size_base: 4194304
+    max_bytes_for_level_base: 33554432
+  node_status: null
+  metadata: null
+  blob_info: null
+  per_object_blob_info: null
+  event_cursor: null
+  shard: null
+  shard_status: null
+  shard_sync_progress: null
+  pending_recover_slivers: null
+protocol_key_pair:
+  path: /opt/walrus/config/protocol.key
+network_key_pair:
+  path: /opt/walrus/config/network.key
+public_host: 0.0.0.0
+public_port: 9185
+metrics_address: 127.0.0.1:9184
+rest_api_address: 0.0.0.0:9185
+rest_graceful_shutdown_period_secs: 60
 sui:
   rpc: https://fullnode.testnet.sui.io:443
-  system_object: 0xd6f0cacdb8b365cdda24ab954a32ebc86f8b8a1707322b4cc0ba54dcbbbc5772
-  staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
-  wallet_config: /path/to/sui/wallet-config.yaml
-  # event_polling_interval_millis: 400
-  # gas_budget: 500000000
+  system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+  staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+  event_polling_interval_millis: 400
+  wallet_config: /opt/walrus/config/sui_config.yaml
+  backoff_config:
+    min_backoff_millis: 1000
+    max_backoff_millis: 30000
+    max_retries: 5
+  gas_budget: 500000000
+blob_recovery:
+  max_concurrent_blob_syncs: 100
+  max_concurrent_sliver_syncs: 2000
+  retry_interval_min_secs: 1
+  retry_interval_max_secs: 3600
+  metadata_request_timeout_secs: 5
+  max_concurrent_metadata_requests: 1
+  sliver_request_timeout_secs: 300
+  invalidity_sync_timeout_secs: 300
+  node_connect_timeout_secs: 1
+tls:
+  disable_tls: false
+  pem_files: null
+shard_sync_config:
+  sliver_count_per_sync_request: 10
+  shard_sync_retry_min_backoff_secs: 60
+  shard_sync_retry_max_backoff_secs: 600
+  max_concurrent_blob_recovery_during_shard_recovery: 5
+  blob_certified_check_interval_secs: 60
+  max_concurrent_metadata_fetch: 10
+event_processor_config:
+  pruning_interval_secs: 3600
+  adaptive_downloader_config:
+    min_workers: 1
+    max_workers: 10
+    initial_workers: 5
+    scale_up_lag_threshold: 100
+    scale_down_lag_threshold: 10
+    scale_cooldown_secs: 10
+    base_config:
+      min_retries: 10
+      initial_delay_millis: 150
+      max_delay_millis: 2000
+    channel_config:
+      work_queue_buffer_factor: 3
+      result_queue_buffer_factor: 3
+  event_stream_catchup_min_checkpoint_lag: 20000
+use_legacy_event_provider: false
+disable_event_blob_writer: false
+commission_rate: 0
 voting_params:
-  storage_price: 5
-  write_price: 1
+  storage_price: 100
+  write_price: 2000
   node_capacity: 250000000000
-# metrics_address: 127.0.0.1:9184
-# rest_api_address: 0.0.0.0:9185
-# blob_recovery:
-#   max_concurrent_blob_syncs: 10
-#   retry_interval_min_secs: 1
-#   retry_interval_max_secs: 3600
-#   metadata_request_timeout_secs: 5
-#   max_concurrent_metadata_requests: 1
-#   sliver_request_timeout_secs: 300
-#   invalidity_sync_timeout_secs: 300
-# db_config:
-#   metadata:
-#     enable_blob_files: true
-#     min_blob_size: 1048576
-#     blob_file_size: 268435456
-#     blob_compression_type: zstd
-#     enable_blob_garbage_collection: true
-#     blob_garbage_collection_age_cutoff: 0.5
-#     blob_garbage_collection_force_threshold: 0.5
-#     blob_compaction_read_ahead_size: 10485760
-#     write_buffer_size: 268435456
-#     target_file_size_base: 4194304
-#     max_bytes_for_level_base: 33554432
-#   blob_info:
-#     enable_blob_files: false
-#     min_blob_size: 0
-#     blob_file_size: 0
-#     blob_compression_type: none
-#     enable_blob_garbage_collection: false
-#     blob_garbage_collection_age_cutoff: 0.0
-#     blob_garbage_collection_force_threshold: 0.0
-#     blob_compaction_read_ahead_size: 0
-#     write_buffer_size: 67108864
-#     target_file_size_base: 67108864
-#     max_bytes_for_level_base: 536870912
-#   event_cursor:
-#     enable_blob_files: false
-#     min_blob_size: 0
-#     blob_file_size: 0
-#     blob_compression_type: none
-#     enable_blob_garbage_collection: false
-#     blob_garbage_collection_age_cutoff: 0.0
-#     blob_garbage_collection_force_threshold: 0.0
-#     blob_compaction_read_ahead_size: 0
-#     write_buffer_size: 67108864
-#     target_file_size_base: 67108864
-#     max_bytes_for_level_base: 536870912
-#   shard:
-#     enable_blob_files: true
-#     min_blob_size: 1048576
-#     blob_file_size: 268435456
-#     blob_compression_type: zstd
-#     enable_blob_garbage_collection: true
-#     blob_garbage_collection_age_cutoff: 0.5
-#     blob_garbage_collection_force_threshold: 0.5
-#     blob_compaction_read_ahead_size: 10485760
-#     write_buffer_size: 268435456
-#     target_file_size_base: 4194304
-#     max_bytes_for_level_base: 33554432
-#   shard_status:
-#     enable_blob_files: false
-#     min_blob_size: 0
-#     blob_file_size: 0
-#     blob_compression_type: none
-#     enable_blob_garbage_collection: false
-#     blob_garbage_collection_age_cutoff: 0.0
-#     blob_garbage_collection_force_threshold: 0.0
-#     blob_compaction_read_ahead_size: 0
-#     write_buffer_size: 67108864
-#     target_file_size_base: 67108864
-#     max_bytes_for_level_base: 536870912
-# commission_rate: 0
+metadata:
+  image_url: ''
+  project_url: ''
+  description: ''
+  extra_fields: []
+metrics_push: null

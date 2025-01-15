@@ -57,7 +57,7 @@ use crate::{
 };
 
 /// Default gas budget for transactions in tests and benchmarks.
-pub const DEFAULT_GAS_BUDGET: u64 = 1_000_000_000;
+pub const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
 const DEFAULT_FUNDING_PER_COIN: u64 = 10_000_000_000;
 
 /// Returns a random `EventID` for testing.
@@ -376,17 +376,13 @@ pub async fn new_contract_client_on_sui_test_cluster(
     sui_cluster_handle: Arc<TestClusterHandle>,
     existing_client: &SuiContractClient,
 ) -> anyhow::Result<WithTempDir<SuiContractClient>> {
-    let system_object = existing_client.read_client().get_system_object_id();
-    let staking_object = existing_client.read_client().get_staking_object_id();
-    let package_id = existing_client.read_client().get_system_package_id();
+    let contract_config = existing_client.read_client().contract_config();
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
         .and_then_async(|wallet| {
             SuiContractClient::new(
                 wallet,
-                system_object,
-                staking_object,
-                Some(package_id),
+                &contract_config,
                 existing_client.read_client().backoff_config().clone(),
                 DEFAULT_GAS_BUDGET,
             )

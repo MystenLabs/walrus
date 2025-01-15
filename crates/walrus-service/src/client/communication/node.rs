@@ -161,7 +161,7 @@ impl<'a> NodeReadCommunication<'a> {
     }
 }
 
-impl<'a, W> NodeCommunication<'a, W> {
+impl<W> NodeCommunication<'_, W> {
     /// Returns the number of shards.
     pub fn n_shards(&self) -> NonZeroU16 {
         self.encoding_config.n_shards()
@@ -289,7 +289,7 @@ impl<'a, W> NodeCommunication<'a, W> {
     }
 }
 
-impl<'a> NodeWriteCommunication<'a> {
+impl NodeWriteCommunication<'_> {
     /// Stores metadata and sliver pairs on a node, and requests a storage confirmation.
     ///
     /// Returns a [`NodeResult`], where the weight is the number of shards for which the storage

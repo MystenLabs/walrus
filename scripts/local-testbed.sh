@@ -42,7 +42,6 @@ committee_size=4 # Default value of 4 if no argument is provided
 shards=10 # Default value of 4 if no argument is provided
 network=devnet
 epoch_duration=1h
-testnet_contracts=false
 
 while getopts "n:c:s:d:the" arg; do
     case "${arg}" in
@@ -57,9 +56,6 @@ while getopts "n:c:s:d:the" arg; do
             ;;
         d)
             epoch_duration=${OPTARG}
-            ;;
-        t)
-            testnet_contracts=true
             ;;
         e)
             existing=true
@@ -88,13 +84,8 @@ fi
 
 
 echo Building walrus, walrus-node, and walrus-deploy binaries...
+
 features="deploy"
-if $testnet_contracts; then
-    echo "Using testnet version."
-else
-    echo "Using mainnet version."
-    features="$features,walrus-mainnet"
-fi
 cargo build --release --bin walrus --bin walrus --bin walrus-node --bin walrus-deploy --features "$features"
 
 # Set working directory
@@ -128,9 +119,13 @@ if ! $existing; then
     # Generate configs
     echo Generating configuration...
     ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir
+
+    echo "event_processor_config:\n  adaptive_downloader_config:\n    max_workers: 2\n    initial_workers: 2" | \
+      tee -a $working_dir/dryrun-node-*[0-9].yaml >/dev/null
 fi
 
 i=0
+# shellcheck disable=SC2045
 for config in $( ls $working_dir/dryrun-node-*[0-9].yaml ); do
     node_name=$(basename -- "$config")
     node_name="${node_name%.*}"

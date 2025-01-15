@@ -1,1 +1,5 @@
 scripts/move_coverage.sh
+crates/walrus-service/storage_openapi.html
+crates/walrus-service/daemon_openapi.html
+crates/walrus-service/aggregator_openapi.html
+crates/walrus-service/publisher_openapi.html

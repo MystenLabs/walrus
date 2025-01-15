@@ -185,7 +185,7 @@ function get_blob_confirmation() {
     blob_id=$1
     host_address=$2
     #/v1/blobs/{blob_id}/confirmations
-    cmd="curl -s -X GET https://${host_address}/v1/blobs/${blob_id}/confirmation" --insecure
+    cmd="curl -s -X GET https://${host_address}/v1/blobs/${blob_id}/confirmation --insecure"
     log "$cmd"
     output=$($cmd)
     log "Blob confirmation: $output"

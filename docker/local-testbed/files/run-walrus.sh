@@ -29,7 +29,7 @@ cp /opt/walrus/bin/walrus /usr/local/bin/
 cat <<EOF >/root/.config/walrus/client_config.yaml
 system_object: ${SYSTEM_OBJECT}
 staking_object: ${STAKING_OBJECT}
-exchange_object: ${EXCHANGE_OBJECT}
+exchange_objects: [${EXCHANGE_OBJECT}]
 EOF
 
 # get some sui tokens

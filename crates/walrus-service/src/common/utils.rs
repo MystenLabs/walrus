@@ -60,7 +60,7 @@ use walrus_sui::{
 };
 
 use super::active_committees::ActiveCommittees;
-use crate::node::config::MetricsConfig;
+use crate::node::config::MetricsPushConfig;
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -328,7 +328,7 @@ pub struct EnableMetricsPush {
     /// the network keys we use to identify the client using this push config
     pub network_key_pair: Arc<Secp256r1KeyPair>,
     /// the url, timeouts, etc used to push the metrics
-    pub config: MetricsConfig,
+    pub config: MetricsPushConfig,
 }
 
 /// MetricPushRuntime to manage the metric push task.
@@ -353,7 +353,7 @@ impl MetricPushRuntime {
         let _guard = runtime.enter();
 
         let metric_push_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
+            let mut interval = tokio::time::interval(mp_config.config.push_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
             tracing::info!("starting metrics push to '{}'", &mp_config.config.push_url);
@@ -401,8 +401,7 @@ fn create_push_client() -> reqwest::Client {
         .expect("unable to build client")
 }
 
-#[derive(Deserialize, Serialize)]
-#[allow(missing_debug_implementations)]
+#[derive(Debug, Deserialize, Serialize)]
 /// MetricPayload holds static labels and metric data
 /// the static labels are always sent and will be merged within the proxy
 pub struct MetricPayload {
@@ -569,6 +568,7 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
 pub async fn generate_sui_wallet(
     sui_network: SuiNetwork,
     path: &Path,
+    use_faucet: bool,
     faucet_timeout: Duration,
 ) -> Result<SuiAddress> {
     tracing::info!(
@@ -579,25 +579,27 @@ pub async fn generate_sui_wallet(
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 
-    tracing::info!("attempting to get SUI from faucet...");
-    match tokio::time::timeout(
-        faucet_timeout,
-        walrus_sui::utils::request_sui_from_faucet(
-            wallet_address,
-            &sui_network,
-            &wallet.get_client().await?,
-        ),
-    )
-    .await
-    {
-        Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
-        Ok(Err(error)) => {
-            tracing::warn!(
-                ?error,
-                "an error occurred when trying to get SUI from the faucet"
-            )
+    if use_faucet {
+        tracing::info!("attempting to get SUI from faucet...");
+        match tokio::time::timeout(
+            faucet_timeout,
+            walrus_sui::utils::request_sui_from_faucet(
+                wallet_address,
+                &sui_network,
+                &wallet.get_client().await?,
+            ),
+        )
+        .await
+        {
+            Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    ?error,
+                    "an error occurred when trying to get SUI from the faucet"
+                )
+            }
+            Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
         }
-        Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
     }
 
     Ok(wallet_address)
@@ -754,17 +756,16 @@ pub async fn collect_event_blobs_for_catchup(
     sui_client: RetriableSuiClient,
     staking_object_id: ObjectID,
     system_object_id: ObjectID,
-    package_id: Option<ObjectID>,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
 ) -> Result<Vec<BlobId>> {
-    let sui_read_client =
-        SuiReadClient::new(sui_client, system_object_id, staking_object_id, package_id).await?;
+    use walrus_sui::client::contract_config::ContractConfig;
+
+    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
+    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
     let config = crate::client::Config {
-        system_object: system_object_id,
-        staking_object: staking_object_id,
-        walrus_package: package_id,
-        exchange_object: None,
+        contract_config,
+        exchange_objects: vec![],
         wallet_config: None,
         communication_config: crate::client::ClientCommunicationConfig::default(),
     };

@@ -4,10 +4,12 @@
 //! Errors that may be encountered while interacting with a storage node.
 
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
 use walrus_core::Epoch;
 
-use crate::tls::VerifierBuildError;
+use crate::{
+    api::errors::{Status, STORAGE_NODE_ERROR_DOMAIN},
+    tls::VerifierBuildError,
+};
 
 /// Error raised during communication with a node.
 #[derive(Debug, thiserror::Error)]
@@ -28,7 +30,7 @@ impl NodeError {
 
     /// Returns the HTTP error status code associated with the error, if any.
     pub fn http_status_code(&self) -> Option<StatusCode> {
-        if let Kind::Reqwest(inner) | Kind::StatusWithMessage { inner, .. } = &self.kind {
+        if let Kind::Reqwest(inner) | Kind::Status { inner, .. } = &self.kind {
             inner.status()
         } else {
             None
@@ -41,16 +43,20 @@ impl NodeError {
         Some(StatusCode::NOT_FOUND) == self.http_status_code()
     }
 
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::FORBIDDEN`].
-    pub fn is_status_forbidden(&self) -> bool {
-        Some(StatusCode::FORBIDDEN) == self.http_status_code()
+    /// Returns true if the error is due to the blob being blocked.
+    pub fn is_blob_blocked(&self) -> bool {
+        // TODO(jsmith): use a constant shared between client and server.
+        self.status()
+            .map(|status| status.is_for_reason("FORBIDDEN_BLOB", STORAGE_NODE_ERROR_DOMAIN))
+            .unwrap_or(false)
     }
 
-    /// Returns true if the HTTP error status code associated with the error is
-    /// [`StatusCode::MISDIRECTED_REQUEST`].
+    /// Returns true if the error is due to the shard not being assigned to the storage node.
     pub fn is_shard_not_assigned(&self) -> bool {
-        self.http_status_code() == Some(StatusCode::MISDIRECTED_REQUEST)
+        // TODO(jsmith): use a constant shared between client and server.
+        self.status()
+            .map(|status| status.is_for_reason("SHARD_NOT_ASSIGNED", STORAGE_NODE_ERROR_DOMAIN))
+            .unwrap_or(false)
     }
 
     /// Wrap a standard error as a Node error.
@@ -67,9 +73,23 @@ impl NodeError {
 
     /// Returns the reason for the error, if any.
     pub fn service_error(&self) -> Option<ServiceError> {
-        match &self.kind {
-            Kind::StatusWithMessage { service_error, .. } => *service_error,
-            _ => None,
+        if let Kind::Status { ref status, .. } = self.kind {
+            ServiceError::try_from(status).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Returns the error status provided by the server.
+    ///
+    /// If the server responded to the request with an error, the response should
+    /// contain an error status.
+    // TODO(jsmith): Make this always true by formatting all axum errors correctly at the server.
+    pub fn status(&self) -> Option<&Status> {
+        if let Kind::Status { ref status, .. } = self.kind {
+            Some(status)
+        } else {
+            None
         }
     }
 }
@@ -81,14 +101,13 @@ pub(crate) enum Kind {
     Bcs(#[from] bcs::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
-    #[error("{inner}: {message}")]
-    StatusWithMessage {
+    #[error("{inner}: {status}")]
+    Status {
         inner: reqwest::Error,
-        message: String,
-        service_error: Option<ServiceError>,
+        status: Status,
     },
-    #[error("node returned an error in a non-error response {code}: {message}")]
-    ErrorInNonErrorMessage { code: u16, message: String },
+    #[error("node returned an error in a non-error response {0}")]
+    ErrorInNonErrorMessage(Status),
     #[error("invalid content type in response")]
     InvalidContentType,
     #[error(transparent)]
@@ -124,8 +143,7 @@ pub(crate) enum BuildErrorKind {
 }
 
 /// Defines a more detailed server side error that can be returned to the client.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
-#[serde(tag = "reason", content = "metadata", rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub enum ServiceError {
     /// The requested epoch is invalid.
     InvalidEpoch {
@@ -134,4 +152,29 @@ pub enum ServiceError {
         /// The epoch server is in.
         server_epoch: Epoch,
     },
+}
+
+/// Returning the status as a service error is unsupported.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("the status does not represent an implemented service error")]
+pub struct UnsupportedErrorStatus;
+
+impl TryFrom<&Status> for ServiceError {
+    type Error = UnsupportedErrorStatus;
+
+    fn try_from(status: &Status) -> Result<Self, Self::Error> {
+        let info = status.error_info().ok_or(UnsupportedErrorStatus)?;
+
+        if (info.reason(), info.domain()) == ("INVALID_EPOCH", STORAGE_NODE_ERROR_DOMAIN) {
+            info.field::<Epoch>("request_epoch")
+                .zip(info.field::<Epoch>("server_epoch"))
+                .map(|(request_epoch, server_epoch)| ServiceError::InvalidEpoch {
+                    request_epoch,
+                    server_epoch,
+                })
+                .ok_or(UnsupportedErrorStatus)
+        } else {
+            Err(UnsupportedErrorStatus)
+        }
+    }
 }

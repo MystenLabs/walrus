@@ -27,7 +27,7 @@ use walrus_core::{
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     EpochCount,
@@ -61,12 +61,7 @@ pub use crate::common::blocklist::Blocklist;
 mod communication;
 
 mod config;
-pub use config::{
-    default_configuration_paths,
-    ClientCommunicationConfig,
-    Config,
-    ExchangeObjectConfig,
-};
+pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 
 mod daemon;
 pub use daemon::{ClientDaemon, WalrusWriteClient};
@@ -896,14 +891,23 @@ impl Client<SuiContractClient> {
         Ok(())
     }
 
-    /// Stakes the specified amount of WAL with the node represented by `node_id`.
-    pub async fn stake_with_node_pool(
+    /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the
+    /// second element of the pair with the node represented by the first element of the pair.
+    pub async fn stake_with_node_pools(
         &self,
-        node_id: ObjectID,
-        amount: u64,
-    ) -> ClientResult<StakedWal> {
-        let staked_wal = self.sui_client.stake_with_pool(amount, node_id).await?;
+        node_ids_with_amounts: &[(ObjectID, u64)],
+    ) -> ClientResult<Vec<StakedWal>> {
+        let staked_wal = self
+            .sui_client
+            .stake_with_pools(node_ids_with_amounts)
+            .await?;
         Ok(staked_wal)
+    }
+
+    /// Stakes the specified amount of WAL with the node represented by `node_id`.
+    pub async fn stake_with_node_pool(&self, node_id: ObjectID, amount: u64) -> ClientResult<()> {
+        self.stake_with_node_pools(&[(node_id, amount)]).await?;
+        Ok(())
     }
 
     /// Exchanges the provided amount of SUI (in MIST) for WAL using the specified exchange.
@@ -972,7 +976,7 @@ impl<T> Client<T> {
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
-                metadata.metadata().unencoded_length,
+                metadata.metadata().unencoded_length(),
                 &self.encoding_config,
             );
         tracing::debug!(
@@ -1201,7 +1205,7 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length)
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
             .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
@@ -1212,7 +1216,7 @@ impl<T> Client<T> {
                 &enough_source_symbols,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
-                        metadata.metadata().unencoded_length,
+                        metadata.metadata().unencoded_length(),
                         &self.encoding_config,
                     ),
             )
@@ -1231,7 +1235,7 @@ impl<T> Client<T> {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
-                        } else if error.is_status_forbidden() {
+                        } else if error.is_blob_blocked() {
                             n_forbidden += 1;
                         }
                     })
@@ -1287,7 +1291,7 @@ impl<T> Client<T> {
             .next(
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
-                        metadata.metadata().unencoded_length,
+                        metadata.metadata().unencoded_length(),
                         &self.encoding_config,
                     ),
             )
@@ -1306,7 +1310,7 @@ impl<T> Client<T> {
                     tracing::debug!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() {
                         n_not_found += 1;
-                    } else if error.is_status_forbidden() {
+                    } else if error.is_blob_blocked() {
                         n_forbidden += 1;
                     }
                     if self
@@ -1392,7 +1396,7 @@ impl<T> Client<T> {
                     let res = {
                         if error.is_status_not_found() {
                             n_not_found += weight;
-                        } else if error.is_status_forbidden() {
+                        } else if error.is_blob_blocked() {
                             n_forbidden += weight;
                         }
                         committees.is_quorum(n_not_found + n_forbidden)

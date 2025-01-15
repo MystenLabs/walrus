@@ -183,6 +183,16 @@ pub struct EventBlobWriterFactory {
 }
 
 impl EventBlobWriterFactory {
+    /// Returns the path to the database directory.
+    pub fn db_path(root_dir_path: &Path) -> PathBuf {
+        root_dir_path.join("event_blob_writer").join("db")
+    }
+
+    /// Returns the path to the blobs directory.
+    pub fn blobs_path(root_dir_path: &Path) -> PathBuf {
+        root_dir_path.join("event_blob_writer").join("blobs")
+    }
+
     /// Create a new event blob writer factory.
     pub fn new(
         root_dir_path: &Path,
@@ -190,16 +200,15 @@ impl EventBlobWriterFactory {
         registry: &Registry,
         num_checkpoints_per_blob: Option<u32>,
     ) -> Result<EventBlobWriterFactory> {
-        let dirs = ["db", "blobs"];
-        for dir in dirs.iter() {
-            fs::create_dir_all(root_dir_path.join(dir))?;
-        }
+        let db_path = Self::db_path(root_dir_path);
+        fs::create_dir_all(db_path.as_path())?;
+
         let mut db_opts = Options::default();
         let metric_conf = MetricConf::default();
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let database = rocks::open_cf_opts(
-            root_dir_path.join("db"),
+            db_path,
             Some(db_opts),
             metric_conf,
             &[
@@ -322,8 +331,10 @@ impl EventBlobWriterFactory {
             .unwrap_or(EventStreamCursor::new(None, 0));
         let epoch = self.epoch.unwrap_or(0);
         let prev_certified_blob_id = self.prev_certified_blob_id.unwrap_or(BlobId::ZERO);
+        let blobs_path = Self::blobs_path(&self.root_dir_path);
+        fs::create_dir_all(blobs_path.as_path())?;
         let config = EventBlobWriterConfig {
-            blob_dir_path: self.root_dir_path.join("blobs").clone().into(),
+            blob_dir_path: blobs_path.into(),
             metrics: self.metrics.clone(),
             event_stream_cursor: event_cursor,
             current_epoch: epoch,
@@ -867,6 +878,11 @@ impl EventBlobWriter {
         if metadata.blob_id != blob_id {
             return Ok(());
         }
+        self.node
+            .storage()
+            .update_blob_info_with_metadata(&blob_id)
+            .context("unable to update metadata")?;
+
         self.metrics
             .latest_certified_event_index
             .set(element_index as i64);
@@ -983,6 +999,7 @@ mod tests {
     };
 
     use anyhow::Result;
+    use prometheus::Registry;
     use typed_store::Map;
     use walrus_core::{BlobId, ShardIndex};
     use walrus_sui::{
@@ -1006,11 +1023,12 @@ mod tests {
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 2;
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
+        let registry = Registry::new();
         let node = create_test_node().await?;
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
             node.storage_node.inner().clone(),
-            prometheus::default_registry(),
+            &registry,
             Some(10),
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
@@ -1030,7 +1048,8 @@ mod tests {
                 .expect("Attested blob should exist");
             let attested_blob_id = attested_blob.blob_id;
             let f = File::open(
-                dir.join("blobs")
+                dir.join("event_blob_writer")
+                    .join("blobs")
                     .join(attested_blob.event_cursor.element_index.to_string()),
             )?;
             let mut buf = Vec::new();
@@ -1054,10 +1073,11 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
         let node = create_test_node().await?;
+        let registry = Registry::new();
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
             node.storage_node.inner().clone(),
-            prometheus::default_registry(),
+            &registry,
             Some(10),
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
@@ -1170,6 +1190,7 @@ mod tests {
         );
 
         let path = dir
+            .join("event_blob_writer")
             .join("blobs")
             .join(next_attested_blob.event_cursor.element_index.to_string());
         let f = File::open(&path)?;

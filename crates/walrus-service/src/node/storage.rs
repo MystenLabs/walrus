@@ -10,14 +10,12 @@ use std::{
     sync::{Arc, RwLock, TryLockError},
 };
 
-use blob_info::BlobInfoIterator;
-#[cfg(feature = "walrus-mainnet")]
-use blob_info::PerObjectBlobInfo;
+use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
+use event_cursor_table::EventIdWithProgress;
 use itertools::Itertools;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
-#[cfg(feature = "walrus-mainnet")]
 use sui_types::base_types::ObjectID;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
@@ -68,15 +66,15 @@ pub struct WouldBlockError;
 // fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
-    /// The node is in recovery mode and syncing metadata.
+    /// The node is up-to-date with events but not a committee member.
     Standby,
-    /// The node is active and processing events.
+    /// The node is a committee member and up-to-date with events.
     Active,
     /// The node is in recovery mode and syncing metadata.
     RecoverMetadata,
     /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
-    /// The node is in recovery mode and processing events.
+    /// The node is in recovery mode and recovering missing slivers.
     RecoveryInProgress(Epoch),
 }
 
@@ -84,11 +82,11 @@ impl NodeStatus {
     /// Used to convert `NodeStatus` to `i64` for metrics.
     pub fn to_i64(&self) -> i64 {
         match self {
-            NodeStatus::Active => 0,
-            NodeStatus::RecoveryCatchUp => 1,
-            NodeStatus::RecoveryInProgress(_) => 2,
-            NodeStatus::RecoverMetadata => 3,
-            NodeStatus::Standby => 4,
+            NodeStatus::Standby => 0,
+            NodeStatus::Active => 1,
+            NodeStatus::RecoverMetadata => 2,
+            NodeStatus::RecoveryCatchUp => 3,
+            NodeStatus::RecoveryInProgress(_) => 4,
         }
     }
 }
@@ -96,11 +94,11 @@ impl NodeStatus {
 impl Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            NodeStatus::Standby => write!(f, "Standby"),
             NodeStatus::Active => write!(f, "Active"),
+            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
-            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
-            NodeStatus::Standby => write!(f, "Standby"),
         }
     }
 }
@@ -344,6 +342,16 @@ impl Storage {
             .insert(metadata.blob_id(), metadata.metadata())
     }
 
+    /// Store the metadata without updating blob info. This is only used during storing metadata for
+    /// event blobs which are stored without getting registered first.
+    #[tracing::instrument(skip_all)]
+    pub fn update_blob_info_with_metadata(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        let mut batch = self.metadata.batch();
+        self.blob_info
+            .set_metadata_stored(&mut batch, blob_id, true)?;
+        batch.write()
+    }
+
     /// Store the verified metadata.
     #[tracing::instrument(skip_all)]
     pub fn put_verified_metadata(
@@ -372,7 +380,6 @@ impl Storage {
     }
 
     /// Returns the per-object blob info for `object_id`.
-    #[cfg(feature = "walrus-mainnet")]
     pub(crate) fn get_per_object_info(
         &self,
         object_id: &ObjectID,
@@ -384,7 +391,7 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
         &self,
-    ) -> Result<Option<(EventID, u64)>, TypedStoreError> {
+    ) -> Result<Option<EventIdWithProgress>, TypedStoreError> {
         self.event_cursor.get_event_cursor_and_next_index()
     }
 
@@ -523,14 +530,14 @@ impl Storage {
     fn node_status_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
         (
             Self::NODE_STATUS_COLUMN_FAMILY_NAME,
-            db_config.node_status.to_options(),
+            db_config.node_status().to_options(),
         )
     }
 
     fn metadata_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
         (
             Self::METADATA_COLUMN_FAMILY_NAME,
-            db_config.metadata.to_options(),
+            db_config.metadata().to_options(),
         )
     }
 
@@ -933,7 +940,7 @@ pub(crate) mod tests {
             assert_eq!(
                 storage
                     .get_event_cursor_and_next_index()?
-                    .map(|(event_id, _)| event_id),
+                    .map(|e| e.event_id()),
                 Some(cursor_lookup[expected_observed])
             );
         }

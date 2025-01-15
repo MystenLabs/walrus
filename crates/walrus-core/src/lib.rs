@@ -46,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
+use crate::metadata::BlobMetadataApi as _;
 pub mod bft;
 pub mod encoding;
 pub mod inconsistency;
@@ -75,8 +76,7 @@ pub type EpochCount = u32;
 #[derive(Debug)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(as = Epoch))]
-#[allow(dead_code)]
-pub struct EpochSchema(u32);
+pub struct EpochSchema(pub u32);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -107,8 +107,8 @@ impl BlobId {
         let merkle_root = blob_metadata.compute_root_hash();
         let blob_id = Self::from_metadata(
             merkle_root,
-            blob_metadata.encoding_type,
-            blob_metadata.unencoded_length,
+            blob_metadata.encoding_type(),
+            blob_metadata.unencoded_length(),
         );
         tracing::debug!(%blob_id, "computed blob ID from metadata");
         blob_id

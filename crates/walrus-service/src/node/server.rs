@@ -75,12 +75,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             })
         } else {
             Some(TlsCertificateSource::GenerateSelfSigned {
-                server_name: config
-                    .tls
-                    .server_name
-                    .clone()
-                    .or_else(|| config.public_host.clone())
-                    .unwrap_or_else(|| config.rest_api_address.ip().to_string()),
+                server_name: config.public_host.clone(),
                 network_key_pair: config.network_key_pair().clone(),
             })
         };
@@ -880,7 +875,7 @@ mod tests {
 
     async_param_test! {
         retrieve_storage_confirmation_fails: [
-            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]
     }
@@ -917,7 +912,7 @@ mod tests {
 
     async_param_test! {
         inconsistency_proof_fails: [
-            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::BAD_REQUEST),
             invalid_proof: (blob_id_for_bad_request(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]

@@ -28,7 +28,7 @@ use walrus_core::{
         metadata_length_for_n_shards,
         source_symbols_for_n_shards,
     },
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     NetworkPublicKey,
@@ -183,7 +183,7 @@ impl BlobIdOutput {
         Self {
             blob_id: *metadata.blob_id(),
             file: file.to_owned(),
-            unencoded_length: metadata.metadata().unencoded_length,
+            unencoded_length: metadata.metadata().unencoded_length(),
         }
     }
 }
@@ -205,6 +205,8 @@ impl From<BlobIdDecimal> for BlobIdConversionOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DryRunOutput {
+    /// The file path to the blob.
+    pub path: PathBuf,
     /// The blob ID.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
@@ -475,7 +477,7 @@ pub(crate) struct DeleteOutput {
 /// The output of the `walrus stake` command.
 pub struct StakeOutput {
     /// The staked WAL after staking.
-    pub staked_wal: StakedWal,
+    pub staked_wal: Vec<StakedWal>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -492,4 +494,30 @@ pub struct WalletOutput {
 pub struct ExchangeOutput {
     /// The amount of SUI exchanged (in MIST).
     pub amount_sui: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus share` command.
+pub struct ShareBlobOutput {
+    /// The shared blob object ID.
+    pub shared_blob_object_id: ObjectID,
+    /// The amount of FROST if funded.
+    pub amount: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus fund-shared-blob` command.
+pub struct FundSharedBlobOutput {
+    /// The amount of FROST funded.
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus extend` command.
+pub struct ExtendBlobOutput {
+    /// The number of epochs extended by.
+    pub epochs_ahead: u32,
 }
