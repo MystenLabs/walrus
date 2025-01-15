@@ -166,6 +166,7 @@ impl ProtocolCommands for TargetProtocol {
             epoch_duration: Duration::from_secs(3600),
             epoch_zero_duration: Duration::from_secs(0),
             max_epochs_ahead: 104,
+            admin_wallet_path: None,
             do_not_copy_contracts: false,
         })
         .await
