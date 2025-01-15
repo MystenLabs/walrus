@@ -140,7 +140,6 @@ jobs:
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
-    continue-on-error: true
     env:
       MSIM_TEST_NUM: 5
       RUST_LOG: error
@@ -152,6 +151,20 @@ jobs:
       - run: ./scripts/simtest/install.sh
       - name: Run tests
         run: cargo simtest simtest --profile simtest
+
+  simtests-build:
+    name: Build all simtests
+    needs: diff
+    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    runs-on: ubuntu-ghcloud
+    steps:
+      - uses: taiki-e/install-action@v2.47.2
+        with:
+          tool: cargo-nextest
+      - uses: actions/checkout@v4
+      - run: ./scripts/simtest/install.sh
+      - name: Build simtests
+        run: cargo simtest build
 
   test-move:
     name: Test Move code
@@ -239,7 +252,7 @@ jobs:
       - lint
       - build
       - test
-      - simtests
+      - simtests-build
       - test-move
     runs-on: ubuntu-latest
     steps:
