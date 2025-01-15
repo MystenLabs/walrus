@@ -730,25 +730,16 @@ impl EventBlobWriter {
         checkpoint_sequence_number: CheckpointSequenceNumber,
     ) -> Result<()> {
         tracing::debug!("attesting event blob in epoch: {}", self.current_epoch);
-        match self
-            .node
+        self.node
             .contract_service
             .certify_event_blob(
                 metadata.try_into()?,
                 checkpoint_sequence_number,
                 self.current_epoch,
             )
-            .await
-        {
-            Ok(_) => {
-                tracing::info!("attested event blob with id: {:?}", metadata.blob_id());
-                Ok(())
-            }
-            Err(e) => {
-                tracing::info!("failed to attest event blob: {:?}", e);
-                Ok(())
-            }
-        }
+            .await;
+        tracing::info!("attested event blob with id: {:?}", metadata.blob_id());
+        Ok(())
     }
 
     /// Attests the next pending blob.

@@ -17,7 +17,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Error;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -1225,7 +1224,7 @@ pub struct StubContractService {
 
 #[async_trait]
 impl SystemContractService for StubContractService {
-    async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
+    async fn invalidate_blob_id(&self, _certificate: Arc<InvalidBlobCertificate>) {}
 
     async fn epoch_sync_done(&self, _epoch: Epoch) {}
 
@@ -1254,8 +1253,7 @@ impl SystemContractService for StubContractService {
         _blob_metadata: BlobObjectMetadata,
         _ending_checkpoint_seq_num: u64,
         _epoch: u32,
-    ) -> Result<(), Error> {
-        anyhow::bail!("stub service cannot certify event blob")
+    ) {
     }
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
@@ -1820,7 +1818,7 @@ where
         self.as_ref().inner.end_voting().await
     }
 
-    async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
+    async fn invalidate_blob_id(&self, certificate: Arc<InvalidBlobCertificate>) {
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
 
@@ -1849,7 +1847,7 @@ where
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
-    ) -> Result<(), Error> {
+    ) {
         self.as_ref()
             .inner
             .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)

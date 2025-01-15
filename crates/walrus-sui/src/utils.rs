@@ -275,6 +275,29 @@ impl std::fmt::Display for SuiNetwork {
     }
 }
 
+/// Builds a [`TransactionData`] from a [`ProgrammableTransaction`].
+pub async fn build_transaction_data(
+    sender: SuiAddress,
+    wallet: &WalletContext,
+    ptb: ProgrammableTransaction,
+    gas_coins: Vec<ObjectRef>,
+    gas_budget: u64,
+) -> anyhow::Result<TransactionData> {
+    let gas_price = wallet.get_reference_gas_price().await?;
+    Ok(TransactionData::new_programmable(
+        sender, gas_coins, ptb, gas_budget, gas_price,
+    ))
+}
+
+/// Sign and execute a [`TransactionData`].
+pub async fn sign_and_execute_transaction(
+    transaction: TransactionData,
+    wallet: &WalletContext,
+) -> anyhow::Result<SuiTransactionBlockResponse> {
+    let transaction = wallet.sign_transaction(&transaction);
+    wallet.execute_transaction_may_fail(transaction).await
+}
+
 /// Sign and send a [`ProgrammableTransaction`].
 pub async fn sign_and_send_ptb(
     sender: SuiAddress,
@@ -283,19 +306,16 @@ pub async fn sign_and_send_ptb(
     gas_coins: Vec<ObjectRef>,
     gas_budget: u64,
 ) -> anyhow::Result<SuiTransactionBlockResponse> {
-    let gas_price = wallet.get_reference_gas_price().await?;
-
-    let transaction = TransactionData::new_programmable(
+    let transaction = build_transaction_data(
         sender,
-        gas_coins,
+        wallet,
         programmable_transaction,
+        gas_coins,
         gas_budget,
-        gas_price,
-    );
+    )
+    .await?;
 
-    let transaction = wallet.sign_transaction(&transaction);
-
-    wallet.execute_transaction_may_fail(transaction).await
+    sign_and_execute_transaction(transaction, wallet).await
 }
 
 /// Loads a sui wallet from `config_path`.

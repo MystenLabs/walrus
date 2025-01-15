@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context as _, Error};
+use anyhow::Context as _;
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::Mutex as TokioMutex;
@@ -19,12 +19,14 @@ use walrus_sui::{
         BlobObjectMetadata,
         FixedSystemParameters,
         ReadClient as _,
+        RetriableOperation,
+        RetriableOperationResult,
         SuiClientError,
         SuiContractClient,
     },
     types::move_structs::EpochState,
 };
-use walrus_utils::backoff::{self, ExponentialBackoff};
+use walrus_utils::backoff::ExponentialBackoff;
 
 use super::{committee::CommitteeService, config::SuiConfig};
 
@@ -45,7 +47,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error>;
 
     /// Submits a certificate that a blob is invalid to the contract.
-    async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
+    async fn invalidate_blob_id(&self, certificate: Arc<InvalidBlobCertificate>);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
     async fn epoch_sync_done(&self, epoch: Epoch);
@@ -62,7 +64,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
-    ) -> Result<(), Error>;
+    );
 
     /// Refreshes the contract package that the service is using.
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error>;
@@ -107,6 +109,59 @@ impl SuiSystemContractService {
             committee_service,
         ))
     }
+
+    /// Executes a retriable operation with exponential backoff retries.
+    /// Retry here means retry the exact same ptb instead of building a new one.
+    async fn execute_with_retries<F>(&self, operation: RetriableOperation, should_early_return: F)
+    where
+        F: Fn(&Result<RetriableOperationResult, SuiClientError>) -> bool,
+    {
+        let backoff = ExponentialBackoff::new_with_seed(
+            MIN_BACKOFF,
+            MAX_BACKOFF,
+            None,
+            self.rng.lock().unwrap().gen(),
+        );
+        let mut retry_last_transaction = None;
+
+        for backoff_duration in backoff {
+            let result = self
+                .contract_client
+                .lock()
+                .await
+                .execute_retriable_contract_operation(
+                    operation.clone(),
+                    retry_last_transaction.clone(),
+                )
+                .await;
+
+            if should_early_return(&result) {
+                tracing::info!(?result, "early return from execute_with_retries");
+                return;
+            }
+
+            match result {
+                Ok(RetriableOperationResult::Success) => return,
+                Ok(RetriableOperationResult::Retry {
+                    retry_transaction,
+                    error,
+                }) => {
+                    // Record the Sui transaction to retry with next time.
+                    // It's important to retry the same PTB instead of building a new one because
+                    // transaction with retryable error may already locked some objects in some
+                    // validators. So retry the same PTB to reduce the chance of transaction
+                    // equivocation.
+                    retry_last_transaction = Some(*retry_transaction);
+                    tracing::warn!(?error, "operation failed due to retryable error");
+                }
+                Err(error) => {
+                    tracing::warn!(?error, "operation failed");
+                }
+            }
+
+            tokio::time::sleep(backoff_duration).await;
+        }
+    }
 }
 
 #[async_trait]
@@ -137,65 +192,25 @@ impl SystemContractService for SuiSystemContractService {
             .context("failed to end voting for the next epoch")
     }
 
-    async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate) {
-        let backoff = ExponentialBackoff::new_with_seed(
-            MIN_BACKOFF,
-            MAX_BACKOFF,
-            None,
-            self.rng.lock().unwrap().gen(),
-        );
-        backoff::retry(backoff, || async {
-            self.contract_client
-                .lock()
-                .await
-                .invalidate_blob_id(certificate)
-                .await
-                .inspect_err(|error| {
-                    tracing::error!(
-                        ?error,
-                        "submitting invalidity certificate to contract failed"
-                    )
-                })
-                .ok()
-        })
-        .await;
+    async fn invalidate_blob_id(&self, certificate: Arc<InvalidBlobCertificate>) {
+        self.execute_with_retries(RetriableOperation::InvalidateBlobId(certificate), |_| false)
+            .await;
     }
 
     async fn epoch_sync_done(&self, epoch: Epoch) {
-        let backoff = ExponentialBackoff::new_with_seed(
-            MIN_BACKOFF,
-            MAX_BACKOFF,
-            None,
-            self.rng.lock().unwrap().gen(),
-        );
+        // Early return if epoch is already outdated
+        let current_epoch = self.current_epoch();
+        if epoch < current_epoch {
+            tracing::info!(
+                epoch,
+                current_epoch,
+                "stop trying to submit epoch sync done for older epoch"
+            );
+            return;
+        }
 
-        backoff::retry(backoff, || async {
-            let current_epoch = self.current_epoch();
-            if epoch < current_epoch {
-                tracing::info!(
-                    epoch,
-                    current_epoch,
-                    "stop trying to submit epoch sync done for older epoch"
-                );
-                return Some(());
-            }
-            match self
-                .contract_client
-                .lock()
-                .await
-                .epoch_sync_done(epoch)
-                .await
-            {
-                Ok(()) => Some(()),
-                Err(SuiClientError::LatestAttestedIsMoreRecent) => {
-                    tracing::debug!(walrus.epoch = epoch, "repeatedly submitted epoch_sync_done");
-                    Some(())
-                }
-                Err(error) => {
-                    tracing::warn!(?error, "submitting epoch sync done to contract failed");
-                    None
-                }
-            }
+        self.execute_with_retries(RetriableOperation::EpochSyncDone(epoch), |result| {
+            matches!(result, Err(SuiClientError::LatestAttestedIsMoreRecent))
         })
         .await;
     }
@@ -211,41 +226,16 @@ impl SystemContractService for SuiSystemContractService {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
-    ) -> Result<(), Error> {
-        let backoff = ExponentialBackoff::new_with_seed(
-            MIN_BACKOFF,
-            MAX_BACKOFF,
-            None,
-            self.rng.lock().unwrap().gen(),
-        );
-        backoff::retry(backoff, || {
-            let blob_metadata = blob_metadata.clone();
-            async move {
-                match self
-                    .contract_client
-                    .lock()
-                    .await
-                    .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
-                    .await
-                {
-                    Ok(()) => Some(()),
-                    Err(SuiClientError::TransactionExecutionError(e)) => {
-                        tracing::debug!(
-                            walrus.epoch = epoch,
-                            error = ?e,
-                            "repeatedly submitted certify_event_blob"
-                        );
-                        Some(())
-                    }
-                    Err(error) => {
-                        tracing::warn!(?error, "submitting certify event blob to contract failed");
-                        None
-                    }
-                }
-            }
-        })
+    ) {
+        self.execute_with_retries(
+            RetriableOperation::CertifyEventBlob {
+                blob_metadata,
+                ending_checkpoint_seq_num,
+                epoch,
+            },
+            |result| matches!(result, Err(SuiClientError::TransactionExecutionError(_))),
+        )
         .await;
-        Ok(())
     }
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {

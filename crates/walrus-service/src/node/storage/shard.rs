@@ -1068,7 +1068,7 @@ impl ShardStorage {
                     .get_invalid_blob_certificate(blob_id, &inconsistency_proof)
                     .await;
                 node.contract_service
-                    .invalidate_blob_id(&invalid_blob_certificate)
+                    .invalidate_blob_id(Arc::new(invalid_blob_certificate))
                     .await
             }
         }

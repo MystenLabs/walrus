@@ -583,7 +583,7 @@ impl BlobSynchronizer {
             .get_invalid_blob_certificate(self.blob_id, inconsistency_proof)
             .await;
         self.contract_service()
-            .invalidate_blob_id(&invalid_blob_certificate)
+            .invalidate_blob_id(Arc::new(invalid_blob_certificate))
             .await
     }
 }

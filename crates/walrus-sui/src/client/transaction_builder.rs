@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeSet, HashSet},
     fmt::Debug,
     str::FromStr,
+    sync::Arc,
 };
 
 use fastcrypto::traits::ToFromBytes;
@@ -325,7 +326,7 @@ impl WalrusPtbBuilder {
     /// Adds a call to `certify_event_blob` to the `pt_builder`.
     pub async fn certify_event_blob(
         &mut self,
-        blob_metadata: BlobObjectMetadata,
+        blob_metadata: &BlobObjectMetadata,
         storage_node_cap: ArgumentOrOwnedObject,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
@@ -546,7 +547,7 @@ impl WalrusPtbBuilder {
     /// Adds a call to `invalidate_blob_id` to the PTB.
     pub async fn invalidate_blob_id(
         &mut self,
-        certificate: &InvalidBlobCertificate,
+        certificate: Arc<InvalidBlobCertificate>,
     ) -> SuiClientResult<()> {
         let signers = self.signers_to_bitmap(&certificate.signers).await?;
 

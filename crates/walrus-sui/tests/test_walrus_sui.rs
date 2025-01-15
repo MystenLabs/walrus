@@ -24,6 +24,7 @@ use walrus_sui::{
         CoinType,
         PostStoreAction,
         ReadClient,
+        RetriableOperation,
         SuiClientError,
         SuiContractClient,
     },
@@ -287,7 +288,10 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 
     walrus_client
         .as_ref()
-        .invalidate_blob_id(&certificate)
+        .execute_retriable_contract_operation(
+            RetriableOperation::InvalidateBlobId(Arc::new(certificate)),
+            None,
+        )
         .await?;
 
     // Make sure that we got the expected event

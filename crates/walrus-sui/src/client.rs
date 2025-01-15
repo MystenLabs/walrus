@@ -4,11 +4,11 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
-use retry_client::RetriableSuiClient;
+use retry_client::{RetriableRpcError, RetriableSuiClient};
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -24,7 +24,7 @@ use sui_types::{
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, ProgrammableTransaction},
+    transaction::{Argument, ProgrammableTransaction, TransactionData},
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -55,7 +55,12 @@ use crate::{
         StorageNodeCap,
         StorageResource,
     },
-    utils::{get_created_sui_object_ids_by_type, sign_and_send_ptb},
+    utils::{
+        build_transaction_data,
+        get_created_sui_object_ids_by_type,
+        sign_and_execute_transaction,
+        sign_and_send_ptb,
+    },
 };
 
 mod read_client;
@@ -263,6 +268,41 @@ enum PoolOperationWithAuthorization {
 
 /// Result alias for functions returning a `SuiClientError`.
 pub type SuiClientResult<T> = Result<T, SuiClientError>;
+
+/// Represents the retriable operations for the Sui contract client.
+/// Retry here means retry the exact same ptb instead of building a new one.
+#[derive(Debug, Clone)]
+pub enum RetriableOperation {
+    /// Invalidate the blob ID.
+    InvalidateBlobId(Arc<InvalidBlobCertificate>),
+    /// Notify the contract that the epoch sync is done.
+    EpochSyncDone(Epoch),
+    /// Certify the event blob.
+    CertifyEventBlob {
+        /// The event blob metadata.
+        blob_metadata: BlobObjectMetadata,
+        /// The ending checkpoint sequence number.
+        ending_checkpoint_seq_num: u64,
+        /// The epoch.
+        epoch: u32,
+    },
+}
+
+/// Represents the result of a retriable operation.
+///
+/// This is used to indicate whether the operation succeeded or needs to be retried.
+#[derive(Debug)]
+pub enum RetriableOperationResult {
+    /// The operation succeeded.
+    Success,
+    /// The operation needs to be retried.
+    Retry {
+        /// The transaction to retry with.
+        retry_transaction: Box<TransactionData>,
+        /// The error that caused the operation to fail.
+        error: SuiClientError,
+    },
+}
 
 /// Client implementation for interacting with the Walrus smart contracts.
 pub struct SuiContractClient {
@@ -530,57 +570,6 @@ impl SuiContractClient {
         }
     }
 
-    /// Certifies the specified event blob on Sui, with the given metadata and epoch.
-    pub async fn certify_event_blob(
-        &self,
-        blob_metadata: BlobObjectMetadata,
-        ending_checkpoint_seq_num: u64,
-        epoch: u32,
-    ) -> SuiClientResult<()> {
-        let node_capability = self
-            .read_client
-            .get_address_capability_object(self.wallet_address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
-        tracing::debug!(
-            storage_node_cap = %node_capability.node_id,
-            "calling certify_event_blob"
-        );
-
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.wallet().await;
-
-        let mut pt_builder = self.transaction_builder();
-        pt_builder
-            .certify_event_blob(
-                blob_metadata,
-                node_capability.id.into(),
-                ending_checkpoint_seq_num,
-                epoch,
-            )
-            .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        Ok(())
-    }
-
-    /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
-    /// invalid.
-    pub async fn invalidate_blob_id(
-        &self,
-        certificate: &InvalidBlobCertificate,
-    ) -> SuiClientResult<()> {
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.wallet().await;
-
-        let mut pt_builder = self.transaction_builder();
-        pt_builder.invalidate_blob_id(certificate).await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        Ok(())
-    }
-
     /// Registers a candidate node.
     pub async fn register_candidate(
         &self,
@@ -728,35 +717,6 @@ impl SuiContractClient {
         let wallet = self.wallet().await;
         let mut pt_builder = self.transaction_builder();
         pt_builder.initiate_epoch_change().await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        Ok(())
-    }
-
-    /// Call to notify the contract that this node is done syncing the specified epoch.
-    pub async fn epoch_sync_done(&self, epoch: Epoch) -> SuiClientResult<()> {
-        let node_capability = self
-            .read_client
-            .get_address_capability_object(self.wallet_address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
-        if node_capability.last_epoch_sync_done >= epoch {
-            return Err(SuiClientError::LatestAttestedIsMoreRecent);
-        }
-
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.wallet().await;
-
-        tracing::debug!(
-            storage_node_cap = %node_capability.node_id,
-            "calling epoch_sync_done"
-        );
-
-        let mut pt_builder = self.transaction_builder();
-        pt_builder
-            .epoch_sync_done(node_capability.id.into(), epoch)
-            .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
@@ -985,6 +945,106 @@ impl SuiContractClient {
         WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address)
     }
 
+    /// Executes a retriable contract operation.
+    pub async fn execute_retriable_contract_operation(
+        &self,
+        operation: RetriableOperation,
+        retry_transaction: Option<TransactionData>,
+    ) -> SuiClientResult<RetriableOperationResult> {
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
+        let (res, transaction) = if let Some(transaction) = retry_transaction {
+            (
+                sign_and_execute_transaction(transaction.clone(), &wallet).await,
+                transaction,
+            )
+        } else {
+            let mut pt_builder = self.transaction_builder();
+
+            // Build the appropriate transaction based on operation type
+            match &operation {
+                RetriableOperation::EpochSyncDone(epoch) => {
+                    let node_capability = self
+                        .read_client
+                        .get_address_capability_object(self.wallet_address)
+                        .await?
+                        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+
+                    if node_capability.last_epoch_sync_done >= *epoch {
+                        return Err(SuiClientError::LatestAttestedIsMoreRecent);
+                    }
+
+                    tracing::debug!(
+                        storage_node_cap = %node_capability.node_id,
+                        "calling epoch_sync_done"
+                    );
+
+                    let mut pt_builder = self.transaction_builder();
+                    pt_builder
+                        .epoch_sync_done(node_capability.id.into(), *epoch)
+                        .await?;
+                }
+                RetriableOperation::InvalidateBlobId(certificate) => {
+                    tracing::debug!("calling invalidate_blob_id");
+                    pt_builder.invalidate_blob_id(certificate.clone()).await?;
+                }
+                RetriableOperation::CertifyEventBlob {
+                    blob_metadata,
+                    ending_checkpoint_seq_num,
+                    epoch,
+                } => {
+                    // Certifies the specified event blob on Sui, with the given metadata and epoch.
+                    let node_capability = self
+                        .read_client
+                        .get_address_capability_object(self.wallet_address)
+                        .await?
+                        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+
+                    tracing::debug!(
+                        storage_node_cap = %node_capability.node_id,
+                        "calling certify_event_blob"
+                    );
+
+                    let mut pt_builder = self.transaction_builder();
+                    pt_builder
+                        .certify_event_blob(
+                            blob_metadata,
+                            node_capability.id.into(),
+                            *ending_checkpoint_seq_num,
+                            *epoch,
+                        )
+                        .await?;
+                }
+            };
+
+            let (ptb, _sui_cost) = pt_builder.finish().await?;
+
+            let transaction = build_transaction_data(
+                self.wallet_address,
+                &wallet,
+                ptb.clone(),
+                self.get_compatible_gas_coins(None).await?,
+                self.gas_budget,
+            )
+            .await?;
+
+            (
+                sign_and_execute_transaction(transaction.clone(), &wallet).await,
+                transaction,
+            )
+        };
+
+        match res {
+            Ok(_) => Ok(RetriableOperationResult::Success),
+            Err(err) if err.is_retriable_rpc_error() => Ok(RetriableOperationResult::Retry {
+                retry_transaction: Box::new(transaction),
+                error: err.into(),
+            }),
+            Err(err) => Err(err.into()),
+        }
+    }
+
     /// Signs and sends a programmable transaction.
     // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock
     // before taking the object references. This ensures that no race conditions occur. We could
@@ -1181,6 +1241,19 @@ impl SuiContractClient {
             shared_blob_obj_id.len()
         );
         Ok(shared_blob_obj_id[0])
+    }
+
+    /// Invalidate the blob ID.
+    pub async fn invalidate_blob_id(
+        &self,
+        certificate: Arc<InvalidBlobCertificate>,
+    ) -> Result<(), SuiClientError> {
+        self.execute_retriable_contract_operation(
+            RetriableOperation::InvalidateBlobId(certificate),
+            None,
+        )
+        .await
+        .map(|_| ())
     }
 }
 
