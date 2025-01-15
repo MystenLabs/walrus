@@ -878,6 +878,11 @@ impl EventBlobWriter {
         if metadata.blob_id != blob_id {
             return Ok(());
         }
+        self.node
+            .storage()
+            .update_blob_info_with_metadata(&blob_id)
+            .context("unable to update metadata")?;
+
         self.metrics
             .latest_certified_event_index
             .set(element_index as i64);

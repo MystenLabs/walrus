@@ -551,6 +551,7 @@ async fn test_blocklist() -> TestResult {
             true,
             ClientCommunicationConfig::default_for_test(),
             Some(blocklist_dir.path().to_path_buf()),
+            None,
         )
         .await?;
     let client = client.as_ref();
@@ -693,6 +694,7 @@ async fn test_repeated_shard_move() -> TestResult {
             &[1, 1],
             true,
             ClientCommunicationConfig::default_for_test(),
+            None,
             None,
         )
         .await?;
