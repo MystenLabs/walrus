@@ -428,7 +428,7 @@ pub async fn get_sui_from_wallet_or_faucet(
             .get_client()
             .await?
             .coin_read_api()
-            .select_coins(sender, None, gas_budget as u128, vec![])
+            .select_coins(sender, None, (gas_budget + one_sui) as u128, vec![])
             .await?
             .iter()
             .map(|coin| coin.object_ref())
