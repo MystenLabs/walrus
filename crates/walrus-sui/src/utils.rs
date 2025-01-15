@@ -419,11 +419,21 @@ pub async fn get_sui_from_wallet_or_faucet(
         .coin_read_api()
         .get_balance(sender, None)
         .await?;
-    if balance.total_balance >= 2 * one_sui as u128 {
+    if balance.total_balance >= 3 * one_sui as u128 {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(one_sui));
         let tx = ptb.finish();
-        sign_and_send_ptb(sender, wallet, tx, vec![], 1000000000).await?;
+        let gas_budget = one_sui / 2;
+        let gas_coins = wallet
+            .get_client()
+            .await?
+            .coin_read_api()
+            .select_coins(sender, None, (gas_budget + one_sui) as u128, vec![])
+            .await?
+            .iter()
+            .map(|coin| coin.object_ref())
+            .collect();
+        sign_and_send_ptb(sender, wallet, tx, gas_coins, gas_budget).await?;
         Ok(())
     } else {
         request_sui_from_faucet(address, network, &wallet.get_client().await?).await?;

@@ -114,8 +114,7 @@ if ! $existing; then
       --host-addresses $ips \
       --storage-price 5 \
       --write-price 1 \
-      --epoch-duration $epoch_duration \
-      --deploy-contracts-from-working-dir
+      --epoch-duration $epoch_duration
 
     # Generate configs
     echo Generating configuration...
