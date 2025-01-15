@@ -140,6 +140,27 @@ enum Commands {
         #[command(subcommand)]
         command: DbToolCommands,
     },
+
+    /// Catchup events using event blobs.
+    /// Hidden command for emergency use only.
+    #[clap(hide = true)]
+    Catchup {
+        #[clap(long)]
+        /// Path to the RocksDB database directory.
+        db_path: PathBuf,
+
+        #[clap(long)]
+        /// Object ID of the Walrus system object
+        system_object_id: ObjectID,
+
+        #[clap(long)]
+        /// Object ID of the Walrus staking object
+        staking_object_id: ObjectID,
+
+        #[clap(long, default_value = "http://localhost:9000")]
+        /// The Sui RPC URL to use for catchup
+        sui_rpc_url: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -390,25 +411,48 @@ fn main() -> anyhow::Result<()> {
         }
 
         Commands::DbTool { command } => command.execute()?,
+
+        Commands::Catchup {
+            db_path,
+            system_object_id,
+            staking_object_id,
+            sui_rpc_url,
+        } => commands::catchup(db_path, system_object_id, staking_object_id, sui_rpc_url)?,
     }
     Ok(())
 }
 
 mod commands {
+    use anyhow::anyhow;
     use config::{
         LoadsFromPath,
         MetricsPushConfig,
         NodeRegistrationParamsForThirdPartyRegistration,
     };
+    use sui_sdk::SuiClientBuilder;
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
+    use typed_store::Map;
     use walrus_core::{
         ensure,
         keys::{SupportedKeyPair, TaggedKeyPair},
     };
-    use walrus_service::utils;
+    use walrus_service::{
+        node::events::event_processor::{
+            EventProcessor,
+            EventProcessorRuntimeConfig,
+            SuiClientSet,
+            SystemConfig,
+        },
+        utils,
+    };
     use walrus_sui::{
-        client::{contract_config::ContractConfig, ReadClient as _},
+        client::{
+            contract_config::ContractConfig,
+            retry_client::{RetriableRpcClient, RetriableSuiClient},
+            ReadClient as _,
+            SuiReadClient,
+        },
         types::NodeMetadata,
     };
     use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -832,6 +876,84 @@ mod commands {
         write_config_to_file(&config, &config_path, force)?;
 
         Ok(config)
+    }
+
+    #[tokio::main]
+    pub async fn catchup(
+        db_path: PathBuf,
+        system_object_id: ObjectID,
+        staking_object_id: ObjectID,
+        sui_rpc_url: String,
+    ) -> anyhow::Result<()> {
+        // Wipe db path if it exists
+        if db_path.exists() {
+            fs::remove_dir_all(&db_path).context(format!(
+                "Failed to remove directory '{}'",
+                db_path.display()
+            ))?;
+        }
+
+        // Create SuiClientSet
+        let sui_client = SuiClientBuilder::default()
+            .build(&sui_rpc_url)
+            .await
+            .context("Failed to create Sui client")?;
+        let retriable_sui_client =
+            RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
+
+        let contract_config = ContractConfig::new(system_object_id, staking_object_id);
+        let sui_read_client =
+            SuiReadClient::new(retriable_sui_client.clone(), &contract_config).await?;
+        let system_pkg_id = sui_read_client.get_system_package_id();
+
+        let rest_client = sui_rpc_api::Client::new(&sui_rpc_url)?;
+        let rest_client = RetriableRpcClient::new(rest_client, ExponentialBackoffConfig::default());
+        let clients = SuiClientSet::new(retriable_sui_client, rest_client);
+
+        let system_config = SystemConfig::new(system_pkg_id, system_object_id, staking_object_id);
+        let database = EventProcessor::initialize_database(&EventProcessorRuntimeConfig {
+            rpc_address: sui_rpc_url,
+            event_polling_interval: std::time::Duration::from_secs(1),
+            db_path: db_path.clone(),
+        })?;
+
+        let stores = EventProcessor::open_stores(&database)?;
+
+        // Create recovery path
+        let recovery_path = db_path.join("recovery");
+
+        // Call catchup_using_event_blobs
+        match EventProcessor::catchup_using_event_blobs(
+            clients,
+            system_config,
+            stores.clone(),
+            &recovery_path,
+        )
+        .await
+        {
+            Ok(()) => {
+                tracing::info!("Successfully caught up using event blobs");
+            }
+            Err(e) => {
+                tracing::error!("Failed to catch up using event blobs: {}", e);
+                return Err(e);
+            }
+        }
+
+        // Check event db is not empty and count total events
+        let event_iter = stores.event_store.unbounded_iter();
+        let total_events = event_iter.count();
+
+        if total_events == 0 {
+            tracing::error!("Event store is empty after catchup");
+            Err(anyhow!("Event store is empty after catchup"))
+        } else {
+            tracing::info!(
+                total_events = total_events,
+                "Event store successfully populated"
+            );
+            Ok(())
+        }
     }
 
     #[tokio::main]
