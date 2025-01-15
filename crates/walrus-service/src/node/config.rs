@@ -236,7 +236,8 @@ impl MetricsPushConfig {
     pub fn set_name(&mut self, name: &str) {
         self.labels
             .get_or_insert_with(HashMap::new)
-            .insert("name".into(), name.into());
+            .entry("name".into())
+            .or_insert_with(|| name.into());
 
         // also set the host label and try to get the hostname to do it.  if we cannot
         // use name as a fallback.
@@ -249,7 +250,8 @@ impl MetricsPushConfig {
     fn set_host(&mut self, host: String) {
         self.labels
             .get_or_insert_with(HashMap::new)
-            .insert("host".into(), host);
+            .entry("host".into())
+            .or_insert_with(|| host);
     }
 }
 
