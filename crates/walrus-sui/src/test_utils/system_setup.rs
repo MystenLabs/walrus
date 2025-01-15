@@ -210,6 +210,16 @@ pub async fn create_and_init_system(
 /// Registers the nodes based on the provided parameters, distributes WAL to each contract client,
 /// and stakes an equal amount with each storage node. Each of the contract clients will hold
 /// the `StorageNodeCap` for the node with the same index.
+#[tracing::instrument(
+    err,
+    skip(
+        admin_wallet,
+        system_context,
+        node_params,
+        node_bls_keys,
+        contract_clients
+    )
+)]
 pub async fn register_committee_and_stake(
     admin_wallet: &mut WalletContext,
     system_context: &SystemContext,

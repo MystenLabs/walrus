@@ -57,7 +57,7 @@ use crate::{
 };
 
 /// Default gas budget for transactions in tests and benchmarks.
-pub const DEFAULT_GAS_BUDGET: u64 = 1_000_000_000;
+pub const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
 const DEFAULT_FUNDING_PER_COIN: u64 = 10_000_000_000;
 
 /// Returns a random `EventID` for testing.
