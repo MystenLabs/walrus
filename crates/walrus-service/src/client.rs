@@ -24,7 +24,6 @@ use tracing::{Instrument as _, Level};
 use utils::WeightedResult;
 use walrus_core::{
     bft,
-    ShardIndex,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
@@ -32,6 +31,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     EpochCount,
+    ShardIndex,
     Sliver,
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
