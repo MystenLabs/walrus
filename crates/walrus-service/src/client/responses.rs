@@ -73,6 +73,7 @@ impl Display for EventOrObjectId {
 
 /// Blob store result with its file path.
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct BlobStoreResultWithPath {
     /// The result of the store operation.
     pub blob_store_result: BlobStoreResult,
