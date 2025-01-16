@@ -197,7 +197,7 @@ async fn get_committee(url: &str, dynamic_field_object_id: &str) -> Result<Vec<S
     // Parse the response as JSON
     let response_json: serde_json::Value = response.json().await?;
     // Extract the keys from the nested structure
-    let Some(contents) = response_json["result"]["data"]["content"]["fields"]["committee"]
+    let Some(contents) = response_json["result"]["data"]["content"]["fields"]["value"]["fields"]["committee"]
         ["fields"]["pos0"]["fields"]["contents"]
         .as_array()
     else {
