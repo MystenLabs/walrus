@@ -1544,7 +1544,7 @@ impl<T> Client<T> {
 
     /// Returns the shards of the given node in the write committee.
     #[cfg(any(test, feature = "test-utils"))]
-    pub async fn shards_of(&self, node_name: &str) -> Vec<ShardIndex> {
+    pub async fn shards_of(&self, node_names: &[String]) -> Vec<ShardIndex> {
         let committees = self.committees.read().await;
 
         for node in committees.write_committee().members() {
@@ -1557,9 +1557,10 @@ impl<T> Client<T> {
             .write_committee()
             .members()
             .iter()
-            .find(|node| node.name == node_name)
+            .filter(|node| node_names.contains(&node.name))
             .map(|node| node.shard_ids.clone())
-            .unwrap()
+            .flatten()
+            .collect::<Vec<_>>()
     }
 
     /// Maps the sliver pairs to the node in the write committee that holds their shard.

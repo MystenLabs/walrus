@@ -173,7 +173,7 @@ async_param_test! {
         f_failures: (&[4]),
     ]
 }
-/// Stores a blob that is inconsistent in shard 1
+/// Stores a blob that is inconsistent in 1 shard
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -182,18 +182,30 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
 
+    // Find the shards of the failed nodes.
+    let failed_node_names: Vec<String> = failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
+    let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names).await;
+
     // Encode the blob with false metadata for one shard.
-    // Since nodes are named node-0, node-1, etc, we pick the first shard of node-1.
-    // The test must NOT abort the second node.
-    let shard_to_fail = client.as_ref().shards_of("node-1").await[0];
-    tracing::warn!("failing shard: {shard_to_fail}");
     let (pairs, metadata) = client
         .as_ref()
         .encoding_config()
         .get_blob_encoder(&blob)?
         .encode_with_metadata();
     let mut metadata = metadata.metadata().to_owned();
-    metadata.mut_inner().hashes[shard_to_fail.as_usize()].primary_hash = Node::Digest([0; 32]);
+    let mut i = 0;
+    // Change a shard that is not in the failure set. Since the mapping of slivers to shards
+    // depends on the blob id, we need to search for an invalid hash for which the modified shard
+    // is not in the failure set.
+    loop {
+        metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
+        let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+        tracing::warn!("blob_id {}, shard {}", blob_id, SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id).as_usize());
+        if !shards_of_failed_nodes.contains(&SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id)) {
+            break;
+        }
+        i += 1;
+    };
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
