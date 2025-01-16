@@ -3731,9 +3731,13 @@ mod tests {
     }
 
     // The common setup for shard sync tests.
+    // By default:
     //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1 in node 1.
     //   - 23 blobs created and certified in node 0.
     //   - Create a new shard in node 1 with shard index 0 to test sync.
+    // If assignment is provided, it will be used to create the cluster, then all
+    // shards in the first node will be created in the second node for sync.
+    // If shard_sync_config is provided, it will be used to configure the shard sync.
     async fn setup_cluster_for_shard_sync_tests(
         assignment: Option<&[&[u16]]>,
         shard_sync_config: Option<ShardSyncConfig>,
