@@ -11,34 +11,31 @@ module walrus::staked_wal;
 
 use sui::balance::Balance;
 use wal::wal::WAL;
+use walrus::walrus_context::WalrusContext;
 
-// Keep errors in `walrus-sui/types/move_errors.rs` up to date with changes here.
+// Error codes
+// Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const ENotWithdrawing: u64 = 0;
 const EMetadataMismatch: u64 = 1;
 const EInvalidAmount: u64 = 2;
 const ENonZeroPrincipal: u64 = 3;
-// TODO: possibly enable this behavior in the future
-const ECantJoinWithdrawing: u64 = 4;
-// TODO: possibly enable this behavior in the future
-const ECantSplitWithdrawing: u64 = 5;
+/// Trying to mark stake as withdrawing when it is already marked as withdrawing.
+const EAlreadyWithdrawing: u64 = 6;
 
 /// The state of the staked WAL. It can be either `Staked` or `Withdrawing`.
 /// The `Withdrawing` state contains the epoch when the staked WAL can be
-///
-public enum StakedWalState has store, copy, drop {
+/// withdrawn.
+public enum StakedWalState has copy, drop, store {
     // Default state of the staked WAL - it is staked in the staking pool.
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing { withdraw_epoch: u32, pool_token_amount: u64 },
+    Withdrawing { withdraw_epoch: u32 },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
 /// `u64` to represent the staked amount. Behaves similarly to `Balance` and
 /// `Coin` providing methods to `split` and `join`.
-///
-/// TODO: consider adding a `version` field to the struct to allow public API
-///       upgrades in the future.
 public struct StakedWal has key, store {
     id: UID,
     /// Whether the staked WAL is active or withdrawing.
@@ -75,12 +72,31 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 }
 
 /// Sets the staked WAL state to `Withdrawing`
-public(package) fun set_withdrawing(
-    sw: &mut StakedWal,
-    withdraw_epoch: u32,
-    pool_token_amount: u64,
-) {
-    sw.state = StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount };
+public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
+    assert!(sw.is_staked(), EAlreadyWithdrawing);
+    sw.state = StakedWalState::Withdrawing { withdraw_epoch };
+}
+
+/// Checks if the staked WAL can be withdrawn directly.
+///
+/// The staked WAL can be withdrawn early if:
+/// - activation epoch is current epoch + 2
+/// - activation epoch is current epoch + 1 and !node_in_next_committee
+///   (or committee not selected yet)
+public(package) fun can_withdraw_early(
+    sw: &StakedWal,
+    node_in_next_committee: bool,
+    wctx: &WalrusContext,
+): bool {
+    if (sw.is_withdrawing()) {
+        return false
+    };
+
+    let activation_epoch = sw.activation_epoch;
+    let current_epoch = wctx.epoch();
+
+    activation_epoch == current_epoch + 2 ||
+    (sw.activation_epoch == current_epoch + 1 && !node_in_next_committee)
 }
 
 // === Accessors ===
@@ -115,35 +131,36 @@ public fun withdraw_epoch(sw: &StakedWal): u32 {
     }
 }
 
-/// Return the `withdraw_amount` of the staked WAL if it is in the `Withdrawing`.
-/// Aborts otherwise.
-public fun pool_token_amount(sw: &StakedWal): u64 {
-    match (sw.state) {
-        StakedWalState::Withdrawing { pool_token_amount, .. } => pool_token_amount,
-        _ => abort ENotWithdrawing,
-    }
-}
-
 // === Public APIs ===
-
-// TODO: do we want to version them? And should we take precaution measures such
-//      as adding a `ctx` parameter for future extensions? What about versioning
-//      the staked WAL itself by adding a `version` field into the struct?
 
 /// Joins the staked WAL with another staked WAL, adding the `principal` of the
 /// `other` staked WAL to the current staked WAL.
 ///
 /// Aborts if the `node_id` or `activation_epoch` of the staked WALs do not match.
 public fun join(sw: &mut StakedWal, other: StakedWal) {
-    let StakedWal { id, state, node_id, activation_epoch, principal } = other;
-    assert!(sw.state == state, EMetadataMismatch);
-    assert!(sw.node_id == node_id, EMetadataMismatch);
-    assert!(!sw.is_withdrawing(), ECantJoinWithdrawing);
-    assert!(sw.activation_epoch == activation_epoch, EMetadataMismatch);
+    assert!(sw.node_id == other.node_id, EMetadataMismatch);
 
-    id.delete();
+    // Simple scenario - staked wal is in `Staked` state. We guarantee that the
+    // metadata is identical: same activation epoch and both are in the same state.
+    if (sw.is_staked()) {
+        assert!(other.is_staked(), EMetadataMismatch);
+        assert!(sw.activation_epoch == other.activation_epoch, EMetadataMismatch);
 
+        let StakedWal { id, principal, .. } = other;
+        sw.principal.join(principal);
+        id.delete();
+        return
+    };
+
+    // Withdrawing scenario - we no longer check that the activation epoch is
+    // the same, as the staked WAL is in the process of withdrawing. Instead,
+    // we make sure that the withdraw epoch is the same.
+    assert!(sw.is_withdrawing() && other.is_withdrawing(), EMetadataMismatch);
+    assert!(sw.withdraw_epoch() == other.withdraw_epoch(), EMetadataMismatch);
+
+    let StakedWal { id, principal, .. } = other;
     sw.principal.join(principal);
+    id.delete();
 }
 
 /// Splits the staked WAL into two parts, one with the `amount` and the other
@@ -151,9 +168,10 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 /// same for both the staked WALs.
 ///
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
+/// Aborts if the `amount` is zero.
 public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWal {
-    assert!(sw.principal.value() >= amount, EInvalidAmount);
-    assert!(!sw.is_withdrawing(), ECantSplitWithdrawing);
+    assert!(sw.principal.value() > amount, EInvalidAmount);
+    assert!(amount > 0, EInvalidAmount);
 
     StakedWal {
         id: object::new(ctx),

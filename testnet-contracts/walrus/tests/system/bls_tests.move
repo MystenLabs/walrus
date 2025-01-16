@@ -4,18 +4,18 @@
 #[test_only]
 module walrus::bls_tests;
 
-use sui::bls12381;
+use sui::bls12381::{Self, g1_to_uncompressed_g1};
 use walrus::{
-    bls_aggregate::{Self, BlsCommittee, new_bls_committee, verify_certificate},
+    bls_aggregate::{Self, BlsCommittee, new_bls_committee},
     messages,
     test_utils::{
         bls_aggregate_sigs,
         bls_min_pk_from_sk,
         bls_min_pk_sign,
-        bls_secret_keys_for_testing
+        bls_secret_keys_for_testing,
+        signers_to_bitmap
     }
 };
-
 
 #[test]
 public fun test_check_aggregate() {
@@ -29,17 +29,52 @@ public fun test_check_aggregate() {
     );
 }
 
-#[test, expected_failure(abort_code = bls_aggregate::ESigVerification)]
-public fun test_add_members_error() {
-    let (committee, agg_sig, mut signers, message) = create_committee_and_cert(option::none());
+#[test]
+public fun test_check_aggregate_short_bitmap() {
+    let (committee, agg_sig, signers, message) = create_committee_and_cert_short_bitmap(
+        option::none(),
+    );
 
-    // Add another signer to the set.
-    signers.push_back(7);
+    // Make sure that the signers bitmap is actually shorter than the maximum bitmap length.
+    assert!(signers.length() < committee.n_members().divide_and_round_up(8));
 
-    // Verify the aggregate signature with signers 0, .., 7. Test fails here.
+    // Verify the aggregate signature
     committee.verify_certificate(
         &agg_sig,
         &signers,
+        &message,
+    );
+}
+
+#[test, expected_failure(abort_code = bls_aggregate::EInvalidBitmap)]
+public fun test_check_aggregate_invalid_bitmap() {
+    let (committee, agg_sig, mut signers, message) = create_committee_and_cert(option::none());
+
+    // Add a byte to the signers bitmap to make it invalid.
+    signers.push_back(0);
+
+    // Verify the aggregate signature
+    committee.verify_certificate(
+        &agg_sig,
+        &signers,
+        &message,
+    );
+}
+
+#[test, expected_failure(abort_code = bls_aggregate::ESigVerification)]
+public fun test_add_members_error() {
+    let (committee, agg_sig, signers, message) = create_committee_and_cert(option::none());
+
+    // Add another signer to the set.
+    let mut other_signers = vector::empty();
+    // Add the 7th signer to the set.
+    other_signers.push_back(signers[0] | 64u8);
+    other_signers.push_back(signers[1]);
+
+    // Verify the aggregate signature with the new, modified set of signers. Test fails here.
+    committee.verify_certificate(
+        &agg_sig,
+        &other_signers,
         &message,
     );
 }
@@ -52,21 +87,6 @@ public fun test_incorrect_signature_error() {
     agg_sig.swap(0, 1);
 
     // Verify the aggregate signature with wrong signature. Test fails here.
-    committee.verify_certificate(
-        &agg_sig,
-        &signers,
-        &message,
-    );
-}
-
-#[test, expected_failure(abort_code = bls_aggregate::ETotalMemberOrder)]
-public fun test_duplicate_member_error() {
-    let (committee, agg_sig, mut signers, message) = create_committee_and_cert(option::none());
-
-    // Add a duplicate signer to the set.
-    signers.insert(3, 3);
-
-    // Verify the aggregate signature with the same signer listed twice. Test fails here.
     committee.verify_certificate(
         &agg_sig,
         &signers,
@@ -105,27 +125,50 @@ public fun test_cert_incorrect_epoch() {
 
 /// Returns a committee, a valid aggregate signature, the signers, and message that was signed.
 ///
-/// The signers are keys 0, .., 6 and the committee has 10 keys in total.
+/// The signers are keys 0, 1, 2, 3, 4, 7, 8 and the committee has 10 keys in total.
 fun create_committee_and_cert(
     weights: Option<vector<u16>>,
-): (BlsCommittee, vector<u8>, vector<u16>, vector<u8>) {
+): (BlsCommittee, vector<u8>, vector<u8>, vector<u8>) {
+    // Create the aggregate sig for keys 0, 1, 2, 3, 4, 7, 8
+    let signers = vector[0, 1, 2, 3, 4, 7, 8];
+    create_committee_and_cert_with_signer_indices(weights, signers)
+}
+
+/// Returns a committee, a valid aggregate signature, the signers as a short bitmap,
+/// and the message that was signed.
+///
+/// The signers are keys 0, 1, 2, 3, 4, 5, 6 and the committee has 10 keys in total.
+fun create_committee_and_cert_short_bitmap(
+    weights: Option<vector<u16>>,
+): (BlsCommittee, vector<u8>, vector<u8>, vector<u8>) {
+    // Create the aggregate sig for keys 0, 1, 2, 3, 4, 5, 6
+    let signers = vector[0, 1, 2, 3, 4, 5, 6];
+    create_committee_and_cert_with_signer_indices(weights, signers)
+}
+
+fun create_committee_and_cert_with_signer_indices(
+    weights: Option<vector<u16>>,
+    signers: vector<u16>,
+): (BlsCommittee, vector<u8>, vector<u8>, vector<u8>) {
     let sks = bls_secret_keys_for_testing();
     let pks = sks.map_ref!(|sk| bls12381::g1_from_bytes(&bls_min_pk_from_sk(sk)));
     let weights = weights.get_with_default(vector[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     let epoch = 5;
 
-    let message = messages::certified_message_bytes(epoch, 0xABC);
+    let message = messages::certified_permanent_message_bytes(epoch, 0xABC);
 
-    // Create the aggregate sig for keys 0, 1, 2, 3, 4, 5, 6
     let mut sigs = vector[];
-    7u64.do!(|i| sigs.push_back(bls_min_pk_sign(&message, &sks[i])));
+    signers.do!(|i| sigs.push_back(bls_min_pk_sign(&message, &sks[i as u64])));
+
+    let signers_bitmap = signers_to_bitmap(&signers);
+
     let agg_sig = bls_aggregate_sigs(&sigs);
 
     // Make a new committee with equal weight
     let members = pks.zip_map!(
         weights,
         |pk, weight| bls_aggregate::new_bls_committee_member(
-            pk,
+            g1_to_uncompressed_g1(&pk),
             weight,
             tx_context::dummy().fresh_object_address().to_id(),
         ),
@@ -134,6 +177,5 @@ fun create_committee_and_cert(
         epoch,
         members,
     );
-    let signers = vector[0, 1, 2, 3, 4, 5, 6];
-    (committee, agg_sig, signers, message)
+    (committee, agg_sig, signers_bitmap, message)
 }

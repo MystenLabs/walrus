@@ -5,10 +5,7 @@
 module walrus::metadata_tests;
 
 use sui::vec_map::EKeyDoesNotExist;
-use walrus::{
-    metadata,
-};
-
+use walrus::metadata;
 
 #[test]
 public fun test_metadata_success() {
