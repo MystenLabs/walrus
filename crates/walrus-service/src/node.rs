@@ -2135,6 +2135,10 @@ mod tests {
         0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
     ];
 
+    struct ShardStorageSet {
+        pub shard_storage: Vec<Arc<ShardStorage>>,
+    }
+
     async fn storage_node_with_storage(storage: WithTempDir<Storage>) -> StorageNodeHandle {
         StorageNodeHandle::builder()
             .with_storage(storage)
@@ -3722,27 +3726,39 @@ mod tests {
     //   - 23 blobs created and certified in node 0.
     //   - Create a new shard in node 1 with shard index 0 to test sync.
     async fn setup_cluster_for_shard_sync_tests(
-    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorage>)> {
+        assignment: Option<&[&[u16]]>,
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
+        let assignment = assignment.unwrap_or(&[&[0], &[1]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &blobs, 2).await?;
+            cluster_with_initial_epoch_and_certified_blob(assignment, &blobs, 2).await?;
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
             &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
         };
+        let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
         node_inner
             .storage
-            .create_storage_for_shards(&[ShardIndex(0)])?;
-        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            .create_storage_for_shards(&shard_indices)?;
+        let shard_storage_set = ShardStorageSet {
+            shard_storage: shard_indices
+                .iter()
+                .map(|i| node_inner.storage.shard_storage(*i).unwrap())
+                .collect(),
+        };
+        let shard_storage_set = Arc::new(shard_storage_set);
+
+        for shard_storage in shard_storage_set.shard_storage.iter() {
+            shard_storage.update_status_in_test(ShardStatus::None)?;
+        }
 
         Ok((
             cluster,
             blob_details,
             node_inner.storage.clone(),
-            shard_storage_dst.clone(),
+            shard_storage_set.clone(),
         ))
     }
 
@@ -3823,6 +3839,29 @@ mod tests {
         Ok(())
     }
 
+    async fn wait_for_shards_in_active_state(shard_storage_set: &ShardStorageSet) -> TestResult {
+        // Waits for the shard to be synced.
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let mut all_active = true;
+                for shard_storage in &shard_storage_set.shard_storage {
+                    let status = shard_storage.status().unwrap();
+                    if status != ShardStatus::Active {
+                        all_active = false;
+                        break;
+                    }
+                }
+                if all_active {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
     // Tests shard transfer only using shard sync functionality.
     async_param_test! {
         sync_shard_complete_transfer -> TestResult: [
@@ -3833,9 +3872,17 @@ mod tests {
     async fn sync_shard_complete_transfer(
         wipe_metadata_before_transfer_in_dst: bool,
     ) -> TestResult {
-        let (cluster, blob_details, storage_dst, shard_storage_dst) =
-            setup_cluster_for_shard_sync_tests().await?;
+        let assignment: Option<&[&[u16]]> = Some(&[&[0, 1, 2], &[3]]);
+        let (cluster, blob_details, storage_dst, shard_storage_set) =
+            setup_cluster_for_shard_sync_tests(assignment).await?;
 
+        let expected_shard_count = if let Some(assignment) = assignment {
+            assignment[0].len()
+        } else {
+            1
+        };
+        assert_eq!(shard_storage_set.shard_storage.len(), expected_shard_count);
+        let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
         if wipe_metadata_before_transfer_in_dst {
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
@@ -3854,15 +3901,20 @@ mod tests {
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 0);
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 0);
 
+        let shard_indices: Vec<_> = if let Some(assignment) = assignment {
+            assignment[0].iter().map(|i| ShardIndex(*i)).collect()
+        } else {
+            vec![ShardIndex(0)]
+        };
         // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
             .shard_sync_handler
-            .start_sync_shards(vec![ShardIndex(0)], wipe_metadata_before_transfer_in_dst)
+            .start_sync_shards(shard_indices, wipe_metadata_before_transfer_in_dst)
             .await?;
 
         // Waits for the shard to be synced.
-        wait_for_shard_in_active_state(&shard_storage_dst).await?;
+        wait_for_shards_in_active_state(&shard_storage_set).await?;
 
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 23);
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 23);
@@ -4179,9 +4231,11 @@ mod tests {
             break_index: u64,
             sliver_type: SliverType,
         ) -> TestResult {
-            let (cluster, blob_details, storage_dst, shard_storage_dst) =
+            let (cluster, blob_details, storage_dst, shard_storage_set) =
                 setup_cluster_for_shard_sync_tests().await?;
 
+            assert_eq!(shard_storage_dst.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_arg(
                 "fail_point_fetch_sliver",
                 move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
@@ -4245,9 +4299,11 @@ mod tests {
             ]
         }
         async fn sync_shard_src_abnormal_return(fail_point: &'static str) -> TestResult {
-            let (cluster, _blob_details, storage_dst, shard_storage_dst) =
+            let (cluster, _blob_details, storage_dst, shard_storage_set) =
                 setup_cluster_for_shard_sync_tests().await?;
 
+            assert_eq!(shard_storage_dst.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_if(fail_point, || true);
 
             // Starts the shard syncing process in the new shard, which will return empty slivers.
@@ -4459,9 +4515,11 @@ mod tests {
         async fn sync_shard_recovery_metadata_restart(
             fail_before_start_fetching: bool,
         ) -> TestResult {
-            let (cluster, blob_details, storage_dst, shard_storage_dst) =
+            let (cluster, blob_details, storage_dst, shard_storage_set) =
                 setup_cluster_for_shard_sync_tests().await?;
 
+            assert_eq!(shard_storage_dst.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             if fail_before_start_fetching {
                 register_fail_point_if(
                     "fail_point_shard_sync_recovery_metadata_error_before_fetch",
