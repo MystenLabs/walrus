@@ -174,7 +174,7 @@ async_param_test! {
     ]
 }
 /// Stores a blob that is inconsistent in shard 1
-async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
+async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
@@ -183,13 +183,17 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
     let blob = walrus_test_utils::random_data(31415);
 
     // Encode the blob with false metadata for one shard.
+    // Since nodes are named node-0, node-1, etc, we pick the first shard of node-1.
+    // The test must NOT abort the second node.
+    let shard_to_fail = client.as_ref().shards_of("node-1").await[0];
+    tracing::warn!("failing shard: {shard_to_fail}");
     let (pairs, metadata) = client
         .as_ref()
         .encoding_config()
         .get_blob_encoder(&blob)?
         .encode_with_metadata();
     let mut metadata = metadata.metadata().to_owned();
-    metadata.mut_inner().hashes[1].primary_hash = Node::Digest([0; 32]);
+    metadata.mut_inner().hashes[shard_to_fail.as_usize()].primary_hash = Node::Digest([0; 32]);
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
@@ -220,7 +224,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .await?;
 
     // Stop the nodes in the failure set.
-    failed_shards
+    failed_nodes
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
