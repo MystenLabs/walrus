@@ -7,7 +7,6 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
-    str::FromStr,
     time::Duration,
 };
 
@@ -178,8 +177,7 @@ pub enum CliCommands {
         /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
         /// system object on chain. Otherwise, the blob is stored for the specified number of
         /// epochs. The number of epochs must be greater than 0.
-        #[serde_as(as = "DisplayFromStr")]
-        #[clap(short, long)]
+        #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
         epochs: EpochCountOrMax,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
@@ -404,7 +402,7 @@ pub enum CliCommands {
         /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
         /// system object on chain. Otherwise, the blob is stored for the specified number of
         /// epochs. The number of epochs must be greater than 0.
-        #[clap(long)]
+        #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
         epochs_ahead: EpochCountOrMax,
     },
     /// Share a blob.
@@ -754,27 +752,12 @@ impl BurnSelection {
 /// for the maximum number of epochs allowed by the system object on chain.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub enum EpochCountOrMax {
-    /// The number of epochs to store the blob for.
-    Epochs(NonZeroU32),
     /// Store the blob for the maximum number of epochs allowed.
+    #[serde(rename = "max")]
     Max,
-}
-
-impl std::fmt::Display for EpochCountOrMax {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            EpochCountOrMax::Epochs(epochs) => write!(f, "{}", epochs),
-            EpochCountOrMax::Max => write!(f, "max"),
-        }
-    }
-}
-
-impl FromStr for EpochCountOrMax {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        Self::parse_epoch_count(s)
-    }
+    /// The number of epochs to store the blob for.
+    #[serde(untagged)]
+    Epochs(NonZeroU32),
 }
 
 impl EpochCountOrMax {
@@ -900,7 +883,8 @@ mod tests {
 
     use super::*;
 
-    const STORE_STR: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
+    const STORE_STR_1: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
+    const STORE_STR_MAX: &str = r#"{"store": {"files": ["README.md"], "epochs": "max"}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
@@ -917,10 +901,10 @@ mod tests {
     }
 
     // Fixture for the store command.
-    fn store_command() -> Commands {
+    fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epochs: EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")),
+            epochs,
             dry_run: false,
             force: false,
             deletable: false,
@@ -962,7 +946,11 @@ mod tests {
 
     param_test! {
         test_json_string_extraction -> TestResult: [
-            store: (&make_cmd_str(STORE_STR), store_command()),
+            store_max: (&make_cmd_str(STORE_STR_MAX), store_command(EpochCountOrMax::Max)),
+            store_1: (
+                &make_cmd_str(STORE_STR_1),
+                store_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
+            ),
             read: (&make_cmd_str(READ_STR), read_command()),
             daemon: (&make_cmd_str(DAEMON_STR), daemon_command())
         ]
