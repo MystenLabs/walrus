@@ -183,7 +183,8 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let blob = walrus_test_utils::random_data(31415);
 
     // Find the shards of the failed nodes.
-    let failed_node_names: Vec<String> = failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
+    let failed_node_names: Vec<String> =
+        failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
     let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names).await;
 
     // Encode the blob with false metadata for one shard.
@@ -200,11 +201,13 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     loop {
         metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
         let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-        if !shards_of_failed_nodes.contains(&SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id)) {
+        if !shards_of_failed_nodes.contains(
+            &SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id),
+        ) {
             break;
         }
         i += 1;
-    };
+    }
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
