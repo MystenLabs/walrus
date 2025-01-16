@@ -1551,8 +1551,7 @@ impl<T> Client<T> {
             .members()
             .iter()
             .filter(|node| node_names.contains(&node.name))
-            .map(|node| node.shard_ids.clone())
-            .flatten()
+            .flat_map(|node| node.shard_ids.clone())
             .collect::<Vec<_>>()
     }
 
