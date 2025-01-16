@@ -21,12 +21,27 @@ name = "walrus-deploy"
 path = "bin/deploy.rs"
 required-features = ["deploy"]
 
+[[bin]]
+name = "walrus-backup"
+path = "bin/backup.rs"
+required-features = ["backup"]
+
 [features]
+backup = [
+  "dep:async-trait",
+  "dep:enum_dispatch",
+  "dep:mime",
+  "dep:mysten-metrics",
+  "dep:rocksdb",
+  "dep:tokio-stream",
+  "dep:tokio-util",
+  "dep:typed-store",
+]
 client = [
   "dep:colored",
   "dep:prettytable",
 ]
-default = ["client", "deploy", "node"]
+default = ["backup", "client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",

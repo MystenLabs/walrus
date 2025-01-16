@@ -15,12 +15,14 @@ use crate::{
 };
 
 /// Responsible for downloading and managing event blobs
+#[derive(Debug)]
 pub struct EventBlobDownloader {
     walrus_client: WalrusClient<SuiReadClient>,
     sui_read_client: SuiReadClient,
 }
 
 impl EventBlobDownloader {
+    /// Creates a new instance of the event blob downloader.
     pub fn new(walrus_client: WalrusClient<SuiReadClient>, sui_read_client: SuiReadClient) -> Self {
         Self {
             walrus_client,

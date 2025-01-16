@@ -66,7 +66,7 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
-use crate::node::config::SuiConfig;
+use crate::common::config::SuiConfig;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{

@@ -26,7 +26,8 @@ use walrus_sui::{
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::{committee::CommitteeService, config::SuiConfig};
+use super::committee::CommitteeService;
+use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);

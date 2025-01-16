@@ -45,11 +45,10 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     client::{self, ClientCommunicationConfig},
-    common::utils::LoadConfig,
+    common::{config::SuiConfig, utils::LoadConfig},
     node::config::{
         defaults::{self, REST_API_PORT},
         StorageNodeConfig,
-        SuiConfig,
     },
 };
 

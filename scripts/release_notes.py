@@ -50,6 +50,7 @@ NOTE_ORDER = [
     "Aggregator",
     "Publisher",
     "CLI",
+    "Backup node",
 ]
 
 class Note(NamedTuple):

@@ -5,7 +5,8 @@
 
 pub(crate) mod active_committees;
 pub(crate) mod api;
-pub mod blocklist;
+pub(crate) mod blocklist;
+pub mod config;
 pub(crate) mod telemetry;
 pub mod utils;
 

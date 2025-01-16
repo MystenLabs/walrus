@@ -290,7 +290,7 @@ impl EventProcessor {
     /// Updates the package store with the given objects.
     fn update_package_store(&self, objects: &[Object]) -> Result<(), TypedStoreError> {
         let mut write_batch = self.stores.walrus_package_store.batch();
-        for object in objects.iter() {
+        for object in objects {
             // Update the package store with the given object.We want to track not just the
             // walrus package but all its transitive dependencies as well. While it is possible
             // to get the transitive dependencies for a package, it is more efficient to just
@@ -442,7 +442,7 @@ impl EventProcessor {
                 self.update_package_store(&tx.output_objects)
                     .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
-                let original_package_ids: Vec<_> =
+                let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
                         self.package_store
                             .get_original_package_id(event.package_id.into())
@@ -452,6 +452,7 @@ impl EventProcessor {
                     .data
                     .into_iter()
                     .zip(original_package_ids)
+                    // Filter out events that are not from the Walrus system package.
                     .filter(|(_, original_id)| *original_id == self.system_pkg_id)
                     .map(|(event, _)| event)
                     .enumerate()

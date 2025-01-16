@@ -20,6 +20,7 @@ kill_tmux_sessions
 function usage() {
     echo "Usage: $0 [OPTIONS]"
     echo "OPTIONS:"
+    echo "  -f                    Tail the logs of the nodes (default: false)"
     echo "  -c <committee_size>   Number of storage nodes (default: 4)"
     echo "  -s <n_shards>         Number of shards (default: 10)"
     echo "  -n <network>          Sui network to generate configs for (default: devnet)"
@@ -32,7 +33,7 @@ function usage() {
 function run_node() {
     cmd="./target/release/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
         |& tee $working_dir/$1.log"
-    echo $cmd
+    echo "Running within tmux: '$cmd'..."
     tmux new -d -s "$1" "$cmd"
 }
 
@@ -42,9 +43,13 @@ committee_size=4 # Default value of 4 if no argument is provided
 shards=10 # Default value of 4 if no argument is provided
 network=devnet
 epoch_duration=1h
+tail_logs=false
 
-while getopts "n:c:s:d:the" arg; do
+while getopts "n:c:s:d:thef" arg; do
     case "${arg}" in
+        f)
+            tail_logs=true
+            ;;
         n)
             network=${OPTARG}
             ;;
@@ -92,9 +97,9 @@ cargo build --release --bin walrus --bin walrus --bin walrus-node --bin walrus-d
 working_dir="./working_dir"
 
 # Derive the ip addresses for the storage nodes
-ips=" "
-for i in $(seq 1 $committee_size); do
-    ips+="127.0.0.1 "
+ips=( )
+for node_count in $(seq 1 "$committee_size"); do
+  ips+=( 127.0.0.1 )
 done
 
 # Initialize cleanup to be empty
@@ -109,38 +114,46 @@ if ! $existing; then
     echo Deploying system contract...
     ./target/release/walrus-deploy deploy-system-contract \
       --working-dir $working_dir \
-      --sui-network $network \
-      --n-shards $shards \
-      --host-addresses $ips \
+      --sui-network "$network" \
+      --n-shards "$shards" \
+      --host-addresses "${ips[@]}" \
       --storage-price 5 \
       --write-price 1 \
-      --epoch-duration $epoch_duration
+      --epoch-duration "$epoch_duration"
 
     # Generate configs
     echo Generating configuration...
     ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir
 
-    echo "event_processor_config:
+    echo "---
+event_processor_config:
   adaptive_downloader_config:
-    max_workers: 2
-    initial_workers: 2" | \
+  max_workers: 2
+  initial_workers: 2" | \
       tee -a $working_dir/dryrun-node-*[0-9].yaml >/dev/null
 fi
 
-i=0
+node_count=0
+#
 # shellcheck disable=SC2045
 for config in $( ls $working_dir/dryrun-node-*[0-9].yaml ); do
     node_name=$(basename -- "$config")
     node_name="${node_name%.*}"
-    run_node $node_name $cleanup
-    ((i++))
+    run_node "$node_name" "$cleanup"
+    ((node_count++))
 done
 
-echo "\nSpawned $i nodes in separate tmux sessions."
+echo "
+Spawned $node_count nodes in separate tmux sessions. (See \`tmux ls\` for the list of tmux sessions.)
 
-echo "\nClient configuration stored at working_dir/client_config.yaml."
-echo "See README.md for further information on the Walrus client."
+Client configuration stored at '$working_dir/client_config.yaml'.
+See README.md for further information on the Walrus client."
 
-while true; do
-    sleep 1
-done
+if $tail_logs; then
+  tail -F "$working_dir"/dryrun-node-*.log | grep --line-buffered --color -Ei "ERROR|CRITICAL|^"
+else
+  echo "Press Ctrl+C to stop the nodes."
+  while (( 1 )); do
+    sleep 120
+  done
+fi

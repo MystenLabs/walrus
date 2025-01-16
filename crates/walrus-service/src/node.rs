@@ -93,7 +93,7 @@ use walrus_sui::{
 use self::{
     blob_sync::BlobSyncHandler,
     committee::{CommitteeService, NodeCommitteeService},
-    config::{StorageNodeConfig, SuiConfig},
+    config::StorageNodeConfig,
     contract_service::{SuiSystemContractService, SystemContractService},
     errors::{
         BlobStatusError,
@@ -122,7 +122,13 @@ use self::{
     storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
     system_events::{EventManager, SuiSystemEventProvider},
 };
-use crate::{client::Blocklist, common::utils::ShardDiff};
+use crate::{
+    client::Blocklist,
+    common::{
+        config::SuiConfig,
+        utils::{should_reposition_cursor, ShardDiff},
+    },
+};
 
 pub mod committee;
 pub mod config;
@@ -402,7 +408,9 @@ impl StorageNodeBuilder {
     }
 }
 
-async fn create_read_client(sui_config: &SuiConfig) -> Result<SuiReadClient, anyhow::Error> {
+pub(crate) async fn create_read_client(
+    sui_config: &SuiConfig,
+) -> Result<SuiReadClient, anyhow::Error> {
     Ok(sui_config.new_read_client().await?)
 }
 
@@ -625,7 +633,7 @@ impl StorageNode {
 
         let storage_index = storage_node_cursor.element_index;
         let mut storage_node_cursor_repositioned = false;
-        if self.should_reposition_cursor(storage_index, actual_event_index) {
+        if should_reposition_cursor(storage_index, actual_event_index) {
             tracing::info!(
                 "Repositioning storage node cursor from {} to {}",
                 storage_index,
@@ -641,7 +649,7 @@ impl StorageNode {
         let mut event_blob_writer_repositioned = false;
         if let Some(writer) = event_blob_writer {
             let event_blob_writer_index = event_blob_writer_cursor.element_index;
-            if self.should_reposition_cursor(event_blob_writer_index, actual_event_index) {
+            if should_reposition_cursor(event_blob_writer_index, actual_event_index) {
                 tracing::info!(
                     "Repositioning event blob writer cursor from {} to {}",
                     event_blob_writer_index,
@@ -688,33 +696,6 @@ impl StorageNode {
             }
         );
         Ok(cursor)
-    }
-
-    /// Returns whether the storage node cursor should be repositioned.
-    ///
-    /// The storage node cursor should be repositioned if the storage node cursor is behind the
-    /// actual event index and the storage node cursor is at the beginning of the event stream.
-    ///
-    /// - `storage_index`: The index of the next event the node needs to process.
-    /// - `actual_event_index`: The index of the first event available in the current event stream.
-    ///
-    /// Usually, these indices match up, meaning the node picks up processing right where it left
-    /// off. However, there's a special case during node bootstrapping (when starting with no
-    /// previous state) and event processor bootstrapping itself from event blobs:
-    ///
-    /// When a node starts up for the first time, older event blobs might have expired due to the
-    /// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
-    /// 0).
-    ///
-    /// In this case, the event stream can only provide events starting from index N. But the
-    /// storage node, being brand new, wants to start processing from index 0. In this scenario, we
-    /// actually want to reposition the storage node cursor to index N. This is safe because those
-    /// events are no longer available in the system anyway (they've expired), and marking them as
-    /// completed prevents the event tracking system from flagging this natural gap as an error.
-    fn should_reposition_cursor(&self, event_index: u64, actual_event_index: u64) -> bool {
-        let is_behind = event_index < actual_event_index;
-        let is_at_beginning = event_index == 0;
-        is_behind && is_at_beginning
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
