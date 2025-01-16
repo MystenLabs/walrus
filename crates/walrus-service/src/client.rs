@@ -1546,13 +1546,6 @@ impl<T> Client<T> {
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn shards_of(&self, node_names: &[String]) -> Vec<ShardIndex> {
         let committees = self.committees.read().await;
-
-        for node in committees.write_committee().members() {
-            tracing::warn!("Node Name: {}", node.name);
-            tracing::warn!("Shard IDs: {:?}", node.shard_ids);
-            tracing::warn!("PK: {:?}", node.public_key);
-        }
-
         committees
             .write_committee()
             .members()
