@@ -17,7 +17,7 @@ use walrus_test_utils::Result as TestResult;
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn nodes_drive_epoch_change() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let epoch_duration = Duration::from_secs(5);
     let (_sui, storage_nodes, _) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(

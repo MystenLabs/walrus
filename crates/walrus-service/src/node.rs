@@ -3120,7 +3120,7 @@ mod tests {
 
     #[walrus_simtest]
     async fn cancel_expired_blob_sync_upon_epoch_change() -> TestResult {
-        let _ = tracing_subscriber::fmt::try_init();
+        telemetry_subscribers::init_for_testing();
 
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
@@ -4498,7 +4498,7 @@ mod tests {
 
         #[walrus_simtest]
         async fn finish_epoch_change_start_should_not_block_event_processing() -> TestResult {
-            let _ = tracing_subscriber::fmt::try_init();
+            telemetry_subscribers::init_for_testing();
 
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
@@ -4594,7 +4594,7 @@ mod tests {
         // Tests that storage node lag check is not affected by the blob writer cursor.
         #[walrus_simtest]
         async fn event_blob_cursor_should_not_affect_node_state() -> TestResult {
-            let _ = tracing_subscriber::fmt::try_init();
+            telemetry_subscribers::init_for_testing();
 
             // Set the initial cursor to a high value to simulate a severe lag to
             // blob writer cursor.
