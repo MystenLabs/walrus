@@ -200,7 +200,6 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     loop {
         metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
         let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-        tracing::warn!("blob_id {}, shard {}", blob_id, SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id).as_usize());
         if !shards_of_failed_nodes.contains(&SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id)) {
             break;
         }
