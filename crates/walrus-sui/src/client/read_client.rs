@@ -44,7 +44,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{
     contract_config::ContractConfig,
-    retry_client::RetriableSuiClient,
+    retry_client::{RetriableSuiClient, MULTI_GET_OBJ_LIMIT},
     SuiClientError,
     SuiClientResult,
 };
@@ -72,7 +72,6 @@ use crate::{
 };
 
 const EVENT_MODULE: &str = "events";
-const MULTI_GET_OBJ_LIMIT: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The type of coin.

@@ -49,6 +49,9 @@ use crate::{
 /// The list of HTTP status codes that are retriable.
 const RETRIABLE_RPC_ERRORS: &[&str] = &["429", "500", "502"];
 
+/// The maximum number of objects to get in a single RPC call.
+pub(crate) const MULTI_GET_OBJ_LIMIT: usize = 50;
+
 /// Trait to test if an error is produced by a temporary RPC failure and can be retried.
 pub trait RetriableRpcError: Debug {
     /// Returns `true` if the error is a retriable network error.
@@ -335,22 +338,21 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        retry_rpc_errors(self.get_strategy(), || async {
-            let responses = self
-                .sui_client
-                .read_api()
-                .multi_get_object_with_options(
-                    object_ids.to_vec(),
+        let mut responses = vec![];
+        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            responses.extend(
+                self.multi_get_object_with_options(
+                    obj_id_batch.to_vec(),
                     SuiObjectDataOptions::new().with_bcs().with_type(),
                 )
-                .await?;
+                .await?,
+            );
+        }
 
-            responses
-                .iter()
-                .map(|r| get_sui_object_from_object_response(r))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .await
+        responses
+            .iter()
+            .map(|r| get_sui_object_from_object_response(r))
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub(crate) async fn get_extended_field<V>(
