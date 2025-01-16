@@ -20,7 +20,6 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
-    ensure,
     metadata::BlobMetadataApi as _,
     BlobId,
     EpochCount,
@@ -50,6 +49,7 @@ use super::args::{
 use crate::{
     client::{
         cli::{
+            args::EpochCountOrMax,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -257,6 +257,10 @@ impl ClientCommandRunner {
                 let spinner = styled_spinner();
                 spinner.set_message("extending blob...");
 
+                let fixed_parames = sui_client.fixed_system_parameters().await?;
+                let epochs_ahead =
+                    epochs_ahead.try_into_epoch_count(fixed_parames.max_epochs_ahead)?;
+
                 sui_client
                     .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
                     .await?;
@@ -370,7 +374,7 @@ impl ClientCommandRunner {
     pub(crate) async fn store(
         self,
         files: Vec<PathBuf>,
-        epochs: EpochCount,
+        epochs: EpochCountOrMax,
         dry_run: bool,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -382,12 +386,7 @@ impl ClientCommandRunner {
         // for.
         let fixed_params = client.sui_client().fixed_system_parameters().await?;
 
-        ensure!(
-            epochs <= fixed_params.max_epochs_ahead,
-            "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
-            fixed_params.max_epochs_ahead,
-            epochs
-        );
+        let epochs = epochs.try_into_epoch_count(fixed_params.max_epochs_ahead)?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");

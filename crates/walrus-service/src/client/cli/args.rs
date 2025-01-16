@@ -3,14 +3,20 @@
 
 //! The arguments to the Walrus client binary.
 
-use std::{net::SocketAddr, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{
+    net::SocketAddr,
+    num::{NonZeroU16, NonZeroU32},
+    path::PathBuf,
+    str::FromStr,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, BlobId, EpochCount};
+use walrus_core::{encoding::EncodingConfig, ensure, BlobId, EpochCount};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, SuiContractClient},
     utils::SuiNetwork,
@@ -168,8 +174,13 @@ pub enum CliCommands {
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(long)]
-        epochs: EpochCount,
+        ///
+        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+        /// system object on chain. Otherwise, the blob is stored for the specified number of
+        /// epochs. The number of epochs must be greater than 0.
+        #[serde_as(as = "DisplayFromStr")]
+        #[clap(short, long)]
+        epochs: EpochCountOrMax,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -389,8 +400,12 @@ pub enum CliCommands {
         #[clap(long)]
         shared_blob_obj_id: ObjectID,
         /// The number of epochs to extend the shared blob for.
+        ///
+        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+        /// system object on chain. Otherwise, the blob is stored for the specified number of
+        /// epochs. The number of epochs must be greater than 0.
         #[clap(long)]
-        epochs_ahead: EpochCount,
+        epochs_ahead: EpochCountOrMax,
     },
     /// Share a blob.
     Share {
@@ -733,6 +748,68 @@ impl BurnSelection {
     }
 }
 
+/// The number of epochs to store the blob for.
+///
+/// Can be either a non-zero number of epochs or the special value `max`, which will store the blob
+/// for the maximum number of epochs allowed by the system object on chain.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum EpochCountOrMax {
+    /// The number of epochs to store the blob for.
+    Epochs(NonZeroU32),
+    /// Store the blob for the maximum number of epochs allowed.
+    Max,
+}
+
+impl std::fmt::Display for EpochCountOrMax {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EpochCountOrMax::Epochs(epochs) => write!(f, "{}", epochs),
+            EpochCountOrMax::Max => write!(f, "max"),
+        }
+    }
+}
+
+impl FromStr for EpochCountOrMax {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::parse_epoch_count(s)
+    }
+}
+
+impl EpochCountOrMax {
+    fn parse_epoch_count(input: &str) -> Result<Self> {
+        if input == "max" {
+            Ok(Self::Max)
+        } else {
+            let epochs = input.parse::<u32>()?;
+            Ok(Self::Epochs(NonZeroU32::new(epochs).ok_or_else(|| {
+                anyhow!("invalid epoch count; please a number >0 or `max`")
+            })?))
+        }
+    }
+
+    /// Tries to convert the `EpochCountOrMax` into an `EpochCount` value.
+    ///
+    /// If the `EpochCountOrMax` is `Max`, the `max_epochs_ahead` is used as the maximum number of
+    /// epochs that can be stored ahead.
+    pub fn try_into_epoch_count(&self, max_epochs_ahead: EpochCount) -> anyhow::Result<EpochCount> {
+        match self {
+            EpochCountOrMax::Max => Ok(max_epochs_ahead),
+            EpochCountOrMax::Epochs(epochs) => {
+                let epochs = epochs.get();
+                ensure!(
+                    epochs <= max_epochs_ahead,
+                    "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+                    max_epochs_ahead,
+                    epochs
+                );
+                Ok(epochs)
+            }
+        }
+    }
+}
+
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
@@ -843,7 +920,7 @@ mod tests {
     fn store_command() -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epochs: 1,
+            epochs: EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")),
             dry_run: false,
             force: false,
             deletable: false,
