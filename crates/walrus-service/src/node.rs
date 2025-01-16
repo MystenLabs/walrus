@@ -612,25 +612,14 @@ impl StorageNode {
         Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
         usize,
     )> {
-        let event_cursor = std::cmp::min(
-            storage_node_cursor.clone(),
-            event_blob_writer_cursor.clone(),
-        );
-        let event_stream = self
-            .inner
-            .event_manager
-            .events(event_cursor.clone())
-            .await?;
+        let event_cursor = std::cmp::min(storage_node_cursor, event_blob_writer_cursor);
+        let event_stream = self.inner.event_manager.events(event_cursor).await?;
         let event_index = event_cursor
             .element_index
             .try_into()
             .expect("64-bit architecture");
 
-        let init_state = self
-            .inner
-            .event_manager
-            .init_state(event_cursor.clone())
-            .await?;
+        let init_state = self.inner.event_manager.init_state(event_cursor).await?;
         let Some(init_state) = init_state else {
             return Ok((Pin::from(event_stream), event_index));
         };
@@ -743,11 +732,7 @@ impl StorageNode {
             None => None,
         };
         let (event_stream, next_event_index) = self
-            .continue_event_stream(
-                writer_cursor.clone(),
-                storage_node_cursor.clone(),
-                &mut event_blob_writer,
-            )
+            .continue_event_stream(writer_cursor, storage_node_cursor, &mut event_blob_writer)
             .await?;
 
         let index_stream = stream::iter(next_event_index..);

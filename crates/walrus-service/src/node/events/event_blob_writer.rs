@@ -91,7 +91,7 @@ impl PendingEventBlobMetadata {
         AttestedEventBlobMetadata {
             start: self.start,
             end: self.end,
-            event_cursor: self.event_cursor.clone(),
+            event_cursor: self.event_cursor,
             epoch: self.epoch,
             blob_id: *blob_metadata.blob_id(),
         }
@@ -102,7 +102,7 @@ impl AttestedEventBlobMetadata {
     fn to_certified(&self) -> CertifiedEventBlobMetadata {
         CertifiedEventBlobMetadata {
             blob_id: self.blob_id,
-            event_cursor: self.event_cursor.clone(),
+            event_cursor: self.event_cursor,
             epoch: self.epoch,
             start: (),
             end: (),
@@ -113,7 +113,7 @@ impl AttestedEventBlobMetadata {
         PendingEventBlobMetadata {
             start: self.start,
             end: self.end,
-            event_cursor: self.event_cursor.clone(),
+            event_cursor: self.event_cursor,
             epoch: self.epoch,
             blob_id: (),
         }
@@ -315,7 +315,7 @@ impl EventBlobWriterFactory {
     /// * `Option<EventStreamCursor>` - The current cursor position if one exists, or None if
     ///   no events have been processed yet.
     pub fn event_cursor(&self) -> Option<EventStreamCursor> {
-        self.event_cursor.clone()
+        self.event_cursor
     }
 
     /// Create a new event blob writer.
@@ -325,10 +325,7 @@ impl EventBlobWriterFactory {
             attested: self.attested.clone(),
             pending: self.pending.clone(),
         };
-        let event_cursor = self
-            .event_cursor
-            .clone()
-            .unwrap_or(EventStreamCursor::new(None, 0));
+        let event_cursor = self.event_cursor.unwrap_or(EventStreamCursor::new(None, 0));
         let epoch = self.epoch.unwrap_or(0);
         let prev_certified_blob_id = self.prev_certified_blob_id.unwrap_or(BlobId::ZERO);
         let blobs_path = Self::blobs_path(&self.root_dir_path);
@@ -498,7 +495,7 @@ impl EventBlobWriter {
             pending: databases.pending,
             node,
             current_epoch: config.current_epoch,
-            event_cursor: config.event_stream_cursor.clone(),
+            event_cursor: config.event_stream_cursor,
             prev_certified_blob_id: config.prev_certified_blob_id,
             prev_certified_event_id: config.event_stream_cursor.event_id,
             metrics: config.metrics,
@@ -513,13 +510,13 @@ impl EventBlobWriter {
 
     /// Update the event blob writer with the initial state.
     pub async fn update(&mut self, init_state: InitState) -> Result<()> {
-        self.event_cursor = init_state.event_cursor.clone();
+        self.event_cursor = init_state.event_cursor;
         self.current_epoch = init_state.epoch;
         self.prev_certified_blob_id = init_state.prev_blob_id;
         self.prev_certified_event_id = init_state.event_cursor.event_id;
         let certified_metadata = CertifiedEventBlobMetadata::new(
             self.prev_certified_blob_id,
-            self.event_cursor.clone(),
+            self.event_cursor,
             self.current_epoch,
         );
         self.certified.insert(&(), &certified_metadata)?;
@@ -845,7 +842,7 @@ impl EventBlobWriter {
         let blob_metadata = PendingEventBlobMetadata::new(
             self.start.unwrap(),
             self.end.unwrap(),
-            self.event_cursor.clone(),
+            self.event_cursor,
             self.current_epoch,
         );
         batch.insert_batch(
@@ -981,7 +978,7 @@ impl EventBlobWriter {
 
     /// Returns the current event cursor.
     pub fn event_cursor(&self) -> EventStreamCursor {
-        self.event_cursor.clone()
+        self.event_cursor
     }
 
     /// Returns the number of checkpoints per blob.
