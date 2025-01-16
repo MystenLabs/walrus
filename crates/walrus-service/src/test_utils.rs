@@ -79,7 +79,7 @@ use crate::{
             NodeCommitteeService,
         },
         config,
-        config::StorageNodeConfig,
+        config::{ShardSyncConfig, StorageNodeConfig},
         contract_service::SystemContractService,
         errors::SyncShardClientError,
         events::{
@@ -539,6 +539,7 @@ pub struct StorageNodeHandleBuilder {
     run_node: bool,
     disable_event_blob_writer: bool,
     test_config: Option<StorageNodeTestConfig>,
+    shard_sync_config: Option<ShardSyncConfig>,
     initial_epoch: Option<Epoch>,
     storage_node_capability: Option<StorageNodeCap>,
     node_wallet_dir: Option<PathBuf>,
@@ -558,6 +559,12 @@ impl StorageNodeHandleBuilder {
     /// storage also dictates the shard assignment to this storage node in the created committee.
     pub fn with_storage(mut self, storage: WithTempDir<Storage>) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    /// Sets the shard sync config for the node.
+    pub fn with_shard_sync_config(mut self, shard_sync_config: ShardSyncConfig) -> Self {
+        self.shard_sync_config = Some(shard_sync_config);
         self
     }
 
@@ -732,6 +739,7 @@ impl StorageNodeHandleBuilder {
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
             blocklist_path: self.blocklist_path,
+            shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
             ..storage_node_config().inner
         };
@@ -927,6 +935,7 @@ impl StorageNodeHandleBuilder {
 impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
+            shard_sync_config: None,
             event_provider: Box::<Vec<ContractEvent>>::default(),
             blocklist_path: None,
             committee_service: None,
@@ -1430,6 +1439,7 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
 #[derive(Debug)]
 pub struct TestClusterBuilder {
     storage_node_configs: Vec<StorageNodeTestConfig>,
+    shard_sync_config: Option<ShardSyncConfig>,
     system_context: Option<SystemContext>,
     sui_cluster_handle: Option<Arc<TestClusterHandle>>,
     use_distinct_ip: bool,
@@ -1462,6 +1472,12 @@ impl TestClusterBuilder {
     /// Returns a reference to the storage node test configs of the builder.
     pub fn storage_node_test_configs(&self) -> &Vec<StorageNodeTestConfig> {
         &self.storage_node_configs
+    }
+
+    /// Sets the shard sync config for the cluster.
+    pub fn with_shard_sync_config(mut self, shard_sync_config: ShardSyncConfig) -> Self {
+        self.shard_sync_config = Some(shard_sync_config);
+        self
     }
 
     /// Sets the number of storage nodes and their shard assignments from a sequence of the shards
@@ -1660,6 +1676,7 @@ impl TestClusterBuilder {
                 .with_storage_node_capability(capability)
                 .with_node_wallet_dir(node_wallet_dir)
                 .with_blocklist_file(blocklist_file)
+                .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
                 .with_disabled_event_blob_writer(disable_event_blob_writer);
 
             let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
@@ -1812,6 +1829,7 @@ impl Default for TestClusterBuilder {
             ShardIndex::range(9..13).collect(),
         ];
         Self {
+            shard_sync_config: None,
             event_providers: shard_assignment.iter().map(|_| None).collect(),
             committee_services: shard_assignment.iter().map(|_| None).collect(),
             contract_services: shard_assignment.iter().map(|_| None).collect(),
