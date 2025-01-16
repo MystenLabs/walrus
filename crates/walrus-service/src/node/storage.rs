@@ -403,7 +403,7 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn update_blob_info(
         &self,
-        event_index: usize,
+        event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
         self.blob_info.update_blob_info(event_index, event)
@@ -412,11 +412,11 @@ impl Storage {
     /// Repositions the event cursor to the specified event index.
     pub(crate) fn reposition_event_cursor(
         &self,
-        event_index: usize,
+        event_index: u64,
         cursor: EventID,
     ) -> Result<(), TypedStoreError> {
         self.event_cursor
-            .reposition_event_cursor(cursor, event_index as u64)
+            .reposition_event_cursor(cursor, event_index)
     }
 
     /// Advances the event cursor to the most recent, sequential event observed.
@@ -432,7 +432,7 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub(crate) fn maybe_advance_event_cursor(
         &self,
-        event_index: usize,
+        event_index: u64,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor
@@ -922,8 +922,8 @@ pub(crate) mod tests {
         ]
     }
     async fn maybe_advance_event_cursor_order(
-        sequence_ids: &[usize],
-        expected_sequence: &[usize],
+        sequence_ids: &[u64],
+        expected_sequence: &[u64],
     ) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();

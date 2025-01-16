@@ -94,8 +94,7 @@ impl EventCursorTable {
         let next_index = this.get_sequentially_processed_event_count()?;
         this.persisted_event_count
             .store(next_index, Ordering::SeqCst);
-        *this.event_queue.lock().unwrap() =
-            EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
+        *this.event_queue.lock().unwrap() = EventSequencer::continue_from(next_index);
 
         Ok(this)
     }
@@ -124,8 +123,7 @@ impl EventCursorTable {
         )?;
         self.persisted_event_count
             .store(next_index, Ordering::SeqCst);
-        *self.event_queue.lock().unwrap() =
-            EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
+        *self.event_queue.lock().unwrap() = EventSequencer::continue_from(next_index);
 
         Ok(())
     }
@@ -144,7 +142,7 @@ impl EventCursorTable {
 
     pub fn maybe_advance_event_cursor(
         &self,
-        event_index: usize,
+        event_index: u64,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
         let mut event_queue = self.event_queue.lock().unwrap();
@@ -167,10 +165,7 @@ impl EventCursorTable {
             event_queue.advance();
         }
 
-        let persisted: u64 = event_queue
-            .head_index()
-            .try_into()
-            .expect("64-bit architecture");
+        let persisted: u64 = event_queue.head_index();
         let pending = event_queue.remaining();
 
         // In debug mode, assert that the number of events processed matches the number of events.

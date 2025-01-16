@@ -48,7 +48,7 @@ pub const EVENT_CHANNEL_CAPACITY: usize = 1024;
 // Important: Don't derive or implement `Clone` or `Copy`; every event should have a single handle
 // that is passed around until it is completely handled or the thread panics.
 pub(super) struct EventHandle {
-    index: usize,
+    index: u64,
     event_id: EventID,
     node: Arc<StorageNodeInner>,
     can_be_dropped: bool,
@@ -60,7 +60,7 @@ impl EventHandle {
         event_seq: 0,
     };
 
-    pub fn new(index: usize, event_id: Option<EventID>, node: Arc<StorageNodeInner>) -> Self {
+    pub fn new(index: u64, event_id: Option<EventID>, node: Arc<StorageNodeInner>) -> Self {
         Self {
             index,
             event_id: event_id.unwrap_or(Self::EVENT_ID_FOR_CHECKPOINT_EVENTS),
@@ -69,7 +69,7 @@ impl EventHandle {
         }
     }
 
-    pub fn index(&self) -> usize {
+    pub fn index(&self) -> u64 {
         self.index
     }
 

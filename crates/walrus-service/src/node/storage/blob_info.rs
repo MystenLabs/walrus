@@ -109,10 +109,9 @@ impl BlobInfoTable {
     #[tracing::instrument(skip(self))]
     pub fn update_blob_info(
         &self,
-        event_index: usize,
+        event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        let event_index = event_index.try_into().expect("assume 64-bit architecture");
         let latest_handled_event_index = self.latest_handled_event_index.lock().unwrap();
         if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::debug!("skip updating blob info for already handled event");

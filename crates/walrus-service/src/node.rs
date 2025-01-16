@@ -610,23 +610,20 @@ impl StorageNode {
         event_blob_writer: &mut Option<EventBlobWriter>,
     ) -> anyhow::Result<(
         Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
-        usize,
+        u64,
     )> {
         let event_cursor = std::cmp::min(storage_node_cursor, event_blob_writer_cursor);
         let event_stream = self.inner.event_manager.events(event_cursor).await?;
-        let event_index = event_cursor
-            .element_index
-            .try_into()
-            .expect("64-bit architecture");
+        let event_index = event_cursor.element_index;
 
         let init_state = self.inner.event_manager.init_state(event_cursor).await?;
         let Some(init_state) = init_state else {
             return Ok((Pin::from(event_stream), event_index));
         };
 
-        let actual_event_index = init_state.event_cursor.element_index as usize;
+        let actual_event_index = init_state.event_cursor.element_index;
 
-        let storage_index = storage_node_cursor.element_index as usize;
+        let storage_index = storage_node_cursor.element_index;
         let mut storage_node_cursor_repositioned = false;
         if self.should_reposition_cursor(storage_index, actual_event_index) {
             tracing::info!(
@@ -643,7 +640,7 @@ impl StorageNode {
 
         let mut event_blob_writer_repositioned = false;
         if let Some(writer) = event_blob_writer {
-            let event_blob_writer_index = event_blob_writer_cursor.element_index as usize;
+            let event_blob_writer_index = event_blob_writer_cursor.element_index;
             if self.should_reposition_cursor(event_blob_writer_index, actual_event_index) {
                 tracing::info!(
                     "Repositioning event blob writer cursor from {} to {}",
@@ -714,7 +711,7 @@ impl StorageNode {
     /// actually want to reposition the storage node cursor to index N. This is safe because those
     /// events are no longer available in the system anyway (they've expired), and marking them as
     /// completed prevents the event tracking system from flagging this natural gap as an error.
-    fn should_reposition_cursor(&self, event_index: usize, actual_event_index: usize) -> bool {
+    fn should_reposition_cursor(&self, event_index: u64, actual_event_index: u64) -> bool {
         let is_behind = event_index < actual_event_index;
         let is_at_beginning = event_index == 0;
         is_behind && is_at_beginning
@@ -769,7 +766,6 @@ impl StorageNode {
                 maybe_epoch_at_start = Some(epoch);
             });
 
-            let element_index = u64::try_from(element_index).expect("should fit into a u64");
             let should_write = element_index >= writer_cursor.element_index;
             let should_process = element_index >= storage_node_cursor.element_index;
             ensure!(should_write || should_process, "event stream out of sync");
@@ -799,7 +795,7 @@ impl StorageNode {
                 }
 
                 let event_handle = EventHandle::new(
-                    element_index as usize,
+                    element_index,
                     stream_element.element.event_id(),
                     self.inner.clone(),
                 );
@@ -1476,7 +1472,7 @@ impl StorageNodeInner {
     fn reposition_event_cursor(
         &self,
         event_id: EventID,
-        event_index: usize,
+        event_index: u64,
     ) -> Result<(), TypedStoreError> {
         self.storage.reposition_event_cursor(event_index, event_id)
     }
@@ -4721,7 +4717,7 @@ mod tests {
             .with_node_started(true)
             .build()
             .await?;
-        let count_setup_events = setup_events.len();
+        let count_setup_events = setup_events.len() as u64;
         for (index, event) in setup_events
             .iter()
             .chain(repeated_events.iter())
@@ -4730,7 +4726,7 @@ mod tests {
             node.storage_node
                 .inner
                 .storage
-                .update_blob_info(index, event)?;
+                .update_blob_info(index as u64, event)?;
         }
         let intermediate_blob_info = node.storage_node.inner.storage.get_blob_info(&BLOB_ID)?;
 
@@ -4738,7 +4734,7 @@ mod tests {
             node.storage_node
                 .inner
                 .storage
-                .update_blob_info(index + count_setup_events, event)?;
+                .update_blob_info(index as u64 + count_setup_events, event)?;
         }
         assert_eq!(
             intermediate_blob_info,
