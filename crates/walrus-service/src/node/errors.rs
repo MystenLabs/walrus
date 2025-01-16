@@ -1,8 +1,14 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::collections::HashMap;
+
+use anyhow::anyhow;
+use opentelemetry::trace::TraceContextExt as _;
 use serde::Serialize;
 use sui_types::event::EventID;
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use typed_store::TypedStoreError;
 use walrus_core::{
     encoding::SliverVerificationError,
@@ -12,103 +18,239 @@ use walrus_core::{
     Epoch,
     ShardIndex,
 };
-use walrus_sdk::error::NodeError;
+use walrus_proc_macros::RestApiError;
+use walrus_sdk::{
+    api::errors::{
+        DebugInfo,
+        Status,
+        StatusCode as ApiStatusCode,
+        STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN,
+    },
+    error::NodeError,
+};
 
 use super::storage::ShardStatus;
+use crate::common::api::RestApiError;
 
 /// Type used for internal errors.
 pub type InternalError = anyhow::Error;
 
-#[derive(Debug, thiserror::Error)]
+impl RestApiError for InternalError {
+    fn message(&self) -> String {
+        // Override the message for internal errors so that we do not give the user error details.
+        "an internal error has occurred, please report it".to_owned()
+    }
+
+    fn status_code(&self) -> ApiStatusCode {
+        ApiStatusCode::Internal
+    }
+
+    fn domain(&self) -> String {
+        "global".to_owned()
+    }
+
+    fn reason(&self) -> String {
+        "INTERNAL_ERROR".to_owned()
+    }
+
+    fn response_descriptions() -> HashMap<reqwest::StatusCode, Vec<String>> {
+        [(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            vec!["An internal server error has occurred. Please report this error.".to_owned()],
+        )]
+        .into()
+    }
+
+    fn add_details(&self, status: &mut Status) {
+        let otel_context = Span::current().context();
+        let trace_id = otel_context.span().span_context().trace_id();
+
+        status.insert_details(
+            DebugInfo {
+                stack_entries: vec![],
+                detail: format!("TraceID: {trace_id:x}"),
+            }
+            .into(),
+        );
+    }
+}
+
+/// The shard associated with the operation is not assigned to this storage node.
+#[derive(Debug, thiserror::Error, RestApiError)]
 #[error("shard {0} is not assigned to this node in epoch {1}")]
+#[rest_api_error(
+    reason = "SHARD_NOT_ASSIGNED", status = ApiStatusCode::FailedPrecondition, domain = ERROR_DOMAIN
+)]
 pub struct ShardNotAssigned(pub ShardIndex, pub Epoch);
 
-#[derive(Debug, thiserror::Error)]
+/// The index identifying the resource is out-of-range for the system.
+#[derive(Debug, thiserror::Error, RestApiError)]
 #[error("requires 0 <= index ({index}) < {max}")]
+#[rest_api_error(
+    reason = "INDEX_OUT_OF_RANGE", status = ApiStatusCode::InvalidArgument, domain = ERROR_DOMAIN
+)]
 pub struct IndexOutOfRange {
     pub index: u16,
     pub max: u16,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum RetrieveMetadataError {
+    /// The requested metadata could not be found at this storage node. It has either not been
+    /// uploaded, does not exist, or has already been deleted.
     #[error("the requested metadata is unavailable")]
+    #[rest_api_error(reason = "METADATA_NOT_FOUND", status = ApiStatusCode::NotFound)]
     Unavailable,
+
+    /// The metadata cannot be returned, as the associated blob has been
+    /// blocked on this storage node.
     #[error("the requested metadata is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Forbidden,
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum RetrieveSliverError {
+    /// The requested sliver could not be found at this storage node. It has either not been
+    /// uploaded, does not exist, or has already been deleted.
     #[error("the requested sliver is unavailable")]
+    #[rest_api_error(reason = "SLIVER_NOT_FOUND", status = ApiStatusCode::NotFound)]
     Unavailable,
+
+    /// The sliver cannot be returned, as the associated blob has been blocked on this storage node.
     #[error("the requested sliver is forbidden")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Forbidden,
-    #[error(transparent)]
-    ShardNotAssigned(#[from] ShardNotAssigned),
+
+    /// The index of the identified sliver is out of range for the system.
     #[error("the requested sliver index is out of range: {0}")]
+    #[rest_api_error(delegate)]
     SliverOutOfRange(#[from] IndexOutOfRange),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
+    ShardNotAssigned(#[from] ShardNotAssigned),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum ComputeStorageConfirmationError {
+    /// The blob has not been registered or has already expired.
     #[error("the blob has not been registered or has already expired")]
+    #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
     NotCurrentlyRegistered,
+
+    /// The storage node cannot produce a certificate, as it does not have the slivers for all of
+    /// its shards. Complete the uploading of the slivers and then try again.
     #[error("the required slivers are not all stored")]
+    #[rest_api_error(reason = "MISSING_SLIVERS", status = ApiStatusCode::FailedPrecondition)]
     NotFullyStored,
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum StoreMetadataError {
-    #[error(transparent)]
+    /// The blob has not been registered or has already expired.
+    #[error("the blob has not been registered or has already expired")]
+    #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
+    NotCurrentlyRegistered,
+
+    /// The provided metadata is not valid for the blob.
+    #[error("the provided metadata failed to verify: {0}")]
+    #[rest_api_error(reason = "INVALID_METADATA", status = ApiStatusCode::InvalidArgument)]
     InvalidMetadata(#[from] VerificationError),
+
+    /// Storing the metadata cannot be completed because the blob has been marked
+    /// as invalid by the system.
     #[error("the blob for this metadata is invalid: {0:?}")]
+    #[rest_api_error(reason = "INVALID_BLOB", status = ApiStatusCode::FailedPrecondition)]
     InvalidBlob(EventID),
-    #[error("the blob for this metadata has not been registered or has already expired")]
-    NotCurrentlyRegistered,
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum RetrieveSymbolError {
-    #[error("the requested recovery symbol is invalid for the committee size: {0}")]
+    /// The index of the requested recovery symbol is out of range for the system.
+    #[error("the requested recovery symbol is invalid for the system: {0}")]
+    #[rest_api_error(delegate)]
     RecoverySymbolOutOfRange(#[from] IndexOutOfRange),
+
+    /// The sliver from which the recovery symbol is extracted could not be retrieved.
     #[error("the sliver from which to extract the recovery symbol could not be retrieved: {0}")]
+    #[rest_api_error(delegate)]
     RetrieveSliver(#[from] RetrieveSliverError),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum StoreSliverError {
+    /// The index of the identified sliver is out of range for the system.
     #[error("the requested sliver index is out of range: {0}")]
+    #[rest_api_error(delegate)]
     SliverOutOfRange(#[from] IndexOutOfRange),
-    #[error("the blob is not registered")]
+
+    /// The blob has not been registered or has already expired.
+    #[error("the blob has not been registered or has already expired")]
+    #[rest_api_error(reason = "NOT_REGISTERED", status = ApiStatusCode::FailedPrecondition)]
     NotCurrentlyRegistered,
+
+    /// The metadata for the blob is required but missing.
     #[error("blob metadata is required but missing")]
+    #[rest_api_error(reason = "METADATA_NOT_FOUND", status = ApiStatusCode::FailedPrecondition)]
     MissingMetadata,
-    #[error(transparent)]
+
+    /// The provided sliver failed verification against the previously uploaded metadata
+    /// for that blob ID.
+    #[error("the provided sliver is invalid: {0}")]
+    #[rest_api_error(reason = "INVALID_SLIVER", status = ApiStatusCode::InvalidArgument)]
     InvalidSliver(#[from] SliverVerificationError),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     ShardNotAssigned(#[from] ShardNotAssigned),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum InconsistencyProofError {
+    /// The metadata for the blob is required but missing.
     #[error("blob metadata is required but missing")]
+    #[rest_api_error(reason = "METADATA_NOT_FOUND", status = ApiStatusCode::FailedPrecondition)]
     MissingMetadata,
+
+    /// The provided inconsistency proof is not valid.
     #[error(transparent)]
+    #[rest_api_error(reason = "INVALID_PROOF", status = ApiStatusCode::InvalidArgument)]
     InvalidProof(#[from] InconsistencyVerificationError),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
@@ -122,34 +264,62 @@ impl From<RetrieveMetadataError> for InconsistencyProofError {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum BlobStatusError {
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
 }
 
 /// Error returned when the epoch in a request is invalid.
-#[derive(Debug, thiserror::Error, Serialize, Clone)]
-#[error("Invalid epoch. Client epoch: {request_epoch}. Server epoch: {server_epoch}")]
+#[derive(Debug, Clone, thiserror::Error, Serialize, RestApiError)]
+#[error("the request's epoch ({request_epoch}) is invalid, server epoch {server_epoch}")]
+#[rest_api_error(
+    reason = "INVALID_EPOCH", status = ApiStatusCode::InvalidArgument, domain = ERROR_DOMAIN,
+    details(serialize)
+)]
 pub struct InvalidEpochError {
     pub request_epoch: Epoch,
     pub server_epoch: Epoch,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum SyncShardServiceError {
-    #[error("The client is not authorized to perform sync shard operation")]
+    /// The client cannot initiate a sync as it is not a storage node in the current committee.
+    #[error(
+        "the client is not authorized to perform the sync shard operation as it is not a \
+        storage node in the current committee"
+    )]
+    #[rest_api_error(reason = "REQUEST_UNAUTHORIZED", status = ApiStatusCode::PermissionDenied)]
     Unauthorized,
-    #[error(transparent)]
+
+    /// The client cannot initiate a sync as it is not a storage node in the current committee.
+    #[error("verification of the request to start the sync failed: {0}")]
+    #[rest_api_error(
+        reason = "MESSAGE_VERIFICATION_FAILED", status = ApiStatusCode::InvalidArgument
+    )]
     MessageVerificationError(#[from] MessageVerificationError),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     ShardNotAssigned(#[from] ShardNotAssigned),
-    #[error(transparent)]
+
+    /// The client is attempting to sync the state for an epoch that differs from the servers.
+    #[error("the request's epoch must be the same as the server's epoch: {0}")]
+    #[rest_api_error(delegate)]
     InvalidEpoch(#[from] InvalidEpochError),
+
     #[error(transparent)]
+    #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
-    #[error(transparent)]
-    StorageError(#[from] TypedStoreError),
+}
+
+impl From<TypedStoreError> for SyncShardServiceError {
+    fn from(value: TypedStoreError) -> Self {
+        Self::Internal(anyhow!(value))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

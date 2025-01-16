@@ -3,14 +3,19 @@
 
 //! The arguments to the Walrus client binary.
 
-use std::{net::SocketAddr, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{
+    net::SocketAddr,
+    num::{NonZeroU16, NonZeroU32},
+    path::PathBuf,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, BlobId, EpochCount};
+use walrus_core::{encoding::EncodingConfig, ensure, BlobId, EpochCount};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, SuiContractClient},
     utils::SuiNetwork,
@@ -168,8 +173,12 @@ pub enum CliCommands {
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(long)]
-        epochs: EpochCount,
+        ///
+        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+        /// system object on chain. Otherwise, the blob is stored for the specified number of
+        /// epochs. The number of epochs must be greater than 0.
+        #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
+        epochs: EpochCountOrMax,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -317,13 +326,17 @@ pub enum CliCommands {
     },
     /// Stake with storage node.
     Stake {
-        #[clap(long)]
         /// The object ID of the storage node to stake with.
-        node_id: ObjectID,
-        #[clap(long, default_value_t = default::staking_amount_frost())]
-        #[serde(default = "default::staking_amount_frost")]
+        #[clap(long, required=true, num_args=1.., alias("node-id"))]
+        node_ids: Vec<ObjectID>,
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
-        amount: u64,
+        ///
+        /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
+        /// values must be equal to the number of node IDs, and each amount is staked at the node
+        /// with the same index.
+        #[clap(long, alias("amount"), default_value = "1000000000")]
+        #[serde(default = "default::staking_amounts_frost")]
+        amounts: Vec<u64>,
     },
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
@@ -405,8 +418,12 @@ pub enum CliCommands {
         #[clap(long)]
         shared_blob_obj_id: ObjectID,
         /// The number of epochs to extend the shared blob for.
-        #[clap(long)]
-        epochs_ahead: EpochCount,
+        ///
+        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+        /// system object on chain. Otherwise, the blob is stored for the specified number of
+        /// epochs. The number of epochs must be greater than 0.
+        #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
+        epochs_ahead: EpochCountOrMax,
     },
     /// Share a blob.
     Share {
@@ -769,6 +786,53 @@ pub struct NodeSelection {
     pub all: bool,
 }
 
+/// The number of epochs to store the blob for.
+///
+/// Can be either a non-zero number of epochs or the special value `max`, which will store the blob
+/// for the maximum number of epochs allowed by the system object on chain.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum EpochCountOrMax {
+    /// Store the blob for the maximum number of epochs allowed.
+    #[serde(rename = "max")]
+    Max,
+    /// The number of epochs to store the blob for.
+    #[serde(untagged)]
+    Epochs(NonZeroU32),
+}
+
+impl EpochCountOrMax {
+    fn parse_epoch_count(input: &str) -> Result<Self> {
+        if input == "max" {
+            Ok(Self::Max)
+        } else {
+            let epochs = input.parse::<u32>()?;
+            Ok(Self::Epochs(NonZeroU32::new(epochs).ok_or_else(|| {
+                anyhow!("invalid epoch count; please a number >0 or `max`")
+            })?))
+        }
+    }
+
+    /// Tries to convert the `EpochCountOrMax` into an `EpochCount` value.
+    ///
+    /// If the `EpochCountOrMax` is `Max`, the `max_epochs_ahead` is used as the maximum number of
+    /// epochs that can be stored ahead.
+    pub fn try_into_epoch_count(&self, max_epochs_ahead: EpochCount) -> anyhow::Result<EpochCount> {
+        match self {
+            EpochCountOrMax::Max => Ok(max_epochs_ahead),
+            EpochCountOrMax::Epochs(epochs) => {
+                let epochs = epochs.get();
+                ensure!(
+                    epochs <= max_epochs_ahead,
+                    "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+                    max_epochs_ahead,
+                    epochs
+                );
+                Ok(epochs)
+            }
+        }
+    }
+}
+
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
@@ -833,8 +897,8 @@ pub(crate) mod default {
             .expect("this is a correct socket address")
     }
 
-    pub(crate) fn staking_amount_frost() -> u64 {
-        1_000_000_000 // 1 WAL
+    pub(crate) fn staking_amounts_frost() -> Vec<u64> {
+        vec![1_000_000_000] // 1 WAL
     }
 
     pub(crate) fn exchange_amount_mist() -> u64 {
@@ -859,7 +923,8 @@ mod tests {
 
     use super::*;
 
-    const STORE_STR: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
+    const STORE_STR_1: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
+    const STORE_STR_MAX: &str = r#"{"store": {"files": ["README.md"], "epochs": "max"}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
@@ -876,10 +941,10 @@ mod tests {
     }
 
     // Fixture for the store command.
-    fn store_command() -> Commands {
+    fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epochs: 1,
+            epochs,
             dry_run: false,
             force: false,
             deletable: false,
@@ -921,7 +986,11 @@ mod tests {
 
     param_test! {
         test_json_string_extraction -> TestResult: [
-            store: (&make_cmd_str(STORE_STR), store_command()),
+            store_max: (&make_cmd_str(STORE_STR_MAX), store_command(EpochCountOrMax::Max)),
+            store_1: (
+                &make_cmd_str(STORE_STR_1),
+                store_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
+            ),
             read: (&make_cmd_str(READ_STR), read_command()),
             daemon: (&make_cmd_str(DAEMON_STR), daemon_command())
         ]

@@ -26,6 +26,7 @@ async fn nodes_drive_epoch_change() -> TestResult {
             true,
             ClientCommunicationConfig::default_for_test(),
             None,
+            None,
         )
         .await?;
 

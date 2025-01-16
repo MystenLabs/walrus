@@ -6,12 +6,14 @@ use std::{io::stdout, num::NonZeroU16, path::PathBuf};
 use anyhow::Result;
 use colored::Colorize;
 use indoc::printdoc;
+use itertools::Itertools as _;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::Blob;
 
+use super::warning;
 use crate::client::{
     cli::{
         error,
@@ -182,11 +184,13 @@ impl CliOutput for DryRunOutput {
     fn print_cli_output(&self) {
         println!(
             "{} Store dry-run succeeded.\n\
+                Path: {}\n\
                 Blob ID: {}\n\
                 Unencoded size: {}\n\
                 Encoded size (including replicated metadata): {}\n\
-                Cost (excluding gas): {}\n",
+                Cost to store as new blob (excluding gas): {}\n",
             success(),
+            self.path.display(),
             self.blob_id,
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
@@ -567,8 +571,20 @@ fn deletable_counts_summary(counts: &DeletableCounts) -> String {
 
 impl CliOutput for StakeOutput {
     fn print_cli_output(&self) {
-        println!("{} Staked WAL successfully.", success());
-        println!("Staking info:\n{}", self.staked_wal);
+        let Some(first_wal) = self.staked_wal.first() else {
+            println!("{} No WAL was staked.", warning());
+            return;
+        };
+        if self.staked_wal.len() == 1 {
+            println!("{} Staked WAL successfully:\n{}", success(), first_wal);
+        } else {
+            println!(
+                "{} Staked WAL successfully on {} storage nodes:\n{}",
+                success(),
+                self.staked_wal.len(),
+                self.staked_wal.iter().map(ToString::to_string).join("\n")
+            );
+        }
     }
 }
 

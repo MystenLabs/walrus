@@ -31,6 +31,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     EpochCount,
+    ShardIndex,
     Sliver,
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
@@ -891,14 +892,23 @@ impl Client<SuiContractClient> {
         Ok(())
     }
 
-    /// Stakes the specified amount of WAL with the node represented by `node_id`.
-    pub async fn stake_with_node_pool(
+    /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the
+    /// second element of the pair with the node represented by the first element of the pair.
+    pub async fn stake_with_node_pools(
         &self,
-        node_id: ObjectID,
-        amount: u64,
-    ) -> ClientResult<StakedWal> {
-        let staked_wal = self.sui_client.stake_with_pool(amount, node_id).await?;
+        node_ids_with_amounts: &[(ObjectID, u64)],
+    ) -> ClientResult<Vec<StakedWal>> {
+        let staked_wal = self
+            .sui_client
+            .stake_with_pools(node_ids_with_amounts)
+            .await?;
         Ok(staked_wal)
+    }
+
+    /// Stakes the specified amount of WAL with the node represented by `node_id`.
+    pub async fn stake_with_node_pool(&self, node_id: ObjectID, amount: u64) -> ClientResult<()> {
+        self.stake_with_node_pools(&[(node_id, amount)]).await?;
+        Ok(())
     }
 
     /// Exchanges the provided amount of SUI (in MIST) for WAL using the specified exchange.
@@ -1226,7 +1236,7 @@ impl<T> Client<T> {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
-                        } else if error.is_status_forbidden() {
+                        } else if error.is_blob_blocked() {
                             n_forbidden += 1;
                         }
                     })
@@ -1301,7 +1311,7 @@ impl<T> Client<T> {
                     tracing::debug!(%node, %error, "retrieving sliver failed");
                     if error.is_status_not_found() {
                         n_not_found += 1;
-                    } else if error.is_status_forbidden() {
+                    } else if error.is_blob_blocked() {
                         n_forbidden += 1;
                     }
                     if self
@@ -1387,7 +1397,7 @@ impl<T> Client<T> {
                     let res = {
                         if error.is_status_not_found() {
                             n_not_found += weight;
-                        } else if error.is_status_forbidden() {
+                        } else if error.is_blob_blocked() {
                             n_forbidden += weight;
                         }
                         committees.is_quorum(n_not_found + n_forbidden)
@@ -1530,6 +1540,19 @@ impl<T> Client<T> {
             }
         }
         Ok(())
+    }
+
+    /// Returns the shards of the given node in the write committee.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn shards_of(&self, node_names: &[String]) -> Vec<ShardIndex> {
+        let committees = self.committees.read().await;
+        committees
+            .write_committee()
+            .members()
+            .iter()
+            .filter(|node| node_names.contains(&node.name))
+            .flat_map(|node| node.shard_ids.clone())
+            .collect::<Vec<_>>()
     }
 
     /// Maps the sliver pairs to the node in the write committee that holds their shard.

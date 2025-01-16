@@ -55,8 +55,7 @@ public fun test_split_size() {
     destroy(new_storage);
 }
 
-#[test]
-#[expected_failure(abort_code = EInvalidEpoch)]
+#[test, expected_failure(abort_code = EInvalidEpoch)]
 public fun test_split_epoch_invalid_end() {
     let ctx = &mut tx_context::dummy();
     let mut storage = create_for_test(0, 10, 5_000_000, ctx);
@@ -65,8 +64,7 @@ public fun test_split_epoch_invalid_end() {
     destroy(new_storage);
 }
 
-#[test]
-#[expected_failure(abort_code = EInvalidEpoch)]
+#[test, expected_failure(abort_code = EInvalidEpoch)]
 public fun test_split_epoch_invalid_start() {
     let ctx = &mut tx_context::dummy();
     let mut storage = create_for_test(1, 10, 5_000_000, ctx);
@@ -104,22 +102,20 @@ public fun test_fuse_epochs() {
     destroy(second);
 }
 
-#[test]
-#[expected_failure(abort_code = EIncompatibleAmount)]
+#[test, expected_failure(abort_code = EIncompatibleAmount)]
 public fun test_fuse_incompatible_size() {
     let ctx = &mut tx_context::dummy();
     let mut first = create_for_test(0, 5, 1_000_000, ctx);
     let second = create_for_test(5, 10, 2_000_000, ctx);
     fuse(&mut first, second);
-    destroy(first);
+    abort
 }
 
-#[test]
-#[expected_failure(abort_code = EIncompatibleEpochs)]
+#[test, expected_failure(abort_code = EIncompatibleEpochs)]
 public fun test_fuse_incompatible_epochs() {
     let ctx = &mut tx_context::dummy();
     let mut first = create_for_test(0, 6, 1_000_000, ctx);
     let second = create_for_test(5, 10, 1_000_000, ctx);
     fuse(&mut first, second);
-    destroy(first);
+    abort
 }

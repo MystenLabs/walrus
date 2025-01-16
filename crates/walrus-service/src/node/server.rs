@@ -875,7 +875,7 @@ mod tests {
 
     async_param_test! {
         retrieve_storage_confirmation_fails: [
-            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]
     }
@@ -912,7 +912,7 @@ mod tests {
 
     async_param_test! {
         inconsistency_proof_fails: [
-            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::BAD_REQUEST),
             invalid_proof: (blob_id_for_bad_request(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]

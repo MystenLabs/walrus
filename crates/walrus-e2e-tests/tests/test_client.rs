@@ -173,14 +173,19 @@ async_param_test! {
         f_failures: (&[4]),
     ]
 }
-/// Stores a blob that is inconsistent in shard 1
-async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
+/// Stores a blob that is inconsistent in 1 shard
+async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
+
+    // Find the shards of the failed nodes.
+    let failed_node_names: Vec<String> =
+        failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
+    let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names).await;
 
     // Encode the blob with false metadata for one shard.
     let (pairs, metadata) = client
@@ -189,7 +194,20 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .get_blob_encoder(&blob)?
         .encode_with_metadata();
     let mut metadata = metadata.metadata().to_owned();
-    metadata.mut_inner().hashes[1].primary_hash = Node::Digest([0; 32]);
+    let mut i = 0;
+    // Change a shard that is not in the failure set. Since the mapping of slivers to shards
+    // depends on the blob id, we need to search for an invalid hash for which the modified shard
+    // is not in the failure set.
+    loop {
+        metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
+        let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+        if !shards_of_failed_nodes.contains(
+            &SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id),
+        ) {
+            break;
+        }
+        i += 1;
+    }
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
@@ -220,7 +238,7 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .await?;
 
     // Stop the nodes in the failure set.
-    failed_shards
+    failed_nodes
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
@@ -551,6 +569,7 @@ async fn test_blocklist() -> TestResult {
             true,
             ClientCommunicationConfig::default_for_test(),
             Some(blocklist_dir.path().to_path_buf()),
+            None,
         )
         .await?;
     let client = client.as_ref();
@@ -593,10 +612,14 @@ async fn test_blocklist() -> TestResult {
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
-    assert!(matches!(
-        blob_read_result.unwrap_err().kind(),
-        ClientErrorKind::BlobIdBlocked(_blob_id)
-    ));
+
+    let error = blob_read_result.expect_err("result must be an error");
+
+    assert!(
+        matches!(error.kind(), ClientErrorKind::BlobIdBlocked(_)),
+        "unexpected error {:?}",
+        error
+    );
 
     // Remove the blob from the blocklist
     for blocklist in blocklists.iter_mut() {
@@ -693,6 +716,7 @@ async fn test_repeated_shard_move() -> TestResult {
             &[1, 1],
             true,
             ClientCommunicationConfig::default_for_test(),
+            None,
             None,
         )
         .await?;

@@ -71,7 +71,7 @@ impl EventBlobDownloader {
 
             let blob_path = path.join(prev_event_blob.to_string());
             let blob = if blob_path.exists() {
-                std::fs::read(path)?
+                std::fs::read(blob_path.as_path())?
             } else {
                 let result = self
                     .walrus_client

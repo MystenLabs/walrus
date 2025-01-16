@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use anyhow::bail;
 use itertools::Itertools;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
@@ -65,6 +66,24 @@ impl Config {
             gas_budget,
         )
         .await
+    }
+
+    /// Creates a [`SuiContractClient`] with a wallet configured in the client config.
+    ///
+    /// Returns an error if the client configuration does not contain a path to a valid Sui wallet
+    /// configuration.
+    pub async fn new_contract_client_with_wallet_in_config(
+        &self,
+        gas_budget: u64,
+    ) -> anyhow::Result<SuiContractClient> {
+        let Some(wallet_config) = self.wallet_config.as_ref() else {
+            bail!(
+                "path to Sui wallet must be specified in client config through the 'wallet_config' \
+                field"
+            );
+        };
+        let wallet = WalletContext::new(wallet_config, None, None)?;
+        Ok(self.new_contract_client(wallet, gas_budget).await?)
     }
 
     /// Returns a reference to the backoff configuration.

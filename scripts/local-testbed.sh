@@ -119,6 +119,9 @@ if ! $existing; then
     # Generate configs
     echo Generating configuration...
     ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir
+
+    echo "event_processor_config:\n  adaptive_downloader_config:\n    max_workers: 2\n    initial_workers: 2" | \
+      tee -a $working_dir/dryrun-node-*[0-9].yaml >/dev/null
 fi
 
 i=0

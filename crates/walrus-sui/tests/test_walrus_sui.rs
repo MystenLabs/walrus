@@ -33,19 +33,22 @@ use walrus_sui::{
         get_default_invalid_certificate,
         new_contract_client_on_sui_test_cluster,
         new_wallet_on_sui_test_cluster,
-        system_setup::publish_with_default_system,
+        system_setup::{publish_with_default_system, SystemContext},
         TestClusterHandle,
     },
     types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
     utils,
 };
-use walrus_test_utils::WithTempDir;
+use walrus_test_utils::{async_param_test, WithTempDir};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 const GAS_BUDGET: u64 = 1_000_000_000;
 
-async fn initialize_contract_and_wallet(
-) -> anyhow::Result<(Arc<TestClusterHandle>, WithTempDir<SuiContractClient>)> {
+async fn initialize_contract_and_wallet() -> anyhow::Result<(
+    Arc<TestClusterHandle>,
+    WithTempDir<SuiContractClient>,
+    SystemContext,
+)> {
     #[cfg(not(msim))]
     let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
     #[cfg(msim)]
@@ -75,6 +78,7 @@ async fn initialize_contract_and_wallet(
                 )
             })
             .await?,
+        system_context,
     ))
 }
 
@@ -91,7 +95,7 @@ async fn test_initialize_contract() -> anyhow::Result<()> {
 async fn test_register_certify_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
 
     // used to calculate the encoded size of the blob
     let encoding_config = EncodingConfig::new(NonZeroU16::new(100).unwrap());
@@ -261,7 +265,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 async fn test_invalidate_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
 
     // Get event streams for the events
     let polling_duration = std::time::Duration::from_millis(50);
@@ -311,7 +315,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_get_committee() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
     let committee = walrus_client
         .as_ref()
         .read_client
@@ -342,7 +346,7 @@ async fn test_get_committee() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_register_candidate() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
     let protocol_key_pair = ProtocolKeyPair::generate();
     let network_key_pair = NetworkKeyPair::generate();
 
@@ -382,7 +386,7 @@ async fn test_set_authorized() -> anyhow::Result<()> {
     use walrus_sui::types::move_structs::Authorized;
 
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
+    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
     let protocol_key_pair = ProtocolKeyPair::generate();
     let network_key_pair = NetworkKeyPair::generate();
 
@@ -451,12 +455,11 @@ async fn test_set_authorized() -> anyhow::Result<()> {
 #[ignore = "ignore integration tests by default"]
 async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client) = initialize_contract_and_wallet().await?;
-    // TODO(WAL-230): Use exchange package ID once published separately.
-    let exchange_package = walrus_client.as_ref().read_client().get_system_package_id();
+    let (_sui_cluster_handle, walrus_client, system_context) =
+        initialize_contract_and_wallet().await?;
     let exchange_id = walrus_client
         .as_ref()
-        .create_and_fund_exchange(exchange_package, 1_000_000)
+        .create_and_fund_exchange(system_context.wal_exchange_pkg_id, 1_000_000)
         .await?;
 
     let exchange_val = 100_000;
@@ -472,11 +475,27 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "ignore integration tests by default"]
-async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
+async_param_test! {
+    #[ignore = "ignore integration tests by default"]
+    test_automatic_wal_coin_squashing -> anyhow::Result<()> : [
+        #[tokio::test] send_one: (1, 1),
+        #[tokio::test] send_two_as_one: (2, 1),
+        #[tokio::test] send_three_as_two: (3, 2),
+        #[tokio::test] send_four_as_two: (4, 2),
+        #[tokio::test] send_four_as_three: (4, 3),
+    ]
+}
+async fn test_automatic_wal_coin_squashing(
+    n_source_coins: u64,
+    n_target_coins: u64,
+) -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
-    let (sui_cluster_handle, client_1) = initialize_contract_and_wallet().await?;
+    // Use a source_amount that is cleanly divisible by `n_target_coins` to make sure that we send
+    // the full amount back in `n_target_coins` coins payments.
+    let source_amount = 10_000 * n_target_coins;
+    let target_amount = n_source_coins * source_amount / n_target_coins;
+
+    let (sui_cluster_handle, client_1, _) = initialize_contract_and_wallet().await?;
 
     let original_balance = client_1.as_ref().balance(CoinType::Wal).await?;
 
@@ -487,13 +506,12 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
     let client_1_address = client_1.as_ref().address();
     let client_2_address = client_2.as_ref().address();
 
-    let amount = 100_000;
-
     // Fund the wallet with two separate WAL coins.
     let wallet = client_1.as_ref().wallet().await;
     let mut tx_builder = client_1.as_ref().transaction_builder();
-    tx_builder.pay_wal(client_2_address, amount).await?;
-    tx_builder.pay_wal(client_2_address, amount).await?;
+    for _ in 0..n_source_coins {
+        tx_builder.pay_wal(client_2_address, source_amount).await?;
+    }
     client_1
         .as_ref()
         .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
@@ -501,7 +519,7 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
     drop(wallet);
 
     // Get the number of coins owned by the first wallet to check later that we received exactly
-    // one coin.
+    // `n_target_coins` coins.
     let n_coins = client_1
         .as_ref()
         .sui_client()
@@ -513,9 +531,12 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
         .coin_object_count;
 
     // Check that we have the correct balance.
-    assert_eq!(client_2.as_ref().balance(CoinType::Wal).await?, 2 * amount);
+    assert_eq!(
+        client_2.as_ref().balance(CoinType::Wal).await?,
+        n_source_coins * source_amount
+    );
 
-    // Check that we need to send back two coins to cover the full amount.
+    // Check that we need to use `n_source_coins` coins to cover the full amount.
     assert_eq!(
         client_2
             .as_ref()
@@ -523,18 +544,21 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
             .get_coins_with_total_balance(
                 client_2.as_ref().address(),
                 CoinType::Wal,
-                2 * amount,
+                n_target_coins * target_amount,
                 vec![]
             )
             .await?
             .len(),
-        2
+        n_source_coins as usize
     );
 
-    // Now send the full amount back, which should trigger the squashing.
+    // Now send the full amount back in `n_target_coins` coins payments, which should trigger the
+    // squashing.
     let wallet = client_2.as_ref().wallet().await;
     let mut tx_builder = client_2.as_ref().transaction_builder();
-    tx_builder.pay_wal(client_1_address, amount * 2).await?;
+    for _ in 0..n_target_coins {
+        tx_builder.pay_wal(client_1_address, target_amount).await?;
+    }
     client_2
         .as_ref()
         .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
@@ -560,7 +584,7 @@ async fn test_automatic_wal_coin_squashing() -> anyhow::Result<()> {
             )
             .await?
             .coin_object_count,
-        n_coins + 1
+        n_coins + n_target_coins as usize
     );
     Ok(())
 }

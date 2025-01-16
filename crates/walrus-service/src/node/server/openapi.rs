@@ -8,10 +8,12 @@ use utoipa::{
 };
 use walrus_core::{
     messages::{SignedMessage, StorageConfirmation},
+    EpochSchema,
     SliverPairIndex,
     SliverType,
 };
 use walrus_sdk::api::{
+    errors::Status,
     BlobStatus,
     ServiceHealthInfo,
     ShardHealthInfo,
@@ -24,7 +26,7 @@ use walrus_sdk::api::{
 use super::routes;
 use crate::{
     api_success_alias,
-    common::api::{BlobIdString, EventIdSchema, RestApiJsonError},
+    common::api::{BlobIdString, EventIdSchema, ObjectIdSchema},
 };
 
 pub(super) const GROUP_STORING_BLOBS: &str = "Writing Blobs";
@@ -48,23 +50,25 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         routes::health_info,
     ),
     components(schemas(
-        BlobIdString,
-        SliverType,
-        SliverPairIndex,
-        SignedMessage::<()>,
-        RestApiJsonError,
-        ApiSuccessSignedMessage,
-        ApiSuccessMessage,
         ApiSuccessBlobStatus,
-        ApiSuccessStoredOnNodeStatus,
-        EventIdSchema,
-        ApiSuccessStorageConfirmation,
+        ApiSuccessMessage,
         ApiSuccessServiceHealthInfo,
-        ShardStatus,
+        ApiSuccessSignedMessage,
+        ApiSuccessStorageConfirmation,
+        ApiSuccessStoredOnNodeStatus,
+        BlobIdString,
+        EpochSchema,
+        EventIdSchema,
+        ObjectIdSchema,
         ServiceHealthInfo,
         ShardHealthInfo,
+        ShardStatus,
         ShardStatusDetail,
         ShardStatusSummary,
+        SignedMessage::<()>,
+        SliverPairIndex,
+        SliverType,
+        Status,
     ))
 )]
 pub(super) struct RestApiDoc;
@@ -88,13 +92,20 @@ mod tests {
 
     use super::*;
 
+    /// Serializes the storage node's open-api spec when this test is run.
+    ///
+    /// This test ensures that the files `storage_openapi.yaml` and `storage_openapi.html` are
+    /// kept in sync with changes to the spec.
     #[test]
-    fn test_openapi_generation_does_not_panic() {
-        std::fs::write(
-            // Can also be used to view the API.
-            std::env::temp_dir().join("api-node.html"),
-            Redoc::new(RestApiDoc::openapi()).to_html().as_bytes(),
-        )
-        .unwrap();
+    fn check_and_update_openapi_spec() -> walrus_test_utils::Result {
+        const NODE_OPENAPI_SPEC_PATH: &str = "storage_openapi.yaml";
+        const NODE_OPENAPI_HTML_PATH: &str = "storage_openapi.html";
+
+        let spec = RestApiDoc::openapi();
+
+        std::fs::write(NODE_OPENAPI_HTML_PATH, Redoc::new(spec.clone()).to_html())?;
+        std::fs::write(NODE_OPENAPI_SPEC_PATH, spec.clone().to_yaml()?)?;
+
+        Ok(())
     }
 }

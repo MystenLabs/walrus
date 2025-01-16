@@ -171,6 +171,8 @@ impl WalrusPtbBuilder {
             let coin = coins
                 .pop()
                 .ok_or_else(|| SuiClientError::NoCompatibleWalCoins)?;
+            // Make sure that we don't select the same coin later again.
+            self.used_wal_coins.insert(coin.coin_object_id);
             added_balance += coin.balance;
             let coin_arg = self.pt_builder.input(coin.object_ref().into())?;
             self.wal_coin_arg = Some(coin_arg);
@@ -180,6 +182,8 @@ impl WalrusPtbBuilder {
             let coin_args = coins
                 .into_iter()
                 .map(|coin| {
+                    // Make sure that we don't select the same coin later again.
+                    self.used_wal_coins.insert(coin.coin_object_id);
                     added_balance += coin.balance;
                     self.pt_builder.input(coin.object_ref().into())
                 })

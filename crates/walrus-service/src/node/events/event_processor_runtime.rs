@@ -1,0 +1,121 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Walrus event processor runtime.
+
+use std::{path::Path, sync::Arc};
+
+use anyhow::Context;
+use prometheus::Registry;
+use tokio::{
+    runtime::{self, Runtime},
+    task::JoinHandle,
+};
+use tokio_util::sync::CancellationToken;
+
+use crate::node::{
+    config::SuiConfig,
+    events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
+    system_events::{EventManager, SuiSystemEventProvider},
+    EventProcessorConfig,
+};
+
+/// Event processor runtime.
+#[derive(Debug)]
+pub struct EventProcessorRuntime {
+    event_processor_handle: JoinHandle<anyhow::Result<()>>,
+    // INV: Runtime must be dropped last.
+    runtime: Runtime,
+}
+
+impl EventProcessorRuntime {
+    async fn build_event_processor(
+        sui_config: SuiConfig,
+        event_processor_config: &EventProcessorConfig,
+        db_path: &Path,
+        metrics_registry: &Registry,
+    ) -> anyhow::Result<Arc<EventProcessor>> {
+        let runtime_config = EventProcessorRuntimeConfig {
+            rpc_address: sui_config.rpc.clone(),
+            event_polling_interval: sui_config.event_polling_interval,
+            db_path: db_path.join("events"),
+        };
+        let system_config = SystemConfig {
+            system_pkg_id: sui_config.new_read_client().await?.get_system_package_id(),
+            system_object_id: sui_config.contract_config.system_object,
+            staking_object_id: sui_config.contract_config.staking_object,
+        };
+        Ok(Arc::new(
+            EventProcessor::new(
+                event_processor_config,
+                runtime_config,
+                system_config,
+                metrics_registry,
+            )
+            .await?,
+        ))
+    }
+
+    /// Starts the event processor runtime.
+    pub fn start(
+        sui_config: SuiConfig,
+        event_processor_config: EventProcessorConfig,
+        use_legacy_event_provider: bool,
+        db_path: &Path,
+        metrics_registry: &Registry,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<(Box<dyn EventManager>, Self)> {
+        let runtime = runtime::Builder::new_multi_thread()
+            .thread_name("event-manager-runtime")
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .context("event manager runtime creation failed")?;
+        let _guard = runtime.enter();
+
+        let (event_manager, event_processor_handle): (Box<dyn EventManager>, _) =
+            if use_legacy_event_provider {
+                let read_client = runtime.block_on(async { sui_config.new_read_client().await })?;
+                (
+                    Box::new(SuiSystemEventProvider::new(
+                        read_client,
+                        sui_config.event_polling_interval,
+                    )),
+                    tokio::spawn(async { std::future::pending().await }),
+                )
+            } else {
+                let event_processor = runtime.block_on(async {
+                    Self::build_event_processor(
+                        sui_config.clone(),
+                        &event_processor_config,
+                        db_path,
+                        metrics_registry,
+                    )
+                    .await
+                })?;
+                let cloned_event_processor = event_processor.clone();
+                let event_processor_handle = tokio::spawn(async move {
+                    let result = cloned_event_processor.start(cancel_token).await;
+                    if let Err(ref error) = result {
+                        tracing::error!(?error, "event manager exited with an error");
+                    }
+                    result
+                });
+                (Box::new(event_processor), event_processor_handle)
+            };
+
+        Ok((
+            event_manager,
+            Self {
+                runtime,
+                event_processor_handle,
+            },
+        ))
+    }
+
+    /// Waits for the event processor to shutdown.
+    pub fn join(&mut self) -> Result<(), anyhow::Error> {
+        tracing::debug!("waiting for the event processor to shutdown...");
+        self.runtime.block_on(&mut self.event_processor_handle)?
+    }
+}

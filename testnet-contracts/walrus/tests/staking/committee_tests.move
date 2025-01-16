@@ -3,22 +3,23 @@
 
 module walrus::committee_tests;
 
+use std::unit_test::{assert_eq, assert_ref_eq};
 use sui::{address, vec_map};
-use walrus::committee;
+use walrus::committee::{Self, Committee};
 
 #[test]
 fun empty_committee() {
     let cmt = committee::empty();
-    assert!(cmt.size() == 0);
+    assert_eq!(cmt.size(), 0);
 }
 
 #[test]
 fun default_scenario() {
-    let n1 = @0x1.to_id();
-    let n2 = @0x2.to_id();
-    let n3 = @0x3.to_id();
-    let n4 = @0x4.to_id();
-    let n5 = @0x5.to_id();
+    let n1 = @1.to_id();
+    let n2 = @2.to_id();
+    let n3 = @3.to_id();
+    let n4 = @4.to_id();
+    let n5 = @5.to_id();
 
     // Initialize the committee with 2 shards per node, 5 nodes, 10 shards in total
     let cmt = committee::initialize(
@@ -28,13 +29,13 @@ fun default_scenario() {
         ),
     );
 
-    assert!(cmt.size() == 5);
+    assert_eq!(cmt.size(), 5);
 
-    assert!(cmt[&n1] == &vector[0, 1]);
-    assert!(cmt[&n2] == &vector[2, 3]);
-    assert!(cmt[&n3] == &vector[4, 5]);
-    assert!(cmt[&n4] == &vector[6, 7]);
-    assert!(cmt[&n5] == &vector[8, 9]);
+    assert_eq!(cmt[&n1], vector[0, 1]);
+    assert_eq!(cmt[&n2], vector[2, 3]);
+    assert_eq!(cmt[&n3], vector[4, 5]);
+    assert_eq!(cmt[&n4], vector[6, 7]);
+    assert_eq!(cmt[&n5], vector[8, 9]);
 
     // Transition the committee to 4/3 shards per node, 3 nodes, same number of shards
     let cmt2 = cmt.transition(
@@ -44,19 +45,19 @@ fun default_scenario() {
         ),
     );
 
-    assert!(cmt2.size() == 3);
+    assert_eq!(cmt2.size(), 3);
 
     // we make sure that the shards this node had are still in place
     // repeat the checks for all nodes 1-3
-    assert!(cmt2[&n1].length() == 4);
+    assert_eq!(cmt2[&n1].length(), 4);
     assert!(cmt2[&n1].contains(&0));
     assert!(cmt2[&n1].contains(&1));
 
-    assert!(cmt2[&n2].length() == 3);
+    assert_eq!(cmt2[&n2].length(), 3);
     assert!(cmt2[&n2].contains(&2));
     assert!(cmt2[&n2].contains(&3));
 
-    assert!(cmt2[&n3].length() == 3);
+    assert_eq!(cmt2[&n3].length(), 3);
     assert!(cmt2[&n3].contains(&4));
     assert!(cmt2[&n3].contains(&5));
 
@@ -72,15 +73,15 @@ fun default_scenario() {
         ),
     );
 
-    assert!(cmt3.size() == 4);
+    assert_eq!(cmt3.size(), 4);
 
     // Make sure that n2 and n3 have the same shards as before
-    assert!(cmt3[&n2] == n2_shards);
-    assert!(cmt3[&n3] == n3_shards);
+    assert_eq!(cmt3[&n2], n2_shards);
+    assert_eq!(cmt3[&n3], n3_shards);
 
     // Make sure that n4 and n5 have correct number of shards
-    assert!(cmt3[&n4].length() == 2);
-    assert!(cmt3[&n5].length() == 2);
+    assert_eq!(cmt3[&n4].length(), 2);
+    assert_eq!(cmt3[&n5].length(), 2);
 
     // Transition the committee to just N1 owning all the shards
     let cmt4 = cmt3.transition(
@@ -106,33 +107,30 @@ fun default_scenario() {
 
 #[test]
 fun ignore_empty_assignments() {
-    let (n1, n2, n3, n4, n5) = (
-        @0x1.to_id(),
-        @0x2.to_id(),
-        @0x3.to_id(),
-        @0x4.to_id(),
-        @0x5.to_id(),
-    );
+    let (n1, n2, n3, n4, n5) = (@1, @2, @3, @4, @5);
 
     // expect n4 and n5 to be ignored
     let cmt = committee::initialize(
         vec_map::from_keys_values(
-            vector[n1, n2, n3, n4, n5],
+            vector[n1, n2, n3, n4, n5].map!(|addr| addr.to_id()),
             vector[2, 2, 2, 0, 0],
         ),
     );
 
+    assert!(cmt.is_sorted());
+
     // expect n1 and n5 to be ignored
     let cmt2 = cmt.transition(
         vec_map::from_keys_values(
-            vector[n1, n2, n3, n4, n5],
+            vector[n1, n2, n3, n4, n5].map!(|addr| addr.to_id()),
             vector[0, 2, 2, 2, 0],
         ),
     );
 
-    assert!(cmt2.size() == 3);
-    assert!(cmt.shards(&n2) == cmt2.shards(&n2));
-    assert!(cmt.shards(&n3) == cmt2.shards(&n3));
+    assert!(cmt2.is_sorted());
+    assert_eq!(cmt2.size(), 3);
+    assert_ref_eq!(cmt.shards(&n2.to_id()), cmt2.shards(&n2.to_id()));
+    assert_ref_eq!(cmt.shards(&n3.to_id()), cmt2.shards(&n3.to_id()));
 }
 
 // #[test] // requires manual --gas-limit set, ignored for convenience
@@ -156,4 +154,54 @@ fun large_set_assignments_2() {
             vector::tabulate!(1000, |i| (i % 3) as u16),
         ),
     );
+}
+
+#[test, expected_failure(abort_code = committee::EInvalidShardAssignment)]
+fun reject_invalid_shard_assignment() {
+    let (n1, n2, n3) = (@1.to_id(), @2.to_id(), @3.to_id());
+
+    let cmt = committee::initialize(
+        vec_map::from_keys_values(
+            vector[n1, n2, n3],
+            vector[2, 2, 2],
+        ),
+    );
+
+    // expect transaction to succeed (same number of shards)
+    let cmt2 = cmt.transition(
+        vec_map::from_keys_values(
+            vector[n1, n2, n3],
+            vector[1, 3, 2],
+        ),
+    );
+
+    assert!(cmt2.is_sorted());
+
+    // expect transaction to fail (different number of shards)
+    let _ = cmt2.transition(
+        vec_map::from_keys_values(
+            vector[n1, n2, n3],
+            vector[3, 3, 2],
+        ),
+    );
+}
+
+#[test]
+fun diff_at_different_sizes() {
+    let cmt_1 = cmt(vector[@1, @2, @3]);
+    let cmt_2 = cmt(vector[@2, @3, @4]);
+    let (left, right) = committee::diff(&cmt_1, &cmt_2);
+
+    assert_eq!(left, vector[@1.to_id()]);
+    assert_eq!(right, vector[@4.to_id()]);
+}
+
+fun cmt(ids: vector<address>): Committee {
+    let size = ids.length();
+    committee::initialize(
+        vec_map::from_keys_values(
+            ids.map!(|addr| addr.to_id()),
+            vector::tabulate!(size, |i| i as u16),
+        ),
+    )
 }
