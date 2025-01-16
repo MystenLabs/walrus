@@ -24,6 +24,7 @@ use walrus_utils::checkpoint_downloader::AdaptiveDownloaderConfig;
 pub mod event_blob;
 pub mod event_blob_writer;
 pub mod event_processor;
+pub mod event_processor_runtime;
 
 /// Configuration for event processing.
 #[serde_as]
@@ -271,7 +272,7 @@ impl InitState {
 }
 
 /// A cursor that points to a specific element in the event stream.
-#[derive(Default, Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EventStreamCursor {
     /// The event ID of the event the cursor points to.
     pub event_id: Option<EventID>,

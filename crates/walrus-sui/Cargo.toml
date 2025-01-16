@@ -28,6 +28,7 @@ reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
+sui.workspace = true
 sui-config.workspace = true
 sui-keys.workspace = true
 sui-move-build.workspace = true
@@ -36,10 +37,11 @@ sui-types.workspace = true
 tempfile = { workspace = true, optional = true }
 test-cluster = { workspace = true, optional = true }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["fs", "sync"] }
 tokio-stream.workspace = true
 tracing.workspace = true
 utoipa = { workspace = true, optional = true }
+walkdir = "2.5.0"
 walrus-core = { workspace = true, features = ["sui-types"] }
 walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true }

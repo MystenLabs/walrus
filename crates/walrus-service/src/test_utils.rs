@@ -161,6 +161,7 @@ pub trait StorageNodeHandleTrait {
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
         start_node: bool,
+        disable_event_blob_writer: bool,
     ) -> impl std::future::Future<Output = anyhow::Result<Self>> + Send
     where
         Self: Sized;
@@ -225,6 +226,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
         _system_context: Option<SystemContext>,
         _storage_dir: TempDir,
         _start_node: bool,
+        _disable_event_blob_writer: bool,
     ) -> anyhow::Result<Self> {
         builder.build().await
     }
@@ -280,6 +282,7 @@ impl SimStorageNodeHandle {
     /// node.
     pub async fn spawn_node(
         config: StorageNodeConfig,
+        num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
@@ -314,9 +317,13 @@ impl SimStorageNodeHandle {
 
                 async move {
                     let (rest_api_handle, node_handle, event_processor_handle) =
-                        Self::build_and_run_node(config, cancel_token.clone())
-                            .await
-                            .expect("Should start node successfully");
+                        Self::build_and_run_node(
+                            config,
+                            num_checkpoints_per_blob,
+                            cancel_token.clone(),
+                        )
+                        .await
+                        .expect("Should start node successfully");
 
                     startup_sender.send(true).ok();
 
@@ -353,6 +360,7 @@ impl SimStorageNodeHandle {
     /// REST API, the node, and the event processor.
     async fn build_and_run_node(
         config: StorageNodeConfig,
+        num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
         tokio::task::JoinHandle<Result<(), std::io::Error>>,
@@ -420,7 +428,11 @@ impl SimStorageNodeHandle {
         };
 
         // Build storage node with the current configuration and event manager.
-        let node = StorageNode::builder()
+        let mut builder = StorageNode::builder();
+        if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
+            builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
+        };
+        let node = builder
             .with_system_event_manager(event_provider)
             .build(&config, metrics_registry.clone())
             .await?;
@@ -475,17 +487,20 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         system_context: Option<SystemContext>,
         storage_dir: TempDir,
         start_node: bool,
+        disable_event_blob_writer: bool,
     ) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
+        let num_checkpoints_per_blob = builder.num_checkpoints_per_blob.as_ref().cloned();
         builder
             .start_node(
                 sui_cluster_handle.expect("SUI cluster handle must be provided in simtest"),
                 system_context.expect("System context must be provided"),
                 storage_dir,
                 start_node,
-                false,
+                disable_event_blob_writer,
+                num_checkpoints_per_blob,
             )
             .await
     }
@@ -837,6 +852,7 @@ impl StorageNodeHandleBuilder {
         storage_dir: TempDir,
         start_node: bool,
         disable_event_blob_writer: bool,
+        num_checkpoints_per_blob: Option<u32>,
     ) -> anyhow::Result<SimStorageNodeHandle> {
         use walrus_sui::client::contract_config::ContractConfig;
 
@@ -872,9 +888,13 @@ impl StorageNodeHandleBuilder {
 
         let node_id = if start_node {
             Some(
-                SimStorageNodeHandle::spawn_node(storage_node_config.clone(), cancel_token.clone())
-                    .await
-                    .id(),
+                SimStorageNodeHandle::spawn_node(
+                    storage_node_config.clone(),
+                    num_checkpoints_per_blob,
+                    cancel_token.clone(),
+                )
+                .await
+                .id(),
             )
         } else {
             None
@@ -1684,6 +1704,7 @@ impl TestClusterBuilder {
                         tempfile::tempdir().expect("temporary directory creation must succeed")
                     ),
                     start_node_from_beginning,
+                    disable_event_blob_writer,
                 )
                 .await?,
             );
@@ -1964,6 +1985,7 @@ pub mod test_cluster {
             true,
             ClientCommunicationConfig::default_for_test(),
             None,
+            Some(10),
         )
         .await
     }
@@ -1976,6 +1998,7 @@ pub mod test_cluster {
         use_legacy_event_processor: bool,
         communication_config: ClientCommunicationConfig,
         blocklist_dir: Option<PathBuf>,
+        num_checkpoints_per_blob: Option<u32>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -1986,7 +2009,7 @@ pub mod test_cluster {
             node_weights,
             use_legacy_event_processor,
             false,
-            None,
+            num_checkpoints_per_blob,
             communication_config,
             blocklist_dir,
         )

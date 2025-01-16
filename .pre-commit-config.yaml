@@ -17,9 +17,8 @@ repos:
     rev: v0.14.0
     hooks:
       - id: yamlfmt
-  # TODO: Consider repointing this to the upstream version again when https://github.com/notken12/licensesnip/pull/10 is merged.
-  - repo: https://github.com/wbbradley/licensesnip
-    rev: a1037505417d06a3d311ec3b2993205127ee9e03
+  - repo: https://github.com/notken12/licensesnip
+    rev: f01f898
     hooks:
       - id: licensesnip
         args: []

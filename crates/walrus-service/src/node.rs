@@ -25,6 +25,7 @@ use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
+pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
@@ -94,11 +95,35 @@ use self::{
     committee::{CommitteeService, NodeCommitteeService},
     config::{StorageNodeConfig, SuiConfig},
     contract_service::{SuiSystemContractService, SystemContractService},
-    errors::IndexOutOfRange,
+    errors::{
+        BlobStatusError,
+        ComputeStorageConfirmationError,
+        InconsistencyProofError,
+        IndexOutOfRange,
+        InvalidEpochError,
+        RetrieveMetadataError,
+        RetrieveSliverError,
+        RetrieveSymbolError,
+        ShardNotAssigned,
+        StoreMetadataError,
+        StoreSliverError,
+        SyncShardServiceError,
+    },
+    events::{
+        event_blob_writer::EventBlobWriterFactory,
+        event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
+        EventProcessorConfig,
+        EventStreamCursor,
+        EventStreamElement,
+        PositionedStreamEvent,
+    },
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
     storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
+    system_events::{EventManager, SuiSystemEventProvider},
 };
+use crate::{client::Blocklist, common::utils::ShardDiff};
+
 pub mod committee;
 pub mod config;
 pub mod contract_service;
@@ -115,37 +140,7 @@ mod shard_sync;
 mod start_epoch_change_finisher;
 
 pub(crate) mod errors;
-use errors::{
-    BlobStatusError,
-    ComputeStorageConfirmationError,
-    InconsistencyProofError,
-    InvalidEpochError,
-    RetrieveMetadataError,
-    RetrieveSliverError,
-    RetrieveSymbolError,
-    ShardNotAssigned,
-    StoreMetadataError,
-    StoreSliverError,
-    SyncShardServiceError,
-};
-
 mod storage;
-pub use storage::{DatabaseConfig, NodeStatus, Storage};
-
-use crate::{
-    client::Blocklist,
-    common::utils::ShardDiff,
-    node::{
-        events::{
-            event_blob_writer::EventBlobWriterFactory,
-            event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-            EventStreamCursor,
-            EventStreamElement,
-            PositionedStreamEvent,
-        },
-        system_events::{EventManager, SuiSystemEventProvider},
-    },
-};
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -617,25 +612,14 @@ impl StorageNode {
         Pin<Box<dyn Stream<Item = PositionedStreamEvent> + Send + Sync + '_>>,
         usize,
     )> {
-        let event_cursor = std::cmp::min(
-            storage_node_cursor.clone(),
-            event_blob_writer_cursor.clone(),
-        );
-        let event_stream = self
-            .inner
-            .event_manager
-            .events(event_cursor.clone())
-            .await?;
+        let event_cursor = std::cmp::min(storage_node_cursor, event_blob_writer_cursor);
+        let event_stream = self.inner.event_manager.events(event_cursor).await?;
         let event_index = event_cursor
             .element_index
             .try_into()
             .expect("64-bit architecture");
 
-        let init_state = self
-            .inner
-            .event_manager
-            .init_state(event_cursor.clone())
-            .await?;
+        let init_state = self.inner.event_manager.init_state(event_cursor).await?;
         let Some(init_state) = init_state else {
             return Ok((Pin::from(event_stream), event_index));
         };
@@ -748,11 +732,7 @@ impl StorageNode {
             None => None,
         };
         let (event_stream, next_event_index) = self
-            .continue_event_stream(
-                writer_cursor.clone(),
-                storage_node_cursor.clone(),
-                &mut event_blob_writer,
-            )
+            .continue_event_stream(writer_cursor, storage_node_cursor, &mut event_blob_writer)
             .await?;
 
         let index_stream = stream::iter(next_event_index..);
@@ -2110,7 +2090,10 @@ mod tests {
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{api::DeletableCounts, client::Client};
+    use walrus_sdk::{
+        api::{errors::STORAGE_NODE_ERROR_DOMAIN, DeletableCounts},
+        client::Client,
+    };
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{event_id_for_testing, EventForTesting},
@@ -2801,9 +2784,9 @@ mod tests {
         Ok((cluster, events))
     }
 
-    async fn cluster_with_partially_stored_blob<'a, F>(
+    async fn cluster_with_partially_stored_blob<F>(
         assignment: &[&[u16]],
-        blob: &'a [u8],
+        blob: &[u8],
         store_at_shard: F,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
     where
@@ -2821,9 +2804,9 @@ mod tests {
     }
 
     // Creates a test cluster with custom initial epoch and blobs that are already certified.
-    async fn cluster_with_initial_epoch_and_certified_blob<'a>(
+    async fn cluster_with_initial_epoch_and_certified_blob(
         assignment: &[&[u16]],
-        blobs: &[&'a [u8]],
+        blobs: &[&[u8]],
         initial_epoch: Epoch,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>, Vec<EncodedBlob>)> {
         let (cluster, events) = cluster_at_epoch1_without_blobs(assignment).await?;
@@ -2891,9 +2874,9 @@ mod tests {
     ///
     /// The function also takes custom function to determine the end epoch of a blob, and whether
     /// the blob should be deletable.
-    async fn cluster_with_partially_stored_blobs_in_shard_0<'a, F, G, H>(
+    async fn cluster_with_partially_stored_blobs_in_shard_0<F, G, H>(
         assignment: &[&[u16]],
-        blobs: &[&'a [u8]],
+        blobs: &[&[u8]],
         initial_epoch: Epoch,
         mut blob_index_store_at_shard_0: F,
         mut blob_index_to_end_epoch: G,
@@ -3516,16 +3499,15 @@ mod tests {
         let (cluster, _, _) =
             cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1).await?;
 
-        let response: Result<SyncShardResponse, walrus_sdk::error::NodeError> = cluster.nodes[0]
+        let error: walrus_sdk::error::NodeError = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(ShardIndex(0), BLOB_ID, 10, 0, &ProtocolKeyPair::generate())
-            .await;
-        assert!(matches!(
-            response,
-            Err(err) if err.to_string().contains(
-                            "The client is not authorized to perform sync shard operation"
-                        )
-        ));
+            .await
+            .expect_err("the request must fail");
+
+        let status = error.status().expect("response has error status");
+        assert_eq!(status.reason(), Some("REQUEST_UNAUTHORIZED"));
+        assert_eq!(status.domain(), Some(STORAGE_NODE_ERROR_DOMAIN));
 
         Ok(())
     }
@@ -3565,14 +3547,13 @@ mod tests {
     // Tests SyncShardRequest with wrong epoch.
     async_param_test! {
         sync_shard_node_api_invalid_epoch -> TestResult: [
-            too_old: (3, 1, "Invalid epoch. Client epoch: 1. Server epoch: 3"),
-            too_new: (3, 4, "Invalid epoch. Client epoch: 4. Server epoch: 3"),
+            too_old: (3, 1),
+            too_new: (3, 4),
         ]
     }
     async fn sync_shard_node_api_invalid_epoch(
         cluster_epoch: Epoch,
         requester_epoch: Epoch,
-        error_message: &str,
     ) -> TestResult {
         // Creates a cluster with initial epoch set to 3.
         let (cluster, _, blob_detail) =
@@ -3580,7 +3561,7 @@ mod tests {
                 .await?;
 
         // Requests a shard from epoch 0.
-        let status = cluster.nodes[0]
+        let error = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(
                 ShardIndex(0),
@@ -3589,15 +3570,15 @@ mod tests {
                 requester_epoch,
                 &cluster.nodes[0].as_ref().inner.protocol_key_pair,
             )
-            .await;
+            .await
+            .expect_err("request should fail");
+        let status = error.status().expect("response has an error status");
+        let error_info = status.error_info().expect("response has error details");
 
-        assert!(matches!(
-            status,
-            Err(err) if err.service_error().is_some() &&
-                err.to_string().contains(
-                    error_message
-                )
-        ));
+        assert_eq!(error_info.domain(), STORAGE_NODE_ERROR_DOMAIN);
+        assert_eq!(error_info.reason(), "INVALID_EPOCH");
+        assert_eq!(Some(requester_epoch), error_info.field("request_epoch"));
+        assert_eq!(Some(cluster_epoch), error_info.field("server_epoch"));
 
         Ok(())
     }
@@ -3832,8 +3813,6 @@ mod tests {
     async fn sync_shard_complete_transfer(
         wipe_metadata_before_transfer_in_dst: bool,
     ) -> TestResult {
-        telemetry_subscribers::init_for_testing();
-
         let (cluster, blob_details, storage_dst, shard_storage_dst) =
             setup_cluster_for_shard_sync_tests().await?;
 
@@ -3911,8 +3890,6 @@ mod tests {
         ]
     }
     async fn sync_shard_shard_recovery(wipe_metadata_before_transfer_in_dst: bool) -> TestResult {
-        telemetry_subscribers::init_for_testing();
-
         let (cluster, blob_details, _) =
             setup_shard_recovery_test_cluster(|_| false, |_| 42, |_| false).await?;
 
@@ -4044,8 +4021,6 @@ mod tests {
     async fn sync_shard_shard_recovery_blob_not_recover_expired_invalid_deleted_blobs(
         skip_blob_certification_at_recovery_beginning: bool,
     ) -> TestResult {
-        telemetry_subscribers::init_for_testing();
-
         register_fail_point_if(
             "shard_recovery_skip_initial_blob_certification_check",
             move || skip_blob_certification_at_recovery_beginning,
@@ -4184,8 +4159,6 @@ mod tests {
             break_index: u64,
             sliver_type: SliverType,
         ) -> TestResult {
-            telemetry_subscribers::init_for_testing();
-
             let (cluster, blob_details, storage_dst, shard_storage_dst) =
                 setup_cluster_for_shard_sync_tests().await?;
 
@@ -4252,8 +4225,6 @@ mod tests {
             ]
         }
         async fn sync_shard_src_abnormal_return(fail_point: &'static str) -> TestResult {
-            telemetry_subscribers::init_for_testing();
-
             let (cluster, _blob_details, storage_dst, shard_storage_dst) =
                 setup_cluster_for_shard_sync_tests().await?;
 
@@ -4277,8 +4248,6 @@ mod tests {
         // blobs do not cause shard sync to enter recovery directly.
         #[walrus_simtest]
         async fn sync_shard_ignore_non_certified_blobs() -> TestResult {
-            telemetry_subscribers::init_for_testing();
-
             // Creates some regular blobs that will be synced.
             let blobs: Vec<[u8; 32]> = (9..13).map(|i| [i; 32]).collect();
             let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
@@ -4383,8 +4352,6 @@ mod tests {
             sliver_type: SliverType,
             restart_after_recovery: bool,
         ) -> TestResult {
-            telemetry_subscribers::init_for_testing();
-
             register_fail_point_if("fail_point_after_start_recovery", move || {
                 restart_after_recovery
             });
@@ -4472,8 +4439,6 @@ mod tests {
         async fn sync_shard_recovery_metadata_restart(
             fail_before_start_fetching: bool,
         ) -> TestResult {
-            telemetry_subscribers::init_for_testing();
-
             let (cluster, blob_details, storage_dst, shard_storage_dst) =
                 setup_cluster_for_shard_sync_tests().await?;
 

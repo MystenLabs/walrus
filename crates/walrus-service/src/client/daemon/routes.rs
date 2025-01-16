@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
@@ -25,12 +26,14 @@ use sui_types::base_types::SuiAddress;
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::EpochCount;
+use walrus_proc_macros::RestApiError;
+use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::client::BlobPersistence;
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::{daemon::PostStoreAction, BlobStoreResult, ClientErrorKind, StoreWhen},
-    common::api::{self, BlobIdString},
+    client::{daemon::PostStoreAction, BlobStoreResult, ClientError, ClientErrorKind, StoreWhen},
+    common::api::{self, BlobIdString, RestApiError},
 };
 
 /// The status endpoint, which always returns a 200 status when it is available.
@@ -38,20 +41,21 @@ pub const STATUS_ENDPOINT: &str = "/status";
 /// OpenAPI documentation endpoint.
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
-pub const BLOB_GET_ENDPOINT: &str = "/v1/:blobId";
+pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/:blobId";
 /// The path to store a blob.
-pub const BLOB_PUT_ENDPOINT: &str = "/v1/store";
+pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 
+/// Retrieve a Walrus blob.
+///
+/// Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
 #[utoipa::path(
     get,
     path = api::rewrite_route(BLOB_GET_ENDPOINT),
-    params(("blob_id" = BlobIdString,)),
+    params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "The blob was reconstructed successfully", body = [u8]),
-        (status = 404, description = "The requested blob does not exist"),
-        (status = 500, description = "Internal server error" ),
-        // TODO(mlegner): Improve error responses. (#178, #462)
+        GetBlobError,
     ),
 )]
 pub(super) async fn get_blob<T: WalrusReadClient>(
@@ -92,20 +96,56 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             }
             response
         }
-        Err(error) => match error.kind() {
-            ClientErrorKind::BlobIdDoesNotExist => {
-                tracing::debug!(?blob_id, "the requested blob ID does not exist");
-                StatusCode::NOT_FOUND.into_response()
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::debug!(?blob_id, "the requested blob ID does not exist")
+                }
+                GetBlobError::Internal(error) => tracing::error!(?error, "error retrieving blob"),
+                _ => (),
             }
-            ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
-            _ => {
-                tracing::error!(?error, "error retrieving blob");
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            }
-        },
+
+            error.to_response()
+        }
     }
 }
 
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum GetBlobError {
+    /// The requested blob has not yet been stored on Walrus.
+    #[error(
+        "the requested blob ID does not exist on Walrus, ensure that it was entered correctly"
+    )]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound,
+
+    /// The blob cannot be returned as has been blocked.
+    #[error("the requested metadata is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<ClientError> for GetBlobError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            _ => anyhow::anyhow!(error).into(),
+        }
+    }
+}
+
+/// Store a blob on Walrus.
+///
+/// Store a (potentially deletable) blob on Walrus for 1 or more epochs. The associated on-Sui
+/// object can be sent to a specified Sui address.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
 #[utoipa::path(
     put,
@@ -116,9 +156,7 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         (status = 200, description = "The blob was stored successfully", body = BlobStoreResult),
         (status = 400, description = "The request is malformed"),
         (status = 413, description = "The blob is too large"),
-        (status = 500, description = "Internal server error"),
-        (status = 504, description = "Communication problem with Walrus storage nodes"),
-        // TODO(mlegner): Document error responses. (#178, #462)
+        StoreBlobError,
     ),
 )]
 pub(super) async fn put_blob<T: WalrusWriteClient>(
@@ -148,22 +186,18 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         .await
     {
         Ok(result) => {
-            let status_code = if matches!(result, BlobStoreResult::MarkedInvalid { .. }) {
-                StatusCode::INTERNAL_SERVER_ERROR
+            if let BlobStoreResult::MarkedInvalid { .. } = result {
+                StoreBlobError::Internal(anyhow!(
+                    "the blob was marked invalid, which is likely a system error, please report it"
+                ))
+                .into_response()
             } else {
-                StatusCode::OK
-            };
-            (status_code, Json(result)).into_response()
+                (StatusCode::OK, Json(result)).into_response()
+            }
         }
         Err(error) => {
             tracing::error!(?error, "error storing blob");
-            match error.kind() {
-                ClientErrorKind::NotEnoughConfirmations(_, _) => {
-                    StatusCode::GATEWAY_TIMEOUT.into_response()
-                }
-                ClientErrorKind::BlobIdBlocked(_) => StatusCode::FORBIDDEN.into_response(),
-                _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            }
+            StoreBlobError::from(error).into_response()
         }
     };
 
@@ -171,6 +205,37 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         .headers_mut()
         .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
     response
+}
+
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum StoreBlobError {
+    /// The service failed to store the blob to sufficient Walrus storage nodes before a timeout,
+    /// please retry the operation.
+    #[error("the service timed-out while waiting for confirmations, please try again")]
+    #[rest_api_error(
+        reason = "INSUFFICIENT_CONFIRMATIONS", status = ApiStatusCode::DeadlineExceeded
+    )]
+    NotEnoughConfirmations,
+
+    /// The blob cannot be returned as has been blocked.
+    #[error("the requested metadata is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<ClientError> for StoreBlobError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            _ => Self::Internal(anyhow!(error)),
+        }
+    }
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all)]

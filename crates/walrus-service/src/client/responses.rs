@@ -73,6 +73,7 @@ impl Display for EventOrObjectId {
 
 /// Blob store result with its file path.
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct BlobStoreResultWithPath {
     /// The result of the store operation.
     pub blob_store_result: BlobStoreResult,
@@ -205,6 +206,8 @@ impl From<BlobIdDecimal> for BlobIdConversionOutput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DryRunOutput {
+    /// The file path to the blob.
+    pub path: PathBuf,
     /// The blob ID.
     #[serde_as(as = "DisplayFromStr")]
     pub blob_id: BlobId,
@@ -584,7 +587,7 @@ pub(crate) struct DeleteOutput {
 /// The output of the `walrus stake` command.
 pub struct StakeOutput {
     /// The staked WAL after staking.
-    pub staked_wal: StakedWal,
+    pub staked_wal: Vec<StakedWal>,
 }
 
 #[derive(Debug, Clone, Serialize)]

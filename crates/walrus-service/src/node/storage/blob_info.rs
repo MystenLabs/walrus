@@ -141,7 +141,7 @@ impl BlobInfoTable {
     }
 
     fn has_event_been_handled(latest_handled_index: Option<u64>, event_index: u64) -> bool {
-        latest_handled_index.map_or(false, |i| event_index <= i)
+        latest_handled_index.is_some_and(|i| event_index <= i)
     }
 
     pub fn set_metadata_stored<'a>(

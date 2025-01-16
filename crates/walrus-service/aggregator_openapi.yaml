@@ -1,0 +1,99 @@
+openapi: 3.0.3
+info:
+  title: Walrus Aggregator
+  description: ''
+  contact:
+    name: Mysten Labs
+    email: build@mystenlabs.com
+  license:
+    name: Apache-2.0
+  version: 1.10.0
+paths:
+  /v1/blobs/{blobId}:
+    get:
+      tags:
+      - routes
+      summary: Retrieve a Walrus blob.
+      description: Reconstructs the blob identified by the provided blob ID from Walrus and return it binary data.
+      operationId: get_blob
+      parameters:
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+      responses:
+        '200':
+          description: The blob was reconstructed successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: ' The requested blob has not yet been stored on Walrus.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: ' The blob cannot be returned as has been blocked.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+components:
+  schemas:
+    BlobId:
+      type: string
+      format: byte
+      description: A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
+      example: E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
+    Status:
+      type: object
+      description: |-
+        A message returned from a failed API call.
+
+        Contains both human-readable and machine-readable details of the error,
+        to assist in resolving the error.
+      required:
+      - error
+      properties:
+        error:
+          allOf:
+          - type: object
+            required:
+            - status
+            - code
+            properties:
+              code:
+                type: integer
+                format: int32
+                description: HTTP status code associated with the error.
+                minimum: 0
+              status:
+                type: string
+                description: General type of error, given as an UPPER_SNAKE_CASE string.
+          - type: object
+            required:
+            - message
+            - details
+            properties:
+              details:
+                type: array
+                items:
+                  type: object
+                description: |-
+                  Machine readable details of the error.
+
+                  Always contains an [`ErrorInfo`], which provides a machine-readable
+                  representation of the of the `message` field.
+              message:
+                type: string
+                description: A message describing the error in detail.

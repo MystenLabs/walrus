@@ -38,11 +38,35 @@ struct Args {
 #[derive(Subcommand, Debug, Clone)]
 #[clap(rename_all = "kebab-case")]
 enum Commands {
+    /// Register nodes based on parameters exported by the `walrus-node setup` command, send the
+    /// storage-node capability to the respective node's wallet, and optionally stake with them.
+    RegisterNodes(RegisterNodesArgs),
     /// Deploy the Walrus system contract on the Sui network.
     DeploySystemContract(DeploySystemContractArgs),
-
     /// Generate the configuration files to run a testbed of storage nodes.
     GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
+}
+
+#[derive(Debug, Clone, clap::Args)]
+#[clap(rename_all = "kebab-case")]
+struct RegisterNodesArgs {
+    /// The path to the client config.
+    #[clap(long)]
+    client_config: PathBuf,
+    /// The files containing the registration parameters exported by the `walrus-node setup`
+    /// command.
+    #[clap(long, alias("files"), num_args(1..))]
+    param_files: Vec<PathBuf>,
+    /// The (optional) amount of WAL to stake with the newly registered nodes.
+    ///
+    /// The stake amount is staked with all nodes.
+    // For simplicity and to prevent mistakes, we only allow a single stake amount here. Different
+    // stake amounts are supported with the `walrus stake` command.
+    #[clap(long)]
+    stake_amount: Option<u64>,
+    /// Gas budget for Sui transactions to register the nodes.
+    #[arg(long, default_value_t = 1_000_000_000)]
+    gas_budget: u64,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -57,8 +81,8 @@ struct DeploySystemContractArgs {
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The directory in which the contracts are located.
-    #[clap(long, default_value = "./contracts/walrus")]
-    contract_path: PathBuf,
+    #[clap(long, default_value = "./contracts")]
+    contract_dir: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
     #[arg(long, default_value_t = 1_000_000_000)]
     gas_budget: u64,
@@ -98,6 +122,14 @@ struct DeploySystemContractArgs {
     /// The maximum number of epochs ahead for which storage can be obtained.
     #[arg(long, default_value_t = 104)]
     max_epochs_ahead: EpochCount,
+    /// The path to the admin wallet. If not provided, a new wallet is created.
+    #[clap(long)]
+    admin_wallet_path: Option<PathBuf>,
+    /// If not set, contracts are copied to `working_dir` and published from there to keep the
+    /// `Move.toml` unchanged. Use this flag to publish from the original directory and update
+    /// the `Move.toml` to point to the new contracts.
+    #[arg(long, action)]
+    do_not_copy_contracts: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -147,6 +179,7 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     match args.command {
+        Commands::RegisterNodes(args) => commands::register_nodes(args)?,
         Commands::DeploySystemContract(args) => commands::deploy_system_contract(args)?,
         Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
     }
@@ -154,8 +187,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
+    use config::NodeRegistrationParamsForThirdPartyRegistration;
+    use itertools::Itertools as _;
     use testbed::ADMIN_CONFIG_PREFIX;
     use walrus_service::{
+        client::cli::HumanReadableFrost,
         testbed::{
             create_client_config,
             create_storage_node_configs,
@@ -170,11 +206,72 @@ mod commands {
     use super::*;
 
     #[tokio::main]
+    pub(super) async fn register_nodes(
+        RegisterNodesArgs {
+            client_config,
+            param_files,
+            stake_amount,
+            gas_budget,
+        }: RegisterNodesArgs,
+    ) -> anyhow::Result<()> {
+        let config = walrus_service::client::Config::load(client_config)?;
+        let contract_client = config
+            .new_contract_client_with_wallet_in_config(gas_budget)
+            .await?;
+        let count = param_files.len();
+
+        let unpacked_registration_params = param_files
+            .iter()
+            .map(|param_file| {
+                let params = NodeRegistrationParamsForThirdPartyRegistration::load(param_file)?;
+                Ok((
+                    params.node_registration_params,
+                    params.proof_of_possession,
+                    params.wallet_address,
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()
+            .context("failed to load all registration parameters")?;
+
+        let node_caps = contract_client
+            .register_candidates(unpacked_registration_params)
+            .await?;
+        let node_ids = node_caps.iter().map(|cap| cap.node_id).collect::<Vec<_>>();
+        println!(
+            "Successfully registered {count} storage nodes:\n{}",
+            node_ids.iter().map(|id| id.to_string()).join(", ")
+        );
+
+        let Some(stake_amount) = stake_amount else {
+            return Ok(());
+        };
+
+        contract_client
+            .stake_with_pools(
+                &node_ids
+                    .iter()
+                    .map(|id| (*id, stake_amount))
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .context("staking with newly registered nodes failed")?;
+
+        println!(
+            "Successfully staked {} with each newly registered node (total: {}).",
+            HumanReadableFrost::from(stake_amount),
+            HumanReadableFrost::from(
+                stake_amount * u64::try_from(count).expect("definitely fits into a u64")
+            )
+        );
+        Ok(())
+    }
+
+    #[tokio::main]
     pub(super) async fn deploy_system_contract(
         DeploySystemContractArgs {
             working_dir,
             sui_network,
-            contract_path,
+            contract_dir,
             gas_budget,
             n_shards,
             epoch_duration,
@@ -187,6 +284,8 @@ mod commands {
             storage_capacity,
             deterministic_keys,
             max_epochs_ahead,
+            admin_wallet_path,
+            do_not_copy_contracts,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -202,7 +301,7 @@ mod commands {
         let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: &working_dir,
             sui_network,
-            contract_path,
+            contract_dir,
             gas_budget,
             host_addresses,
             rest_api_port,
@@ -214,6 +313,8 @@ mod commands {
             epoch_duration: *epoch_duration,
             epoch_zero_duration: *epoch_zero_duration,
             max_epochs_ahead,
+            admin_wallet_path,
+            do_not_copy_contracts,
         })
         .await
         .context("Failed to deploy system contract")?;
