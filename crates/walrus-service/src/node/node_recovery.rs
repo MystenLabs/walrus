@@ -29,7 +29,6 @@ impl NodeRecoveryHandler {
     }
 
     pub fn start_node_recovery(&self, epoch: Epoch) -> Result<(), TypedStoreError> {
-        let start = tokio::time::Instant::now();
         let mut locked_task_handle = self.task_handle.lock().unwrap();
         assert!(locked_task_handle.is_none());
 
@@ -88,7 +87,6 @@ impl NodeRecoveryHandler {
                                 "certified blob should have an initial certified epoch set",
                             ),
                             None,
-                            start,
                         )
                         .await;
                     match start_sync_result {

@@ -969,7 +969,7 @@ impl StorageNode {
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(event.blob_id, event.epoch, Some(event_handle), start)
+            .start_sync(event.blob_id, event.epoch, Some(event_handle))
             .await?;
 
         Ok(())
@@ -3082,7 +3082,7 @@ mod tests {
         cluster.nodes[0]
             .storage_node
             .blob_sync_handler
-            .start_sync(*blob.blob_id(), 1, None, Instant::now())
+            .start_sync(*blob.blob_id(), 1, None)
             .await
             .unwrap();
 
@@ -4603,7 +4603,7 @@ mod tests {
         }
     }
 
-    // Waits until the storage node processes the specified number of events.
+    /// Waits until the storage node processes the specified number of events.
     async fn wait_until_events_processed(
         node: &StorageNodeHandle,
         processed_event_count: u64,
