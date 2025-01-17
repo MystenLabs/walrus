@@ -14,7 +14,9 @@ fun empty_committee() {
 }
 
 #[test]
-fun sorting() {
+// Scenario: pass unsorted shard assigments during initialization and transition,
+// expect the nodes to preserve their assigned shards during reassigment.
+fun sort_and_preserve_shards_correctly() {
     // nodes are sorted in reverse order (3 to 0), and that's intentional, shards num is 8
     let size = 4;
     let mut nodes = vector::tabulate!(size, |i| address::from_u256((3 - i) as u256).to_id());
@@ -41,16 +43,18 @@ fun sorting() {
     let cmt2 = cmt.transition(new_assignments);
 
     assert_eq!(cmt2.size(), 2);
+
+    // testing first node
     assert!(cmt2[&@3.to_id()].contains(&6)); // initial
     assert!(cmt2[&@3.to_id()].contains(&7));
     assert!(cmt2[&@3.to_id()].contains(&1)); // free shards assigned
-    assert!(cmt2[&@3.to_id()].contains(&0)); 
+    assert!(cmt2[&@3.to_id()].contains(&0));
 
+    // testing second node
     assert!(cmt2[&@2.to_id()].contains(&4)); // initial
     assert!(cmt2[&@2.to_id()].contains(&5));
     assert!(cmt2[&@2.to_id()].contains(&2)); // freed shards assigned
     assert!(cmt2[&@2.to_id()].contains(&3));
-
 }
 
 #[test]
