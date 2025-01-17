@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
 use sui_types::{
@@ -242,6 +243,9 @@ pub(crate) struct BlobStatusOutput {
     pub file: Option<PathBuf>,
     /// The blob's status.
     pub status: BlobStatus,
+    /// The estimated expiry timestamp of the blob, present only for permanent blob.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_expiry_timestamp: Option<DateTime<Utc>>,
 }
 
 /// The output of the `info` command.

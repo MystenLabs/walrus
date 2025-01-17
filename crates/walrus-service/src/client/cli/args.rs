@@ -174,13 +174,12 @@ pub enum CliCommands {
         #[clap(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
-        /// The number of epochs ahead for which to store the blob.
+        /// The epoch argument to specify either the number of epochs to store the blob, or the
+        /// end epoch, or the earliest expiry in UNIX timestamp ms.
         ///
-        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
-        /// system object on chain. Otherwise, the blob is stored for the specified number of
-        /// epochs. The number of epochs must be greater than 0.
-        #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
-        epochs: EpochCountOrMax,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -919,6 +918,41 @@ impl EpochCountOrMax {
     }
 }
 
+/// The number of epochs to store the blob for.
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EpochArg {
+    /// The number of epochs the blob is stored for.
+    ///
+    /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+    /// system object on chain. Otherwise, the blob is stored for the specified number of
+    /// epochs. The number of epochs must be greater than 0.
+    #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
+    pub(crate) epochs: Option<EpochCountOrMax>,
+    /// The earliest time (in milliseconds since UNIX epoch) when the blob can expire.
+    #[clap(long)]
+    pub(crate) earliest_expiry_time: Option<u64>,
+    /// The end epoch for the blob.
+    #[clap(long)]
+    pub(crate) end_epoch: Option<u64>,
+}
+
+impl EpochArg {
+    pub(crate) fn exactly_one_is_some(&self) -> Result<()> {
+        match (
+            self.epochs.is_some(),
+            self.earliest_expiry_time.is_some(),
+            self.end_epoch.is_some(),
+        ) {
+            (true, false, false) | (false, true, false) | (false, false, true) => Ok(()),
+            _ => Err(anyhow!(
+                "exactly one of `epochs`, `earliest-expiry-time`, or `end-epoch` must be specified"
+            )),
+        }
+    }
+}
+
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
@@ -1030,7 +1064,11 @@ mod tests {
     fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epochs,
+            epoch_arg: EpochArg {
+                epochs: Some(epochs),
+                earliest_expiry_time: None,
+                end_epoch: None,
+            },
             dry_run: false,
             force: false,
             deletable: false,
