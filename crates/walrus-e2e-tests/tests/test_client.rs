@@ -864,7 +864,7 @@ async fn test_extend_owned_blobs() -> TestResult {
     client
         .as_ref()
         .sui_client()
-        .extend_blob(blob_object_id, 5, 100)
+        .extend_blob(blob_object_id, 5)
         .await?;
 
     let blob: Blob = client

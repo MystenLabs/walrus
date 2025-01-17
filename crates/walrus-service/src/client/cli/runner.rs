@@ -271,16 +271,10 @@ impl ClientCommandRunner {
 
                 if shared {
                     sui_client
-                        .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+                        .extend_shared_blob(blob_obj_id, epochs_ahead)
                         .await?;
                 } else {
-                    if let Some(amount) = amount {
-                        sui_client
-                            .extend_blob(blob_obj_id, epochs_ahead)
-                            .await?;
-                    } else {
-                        anyhow::bail!("amount must be provided when extending an owned blob");
-                    }
+                    sui_client.extend_blob(blob_obj_id, epochs_ahead).await?;
                 }
 
                 spinner.finish_with_message("done");

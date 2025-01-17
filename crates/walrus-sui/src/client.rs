@@ -1244,12 +1244,16 @@ impl SuiContractClient {
         &self,
         blob_obj_id: ObjectID,
         epochs_ahead: EpochCount,
-        amount: u64,
     ) -> SuiClientResult<()> {
+        let blob: Blob = self
+            .read_client
+            .sui_client()
+            .get_sui_object(blob_obj_id)
+            .await?;
         let wallet = self.wallet().await;
         let mut pt_builder = self.transaction_builder();
         pt_builder
-            .extend_blob(blob_obj_id.into(), epochs_ahead, amount)
+            .extend_blob(blob_obj_id.into(), epochs_ahead, blob.storage.storage_size)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;

@@ -456,9 +456,13 @@ impl WalrusPtbBuilder {
         &mut self,
         blob_object: ArgumentOrOwnedObject,
         epochs_ahead: EpochCount,
-        amount: u64,
+        encoded_size: u64,
     ) -> SuiClientResult<()> {
-        self.fill_wal_balance(amount).await?;
+        let price = self
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .await?;
+
+        self.fill_wal_balance(price).await?;
 
         let args = vec![
             self.system_arg(Mutability::Mutable).await?,
@@ -467,7 +471,7 @@ impl WalrusPtbBuilder {
             self.wal_coin_arg()?,
         ];
         self.walrus_move_call(contracts::system::extend_blob, args)?;
-        self.reduce_wal_balance(amount)?;
+        self.reduce_wal_balance(price)?;
         Ok(())
     }
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.
