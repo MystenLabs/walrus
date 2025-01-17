@@ -31,7 +31,7 @@ fun sorting() {
     assert_eq!(cmt[&@2.to_id()], vector[4, 5]);
     assert_eq!(cmt[&@3.to_id()], vector[6, 7]);
 
-    // transition the commitee, again, supply nodes in reverse order
+    // Transition the committee, again, supply nodes in reverse order
     // remove two last nodes, total number of nodes is now 2, assign 4 shards to each
     nodes.pop_back();
     nodes.pop_back();
