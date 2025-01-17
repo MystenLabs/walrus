@@ -106,7 +106,7 @@ impl WalrusNodeProvider {
     }
     /// update the walrus node list that we will speak with
     async fn update_walrus_nodes(&self) {
-        let committee = match get_walrus_committee2(
+        let committee = match get_walrus_committee(
             &self.rpc_url,
             &self.system_object_id,
             &self.staking_object_id,
