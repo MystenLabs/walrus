@@ -42,7 +42,7 @@ impl ShardSyncHandler {
         }
     }
 
-    /// Starts sync shards. If `recover_metadata` is true, sync certified blob metadata before
+    /// Starts sync shards. If `recover_metadata` is true, syncs certified blob metadata before
     /// syncing shards.
     pub async fn start_sync_shards(
         &self,
@@ -50,14 +50,15 @@ impl ShardSyncHandler {
         recover_metadata: bool,
     ) -> Result<(), SyncShardClientError> {
         let mut task_handle = self.task_handle.lock().await;
-        let sync_handler_clone = self.clone();
-        let old_task = task_handle.replace(tokio::spawn(async move {
-            sync_handler_clone
+        let sync_handler = self.clone();
+        let new_task = tokio::spawn(async move {
+            sync_handler
                 .sync_shards_task(shards, recover_metadata)
                 .await
-        }));
+        });
 
-        if let Some(old_task) = old_task {
+        // Abort any existing task before replacing it
+        if let Some(old_task) = task_handle.replace(new_task) {
             old_task.abort();
         }
 
@@ -66,30 +67,23 @@ impl ShardSyncHandler {
 
     async fn sync_shards_task(&self, shards: Vec<ShardIndex>, recover_metadata: bool) {
         if recover_metadata {
-            assert!(
-                self.node
-                    .storage
-                    .node_status()
-                    .expect("reading db should not fail")
-                    == NodeStatus::RecoverMetadata
-            );
+            let node_status = self
+                .node
+                .storage
+                .node_status()
+                .expect("failed to read node status from db");
+            assert_eq!(node_status, NodeStatus::RecoverMetadata);
 
-            if let Err(sync_metadata_error) = self.sync_certified_blob_metadata().await {
-                tracing::error!(
-                    ?sync_metadata_error,
-                    "failed to sync blob metadata; aborting shard sync"
-                );
+            if let Err(err) = self.sync_certified_blob_metadata().await {
+                tracing::error!(?err, "failed to sync blob metadata; aborting shard sync");
                 return;
             }
         }
 
+        // Start sync for each shard
         for shard in shards {
-            if let Err(error) = self.start_new_shard_sync(shard).await {
-                tracing::error!(
-                    ?error,
-                    %shard,
-                    "failed to start shard sync; aborting shard sync"
-                );
+            if let Err(err) = self.start_new_shard_sync(shard).await {
+                tracing::error!(?err, %shard, "failed to start shard sync; skipping shard");
                 continue;
             }
         }
@@ -97,16 +91,15 @@ impl ShardSyncHandler {
         // Once we have started the shard sync task, the shard status has been persisted to
         // disk, so we can mark the node as active. Any restart from this point will re-start
         // the shard sync tasks only without syncing metadata again.
-        if self
+        let node_status = self
             .node
             .storage
             .node_status()
-            .expect("reading db should not fail")
-            == NodeStatus::RecoverMetadata
-        {
+            .expect("failed to read node status from db");
+        if node_status == NodeStatus::RecoverMetadata {
             self.node
                 .set_node_status(NodeStatus::Active)
-                .expect("setting node status should not fail");
+                .expect("failed to set node status to Active");
         }
     }
 
@@ -196,8 +189,7 @@ impl ShardSyncHandler {
     }
 
     /// Starts syncing a new shard. This method is used when a new shard is assigned to the node.
-    // TODO: make this function private.
-    pub async fn start_new_shard_sync(
+    async fn start_new_shard_sync(
         &self,
         shard_index: ShardIndex,
     ) -> Result<(), SyncShardClientError> {
@@ -216,40 +208,42 @@ impl ShardSyncHandler {
             return Ok(());
         }
 
-        match self.node.storage.shard_storage(shard_index) {
-            Some(shard_storage) => {
-                let shard_status = shard_storage.status()?;
-
-                // When a shard is in active state, it has synced to the epoch that corresponding to
-                // the epoch start event.
-                if shard_status == ShardStatus::Active {
-                    tracing::info!(
-                        walrus.shard_index = %shard_index,
-                        "shard has already been synced; skipping sync"
-                    );
-                    return Ok(());
-                }
-
-                if shard_status != ShardStatus::None {
-                    return Err(SyncShardClientError::InvalidShardStatusToSync(
-                        shard_index,
-                        shard_status,
-                    ));
-                }
-
-                // Update shard's status so that after this function returns, we can always restart
-                // the sync upon node restart.
-                shard_storage.set_start_sync_status()?;
-                self.start_shard_sync_impl(shard_storage.clone()).await;
-                Ok(())
-            }
-            None => {
+        // Get shard storage
+        let shard_storage = self
+            .node
+            .storage
+            .shard_storage(shard_index)
+            .ok_or_else(|| {
                 tracing::error!(
-                    "{shard_index} is not assigned to this node; cannot start shard sync",
+                    "{shard_index} is not assigned to this node; cannot start shard sync"
                 );
-                Err(ShardNotAssigned(shard_index, self.node.current_epoch()).into())
-            }
+                ShardNotAssigned(shard_index, self.node.current_epoch())
+            })?;
+
+        let shard_status = shard_storage.status()?;
+
+        // Skip if shard is already active
+        if shard_status == ShardStatus::Active {
+            tracing::info!(
+                walrus.shard_index = %shard_index,
+                "shard has already been synced; skipping sync"
+            );
+            return Ok(());
         }
+
+        // Validate shard status
+        if shard_status != ShardStatus::None {
+            return Err(SyncShardClientError::InvalidShardStatusToSync(
+                shard_index,
+                shard_status,
+            ));
+        }
+
+        // Update status and start sync. After this function returns, we can always restart
+        // the sync upon node restart.
+        shard_storage.set_start_sync_status()?;
+        self.start_shard_sync_impl(shard_storage.clone()).await;
+        Ok(())
     }
 
     /// Restarts syncing shards that were previously syncing. This method is used when restarting

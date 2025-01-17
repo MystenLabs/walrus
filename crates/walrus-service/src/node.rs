@@ -4086,7 +4086,7 @@ mod tests {
         cluster.nodes[1]
             .storage_node
             .shard_sync_handler
-            .start_new_shard_sync(ShardIndex(0))
+            .start_sync_shards(vec![ShardIndex(0)], false)
             .await?;
 
         // Shard recovery should be completed, and all the data should be synced.
@@ -4171,7 +4171,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
 
             // Waits for the shard sync process to stop.
@@ -4230,7 +4230,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
 
             // Waits for the shard sync process to stop.
@@ -4315,7 +4315,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
 
             // Waits for the shard sync process to stop.
@@ -4381,7 +4381,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
