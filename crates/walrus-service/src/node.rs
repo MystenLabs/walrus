@@ -3888,8 +3888,13 @@ mod tests {
         wipe_metadata_before_transfer_in_dst: bool,
     ) -> TestResult {
         let assignment: Option<&[&[u16]]> = Some(&[&[0, 1, 2], &[3]]);
-        let shard_sync_config = ShardSyncConfig {
-            shard_sync_concurrency: 1,
+        let shard_sync_config: ShardSyncConfig = ShardSyncConfig {
+            shard_sync_concurrency: if let Some(assignment) = assignment {
+                let max_concurrency = assignment[0].len();
+                rand::thread_rng().gen_range(1..=max_concurrency)
+            } else {
+                ShardSyncConfig::default().shard_sync_concurrency
+            },
             ..Default::default()
         };
         let (cluster, blob_details, storage_dst, shard_storage_set) =
