@@ -647,7 +647,10 @@ impl Client<SuiContractClient> {
             .sui_client
             .certify_blobs(&blobs_with_certificates, post_store)
             .await
-            .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "failed to certify blobs on Sui");
+                ClientError::from(ClientErrorKind::CertificationFailed(e))
+            })?;
         tracing::info!(
             duration = ?sui_cert_timer.elapsed(),
             "certified {} blobs on Sui",

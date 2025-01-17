@@ -468,7 +468,12 @@ impl SuiContractClient {
         let wallet = self.wallet().await;
 
         let mut pt_builder = self.transaction_builder();
-        for (blob, certificate) in blobs_with_certificates.iter() {
+        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+            tracing::debug!(
+                blob_id = %blob.blob_id,
+                count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
+                "certifying blob on Sui"
+            );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
             match post_store {
                 PostStoreAction::TransferTo(address) => {
@@ -490,6 +495,7 @@ impl SuiContractClient {
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
 
         if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify blobs on Sui");
             return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
         }
 

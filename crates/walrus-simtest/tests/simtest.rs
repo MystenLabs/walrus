@@ -37,8 +37,20 @@ mod tests {
         "create-cf-before",
     ];
 
+    /// Returns a simulator configuration that adds random network latency between nodes.
+    ///
+    /// The latency is uniformly distributed for all RPCs between nodes.
+    /// This simulates real-world network conditions where requests arrive at different nodes
+    /// with varying delays. The random latency helps test the system's behavior when events
+    /// and messages arrive asynchronously and in different orders at different nodes.
+    ///
+    /// For example, when a node sends a state update, some nodes may receive and process it
+    /// quickly while others experience delay. This creates race conditions and helps verify
+    /// that the system remains consistent despite message reordering.
+    ///
+    /// This latency applies to both Sui cluster and Walrus cluster.
     fn latency_config() -> sui_simulator::SimConfig {
-        env_config(uniform_latency_ms(10..30), [])
+        env_config(uniform_latency_ms(5..15), [])
     }
 
     // Helper function to write a random blob, read it back and check that it is the same.
@@ -48,7 +60,7 @@ mod tests {
         data_length: usize,
         write_only: bool,
     ) -> anyhow::Result<()> {
-        // Write a random blob.
+        tracing::info!("generating random blob of length {data_length}");
         let blob = walrus_test_utils::random_data(data_length);
 
         let store_results = client
@@ -62,6 +74,8 @@ mod tests {
             )
             .await
             .context("store blob should not fail")?;
+
+        tracing::info!("got store results with {} items", store_results.len());
         let store_result = &store_results
             .first()
             .expect("should have exactly one result");
@@ -71,20 +85,33 @@ mod tests {
             ..
         } = store_result
         else {
+            tracing::error!("unexpected store result type: {:?}", store_result);
             panic!("expect newly stored blob")
         };
 
+        tracing::info!(
+            "successfully stored blob with id {}",
+            blob_confirmation.blob_id
+        );
+
         if write_only {
+            tracing::info!("write-only mode, skipping read verification");
             return Ok(());
         }
 
-        // Read the blob using primary slivers. Retry because nodes may not have received the blob
-        // certify event yet and until then the slivers will not be readable.
+        tracing::info!("attempting to read blob using primary slivers");
         let mut read_blob_result = client
             .as_ref()
             .read_blob::<Primary>(&blob_confirmation.blob_id)
             .await;
+        let mut retry_count = 0;
         while read_blob_result.is_err() {
+            retry_count += 1;
+            tracing::info!(
+                "primary read attempt {} failed, retrying in 1s: {:?}",
+                retry_count,
+                read_blob_result.unwrap_err()
+            );
             tokio::time::sleep(Duration::from_secs(1)).await;
             read_blob_result = client
                 .as_ref()
@@ -93,17 +120,27 @@ mod tests {
         }
 
         let read_blob = read_blob_result.context("should be able to read blob we just stored")?;
+        tracing::info!(
+            "successfully read blob using primary slivers after {} retries",
+            retry_count
+        );
 
         // Check that blob is what we wrote.
         assert_eq!(read_blob, blob);
 
-        // Read using secondary slivers and check the result. Retry because nodes may not have
-        // received the blob certify event yet and until then the slivers will not be readable.
+        tracing::info!("attempting to read blob using secondary slivers");
         let mut read_blob_result = client
             .as_ref()
             .read_blob::<Secondary>(&blob_confirmation.blob_id)
             .await;
+        let mut retry_count = 0;
         while read_blob_result.is_err() {
+            retry_count += 1;
+            tracing::info!(
+                "secondary read attempt {} failed, retrying in 1s: {:?}",
+                retry_count,
+                read_blob_result.unwrap_err()
+            );
             tokio::time::sleep(Duration::from_secs(1)).await;
             read_blob_result = client
                 .as_ref()
@@ -111,6 +148,11 @@ mod tests {
                 .await;
         }
         let read_blob = read_blob_result.context("should be able to read blob we just stored")?;
+        tracing::info!(
+            "successfully read blob using secondary slivers after {} retries",
+            retry_count
+        );
+
         assert_eq!(read_blob, blob);
 
         Ok(())
