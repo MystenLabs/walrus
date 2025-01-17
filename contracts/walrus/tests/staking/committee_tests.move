@@ -14,7 +14,7 @@ fun empty_committee() {
 }
 
 #[test]
-// Scenario: pass unsorted shard assigments during initialization and transition,
+// Scenario: pass unsorted shard assignments during initialization and transition,
 // expect the nodes to preserve their assigned shards during reassigment.
 fun sort_and_preserve_shards_correctly() {
     // nodes are sorted in reverse order (3 to 0), and that's intentional, shards num is 8
