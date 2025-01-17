@@ -12,11 +12,10 @@ use std::{
 
 use anyhow::Error;
 use fastcrypto::traits::ToFromBytes;
-use futures::future::try_join_all;
 use sui_types::base_types::ObjectID;
 use tracing::error;
 use walrus_sui::{
-    client::{contract_config::ContractConfig, CommitteesAndState, ReadClient, SuiReadClient},
+    client::{contract_config::ContractConfig, CommitteesAndState, ReadClient},
     types::Committee,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
