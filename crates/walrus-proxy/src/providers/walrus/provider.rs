@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use tracing::{debug, error, info};
 
-use super::query::{get_walrus_committee, get_walrus_committee2, NodeInfo};
+use super::query::{get_walrus_committee, NodeInfo};
 use crate::{register_metric, Allower};
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
