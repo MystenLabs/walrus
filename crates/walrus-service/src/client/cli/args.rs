@@ -246,15 +246,24 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
     },
     /// Print information about the Walrus storage system this client is connected to.
+    /// Several subcommands are available to print different information.
+    ///
+    /// The `all` subcommand prints all information.
+    /// The `epoch` subcommand prints information about the current epoch.
+    /// The `storage` subcommand prints information about the storage nodes.
+    /// The `size` subcommand prints information about the size of the storage system.
+    /// The `price` subcommand prints information about the price of the storage system.
+    /// The `bft` subcommand prints information about the byzantine fault tolerance (BFT) system.
+    /// The `committee` subcommand prints information about the committee.
+    /// When no subcommand is provided, epoch, storage, size, and price information is printed.
     Info {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
-        /// Print extended information for developers.
-        #[clap(long, action)]
-        #[serde(default)]
-        dev: bool,
+        /// The specific info command to run.
+        #[command(subcommand)]
+        command: Option<InfoCommands>,
     },
     /// Print health information for the storage node.
     ///
@@ -434,6 +443,27 @@ pub enum CliCommands {
         #[clap(long)]
         amount: Option<u64>,
     },
+}
+
+/// Subcommands for the `info` command.
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum InfoCommands {
+    /// Print all information listed below.
+    All,
+    /// Print epoch information.
+    Epoch,
+    /// Print storage information.
+    Storage,
+    /// Print size information.
+    Size,
+    /// Print price information.
+    Price,
+    /// Print byzantine fault tolerance (BFT) information.
+    Bft,
+    /// Print committee information.
+    Committee,
 }
 
 /// The daemon commands for the Walrus client.

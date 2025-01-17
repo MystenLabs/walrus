@@ -83,7 +83,7 @@ async fn test_store_and_read_blob_with_crash_failures(
     failed_shards_read: &[usize],
     expected_errors: &[ClientErrorKind],
 ) {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let result =
         run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read, 31415)
             .await;
@@ -175,7 +175,7 @@ async_param_test! {
 }
 /// Stores a blob that is inconsistent in 1 shard
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
 
@@ -305,7 +305,7 @@ async fn test_store_with_existing_blob_resource(
     epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
@@ -390,7 +390,7 @@ async fn test_store_with_existing_storage_resource(
     epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
@@ -455,7 +455,7 @@ async_param_test! {
 }
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
@@ -515,7 +515,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
@@ -560,7 +560,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blocklist() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let (_sui_cluster_handle, _cluster, client) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
@@ -646,7 +646,7 @@ async fn test_blocklist() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
@@ -709,7 +709,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_repeated_shard_move() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, walrus_cluster, client) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
@@ -773,7 +773,7 @@ async fn test_repeated_shard_move() -> TestResult {
 async fn test_burn_blobs() -> TestResult {
     const N_BLOBS: usize = 3;
     const N_TO_DELETE: usize = 2;
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
@@ -828,7 +828,7 @@ async fn test_burn_blobs() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_share_blobs() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
@@ -921,7 +921,7 @@ async fn test_post_store_action(
     n_owned_blobs: usize,
     n_target_blobs: usize,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
 

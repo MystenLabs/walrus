@@ -42,6 +42,7 @@ use super::args::{
     DaemonCommands,
     FileOrBlobId,
     FileOrBlobIdOrObjectId,
+    InfoCommands,
     NodeSelection,
     PublisherArgs,
     RpcArg,
@@ -72,7 +73,13 @@ use crate::{
             ExchangeOutput,
             ExtendBlobOutput,
             FundSharedBlobOutput,
+            InfoBftOutput,
+            InfoCommitteeOutput,
+            InfoEpochOutput,
             InfoOutput,
+            InfoPriceOutput,
+            InfoSizeOutput,
+            InfoStorageOutput,
             ReadOutput,
             ServiceHealthInfoOutput,
             ShareBlobOutput,
@@ -166,8 +173,8 @@ impl ClientCommandRunner {
 
             CliCommands::Info {
                 rpc_arg: RpcArg { rpc_url },
-                dev,
-            } => self.info(rpc_url, dev).await,
+                command,
+            } => self.info(rpc_url, command).await,
 
             CliCommands::Health {
                 node_selection,
@@ -506,7 +513,11 @@ impl ClientCommandRunner {
         .print_output(self.json)
     }
 
-    pub(crate) async fn info(self, rpc_url: Option<String>, dev: bool) -> Result<()> {
+    pub(crate) async fn info(
+        self,
+        rpc_url: Option<String>,
+        command: Option<InfoCommands>,
+    ) -> Result<()> {
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -515,9 +526,35 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        InfoOutput::get_system_info(&sui_read_client, dev)
-            .await?
-            .print_output(self.json)
+
+        match command {
+            None => InfoOutput::get_system_info(&sui_read_client, false)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::All) => InfoOutput::get_system_info(&sui_read_client, true)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Epoch) => InfoEpochOutput::get_epoch_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Storage) => InfoStorageOutput::get_storage_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Size) => InfoSizeOutput::get_size_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+            Some(InfoCommands::Committee) => {
+                InfoCommitteeOutput::get_committee_info(&sui_read_client)
+                    .await?
+                    .print_output(self.json)
+            }
+            Some(InfoCommands::Bft) => InfoBftOutput::get_bft_info(&sui_read_client)
+                .await?
+                .print_output(self.json),
+        }
     }
 
     pub(crate) async fn health(

@@ -13738,6 +13738,7 @@ dependencies = [
  "sui-macros",
  "sui-protocol-config",
  "sui-simulator",
+ "telemetry-subscribers",
  "tempfile",
  "tokio",
  "tokio-stream",
