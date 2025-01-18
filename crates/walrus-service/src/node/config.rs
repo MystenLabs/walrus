@@ -390,7 +390,7 @@ impl Default for ShardSyncConfig {
             max_concurrent_blob_recovery_during_shard_recovery: 5,
             blob_certified_check_interval: Duration::from_secs(60),
             max_concurrent_metadata_fetch: 10,
-            shard_sync_concurrency: 5,
+            shard_sync_concurrency: 10,
         }
     }
 }
