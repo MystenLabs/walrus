@@ -2800,12 +2800,13 @@ mod tests {
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
-            TestCluster::<StorageNodeHandle>::builder()
+            let mut builder = TestCluster::<StorageNodeHandle>::builder()
                 .with_shard_assignment(assignment)
-                .with_system_event_providers(events.clone())
-                .with_shard_sync_config(shard_sync_config.unwrap_or_default())
-                .build()
-                .await?
+                .with_system_event_providers(events.clone());
+            if let Some(shard_sync_config) = shard_sync_config {
+                builder = builder.with_shard_sync_config(shard_sync_config);
+            }
+            builder.build().await?
         };
 
         Ok((cluster, events))
@@ -3860,7 +3861,9 @@ mod tests {
             loop {
                 let mut all_active = true;
                 for shard_storage in &shard_storage_set.shard_storage {
-                    let status = shard_storage.status().unwrap();
+                    let status = shard_storage
+                        .status()
+                        .expect("Shard status should be present");
                     if status != ShardStatus::Active {
                         all_active = false;
                         break;
@@ -3887,24 +3890,16 @@ mod tests {
     async fn sync_shard_complete_transfer(
         wipe_metadata_before_transfer_in_dst: bool,
     ) -> TestResult {
-        let assignment: Option<&[&[u16]]> = Some(&[&[0, 1, 2], &[3]]);
+        let assignment: &[&[u16]] = &[&[0, 1, 2], &[3]];
         let shard_sync_config: ShardSyncConfig = ShardSyncConfig {
-            shard_sync_concurrency: if let Some(assignment) = assignment {
-                let max_concurrency = assignment[0].len();
-                rand::thread_rng().gen_range(1..=max_concurrency)
-            } else {
-                ShardSyncConfig::default().shard_sync_concurrency
-            },
+            shard_sync_concurrency: rand::thread_rng().gen_range(1..=assignment.len()),
             ..Default::default()
         };
         let (cluster, blob_details, storage_dst, shard_storage_set) =
-            setup_cluster_for_shard_sync_tests(assignment, Some(shard_sync_config)).await?;
+            setup_cluster_for_shard_sync_tests(Some(assignment), Some(shard_sync_config)).await?;
 
-        let expected_shard_count = if let Some(assignment) = assignment {
-            assignment[0].len()
-        } else {
-            1
-        };
+        let expected_shard_count = assignment[0].len();
+
         assert_eq!(shard_storage_set.shard_storage.len(), expected_shard_count);
         let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
         if wipe_metadata_before_transfer_in_dst {
@@ -3925,11 +3920,8 @@ mod tests {
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 0);
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 0);
 
-        let shard_indices: Vec<_> = if let Some(assignment) = assignment {
-            assignment[0].iter().map(|i| ShardIndex(*i)).collect()
-        } else {
-            vec![ShardIndex(0)]
-        };
+        let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
+
         // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
@@ -4258,7 +4250,7 @@ mod tests {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
                 setup_cluster_for_shard_sync_tests(None, None).await?;
 
-            assert_eq!(shard_storage_dst.shard_storage.len(), 1);
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_arg(
                 "fail_point_fetch_sliver",
@@ -4326,7 +4318,7 @@ mod tests {
             let (cluster, _blob_details, storage_dst, shard_storage_set) =
                 setup_cluster_for_shard_sync_tests(None, None).await?;
 
-            assert_eq!(shard_storage_dst.shard_storage.len(), 1);
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_if(fail_point, || true);
 
@@ -4357,7 +4349,7 @@ mod tests {
             let blobs_expired: Vec<_> = blobs_expired.iter().map(|b| &b[..]).collect();
 
             // Generates a cluster with two nodes and one shard each.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]]).await?;
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]], None).await?;
 
             // Uses fail point to track whether shard sync recovery is triggered.
             let shard_sync_recovery_triggered = Arc::new(AtomicBool::new(false));
@@ -4542,7 +4534,7 @@ mod tests {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
                 setup_cluster_for_shard_sync_tests(None, None).await?;
 
-            assert_eq!(shard_storage_dst.shard_storage.len(), 1);
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             if fail_before_start_fetching {
                 register_fail_point_if(
@@ -4713,7 +4705,7 @@ mod tests {
             });
 
             // Create a cluster and send some events.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]]).await?;
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]], None).await?;
             events.send(BlobRegistered::for_testing(BLOB_ID).into())?;
             tokio::time::sleep(Duration::from_secs(10)).await;
 
