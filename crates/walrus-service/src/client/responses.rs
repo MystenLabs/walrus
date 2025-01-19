@@ -732,7 +732,7 @@ impl ServiceHealthInfoOutput {
 
                 // Process up to 10 health checks concurrently
                 let health_info = stream::iter(storage_nodes)
-                    .map(|node| NodeHealthOutput::new(node.clone(), detail))
+                    .map(|node| NodeHealthOutput::new(node, detail))
                     .buffer_unordered(10)
                     .collect::<Vec<_>>()
                     .await;
