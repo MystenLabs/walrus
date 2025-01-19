@@ -92,7 +92,7 @@ impl RetriableRpcError for SuiClientError {
 }
 
 /// Retries the given function while it returns retriable errors.[
-async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
+pub async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
 where
     S: BackoffStrategy,
     F: FnMut() -> Fut,

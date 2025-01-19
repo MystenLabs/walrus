@@ -49,11 +49,12 @@ use walrus_core::{
     Epoch,
 };
 use walrus_test_utils::WithTempDir;
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    client::SuiContractClient,
+    client::{retry_ptb_executor::RetryPtbExecutor, SuiContractClient},
     types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
-    utils::{create_wallet, request_sui_from_faucet, sign_and_send_ptb, SuiNetwork},
+    utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 
 /// Default gas budget for transactions in tests and benchmarks.
@@ -439,14 +440,9 @@ async fn fund_addresses(
     let amounts = vec![DEFAULT_FUNDING_PER_COIN; recipients.len()];
     ptb.pay_sui(recipients, amounts)?;
 
-    sign_and_send_ptb(
-        sender,
-        funding_wallet,
-        ptb.finish(),
-        vec![gas_coin],
-        DEFAULT_GAS_BUDGET,
-    )
-    .await?;
+    RetryPtbExecutor::new(DEFAULT_GAS_BUDGET, ExponentialBackoffConfig::default())
+        .sign_and_send_ptb(sender, funding_wallet, ptb.finish(), vec![gas_coin])
+        .await?;
 
     Ok(())
 }
