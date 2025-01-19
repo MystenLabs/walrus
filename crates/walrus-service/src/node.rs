@@ -220,6 +220,7 @@ pub trait ServiceState {
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
 
     /// Returns the number of shards the node is currently operating with.
+    /// edit for test CI
     fn n_shards(&self) -> NonZeroU16;
 
     /// Returns the node health information of this ServiceState.
