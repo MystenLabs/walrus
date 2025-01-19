@@ -692,6 +692,21 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Sets the network address for a storage node
+    pub async fn set_network_address(
+        &mut self,
+        storage_node_cap: ArgumentOrOwnedObject,
+        network_address: String,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(storage_node_cap).await?,
+            self.pt_builder.pure(network_address)?,
+        ];
+        self.walrus_move_call(contracts::staking::set_network_address, args)?;
+        Ok(())
+    }
+
     /// Sends `amount` WAL to `recipient`.
     pub async fn pay_wal(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
         self.fill_wal_balance(amount).await?;

@@ -908,6 +908,12 @@ impl Client<SuiContractClient> {
         Ok(staked_wal)
     }
 
+    /// Sets the network address for a storage node.
+    pub async fn set_network_address(&self, network_address: String) -> ClientResult<()> {
+        self.sui_client.set_network_address(network_address).await?;
+        Ok(())
+    }
+
     /// Stakes the specified amount of WAL with the node represented by `node_id`.
     pub async fn stake_with_node_pool(&self, node_id: ObjectID, amount: u64) -> ClientResult<()> {
         self.stake_with_node_pools(&[(node_id, amount)]).await?;

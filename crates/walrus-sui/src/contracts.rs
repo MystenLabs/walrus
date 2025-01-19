@@ -235,6 +235,7 @@ pub mod staking {
     contract_ident!(fn staking::initiate_epoch_change);
     contract_ident!(fn staking::epoch_sync_done);
     contract_ident!(fn staking::set_node_metadata);
+    contract_ident!(fn staking::set_network_address);
     contract_ident!(fn staking::set_commission_receiver);
     contract_ident!(fn staking::set_governance_authorized);
 }
