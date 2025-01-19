@@ -636,6 +636,16 @@ pub struct ExtendBlobOutput {
     pub epochs_ahead: u32,
 }
 
+/// The health status of a node's service
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum NodeHealthStatus {
+    /// The service is healthy and returned information
+    Ok(ServiceHealthInfo),
+    /// The service could not be reached or returned an error
+    Error(String),
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// The health information of a storage node.
@@ -643,18 +653,31 @@ pub(crate) struct NodeHealthOutput {
     pub node_id: ObjectID,
     pub node_url: String,
     /// The health information of the service.
-    pub health_info: ServiceHealthInfo,
+    pub health_info: NodeHealthStatus,
 }
 
 impl NodeHealthOutput {
-    pub async fn new(node: &StorageNode, detail: bool) -> anyhow::Result<Self> {
-        let client = Client::for_storage_node(&node.network_address.0, &node.network_public_key)?;
-        let health_info = client.get_server_health_info(detail).await?;
-        Ok(Self {
+    pub async fn new(node: &StorageNode, detail: bool) -> Self {
+        let Ok(client) =
+            Client::for_storage_node(&node.network_address.0, &node.network_public_key)
+        else {
+            return Self {
+                node_id: node.node_id,
+                node_url: node.network_address.0.clone(),
+                health_info: NodeHealthStatus::Error("failed to build client".to_string()),
+            };
+        };
+
+        let health_info = match client.get_server_health_info(detail).await {
+            Ok(info) => NodeHealthStatus::Ok(info),
+            Err(err) => NodeHealthStatus::Error(err.to_string()),
+        };
+
+        Self {
             node_id: node.node_id,
             node_url: node.network_address.0.clone(),
             health_info,
-        })
+        }
     }
 }
 
@@ -686,7 +709,7 @@ impl ServiceHealthInfoOutput {
                 else {
                     return Err(anyhow::anyhow!("node {node_id} not found in committee"));
                 };
-                let node_health = NodeHealthOutput::new(storage_node, detail).await?;
+                let node_health = NodeHealthOutput::new(storage_node, detail).await;
                 Ok(Self {
                     health_info: vec![node_health],
                 })
@@ -699,7 +722,7 @@ impl ServiceHealthInfoOutput {
                 else {
                     return Err(anyhow::anyhow!("node {node_url} not found in committee"));
                 };
-                let node_health = NodeHealthOutput::new(storage_node, detail).await?;
+                let node_health = NodeHealthOutput::new(storage_node, detail).await;
                 Ok(Self {
                     health_info: vec![node_health],
                 })
@@ -707,8 +730,7 @@ impl ServiceHealthInfoOutput {
             (false, false, true) => {
                 let mut health_info = Vec::new();
                 for node in storage_nodes {
-                    let node_health = NodeHealthOutput::new(&node, detail).await?;
-                    health_info.push(node_health);
+                    health_info.push(NodeHealthOutput::new(&node, detail).await);
                 }
                 Ok(Self { health_info })
             }
