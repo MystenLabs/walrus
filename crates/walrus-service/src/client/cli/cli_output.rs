@@ -743,6 +743,7 @@ impl CliOutput for ServiceHealthInfoOutput {
         let mut owned_shards = 0;
         let mut read_only_shards = 0;
         let mut node_statuses = std::collections::HashMap::new();
+        let mut error_nodes = Vec::new();
 
         for node in self.health_info.iter() {
             println!("\n{}", "Node Information".bold().walrus_purple());
@@ -751,15 +752,17 @@ impl CliOutput for ServiceHealthInfoOutput {
 
             match &node.health_info {
                 NodeHealthStatus::Error(error) => {
-                    println!("Error: {}", error);
+                    // Store error information for later display
+                    error_nodes.push((node.node_id, node.node_url.clone(), error.clone()));
                     *node_statuses.entry("Error".to_string()).or_insert(0) += 1;
+                    // Skip printing error here - will be shown at the end
+                    continue;
                 }
                 NodeHealthStatus::Ok(health_info) => {
-                    // Update summary counters
+                    // Rest of the OK case handling remains the same
                     owned_shards += health_info.shard_summary.owned;
                     read_only_shards += health_info.shard_summary.read_only;
 
-                    // Update node status counts
                     *node_statuses
                         .entry(health_info.node_status.to_string())
                         .or_insert(0) += 1;
@@ -824,7 +827,7 @@ impl CliOutput for ServiceHealthInfoOutput {
             }
         }
 
-        // Print summary at the end
+        // Print summary
         println!("\n{}", "Summary".bold().walrus_teal());
         println!("Total nodes: {}", self.health_info.len());
         println!("Owned shards: {}", owned_shards);
@@ -833,6 +836,16 @@ impl CliOutput for ServiceHealthInfoOutput {
         println!("\n{}", "Node Status Breakdown".bold().walrus_teal());
         for (status, count) in &node_statuses {
             println!("{}: {}", status, count);
+        }
+
+        // Print error information at the end if there are any errors
+        if !error_nodes.is_empty() {
+            println!("\n{}", "Error Information".bold().walrus_teal());
+            for (node_id, node_url, error) in error_nodes {
+                println!("\nNode ID: {}", node_id);
+                println!("Node URL: {}", node_url);
+                println!("Error: {}", error);
+            }
         }
     }
 }

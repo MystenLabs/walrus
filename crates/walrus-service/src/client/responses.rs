@@ -657,7 +657,7 @@ pub(crate) struct NodeHealthOutput {
 }
 
 impl NodeHealthOutput {
-    pub async fn new(node: &StorageNode, detail: bool) -> Self {
+    pub async fn new(node: StorageNode, detail: bool) -> Self {
         let Ok(client) =
             Client::for_storage_node(&node.network_address.0, &node.network_public_key)
         else {
@@ -709,7 +709,7 @@ impl ServiceHealthInfoOutput {
                 else {
                     return Err(anyhow::anyhow!("node {node_id} not found in committee"));
                 };
-                let node_health = NodeHealthOutput::new(storage_node, detail).await;
+                let node_health = NodeHealthOutput::new(storage_node.clone(), detail).await;
                 Ok(Self {
                     health_info: vec![node_health],
                 })
@@ -722,16 +722,21 @@ impl ServiceHealthInfoOutput {
                 else {
                     return Err(anyhow::anyhow!("node {node_url} not found in committee"));
                 };
-                let node_health = NodeHealthOutput::new(storage_node, detail).await;
+                let node_health = NodeHealthOutput::new(storage_node.clone(), detail).await;
                 Ok(Self {
                     health_info: vec![node_health],
                 })
             }
             (false, false, true) => {
-                let mut health_info = Vec::new();
-                for node in storage_nodes {
-                    health_info.push(NodeHealthOutput::new(&node, detail).await);
-                }
+                use futures::stream::{self, StreamExt};
+
+                // Process up to 10 health checks concurrently
+                let health_info = stream::iter(storage_nodes)
+                    .map(|node| NodeHealthOutput::new(node.clone(), detail))
+                    .buffer_unordered(10)
+                    .collect::<Vec<_>>()
+                    .await;
+
                 Ok(Self { health_info })
             }
             _ => Err(anyhow::anyhow!(
