@@ -598,6 +598,7 @@ pub async fn create_storage_node_configs(
             rest_api_address,
             sui,
             db_config: Default::default(),
+            http2_config: Default::default(),
             rest_graceful_shutdown_period_secs: None,
             blob_recovery: Default::default(),
             tls: Default::default(),
