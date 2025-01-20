@@ -4,7 +4,7 @@
 /// Module: extended_field
 module walrus::extended_field;
 
-use sui::dynamic_field as df;
+use walrus::wdynamic_field as df;
 
 /// Extended field acts as a field, but stored in a dynamic field, hence, it does
 /// not bloat the original object's storage, storing only `UID` of the extended

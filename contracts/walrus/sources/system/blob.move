@@ -4,7 +4,8 @@
 module walrus::blob;
 
 use std::string::String;
-use sui::{bcs, dynamic_field, hash};
+use sui::{bcs, hash};
+use walrus::wdynamic_field as dynamic_field;
 use walrus::{
     encoding,
     events::{emit_blob_registered, emit_blob_certified, emit_blob_deleted},

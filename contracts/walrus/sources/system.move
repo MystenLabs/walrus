@@ -5,7 +5,8 @@
 /// Module: system
 module walrus::system;
 
-use sui::{balance::Balance, coin::Coin, dynamic_field, vec_map::VecMap};
+use walrus::wdynamic_field as dynamic_field;
+use sui::{balance::Balance, coin::Coin, vec_map::VecMap};
 use wal::wal::WAL;
 use walrus::{
     blob::Blob,

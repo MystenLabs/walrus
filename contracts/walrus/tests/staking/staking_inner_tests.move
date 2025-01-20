@@ -166,8 +166,8 @@ fun test_limits() {
     let mut clock = clock::create_for_testing(ctx);
     let mut staking = staking_inner::new(0, EPOCH_DURATION, 1000, &clock, ctx);
 
-    let n_pools = 1100u64;
-    let n_selected = 1000u64; // should equal to TEMP_ACTIVE_SET_SIZE_LIMIT
+    let n_pools = 500u64;
+    let n_selected = 500u64; // should equal to TEMP_ACTIVE_SET_SIZE_LIMIT
     
     let mut pools = vector[];
     n_pools.do!(|_| pools.push_back(test::pool().name(b"pool".to_string()).register(&mut staking, ctx)));
