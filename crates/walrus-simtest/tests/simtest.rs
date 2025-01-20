@@ -889,33 +889,48 @@ mod tests {
             .unwrap();
 
         assert!(walrus_cluster.nodes[5].node_id.is_none());
-
+        tracing::info!(
+            "Node 5 info: {:?}",
+            walrus_cluster.nodes[5].rest_api_address
+        );
         let client_arc = Arc::new(client);
 
-        // Starts a background workload that a client keeps writing and retrieving data.
-        // All requests should succeed even if a node crashes.
-        // let workload_handle = start_background_workload(client_arc.clone(), false);
-
-        // Running the workload for 60 seconds to get some data in the system.
-        // tokio::time::sleep(Duration::from_secs(60)).await;
-
-        println!(
-            "storage_node_config: {:#?}",
-            walrus_cluster.nodes[5].storage_node_config
-        );
-
-        let new_port: u16 = 9999;
-        assert_ne!(
-            new_port,
+        let new_address = walrus_service::test_utils::unused_socket_address(true);
+        let original_address = format!(
+            "{}:{}",
+            walrus_cluster.nodes[5].storage_node_config.public_host,
             walrus_cluster.nodes[5].storage_node_config.public_port
         );
-        walrus_cluster.nodes[5].storage_node_config.public_port = new_port;
-        walrus_cluster.nodes[5]
-            .storage_node_config
-            .rest_api_address
-            .set_port(new_port);
-        walrus_cluster.nodes[5].rest_api_address =
-            walrus_cluster.nodes[5].storage_node_config.rest_api_address;
+        assert_ne!(new_address.to_string(), original_address);
+
+        // Check that the registered node has the original network address.
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+        assert_eq!(
+            pool.node_info.network_address,
+            walrus_cluster.nodes[5]
+                .storage_node_config
+                .rest_api_address
+                .into()
+        );
+
+        walrus_cluster.nodes[5].storage_node_config.public_port = new_address.port();
+        walrus_cluster.nodes[5].storage_node_config.public_host = new_address.ip().to_string();
+        walrus_cluster.nodes[5].storage_node_config.rest_api_address = new_address;
+        walrus_cluster.nodes[5].rest_api_address = new_address;
+
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
                 walrus_cluster.nodes[5].storage_node_config.clone(),
@@ -939,11 +954,6 @@ mod tests {
             )
             .await
             .expect("stake with node pool should not fail");
-        tracing::info!(
-            "Waiting for node to be active with new port {} and host {}",
-            new_port,
-            walrus_cluster.nodes[5].storage_node_config.public_host
-        );
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
@@ -958,46 +968,56 @@ mod tests {
             .find(&walrus_cluster.nodes[5].public_key)
             .expect("node should be in the committee");
 
+        assert_eq!(node.network_address, new_address.into());
+
         assert_eq!(
-            node.network_address.get_host(),
-            &walrus_cluster.nodes[5].storage_node_config.public_host
+            get_nodes_health_info(&[&walrus_cluster.nodes[5]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
         );
-        assert_ne!(
-            node.network_address.try_get_port().unwrap(),
-            Some(walrus_cluster.nodes[5].storage_node_config.public_port)
-        );
+        // assert_eq!(
+        //     node.network_address.get_host(),
+        //     &walrus_cluster.nodes[5].storage_node_config.public_host
+        // );
+        // assert_eq!(
+        //     node.network_address.try_get_port().unwrap(),
+        //     Some(walrus_cluster.nodes[5].storage_node_config.public_port)
+        // );
 
         // tracing::info!("Wallet address: {}", client_arc.inner.read_client.wallet_address());
 
-        client_arc
-            .as_ref()
-            .as_ref()
-            .set_network_address(format!(
-                "{}:{}",
-                walrus_cluster.nodes[5].storage_node_config.public_host, new_port
-            ))
-            .await
-            .expect("set network address should not fail");
+        // client_arc
+        //     .as_ref()
+        //     .as_ref()
+        //     .set_network_address(format!(
+        //         "{}:{}",
+        //         walrus_cluster.nodes[5].storage_node_config.public_host, new_port
+        //     ))
+        //     .await
+        //     .expect("set network address should not fail");
 
-        let committees = client_arc
-            .inner
-            .get_latest_committees_in_test()
-            .await
-            .unwrap();
+        // let committees = client_arc
+        //     .inner
+        //     .get_latest_committees_in_test()
+        //     .await
+        //     .unwrap();
 
-        let node = committees
-            .current_committee()
-            .find(&walrus_cluster.nodes[5].public_key)
-            .expect("node should be in the committee");
+        // let node = committees
+        //     .current_committee()
+        //     .find(&walrus_cluster.nodes[5].public_key)
+        //     .expect("node should be in the committee");
 
-        assert_eq!(
-            node.network_address.get_host(),
-            &walrus_cluster.nodes[5].storage_node_config.public_host
-        );
-        assert_eq!(
-            node.network_address.try_get_port().unwrap(),
-            Some(walrus_cluster.nodes[5].storage_node_config.public_port)
-        );
+        // assert_eq!(
+        //     node.network_address.get_host(),
+        //     &walrus_cluster.nodes[5].storage_node_config.public_host
+        // );
+        // assert_eq!(
+        //     node.network_address.try_get_port().unwrap(),
+        //     Some(walrus_cluster.nodes[5].storage_node_config.public_port)
+        // );
         // assert!(node_health_info[5].shard_detail.is_some());
 
         // // Check that shards in the new node matches the shards in the committees.

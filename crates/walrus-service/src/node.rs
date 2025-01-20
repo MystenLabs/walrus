@@ -458,6 +458,17 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
+        #[cfg(not(test))]
+        {
+            if let Some(ref node_wallet_config) = config.sui {
+                let contract_client = node_wallet_config.new_contract_client().await?;
+                contract_client
+                    .set_network_address(format!("{}:{}", config.public_host, config.public_port))
+                    .await?;
+            } else {
+                tracing::error!("storage config does not contain Sui wallet configuration");
+            }
+        }
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
