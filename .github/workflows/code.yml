@@ -106,7 +106,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.47.2
+      - uses: taiki-e/install-action@v2.47.18
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -144,7 +144,7 @@ jobs:
       MSIM_TEST_NUM: 5
       RUST_LOG: error
     steps:
-      - uses: taiki-e/install-action@v2.47.2
+      - uses: taiki-e/install-action@v2.47.18
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -158,7 +158,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.47.2
+      - uses: taiki-e/install-action@v2.47.18
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4

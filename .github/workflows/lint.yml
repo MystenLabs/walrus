@@ -71,7 +71,7 @@ jobs:
     name: Check spelling
     steps:
       - uses: actions/checkout@v4
-      - uses: crate-ci/typos@v1.29.0
+      - uses: crate-ci/typos@v1.29.4
 
   shellcheck:
     name: ShellCheck
