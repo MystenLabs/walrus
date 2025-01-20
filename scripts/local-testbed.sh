@@ -125,7 +125,7 @@ if ! $existing; then
     echo Generating configuration...
     ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir
 
-    echo "---
+    echo "
 event_processor_config:
   adaptive_downloader_config:
   max_workers: 2
