@@ -230,6 +230,10 @@ impl SystemContractService for SuiSystemContractService {
                     .await
                 {
                     Ok(()) => Some(()),
+                    Err(SuiClientError::StorageNodeCapabilityObjectNotSet) => {
+                        tracing::debug!("Storage node capability object not set");
+                        Some(())
+                    }
                     Err(SuiClientError::TransactionExecutionError(e)) => {
                         tracing::debug!(
                             walrus.epoch = epoch,
