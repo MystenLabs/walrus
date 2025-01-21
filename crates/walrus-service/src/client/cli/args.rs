@@ -7,7 +7,7 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{anyhow, Result};
@@ -16,7 +16,7 @@ use jsonwebtoken::Algorithm;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, ensure, BlobId, EpochCount};
+use walrus_core::{encoding::EncodingConfig, ensure, BlobId, Epoch, EpochCount};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, SuiContractClient},
     utils::SuiNetwork,
@@ -930,12 +930,15 @@ pub struct EpochArg {
     /// epochs. The number of epochs must be greater than 0.
     #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
     pub(crate) epochs: Option<EpochCountOrMax>,
-    /// The earliest time (in milliseconds since UNIX epoch) when the blob can expire.
-    #[clap(long)]
-    pub(crate) earliest_expiry_time: Option<u64>,
+
+    /// The earliest time when the blob can expire, in RFC3339 format (e.g. "2024-03-20T15:00:00Z")
+    /// or a more relaxed format (e.g. "2024-03-20 15:00:00").
+    #[clap(long, value_parser = humantime::parse_rfc3339_weak)]
+    pub(crate) earliest_expiry_time: Option<SystemTime>,
+
     /// The end epoch for the blob.
     #[clap(long)]
-    pub(crate) end_epoch: Option<u64>,
+    pub(crate) end_epoch: Option<Epoch>,
 }
 
 impl EpochArg {

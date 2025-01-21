@@ -568,7 +568,8 @@ impl SuiReadClient {
         &self.wal_type
     }
 
-    pub(crate) async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
+    /// Returns the system object.
+    pub async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization {
             id,
             version,
@@ -599,7 +600,8 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
+    /// Returns the staking object.
+    pub async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
         let StakingObjectForDeserialization {
             id,
             version,

@@ -344,6 +344,23 @@ pub struct StakingObject {
     pub(crate) inner: StakingInnerV1,
 }
 
+impl StakingObject {
+    /// Returns the number of epochs ahead that can be used to extend a blob.
+    pub fn epoch_state(&self) -> &EpochState {
+        &self.inner.epoch_state
+    }
+
+    /// Returns the epoch duration.
+    pub fn epoch_duration(&self) -> u64 {
+        self.inner.epoch_duration
+    }
+
+    /// Returns the current epoch.
+    pub fn epoch(&self) -> Epoch {
+        self.inner.epoch
+    }
+}
+
 /// Sui type for outer staking object. Used for deserialization.
 #[derive(Debug, Deserialize)]
 pub(crate) struct StakingObjectForDeserialization {
@@ -485,6 +502,11 @@ impl SystemObject {
     /// Returns the number of members in the committee.
     pub(crate) fn committee_size(&self) -> u16 {
         self.inner.committee.members.len() as u16
+    }
+
+    /// Returns the number of epochs ahead that can be used to extend a blob.
+    pub fn max_epochs_ahead(&self) -> u32 {
+        self.inner.future_accounting.length()
     }
 }
 

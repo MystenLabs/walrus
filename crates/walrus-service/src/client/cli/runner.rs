@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
 use prometheus::Registry;
 use rand::seq::SliceRandom;
@@ -408,28 +408,30 @@ impl ClientCommandRunner {
         epoch_arg.exactly_one_is_some()?;
 
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let fixed_params = client.sui_client().fixed_system_parameters().await?;
+
+        let system_object = client.sui_client().read_client.get_system_object().await?;
+        let max_epochs_ahead = system_object.max_epochs_ahead();
 
         let epochs_ahead = if let Some(epochs) = epoch_arg.epochs {
-            epochs.try_into_epoch_count(fixed_params.max_epochs_ahead)?
+            epochs.try_into_epoch_count(max_epochs_ahead)?
         } else if let Some(earliest_expiry_time) = epoch_arg.earliest_expiry_time {
-            let epoch_state = client.sui_client().read_client().epoch_state().await?;
+            let staking_object = client.sui_client().read_client.get_staking_object().await?;
+            let epoch_state = staking_object.epoch_state();
             let estimated_start_of_current_epoch = match epoch_state {
                 EpochState::EpochChangeDone(epoch_start)
-                | EpochState::NextParamsSelected(epoch_start) => {
-                    epoch_start.timestamp_millis() as u64
-                }
-                EpochState::EpochChangeSync(_) => Utc::now().timestamp_millis() as u64,
+                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
+                EpochState::EpochChangeSync(_) => Utc::now(),
             };
+            let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
             ensure!(
-                earliest_expiry_time > estimated_start_of_current_epoch,
+                earliest_expiry_ts > estimated_start_of_current_epoch,
                 "earliest_expiry_time must be greater than the current epoch start time"
             );
-            let millis = earliest_expiry_time - estimated_start_of_current_epoch;
-            let epoch_millis = fixed_params.epoch_duration.as_millis() as u64;
-            (millis / epoch_millis + 1) as u32
+            let delta =
+                (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
+            (delta / staking_object.epoch_duration() + 1) as u32
         } else if let Some(end_epoch) = epoch_arg.end_epoch {
-            let current_epoch = client.sui_client().current_epoch().await? as u64;
+            let current_epoch = client.sui_client().current_epoch().await?;
             ensure!(
                 end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"
@@ -442,9 +444,9 @@ impl ClientCommandRunner {
         // Check that the number of epochs is lower than the number of epochs the blob can be stored
         // for.
         ensure!(
-            epochs_ahead <= fixed_params.max_epochs_ahead,
+            epochs_ahead <= max_epochs_ahead,
             "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
-            fixed_params.max_epochs_ahead,
+            max_epochs_ahead,
             epochs_ahead
         );
 
@@ -553,22 +555,21 @@ impl ClientCommandRunner {
 
         // Compute estimated blob expiry in DateTime if it is a permanent blob.
         let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
-            let params = sui_read_client.fixed_system_parameters().await?;
-            let current_epoch = sui_read_client.current_epoch().await?;
-            let epoch_state = sui_read_client.epoch_state().await?;
+            let staking_object = sui_read_client.get_staking_object().await?;
+            let epoch_duration = Duration::from_millis(staking_object.epoch_duration());
+            let epoch_state = staking_object.epoch_state();
+            let current_epoch = staking_object.epoch();
 
             let estimated_start_of_current_epoch = match epoch_state {
-                EpochState::EpochChangeDone(epoch) | EpochState::NextParamsSelected(epoch) => epoch,
+                EpochState::EpochChangeDone(epoch_start)
+                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
                 EpochState::EpochChangeSync(_) => Utc::now(),
             };
             ensure!(
                 end_epoch > current_epoch,
                 "end_epoch must be greater than the current epoch"
             );
-            Some(
-                estimated_start_of_current_epoch
-                    + params.epoch_duration * (end_epoch - current_epoch),
-            )
+            Some(estimated_start_of_current_epoch + epoch_duration * (end_epoch - current_epoch))
         } else {
             None
         };
