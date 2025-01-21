@@ -1,11 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashSet,
-    hash::Hash,
-    vec,
-};
+use std::{collections::HashSet, hash::Hash, vec};
 
 use anyhow::Error;
 use fastcrypto::traits::ToFromBytes;
