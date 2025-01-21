@@ -147,7 +147,6 @@ impl AuthConfig {
     }
 }
 
-
 /// Configuration for the communication parameters of the client
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -527,8 +526,6 @@ mod tests {
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
-    use crate::client::ExchangeObjectConfig;
-
 
     /// Serializes a default config to the example file when tests are run.
     ///
