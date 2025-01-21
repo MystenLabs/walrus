@@ -762,18 +762,19 @@ impl CliOutput for ServiceHealthInfoOutput {
             }
             add_node_health_to_table(&mut table, node, node_idx);
         }
-        table.printstd();
+        if table.len() > 3 {
+            table.printstd();
+            println!("\n{}", "Summary".bold().walrus_teal());
+            println!("Total nodes: {}", self.health_info.len());
+            println!("Owned shards: {}", owned_shards);
+            println!("Read-only shards: {}", read_only_shards);
 
-        // Print summary
-        println!("\n{}", "Summary".bold().walrus_teal());
-        println!("Total nodes: {}", self.health_info.len());
-        println!("Owned shards: {}", owned_shards);
-        println!("Read-only shards: {}", read_only_shards);
-
-        println!("\n{}", "Node Status Breakdown".bold().walrus_teal());
-        for (status, count) in &node_statuses {
-            println!("{}: {}", status, count);
+            println!("\n{}", "Node Status Breakdown".bold().walrus_teal());
+            for (status, count) in &node_statuses {
+                println!("{}: {}", status, count);
+            }
         }
+        // Print summary
     }
 }
 
