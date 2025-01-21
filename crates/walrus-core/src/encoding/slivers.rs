@@ -31,7 +31,7 @@ use crate::{
     ensure,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{MerkleAuth, MerkleProof, MerkleTree, Node, DIGEST_LEN},
-    metadata::{BlobMetadata, SliverPairMetadata},
+    metadata::{BlobMetadata, BlobMetadataApi as _, SliverPairMetadata},
     utils,
     SliverIndex,
     SliverPairIndex,
@@ -103,11 +103,11 @@ impl<T: EncodingAxis> SliverData<T> {
         metadata: &BlobMetadata,
     ) -> Result<(), SliverVerificationError> {
         ensure!(
-            self.index.as_usize() < metadata.hashes.len(),
+            self.index.as_usize() < metadata.hashes().len(),
             SliverVerificationError::IndexTooLarge
         );
         ensure!(
-            self.has_correct_length(encoding_config, metadata.unencoded_length),
+            self.has_correct_length(encoding_config, metadata.unencoded_length()),
             SliverVerificationError::SliverSizeMismatch
         );
         ensure!(
@@ -115,7 +115,7 @@ impl<T: EncodingAxis> SliverData<T> {
             SliverVerificationError::SymbolSizeMismatch
         );
         let pair_metadata = metadata
-            .hashes
+            .hashes()
             .get(
                 self.index
                     .to_pair_index::<T>(encoding_config.n_shards)

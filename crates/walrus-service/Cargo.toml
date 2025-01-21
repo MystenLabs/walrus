@@ -21,13 +21,27 @@ name = "walrus-deploy"
 path = "bin/deploy.rs"
 required-features = ["deploy"]
 
+[[bin]]
+name = "walrus-backup"
+path = "bin/backup.rs"
+required-features = ["backup"]
+
 [features]
+backup = [
+  "dep:async-trait",
+  "dep:enum_dispatch",
+  "dep:mime",
+  "dep:mysten-metrics",
+  "dep:rocksdb",
+  "dep:tokio-stream",
+  "dep:tokio-util",
+  "dep:typed-store",
+]
 client = [
   "dep:colored",
-  "dep:indoc",
   "dep:prettytable",
 ]
-default = ["client", "deploy", "node"]
+default = ["backup", "client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
@@ -47,7 +61,6 @@ test-utils = [
   "walrus-core/test-utils",
   "walrus-sui/test-utils",
 ]
-walrus-mainnet = ["walrus-sui/walrus-mainnet"]
 
 [dependencies]
 anyhow.workspace = true
@@ -73,9 +86,10 @@ futures.workspace = true
 futures-util.workspace = true
 git-version.workspace = true
 home.workspace = true
+hostname.workspace = true
 humantime.workspace = true
 indicatif.workspace = true
-indoc = { workspace = true, optional = true }
+indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
 jsonwebtoken = "9.2.0"
@@ -120,10 +134,11 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 typed-store = { workspace = true, optional = true }
-utoipa = { workspace = true, features = ["axum_extras"] }
+utoipa = { workspace = true, features = ["axum_extras", "yaml"] }
 utoipa-redoc.workspace = true
 uuid.workspace = true
-walrus-core = { workspace = true, features = ["utoipa"] }
+walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
+walrus-proc-macros = { workspace = true, features = ["derive-api-errors"] }
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
@@ -136,7 +151,7 @@ mockall.workspace = true
 ring = "0.17.8"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
-walrus-proc-macros.workspace = true
+walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
 walrus-test-utils.workspace = true
 
 [lints]

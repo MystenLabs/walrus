@@ -6,6 +6,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = []
+
 [dependencies]
 bcs.workspace = true
 fastcrypto.workspace = true
@@ -18,20 +21,22 @@ reqwest.workspace = true
 rustls.workspace = true
 rustls-native-certs.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+serde_with.workspace = true
 sui-types.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-opentelemetry.workspace = true
 utoipa.workspace = true
-walrus-core.workspace = true
+walrus-core = { workspace = true, features = ["sui-types"] }
 x509-cert.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
 axum-server.workspace = true
 rcgen.workspace = true
-walrus-core = { workspace = true, features = ["test-utils"] }
+walrus-core = { workspace = true, features = ["sui-types", "test-utils"] }
 walrus-test-utils.workspace = true
 
 [lints]

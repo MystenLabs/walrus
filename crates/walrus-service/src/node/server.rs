@@ -75,12 +75,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             })
         } else {
             Some(TlsCertificateSource::GenerateSelfSigned {
-                server_name: config
-                    .tls
-                    .server_name
-                    .clone()
-                    .or_else(|| config.public_host.clone())
-                    .unwrap_or_else(|| config.rest_api_address.ip().to_string()),
+                server_name: config.public_host.clone(),
                 network_key_pair: config.network_key_pair().clone(),
             })
         };
@@ -319,8 +314,12 @@ where
                 get(routes::get_sliver_status),
             )
             .route(
-                routes::STORAGE_CONFIRMATION_ENDPOINT,
-                get(routes::get_storage_confirmation),
+                routes::PERMANENT_BLOB_CONFIRMATION_ENDPOINT,
+                get(routes::get_permanent_blob_confirmation),
+            )
+            .route(
+                routes::DELETABLE_BLOB_CONFIRMATION_ENDPOINT,
+                get(routes::get_deletable_blob_confirmation),
             )
             .route(routes::RECOVERY_ENDPOINT, get(routes::get_recovery_symbol))
             .route(
@@ -383,6 +382,7 @@ mod tests {
         keys::ProtocolKeyPair,
         merkle::MerkleProof,
         messages::{
+            BlobPersistenceType,
             InvalidBlobIdAttestation,
             SignedMessage,
             StorageConfirmation,
@@ -511,6 +511,7 @@ mod tests {
         async fn compute_storage_confirmation(
             &self,
             blob_id: &BlobId,
+            _blob_persistence_type: &BlobPersistenceType,
         ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
             if blob_id.0[0] == 0 {
                 let confirmation = walrus_core::test_utils::random_signed_message();
@@ -867,14 +868,14 @@ mod tests {
 
         let blob_id = blob_id_for_valid_response();
         let _confirmation = client
-            .get_confirmation(&blob_id)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
             .await
             .expect("should return a signed confirmation");
     }
 
     async_param_test! {
         retrieve_storage_confirmation_fails: [
-            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]
     }
@@ -883,7 +884,7 @@ mod tests {
         let client = storage_node_client(config.as_ref());
 
         let err = client
-            .get_confirmation(&blob_id)
+            .get_confirmation(&blob_id, &BlobPersistenceType::Permanent)
             .await
             .expect_err("confirmation request should fail");
 
@@ -911,7 +912,7 @@ mod tests {
 
     async_param_test! {
         inconsistency_proof_fails: [
-            not_found: (blob_id_for_nonexistent(), StatusCode::NOT_FOUND),
+            not_found: (blob_id_for_nonexistent(), StatusCode::BAD_REQUEST),
             invalid_proof: (blob_id_for_bad_request(), StatusCode::BAD_REQUEST),
             internal_error: (blob_id_for_internal_server_error(), StatusCode::INTERNAL_SERVER_ERROR)
         ]

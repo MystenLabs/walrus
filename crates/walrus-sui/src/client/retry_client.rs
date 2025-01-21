@@ -5,7 +5,7 @@
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
 
-use std::{fmt::Debug, future::Future, str::FromStr};
+use std::{collections::BTreeMap, fmt::Debug, future::Future, str::FromStr};
 
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -13,12 +13,14 @@ use rand::{
 };
 use serde::{de::DeserializeOwned, Serialize};
 use sui_sdk::{
-    apis::EventApi,
+    apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
     rpc_types::{
         Balance,
         Coin,
         ObjectsPage,
+        SuiMoveNormalizedModule,
+        SuiMoveNormalizedType,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiObjectResponseQuery,
@@ -34,17 +36,21 @@ use sui_types::{
     TypeTag,
 };
 use tracing::Level;
+use walrus_core::ensure;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
 use crate::{
-    contracts::{AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{SuiDynamicField, SystemObjectForDeserialization},
-    utils::{get_package_id_from_object_response, get_sui_object_from_object_response},
+    contracts::{self, AssociatedContractStruct, TypeOriginMap},
+    types::move_structs::{Key, SuiDynamicField, SystemObjectForDeserialization},
+    utils::get_sui_object_from_object_response,
 };
 
 /// The list of HTTP status codes that are retriable.
 const RETRIABLE_RPC_ERRORS: &[&str] = &["429", "500", "502"];
+
+/// The maximum number of objects to get in a single RPC call.
+pub(crate) const MULTI_GET_OBJ_LIMIT: usize = 50;
 
 /// Trait to test if an error is produced by a temporary RPC failure and can be retried.
 pub trait RetriableRpcError: Debug {
@@ -268,6 +274,23 @@ impl RetriableSuiClient {
         .await
     }
 
+    /// Returns a map consisting of the move package name and the normalized module.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_normalized_move_modules_by_package`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn get_normalized_move_modules_by_package(
+        &self,
+        package_id: ObjectID,
+    ) -> SuiRpcResult<BTreeMap<String, SuiMoveNormalizedModule>> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client
+                .read_api()
+                .get_normalized_move_modules_by_package(package_id)
+                .await
+        })
+        .await
+    }
+
     /// Returns a reference to the [`EventApi`].
     ///
     /// Internally calls the [`SuiClient::event_api`] function. Note that no retries are
@@ -276,10 +299,19 @@ impl RetriableSuiClient {
         self.sui_client.event_api()
     }
 
-    // Other wrapper methods.
+    /// Returns a reference to the [`GovernanceApi`].
+    ///
+    /// Internally calls the [`SuiClient::governance_api`] function. Note that no retries are
+    /// implemented for this function.
+    pub fn governance_api(&self) -> &GovernanceApi {
+        self.sui_client.governance_api()
+    }
 
+    /// Returns a [`SuiObjectResponse`] based on the provided [`ObjectID`].
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
+    pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,
     {
@@ -296,6 +328,48 @@ impl RetriableSuiClient {
         .await
     }
 
+    // Other wrapper methods.
+
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub(crate) async fn get_sui_objects<U>(
+        &self,
+        object_ids: Vec<ObjectID>,
+    ) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        let mut responses = vec![];
+        for obj_id_batch in object_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            responses.extend(
+                self.multi_get_object_with_options(
+                    obj_id_batch.to_vec(),
+                    SuiObjectDataOptions::new().with_bcs().with_type(),
+                )
+                .await?,
+            );
+        }
+
+        responses
+            .iter()
+            .map(|r| get_sui_object_from_object_response(r))
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    pub(crate) async fn get_extended_field<V>(
+        &self,
+        object_id: ObjectID,
+        type_origin_map: &TypeOriginMap,
+    ) -> SuiClientResult<V>
+    where
+        V: DeserializeOwned,
+    {
+        let key_tag = contracts::extended_field::Key
+            .to_move_struct_tag_with_type_map(type_origin_map, &[])?;
+        self.get_dynamic_field::<Key, V>(object_id, key_tag.into(), Key { dummy_field: false })
+            .await
+    }
+
+    #[allow(unused)]
     pub(crate) async fn get_dynamic_field_object<K, V>(
         &self,
         parent: ObjectID,
@@ -307,17 +381,33 @@ impl RetriableSuiClient {
         K: DeserializeOwned + Serialize,
     {
         let key_tag = key_type.to_canonical_string(true);
+        let key_tag =
+            TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
+                .expect("valid type tag");
+        let inner_object_id = self.get_dynamic_field(parent, key_tag, key).await?;
+        let inner = self.get_sui_object(inner_object_id).await?;
+        Ok(inner)
+    }
+
+    pub(crate) async fn get_dynamic_field<K, V>(
+        &self,
+        parent: ObjectID,
+        key_type: TypeTag,
+        key: K,
+    ) -> SuiClientResult<V>
+    where
+        K: DeserializeOwned + Serialize,
+        V: DeserializeOwned,
+    {
         let object_id = derive_dynamic_field_id(
             parent,
-            &TypeTag::from_str(&format!("0x2::dynamic_object_field::Wrapper<{}>", key_tag))
-                .expect("valid type tag"),
+            &key_type,
             &bcs::to_bytes(&key).expect("key should be serializable"),
         )
         .map_err(|err| SuiClientError::Internal(err.into()))?;
 
-        let field: SuiDynamicField<K, ObjectID> = self.get_sui_object(object_id).await?;
-        let inner = self.get_sui_object(field.value).await?;
-        Ok(inner)
+        let field: SuiDynamicField<K, V> = self.get_sui_object(object_id).await?;
+        Ok(field.value)
     }
 
     /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
@@ -325,29 +415,36 @@ impl RetriableSuiClient {
         &self,
         system_object_id: ObjectID,
     ) -> SuiClientResult<ObjectID> {
+        let system_object = self
+            .get_sui_object::<SystemObjectForDeserialization>(system_object_id)
+            .await?;
+
+        let pkg_id = system_object.package_id;
+        Ok(pkg_id)
+    }
+
+    /// Returns the package ID from the type of the given object.
+    ///
+    /// Note: This returns the package address from the object type, not the newest package ID.
+    pub(crate) async fn get_package_id_from_object(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<ObjectID> {
         let response = self
             .get_object_with_options(
-                system_object_id,
+                object_id,
                 SuiObjectDataOptions::default().with_type().with_bcs(),
             )
             .await
-            .map_err(|error| {
-                tracing::debug!(%error, "unable to get the Walrus system object");
-                SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
+            .inspect_err(|error| {
+                tracing::debug!(%error, %object_id, "unable to get the object");
             })?;
 
-        get_sui_object_from_object_response::<SystemObjectForDeserialization>(&response).map_err(
-            |error| {
-                tracing::debug!(%error, "error when trying to deserialize the system object");
-                SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-            },
-        )?;
-
-        let object_pkg_id = get_package_id_from_object_response(&response).map_err(|error| {
-            tracing::debug!(%error, "unable to get the Walrus package ID");
-            SuiClientError::WalrusSystemObjectDoesNotExist(system_object_id)
-        })?;
-        Ok(object_pkg_id)
+        let pkg_id =
+            crate::utils::get_package_id_from_object_response(&response).inspect_err(|error| {
+                tracing::debug!(%error, %object_id, "unable to get the package ID from the object");
+            })?;
+        Ok(pkg_id)
     }
 
     /// Gets the type origin map for a given package.
@@ -371,6 +468,56 @@ impl RetriableSuiClient {
             .into_iter()
             .map(|origin| ((origin.module_name, origin.datatype_name), origin.package))
             .collect())
+    }
+
+    /// Retrieves the WAL type from the walrus package by getting the type tag of the `Balance`
+    /// in the `StakedWal` Move struct.
+    #[tracing::instrument(err, skip(self))]
+    pub(crate) async fn wal_type_from_package(
+        &self,
+        package_id: ObjectID,
+    ) -> SuiClientResult<String> {
+        let normalized_move_modules = self
+            .get_normalized_move_modules_by_package(package_id)
+            .await?;
+
+        let staked_wal_struct = normalized_move_modules
+            .get("staked_wal")
+            .and_then(|module| module.structs.get("StakedWal"))
+            .ok_or_else(|| SuiClientError::WalTypeNotFound(package_id))?;
+        let principal_field_type = staked_wal_struct.fields.iter().find_map(|field| {
+            if field.name == "principal" {
+                Some(&field.type_)
+            } else {
+                None
+            }
+        });
+        let Some(SuiMoveNormalizedType::Struct {
+            ref type_arguments, ..
+        }) = principal_field_type
+        else {
+            return Err(SuiClientError::WalTypeNotFound(package_id));
+        };
+        let wal_type = type_arguments
+            .first()
+            .ok_or_else(|| SuiClientError::WalTypeNotFound(package_id))?;
+        let SuiMoveNormalizedType::Struct {
+            address,
+            module,
+            name,
+            ..
+        } = wal_type
+        else {
+            return Err(SuiClientError::WalTypeNotFound(package_id));
+        };
+        ensure!(
+            module == "wal" && name == "WAL",
+            SuiClientError::WalTypeNotFound(package_id)
+        );
+        let wal_type = format!("{address}::{module}::{name}");
+
+        tracing::debug!(?wal_type, "WAL type");
+        Ok(wal_type)
     }
 
     /// Gets a backoff strategy, seeded from the internal RNG.

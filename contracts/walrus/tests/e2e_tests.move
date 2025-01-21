@@ -5,8 +5,7 @@
 module walrus::e2e_tests;
 
 use std::unit_test::assert_eq;
-use sui::test_scenario;
-use walrus::{commission, e2e_runner, staking_pool, test_node, test_utils};
+use walrus::{auth, e2e_runner, staking_pool, test_node::{Self, TestStorageNode}, test_utils};
 
 const COMMISSION_RATE: u16 = 0;
 const STORAGE_PRICE: u64 = 5;
@@ -36,6 +35,7 @@ fun test_init_and_first_epoch_change() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -138,6 +138,7 @@ fun test_stake_after_committee_selection() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -244,6 +245,7 @@ fun node_voting_parameters() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -313,6 +315,7 @@ fun test_first_epoch_too_soon_fail() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -357,10 +360,11 @@ fun test_epoch_change_with_rewards_and_commission() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
-                10_00, // 10.00% commission
+                100_00, // 100.00% commission
                 STORAGE_PRICE,
                 WRITE_PRICE,
                 NODE_CAPACITY,
@@ -374,7 +378,7 @@ fun test_epoch_change_with_rewards_and_commission() {
 
     nodes.do_ref!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let coin = test_utils::mint(1000, ctx);
+            let coin = test_utils::mint(1_000_000_000, ctx);
             let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
             transfer::public_transfer(staked_wal, ctx.sender());
         });
@@ -411,6 +415,52 @@ fun test_epoch_change_with_rewards_and_commission() {
         transfer::public_transfer(coin, ctx.sender());
     });
 
+    // === register deny list update with each node (for tests) ===
+
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |_, system, _| {
+            system.register_deny_list_update(node.cap_mut(), @1.to_u256(), 1);
+        });
+
+        // make sure that the event was emitted
+        assert_eq!(runner.last_tx_effects().num_user_events(), 1);
+    });
+
+    // === register once more, now with incremented sequence number ===
+
+    nodes.do_mut!(|node| {
+        runner.tx!(node.sui_address(), |_, system, _| {
+            system.register_deny_list_update(node.cap_mut(), @2.to_u256(), 2);
+        });
+
+        // make sure that the event was emitted
+        assert_eq!(runner.last_tx_effects().num_user_events(), 1);
+    });
+
+    // === sign a message for the first node to update deny list size ===
+
+    let node = &nodes[0];
+    let deny_list_node = nodes[0].node_id();
+    let certified_message = node.update_deny_list_message(runner.epoch(), 2u256, 10_000_000, 1);
+    let (signature, members_bitmap) = nodes.sign(certified_message);
+
+    // === send the message from the first node
+    let node = &mut nodes[0];
+    runner.tx!(node.sui_address(), |_, system, _| {
+        system.update_deny_list(node.cap_mut(), signature, members_bitmap, certified_message);
+
+        // check the VecMap with sizes
+        let deny_list_sizes = system.inner().deny_list_sizes();
+
+        assert_eq!(deny_list_sizes.size(), 1);
+        assert!(deny_list_sizes.contains(&node.node_id()));
+        assert_eq!(*deny_list_sizes.get(&node.node_id()), 10_000_000);
+    });
+
+    assert_eq!(runner.last_tx_effects().num_user_events(), 1); // update deny list event emitted
+    assert_eq!(node.cap().deny_list_root(), 2u256); // deny list root updated
+    assert_eq!(node.cap().deny_list_sequence(), 1); // sequence number incremented
+
     // === perform another epoch change ===
     // === check if epoch state is changed correctly ==
 
@@ -427,8 +477,8 @@ fun test_epoch_change_with_rewards_and_commission() {
     runner.tx!(admin, |staking, system, _| {
         staking.initiate_epoch_change(system, runner.clock());
 
-        assert!(system.epoch() == 2);
-        assert!(system.committee().n_shards() == N_SHARDS);
+        assert_eq!(system.epoch(), 2);
+        assert_eq!(system.committee().n_shards(), N_SHARDS);
 
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
     });
@@ -450,13 +500,67 @@ fun test_epoch_change_with_rewards_and_commission() {
     // each node is getting 470 in rewards, 10% of that is - 47 - commission
     nodes.do_mut!(|node| {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
-            let auth = commission::auth_as_object(node.cap());
+            let auth = auth::authenticate_with_object(node.cap());
             let commission = staking.collect_commission(node.node_id(), auth, ctx);
-            assert_eq!(commission.burn_for_testing(), 47);
-        })
+
+            // deny_list_node has 10% less rewards
+            // all nodes claim 100% of their rewards
+            if (node.node_id() == deny_list_node) {
+                assert_eq!(commission.burn_for_testing(), 472);
+            } else {
+                assert_eq!(commission.burn_for_testing(), 477);
+            };
+        });
     });
 
     // === cleanup ===
+
+    nodes.destroy!(|node| node.destroy());
+    runner.destroy();
+}
+
+#[test]
+fun node_update_metadata() {
+    let admin = @0xA11CE;
+    let mut nodes = test_node::test_nodes();
+    let mut runner = e2e_runner::prepare(admin)
+        .epoch_zero_duration(EPOCH_ZERO_DURATION)
+        .epoch_duration(EPOCH_DURATION)
+        .n_shards(N_SHARDS)
+        .build();
+
+    let epoch = runner.epoch();
+    let node = &mut nodes[0];
+
+    runner.tx!(node.sui_address(), |staking, _, ctx| {
+        let cap = staking.register_candidate(
+            node.name(),
+            node.network_address(),
+            node.metadata(),
+            node.bls_pk(),
+            node.network_key(),
+            node.create_proof_of_possession(epoch),
+            COMMISSION_RATE,
+            STORAGE_PRICE,
+            WRITE_PRICE,
+            NODE_CAPACITY,
+            ctx,
+        );
+        node.set_storage_node_cap(cap);
+    });
+
+    runner.tx!(node.sui_address(), |staking, _, _| {
+        let mut metadata = staking.node_metadata(node.node_id());
+        metadata.set_description(b"Tusk Crew".to_string());
+        metadata.set_project_url(b"https://crew.walrus.site/".to_string());
+        staking.set_node_metadata(node.cap(), metadata);
+    });
+
+    runner.tx!(node.sui_address(), |staking, _, _| {
+        let metadata = staking.node_metadata(node.node_id());
+        assert_eq!(metadata.description(), b"Tusk Crew".to_string());
+        assert_eq!(metadata.project_url(), b"https://crew.walrus.site/".to_string());
+    });
 
     nodes.destroy!(|node| node.destroy());
     runner.destroy();
@@ -480,6 +584,7 @@ fun test_register_invalid_pop_epoch() {
         let cap = staking.register_candidate(
             node.name(),
             node.network_address(),
+            node.metadata(),
             node.bls_pk(),
             node.network_key(),
             node.create_proof_of_possession(epoch),
@@ -515,6 +620,7 @@ fun test_register_invalid_pop_signer() {
         let cap = staking.register_candidate(
             node.name(),
             node.network_address(),
+            node.metadata(),
             node.bls_pk(),
             node.network_key(),
             pop,
@@ -547,6 +653,7 @@ fun withdraw_rewards_before_joining_committee() {
             let cap = staking.register_candidate(
                 node.name(),
                 node.network_address(),
+                node.metadata(),
                 node.bls_pk(),
                 node.network_key(),
                 node.create_proof_of_possession(epoch),
@@ -614,11 +721,11 @@ fun withdraw_rewards_before_joining_committee() {
 
     // === withdraw stake from excluded node ===
 
-    let mut staked_wal = runner.scenario().take_from_address(excluded_node.sui_address());
+    let staked_wal = runner.scenario().take_from_address(excluded_node.sui_address());
     runner.tx!(excluded_node.sui_address(), |staking, _, ctx| {
-        staking.request_withdraw_stake(&mut staked_wal, ctx);
+        let coin = staking.withdraw_stake(staked_wal, ctx);
+        coin.burn_for_testing();
     });
-    test_scenario::return_to_address(excluded_node.sui_address(), staked_wal);
 
     // === add stake to excluded node again ===
 
@@ -645,4 +752,17 @@ fun withdraw_rewards_before_joining_committee() {
     nodes.destroy!(|node| node.destroy());
     excluded_node.destroy();
     runner.destroy();
+}
+
+// local alias for simplicity
+use fun sign as vector.sign;
+
+fun sign(nodes: &vector<TestStorageNode>, message: vector<u8>): (vector<u8>, vector<u8>) {
+    let signatures = nodes.map_ref!(|node| node.sign_message(message));
+    let members_bitmap = test_utils::signers_to_bitmap(
+        &vector::tabulate!(nodes.length(), |i| i as u16),
+    );
+    let signature = test_utils::bls_aggregate_sigs(&signatures);
+
+    (signature, members_bitmap)
 }

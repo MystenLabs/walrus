@@ -6,20 +6,25 @@ module walrus::storage_node;
 
 use std::string::String;
 use sui::{bls12381::{UncompressedG1, g1_from_bytes, g1_to_uncompressed_g1}, group_ops::Element};
-use walrus::event_blob::EventBlobAttestation;
+use walrus::{
+    event_blob::EventBlobAttestation,
+    extended_field::{Self, ExtendedField},
+    node_metadata::NodeMetadata
+};
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EInvalidNetworkPublicKey: u64 = 0;
 
 /// Represents a storage node in the system.
-public struct StorageNodeInfo has copy, drop, store {
+public struct StorageNodeInfo has store {
     name: String,
     node_id: ID,
     network_address: String,
     public_key: Element<UncompressedG1>,
     next_epoch_public_key: Option<Element<UncompressedG1>>,
     network_public_key: vector<u8>,
+    metadata: ExtendedField<NodeMetadata>,
 }
 
 /// A Capability which represents a storage node and authorizes the holder to
@@ -29,6 +34,12 @@ public struct StorageNodeCap has key, store {
     node_id: ID,
     last_epoch_sync_done: u32,
     last_event_blob_attestation: Option<EventBlobAttestation>,
+    /// Stores the Merkle root of the deny list for the storage node.
+    deny_list_root: u256,
+    /// Stores the sequence number of the deny list for the storage node.
+    deny_list_sequence: u64,
+    /// Stores the size of the deny list for the storage node.
+    deny_list_size: u64,
 }
 
 /// A public constructor for the StorageNodeInfo.
@@ -38,6 +49,8 @@ public(package) fun new(
     network_address: String,
     public_key: vector<u8>,
     network_public_key: vector<u8>,
+    metadata: NodeMetadata,
+    ctx: &mut TxContext,
 ): StorageNodeInfo {
     assert!(network_public_key.length() == 33, EInvalidNetworkPublicKey);
     StorageNodeInfo {
@@ -47,6 +60,7 @@ public(package) fun new(
         public_key: g1_to_uncompressed_g1(&g1_from_bytes(&public_key)),
         next_epoch_public_key: option::none(),
         network_public_key,
+        metadata: extended_field::new(metadata, ctx),
     }
 }
 
@@ -57,6 +71,9 @@ public(package) fun new_cap(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
         node_id,
         last_epoch_sync_done: 0,
         last_event_blob_attestation: option::none(),
+        deny_list_root: 0,
+        deny_list_sequence: 0,
+        deny_list_size: 0,
     }
 }
 
@@ -65,6 +82,11 @@ public(package) fun new_cap(node_id: ID, ctx: &mut TxContext): StorageNodeCap {
 /// Return the public key of the storage node.
 public(package) fun public_key(self: &StorageNodeInfo): &Element<UncompressedG1> {
     &self.public_key
+}
+
+/// Return the name of the storage node.
+public(package) fun metadata(self: &StorageNodeInfo): NodeMetadata {
+    *self.metadata.borrow()
 }
 
 /// Return the public key of the storage node for the next epoch.
@@ -88,6 +110,12 @@ public fun last_epoch_sync_done(cap: &StorageNodeCap): u32 {
 public fun last_event_blob_attestation(cap: &mut StorageNodeCap): Option<EventBlobAttestation> {
     cap.last_event_blob_attestation
 }
+
+/// Return the deny list root of the storage node.
+public fun deny_list_root(cap: &StorageNodeCap): u256 { cap.deny_list_root }
+
+/// Return the deny list sequence number of the storage node.
+public fun deny_list_sequence(cap: &StorageNodeCap): u64 { cap.deny_list_sequence }
 
 // === Modifiers ===
 
@@ -129,11 +157,34 @@ public(package) fun set_network_public_key(
     self.network_public_key = network_public_key;
 }
 
+/// Sets the metadata of the storage node.
+public(package) fun set_node_metadata(self: &mut StorageNodeInfo, metadata: NodeMetadata) {
+    self.metadata.swap(metadata);
+}
+
 /// Set the public key to the next epochs public key.
 public(package) fun rotate_public_key(self: &mut StorageNodeInfo) {
     if (self.next_epoch_public_key.is_some()) {
         self.public_key = self.next_epoch_public_key.extract()
     }
+}
+
+/// Destroy the storage node.
+public(package) fun destroy(self: StorageNodeInfo) {
+    let StorageNodeInfo { metadata, .. } = self;
+    metadata.destroy();
+}
+
+/// Set the deny list root of the storage node.
+public(package) fun set_deny_list_properties(
+    self: &mut StorageNodeCap,
+    root: u256,
+    sequence: u64,
+    size: u64,
+) {
+    self.deny_list_root = root;
+    self.deny_list_sequence = sequence;
+    self.deny_list_size = size;
 }
 
 // === Testing ===
@@ -150,6 +201,7 @@ public fun new_for_testing(public_key: vector<u8>): StorageNodeInfo {
         public_key: g1_to_uncompressed_g1(&g1_from_bytes(&public_key)),
         next_epoch_public_key: option::none(),
         network_public_key: x"820e2b273530a00de66c9727c40f48be985da684286983f398ef7695b8a44677ab",
+        metadata: extended_field::new(walrus::node_metadata::default(), ctx),
     }
 }
 

@@ -19,7 +19,6 @@ const ENotWithdrawing: u64 = 0;
 const EMetadataMismatch: u64 = 1;
 const EInvalidAmount: u64 = 2;
 const ENonZeroPrincipal: u64 = 3;
-const ENotStaked: u64 = 4;
 /// Trying to mark stake as withdrawing when it is already marked as withdrawing.
 const EAlreadyWithdrawing: u64 = 6;
 
@@ -31,7 +30,7 @@ public enum StakedWalState has copy, drop, store {
     Staked,
     // The staked WAL is in the process of withdrawing. The value inside the
     // variant is the epoch when the staked WAL can be withdrawn.
-    Withdrawing { withdraw_epoch: u32, pool_token_amount: Option<u64> },
+    Withdrawing { withdraw_epoch: u32 },
 }
 
 /// Represents a staked WAL, does not store the `Balance` inside, but uses
@@ -73,21 +72,22 @@ public(package) fun into_balance(sw: StakedWal): Balance<WAL> {
 }
 
 /// Sets the staked WAL state to `Withdrawing`
-public(package) fun set_withdrawing(
-    sw: &mut StakedWal,
-    withdraw_epoch: u32,
-    pool_token_amount: Option<u64>,
-) {
+public(package) fun set_withdrawing(sw: &mut StakedWal, withdraw_epoch: u32) {
     assert!(sw.is_staked(), EAlreadyWithdrawing);
-    sw.state = StakedWalState::Withdrawing { withdraw_epoch, pool_token_amount };
+    sw.state = StakedWalState::Withdrawing { withdraw_epoch };
 }
 
 /// Checks if the staked WAL can be withdrawn directly.
 ///
 /// The staked WAL can be withdrawn early if:
 /// - activation epoch is current epoch + 2
-/// - activation epoch is current epoch + 1 and committee hasn't been selected
-public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bool {
+/// - activation epoch is current epoch + 1 and !node_in_next_committee
+///   (or committee not selected yet)
+public(package) fun can_withdraw_early(
+    sw: &StakedWal,
+    node_in_next_committee: bool,
+    wctx: &WalrusContext,
+): bool {
     if (sw.is_withdrawing()) {
         return false
     };
@@ -96,7 +96,7 @@ public(package) fun can_withdraw_early(sw: &StakedWal, wctx: &WalrusContext): bo
     let current_epoch = wctx.epoch();
 
     activation_epoch == current_epoch + 2 ||
-    (sw.activation_epoch == current_epoch + 1 && !wctx.committee_selected())
+    (sw.activation_epoch == current_epoch + 1 && !node_in_next_committee)
 }
 
 // === Accessors ===
@@ -131,15 +131,6 @@ public fun withdraw_epoch(sw: &StakedWal): u32 {
     }
 }
 
-/// Return the `withdraw_amount` of the staked WAL if it is in the `Withdrawing`.
-/// Aborts otherwise.
-public fun pool_token_amount(sw: &StakedWal): Option<u64> {
-    match (sw.state) {
-        StakedWalState::Withdrawing { pool_token_amount, .. } => pool_token_amount,
-        _ => abort ENotWithdrawing,
-    }
-}
-
 // === Public APIs ===
 
 /// Joins the staked WAL with another staked WAL, adding the `principal` of the
@@ -167,22 +158,9 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
     assert!(sw.is_withdrawing() && other.is_withdrawing(), EMetadataMismatch);
     assert!(sw.withdraw_epoch() == other.withdraw_epoch(), EMetadataMismatch);
 
-    let pool_token_amount = other.pool_token_amount();
     let StakedWal { id, principal, .. } = other;
     sw.principal.join(principal);
     id.delete();
-
-    // Both either need to be set or unset.
-    assert!(pool_token_amount.is_some() == sw.pool_token_amount().is_some(), EMetadataMismatch);
-
-    pool_token_amount.do!(|amount| {
-        match (&mut sw.state) {
-            StakedWalState::Withdrawing { pool_token_amount: current_pool_token_amount, .. } => {
-                current_pool_token_amount.do_mut!(|current| *current = *current + amount);
-            },
-            _ => abort, // unreachable
-        }
-    });
 }
 
 /// Splits the staked WAL into two parts, one with the `amount` and the other
@@ -191,23 +169,16 @@ public fun join(sw: &mut StakedWal, other: StakedWal) {
 ///
 /// Aborts if the `amount` is greater than the `principal` of the staked WAL.
 /// Aborts if the `amount` is zero.
-/// Aborts if the staked WAL is in the `Withdrawing` state.
 public fun split(sw: &mut StakedWal, amount: u64, ctx: &mut TxContext): StakedWal {
     assert!(sw.principal.value() > amount, EInvalidAmount);
     assert!(amount > 0, EInvalidAmount);
 
-    match (sw.state) {
-        // If the staked WAL is staked, we can simply split the principal.
-        StakedWalState::Staked => {
-            StakedWal {
-                id: object::new(ctx),
-                state: sw.state, // state is preserved
-                node_id: sw.node_id,
-                principal: sw.principal.split(amount),
-                activation_epoch: sw.activation_epoch,
-            }
-        },
-        _ => abort ENotStaked,
+    StakedWal {
+        id: object::new(ctx),
+        state: sw.state, // state is preserved
+        node_id: sw.node_id,
+        principal: sw.principal.split(amount),
+        activation_epoch: sw.activation_epoch,
     }
 }
 

@@ -22,6 +22,9 @@ outputs:
   isMainnetContracts:
     description: True when changes happened in the `contracts` directory
     value: "${{ steps.diff.outputs.isMainnetContracts }}"
+  isExampleConfig:
+    description: True when changes happened in the example config files
+    value: "${{ steps.diff.outputs.isExampleConfig }}"
 
 runs:
   using: composite
@@ -55,3 +58,6 @@ runs:
             - 'testnet-contracts/**'
           isMainnetContracts:
             - 'contracts/**'
+          isExampleConfig:
+            - 'crates/walrus-service/node_config_example.yaml'
+            - 'crates/walrus-service/client_config_example.yaml'

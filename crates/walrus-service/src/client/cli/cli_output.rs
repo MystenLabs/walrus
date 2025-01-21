@@ -6,12 +6,14 @@ use std::{io::stdout, num::NonZeroU16, path::PathBuf};
 use anyhow::Result;
 use colored::Colorize;
 use indoc::printdoc;
+use itertools::Itertools as _;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::Blob;
 
+use super::warning;
 use crate::client::{
     cli::{
         error,
@@ -28,13 +30,22 @@ use crate::client::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
+        BlobStoreResultWithPath,
         DeleteOutput,
         DryRunOutput,
         ExampleBlobInfo,
         ExchangeOutput,
-        InfoDevOutput,
+        ExtendBlobOutput,
+        FundSharedBlobOutput,
+        InfoBftOutput,
+        InfoCommitteeOutput,
+        InfoEpochOutput,
         InfoOutput,
+        InfoPriceOutput,
+        InfoSizeOutput,
+        InfoStorageOutput,
         ReadOutput,
+        ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
         WalletOutput,
@@ -57,28 +68,45 @@ pub trait CliOutput: Serialize {
         Ok(())
     }
 }
-
-impl CliOutput for BlobStoreResult {
+impl CliOutput for Vec<BlobStoreResultWithPath> {
     fn print_cli_output(&self) {
-        match &self {
-            Self::AlreadyCertified {
+        for result in self {
+            result.print_cli_output();
+        }
+    }
+}
+
+impl CliOutput for Vec<DryRunOutput> {
+    fn print_cli_output(&self) {
+        for result in self {
+            result.print_cli_output();
+        }
+    }
+}
+
+impl CliOutput for BlobStoreResultWithPath {
+    fn print_cli_output(&self) {
+        match &self.blob_store_result {
+            BlobStoreResult::AlreadyCertified {
                 blob_id,
                 event_or_object,
                 end_epoch,
             } => {
                 println!(
                     "{} Blob was already available and certified within Walrus, \
-                    for a sufficient number of epochs.\n\
+                    for a sufficient number of epochs.\nPath: {}\n\
                     Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}",
                     success(),
+                    self.path.display(),
                     blob_id,
                     end_epoch,
                 )
             }
-            Self::NewlyCreated {
+            BlobStoreResult::NewlyCreated {
                 blob_object,
                 resource_operation,
                 cost,
+                shared_blob_object,
             } => {
                 let operation_str = match resource_operation {
                     RegisterBlobOp::RegisterFromScratch { .. } => {
@@ -93,29 +121,35 @@ impl CliOutput for BlobStoreResult {
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
+                    Path: {}\n\
                     Blob ID: {}\n\
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
-                    Cost (excluding gas): {} {}",
+                    Cost (excluding gas): {} {}{}",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
                     } else {
                         "Permanent"
                     },
+                    self.path.display(),
                     blob_object.blob_id,
                     blob_object.id,
                     HumanReadableBytes(blob_object.size),
                     HumanReadableBytes(resource_operation.encoded_length()),
                     HumanReadableFrost::from(*cost),
                     operation_str,
+                    shared_blob_object
+                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id))
                 )
             }
-            Self::MarkedInvalid { blob_id, event } => {
+            BlobStoreResult::MarkedInvalid { blob_id, event } => {
                 println!(
-                    "{} Blob was marked as invalid.\nBlob ID: {}\nInvalidation event ID: {}",
+                    "{} Blob was marked as invalid.\nPath: {}\nBlob ID: {}\n
+                    Invalidation event ID: {}",
                     error(),
+                    self.path.display(),
                     blob_id,
                     format_event_id(event),
                 )
@@ -154,11 +188,13 @@ impl CliOutput for DryRunOutput {
     fn print_cli_output(&self) {
         println!(
             "{} Store dry-run succeeded.\n\
+                Path: {}\n\
                 Blob ID: {}\n\
                 Unencoded size: {}\n\
                 Encoded size (including replicated metadata): {}\n\
-                Cost (excluding gas): {}\n",
+                Cost to store as new blob (excluding gas): {}\n",
             success(),
+            self.path.display(),
             self.blob_id,
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
@@ -250,40 +286,114 @@ impl CliOutput for BlobIdConversionOutput {
 impl CliOutput for InfoOutput {
     fn print_cli_output(&self) {
         let Self {
-            storage_unit_size: unit_size,
-            storage_price_per_unit_size,
-            write_price_per_unit_size,
-            current_epoch,
-            n_shards,
-            n_nodes,
-            max_blob_size,
-            metadata_price,
-            marginal_size,
-            marginal_price,
-            example_blobs,
-            epoch_duration,
-            max_epochs_ahead,
-            dev_info,
+            epoch_info,
+            storage_info,
+            size_info,
+            price_info,
+            committee_info,
+            bft_info,
         } = self;
 
         // NOTE: keep text in sync with changes in the contracts.
+        println!("\n{}", "Walrus system information".bold().walrus_purple());
+
+        // Print epoch info.
+        epoch_info.print_cli_output();
+
+        // Print storage info.
+        storage_info.print_cli_output();
+
+        // Print size info
+        size_info.print_cli_output();
+
+        // Print price info.
+        price_info.print_cli_output();
+
+        // Print BFT info
+        if let Some(bft_info) = bft_info {
+            bft_info.print_cli_output();
+        }
+
+        // Print committee info.
+        if let Some(committee_info) = committee_info {
+            committee_info.print_cli_output();
+        }
+    }
+}
+
+impl CliOutput for InfoEpochOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            current_epoch,
+            epoch_duration,
+            max_epochs_ahead,
+        } = self;
+
         printdoc!(
             "
 
-            {top_heading}
-
-            {epoch_heading}
+            {heading}
             Current epoch: {current_epoch}
             Epoch duration: {hr_epoch_duration}
             Blobs can be stored for at most {max_epochs_ahead} epochs in the future.
+            ",
+            heading = "Epochs and storage duration".bold().walrus_teal(),
+            hr_epoch_duration = humantime::format_duration(*epoch_duration),
+        );
+    }
+}
 
-            {storage_heading}
+impl CliOutput for InfoStorageOutput {
+    fn print_cli_output(&self) {
+        let Self { n_shards, n_nodes } = self;
+
+        printdoc!(
+            "
+
+            {heading}
             Number of storage nodes: {n_nodes}
             Number of shards: {n_shards}
+            ",
+            heading = "Storage nodes".bold().walrus_teal(),
+        );
+    }
+}
 
-            {size_heading}
+impl CliOutput for InfoSizeOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            storage_unit_size: unit_size,
+            max_blob_size,
+        } = self;
+
+        printdoc!(
+            "
+
+            {heading}
             Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
             Storage unit: {hr_storage_unit}
+            ",
+            heading = "Blob size".bold().walrus_teal(),
+            hr_max_blob = HumanReadableBytes(*max_blob_size),
+            hr_storage_unit = HumanReadableBytes(*unit_size),
+            max_blob_size_sep = thousands_separator(*max_blob_size),
+        );
+    }
+}
+
+impl CliOutput for InfoPriceOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
+            marginal_size,
+            metadata_price,
+            marginal_price,
+            example_blobs,
+        } = self;
+
+        printdoc!(
+            "
 
             {price_heading}
             (Conversion rate: 1 WAL = 1,000,000,000 FROST)
@@ -295,14 +405,6 @@ impl CliOutput for InfoOutput {
             {price_examples_heading}
             {example_blob_output}
             ",
-            top_heading = "Walrus system information".bold(),
-            epoch_heading = "Epochs and storage duration".bold().walrus_teal(),
-            hr_epoch_duration = humantime::format_duration(*epoch_duration),
-            storage_heading = "Storage nodes".bold().walrus_teal(),
-            size_heading = "Blob size".bold().walrus_teal(),
-            hr_max_blob = HumanReadableBytes(*max_blob_size),
-            hr_storage_unit = HumanReadableBytes(*unit_size),
-            max_blob_size_sep = thousands_separator(*max_blob_size),
             price_heading = "Approximate storage prices per epoch".bold().walrus_teal(),
             hr_storage_price_per_unit_size = HumanReadableFrost::from(*storage_price_per_unit_size),
             hr_write_price_per_unit_size = HumanReadableFrost::from(*write_price_per_unit_size),
@@ -316,52 +418,43 @@ impl CliOutput for InfoOutput {
                 .collect::<Vec<_>>()
                 .join("\n"),
         );
+    }
+}
 
-        let Some(InfoDevOutput {
+impl CliOutput for InfoCommitteeOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            n_shards,
             n_primary_source_symbols,
             n_secondary_source_symbols,
             metadata_storage_size,
             max_sliver_size,
             max_encoded_blob_size,
-            max_faulty_shards,
-            min_correct_shards,
-            quorum_threshold,
             storage_nodes,
             next_storage_nodes,
-            committee,
-        }) = dev_info
-        else {
-            return;
-        };
+        } = self;
 
-        let (min_nodes_above, shards_above) = committee.min_nodes_above_f();
         printdoc!(
             "
 
             {encoding_heading}
+            Number of shards: {n_shards}
             Number of primary source symbols: {n_primary_source_symbols}
             Number of secondary source symbols: {n_secondary_source_symbols}
             Metadata size: {hr_metadata} ({metadata_storage_size_sep} B)
             Maximum sliver size: {hr_sliver} ({max_sliver_size_sep} B)
             Maximum encoded blob size: {hr_encoded} ({max_encoded_blob_size_sep} B)
 
-            {bft_heading}
-            Tolerated faults (f): {max_faulty_shards}
-            Quorum threshold (2f+1): {quorum_threshold}
-            Minimum number of correct shards (n-f): {min_correct_shards}
-            Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
-
             {node_heading}
             ",
-            encoding_heading = "(dev) Encoding parameters and sizes".bold().walrus_purple(),
+            encoding_heading = "Encoding parameters and sizes".bold().walrus_purple(),
             hr_metadata = HumanReadableBytes(*metadata_storage_size),
             metadata_storage_size_sep = thousands_separator(*metadata_storage_size),
             hr_sliver = HumanReadableBytes(*max_sliver_size),
             max_sliver_size_sep = thousands_separator(*max_sliver_size),
             hr_encoded = HumanReadableBytes(*max_encoded_blob_size),
             max_encoded_blob_size_sep = thousands_separator(*max_encoded_blob_size),
-            bft_heading = "(dev) BFT system information".bold().walrus_purple(),
-            node_heading = "(dev) Storage node details and shard distribution"
+            node_heading = "Storage node details and shard distribution"
                 .bold()
                 .walrus_purple()
         );
@@ -370,12 +463,41 @@ impl CliOutput for InfoOutput {
         if let Some(storage_nodes) = next_storage_nodes.as_ref() {
             println!(
                 "{}",
-                "\n(dev) Next committee: Storage node details and shard distribution"
+                "\nNext committee: Storage node details and shard distribution"
                     .bold()
                     .walrus_purple()
             );
             print_storage_node_table(n_shards, storage_nodes);
         };
+    }
+}
+
+impl CliOutput for InfoBftOutput {
+    fn print_cli_output(&self) {
+        let Self {
+            max_faulty_shards,
+            quorum_threshold,
+            min_correct_shards,
+            min_nodes_above,
+            shards_above,
+        } = self;
+
+        printdoc!(
+            "
+
+            {heading}
+            Tolerated faults (f): {max_faulty_shards}
+            Quorum threshold (2f+1): {quorum_threshold}
+            Minimum number of correct shards (n-f): {min_correct_shards}
+            Minimum number of nodes to get above f: {min_nodes_above} ({shards_above} shards)
+            ",
+            heading = "BFT system information".bold().walrus_purple(),
+            max_faulty_shards = max_faulty_shards,
+            quorum_threshold = quorum_threshold,
+            min_correct_shards = min_correct_shards,
+            min_nodes_above = min_nodes_above,
+            shards_above = shards_above,
+        );
     }
 }
 
@@ -539,8 +661,20 @@ fn deletable_counts_summary(counts: &DeletableCounts) -> String {
 
 impl CliOutput for StakeOutput {
     fn print_cli_output(&self) {
-        println!("{} Staked WAL successfully.", success());
-        println!("Staking info:\n{}", self.staked_wal);
+        let Some(first_wal) = self.staked_wal.first() else {
+            println!("{} No WAL was staked.", warning());
+            return;
+        };
+        if self.staked_wal.len() == 1 {
+            println!("{} Staked WAL successfully:\n{}", success(), first_wal);
+        } else {
+            println!(
+                "{} Staked WAL successfully on {} storage nodes:\n{}",
+                success(),
+                self.staked_wal.len(),
+                self.staked_wal.iter().map(ToString::to_string).join("\n")
+            );
+        }
     }
 }
 
@@ -560,6 +694,41 @@ impl CliOutput for ExchangeOutput {
             "{} Exchanged {} for WAL.",
             success(),
             HumanReadableMist::from(self.amount_sui),
+        );
+    }
+}
+
+impl CliOutput for ShareBlobOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} The blob has been shared, object id: {} {}",
+            success(),
+            self.shared_blob_object_id,
+            if let Some(amount) = self.amount {
+                format!(", funded with {}", HumanReadableFrost::from(amount))
+            } else {
+                "".to_string()
+            }
+        );
+    }
+}
+
+impl CliOutput for FundSharedBlobOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} The blob has been funded with {}",
+            success(),
+            HumanReadableFrost::from(self.amount)
+        );
+    }
+}
+
+impl CliOutput for ExtendBlobOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} The blob has been extended by {} epochs",
+            success(),
+            self.epochs_ahead
         );
     }
 }

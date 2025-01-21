@@ -38,7 +38,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
-    sync::Semaphore,
+    sync::{oneshot, Semaphore},
     task::JoinHandle,
     time::Instant,
 };
@@ -53,11 +53,14 @@ use tracing_subscriber::{
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
-use walrus_core::{PublicKey, ShardIndex};
-use walrus_sui::utils::SuiNetwork;
+use walrus_core::{BlobId, PublicKey, ShardIndex};
+use walrus_sui::{
+    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    utils::SuiNetwork,
+};
 
 use super::active_committees::ActiveCommittees;
-use crate::node::config::MetricsConfig;
+use crate::node::config::MetricsPushConfig;
 
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
@@ -86,6 +89,8 @@ macro_rules! version {
     }};
 }
 pub use version;
+
+use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Trait for loading configuration from a YAML file.
 pub trait LoadConfig: DeserializeOwned {
@@ -232,6 +237,19 @@ where
 
 /// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
 /// directory.
+pub fn resolve_home_dir_vec<'de, D>(deserializer: D) -> Result<Vec<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let paths: Vec<PathBuf> = Deserialize::deserialize(deserializer)?;
+    paths
+        .into_iter()
+        .map(|p| path_with_resolved_home_dir(p).map_err(D::Error::custom))
+        .collect()
+}
+
+/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
+/// directory.
 pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
 where
     D: Deserializer<'de>,
@@ -310,7 +328,7 @@ pub struct EnableMetricsPush {
     /// the network keys we use to identify the client using this push config
     pub network_key_pair: Arc<Secp256r1KeyPair>,
     /// the url, timeouts, etc used to push the metrics
-    pub config: MetricsConfig,
+    pub config: MetricsPushConfig,
 }
 
 /// MetricPushRuntime to manage the metric push task.
@@ -334,14 +352,8 @@ impl MetricPushRuntime {
             .context("meteric push runtime creation failed")?;
         let _guard = runtime.enter();
 
-        // associate a default tls provider for this runtime
-        let tls_provider = rustls::crypto::ring::default_provider();
-        tls_provider
-            .install_default()
-            .expect("unable to install default tls provider for rustls in MetricPushRuntime");
-
         let metric_push_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(mp_config.config.push_interval_seconds);
+            let mut interval = tokio::time::interval(mp_config.config.push_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut client = create_push_client();
             tracing::info!("starting metrics push to '{}'", &mp_config.config.push_url);
@@ -389,8 +401,7 @@ fn create_push_client() -> reqwest::Client {
         .expect("unable to build client")
 }
 
-#[derive(Deserialize, Serialize)]
-#[allow(missing_debug_implementations)]
+#[derive(Debug, Deserialize, Serialize)]
 /// MetricPayload holds static labels and metric data
 /// the static labels are always sent and will be merged within the proxy
 pub struct MetricPayload {
@@ -557,6 +568,7 @@ pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
 pub async fn generate_sui_wallet(
     sui_network: SuiNetwork,
     path: &Path,
+    use_faucet: bool,
     faucet_timeout: Duration,
 ) -> Result<SuiAddress> {
     tracing::info!(
@@ -567,25 +579,27 @@ pub async fn generate_sui_wallet(
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 
-    tracing::info!("attempting to get SUI from faucet...");
-    match tokio::time::timeout(
-        faucet_timeout,
-        walrus_sui::utils::request_sui_from_faucet(
-            wallet_address,
-            &sui_network,
-            &wallet.get_client().await?,
-        ),
-    )
-    .await
-    {
-        Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
-        Ok(Err(error)) => {
-            tracing::warn!(
-                ?error,
-                "an error occurred when trying to get SUI from the faucet"
-            )
+    if use_faucet {
+        tracing::info!("attempting to get SUI from faucet...");
+        match tokio::time::timeout(
+            faucet_timeout,
+            walrus_sui::utils::request_sui_from_faucet(
+                wallet_address,
+                &sui_network,
+                &wallet.get_client().await?,
+            ),
+        )
+        .await
+        {
+            Err(_) => tracing::warn!("reached timeout while waiting to get SUI from the faucet"),
+            Ok(Err(error)) => {
+                tracing::warn!(
+                    ?error,
+                    "an error occurred when trying to get SUI from the faucet"
+                )
+            }
+            Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
         }
-        Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
     }
 
     Ok(wallet_address)
@@ -731,6 +745,108 @@ pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
     let guard = prepare_subscriber()?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
+}
+
+/// Downloads event blobs for catchup purposes.
+///
+/// This function creates a client to download event blobs up to a specified
+/// checkpoint. The blobs are stored in the provided recovery path.
+#[cfg(feature = "client")]
+pub async fn collect_event_blobs_for_catchup(
+    sui_client: RetriableSuiClient,
+    staking_object_id: ObjectID,
+    system_object_id: ObjectID,
+    upto_checkpoint: Option<u64>,
+    recovery_path: &Path,
+) -> Result<Vec<BlobId>> {
+    use walrus_sui::client::contract_config::ContractConfig;
+
+    let contract_config = ContractConfig::new(system_object_id, staking_object_id);
+    let sui_read_client = SuiReadClient::new(sui_client, &contract_config).await?;
+    let config = crate::client::Config {
+        contract_config,
+        exchange_objects: vec![],
+        wallet_config: None,
+        communication_config: crate::client::ClientCommunicationConfig::default(),
+    };
+    let walrus_client =
+        crate::client::Client::new_read_client(config, sui_read_client.clone()).await?;
+    let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
+    let blob_ids = blob_downloader
+        .download(upto_checkpoint, None, recovery_path)
+        .await?;
+    Ok(blob_ids)
+}
+
+/// Placeholder function for when the client feature is not enabled.
+#[cfg(not(feature = "client"))]
+pub async fn collect_event_blobs_for_catchup(
+    sui_client: RetriableSuiClient,
+    staking_object_id: ObjectID,
+    system_object_id: ObjectID,
+    package_id: Option<ObjectID>,
+    upto_checkpoint: Option<u64>,
+    recovery_path: &Path,
+) -> Result<Vec<BlobId>> {
+    Ok(vec![])
+}
+
+/// Returns whether a node cursor should be repositioned.
+///
+/// The node cursor should be repositioned if it is behind the actual event index and it is at
+/// the beginning of the event stream.
+///
+/// - `event_index`: The index of the next event the node needs to process.
+/// - `actual_event_index`: The index of the first event available in the current event stream.
+///
+/// Usually, these indices match up, meaning the node picks up processing right where it left
+/// off. However, there's a special case during node bootstrapping (when starting with no
+/// previous state) and event processor bootstrapping itself from event blobs:
+///
+/// When a node starts up for the first time, older event blobs might have expired due to the
+/// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
+/// 0).
+///
+/// In this case, the event stream can only provide events starting from index N. But the node,
+/// being brand new, wants to start processing from index 0. In this scenario, we actually want
+/// to reposition the node's cursor to index N. This is safe because those events are no longer
+/// available in the system anyway (they've expired), and marking them as completed prevents the
+/// event tracking system from flagging this natural gap as an error.
+pub fn should_reposition_cursor(event_index: u64, actual_event_index: u64) -> bool {
+    let is_behind = event_index < actual_event_index;
+    let is_at_beginning = event_index == 0;
+    is_behind && is_at_beginning
+}
+
+/// Wait for SIGINT and SIGTERM (unix only).
+#[tracing::instrument(skip_all)]
+pub async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
+    #[cfg(not(unix))]
+    async fn wait_for_other_signals() {
+        // Disables this branch in the select statement.
+        std::future::pending().await
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_other_signals() {
+        use tokio::signal::unix;
+
+        unix::signal(unix::SignalKind::terminate())
+            .expect("unable to register for SIGTERM signals")
+            .recv()
+            .await;
+        tracing::info!("received SIGTERM")
+    }
+
+    tokio::select! {
+        biased;
+        _ = wait_for_other_signals() => (),
+        _ = tokio::signal::ctrl_c() => tracing::info!("received SIGINT"),
+        exit_or_dropped = &mut exit_listener => match exit_or_dropped {
+            Err(_) => tracing::info!("exit notification sender was dropped"),
+            Ok(_) => tracing::info!("exit notification received"),
+        }
+    }
 }
 
 #[cfg(test)]

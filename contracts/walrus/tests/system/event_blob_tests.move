@@ -4,7 +4,6 @@
 #[test_only]
 module walrus::event_blob_tests;
 
-use sui::test_utils::destroy;
 use walrus::{
     blob,
     storage_node,
@@ -21,13 +20,11 @@ const SIZE: u64 = 5_000_000;
 #[test]
 public fun test_event_blob_certify_happy_path() {
     let ctx = &mut tx_context::dummy();
-    let mut system: system::System = system::new_for_testing_with_multiple_members(
-        ctx,
-    );
+    let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes all with equal weights
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
     let mut index = 0;
     while (index < 10) {
@@ -41,7 +38,7 @@ public fun test_event_blob_certify_happy_path() {
             0,
             ctx,
         );
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         if (index < 6) {
             assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         } else {
@@ -51,19 +48,17 @@ public fun test_event_blob_certify_happy_path() {
         index = index + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing()
 }
 
 #[test, expected_failure(abort_code = system_state_inner::ERepeatedAttestation)]
 public fun test_event_blob_certify_repeated_attestation() {
     let ctx = &mut tx_context::dummy();
-    let mut system: system::System = system::new_for_testing_with_multiple_members(
-        ctx,
-    );
+    let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
 
     system.certify_event_blob(
@@ -90,19 +85,17 @@ public fun test_event_blob_certify_repeated_attestation() {
     );
 
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = system_state_inner::EIncorrectAttestation)]
 public fun test_multiple_event_blobs_in_flight() {
     let ctx = &mut tx_context::dummy();
-    let mut system: system::System = system::new_for_testing_with_multiple_members(
-        ctx,
-    );
+    let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob1 = blob::derive_blob_id(0xabc, RED_STUFF, SIZE);
     let blob2 = blob::derive_blob_id(0xdef, RED_STUFF, SIZE);
 
@@ -128,24 +121,22 @@ public fun test_multiple_event_blobs_in_flight() {
             0,
             ctx,
         );
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         index = index + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test]
 public fun test_event_blob_certify_change_epoch() {
     let ctx = &mut tx_context::dummy();
-    let mut system: system::System = system::new_for_testing_with_multiple_members(
-        ctx,
-    );
+    let mut system = system::new_for_testing_with_multiple_members(ctx);
     // Total of 10 nodes
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
     let mut index = 0;
     while (index < 6) {
@@ -159,18 +150,18 @@ public fun test_event_blob_certify_change_epoch() {
             0,
             ctx,
         );
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         index = index + 1
     };
     // increment epoch
     let mut new_committee = *system.committee();
     new_committee.increment_epoch_for_testing();
-    let balance = system.advance_epoch(
-        new_committee,
-        walrus::epoch_parameters::epoch_params_for_testing(),
-    );
-    balance.destroy_for_testing();
+    let (_, balances) = system
+        .advance_epoch(new_committee, &walrus::epoch_parameters::epoch_params_for_testing())
+        .into_keys_values();
+
+    balances.do!(|b| { b.destroy_for_testing(); });
     // 7th node attesting is not going to certify the blob as all other nodes
     // attested
     // the blob in previous epoch
@@ -184,7 +175,7 @@ public fun test_event_blob_certify_change_epoch() {
         1,
         ctx,
     );
-    let state = system.inner().get_event_blob_certification_state();
+    let state = system.inner().event_blob_certification_state();
     assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
     index = 0;
     // All nodes sign the blob in current epoch
@@ -204,7 +195,7 @@ public fun test_event_blob_certify_change_epoch() {
             1,
             ctx,
         );
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         if (index < 5) {
             assert!(state.get_latest_certified_checkpoint_sequence_number().is_none());
         } else {
@@ -213,7 +204,7 @@ public fun test_event_blob_certify_change_epoch() {
         index = index + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test]
@@ -223,7 +214,7 @@ public fun test_certify_invalid_blob_id() {
     let mut system = system::new_for_testing_with_multiple_members(ctx);
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
 
     // Create a constant bad blob ID that will be used throughout the test
     let bad_blob_id = blob::derive_blob_id(0xbeef, RED_STUFF, SIZE);
@@ -252,7 +243,7 @@ public fun test_certify_invalid_blob_id() {
         };
 
         // Verify the good blob was certified
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         assert!(
             state.get_latest_certified_checkpoint_sequence_number() ==
             option::some(good_checkpoint
@@ -273,7 +264,7 @@ public fun test_certify_invalid_blob_id() {
         );
 
         // Verify the bad blob didn't affect the certification state
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         assert!(
             state.get_latest_certified_checkpoint_sequence_number() ==
             option::some(good_checkpoint),
@@ -282,17 +273,17 @@ public fun test_certify_invalid_blob_id() {
         i = i + 1
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 #[test]
 public fun test_block_blob_events() {
     let ctx = &mut tx_context::dummy();
     // Initialize system with 10 nodes
-    let mut system: system::System = system::new_for_testing_with_multiple_members(ctx);
+    let mut system = system::new_for_testing_with_multiple_members(ctx);
     assert!(system.committee().to_vec_map().size() == 10);
     let mut nodes = test_nodes();
-    set_storage_node_caps(&system, ctx, &mut nodes);
+    set_storage_node_caps(&system, &mut nodes, ctx);
 
     let mut i: u256 = 0;
     while (i < 30) {
@@ -314,7 +305,7 @@ public fun test_block_blob_events() {
             index = index + 1;
         };
 
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         assert!(state.get_latest_certified_checkpoint_sequence_number() == option::some(good_cp));
 
         // Derive a bad blob ID and attempt to certify it
@@ -334,27 +325,27 @@ public fun test_block_blob_events() {
             ctx,
         );
 
-        let state = system.inner().get_event_blob_certification_state();
+        let state = system.inner().event_blob_certification_state();
         // Ensure no more than one blob is being tracked
         assert!(state.get_num_tracked_blobs() <= 1);
         i = i + 1;
     };
     nodes.destroy!(|node| node.destroy());
-    destroy(system);
+    system.destroy_for_testing();
 }
 
 // === Helper functions ===
 
 fun set_storage_node_caps(
     system: &System,
-    ctx: &mut TxContext,
     nodes: &mut vector<TestStorageNode>,
+    ctx: &mut TxContext,
 ) {
     let (node_ids, _values) = system.committee().to_vec_map().into_keys_values();
     let mut index = 0;
     node_ids.do!(|node_id| {
         let storage_cap = storage_node::new_cap(node_id, ctx);
-        nodes.borrow_mut(index).set_storage_node_cap(storage_cap);
+        nodes[index].set_storage_node_cap(storage_cap);
         index = index + 1;
     });
 }

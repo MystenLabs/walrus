@@ -459,7 +459,7 @@ impl BlobSynchronizer {
                 let claimed_permit = permits
                     .acquire_owned()
                     .await
-                    .expect("semaphore has not been dropped");
+                    .expect("semaphore should not been dropped");
                 // Attach the permit to the future, so that it is held until the future completes.
                 future.map(|result| (result, claimed_permit))
             }

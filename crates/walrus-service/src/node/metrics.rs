@@ -13,7 +13,14 @@ use prometheus::{
     Registry,
 };
 pub(crate) use telemetry::with_label;
-use walrus_sui::types::{BlobCertified, BlobEvent, ContractEvent, EpochChangeEvent};
+use walrus_sui::types::{
+    BlobCertified,
+    BlobEvent,
+    ContractEvent,
+    DenyListEvent,
+    EpochChangeEvent,
+    PackageEvent,
+};
 
 use crate::{
     common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric},
@@ -50,25 +57,28 @@ telemetry::define_metric_set! {
         shard_sync_total: IntCounterVec["status"],
 
         #[help = "Total number of slivers synced during shard sync"]
-        sync_shard_sync_sliver_total: IntCounterVec["shard"],
+        sync_shard_sync_sliver_total: IntCounterVec["shard", "sliver_type"],
+
+        #[help = "The progress of the shard sync."]
+        sync_shard_sync_sliver_progress: IntGaugeVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers pending recovery during shard sync"]
         sync_shard_recover_sliver_pending_total: IntGaugeVec["shard"],
 
         #[help = "Total number of slivers started recovery during shard sync"]
-        sync_shard_recover_sliver_total: IntCounterVec["shard"],
+        sync_shard_recover_sliver_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers successfully recovered during shard sync"]
-        sync_shard_recover_sliver_success_total: IntCounterVec["shard"],
+        sync_shard_recover_sliver_success_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers failed to recover during shard sync"]
-        sync_shard_recover_sliver_error_total: IntCounterVec["shard"],
+        sync_shard_recover_sliver_error_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers skipped during shard sync"]
-        sync_shard_recover_sliver_skip_total: IntCounterVec["shard"],
+        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of cancelled sliver recoveries during shard sync"]
-        sync_shard_recover_sliver_cancellation_total: IntCounterVec["shard"],
+        sync_shard_recover_sliver_cancellation_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],
@@ -106,6 +116,13 @@ telemetry::define_metric_set! {
 
         #[help = "Indicates the current node status"]
         current_node_status: IntGauge[],
+
+        #[help = "The number of blob metadata synced"]
+        sync_blob_metadata_count: IntCounter[],
+
+        #[help = "The progress of the blob metadata sync. It is represented by the first two bytes \
+        of the blob ID since the sync job is sequential over blob IDs."]
+        sync_blob_metadata_progress: IntGauge[],
     }
 }
 
@@ -140,6 +157,7 @@ impl TelemetryLabel for BlobEvent {
             BlobEvent::Certified(event) => event.label(),
             BlobEvent::Deleted(_) => "deleted",
             BlobEvent::InvalidBlobID(_) => "invalid-blob",
+            BlobEvent::DenyListBlobDeleted(_) => "deny-list-deleted",
         }
     }
 }
@@ -156,11 +174,33 @@ impl TelemetryLabel for EpochChangeEvent {
     }
 }
 
+impl TelemetryLabel for PackageEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            PackageEvent::ContractUpgraded(_) => "contract-upgraded",
+            PackageEvent::ContractUpgradeProposed(_) => "contract-upgrade-proposed",
+            PackageEvent::ContractUpgradeQuorumReached(_) => "contract-upgrade-quorum-reached",
+            _ => "unknown-package-event",
+        }
+    }
+}
+
+impl TelemetryLabel for DenyListEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            DenyListEvent::DenyListUpdate(_) => "deny-list-updated",
+            DenyListEvent::RegisterDenyListUpdate(_) => "register-deny-list-update",
+        }
+    }
+}
+
 impl TelemetryLabel for ContractEvent {
     fn label(&self) -> &'static str {
         match self {
             ContractEvent::BlobEvent(event) => event.label(),
             ContractEvent::EpochChangeEvent(event) => event.label(),
+            ContractEvent::PackageEvent(event) => event.label(),
+            ContractEvent::DenyListEvent(event) => event.label(),
         }
     }
 }

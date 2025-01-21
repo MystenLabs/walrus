@@ -7,11 +7,13 @@ use core::fmt;
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
+use contract_config::ContractConfig;
 use retry_client::RetriableSuiClient;
 use sui_sdk::{
     rpc_types::{
         Coin,
         SuiExecutionStatus,
+        SuiObjectDataOptions,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
@@ -22,7 +24,7 @@ use sui_types::{
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::ProgrammableTransaction,
+    transaction::{Argument, ProgrammableTransaction},
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -31,7 +33,7 @@ use walrus_core::{
     ensure,
     merkle::Node as MerkleNode,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
-    metadata::BlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, BlobMetadataWithId},
     BlobId,
     EncodingType,
     Epoch,
@@ -43,7 +45,7 @@ use crate::{
     contracts,
     types::{
         move_errors::MoveExecutionError,
-        move_structs::EpochState,
+        move_structs::{Authorized, EpochState, SharedBlob},
         Blob,
         BlobEvent,
         Committee,
@@ -67,6 +69,9 @@ pub use read_client::{
 pub mod retry_client;
 
 pub mod transaction_builder;
+use crate::types::move_structs::EventBlob;
+
+pub mod contract_config;
 
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
@@ -77,6 +82,9 @@ pub enum SuiClientError {
     /// Error resulting from a Sui-SDK call.
     #[error(transparent)]
     SuiSdkError(#[from] sui_sdk::error::Error),
+    /// Other errors resulting from Sui crates.
+    #[error(transparent)]
+    SuiError(#[from] sui_types::error::SuiError),
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(MoveExecutionError),
@@ -100,6 +108,9 @@ pub enum SuiClientError {
         activated in your Sui wallet"
     )]
     WalrusPackageNotFound(ObjectID),
+    /// The type of the `WAL` coin could not be found.
+    #[error("the type of the WAL coin could not be found in the package {0}")]
+    WalTypeNotFound(ObjectID),
     /// The specified event ID is not associated with a Walrus event.
     #[error("no corresponding blob event found for {0:?}")]
     NoCorrespondingBlobEvent(EventID),
@@ -117,7 +128,10 @@ pub enum SuiClientError {
         "storage capability object already exists in the account and cannot register another\n\
         object ID: {0}"
     )]
-    CapabilityObjectAlreadyExists(StorageNodeCap),
+    CapabilityObjectAlreadyExists(ObjectID),
+    /// The sender is not authorized to perform the action on the pool.
+    #[error("the sender is not authorized to perform the action on the pool with node ID {0}")]
+    NotAuthorizedForPool(ObjectID),
 }
 
 /// Metadata for a blob object on Sui.
@@ -146,9 +160,9 @@ impl<const V: bool> TryFrom<&BlobMetadataWithId<V>> for BlobObjectMetadata {
         Ok(Self {
             blob_id: *metadata.blob_id(),
             root_hash: metadata.metadata().compute_root_hash(),
-            unencoded_size: metadata.metadata().unencoded_length,
+            unencoded_size: metadata.metadata().unencoded_length(),
             encoded_size,
-            encoding_type: metadata.metadata().encoding_type,
+            encoding_type: metadata.metadata().encoding_type(),
         })
     }
 }
@@ -213,7 +227,7 @@ impl BlobPersistence {
 }
 
 /// The action to be performed for newly-created blobs.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostStoreAction {
     /// Burn the blob object.
     Burn,
@@ -221,6 +235,30 @@ pub enum PostStoreAction {
     TransferTo(SuiAddress),
     /// Keep the blob object in the wallet that created it.
     Keep,
+    /// Put the blob into a shared blob object.
+    Share,
+}
+
+impl PostStoreAction {
+    /// Constructs [`Self`] based on the value of a `share` flag.
+    ///
+    /// If `share` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
+    pub fn from_share(share: bool) -> Self {
+        if share {
+            Self::Share
+        } else {
+            Self::Keep
+        }
+    }
+}
+
+/// Enum to select between different pool operations that require authorization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PoolOperationWithAuthorization {
+    /// The operation relates to the commission.
+    Commission,
+    /// The operation relates to the governance.
+    Governance,
 }
 
 /// Result alias for functions returning a `SuiClientError`.
@@ -239,17 +277,13 @@ impl SuiContractClient {
     /// Constructor for [`SuiContractClient`].
     pub async fn new(
         wallet: WalletContext,
-        system_object: ObjectID,
-        staking_object: ObjectID,
-        package_id: Option<ObjectID>,
+        contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> SuiClientResult<Self> {
         let read_client = SuiReadClient::new(
             RetriableSuiClient::new_from_wallet(&wallet, backoff_config).await?,
-            system_object,
-            staking_object,
-            package_id,
+            contract_config,
         )
         .await?;
         Self::new_with_read_client(wallet, gas_budget, read_client)
@@ -277,7 +311,7 @@ impl SuiContractClient {
 
     /// Gets the [`RetriableSuiClient`] from the associated read client.
     pub fn sui_client(&self) -> &RetriableSuiClient {
-        &self.read_client.sui_client
+        self.read_client.sui_client()
     }
 
     /// Returns a reference to the inner wallet context.
@@ -314,14 +348,14 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.reserve_space(encoded_size, epochs_ahead).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
 
         ensure!(
@@ -337,113 +371,204 @@ impl SuiContractClient {
     ///
     /// `blob_size` is the size of the unencoded blob. The encoded size of the blob must be
     /// less than or equal to the size reserved in `storage`.
-    pub async fn register_blob(
+    pub async fn register_blobs(
         &self,
-        storage: &StorageResource,
-        blob_metadata: BlobObjectMetadata,
+        blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Blob> {
+    ) -> SuiClientResult<Vec<Blob>> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder
-            .register_blob(storage.id.into(), blob_metadata, persistence)
-            .await?;
+        let mut pt_builder = self.transaction_builder();
+        // Build a ptb to include all register blob commands for all blobs.
+        let expected_num_blobs = blob_metadata_and_storage.len();
+        for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
+            pt_builder
+                .register_blob(storage.id.into(), blob_metadata, persistence)
+                .await?;
+        }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        let blob_obj_id = get_created_sui_object_ids_by_type(
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
-            blob_obj_id.len() == 1,
-            "unexpected number of blob objects created: {}",
-            blob_obj_id.len()
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {} ",
+            blob_obj_ids.len(),
+            expected_num_blobs
         );
 
-        self.sui_client().get_sui_object(blob_obj_id[0]).await
+        self.sui_client().get_sui_objects(blob_obj_ids).await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
     /// storage resource to register a blob with the provided `blob_metadata`.
     ///
     /// This combines the [`reserve_space`][Self::reserve_space] and
-    /// [`register_blob`][Self::register_blob] functions in one atomic transaction.
-    pub async fn reserve_and_register_blob(
+    /// [`register_blobs`][Self::register_blobs] functions in one atomic transaction.
+    pub async fn reserve_and_register_blobs(
         &self,
         epochs_ahead: EpochCount,
-        blob_metadata: BlobObjectMetadata,
+        blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
-    ) -> SuiClientResult<Blob> {
+    ) -> SuiClientResult<Vec<Blob>> {
         tracing::debug!(
-            encoded_size = blob_metadata.encoded_size,
-            "starting to reserve and register blob"
+            size = blob_metadata_list.len(),
+            "starting to reserve and register blobs"
         );
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        let storage_arg = pt_builder
-            .reserve_space(blob_metadata.encoded_size, epochs_ahead)
-            .await?;
-        // Blob is transferred automatically in the call to `finish`.
-        pt_builder
-            .register_blob(storage_arg.into(), blob_metadata, persistence)
-            .await?;
+        let mut pt_builder = self.transaction_builder();
+        // Build a ptb to include all reserve space and register blob commands for all blobs.
+        let expected_num_blobs = blob_metadata_list.len();
+        for blob_metadata in blob_metadata_list.into_iter() {
+            let storage_arg = pt_builder
+                .reserve_space(blob_metadata.encoded_size, epochs_ahead)
+                .await?;
+            // Blob is transferred automatically in the call to `finish`.
+            pt_builder
+                .register_blob(storage_arg.into(), blob_metadata, persistence)
+                .await?;
+        }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        let blob_obj_id = get_created_sui_object_ids_by_type(
+        let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
             &contracts::blob::Blob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
+
         ensure!(
-            blob_obj_id.len() == 1,
-            "unexpected number of blob objects created: {}",
-            blob_obj_id.len()
+            blob_obj_ids.len() == expected_num_blobs,
+            "unexpected number of blob objects created: {} expected {} ",
+            blob_obj_ids.len(),
+            expected_num_blobs
         );
 
-        self.sui_client().get_sui_object(blob_obj_id[0]).await
+        self.sui_client().get_sui_objects(blob_obj_ids).await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
     /// returns the certified blob.
+    ///
+    /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
     // NB: This intentionally takes an owned `Blob` object even though it is not required, as the
     // corresponding object on Sui will be changed in the process.
-    pub async fn certify_blob(
+    pub async fn certify_blobs(
         &self,
-        blob: Blob,
-        certificate: &ConfirmationCertificate,
+        blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
         post_store: PostStoreAction,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder.certify_blob(blob.id.into(), certificate).await?;
-
-        match post_store {
-            PostStoreAction::TransferTo(address) => {
-                pt_builder
-                    .transfer(Some(address), vec![blob.id.into()])
-                    .await?;
+        let mut pt_builder = self.transaction_builder();
+        for (i, (blob, certificate)) in blobs_with_certificates.iter().enumerate() {
+            tracing::debug!(
+                blob_id = %blob.blob_id,
+                count = format!("{}/{}", i + 1, blobs_with_certificates.len()),
+                "certifying blob on Sui"
+            );
+            pt_builder.certify_blob(blob.id.into(), certificate).await?;
+            match post_store {
+                PostStoreAction::TransferTo(address) => {
+                    pt_builder
+                        .transfer(Some(address), vec![blob.id.into()])
+                        .await?;
+                }
+                PostStoreAction::Burn => {
+                    pt_builder.burn_blob(blob.id.into()).await?;
+                }
+                PostStoreAction::Keep => (),
+                PostStoreAction::Share => {
+                    pt_builder.new_shared_blob(blob.id.into()).await?;
+                }
             }
-            PostStoreAction::Burn => {
-                pt_builder.burn_blob(blob.id.into()).await?;
-            }
-            PostStoreAction::Keep => (),
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        if res.errors.is_empty() {
-            Ok(())
-        } else {
-            Err(anyhow!("could not certify blob: {:?}", res.errors).into())
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify blobs on Sui");
+            return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
         }
+
+        if post_store != PostStoreAction::Share {
+            return Ok(HashMap::new());
+        }
+
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        let object_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            object_ids.len() == blobs_with_certificates.len(),
+            "unexpected number of shared blob objects created: {} (expected {})",
+            object_ids.len(),
+            blobs_with_certificates.len()
+        );
+
+        // If there is only one blob, we can directly return the mapping.
+        if object_ids.len() == 1 {
+            Ok(HashMap::from([(
+                blobs_with_certificates[0].0.blob_id,
+                object_ids[0],
+            )]))
+        } else {
+            // Fetch all SharedBlob objects and collect them as a mapping blob id
+            // to shared blob object id.
+            let shared_blobs = self
+                .sui_client()
+                .get_sui_objects::<SharedBlob>(object_ids)
+                .await?;
+            Ok(shared_blobs
+                .into_iter()
+                .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
+                .collect())
+        }
+    }
+
+    /// Certifies the specified event blob on Sui, with the given metadata and epoch.
+    pub async fn certify_event_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        ending_checkpoint_seq_num: u64,
+        epoch: u32,
+    ) -> SuiClientResult<()> {
+        let node_capability = self
+            .read_client
+            .get_address_capability_object(self.wallet_address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+
+        tracing::debug!(
+            storage_node_cap = %node_capability.node_id,
+            "calling certify_event_blob"
+        );
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .certify_event_blob(
+                blob_metadata,
+                node_capability.id.into(),
+                ending_checkpoint_seq_num,
+                epoch,
+            )
+            .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
     }
 
     /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
@@ -455,7 +580,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.invalidate_blob_id(certificate).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -489,13 +614,13 @@ impl SuiContractClient {
             .await?;
 
         if let Some(cap) = existing_capability_object {
-            return Err(SuiClientError::CapabilityObjectAlreadyExists(cap));
+            return Err(SuiClientError::CapabilityObjectAlreadyExists(cap.id));
         }
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .register_candidate(node_parameters, proof_of_possession)
             .await?;
@@ -504,7 +629,7 @@ impl SuiContractClient {
         let cap_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_node::StorageNodeCap
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
             cap_id.len() == 1,
@@ -515,32 +640,76 @@ impl SuiContractClient {
         self.sui_client().get_sui_object(cap_id[0]).await
     }
 
-    /// Stakes the given amount with the pool of node with `node_id`.
-    pub async fn stake_with_pool(
+    /// Registers candidate nodes, sending the resulting capability objects to the specified
+    /// addresses.
+    pub async fn register_candidates(
         &self,
-        amount_to_stake: u64,
-        node_id: ObjectID,
-    ) -> SuiClientResult<StakedWal> {
+        registration_params_with_stake_amounts: Vec<(
+            NodeRegistrationParams,
+            ProofOfPossession,
+            SuiAddress,
+        )>,
+    ) -> SuiClientResult<Vec<StorageNodeCap>> {
+        let count = registration_params_with_stake_amounts.len();
+
+        let mut pt_builder = self.transaction_builder();
+        for (node_parameters, proof_of_possession, address) in
+            registration_params_with_stake_amounts.into_iter()
+        {
+            let cap = pt_builder
+                .register_candidate(&node_parameters, proof_of_possession)
+                .await?;
+            pt_builder.transfer(Some(address), vec![cap.into()]).await?;
+        }
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let wallet = self.wallet().await;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
+
+        let cap_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_node::StorageNodeCap
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            cap_ids.len() == count,
+            "unexpected number of StorageNodeCap created: {} (expected {count})",
+            cap_ids.len(),
+        );
+
+        self.sui_client().get_sui_objects(cap_ids).await
+    }
+
+    /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
+    /// element of the pair with the node represented by the first element of the pair in a single
+    /// PTB.
+    pub async fn stake_with_pools(
+        &self,
+        node_ids_with_amounts: &[(ObjectID, u64)],
+    ) -> SuiClientResult<Vec<StakedWal>> {
+        let count = node_ids_with_amounts.len();
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder.stake_with_pool(amount_to_stake, node_id).await?;
+        let mut pt_builder = self.transaction_builder();
+        for (node_id, amount) in node_ids_with_amounts.iter() {
+            pt_builder.stake_with_pool(*amount, *node_id).await?;
+        }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
 
         let staked_wal = get_created_sui_object_ids_by_type(
             &res,
             &contracts::staked_wal::StakedWal
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
-            staked_wal.len() == 1,
-            "unexpected number of StakedWal objects created: {}",
-            staked_wal.len()
+            staked_wal.len() == count,
+            "unexpected number of StakedWal objects created: {} (expected {})",
+            staked_wal.len(),
+            count
         );
 
-        self.sui_client().get_sui_object(staked_wal[0]).await
+        self.sui_client().get_sui_objects(staked_wal).await
     }
 
     /// Call to end voting and finalize the next epoch parameters.
@@ -550,7 +719,7 @@ impl SuiContractClient {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.voting_end().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -563,7 +732,7 @@ impl SuiContractClient {
     pub async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.initiate_epoch_change().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -590,7 +759,7 @@ impl SuiContractClient {
             "calling epoch_sync_done"
         );
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder
             .epoch_sync_done(node_capability.id.into(), epoch)
             .await?;
@@ -599,22 +768,126 @@ impl SuiContractClient {
         Ok(())
     }
 
+    /// Sets the commission receiver for the node.
+    pub async fn set_commission_receiver(
+        &self,
+        node_id: ObjectID,
+        receiver: Authorized,
+    ) -> SuiClientResult<()> {
+        self.set_authorized_for_pool(
+            node_id,
+            PoolOperationWithAuthorization::Commission,
+            receiver,
+        )
+        .await
+    }
+
+    /// Sets the governance authorized entity for the pool.
+    pub async fn set_governance_authorized(
+        &self,
+        node_id: ObjectID,
+        authorized: Authorized,
+    ) -> SuiClientResult<()> {
+        self.set_authorized_for_pool(
+            node_id,
+            PoolOperationWithAuthorization::Governance,
+            authorized,
+        )
+        .await
+    }
+
+    async fn set_authorized_for_pool(
+        &self,
+        node_id: ObjectID,
+        operation: PoolOperationWithAuthorization,
+        authorized: Authorized,
+    ) -> SuiClientResult<()> {
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        let authenticated_arg = self
+            .get_authenticated_arg_for_pool(&mut pt_builder, node_id, operation)
+            .await?;
+        let authorized_arg = pt_builder.authorized_address_or_object(authorized)?;
+        match operation {
+            PoolOperationWithAuthorization::Commission => {
+                pt_builder
+                    .set_commission_receiver(node_id, authenticated_arg, authorized_arg)
+                    .await?;
+            }
+            PoolOperationWithAuthorization::Governance => {
+                pt_builder
+                    .set_governance_authorized(node_id, authenticated_arg, authorized_arg)
+                    .await?;
+            }
+        }
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
+    /// Given the node ID, checks if the sender is authorized to perform the operation (either as
+    /// sender or by owning the corresponding object) and returns an `Authenticated` Move type as
+    /// result argument.
+    async fn get_authenticated_arg_for_pool(
+        &self,
+        pt_builder: &mut WalrusPtbBuilder,
+        node_id: ObjectID,
+        operation: PoolOperationWithAuthorization,
+    ) -> SuiClientResult<Argument> {
+        let pool = self.read_client.get_staking_pool(node_id).await?;
+        let authorized = match operation {
+            PoolOperationWithAuthorization::Commission => pool.commission_receiver,
+            PoolOperationWithAuthorization::Governance => pool.governance_authorized,
+        };
+        match authorized {
+            Authorized::Address(receiver) => {
+                ensure!(
+                    receiver == self.wallet_address,
+                    SuiClientError::NotAuthorizedForPool(node_id)
+                );
+                pt_builder.authenticate_sender()
+            }
+            Authorized::Object(receiver) => {
+                let object = self
+                    .sui_client()
+                    .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
+                    .await?;
+                ensure!(
+                    object
+                        .owner()
+                        .ok_or_else(|| anyhow!("no object owner returned from rpc"))?
+                        .get_owner_address()?
+                        == self.wallet_address,
+                    SuiClientError::NotAuthorizedForPool(node_id)
+                );
+                pt_builder.authenticate_with_object(receiver).await
+            }
+        }
+    }
+
     /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with
     /// `amount` FROST, and returns its object ID.
-    pub async fn create_and_fund_exchange(&self, amount: u64) -> SuiClientResult<ObjectID> {
+    pub async fn create_and_fund_exchange(
+        &self,
+        exchange_package: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<ObjectID> {
         tracing::info!("creating a new SUI/WAL exchange");
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
 
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
-        pt_builder.create_and_fund_exchange(amount).await?;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .create_and_fund_exchange(exchange_package, amount)
+            .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
         let exchange_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::wal_exchange::Exchange
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map, &[])?,
+                .to_move_struct_tag_with_package(exchange_package, &[])?,
         )?;
         ensure!(
             exchange_id.len() == 1,
@@ -634,7 +907,7 @@ impl SuiContractClient {
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.exchange_sui_for_wal(exchange_id, amount).await?;
         let (ptb, sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, Some(self.gas_budget + sui_cost))
@@ -679,12 +952,14 @@ impl SuiContractClient {
     /// - has the closest size to `storage_size`; and
     /// - breaks ties by taking the one with the smallest end epoch that is greater or equal to the
     ///   requested `end_epoch`.
+    /// - If object id is in the excluded list, do not select.
     ///
     /// Returns `None` if no matching storage resource is found.
     pub async fn owned_storage_for_size_and_epoch(
         &self,
         storage_size: u64,
         end_epoch: Epoch,
+        excluded: &[ObjectID],
     ) -> SuiClientResult<Option<StorageResource>> {
         Ok(self
             .owned_storage(ExpirySelectionPolicy::Valid)
@@ -693,6 +968,7 @@ impl SuiContractClient {
             .filter(|storage| {
                 storage.storage_size >= storage_size && storage.end_epoch >= end_epoch
             })
+            .filter(|storage| !excluded.contains(&storage.id))
             // Pick the smallest storage size. Break ties by comparing the end epoch, and take the
             // one that is the closest to `end_epoch`. NOTE: we are already sure that these values
             // are above the minimum.
@@ -703,7 +979,7 @@ impl SuiContractClient {
     pub async fn delete_blob(&self, blob_object_id: ObjectID) -> SuiClientResult<()> {
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        let mut pt_builder = WalrusPtbBuilder::new(self.read_client.clone(), self.wallet_address);
+        let mut pt_builder = self.transaction_builder();
         pt_builder.delete_blob(blob_object_id.into()).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
@@ -772,7 +1048,10 @@ impl SuiContractClient {
         let sui_balance = self.sui_client().get_balance(self.address(), None).await?;
         let wal_balance = self
             .sui_client()
-            .get_balance(self.address(), Some(self.read_client().wal_coin_type()))
+            .get_balance(
+                self.address(),
+                Some(self.read_client().wal_coin_type().to_owned()),
+            )
             .await?;
 
         if wal_balance.coin_object_count > 1 {
@@ -839,6 +1118,76 @@ impl SuiContractClient {
 
         Ok(())
     }
+
+    /// Funds the shared blob object.
+    pub async fn fund_shared_blob(
+        &self,
+        shared_blob_obj_id: ObjectID,
+        amount: u64,
+    ) -> SuiClientResult<()> {
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .fund_shared_blob(shared_blob_obj_id, amount)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
+    /// Extends the shared object epoch.
+    pub async fn extend_shared_blob(
+        &self,
+        shared_blob_obj_id: ObjectID,
+        epochs_ahead: u32,
+    ) -> SuiClientResult<()> {
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
+    }
+
+    /// Shares the blob object with the given object ID. If amount is specified, also fund the blob.
+    pub async fn share_and_maybe_fund_blob(
+        &self,
+        blob_obj_id: ObjectID,
+        amount: Option<u64>,
+    ) -> SuiClientResult<ObjectID> {
+        let blob: Blob = self
+            .read_client
+            .sui_client()
+            .get_sui_object(blob_obj_id)
+            .await?;
+        let wallet = self.wallet().await;
+        let mut pt_builder = self.transaction_builder();
+
+        if let Some(amount) = amount {
+            ensure!(amount > 0, "must fund with non-zero amount");
+            pt_builder
+                .new_funded_shared_blob(blob.id.into(), amount)
+                .await?;
+        } else {
+            pt_builder.new_shared_blob(blob.id.into()).await?;
+        }
+
+        let (ptb, _) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        let shared_blob_obj_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            shared_blob_obj_id.len() == 1,
+            "unexpected number of `SharedBlob`s created: {}",
+            shared_blob_obj_id.len()
+        );
+        Ok(shared_blob_obj_id[0])
+    }
 }
 
 impl ReadClient for SuiContractClient {
@@ -900,6 +1249,14 @@ impl ReadClient for SuiContractClient {
 
     async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
         self.read_client.stake_assignment().await
+    }
+
+    async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
+        self.read_client.last_certified_event_blob().await
+    }
+
+    async fn refresh_package_id(&self) -> SuiClientResult<()> {
+        self.read_client.refresh_package_id().await
     }
 }
 

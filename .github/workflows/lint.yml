@@ -71,14 +71,22 @@ jobs:
     name: Check spelling
     steps:
       - uses: actions/checkout@v4
-      - uses: crate-ci/typos@v1.28.2
+      - uses: crate-ci/typos@v1.29.4
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ShellCheck
+        run: find . -type f -name "*.sh" -exec shellcheck --severity=error {} +
 
   license-headers:
     runs-on: ubuntu-latest
     name: Check license headers
     steps:
       - uses: actions/checkout@v4
-      - run: cargo install licensesnip@1.5.0
+      - run: cargo install licensesnip
       - run: licensesnip check
 
   check-all:

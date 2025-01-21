@@ -5,9 +5,10 @@
 
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     num::NonZeroUsize,
     path::{Path, PathBuf},
+    str::FromStr as _,
     time::Duration,
 };
 
@@ -22,50 +23,53 @@ use serde_with::{
     DurationSeconds,
     SerializeAs,
 };
-use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
-use walrus_core::keys::{
-    KeyPairParseError,
-    NetworkKeyPair,
-    ProtocolKeyPair,
-    SupportedKeyPair,
-    TaggedKeyPair,
+use sui_types::base_types::SuiAddress;
+use walrus_core::{
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
+    messages::ProofOfPossession,
 };
-use walrus_sui::{
-    client::{SuiClientError, SuiContractClient, SuiReadClient},
-    types::{move_structs::VotingParams, NetworkAddress, NodeRegistrationParams},
+use walrus_sui::types::{
+    move_structs::VotingParams,
+    NetworkAddress,
+    NodeMetadata,
+    NodeRegistrationParams,
 };
-use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::storage::DatabaseConfig;
 use crate::{
-    common::utils::{self, LoadConfig},
+    common::{
+        config::SuiConfig,
+        utils::{self, LoadConfig},
+    },
     node::events::EventProcessorConfig,
 };
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct StorageNodeConfig {
-    /// Directory in which to persist the database
+    /// The name of the storage node that is set in the staking pool on chain.
+    pub name: String,
+    /// Directory in which to persist the database.
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub storage_path: PathBuf,
-    /// Option config to tune storage db
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub db_config: Option<DatabaseConfig>,
-    /// Key pair used in Walrus protocol messages
+    /// File path to the blocklist.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub blocklist_path: Option<PathBuf>,
+    /// Optional "config" to tune storage database.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub db_config: DatabaseConfig,
+    /// Key pair used in Walrus protocol messages.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
-    /// The host name or public IP address of the node.
-    // TODO: Make this non-optional when cleaning up the config files (#407).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public_host: Option<String>,
+    /// The host name or public IP address of the node. This is used in the on-chain data and for
+    /// generating self-signed certificates if TLS is enabled.
+    pub public_host: String,
     /// The port on which the storage node will serve requests.
-    // TODO: Make this non-optional when cleaning up the config files (#407).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public_port: Option<u16>,
+    pub public_port: u16,
     /// Socket address on which the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
@@ -77,12 +81,12 @@ pub struct StorageNodeConfig {
     /// Set explicitly to None to wait indefinitely.
     #[serde(
         default = "defaults::rest_graceful_shutdown_period_secs",
-        skip_serializing_if = "Option::is_none",
+        skip_serializing_if = "defaults::is_none",
         with = "serde_with::rust::double_option"
     )]
     pub rest_graceful_shutdown_period_secs: Option<Option<u64>>,
     /// Sui config for the node
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub sui: Option<SuiConfig>,
     /// Configuration of blob synchronization
     #[serde(default, skip_serializing_if = "defaults::is_default")]
@@ -93,39 +97,42 @@ pub struct StorageNodeConfig {
     /// Configuration for shard synchronization.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub shard_sync_config: ShardSyncConfig,
-    /// Configuration for the event provider.
+    /// Configuration for the event processor.
     ///
-    /// By default, the checkpoint-based event processor is used with the normal RPC node from the
-    /// Sui config.
+    /// This is ignored if `use_legacy_event_provider` is set to `true`.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub event_provider_config: EventProviderConfig,
+    pub event_processor_config: EventProcessorConfig,
+    /// Use the legacy event provider.
+    ///
+    /// This is deprecated and will be removed in the future.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub use_legacy_event_provider: bool,
+    /// Disable the event-blob writer
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub disable_event_blob_writer: bool,
     /// The commission rate of the storage node, in basis points.
-    #[cfg(not(feature = "walrus-mainnet"))]
-    #[serde(default)]
-    pub commission_rate: u64,
-    /// The commission rate of the storage node, in basis points.
-    #[cfg(feature = "walrus-mainnet")]
     #[serde(default)]
     pub commission_rate: u16,
     /// The parameters for the staking pool.
     pub voting_params: VotingParams,
-    /// Name of the storage node.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    /// Metadata of the storage node.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub metadata: NodeMetadata,
     /// Metric push configuration.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metrics_push: Option<MetricsConfig>,
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub metrics_push: Option<MetricsPushConfig>,
 }
 
 impl Default for StorageNodeConfig {
     fn default() -> Self {
         Self {
-            storage_path: PathBuf::from("db"),
+            storage_path: PathBuf::from("/opt/walrus/db"),
+            blocklist_path: Default::default(),
             db_config: Default::default(),
-            protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
-            network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
-            public_host: Some(defaults::rest_api_address().ip().to_string()),
-            public_port: Some(defaults::rest_api_port()),
+            protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
+            network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
+            public_host: defaults::rest_api_address().ip().to_string(),
+            public_port: defaults::rest_api_port(),
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),
             rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
@@ -133,7 +140,9 @@ impl Default for StorageNodeConfig {
             blob_recovery: Default::default(),
             tls: Default::default(),
             shard_sync_config: Default::default(),
-            event_provider_config: Default::default(),
+            event_processor_config: Default::default(),
+            use_legacy_event_provider: false,
+            disable_event_blob_writer: Default::default(),
             commission_rate: 0,
             voting_params: VotingParams {
                 storage_price: defaults::storage_price(),
@@ -142,11 +151,19 @@ impl Default for StorageNodeConfig {
             },
             name: Default::default(),
             metrics_push: None,
+            metadata: Default::default(),
         }
     }
 }
 
 impl StorageNodeConfig {
+    /// Loads the keys from disk into memory.
+    pub fn load_keys(&mut self) -> Result<(), anyhow::Error> {
+        self.protocol_key_pair.load()?;
+        self.network_key_pair.load()?;
+        Ok(())
+    }
+
     /// Returns the network key pair.
     ///
     /// # Panics
@@ -170,15 +187,17 @@ impl StorageNodeConfig {
     }
 
     /// Converts the configuration into registration parameters used for node registration.
-    pub fn to_registration_params(
-        &self,
-        public_address: NetworkAddress,
-        name: String,
-    ) -> NodeRegistrationParams {
+    pub fn to_registration_params(&self) -> NodeRegistrationParams {
         let network_key_pair = self.network_key_pair();
         let protocol_key_pair = self.protocol_key_pair();
+        let public_port = self.public_port;
+        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&self.public_host) {
+            NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
+        } else {
+            NetworkAddress(format!("{}:{}", self.public_host, public_port))
+        };
         NodeRegistrationParams {
-            name,
+            name: self.name.clone(),
             network_address: public_address,
             public_key: protocol_key_pair.public().clone(),
             network_public_key: network_key_pair.public().clone(),
@@ -186,26 +205,60 @@ impl StorageNodeConfig {
             storage_price: self.voting_params.storage_price,
             write_price: self.voting_params.write_price,
             node_capacity: self.voting_params.node_capacity,
+            metadata: self.metadata.clone(),
         }
     }
 }
 
-/// Configuration for metric push
+/// Configuration for metric push.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct MetricsConfig {
-    /// the interval of time we will allow to elapse before pushing metrics
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct MetricsPushConfig {
+    /// The interval of time we will allow to elapse before pushing metrics.
     #[serde_as(as = "DurationSeconds<u64>")]
-    #[serde(default = "push_interval_seconds_default")]
-    pub push_interval_seconds: Duration,
-    /// the url that we will push metrics to
+    #[serde(
+        rename = "push_interval_secs",
+        default = "push_interval_default",
+        skip_serializing_if = "defaults::is_default"
+    )]
+    pub push_interval: Duration,
+    /// The URL that we will push metrics to.
     pub push_url: String,
-    /// static labels to provide to the push process
+    /// Static labels to provide to the push process.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub labels: Option<HashMap<String, String>>,
 }
 
+/// MetricsPushConfig impls to set name and host labels
+/// we accept a name to use from node config and will attempt to fetch the hostname
+/// if that fetch fails, we will default to the node name from the config.
+/// these manifest as labels in metric data.
+impl MetricsPushConfig {
+    /// set metric label name = foo
+    pub fn set_name(&mut self, name: &str) {
+        self.labels
+            .get_or_insert_with(HashMap::new)
+            .entry("name".into())
+            .or_insert_with(|| name.into());
+
+        // also set the host label and try to get the hostname to do it.  if we cannot
+        // use name as a fallback.
+        let host =
+            hostname::get().map_or_else(|_| name.into(), |v| v.to_string_lossy().to_string());
+        self.set_host(host);
+    }
+
+    /// set metric label host = bar
+    fn set_host(&mut self, host: String) {
+        self.labels
+            .get_or_insert_with(HashMap::new)
+            .entry("host".into())
+            .or_insert_with(|| host);
+    }
+}
+
 /// Configure the default push interval for metrics.
-fn push_interval_seconds_default() -> Duration {
+fn push_interval_default() -> Duration {
     Duration::from_secs(60)
 }
 
@@ -219,11 +272,6 @@ pub struct TlsConfig {
     pub disable_tls: bool,
     /// Paths to the certificate and key used to secure the REST API.
     pub pem_files: Option<TlsCertificateAndKey>,
-    /// The server name add to self-signed certificates, if used. If not provided, any self-signed
-    /// certificates will use the [`StorageNodeConfig::public_host`] if set or the IP address as the
-    /// subject name.
-    // TODO: Remove this when cleaning up the config files (#407).
-    pub server_name: Option<String>,
 }
 
 /// Paths to a TLS certificate and key.
@@ -239,7 +287,7 @@ impl LoadConfig for StorageNodeConfig {}
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct BlobRecoveryConfig {
     /// The number of in-parallel blobs synchronized
@@ -263,7 +311,7 @@ impl Default for BlobRecoveryConfig {
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct CommitteeServiceConfig {
     /// The minimum number of seconds to wait before retrying an operation.
@@ -329,6 +377,10 @@ pub struct ShardSyncConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "blob_certified_check_interval_secs")]
     pub blob_certified_check_interval: Duration,
+    /// The number of metadata to fetch in parallel.
+    pub max_concurrent_metadata_fetch: usize,
+    /// Maximum number of concurrent shard syncs allowed per node.
+    pub shard_sync_concurrency: usize,
 }
 
 impl Default for ShardSyncConfig {
@@ -339,88 +391,9 @@ impl Default for ShardSyncConfig {
             shard_sync_retry_max_backoff: Duration::from_secs(600),
             max_concurrent_blob_recovery_during_shard_recovery: 5,
             blob_certified_check_interval: Duration::from_secs(60),
+            max_concurrent_metadata_fetch: 10,
+            shard_sync_concurrency: 10,
         }
-    }
-}
-
-/// Sui-specific configuration for Walrus
-#[serde_with::serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SuiConfig {
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme).
-    pub rpc: String,
-    /// Object ID of the Walrus system object.
-    pub system_object: ObjectID,
-    /// Object ID of the Walrus staking object.
-    pub staking_object: ObjectID,
-    /// Object ID of the Walrus package.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub walrus_package: Option<ObjectID>,
-    /// Interval with which events are polled, in milliseconds.
-    #[serde_as(as = "serde_with::DurationMilliSeconds")]
-    #[serde(
-        rename = "event_polling_interval_millis",
-        default = "defaults::polling_interval"
-    )]
-    pub event_polling_interval: Duration,
-    /// Location of the wallet config.
-    #[serde(deserialize_with = "utils::resolve_home_dir")]
-    pub wallet_config: PathBuf,
-    /// The configuration for the backoff strategy used for retries.
-    #[serde(default)]
-    pub backoff_config: ExponentialBackoffConfig,
-    /// Gas budget for transactions.
-    #[serde(default = "defaults::gas_budget")]
-    pub gas_budget: u64,
-}
-
-impl SuiConfig {
-    /// Creates a new [`SuiReadClient`] based on the configuration.
-    pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new_for_rpc(
-            &self.rpc,
-            self.system_object,
-            self.staking_object,
-            self.walrus_package,
-            self.backoff_config.clone(),
-        )
-        .await
-    }
-
-    /// Creates a [`SuiContractClient`] based on the configuration.
-    pub async fn new_contract_client(&self) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(
-            WalletContext::new(&self.wallet_config, None, None)?,
-            self.system_object,
-            self.staking_object,
-            self.walrus_package,
-            self.backoff_config.clone(),
-            self.gas_budget,
-        )
-        .await
-    }
-}
-
-impl LoadConfig for SuiConfig {}
-
-/// Configuration of the event provider.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub enum EventProviderConfig {
-    /// Use the checkpoint-based event processor implemented in `walrus_event`.
-    CheckpointBasedEventProcessor(Option<EventProcessorConfig>),
-    /// Use the legacy event provider based on polling the RPC node for events.
-    LegacyEventProvider,
-}
-
-impl Default for EventProviderConfig {
-    fn default() -> Self {
-        Self::CheckpointBasedEventProcessor(None)
-    }
-}
-
-impl From<EventProcessorConfig> for EventProviderConfig {
-    fn from(value: EventProcessorConfig) -> Self {
-        Self::CheckpointBasedEventProcessor(Some(value))
     }
 }
 
@@ -431,13 +404,12 @@ pub mod defaults {
     use walrus_sui::utils::SuiNetwork;
 
     use super::*;
+    pub use crate::common::config::defaults::{gas_budget, is_default, polling_interval};
 
     /// Default metrics port.
     pub const METRICS_PORT: u16 = 9184;
     /// Default REST API port.
     pub const REST_API_PORT: u16 = 9185;
-    /// Default polling interval in milliseconds.
-    pub const POLLING_INTERVAL_MS: u64 = 400;
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
 
@@ -461,16 +433,6 @@ pub mod defaults {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
     }
 
-    /// Returns the default polling interval.
-    pub fn polling_interval() -> Duration {
-        Duration::from_millis(POLLING_INTERVAL_MS)
-    }
-
-    /// Returns the default gas budget.
-    pub fn gas_budget() -> u64 {
-        500_000_000
-    }
-
     /// Returns the default network ([`SuiNetwork::Devnet`])
     pub fn network() -> SuiNetwork {
         SuiNetwork::Devnet
@@ -490,9 +452,11 @@ pub mod defaults {
         2000
     }
 
-    /// Returns true iff the value is the default.
-    pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
-        t == &T::default()
+    /// Returns true iff the value is `None` and we don't run in test mode.
+    pub fn is_none<T>(t: &Option<T>) -> bool {
+        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
+        // to generate the example configuration files.
+        !cfg!(test) && t.is_none()
     }
 }
 
@@ -618,15 +582,69 @@ where
     }
 }
 
+/// Parameters that allow registering a node with a third party.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeRegistrationParamsForThirdPartyRegistration {
+    /// The node registration parameters.
+    pub node_registration_params: NodeRegistrationParams,
+    /// The proof of possession authorizing the third party to register the node.
+    pub proof_of_possession: ProofOfPossession,
+    /// The wallet address of the node. This is required to send the storage-node capability to the
+    /// node.
+    pub wallet_address: SuiAddress,
+}
+
+impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
+
 #[cfg(test)]
 mod tests {
     use std::{io::Write as _, str::FromStr};
 
+    use indoc::indoc;
+    use rand::{rngs::StdRng, SeedableRng as _};
+    use sui_types::base_types::ObjectID;
     use tempfile::NamedTempFile;
     use walrus_core::test_utils;
+    use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
+
+    /// Serializes a default config to the example file when tests are run.
+    ///
+    /// This test ensures that the `node_config_example.yaml` is kept in sync with the config struct
+    /// in this file.
+    #[test]
+    fn check_and_update_example_config() -> TestResult {
+        const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
+
+        let mut rng = StdRng::seed_from_u64(42);
+        let contract_config = ContractConfig {
+            system_object: ObjectID::random_from_rng(&mut rng),
+            staking_object: ObjectID::random_from_rng(&mut rng),
+        };
+        let config = StorageNodeConfig {
+            sui: Some(SuiConfig {
+                rpc: "https://fullnode.testnet.sui.io:443".to_string(),
+                contract_config,
+                event_polling_interval: defaults::polling_interval(),
+                wallet_config: PathBuf::from("/opt/walrus/config/sui_config.yaml"),
+                backoff_config: Default::default(),
+                gas_budget: defaults::gas_budget(),
+            }),
+            ..Default::default()
+        };
+
+        let serialized = serde_yaml::to_string(&config).unwrap();
+        let configs_are_in_sync = std::fs::read_to_string(EXAMPLE_CONFIG_PATH)? == serialized;
+        std::fs::write(EXAMPLE_CONFIG_PATH, serialized.clone()).unwrap();
+        assert!(
+            configs_are_in_sync,
+            "example configuration was out of sync; was updated automatically"
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn path_or_in_place_parses_value() -> TestResult {
@@ -692,63 +710,89 @@ mod tests {
     }
 
     #[test]
-    fn parses_config_file() -> TestResult {
-        let yaml = "---\n\
-        name: node-1\n\
-        storage_path: target/storage\n\
-        protocol_key_pair:\n  BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj\n\
-        network_key_pair:\n  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY\n\
-        public_host: 31.41.59.26\n\
-        voting_params:
-            storage_price: 5
-            write_price: 1
-            node_capacity: 250000000000";
+    fn parses_minimal_config_file() -> TestResult {
+        let yaml = indoc! {"
+            name: node-1
+            storage_path: target/storage
+            protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
+            network_key_pair: As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
+            public_host: 31.41.59.26
+            public_port: 12345
+            voting_params:
+                storage_price: 5
+                write_price: 1
+                node_capacity: 250000000000
+        "};
 
-        ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?;
-
-        let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+        let config: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+        assert_eq!(
+            config.protocol_key_pair(),
+            &ProtocolKeyPair::from_str("BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj")?
+        );
 
         Ok(())
     }
 
     #[test]
-    fn deserialize_partial_config() -> TestResult {
-        // editorconfig-checker-disable
-        let yaml = "\
-name: node-1
-storage_path: /opt/walrus/db
-db_config:
-  metadata:
-    target_file_size_base: 4194304
-  blob_info:
-    enable_blob_files: false
-  event_cursor:
-    enable_blob_files: false
-  shard:
-    blob_garbage_collection_force_threshold: 0.5
-  shard_status:
-    blob_garbage_collection_age_cutoff: 0.0
-protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
-network_key_pair:  As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
-public_host: node.walrus.space
-metrics_address: 173.199.90.181:9184
-rest_api_address: 173.199.90.181:9185
-sui:
-  rpc: https://fullnode.testnet.sui.io:443
-  system_object: 0x6c957cf363ec968582f24e3e1a638c968cec1fa228999c560ec7925994906315
-  staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
-  event_polling_interval_millis: 400
-  wallet_config: /opt/walrus/config/dryrun-node-1-sui.yaml
-  gas_budget: 500000000
-blob_recovery:
-  invalidity_sync_timeout_secs: 300
-voting_params:
-  storage_price: 5
-  write_price: 1
-  node_capacity: 250000000000
-  ";
-        // editorconfig-checker-enable
+    fn parses_partial_config_file() -> TestResult {
+        let yaml = indoc! {"
+            name: node-1
+            storage_path: /opt/walrus/db
+            db_config:
+                metadata:
+                    target_file_size_base: 4194304
+                default:
+                    blob_compression_type: none
+                    enable_blob_garbage_collection: false
+                optimized_for_blobs:
+                    enable_blob_files: true
+                    min_blob_size: 0
+                    blob_file_size: 1000
+                blob_info:
+                    enable_blob_files: false
+                event_cursor:
+                    enable_blob_files: false
+                shard:
+                    blob_garbage_collection_force_threshold: 0.5
+                shard_status:
+                    blob_garbage_collection_age_cutoff: 0.0
+            protocol_key_pair: BBlm7tRefoPuaKoVoxVtnUBBDCfy+BGPREM8B6oSkOEj
+            network_key_pair: As5tqQFRGrjPSvcZeKfBX98NwDuCUtZyJdzWR2bUn0oY
+            public_host: node.walrus.space
+            public_port: 9185
+            metrics_address: 173.199.90.181:9184
+            rest_api_address: 173.199.90.181:9185
+            sui:
+                rpc: https://fullnode.testnet.sui.io:443
+                system_object: 0x6c957cf363ec968582f24e3e1a638c968cec1fa228999c560ec7925994906315
+                staking_object: 0x2be0418db0dc7b07fe4c32bf80e250b8993cef130ce8c51ad8f12aa91def42df
+                event_polling_interval_millis: 400
+                wallet_config: /opt/walrus/config/dryrun-node-1-sui.yaml
+                gas_budget: 500000000
+                backoff_config:
+                    min_backoff_millis: 1000
+            blob_recovery:
+                invalidity_sync_timeout_secs: 300
+            voting_params:
+                storage_price: 5
+                write_price: 1
+                node_capacity: 250000000000
+            tls:
+                disable_tls: true
+            shard_sync_config:
+                sliver_count_per_sync_request: 10
+                shard_sync_retry_min_backoff_secs: 60
+            event_processor_config:
+                pruning_interval_secs: 3600
+                adaptive_downloader_config:
+                    max_workers: 5
+                    scale_down_lag_threshold: 10
+                    base_config:
+                        max_delay_millis: 1000
+        "};
+
         let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+
         Ok(())
     }
 }

@@ -10,11 +10,13 @@ use std::{
     sync::{Arc, RwLock, TryLockError},
 };
 
-use blob_info::BlobInfoIterator;
+use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
+use event_cursor_table::EventIdWithProgress;
 use itertools::Itertools;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
+use sui_types::base_types::ObjectID;
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
@@ -30,7 +32,7 @@ use walrus_core::{
 use walrus_sui::types::BlobEvent;
 
 use self::{
-    blob_info::{BlobInfo, BlobInfoApi, BlobInfoMergeOperand, BlobInfoTable},
+    blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
     event_cursor_table::EventCursorTable,
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
@@ -59,17 +61,20 @@ pub struct WouldBlockError;
 //          \          /            \      |
 //           v        v              \     v
 //          RecoverMetadata  -------> Active
+//
+// Important: this enum is committed to database. Do not modify the existing fields. Only add new
+// fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NodeStatus {
-    /// The node is in recovery mode and syncing metadata.
+    /// The node is up-to-date with events but not a committee member.
     Standby,
-    /// The node is active and processing events.
+    /// The node is a committee member and up-to-date with events.
     Active,
     /// The node is in recovery mode and syncing metadata.
     RecoverMetadata,
     /// The node is in recovery mode and catching up with the chain.
     RecoveryCatchUp,
-    /// The node is in recovery mode and processing events.
+    /// The node is in recovery mode and recovering missing slivers.
     RecoveryInProgress(Epoch),
 }
 
@@ -77,11 +82,11 @@ impl NodeStatus {
     /// Used to convert `NodeStatus` to `i64` for metrics.
     pub fn to_i64(&self) -> i64 {
         match self {
-            NodeStatus::Active => 0,
-            NodeStatus::RecoveryCatchUp => 1,
-            NodeStatus::RecoveryInProgress(_) => 2,
-            NodeStatus::RecoverMetadata => 3,
-            NodeStatus::Standby => 4,
+            NodeStatus::Standby => 0,
+            NodeStatus::Active => 1,
+            NodeStatus::RecoverMetadata => 2,
+            NodeStatus::RecoveryCatchUp => 3,
+            NodeStatus::RecoveryInProgress(_) => 4,
         }
     }
 }
@@ -89,11 +94,11 @@ impl NodeStatus {
 impl Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            NodeStatus::Standby => write!(f, "Standby"),
             NodeStatus::Active => write!(f, "Active"),
+            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
             NodeStatus::RecoveryCatchUp => write!(f, "RecoveryCatchUp"),
             NodeStatus::RecoveryInProgress(epoch) => write!(f, "RecoveryInProgress ({epoch})"),
-            NodeStatus::RecoverMetadata => write!(f, "RecoverMetadata"),
-            NodeStatus::Standby => write!(f, "Standby"),
         }
     }
 }
@@ -325,6 +330,28 @@ impl Storage {
         Ok(status_list)
     }
 
+    /// Store the verified metadata without updating blob info. This is only
+    /// used during storing metadata for event blobs which are stored without getting registered
+    /// first.
+    #[tracing::instrument(skip_all)]
+    pub fn put_verified_metadata_without_blob_info(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<(), TypedStoreError> {
+        self.metadata
+            .insert(metadata.blob_id(), metadata.metadata())
+    }
+
+    /// Store the metadata without updating blob info. This is only used during storing metadata for
+    /// event blobs which are stored without getting registered first.
+    #[tracing::instrument(skip_all)]
+    pub fn update_blob_info_with_metadata(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+        let mut batch = self.metadata.batch();
+        self.blob_info
+            .set_metadata_stored(&mut batch, blob_id, true)?;
+        batch.write()
+    }
+
     /// Store the verified metadata.
     #[tracing::instrument(skip_all)]
     pub fn put_verified_metadata(
@@ -341,11 +368,8 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
         batch.insert_batch(&self.metadata, [(blob_id, metadata)])?;
-        self.blob_info.merge_blob_info_batch(
-            &mut batch,
-            blob_id,
-            &BlobInfoMergeOperand::MarkMetadataStored(true),
-        )?;
+        self.blob_info
+            .set_metadata_stored(&mut batch, blob_id, true)?;
         batch.write()
     }
 
@@ -355,11 +379,19 @@ impl Storage {
         self.blob_info.get(blob_id)
     }
 
+    /// Returns the per-object blob info for `object_id`.
+    pub(crate) fn get_per_object_info(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Option<PerObjectBlobInfo>, TypedStoreError> {
+        self.blob_info.get_per_object_info(object_id)
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
         &self,
-    ) -> Result<Option<(EventID, u64)>, TypedStoreError> {
+    ) -> Result<Option<EventIdWithProgress>, TypedStoreError> {
         self.event_cursor.get_event_cursor_and_next_index()
     }
 
@@ -371,10 +403,20 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub fn update_blob_info(
         &self,
-        event_index: usize,
+        event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
         self.blob_info.update_blob_info(event_index, event)
+    }
+
+    /// Repositions the event cursor to the specified event index.
+    pub(crate) fn reposition_event_cursor(
+        &self,
+        event_index: u64,
+        cursor: EventID,
+    ) -> Result<(), TypedStoreError> {
+        self.event_cursor
+            .reposition_event_cursor(cursor, event_index)
     }
 
     /// Advances the event cursor to the most recent, sequential event observed.
@@ -390,7 +432,7 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub(crate) fn maybe_advance_event_cursor(
         &self,
-        event_index: usize,
+        event_index: u64,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
         self.event_cursor
@@ -423,19 +465,12 @@ impl Storage {
             .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
-    /// Deletes the provided [`BlobId`] from the storage.
+    /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
     #[tracing::instrument(skip_all)]
-    pub fn delete_blob(
-        &self,
-        blob_id: &BlobId,
-        delete_blob_info: bool,
-    ) -> Result<(), TypedStoreError> {
+    pub fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
-        self.delete_metadata(&mut batch, blob_id, !delete_blob_info)?;
+        self.delete_metadata(&mut batch, blob_id, true)?;
         self.delete_slivers(&mut batch, blob_id)?;
-        if delete_blob_info {
-            self.blob_info.delete(&mut batch, blob_id)?;
-        }
         batch.write()?;
         Ok(())
     }
@@ -449,11 +484,7 @@ impl Storage {
     ) -> Result<(), TypedStoreError> {
         batch.delete_batch(&self.metadata, [blob_id])?;
         if update_blob_info {
-            self.blob_info.merge_blob_info_batch(
-                batch,
-                blob_id,
-                &BlobInfoMergeOperand::MarkMetadataStored(false),
-            )?;
+            self.blob_info.set_metadata_stored(batch, blob_id, false)?;
         }
         Ok(())
     }
@@ -499,14 +530,14 @@ impl Storage {
     fn node_status_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
         (
             Self::NODE_STATUS_COLUMN_FAMILY_NAME,
-            db_config.node_status.to_options(),
+            db_config.node_status().to_options(),
         )
     }
 
     fn metadata_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
         (
             Self::METADATA_COLUMN_FAMILY_NAME,
-            db_config.metadata.to_options(),
+            db_config.metadata().to_options(),
         )
     }
 
@@ -603,6 +634,7 @@ pub(crate) mod tests {
 
     use blob_info::{
         BlobCertificationStatus,
+        BlobInfoMergeOperand,
         BlobInfoV1,
         BlobStatusChangeType,
         PermanentBlobInfoV1,
@@ -890,8 +922,8 @@ pub(crate) mod tests {
         ]
     }
     async fn maybe_advance_event_cursor_order(
-        sequence_ids: &[usize],
-        expected_sequence: &[usize],
+        sequence_ids: &[u64],
+        expected_sequence: &[u64],
     ) -> TestResult {
         let storage = empty_storage();
         let storage = storage.as_ref();
@@ -908,7 +940,7 @@ pub(crate) mod tests {
             assert_eq!(
                 storage
                     .get_event_cursor_and_next_index()?
-                    .map(|(event_id, _)| event_id),
+                    .map(|e| e.event_id()),
                 Some(cursor_lookup[expected_observed])
             );
         }

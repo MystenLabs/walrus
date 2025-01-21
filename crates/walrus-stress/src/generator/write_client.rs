@@ -61,14 +61,16 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blob(
-                blob,
+            .reserve_and_store_blobs(
+                &[blob],
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
             .await?
+            .first()
+            .expect("should have one blob store result")
             .blob_id()
             .to_owned();
         let elapsed = now.elapsed();
@@ -118,12 +120,13 @@ impl WriteClient {
         let n_shards = self.client.as_ref().encoding_config().n_shards();
 
         // Make primary sliver 0 inconsistent.
-        metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
+        metadata.mut_inner().hashes[0].primary_hash = Node::Digest([0; 32]);
         // If the committee has 7 members, make a second sliver inconsistent.
         if n_members >= 7 {
             // Sliver `n_shards/2` will be held by a different node if the shards are assigned
             // sequentially.
-            metadata.hashes[(n_shards.get() / 2) as usize].primary_hash = Node::Digest([0; 32]);
+            metadata.mut_inner().hashes[(n_shards.get() / 2) as usize].primary_hash =
+                Node::Digest([0; 32]);
         }
 
         let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
@@ -143,12 +146,15 @@ impl WriteClient {
             .resource_manager()
             .await
             .get_existing_or_register(
-                &metadata,
+                &[&metadata],
                 epochs,
                 BlobPersistence::Permanent,
                 StoreWhen::NotStored,
             )
-            .await?;
+            .await?
+            .into_iter()
+            .next()
+            .expect("should register exactly one blob");
 
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -157,13 +163,17 @@ impl WriteClient {
         let certificate = self
             .client
             .as_ref()
-            .send_blob_data_and_get_certificate(&metadata, &pairs)
+            .send_blob_data_and_get_certificate(
+                &metadata,
+                &pairs,
+                &blob_sui_object.blob_persistence_type(),
+            )
             .await?;
 
         self.client
             .as_ref()
             .sui_client()
-            .certify_blob(blob_sui_object, &certificate, PostStoreAction::Burn)
+            .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
             .await?;
         Ok(blob_id)
     }

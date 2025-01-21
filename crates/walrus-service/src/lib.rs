@@ -12,8 +12,11 @@ pub mod node;
 #[cfg(feature = "deploy")]
 pub mod testbed;
 
+#[cfg(feature = "backup")]
+pub mod backup;
+
 #[cfg(any(feature = "client", feature = "node"))]
-pub(crate) mod common;
+pub mod common;
 #[cfg(any(feature = "client", feature = "node"))]
 pub use common::utils;
 

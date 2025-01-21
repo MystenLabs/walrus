@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
@@ -25,8 +25,9 @@ use sui_sdk::{
     SuiClient,
 };
 use sui_types::{
-    base_types::{ObjectRef, ObjectType, SuiAddress},
+    base_types::{ObjectRef, SuiAddress},
     crypto::SignatureScheme,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{ProgrammableTransaction, TransactionData},
 };
 use walrus_core::{
@@ -40,7 +41,6 @@ use walrus_core::{
 use crate::{
     client::{SuiClientResult, SuiContractClient},
     contracts::AssociatedContractStruct,
-    types::NodeRegistrationParams,
 };
 
 // Keep in sync with the same constant in `contracts/walrus/sources/system/system_state_inner.move`.
@@ -82,11 +82,16 @@ pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: 
     storage_units_from_size(encoded_length) * price_per_unit_size
 }
 
+/// Gets the package address from an object response.
+///
+/// Note: This returns the package address from the object type, not the newest package ID.
 pub(crate) fn get_package_id_from_object_response(
     object_response: &SuiObjectResponse,
 ) -> Result<ObjectID> {
-    let ObjectType::Struct(move_object_type) = object_response.object()?.object_type()? else {
-        bail!("response does not contain a move struct object");
+    let sui_types::base_types::ObjectType::Struct(move_object_type) =
+        object_response.object()?.object_type()?
+    else {
+        anyhow::bail!("response does not contain a move struct object");
     };
     Ok(move_object_type.address().into())
 }
@@ -398,17 +403,63 @@ pub async fn request_sui_from_faucet(
     Ok(())
 }
 
+/// Gets 1 SUI for `address` from the provided wallet if the wallet has at least 2 SUI, otherwise
+/// request SUI from the faucet.
+// TODO(WAL-529): Refactor and completely remove the faucet from the deploymentflow.
+pub async fn get_sui_from_wallet_or_faucet(
+    address: SuiAddress,
+    wallet: &mut WalletContext,
+    network: &SuiNetwork,
+) -> Result<()> {
+    let one_sui = 1_000_000_000;
+    let sender = wallet.active_address()?;
+    let balance = wallet
+        .get_client()
+        .await?
+        .coin_read_api()
+        .get_balance(sender, None)
+        .await?;
+    if balance.total_balance >= 3 * one_sui as u128 {
+        let mut ptb = ProgrammableTransactionBuilder::new();
+        ptb.transfer_sui(address, Some(one_sui));
+        let tx = ptb.finish();
+        let gas_budget = one_sui / 2;
+        let gas_coins = wallet
+            .get_client()
+            .await?
+            .coin_read_api()
+            .select_coins(sender, None, (gas_budget + one_sui) as u128, vec![])
+            .await?
+            .iter()
+            .map(|coin| coin.object_ref())
+            .collect();
+        sign_and_send_ptb(sender, wallet, tx, gas_coins, gas_budget).await?;
+        Ok(())
+    } else {
+        request_sui_from_faucet(address, network, &wallet.get_client().await?).await?;
+        Ok(())
+    }
+}
+
 /// Generate a proof of possession of node private key for a storage node.
 pub fn generate_proof_of_possession(
     bls_sk: &ProtocolKeyPair,
     contract_client: &SuiContractClient,
-    registration_params: &NodeRegistrationParams,
     current_epoch: Epoch,
 ) -> SignedMessage<ProofOfPossessionMsg> {
-    let sui_address = contract_client.address().to_inner();
+    generate_proof_of_possession_for_address(bls_sk, contract_client.address(), current_epoch)
+}
+
+/// Generate a proof of possession of node private key for a storage node with an explicitly
+/// specified Sui address.
+pub fn generate_proof_of_possession_for_address(
+    bls_sk: &ProtocolKeyPair,
+    sui_address: SuiAddress,
+    current_epoch: Epoch,
+) -> SignedMessage<ProofOfPossessionMsg> {
     bls_sk.sign_message(&ProofOfPossessionMsg::new(
         current_epoch,
-        sui_address,
-        registration_params.public_key.clone(),
+        sui_address.to_inner(),
+        bls_sk.public().clone(),
     ))
 }

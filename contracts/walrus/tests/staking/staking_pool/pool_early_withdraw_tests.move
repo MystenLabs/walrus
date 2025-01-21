@@ -34,7 +34,7 @@ fun withdraw_before_activation_before_committee_selection() {
     assert_eq!(sw1.activation_epoch(), E1);
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
 
-    let balance = pool.withdraw_stake(sw1, &wctx);
+    let balance = pool.withdraw_stake(sw1, true, false, &wctx);
     assert_eq!(balance.destroy_for_testing(), 1000);
     assert_eq!(pool.wal_balance_at_epoch(E1), 0);
 
@@ -57,7 +57,7 @@ fun withdraw_processing_at_different_epochs() {
     let alice = pool.stake(mint_balance(1000), &wctx, ctx);
     assert_eq!(alice.activation_epoch(), E1);
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
-    let balance = pool.withdraw_stake(alice, &wctx);
+    let balance = pool.withdraw_stake(alice, true, false, &wctx);
     assert_eq!(balance.destroy_for_testing(), 1000);
     assert_eq!(pool.wal_balance_at_epoch(E1), 0);
 
@@ -69,10 +69,9 @@ fun withdraw_processing_at_different_epochs() {
     let (wctx, ctx) = test.select_committee();
 
     // Bob requests withdrawal after committee selection
-    pool.request_withdraw_stake(&mut bob, &wctx);
+    pool.request_withdraw_stake(&mut bob, true, true, &wctx);
     assert!(bob.activation_epoch() > wctx.epoch());
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
-    assert!(bob.pool_token_amount().is_none());
     assert_eq!(bob.withdraw_epoch(), E2);
 
     // Charlie stakes after committee selection, stake applied E+2
@@ -86,28 +85,27 @@ fun withdraw_processing_at_different_epochs() {
     // E1: Charlie withdraws his stake directly, without requesting
     let (wctx, _ctx) = test.next_epoch();
     pool.advance_epoch(mint_balance(0), &wctx);
-    let balance = pool.withdraw_stake(charlie, &wctx);
+    let balance = pool.withdraw_stake(charlie, true, false, &wctx);
     assert_eq!(balance.destroy_for_testing(), 1000);
 
     // E1': Dave requests withdrawal
     let (wctx, _ctx) = test.select_committee();
-    pool.request_withdraw_stake(&mut dave, &wctx);
+    pool.request_withdraw_stake(&mut dave, true, true, &wctx);
     assert_eq!(dave.activation_epoch(), E2);
     assert_eq!(dave.withdraw_epoch(), E3);
-    assert!(dave.pool_token_amount().is_none());
 
     // E2: Bob withdraws his stake
     let (wctx, _ctx) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
 
-    let balance = pool.withdraw_stake(bob, &wctx);
+    let balance = pool.withdraw_stake(bob, true, false, &wctx);
     assert_eq!(balance.destroy_for_testing(), 2000); // 1000 + rewards
 
     // E3: Dave withdraws his stake
     let (wctx, _ctx) = test.next_epoch();
     pool.advance_epoch(mint_balance(1000), &wctx);
 
-    let balance = pool.withdraw_stake(dave, &wctx);
+    let balance = pool.withdraw_stake(dave, true, false, &wctx);
     assert_eq!(balance.destroy_for_testing(), 2000); // 1000 + rewards
 
     // empty wal balance but not empty pool tokens
@@ -133,9 +131,9 @@ fun request_withdraw_after_committee_selection() {
     assert_eq!(sw1.activation_epoch(), E1);
 
     let (wctx, _ctx) = test.select_committee();
-    let _ = pool.withdraw_stake(sw1, &wctx).destroy_for_testing();
+    let _ = pool.withdraw_stake(sw1, true, true, &wctx).destroy_for_testing();
 
-    destroy(pool);
+    abort
 }
 
 #[test, expected_failure(abort_code = walrus::staking_pool::EWithdrawDirectly)]
@@ -153,10 +151,9 @@ fun request_withdraw_when_can_withdraw_directly() {
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
     assert_eq!(sw1.activation_epoch(), E1);
 
-    pool.request_withdraw_stake(&mut sw1, &wctx);
+    pool.request_withdraw_stake(&mut sw1, true, false, &wctx);
 
-    destroy(pool);
-    destroy(sw1);
+    abort
 }
 
 #[test]
@@ -173,7 +170,7 @@ fun request_withdraw_can_withdraw_directly() {
     assert_eq!(pool.wal_balance_at_epoch(E1), 1000);
     assert_eq!(sw1.activation_epoch(), E1);
 
-    let balance = pool.withdraw_stake(sw1, &wctx);
+    let balance = pool.withdraw_stake(sw1, true, false, &wctx);
     assert_eq!(balance.destroy_for_testing(), 1000);
 
     destroy(pool);

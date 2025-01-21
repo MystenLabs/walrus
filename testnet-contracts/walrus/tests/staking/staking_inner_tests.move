@@ -4,7 +4,7 @@
 module walrus::staking_inner_tests;
 
 use std::unit_test::assert_eq;
-use sui::{balance, clock, test_utils::destroy};
+use sui::{clock, test_utils::destroy, vec_map};
 use walrus::{staking_inner, storage_node, test_utils as test};
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -65,7 +65,7 @@ fun test_staking_active_set() {
 
     // trigger `advance_epoch` to update the committee
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     // we expect:
     // - all 3 pools have been advanced
@@ -86,7 +86,11 @@ fun test_parameter_changes() {
     let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
 
     // register the pool in the `StakingInnerV1`.
-    let pool_id = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_id = test::pool()
+        .commission_rate(0)
+        .name(b"pool_1".to_string())
+        .register(&mut staking, ctx);
+
     let cap = storage_node::new_cap(pool_id, ctx);
 
     staking.set_next_commission(&cap, 10000);
@@ -98,10 +102,14 @@ fun test_parameter_changes() {
     // TODO: this should be triggered via a system api
     staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(1, false));
 
-    assert!(staking[pool_id].storage_price() == 100000000);
-    assert!(staking[pool_id].write_price() == 100000000);
-    assert!(staking[pool_id].node_capacity() == 10000000000000);
-    assert!(staking[pool_id].commission_rate() == 10000);
+    assert_eq!(staking[pool_id].storage_price(), 100000000);
+    assert_eq!(staking[pool_id].write_price(), 100000000);
+    assert_eq!(staking[pool_id].node_capacity(), 10000000000000);
+    assert_eq!(staking[pool_id].commission_rate(), 0); // still old commission rate
+
+    staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(2, false));
+
+    assert_eq!(staking[pool_id].commission_rate(), 10000); // new commission rate
 
     destroy(staking);
     destroy(cap);
@@ -124,7 +132,7 @@ fun test_epoch_sync_done() {
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(EPOCH_DURATION);
 
@@ -165,7 +173,7 @@ fun test_epoch_sync_done_duplicate() {
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
     let epoch = staking.epoch();
@@ -199,7 +207,7 @@ fun test_epoch_sync_wrong_epoch() {
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee();
-    staking.advance_epoch(balance::create_for_testing(1000));
+    staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
 
@@ -231,8 +239,8 @@ fun test_dhondt_basic() {
     dhondt_case(1000, stake, vector[250, 250, 250, 250]);
     // uneven
     let stake = vector[50000, 30000, 15000, 5000];
-    dhondt_case(4, stake, vector[3, 1, 0, 0]);
-    dhondt_case(777, stake, vector[390, 233, 116, 38]);
+    dhondt_case(4, stake, vector[2, 2, 0, 0]);
+    dhondt_case(777, stake, vector[389, 234, 116, 38]);
     dhondt_case(1000, stake, vector[500, 300, 150, 50]);
     // uneven+even
     let stake = vector[50000, 50000, 30000, 15000, 15000, 5000];
@@ -264,7 +272,7 @@ fun test_dhondt_edge_case() {
     dhondt_case(0, stake, vector[0, 0, 0]);
     // low stake
     let stake = vector[1, 0, 0];
-    dhondt_case(5, stake, vector[5, 0, 0]);
+    dhondt_case(5, stake, vector[4, 1, 0]);
     // nearly identical stake
     let s = 1_000_000;
     let stake = vector[s, s - 1];
@@ -298,6 +306,26 @@ fun test_larger_dhondt_inputs_100_nodes_fixed_stake() {
     });
     assert_eq!(stake_basis_points.sum!(), 10_000);
     larger_dhondt_inputs(stake_basis_points)
+}
+
+#[test]
+fun test_dhondt_without_max_shards() {
+    let stakes = vector[600, 100, 200, 100];
+    let expected = vector[500, 125, 250, 125];
+    dhondt_case(1000, stakes, expected);
+}
+
+#[test]
+fun test_dhondt_with_max_shards() {
+    let stakes = vector::tabulate!(21, |i| {
+        if (i == 5) 200
+        else 20
+    });
+    let expected = vector::tabulate!(21, |i| {
+        if (i == 5) 100
+        else 45
+    });
+    dhondt_case(1000, stakes, expected);
 }
 
 #[test]

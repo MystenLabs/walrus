@@ -19,11 +19,13 @@ const ENotCertified: u64 = 0;
 const EBlobNotDeletable: u64 = 1;
 const EResourceBounds: u64 = 2;
 const EResourceSize: u64 = 3;
-const EWrongEpoch: u64 = 4;
+// const EWrongEpoch: u64 = 4;
 const EAlreadyCertified: u64 = 5;
 const EInvalidBlobId: u64 = 6;
 const EDuplicateMetadata: u64 = 7;
 const EMissingMetadata: u64 = 8;
+const EInvalidBlobPersistenceType: u64 = 9;
+const EInvalidBlobObject: u64 = 10;
 
 // The fixed dynamic filed name for metadata
 const METADATA_DF: vector<u8> = b"metadata";
@@ -46,6 +48,10 @@ public struct Blob has key, store {
 }
 
 // === Accessors ===
+
+public fun object_id(self: &Blob): ID {
+    object::id(self)
+}
 
 public fun registered_epoch(self: &Blob): u32 {
     self.registered_epoch
@@ -103,7 +109,7 @@ public struct BlobIdDerivation has drop {
 }
 
 /// Derives the blob_id for a blob given the root_hash, encoding_type and size.
-public(package) fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
+public fun derive_blob_id(root_hash: u256, encoding_type: u8, size: u64): u256 {
     let blob_id_struct = BlobIdDerivation {
         encoding_type,
         size,
@@ -186,14 +192,25 @@ public(package) fun certify_with_certified_msg(
     // Check that the blob is not already certified
     assert!(!blob.certified_epoch.is_some(), EAlreadyCertified);
 
-    // Check that the message is from the current epoch
-    assert!(message.certified_epoch() == current_epoch, EWrongEpoch);
-
     // Check that the storage in the blob is still valid
-    assert!(message.certified_epoch() < blob.storage.end_epoch(), EResourceBounds);
+    assert!(current_epoch < blob.storage.end_epoch(), EResourceBounds);
+
+    // Check the blob persistence type
+    assert!(
+        blob.deletable == message.blob_persistence_type().is_deletable(),
+        EInvalidBlobPersistenceType,
+    );
+
+    // Check that the object id matches the message
+    if (blob.deletable) {
+        assert!(
+            message.blob_persistence_type().object_id() == object::id(blob),
+            EInvalidBlobObject,
+        );
+    };
 
     // Mark the blob as certified
-    blob.certified_epoch.fill(message.certified_epoch());
+    blob.certified_epoch.fill(current_epoch);
 
     blob.emit_certified(false);
 }
@@ -202,7 +219,9 @@ public(package) fun certify_with_certified_msg(
 ///
 /// Emits a `BlobDeleted` event for the given epoch.
 /// Aborts if the Blob is not deletable or already expired.
-public(package) fun delete(self: Blob, epoch: u32): Storage {
+/// Also removes any metadata associated with the blob.
+public(package) fun delete(mut self: Blob, epoch: u32): Storage {
+    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
     let Blob {
         id,
         storage,
@@ -224,8 +243,11 @@ public(package) fun delete(self: Blob, epoch: u32): Storage {
 public use fun walrus::shared_blob::new as Blob.share;
 
 /// Allow the owner of a blob object to destroy it.
-public fun burn(blob: Blob) {
-    let Blob { id, storage, .. } = blob;
+///
+/// This function also burns any [`Metadata`] associated with the blob, if present.
+public fun burn(mut self: Blob) {
+    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+    let Blob { id, storage, .. } = self;
 
     id.delete();
     storage.destroy();
@@ -306,4 +328,13 @@ public fun insert_or_update_metadata_pair(self: &mut Blob, key: String, value: S
 /// Aborts if the metadata does not exist.
 public fun remove_metadata_pair(self: &mut Blob, key: &String): (String, String) {
     self.metadata().remove(key)
+}
+
+#[test_only]
+public fun certify_with_certified_msg_for_testing(
+    blob: &mut Blob,
+    current_epoch: u32,
+    message: CertifiedBlobMessage,
+) {
+    certify_with_certified_msg(blob, current_epoch, message)
 }

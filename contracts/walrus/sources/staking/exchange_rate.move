@@ -15,9 +15,9 @@ public enum PoolExchangeRate has copy, drop, store {
     Variable {
         /// Amount of staked WAL tokens + rewards.
         wal_amount: u128,
-        /// Amount of total tokens in the pool (<= wal_amount, as long as slashing is not
+        /// Amount of total shares in the pool (<= wal_amount, as long as slashing is not
         /// implemented).
-        pool_token_amount: u128,
+        share_amount: u128,
     },
 }
 
@@ -27,15 +27,15 @@ public(package) fun flat(): PoolExchangeRate {
 }
 
 /// Create a new exchange rate with the given amounts.
-public(package) fun new(wal_amount: u64, pool_token_amount: u64): PoolExchangeRate {
+public(package) fun new(wal_amount: u64, share_amount: u64): PoolExchangeRate {
     // pool_token_amount <= wal_amount as long as slashing is not implemented.
-    assert!(pool_token_amount <= wal_amount, EInvalidRate);
+    assert!(share_amount <= wal_amount, EInvalidRate);
     match (wal_amount) {
         0 => PoolExchangeRate::Flat,
         _ => {
             PoolExchangeRate::Variable {
                 wal_amount: (wal_amount as u128),
-                pool_token_amount: (pool_token_amount as u128),
+                share_amount: (share_amount as u128),
             }
         },
     }
@@ -46,9 +46,9 @@ public(package) fun new(wal_amount: u64, pool_token_amount: u64): PoolExchangeRa
 public(package) fun convert_to_wal_amount(exchange_rate: &PoolExchangeRate, amount: u64): u64 {
     match (exchange_rate) {
         PoolExchangeRate::Flat => amount,
-        PoolExchangeRate::Variable { wal_amount, pool_token_amount } => {
+        PoolExchangeRate::Variable { wal_amount, share_amount } => {
             let amount = (amount as u128);
-            let res = (amount * *wal_amount) / *pool_token_amount;
+            let res = (amount * *wal_amount) / *share_amount;
             res as u64
         },
     }
@@ -56,12 +56,12 @@ public(package) fun convert_to_wal_amount(exchange_rate: &PoolExchangeRate, amou
 
 /// Assumptions:
 /// - amount is at most the amount of WAL in the pool
-public(package) fun convert_to_token_amount(exchange_rate: &PoolExchangeRate, amount: u64): u64 {
+public(package) fun convert_to_share_amount(exchange_rate: &PoolExchangeRate, amount: u64): u64 {
     match (exchange_rate) {
         PoolExchangeRate::Flat => amount,
-        PoolExchangeRate::Variable { wal_amount, pool_token_amount } => {
+        PoolExchangeRate::Variable { wal_amount, share_amount } => {
             let amount = (amount as u128);
-            let res = (amount * *pool_token_amount) / *wal_amount;
+            let res = (amount * *share_amount) / *wal_amount;
             res as u64
         },
     }

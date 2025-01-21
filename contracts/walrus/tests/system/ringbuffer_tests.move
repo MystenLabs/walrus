@@ -4,10 +4,11 @@
 #[test_only]
 module walrus::ringbuffer_tests;
 
+use sui::test_utils::destroy;
 use walrus::storage_accounting::{Self as sa, FutureAccountingRingBuffer};
 
 #[test]
-public fun test_basic_ring_buffer(): FutureAccountingRingBuffer {
+public fun test_basic_ring_buffer() {
     let mut buffer: FutureAccountingRingBuffer = sa::ring_new(3);
 
     assert!(sa::epoch(sa::ring_lookup_mut(&mut buffer, 0)) == 0, 100);
@@ -26,14 +27,14 @@ public fun test_basic_ring_buffer(): FutureAccountingRingBuffer {
     assert!(sa::epoch(sa::ring_lookup_mut(&mut buffer, 1)) == 3, 100);
     assert!(sa::epoch(sa::ring_lookup_mut(&mut buffer, 2)) == 4, 100);
 
-    buffer
+    destroy(buffer)
 }
 
 #[test, expected_failure(abort_code = sa::ETooFarInFuture)]
-public fun test_oob_fail_ring_buffer(): FutureAccountingRingBuffer {
+public fun test_oob_fail_ring_buffer() {
     let mut buffer: FutureAccountingRingBuffer = sa::ring_new(3);
 
     sa::epoch(sa::ring_lookup_mut(&mut buffer, 3));
 
-    buffer
+    abort
 }

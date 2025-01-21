@@ -3,14 +3,20 @@
 
 //! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
 
-use std::{num::NonZeroU16, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroU16,
+    path::PathBuf,
+    time::Duration,
+};
 
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::Primary,
     merkle::Node,
-    metadata::VerifiedBlobMetadataWithId,
+    messages::BlobPersistenceType,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     EpochCount,
     SliverPairIndex,
@@ -20,6 +26,7 @@ use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     client::{
         responses::BlobStoreResult,
+        Blocklist,
         ClientCommunicationConfig,
         ClientError,
         ClientErrorKind::{
@@ -30,13 +37,12 @@ use walrus_service::{
             NotEnoughSlivers,
         },
         StoreWhen,
-        WalrusWriteClient,
     },
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
-    types::{BlobEvent, ContractEvent},
+    types::{move_structs::SharedBlob, BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -46,6 +52,7 @@ async_param_test! {
     test_store_and_read_blob_without_failures : [
         empty: (0),
         one_byte: (1),
+        large_byte: (30000),
     ]
 }
 async fn test_store_and_read_blob_without_failures(blob_size: usize) {
@@ -76,7 +83,7 @@ async fn test_store_and_read_blob_with_crash_failures(
     failed_shards_read: &[usize],
     expected_errors: &[ClientErrorKind],
 ) {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let result =
         run_store_and_read_with_crash_failures(failed_shards_write, failed_shards_read, 31415)
             .await;
@@ -119,38 +126,41 @@ async fn run_store_and_read_with_crash_failures(
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
-    // Store a blob and get confirmations from each node.
-    let blob = walrus_test_utils::random_data(data_length);
-    let BlobStoreResult::NewlyCreated {
-        blob_object: blob_confirmation,
-        ..
-    } = client
+    // Store a list of blobs and get confirmations from each node.
+    let blob_data = walrus_test_utils::random_data_list(data_length, 4);
+    let blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = blob_data
+        .iter()
+        .enumerate()
+        .map(|(i, blob)| (PathBuf::from(format!("path_{i}")), blob.to_vec()))
+        .collect();
+    let original_blobs: HashMap<PathBuf, Vec<u8>> = blobs_with_paths
+        .iter()
+        .map(|(path, blob)| (path.clone(), blob.clone()))
+        .collect();
+
+    let store_result = client
         .as_ref()
-        .reserve_and_store_blob(
-            &blob,
+        .reserve_and_store_blobs_retry_epoch_with_path(
+            &blobs_with_paths,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?
-    else {
-        panic!("expect newly stored blob")
-    };
+        .await?;
 
     // Stop the nodes in the read failure set.
     failed_shards_read
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
-    // Read the blob.
-    let read_blob = client
-        .as_ref()
-        .read_blob::<Primary>(&blob_confirmation.blob_id)
-        .await?;
-
-    assert_eq!(read_blob, blob);
-
+    for result in store_result.into_iter() {
+        let read = client
+            .as_ref()
+            .read_blob::<Primary>(result.blob_store_result.blob_id())
+            .await?;
+        assert_eq!(read, original_blobs[&result.path]);
+    }
     Ok(())
 }
 
@@ -163,14 +173,19 @@ async_param_test! {
         f_failures: (&[4]),
     ]
 }
-/// Stores a blob that is inconsistent in shard 1
-async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+/// Stores a blob that is inconsistent in 1 shard
+async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, mut cluster, mut client) = test_cluster::default_setup().await?;
 
     // Store a blob and get confirmations from each node.
     let blob = walrus_test_utils::random_data(31415);
+
+    // Find the shards of the failed nodes.
+    let failed_node_names: Vec<String> =
+        failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
+    let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names).await;
 
     // Encode the blob with false metadata for one shard.
     let (pairs, metadata) = client
@@ -179,7 +194,20 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .get_blob_encoder(&blob)?
         .encode_with_metadata();
     let mut metadata = metadata.metadata().to_owned();
-    metadata.hashes[1].primary_hash = Node::Digest([0; 32]);
+    let mut i = 0;
+    // Change a shard that is not in the failure set. Since the mapping of slivers to shards
+    // depends on the blob id, we need to search for an invalid hash for which the modified shard
+    // is not in the failure set.
+    loop {
+        metadata.mut_inner().hashes[1].primary_hash = Node::Digest([i; 32]);
+        let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+        if !shards_of_failed_nodes.contains(
+            &SliverPairIndex::new(1).to_shard_index(NonZeroU16::new(13).unwrap(), &blob_id),
+        ) {
+            break;
+        }
+        i += 1;
+    }
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
@@ -193,28 +221,31 @@ async fn test_inconsistency(failed_shards: &[usize]) -> TestResult {
         .resource_manager()
         .await
         .get_existing_or_register(
-            &metadata,
+            &[&metadata],
             1,
             BlobPersistence::Permanent,
             StoreWhen::NotStored,
         )
-        .await?;
+        .await?
+        .into_iter()
+        .next()
+        .expect("should register exactly one blob");
 
     // Certify blob.
     let certificate = client
         .as_ref()
-        .send_blob_data_and_get_certificate(&metadata, &pairs)
+        .send_blob_data_and_get_certificate(&metadata, &pairs, &BlobPersistenceType::Permanent)
         .await?;
 
     // Stop the nodes in the failure set.
-    failed_shards
+    failed_nodes
         .iter()
         .for_each(|&idx| cluster.cancel_node(idx));
 
     client
         .as_mut()
         .sui_client()
-        .certify_blob(blob_sui_object, &certificate, PostStoreAction::Keep)
+        .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Keep)
         .await?;
 
     // Wait to receive an inconsistent blob event.
@@ -274,52 +305,67 @@ async fn test_store_with_existing_blob_resource(
     epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blob = walrus_test_utils::random_data(31415);
-    let (_, metadata) = client
-        .as_ref()
-        .encoding_config()
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
-    let metadata = metadata.metadata().to_owned();
-    let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-    let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
+    let blob_data = walrus_test_utils::random_data_list(31415, 4);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let metatdatum = blobs
+        .iter()
+        .map(|blob| {
+            let (_, metadata) = client
+                .as_ref()
+                .encoding_config()
+                .get_blob_encoder(blob)
+                .expect("blob encoding should not fail")
+                .encode_with_metadata();
+            let metadata = metadata.metadata().to_owned();
+            let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+            VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata)
+        })
+        .collect::<Vec<_>>();
 
-    // Register a new blob.
-    let (original_blob_object, _) = client
+    // Register a list of new blobs.
+    let original_blob_objects = client
         .as_ref()
         .resource_manager()
         .await
         .get_existing_or_register(
-            &metadata,
+            &metatdatum.iter().collect::<Vec<_>>(),
             epochs_ahead_registered,
             BlobPersistence::Permanent,
             StoreWhen::NotStored,
         )
-        .await?;
+        .await?
+        .into_iter()
+        .map(|(blob, _)| (blob.blob_id, blob))
+        .collect::<HashMap<_, _>>();
 
     // Now ask the client to store again.
-    let blob_store = client
+    let blob_stores = client
         .inner
-        .reserve_and_store_blob(
-            &blob,
+        .reserve_and_store_blobs(
+            &blobs,
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?;
+        .await?
+        .into_iter()
+        .map(|blob_store_result| match blob_store_result {
+            BlobStoreResult::NewlyCreated { blob_object, .. } => (blob_object.blob_id, blob_object),
+            _ => panic!("the client should be able to store the blob"),
+        })
+        .collect::<HashMap<_, _>>();
 
-    if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
-        // Check if the storage object used is the same.
+    for (blob_id, blob_object) in blob_stores {
+        let original_blob_object = original_blob_objects
+            .get(&blob_id)
+            .expect("should have original blob object");
         assert!(should_match == (blob_object.id == original_blob_object.id));
-    } else {
-        panic!("the client should be able to store the blob")
-    };
-
+    }
     Ok(())
 }
 
@@ -344,52 +390,57 @@ async fn test_store_with_existing_storage_resource(
     epochs_ahead_required: EpochCount,
     should_match: bool,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blob = walrus_test_utils::random_data(31415);
-    let (_, metadata) = client
+    let blob_data = walrus_test_utils::random_data_list(31415, 4);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let pairs_and_metadata = client
         .as_ref()
-        .encoding_config()
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
-    let metadata = metadata.metadata().to_owned();
-    let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
-    let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
-
-    // Register a new storage resource.
-    let encoded_size = metadata
-        .metadata()
-        .encoded_size()
-        .expect("we just encoded this blob");
-
-    let original_storage_resource = client
-        .as_ref()
-        .sui_client()
-        .reserve_space(encoded_size, epochs_ahead_registered)
+        .encode_blobs_to_pairs_and_metadata(&blobs)
         .await?;
+    let encoded_sizes = pairs_and_metadata
+        .iter()
+        .map(|(_, metadata)| metadata.metadata().encoded_size().unwrap())
+        .collect::<Vec<_>>();
+
+    // Reserve space for the blobs. Collect all original storage resource objects ids.
+    let original_storage_resources =
+        futures::future::join_all(encoded_sizes.iter().map(|encoded_size| async {
+            let resource = client
+                .as_ref()
+                .sui_client()
+                .reserve_space(*encoded_size, epochs_ahead_registered)
+                .await
+                .expect("reserve space should not fail");
+            resource.id
+        }))
+        .await
+        .into_iter()
+        .collect::<HashSet<_>>();
 
     // Now ask the client to store again.
-
+    // Collect all object ids of the newly created blob object.
     let blob_store = client
         .inner
-        .reserve_and_store_blob(
-            &blob,
+        .reserve_and_store_blobs(
+            &blobs,
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?;
+        .await?
+        .into_iter()
+        .map(|blob_store_result| match blob_store_result {
+            BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.storage.id,
+            _ => panic!("the client should be able to store the blob"),
+        })
+        .collect::<HashSet<_>>();
 
-    if let BlobStoreResult::NewlyCreated { blob_object, .. } = blob_store {
-        // Check if the storage object used is the same.
-        assert!(should_match == (blob_object.storage.id == original_storage_resource.id));
-    } else {
-        panic!("the client should be able to store the blob")
-    };
-
+    // Check the object ids are the same.
+    assert!(should_match == (original_storage_resources == blob_store));
     Ok(())
 }
 
@@ -404,17 +455,17 @@ async_param_test! {
 }
 /// Tests blob object deletion.
 async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let blob = walrus_test_utils::random_data(314);
-
+    let blobs = vec![blob.as_slice()];
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
     // with the same blob ID.
     for idx in 1..blobs_to_create + 1 {
         client
             .as_ref()
-            .reserve_and_store_blob(
-                &blob,
+            .reserve_and_store_blobs(
+                &blobs,
                 idx,
                 StoreWhen::Always,
                 BlobPersistence::Deletable,
@@ -426,15 +477,15 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     // Add a blob that is not deletable.
     let result = client
         .as_ref()
-        .reserve_and_store_blob(
-            &blob,
+        .reserve_and_store_blobs(
+            &blobs,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
         .await?;
-    let blob_id = result.blob_id();
+    let blob_id = result.first().unwrap().blob_id();
 
     // Check that we have the correct number of blobs
     let blobs = client
@@ -464,20 +515,22 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.as_slice()];
 
-    let store_result = client
-        .reserve_and_store_blob(
-            &blob,
+    let results = client
+        .reserve_and_store_blobs(
+            &blobs,
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
             PostStoreAction::Keep,
         )
         .await?;
+    let store_result = results.first().expect("should have one blob store result");
     let blob_id = store_result.blob_id();
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
@@ -504,15 +557,100 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     Ok(())
 }
 
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blocklist() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
+    let (_sui_cluster_handle, _cluster, client) =
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+            Duration::from_secs(60 * 60),
+            &[1, 2, 3, 3, 4],
+            true,
+            ClientCommunicationConfig::default_for_test(),
+            Some(blocklist_dir.path().to_path_buf()),
+            None,
+        )
+        .await?;
+    let client = client.as_ref();
+    let blob = walrus_test_utils::random_data(314);
+
+    let store_results = client
+        .reserve_and_store_blobs(
+            &[&blob],
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Deletable,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let store_result = store_results[0].clone();
+    let blob_id = store_result.blob_id();
+    assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
+
+    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blob);
+
+    let mut blocklists = vec![];
+
+    for (i, _) in _cluster.nodes.iter().enumerate() {
+        let blocklist_file = blocklist_dir.path().join(format!("blocklist-{i}.yaml"));
+        let blocklist =
+            Blocklist::new(&Some(blocklist_file)).expect("blocklist creation must succeed");
+        blocklists.push(blocklist);
+    }
+
+    tracing::info!("Adding blob to blocklist");
+
+    for blocklist in blocklists.iter_mut() {
+        blocklist.insert(*blob_id)?;
+    }
+
+    // Read the blob using the client until it fails with forbidden
+    let mut blob_read_result = client.read_blob::<Primary>(blob_id).await;
+    while let Ok(_blob) = blob_read_result {
+        blob_read_result = client.read_blob::<Primary>(blob_id).await;
+        // sleep for a bit to allow the nodes to sync
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }
+
+    let error = blob_read_result.expect_err("result must be an error");
+
+    assert!(
+        matches!(error.kind(), ClientErrorKind::BlobIdBlocked(_)),
+        "unexpected error {:?}",
+        error
+    );
+
+    // Remove the blob from the blocklist
+    for blocklist in blocklists.iter_mut() {
+        blocklist.remove(blob_id)?;
+    }
+
+    tracing::info!("Removing blob from blocklist");
+
+    // Read the blob again until it succeeds
+    let mut blob_read_result = client.read_blob::<Primary>(blob_id).await;
+    while blob_read_result.is_err() {
+        blob_read_result = client.read_blob::<Primary>(blob_id).await;
+        // sleep for a bit to allow the nodes to sync
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }
+
+    assert_eq!(blob_read_result?, blob);
+
+    Ok(())
+}
+
 /// Tests that storing the same blob multiple times with possibly different end epochs,
 /// persistence, and force-store conditions always works.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_multiple_stores_same_blob() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
+    let blobs = vec![blob.as_slice()];
 
     // NOTE: not in a param_test, because we want to test these store operations in sequence.
     // If the last `bool` parameter is `true`, the store operation should return a
@@ -534,17 +672,18 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     ];
 
     for (epochs, store_when, persistence, is_already_certified) in configurations {
-        let result = client
-            .reserve_and_store_blob(
-                &blob,
+        let results = client
+            .reserve_and_store_blobs(
+                &blobs,
                 epochs,
                 store_when,
                 persistence,
                 PostStoreAction::Keep,
             )
             .await?;
+        let store_result = results.first().expect("should have one blob store result");
 
-        match result {
+        match store_result {
             BlobStoreResult::NewlyCreated { .. } => {
                 assert!(!is_already_certified, "the blob should be newly stored");
             }
@@ -570,13 +709,15 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_repeated_shard_move() -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, walrus_cluster, client) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
             &[1, 1],
             true,
             ClientCommunicationConfig::default_for_test(),
+            None,
+            None,
         )
         .await?;
 
@@ -632,7 +773,7 @@ async fn test_repeated_shard_move() -> TestResult {
 async fn test_burn_blobs() -> TestResult {
     const N_BLOBS: usize = 3;
     const N_TO_DELETE: usize = 2;
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
@@ -641,8 +782,8 @@ async fn test_burn_blobs() -> TestResult {
         let blob = walrus_test_utils::random_data(314 + idx);
         let result = client
             .as_ref()
-            .reserve_and_store_blob(
-                &blob,
+            .reserve_and_store_blobs(
+                &[blob.as_slice()],
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -650,7 +791,11 @@ async fn test_burn_blobs() -> TestResult {
             )
             .await?;
         blob_object_ids.push({
-            let BlobStoreResult::NewlyCreated { blob_object, .. } = result else {
+            let BlobStoreResult::NewlyCreated { blob_object, .. } = result
+                .into_iter()
+                .next()
+                .expect("expect one blob store result")
+            else {
                 panic!("expect newly stored blob")
             };
             blob_object.id
@@ -680,20 +825,95 @@ async fn test_burn_blobs() -> TestResult {
     Ok(())
 }
 
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_share_blobs() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let blob = walrus_test_utils::random_data(314);
+    let result = client
+        .as_ref()
+        .reserve_and_store_blobs(
+            &[blob.as_slice()],
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let (end_epoch, blob_object_id) = {
+        let BlobStoreResult::NewlyCreated { blob_object, .. } = result
+            .into_iter()
+            .next()
+            .expect("expect one blob store result")
+        else {
+            panic!("expect newly stored blob")
+        };
+        (blob_object.storage.end_epoch, blob_object.id)
+    };
+
+    // Share the blob without funding.
+    let shared_blob_object_id = client
+        .as_ref()
+        .sui_client()
+        .share_and_maybe_fund_blob(blob_object_id, None)
+        .await?;
+    let shared_blob: SharedBlob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(shared_blob_object_id)
+        .await?;
+    assert_eq!(shared_blob.funds, 0);
+
+    // Fund the shared blob.
+    client
+        .as_ref()
+        .sui_client()
+        .fund_shared_blob(shared_blob_object_id, 1000000000)
+        .await?;
+    let shared_blob: SharedBlob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(shared_blob_object_id)
+        .await?;
+    assert_eq!(shared_blob.funds, 1000000000);
+
+    // Extend the shared blob.
+    client
+        .as_ref()
+        .sui_client()
+        .extend_shared_blob(shared_blob_object_id, 100)
+        .await?;
+    let shared_blob: SharedBlob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(shared_blob_object_id)
+        .await?;
+    assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
+    assert_eq!(shared_blob.funds, 999999500);
+    Ok(())
+}
+
 const TARGET_ADDRESS: [u8; SUI_ADDRESS_LENGTH] = [42; SUI_ADDRESS_LENGTH];
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     test_post_store_action -> TestResult : [
-        keep: (PostStoreAction::Keep, 1, 0),
+        keep: (PostStoreAction::Keep, 4, 0),
         transfer: (
             PostStoreAction::TransferTo(
                 SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address")
             ),
             0,
-            1
+            4
         ),
         burn: (PostStoreAction::Burn, 0, 0),
+        share: (PostStoreAction::Share, 0, 0)
     ]
 }
 async fn test_post_store_action(
@@ -701,15 +921,16 @@ async fn test_post_store_action(
     n_owned_blobs: usize,
     n_target_blobs: usize,
 ) -> TestResult {
-    let _ = tracing_subscriber::fmt::try_init();
+    telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
     let target_address: SuiAddress = SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address");
 
-    let blob = walrus_test_utils::random_data(314);
-    client
+    let blob_data = walrus_test_utils::random_data_list(314, 4);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let results = client
         .as_ref()
-        .write_blob(
-            &blob,
+        .reserve_and_store_blobs_retry_epoch(
+            &blobs,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -730,5 +951,37 @@ async fn test_post_store_action(
         .await?;
     assert_eq!(target_address_blobs.len(), n_target_blobs);
 
+    if post_store == PostStoreAction::Share {
+        for result in results {
+            match result {
+                BlobStoreResult::NewlyCreated {
+                    shared_blob_object,
+                    blob_object,
+                    ..
+                } => {
+                    let shared_blob: SharedBlob = client
+                        .as_ref()
+                        .sui_client()
+                        .sui_client()
+                        .get_sui_object(shared_blob_object.unwrap())
+                        .await?;
+                    assert_eq!(shared_blob.funds, 0);
+                    assert_eq!(shared_blob.blob.id, blob_object.id);
+                }
+                _ => panic!("expect newly created blob"),
+            }
+        }
+    } else {
+        for result in results {
+            match result {
+                BlobStoreResult::NewlyCreated {
+                    shared_blob_object, ..
+                } => {
+                    assert!(shared_blob_object.is_none());
+                }
+                _ => panic!("expect newly created blob"),
+            }
+        }
+    }
     Ok(())
 }

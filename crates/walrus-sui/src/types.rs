@@ -19,11 +19,16 @@ pub use events::{
     BlobEvent,
     BlobRegistered,
     ContractEvent,
+    ContractUpgradedEvent,
+    DenyListEvent,
+    DenyListUpdateEvent,
     EpochChangeDone,
     EpochChangeEvent,
     EpochChangeStart,
     EpochParametersSelected,
     InvalidBlobId,
+    PackageEvent,
+    RegisterDenyListUpdateEvent,
 };
 
 pub mod move_structs;
@@ -84,8 +89,34 @@ impl NetworkAddress {
     }
 }
 
+/// Node metadata.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct NodeMetadata {
+    /// The image URL of the storage node.
+    pub image_url: String,
+    /// The project URL of the storage node.
+    pub project_url: String,
+    /// The description of the storage node.
+    pub description: String,
+    /// Extra fields of the storage node for future use.
+    extra_fields: Vec<(String, String)>,
+}
+
+impl NodeMetadata {
+    /// Creates a new node metadata object.
+    pub fn new(image_url: String, project_url: String, description: String) -> Self {
+        Self {
+            image_url,
+            project_url,
+            description,
+            extra_fields: vec![],
+        }
+    }
+}
+
 /// Node parameters needed to register a node.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeRegistrationParams {
     /// Name of the storage node.
     pub name: String,
@@ -95,10 +126,6 @@ pub struct NodeRegistrationParams {
     pub public_key: PublicKey,
     /// The network key of the storage node.
     pub network_public_key: NetworkPublicKey,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    /// The commission rate of the storage node.
-    pub commission_rate: u64,
-    #[cfg(feature = "walrus-mainnet")]
     /// The commission rate of the storage node.
     pub commission_rate: u16,
     /// The vote for the storage price per unit.
@@ -108,6 +135,8 @@ pub struct NodeRegistrationParams {
     /// The capacity of the node that determines the vote for the capacity
     /// after shards are assigned.
     pub node_capacity: u64,
+    /// The metadata of the storage node.
+    pub metadata: NodeMetadata,
 }
 
 impl NodeRegistrationParams {
@@ -125,6 +154,7 @@ impl NodeRegistrationParams {
             storage_price: 5,
             write_price: 1,
             node_capacity: 1_000_000_000_000,
+            metadata: NodeMetadata::default(),
         }
     }
 }

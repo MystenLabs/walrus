@@ -37,7 +37,13 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use walrus_core::{
     keys::ProtocolKeyPair,
-    messages::{Confirmation, ConfirmationCertificate, InvalidBlobCertificate, InvalidBlobIdMsg},
+    messages::{
+        BlobPersistenceType,
+        Confirmation,
+        ConfirmationCertificate,
+        InvalidBlobCertificate,
+        InvalidBlobIdMsg,
+    },
     BlobId,
     EncodingType,
     Epoch,
@@ -79,7 +85,12 @@ pub fn object_id_for_testing() -> ObjectID {
 ///
 /// The default test committee is currently a single storage node with sk = 117.
 pub fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> ConfirmationCertificate {
-    let confirmation = bcs::to_bytes(&Confirmation::new(epoch, blob_id)).unwrap();
+    let confirmation = bcs::to_bytes(&Confirmation::new(
+        epoch,
+        blob_id,
+        BlobPersistenceType::Permanent,
+    ))
+    .unwrap();
     let signature = sign_with_default_committee(&confirmation);
     ConfirmationCertificate::new(vec![0], confirmation, signature)
 }
@@ -365,17 +376,13 @@ pub async fn new_contract_client_on_sui_test_cluster(
     sui_cluster_handle: Arc<TestClusterHandle>,
     existing_client: &SuiContractClient,
 ) -> anyhow::Result<WithTempDir<SuiContractClient>> {
-    let system_object = existing_client.read_client().get_system_object_id();
-    let staking_object = existing_client.read_client().get_staking_object_id();
-    let package_id = existing_client.read_client().walrus_package_id;
+    let contract_config = existing_client.read_client().contract_config();
     let walrus_client = new_wallet_on_sui_test_cluster(sui_cluster_handle)
         .await?
         .and_then_async(|wallet| {
             SuiContractClient::new(
                 wallet,
-                system_object,
-                staking_object,
-                Some(package_id),
+                &contract_config,
                 existing_client.read_client().backoff_config().clone(),
                 DEFAULT_GAS_BUDGET,
             )

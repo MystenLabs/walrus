@@ -23,7 +23,7 @@ mod tests {
         client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
         test_utils::{test_cluster, SimStorageNodeHandle},
     };
-    use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
+    use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
@@ -37,8 +37,20 @@ mod tests {
         "create-cf-before",
     ];
 
+    /// Returns a simulator configuration that adds random network latency between nodes.
+    ///
+    /// The latency is uniformly distributed for all RPCs between nodes.
+    /// This simulates real-world network conditions where requests arrive at different nodes
+    /// with varying delays. The random latency helps test the system's behavior when events
+    /// and messages arrive asynchronously and in different orders at different nodes.
+    ///
+    /// For example, when a node sends a state update, some nodes may receive and process it
+    /// quickly while others experience delay. This creates race conditions and helps verify
+    /// that the system remains consistent despite message reordering.
+    ///
+    /// This latency applies to both Sui cluster and Walrus cluster.
     fn latency_config() -> sui_simulator::SimConfig {
-        env_config(uniform_latency_ms(10..30), [])
+        env_config(uniform_latency_ms(5..15), [])
     }
 
     // Helper function to write a random blob, read it back and check that it is the same.
@@ -48,47 +60,99 @@ mod tests {
         data_length: usize,
         write_only: bool,
     ) -> anyhow::Result<()> {
-        // Write a random blob.
+        tracing::info!("generating random blob of length {data_length}");
         let blob = walrus_test_utils::random_data(data_length);
 
-        let BlobStoreResult::NewlyCreated {
-            blob_object: blob_confirmation,
-            ..
-        } = client
+        let store_results = client
             .as_ref()
-            .reserve_and_store_blob_retry_epoch(
-                &blob,
+            .reserve_and_store_blobs_retry_epoch(
+                &[blob.as_slice()],
                 5,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
             )
             .await
-            .context("store blob should not fail")?
+            .context("store blob should not fail")?;
+
+        tracing::info!("got store results with {} items", store_results.len());
+        let store_result = &store_results
+            .first()
+            .expect("should have exactly one result");
+
+        let BlobStoreResult::NewlyCreated {
+            blob_object: blob_confirmation,
+            ..
+        } = store_result
         else {
+            tracing::error!("unexpected store result type: {:?}", store_result);
             panic!("expect newly stored blob")
         };
 
+        tracing::info!(
+            "successfully stored blob with id {}",
+            blob_confirmation.blob_id
+        );
+
         if write_only {
+            tracing::info!("write-only mode, skipping read verification");
             return Ok(());
         }
 
-        // Read the blob using primary slivers.
-        let read_blob = client
+        tracing::info!("attempting to read blob using primary slivers");
+        let mut read_blob_result = client
             .as_ref()
             .read_blob::<Primary>(&blob_confirmation.blob_id)
-            .await
-            .context("should be able to read blob we just stored")?;
+            .await;
+        let mut retry_count = 0;
+        while read_blob_result.is_err() {
+            retry_count += 1;
+            tracing::info!(
+                "primary read attempt {} failed, retrying in 1s: {:?}",
+                retry_count,
+                read_blob_result.unwrap_err()
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            read_blob_result = client
+                .as_ref()
+                .read_blob::<Primary>(&blob_confirmation.blob_id)
+                .await;
+        }
+
+        let read_blob = read_blob_result.context("should be able to read blob we just stored")?;
+        tracing::info!(
+            "successfully read blob using primary slivers after {} retries",
+            retry_count
+        );
 
         // Check that blob is what we wrote.
         assert_eq!(read_blob, blob);
 
-        // Read using secondary slivers and check the result.
-        let read_blob = client
+        tracing::info!("attempting to read blob using secondary slivers");
+        let mut read_blob_result = client
             .as_ref()
             .read_blob::<Secondary>(&blob_confirmation.blob_id)
-            .await
-            .context("should be able to read blob we just stored")?;
+            .await;
+        let mut retry_count = 0;
+        while read_blob_result.is_err() {
+            retry_count += 1;
+            tracing::info!(
+                "secondary read attempt {} failed, retrying in 1s: {:?}",
+                retry_count,
+                read_blob_result.unwrap_err()
+            );
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            read_blob_result = client
+                .as_ref()
+                .read_blob::<Secondary>(&blob_confirmation.blob_id)
+                .await;
+        }
+        let read_blob = read_blob_result.context("should be able to read blob we just stored")?;
+        tracing::info!(
+            "successfully read blob using secondary slivers after {} retries",
+            retry_count
+        );
+
         assert_eq!(read_blob, blob);
 
         Ok(())
@@ -131,8 +195,10 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
-                true,
+                false,
                 ClientCommunicationConfig::default_for_test(),
+                None,
+                Some(10),
             )
             .await
             .unwrap();
@@ -140,6 +206,20 @@ mod tests {
         write_read_and_check_random_blob(&client, 31415, false)
             .await
             .expect("workload should not fail");
+
+        loop {
+            if let Some(_blob) = client
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     // Tests the scenario where a single node crashes and restarts.
@@ -157,8 +237,10 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 &[1, 2, 3, 3, 4],
-                true,
+                false,
                 ClientCommunicationConfig::default_for_test(),
+                None,
+                Some(10),
             )
             .await
             .unwrap();
@@ -212,6 +294,20 @@ mod tests {
         .await;
 
         assert!(fail_triggered.load(std::sync::atomic::Ordering::SeqCst));
+
+        loop {
+            if let Some(_blob) = client
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     // Action taken during a various failpoints. There is a chance with `probability` that the
@@ -302,6 +398,8 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -443,6 +541,8 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -571,6 +671,8 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                None,
+                Some(100),
             )
             .await
             .unwrap();
@@ -607,6 +709,20 @@ mod tests {
         }
 
         workload_handle.abort();
+
+        loop {
+            if let Some(_blob) = client_arc
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     #[ignore = "ignore E2E tests by default"]
@@ -616,10 +732,12 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 &[1, 2, 3, 3, 4, 0],
-                true,
+                false,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                None,
+                Some(10),
             )
             .await
             .unwrap();
@@ -638,6 +756,7 @@ mod tests {
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
                 walrus_cluster.nodes[5].storage_node_config.clone(),
+                None,
                 walrus_cluster.nodes[5].cancel_token.clone(),
             )
             .await
@@ -726,5 +845,19 @@ mod tests {
         );
 
         workload_handle.abort();
+
+        loop {
+            if let Some(_blob) = client_arc
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 }

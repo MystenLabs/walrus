@@ -1,6 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use anyhow::anyhow;
 use axum::{
     async_trait,
     body::Bytes,
@@ -12,45 +13,28 @@ use fastcrypto::traits::EncodeDecodeBase64 as _;
 use reqwest::header::AUTHORIZATION;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use walrus_core::PublicKey;
-use walrus_sdk::error::ServiceError;
+use walrus_proc_macros::RestApiError;
+use walrus_sdk::api::errors::STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN;
 
-use crate::common::api::{RestApiError, RestApiJsonError};
+use crate::common::api::RestApiError;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum BcsRejection {
     #[error(
         "Expected request with `Content-Type: {}`",
         mime::APPLICATION_OCTET_STREAM
     )]
+    #[rest_api_error(reason = "INVALID_CONTENT_TYPE", status = ApiStatusCode::InvalidArgument)]
     UnsupportedContentType,
+
     #[error(transparent)]
+    #[rest_api_error(reason = "INVALID_CONTENT_TYPE", status = ApiStatusCode::InvalidArgument)]
     BytesRejection(#[from] BytesRejection),
-    #[error("Unable to decode request body as BCS")]
+
+    #[error("unable to decode request body as BCS")]
+    #[rest_api_error(reason = "INVALID_CONTENT_TYPE", status = ApiStatusCode::InvalidArgument)]
     DecodeError(#[from] bcs::Error),
-}
-
-impl RestApiError for BcsRejection {
-    fn status(&self) -> StatusCode {
-        match self {
-            BcsRejection::UnsupportedContentType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            BcsRejection::BytesRejection(rejection) => rejection.status(),
-            BcsRejection::DecodeError(_) => StatusCode::BAD_REQUEST,
-        }
-    }
-
-    fn body_text(&self) -> String {
-        self.to_string()
-    }
-
-    fn service_error(&self) -> Option<ServiceError> {
-        None
-    }
-}
-
-impl IntoResponse for BcsRejection {
-    fn into_response(self) -> axum::response::Response {
-        self.to_response()
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -123,15 +107,7 @@ where
                     ?error,
                     "failed to BCS encode an internal response type to the user"
                 );
-
-                RestApiJsonError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    StatusCode::INTERNAL_SERVER_ERROR
-                        .canonical_reason()
-                        .expect("this definitely has a canonical reason"),
-                    None,
-                )
-                .into_response()
+                anyhow!(error).to_response()
             }
         }
     }

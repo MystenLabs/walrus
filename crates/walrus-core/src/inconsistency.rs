@@ -178,7 +178,7 @@ mod tests {
         let (encoding_config, metadata, target_sliver_index, recovery_symbols) =
             generate_config_metadata_and_valid_recovery_symbols()?;
         let mut metadata = metadata.metadata().clone();
-        metadata.hashes[0].primary_hash = Node::Digest([0; 32]);
+        metadata.mut_inner().hashes[0].primary_hash = Node::Digest([0; 32]);
         let inconsistency_proof = InconsistencyProof::new(target_sliver_index, recovery_symbols);
 
         inconsistency_proof.verify(&metadata, &encoding_config)?;

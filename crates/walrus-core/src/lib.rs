@@ -42,8 +42,11 @@ use inconsistency::{
 use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "sui-types")]
+use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
+use crate::metadata::BlobMetadataApi as _;
 pub mod bft;
 pub mod encoding;
 pub mod inconsistency;
@@ -73,8 +76,7 @@ pub type EpochCount = u32;
 #[derive(Debug)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "utoipa", schema(as = Epoch))]
-#[allow(dead_code)]
-pub struct EpochSchema(u32);
+pub struct EpochSchema(pub u32);
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -90,6 +92,9 @@ impl BlobId {
     /// The length of a blob ID in bytes.
     pub const LENGTH: usize = 32;
 
+    /// A blob ID with all zeros.
+    pub const ZERO: Self = Self([0u8; Self::LENGTH]);
+
     /// Returns the blob ID as a hash over the Merkle root, encoding type,
     /// and unencoded_length of the blob.
     pub fn from_metadata(merkle_root: Node, encoding: EncodingType, unencoded_length: u64) -> Self {
@@ -102,11 +107,23 @@ impl BlobId {
         let merkle_root = blob_metadata.compute_root_hash();
         let blob_id = Self::from_metadata(
             merkle_root,
-            blob_metadata.encoding_type,
-            blob_metadata.unencoded_length,
+            blob_metadata.encoding_type(),
+            blob_metadata.unencoded_length(),
         );
         tracing::debug!(%blob_id, "computed blob ID from metadata");
         blob_id
+    }
+
+    /// Extracts the first two bytes of the blob ID as a `u16`, with the left most bit being the
+    /// most significant.
+    ///
+    /// The extracted can be used to monitor the progress of tasks that scans over blob IDs.
+    pub fn first_two_bytes(&self) -> u16 {
+        u16::from_be_bytes(
+            self.0[0..2]
+                .try_into()
+                .expect("two bytes can be converted to a u16"),
+        )
     }
 
     fn new_with_hash_function<T>(
@@ -171,6 +188,64 @@ impl FromStr for BlobId {
         } else {
             Err(BlobIdParseError)
         }
+    }
+}
+
+// Sui Object ID.
+
+/// The ID of a Sui object.
+///
+/// Reimplemented here to not take a mandatory dependency on the sui sdk in the core crate.
+/// With the feature `sui-types` enabled, this type can be converted to and from
+/// the `ObjectID` type from the sui sdk.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash, Debug)]
+#[repr(transparent)]
+pub struct SuiObjectId(pub [u8; Self::LENGTH]);
+
+impl SuiObjectId {
+    /// The length of a Sui object ID in bytes.
+    pub const LENGTH: usize = 32;
+}
+
+#[cfg(feature = "sui-types")]
+impl From<ObjectID> for SuiObjectId {
+    fn from(value: ObjectID) -> Self {
+        Self(value.into_bytes())
+    }
+}
+
+#[cfg(feature = "sui-types")]
+impl From<&ObjectID> for SuiObjectId {
+    fn from(value: &ObjectID) -> Self {
+        (*value).into()
+    }
+}
+
+#[cfg(feature = "sui-types")]
+impl From<SuiObjectId> for ObjectID {
+    fn from(value: SuiObjectId) -> Self {
+        ObjectID::from_bytes(value.0).expect("valid Sui object ID")
+    }
+}
+
+#[cfg(feature = "sui-types")]
+impl From<&SuiObjectId> for ObjectID {
+    fn from(value: &SuiObjectId) -> Self {
+        (*value).into()
+    }
+}
+
+/// Error returned when unable to parse a Sui object ID.
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("failed to parse a Sui object ID")]
+pub struct SuiObjectIdParseError;
+
+impl TryFrom<&[u8]> for SuiObjectId {
+    type Error = SuiObjectIdParseError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let bytes = <[u8; Self::LENGTH]>::try_from(value).map_err(|_| SuiObjectIdParseError)?;
+        Ok(Self(bytes))
     }
 }
 

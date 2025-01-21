@@ -54,6 +54,8 @@ use crate::node::{
     StorageNodeInner,
 };
 
+// Important: this enum is committed to database. Do not modify the existing fields. Only add new
+// fields at the end.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardStatus {
     /// Initial status of the shard when just created.
@@ -133,12 +135,52 @@ enum ShardLastSyncStatus {
     Recovery,
 }
 
+/// Primary sliver data stored in the database.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrimarySliverData {
+    V1(PrimarySliver),
+}
+
+impl From<PrimarySliver> for PrimarySliverData {
+    fn from(sliver: PrimarySliver) -> Self {
+        Self::V1(sliver)
+    }
+}
+
+impl From<PrimarySliverData> for PrimarySliver {
+    fn from(data: PrimarySliverData) -> Self {
+        match data {
+            PrimarySliverData::V1(sliver) => sliver,
+        }
+    }
+}
+
+/// Secondary sliver data stored in the database.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SecondarySliverData {
+    V1(SecondarySliver),
+}
+
+impl From<SecondarySliver> for SecondarySliverData {
+    fn from(sliver: SecondarySliver) -> Self {
+        Self::V1(sliver)
+    }
+}
+
+impl From<SecondarySliverData> for SecondarySliver {
+    fn from(data: SecondarySliverData) -> Self {
+        match data {
+            SecondarySliverData::V1(sliver) => sliver,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
     shard_status: DBMap<(), ShardStatus>,
-    primary_slivers: DBMap<BlobId, PrimarySliver>,
-    secondary_slivers: DBMap<BlobId, SecondarySliver>,
+    primary_slivers: DBMap<BlobId, PrimarySliverData>,
+    secondary_slivers: DBMap<BlobId, SecondarySliverData>,
     shard_sync_progress: DBMap<(), ShardSyncProgress>,
     pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
 }
@@ -218,8 +260,12 @@ impl ShardStorage {
         sliver: &Sliver,
     ) -> Result<(), TypedStoreError> {
         match sliver {
-            Sliver::Primary(primary) => self.primary_slivers.insert(blob_id, primary),
-            Sliver::Secondary(secondary) => self.secondary_slivers.insert(blob_id, secondary),
+            Sliver::Primary(primary) => self
+                .primary_slivers
+                .insert(blob_id, &PrimarySliverData::from(primary.clone())),
+            Sliver::Secondary(secondary) => self
+                .secondary_slivers
+                .insert(blob_id, &SecondarySliverData::from(secondary.clone())),
         }
     }
 
@@ -250,7 +296,9 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<PrimarySliver>, TypedStoreError> {
-        self.primary_slivers.get(blob_id)
+        self.primary_slivers
+            .get(blob_id)
+            .map(|s| s.map(|s| s.into()))
     }
 
     /// Retrieves the stored secondary sliver for the given blob ID.
@@ -259,7 +307,9 @@ impl ShardStorage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<SecondarySliver>, TypedStoreError> {
-        self.secondary_slivers.get(blob_id)
+        self.secondary_slivers
+            .get(blob_id)
+            .map(|s| s.map(|s| s.into()))
     }
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
@@ -415,7 +465,7 @@ impl ShardStorage {
                 .filter_map(|(sliver, blob_id)| {
                     sliver
                         .as_ref()
-                        .map(|s| (*blob_id, Sliver::Primary(s.clone())))
+                        .map(|s| (*blob_id, Sliver::Primary(s.clone().into())))
                 })
                 .collect(),
             SliverType::Secondary => self
@@ -426,7 +476,7 @@ impl ShardStorage {
                 .filter_map(|(sliver, blob_id)| {
                     sliver
                         .as_ref()
-                        .map(|s| (*blob_id, Sliver::Secondary(s.clone())))
+                        .map(|s| (*blob_id, Sliver::Secondary(s.clone().into())))
                 })
                 .collect(),
         })
@@ -586,6 +636,13 @@ impl ShardStorage {
                     SliverType::Secondary => self.secondary_slivers.batch(),
                 };
 
+                metrics::with_label!(
+                    node.metrics.sync_shard_sync_sliver_progress,
+                    &self.id.to_string(),
+                    &sliver_type.to_string()
+                )
+                .set(next_starting_blob_id.first_two_bytes() as i64);
+
                 let fetched_slivers = node
                     .committee_service
                     .sync_shard_before_epoch(
@@ -626,7 +683,8 @@ impl ShardStorage {
 
                 metrics::with_label!(
                     node.metrics.sync_shard_sync_sliver_total,
-                    &self.id.to_string()
+                    &self.id.to_string(),
+                    &sliver_type.to_string()
                 )
                 .inc_by(fetched_slivers.len() as u64);
 
@@ -686,11 +744,17 @@ impl ShardStorage {
             match sliver {
                 Sliver::Primary(primary) => {
                     assert_eq!(sliver_type, SliverType::Primary);
-                    batch.insert_batch(&self.primary_slivers, [(blob_id, primary)])?;
+                    batch.insert_batch(
+                        &self.primary_slivers,
+                        [(blob_id, &PrimarySliverData::from(primary.clone()))],
+                    )?;
                 }
                 Sliver::Secondary(secondary) => {
                     assert_eq!(sliver_type, SliverType::Secondary);
-                    batch.insert_batch(&self.secondary_slivers, [(blob_id, secondary)])?;
+                    batch.insert_batch(
+                        &self.secondary_slivers,
+                        [(blob_id, &SecondarySliverData::from(secondary.clone()))],
+                    )?;
                 }
             }
 
@@ -829,7 +893,8 @@ impl ShardStorage {
                 );
                 metrics::with_label!(
                     node.metrics.sync_shard_recover_sliver_skip_total,
-                    &self.id.to_string()
+                    &self.id.to_string(),
+                    &sliver_type.to_string()
                 )
                 .inc();
                 self.pending_recover_slivers
@@ -890,7 +955,8 @@ impl ShardStorage {
         );
         metrics::with_label!(
             node.metrics.sync_shard_recover_sliver_cancellation_total,
-            &self.id.to_string()
+            &self.id.to_string(),
+            &sliver_type.to_string()
         )
         .inc();
         self.pending_recover_slivers
@@ -930,7 +996,8 @@ impl ShardStorage {
 
         metrics::with_label!(
             node.metrics.sync_shard_recover_sliver_total,
-            &self.id.to_string()
+            &self.id.to_string(),
+            &sliver_type.to_string()
         )
         .inc();
 
@@ -980,7 +1047,8 @@ impl ShardStorage {
             Ok(sliver) => {
                 metrics::with_label!(
                     node.metrics.sync_shard_recover_sliver_success_total,
-                    &self.id.to_string()
+                    &self.id.to_string(),
+                    &sliver_type.to_string()
                 )
                 .inc();
                 self.put_sliver(&blob_id, &sliver)?;
@@ -989,7 +1057,8 @@ impl ShardStorage {
                 tracing::debug!("received an inconsistency proof when recovering sliver");
                 metrics::with_label!(
                     node.metrics.sync_shard_recover_sliver_error_total,
-                    &self.id.to_string()
+                    &self.id.to_string(),
+                    &sliver_type.to_string()
                 )
                 .inc();
                 // TODO(#704): once committee service supports multi-epoch. This needs to use the

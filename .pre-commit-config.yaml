@@ -18,7 +18,7 @@ repos:
     hooks:
       - id: yamlfmt
   - repo: https://github.com/notken12/licensesnip
-    rev: 19b1186
+    rev: f01f898
     hooks:
       - id: licensesnip
         args: []
@@ -43,6 +43,16 @@ repos:
         types: [toml]
         args: []
         additional_dependencies: ["taplo==0.9.3"]
+      - id: shellcheck
+        args: ["--severity=error"]
+        name: shellcheck
+        description: Test shell scripts with shellcheck
+        entry: shellcheck
+        # Note that this relies on https://github.com/shellcheck-py/shellcheck-py.
+        language: python
+        types: [shell]
+        require_serial: true # shellcheck can detect sourcing this way
+        additional_dependencies: ["shellcheck-py==0.10.0.1"]
       - id: cargo-fmt
         name: cargo-fmt
         entry: cargo fmt
@@ -55,7 +65,7 @@ repos:
         pass_filenames: false
       - id: cargo-test
         name: cargo-test
-        entry: cargo nextest run --features walrus-mainnet
+        entry: cargo nextest run
         language: rust
         files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
         pass_filenames: false

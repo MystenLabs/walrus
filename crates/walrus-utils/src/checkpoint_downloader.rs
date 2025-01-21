@@ -14,7 +14,8 @@ use anyhow::{anyhow, Result};
 use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
 use rand::{rngs::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use sui_rpc_api::{client::sdk, Client};
+use serde_with::{serde_as, DurationMilliSeconds, DurationSeconds};
+use sui_rpc_api::{client::ResponseExt, Client};
 use sui_types::{
     full_checkpoint_content::CheckpointData,
     messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint},
@@ -24,17 +25,24 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
+use tonic::Status;
 use typed_store::{rocks::DBMap, Map};
 
 /// Fetcher configuration options for the parallel checkpoint fetcher.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct ParallelDownloaderConfig {
     /// Number of retries per checkpoint before giving up.
     pub min_retries: u32,
     /// Initial delay before the first retry.
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "initial_delay_millis")]
     pub initial_delay: Duration,
     /// Maximum delay between retries. Once this delay is reached, the
     /// fetcher will keep retrying with this duration.
+    #[serde_as(as = "DurationMilliSeconds")]
+    #[serde(rename = "max_delay_millis")]
     pub max_delay: Duration,
 }
 
@@ -91,7 +99,9 @@ impl Default for ChannelConfig {
 }
 
 /// Configuration for the adaptive worker pool.
+#[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
 pub struct AdaptiveDownloaderConfig {
     /// Minimum number of workers.
     pub min_workers: usize,
@@ -104,6 +114,8 @@ pub struct AdaptiveDownloaderConfig {
     /// Checkpoint lag threshold for scaling down.
     pub scale_down_lag_threshold: u64,
     /// Minimum time between scaling operations.
+    #[serde(rename = "scale_cooldown_secs")]
+    #[serde_as(as = "DurationSeconds")]
     pub scale_cooldown: Duration,
     /// Base configuration.
     pub base_config: ParallelDownloaderConfig,
@@ -351,7 +363,7 @@ impl ParallelCheckpointDownloaderInner {
         client: &Client,
     ) -> Result<u64> {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
-            return Err(anyhow!("Failed to fetch current checkpoint"));
+            return Err(anyhow!("Failed to get current checkpoint"));
         };
         let latest_checkpoint = client.get_latest_checkpoint().await?;
         let current_lag =
@@ -577,24 +589,19 @@ fn create_backoff(
 /// Handles an error that occurred while reading the next checkpoint.
 /// If the error is due to a checkpoint that is already present on the server, it is logged as an
 /// error. Otherwise, it is logged as a debug.
-fn handle_checkpoint_error(err: Option<&sdk::Error>, next_checkpoint: u64) {
-    let error = err.as_ref().map(|e| e.to_string()).unwrap_or_default();
-    if let Some(checkpoint_height) = err
-        .as_ref()
-        .and_then(|e| e.parts())
-        .and_then(|p| p.checkpoint_height)
-    {
+fn handle_checkpoint_error(status: Option<&Status>, next_checkpoint: u64) {
+    if let Some(checkpoint_height) = status.as_ref().and_then(|e| e.checkpoint_height()) {
         if next_checkpoint > checkpoint_height {
             tracing::trace!(
                 next_checkpoint,
                 checkpoint_height,
-                %error,
+                message = status.as_ref().map(|e| e.message()),
                 "failed to read next checkpoint, probably not produced yet",
             );
             return;
         }
     }
-    tracing::warn!(next_checkpoint, ?error, "failed to read next checkpoint",);
+    tracing::warn!(next_checkpoint, ?status, "failed to read next checkpoint",);
 }
 
 #[cfg(test)]

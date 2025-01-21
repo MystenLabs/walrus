@@ -19,12 +19,12 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2021"
 license = "Apache-2.0"
-version = "1.8.0"
+version = "1.10.0"
 
 [workspace.dependencies]
-anyhow = "1.0.94"
+anyhow = "1.0.95"
 async-channel = "2.3.1"
-async-trait = "0.1.83"
+async-trait = "0.1.84"
 axum = { version = "0.7.9", default-features = false, features = ["http2", "tokio"] }
 axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
@@ -32,7 +32,7 @@ bcs = "0.1.6"
 byteorder = "1.5.0"
 bytes = { version = "1.9.0", features = ["serde"] }
 chrono = "0.4"
-clap = { version = "4.5.23", features = ["derive"] }
+clap = { version = "4.5.26", features = ["derive"] }
 colored = "2.2.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
@@ -41,7 +41,8 @@ futures = { version = "0.3.31", default-features = false, features = ["async-awa
 futures-timer = "=3.0.2" # required for MSIM
 futures-util = "0.3.30"
 git-version = "0.3.9"
-home = "0.5.9"
+home = "0.5.11"
+hostname = "0.4.0"
 humantime = "2.1.0"
 hyper = "1"
 indicatif = "0.17.9"
@@ -50,8 +51,8 @@ integer-encoding = "4.0.2"
 itertools = "0.13.0"
 mime = "0.3.17"
 mockall = "0.12.1"
-move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
+move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
 num-bigint = { version = "0.4.5", default-features = false }
 opentelemetry = { version = "=0.25.0", default-features = false, features = ["trace"] }
 p256 = "0.13.2"
@@ -61,48 +62,50 @@ prometheus = "0.13.4"
 quote = "1.0"
 rand = "0.8.5"
 raptorq = "2.0.0"
-rcgen = "0.13.1"
+rcgen = "0.13.2"
 regex = "1"
-reqwest = { version = "0.12.9", default-features = false, features = ["http2", "json", "rustls-tls"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.20", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.21", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
-serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.133"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.134"
 serde_test = "1.0.177"
-serde_with = { version = "3.11", features = ["base64"] }
+serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
 snap = "1.1.0"
-sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
+sui = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" } # TODO(WAL-518): remove
+sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-simulator = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
 syn = "2.0"
-telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-tempfile = "3.14.0"
-test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
-thiserror = "2.0.7"
+telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+tempfile = "3.15.0"
+test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
+thiserror = "2.0.11"
 tokio = { version = "=1.38.1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
+tonic = { version = "0.12.3", default-features = false }
 tower = "0.5"
 tower-http = { version = "0.5.2", features = ["timeout", "trace"] }
 tracing = "0.1.41"
 tracing-opentelemetry = { version = "0.26", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt"] }
-typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.39.1" }
+typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.40.1" }
 url = "2.5.4"
 utoipa = { version = "4.2.3" }
 utoipa-redoc = { version = "4.0.0", features = ["axum"] }
-uuid = { version = "1.11.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.11.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
@@ -124,3 +127,8 @@ inherits = "test"
 overflow-checks = true
 # opt-level 1 gives >5x speedup for simulator tests without slowing down build times very much.
 opt-level = 1
+
+# TODO: Remove this once Sui 1.41 is released.
+[patch."https://github.com/MystenLabs/mysten-sim.git"]
+msim = { git = "https://www.github.com/MystenLabs/mysten-sim.git", rev = "2a170f4cd81c5cd10f5e4a5e810068f3045f41b6" }
+msim-macros = { git = "https://www.github.com/MystenLabs/mysten-sim.git", rev = "2a170f4cd81c5cd10f5e4a5e810068f3045f41b6" }

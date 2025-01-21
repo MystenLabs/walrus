@@ -25,7 +25,7 @@ use super::{
 };
 use crate::{
     merkle::{MerkleAuth, Node},
-    metadata::BlobMetadata,
+    metadata::{BlobMetadata, BlobMetadataApi as _},
     utils,
     SliverIndex,
 };

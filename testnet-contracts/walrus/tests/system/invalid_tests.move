@@ -22,7 +22,7 @@ public fun test_invalid_blob_ok() {
 
     let certified_message = committee.verify_quorum_in_epoch(
         signature,
-        vector[0],
+        test_utils::signers_to_bitmap(&vector[0]),
         invalid_blob_message,
     );
 
@@ -32,17 +32,15 @@ public fun test_invalid_blob_ok() {
 }
 
 #[test]
-public fun test_invalidate_happy(): system::System {
+public fun test_invalidate_happy() {
     let mut system = system::new_for_testing();
 
-    1u32.range_do_eq!(
-        5,
-        |epoch| {
-            let committee = test_utils::new_bls_committee_for_testing(epoch);
-            let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
-            epoch_balance.destroy_for_testing();
-        },
-    );
+    1u32.range_do_eq!(5, |epoch| {
+        let committee = test_utils::new_bls_committee_for_testing(epoch);
+        let epoch_balance = system.advance_epoch(committee, &epoch_params_for_testing());
+        let (_, values) = epoch_balance.into_keys_values();
+        values.do!(|b| { b.destroy_for_testing(); });
+    });
 
     // Create invalid blob message.
     let invalid_blob_message = messages::invalid_message_bytes(system.epoch(), BLOB_ID);
@@ -54,27 +52,25 @@ public fun test_invalidate_happy(): system::System {
     // Now check this is a invalid blob message
     let blob_id = system.invalidate_blob_id(
         signature,
-        vector[0],
+        test_utils::signers_to_bitmap(&vector[0]),
         invalid_blob_message,
     );
 
     assert!(blob_id == BLOB_ID);
 
-    system
+    system.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = messages::EIncorrectEpoch)]
-public fun test_system_invalid_id_wrong_epoch(): system::System {
+public fun test_system_invalid_id_wrong_epoch() {
     let mut system = system::new_for_testing();
 
-    1u32.range_do_eq!(
-        5,
-        |epoch| {
-            let committee = test_utils::new_bls_committee_for_testing(epoch);
-            let epoch_balance = system.advance_epoch(committee, epoch_params_for_testing());
-            epoch_balance.destroy_for_testing();
-        },
-    );
+    1u32.range_do_eq!(5, |epoch| {
+        let committee = test_utils::new_bls_committee_for_testing(epoch);
+        let epoch_balance = system.advance_epoch(committee, &epoch_params_for_testing());
+        let (_, values) = epoch_balance.into_keys_values();
+        values.do!(|b| { b.destroy_for_testing(); });
+    });
 
     // Create invalid blob message for wrong epoch.
     let invalid_blob_message = messages::invalid_message_bytes(system.epoch() - 1, BLOB_ID);
@@ -86,9 +82,9 @@ public fun test_system_invalid_id_wrong_epoch(): system::System {
     // Now check this is a invalid blob message. Test fails here.
     let _blob_id = system.invalidate_blob_id(
         signature,
-        vector[0],
+        test_utils::signers_to_bitmap(&vector[0]),
         invalid_blob_message,
     );
 
-    system
+    abort
 }

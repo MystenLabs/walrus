@@ -12,8 +12,8 @@ use sui_types::event::EventID;
 /// provides access to the `EventID`s sequentially starting from 0.
 #[derive(Debug, Default)]
 pub(super) struct EventSequencer {
-    head_index: usize,
-    queue: HashMap<usize, EventID>,
+    head_index: u64,
+    queue: HashMap<u64, EventID>,
 }
 
 impl EventSequencer {
@@ -23,16 +23,16 @@ impl EventSequencer {
     }
 
     /// Creates a new `EventSequencer`, that continues sequencing from the provided next index.
-    pub fn continue_from(next_index: usize) -> Self {
+    pub fn continue_from(head_index: u64) -> Self {
         Self {
-            head_index: next_index,
+            head_index,
             ..Self::default()
         }
     }
 
     /// The index of the next event to be observed. This is also the number of events that have been
     /// persisted.
-    pub fn head_index(&self) -> usize {
+    pub fn head_index(&self) -> u64 {
         self.head_index
     }
 
@@ -41,7 +41,7 @@ impl EventSequencer {
     /// # Panics
     ///
     /// Panics if the provided index has already been observed.
-    pub fn add(&mut self, index: usize, event_id: EventID) {
+    pub fn add(&mut self, index: u64, event_id: EventID) {
         if index < self.head_index || self.queue.insert(index, event_id).is_some() {
             // This class provides the invariant that we never advance unless we have seen all
             // prior sequence numbers, therefore anything less than the head_index or with a prior

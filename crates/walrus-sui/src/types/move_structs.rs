@@ -13,8 +13,19 @@ use serde::{
     Serialize,
     Serializer,
 };
-use sui_types::{base_types::ObjectID, messages_checkpoint::CheckpointSequenceNumber};
-use walrus_core::{BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex};
+use sui_types::{
+    base_types::{ObjectID, SuiAddress},
+    messages_checkpoint::CheckpointSequenceNumber,
+};
+use walrus_core::{
+    messages::BlobPersistenceType,
+    BlobId,
+    EncodingType,
+    Epoch,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
+};
 
 use super::NetworkAddress;
 use crate::contracts::{self, AssociatedContractStruct, StructTag};
@@ -63,6 +74,19 @@ pub struct Blob {
     pub deletable: bool,
 }
 
+impl Blob {
+    /// Returns the blob persistence type of the blob object.
+    pub fn blob_persistence_type(&self) -> BlobPersistenceType {
+        if self.deletable {
+            BlobPersistenceType::Deletable {
+                object_id: self.id.into(),
+            }
+        } else {
+            BlobPersistenceType::Permanent
+        }
+    }
+}
+
 /// Serialize as string to make sure that the json output uses the base64 encoding.
 fn serialize_blob_id<S>(blob_id: &BlobId, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -102,6 +126,8 @@ pub struct StorageNode {
     /// The network key of the storage node.
     #[serde(deserialize_with = "deserialize_public_key")]
     pub network_public_key: NetworkPublicKey,
+    /// The metadata for the pool.
+    pub metadata: ObjectID,
     /// The indices of the shards held by the storage node.
     #[serde(default, skip_deserializing)]
     pub shard_ids: Vec<ShardIndex>,
@@ -143,6 +169,12 @@ pub struct StorageNodeCap {
     pub last_epoch_sync_done: Epoch,
     /// The last event blob attestation from the storage node.
     pub last_event_blob_attestation: Option<EventBlobAttestation>,
+    /// The root of the deny list.
+    pub deny_list_root: [u8; 32],
+    /// The sequence number of the deny list.
+    pub deny_list_sequence_number: u64,
+    /// The size of the deny list.
+    pub deny_list_size: u64,
 }
 
 impl AssociatedContractStruct for StorageNodeCap {
@@ -161,9 +193,6 @@ impl Display for StorageNodeCap {
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 enum PoolState {
-    #[cfg(not(feature = "walrus-mainnet"))]
-    // The pool is new and awaits the stake to be added.
-    New,
     // The pool is active and can accept stakes.
     Active,
     // The pool awaits the stake to be withdrawn. The value inside the
@@ -184,19 +213,18 @@ pub struct VotingParams {
     pub node_capacity: u64,
 }
 
-#[cfg(feature = "walrus-mainnet")]
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-/// The receiver of the commission.
-enum CommissionReceiver {
+/// The authorized object or address for commission or governance.
+pub enum Authorized {
     /// Address receiver.
-    Address(ObjectID),
+    Address(SuiAddress),
     /// Object receiver.
-    ObjectID(ObjectID),
+    Object(ObjectID),
 }
 
 /// Represents a single staking pool.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
-pub(crate) struct StakingPool {
+pub struct StakingPool {
     id: ObjectID,
     /// The current state of the pool.
     state: PoolState,
@@ -214,16 +242,10 @@ pub(crate) struct StakingPool {
     pool_token_balance: u64,
     /// Pending withdrawals from the pool token balance indexed by epoch.
     pending_pool_token_withdraw: Vec<(Epoch, u64)>,
-    #[cfg(feature = "walrus-mainnet")]
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
-    #[cfg(feature = "walrus-mainnet")]
     /// Pending commission rate changes indexed by epoch.
     pending_commission_rate: Vec<(Epoch, u64)>,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    /// The commission rate for the pool.
-    commission_rate: u64,
-    #[cfg(feature = "walrus-mainnet")]
     /// The commission rate for the pool.
     commission_rate: u16,
     /// Exchange rates table ID.
@@ -233,13 +255,12 @@ pub(crate) struct StakingPool {
     pending_stake: Vec<(Epoch, u64)>,
     /// The rewards that the pool has received.
     rewards: u64,
-    #[cfg(feature = "walrus-mainnet")]
     /// Collected commission.
     commission: u64,
-    #[cfg(feature = "walrus-mainnet")]
     /// The receiver of the commission.
-    commission_receiver: CommissionReceiver,
-    #[cfg(feature = "walrus-mainnet")]
+    pub commission_receiver: Authorized,
+    /// The authorization object to vote for governance actions, e.g. upgrade the contract.
+    pub governance_authorized: Authorized,
     #[serde(deserialize_with = "deserialize_bag_or_table")]
     extra_fields: ObjectID,
 }
@@ -295,9 +316,6 @@ pub struct EventBlob {
 /// State holding the certification of event blobs.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct EventBlobCertificationState {
-    /// The object ID of the inner object.
-    #[cfg(not(feature = "walrus-mainnet"))]
-    pub id: ObjectID,
     /// Latest certified blob
     pub latest_certified_blob: Option<EventBlob>,
     /// Total weight of the blobs undergoing certification.
@@ -309,9 +327,13 @@ pub struct EventBlobCertificationState {
 pub struct StakingObject {
     /// Object id of the Sui object.
     pub id: ObjectID,
-    /// The version of the system object.
+    /// The version of the staking object.
     pub version: u64,
-    /// The inner system state.
+    /// The package ID of the staking object.
+    pub package_id: ObjectID,
+    /// The new package ID of the staking object.
+    pub(crate) new_package_id: Option<ObjectID>,
+    /// The inner staking state.
     pub(crate) inner: StakingInnerV1,
 }
 
@@ -320,6 +342,8 @@ pub struct StakingObject {
 pub(crate) struct StakingObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
+    pub(crate) package_id: ObjectID,
+    pub(crate) new_package_id: Option<ObjectID>,
 }
 
 impl AssociatedContractStruct for StakingObjectForDeserialization {
@@ -380,8 +404,6 @@ type CommitteeShardAssignment = Vec<(ObjectID, Vec<u16>)>;
 /// Sui type for inner staking object
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct StakingInnerV1 {
-    /// The object ID
-    pub(crate) id: ObjectID,
     /// The number of shards in the system.
     pub(crate) n_shards: NonZeroU16,
     /// The duration of an epoch in ms. Does not affect the first (zero) epoch.
@@ -396,7 +418,7 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) epoch: Epoch,
     /// Stores the active set of storage nodes. Provides automatic sorting and
     /// tracks the total amount of staked WAL.
-    pub(crate) active_set: ActiveSet,
+    pub(crate) active_set: ObjectID,
     /// The next committee in the system.
     pub(crate) next_committee: Option<CommitteeShardAssignment>,
     /// The current committee in the system.
@@ -407,8 +429,8 @@ pub(crate) struct StakingInnerV1 {
     pub(crate) next_epoch_params: Option<EpochParams>,
     /// The state of the current epoch.
     pub(crate) epoch_state: EpochState,
-    /// Rewards left over from the previous epoch that couldn't be distributed due to rounding.
-    pub(crate) leftover_rewards: u64,
+    /// Extended field holding public keys for the next epoch.
+    pub(crate) next_epoch_public_keys: ObjectID,
 }
 
 impl AssociatedContractStruct for StakingInnerV1 {
@@ -432,7 +454,6 @@ pub(crate) struct BlsCommittee {
     n_shards: u16,
     /// The current epoch
     epoch: Epoch,
-    #[cfg(feature = "walrus-mainnet")]
     /// Aggregated key for all committee members
     #[serde(deserialize_with = "deserialize_public_key")]
     aggregated_keys: PublicKey,
@@ -445,8 +466,19 @@ pub struct SystemObject {
     pub id: ObjectID,
     /// The version of the system object.
     pub version: u64,
+    /// The package ID of the system object.
+    pub package_id: ObjectID,
+    /// The new package ID of the system object.
+    pub(crate) new_package_id: Option<ObjectID>,
     /// The inner system state.
     pub(crate) inner: SystemStateInnerV1,
+}
+
+impl SystemObject {
+    /// Returns the number of members in the committee.
+    pub(crate) fn committee_size(&self) -> u16 {
+        self.inner.committee.members.len() as u16
+    }
 }
 
 /// Sui type for outer system object. Used for deserialization.
@@ -454,6 +486,8 @@ pub struct SystemObject {
 pub(crate) struct SystemObjectForDeserialization {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
+    pub(crate) package_id: ObjectID,
+    pub(crate) new_package_id: Option<ObjectID>,
 }
 impl AssociatedContractStruct for SystemObjectForDeserialization {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::system::System;
@@ -462,8 +496,6 @@ impl AssociatedContractStruct for SystemObjectForDeserialization {
 /// Sui type for inner system object.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub(crate) struct SystemStateInnerV1 {
-    /// The object ID of the inner object.
-    pub id: ObjectID,
     /// The current committee of the Walrus instance.
     pub committee: BlsCommittee,
     /// Total storage capacity of the Walrus instance.
@@ -478,6 +510,8 @@ pub(crate) struct SystemStateInnerV1 {
     pub future_accounting: FutureAccountingRingBuffer,
     /// Event blob certification state.
     pub event_blob_certification_state: EventBlobCertificationState,
+    /// Extended field with the size of the deny list for committee members.
+    pub deny_list_sized: ObjectID,
 }
 
 impl AssociatedContractStruct for SystemStateInnerV1 {
@@ -498,10 +532,6 @@ where
 pub enum StakedWalState {
     /// The WAL is staked.
     Staked,
-    #[cfg(not(feature = "walrus-mainnet"))]
-    /// The WAL is unstaked and can be withdrawn.
-    Withdrawing(Epoch, u64),
-    #[cfg(feature = "walrus-mainnet")]
     /// The WAL is unstaked and can be withdrawn.
     Withdrawing(Epoch, Option<u64>),
 }
@@ -510,11 +540,6 @@ impl Display for StakedWalState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StakedWalState::Staked => write!(f, "Staked"),
-            #[cfg(not(feature = "walrus-mainnet"))]
-            StakedWalState::Withdrawing(epoch, amount) => {
-                write!(f, "Withdrawing: epoch={}, amount={}", epoch, amount)
-            }
-            #[cfg(feature = "walrus-mainnet")]
             StakedWalState::Withdrawing(epoch, Some(amount)) => {
                 write!(
                     f,
@@ -522,7 +547,6 @@ impl Display for StakedWalState {
                     epoch, amount
                 )
             }
-            #[cfg(feature = "walrus-mainnet")]
             StakedWalState::Withdrawing(epoch, None) => {
                 write!(f, "Withdrawing: epoch={}, pool token amount=Unknown", epoch)
             }
@@ -605,4 +629,31 @@ where
     V: DeserializeOwned,
 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::dynamic_field::Field;
+}
+
+/// Sui type for a `SharedBlob`.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct SharedBlob {
+    /// The object ID of the shared blob.
+    pub id: ObjectID,
+    /// The blob.
+    pub blob: Blob,
+    /// The funds that can be used to store the blob.
+    pub funds: u64,
+}
+
+impl AssociatedContractStruct for SharedBlob {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::shared_blob::SharedBlob;
+}
+
+/// Sui type for the key of an extended field.
+// TODO(WAL-513): investigate why this is needed.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct Key {
+    /// To match empty struct in Move.
+    pub dummy_field: bool,
+}
+
+impl AssociatedContractStruct for Key {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::extended_field::Key;
 }

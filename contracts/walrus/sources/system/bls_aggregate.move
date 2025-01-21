@@ -87,7 +87,7 @@ public(package) fun new_bls_committee_member(
 // === Accessors for BlsCommitteeMember ===
 
 /// Get the node id of the committee member.
-public(package) fun node_id(self: &BlsCommitteeMember): sui::object::ID {
+public(package) fun node_id(self: &BlsCommitteeMember): ID {
     self.node_id
 }
 
@@ -101,6 +101,11 @@ public(package) fun epoch(self: &BlsCommittee): u32 {
 /// Returns the number of shards held by the committee.
 public(package) fun n_shards(self: &BlsCommittee): u16 {
     self.n_shards
+}
+
+/// Returns the number of members in the committee.
+public(package) fun n_members(self: &BlsCommittee): u64 {
+    self.members.length()
 }
 
 /// Returns the member at given index
@@ -207,19 +212,29 @@ fun verify_certificate_and_weight(
     let mut non_signer_aggregate_weight = 0;
     let mut non_signer_public_keys: vector<Element<UncompressedG1>> = vector::empty();
     let mut offset: u64 = 0;
+    let n_members = self.n_members();
+    let max_bitmap_len_bytes = n_members.divide_and_round_up(8);
 
-    // The signers bitmap must be exactly long enough to hold all members.
-    let excess_bits = signers_bitmap.length() * 8 - self.members.length();
-    assert!(excess_bits >= 0 && excess_bits < 8, EInvalidBitmap);
+    // The signers bitmap must not be longer than necessary to hold all members.
+    // It may be shorter, in which case the excluded members are treated as non-signers.
+    assert!(signers_bitmap.length() <= max_bitmap_len_bytes, EInvalidBitmap);
 
-    signers_bitmap.do_ref!(|byte| {
+    // Iterate over the signers bitmap and check if each member is a signer.
+    max_bitmap_len_bytes.do!(|i| {
+        // Get the current byte or 0 if we've reached the end of the bitmap.
+        let byte = if (i < signers_bitmap.length()) {
+            signers_bitmap[i]
+        } else {
+            0
+        };
+
         (8u8).do!(|i| {
             let index = offset + (i as u64);
-            let is_signer = (*byte >> i) & 1 == 1;
+            let is_signer = (byte >> i) & 1 == 1;
 
             // If the index is out of bounds, the bit must be 0 to ensure
             // uniqueness of the signers_bitmap.
-            if (index >= self.members.length()) {
+            if (index >= n_members) {
                 assert!(!is_signer, EInvalidBitmap);
                 return
             };

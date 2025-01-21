@@ -8,6 +8,7 @@ use std::sync::{
 };
 
 use rocksdb::{MergeOperands, Options};
+use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tracing::Level;
 use typed_store::{
@@ -21,8 +22,32 @@ use super::{event_sequencer::EventSequencer, DatabaseConfig};
 const CURSOR_KEY: [u8; 6] = *b"cursor";
 const COLUMN_FAMILY_NAME: &str = "event_cursor";
 
-type EventIdWithProgress = (EventID, u64);
 type ProgressMergeOperand = (EventID, u64);
+
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+pub enum EventIdWithProgress {
+    V1(EventIdWithProgressV1),
+}
+
+impl EventIdWithProgress {
+    pub fn event_id(&self) -> EventID {
+        match self {
+            EventIdWithProgress::V1(v1) => v1.event_id,
+        }
+    }
+
+    pub fn next_event_index(&self) -> u64 {
+        match self {
+            EventIdWithProgress::V1(v1) => v1.next_event_index,
+        }
+    }
+}
+
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+pub struct EventIdWithProgressV1 {
+    event_id: EventID,
+    next_event_index: u64,
+}
 
 #[derive(Debug, Copy, Clone, Default)]
 pub(crate) struct EventProgress {
@@ -69,14 +94,13 @@ impl EventCursorTable {
         let next_index = this.get_sequentially_processed_event_count()?;
         this.persisted_event_count
             .store(next_index, Ordering::SeqCst);
-        *this.event_queue.lock().unwrap() =
-            EventSequencer::continue_from(next_index.try_into().expect("64-bit architecture"));
+        *this.event_queue.lock().unwrap() = EventSequencer::continue_from(next_index);
 
         Ok(this)
     }
 
     pub fn options(config: &DatabaseConfig) -> (&'static str, Options) {
-        let mut options = config.event_cursor.to_options();
+        let mut options = config.event_cursor().to_options();
         options.set_merge_operator(
             "update_cursor_and_progress",
             update_cursor_and_progress,
@@ -85,21 +109,40 @@ impl EventCursorTable {
         (COLUMN_FAMILY_NAME, options)
     }
 
+    pub fn reposition_event_cursor(
+        &self,
+        cursor: EventID,
+        next_index: u64,
+    ) -> Result<(), TypedStoreError> {
+        self.inner.insert(
+            &CURSOR_KEY,
+            &EventIdWithProgress::V1(EventIdWithProgressV1 {
+                event_id: cursor,
+                next_event_index: next_index,
+            }),
+        )?;
+        self.persisted_event_count
+            .store(next_index, Ordering::SeqCst);
+        *self.event_queue.lock().unwrap() = EventSequencer::continue_from(next_index);
+
+        Ok(())
+    }
+
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
         let entry = self.inner.get(&CURSOR_KEY)?;
-        Ok(entry.map_or(0, |(_, count)| count))
+        Ok(entry.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index))
     }
 
     /// Returns the current event cursor and the next event index.
     pub fn get_event_cursor_and_next_index(
         &self,
-    ) -> Result<Option<(EventID, u64)>, TypedStoreError> {
+    ) -> Result<Option<EventIdWithProgress>, TypedStoreError> {
         self.inner.get(&CURSOR_KEY)
     }
 
     pub fn maybe_advance_event_cursor(
         &self,
-        event_index: usize,
+        event_index: u64,
         cursor: &EventID,
     ) -> Result<EventProgress, TypedStoreError> {
         let mut event_queue = self.event_queue.lock().unwrap();
@@ -122,10 +165,7 @@ impl EventCursorTable {
             event_queue.advance();
         }
 
-        let persisted: u64 = event_queue
-            .head_index()
-            .try_into()
-            .expect("64-bit architecture");
+        let persisted: u64 = event_queue.head_index();
         let pending = event_queue.remaining();
 
         // In debug mode, assert that the number of events processed matches the number of events.
@@ -161,9 +201,13 @@ fn update_cursor_and_progress(
             .expect("merge operand should be decodable");
         tracing::trace!(?current_val, ?cursor, increment, "updating event cursor");
 
-        let updated_progress = current_val.map_or(0, |(_, progress)| progress) + increment;
+        let updated_progress =
+            current_val.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index) + increment;
 
-        current_val = Some((cursor, updated_progress));
+        current_val = Some(EventIdWithProgress::V1(EventIdWithProgressV1 {
+            event_id: cursor,
+            next_event_index: updated_progress,
+        }));
     }
 
     current_val.map(|value| bcs::to_bytes(&value).expect("this can be BCS-encoded"))

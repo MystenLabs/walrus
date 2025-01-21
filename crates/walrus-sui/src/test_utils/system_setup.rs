@@ -29,27 +29,21 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
 use crate::{
-    client::{ReadClient, SuiClientError, SuiContractClient},
-    system_setup::{self, InitSystemParams},
+    client::{contract_config::ContractConfig, ReadClient, SuiClientError, SuiContractClient},
+    system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
 
 const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
 
-/// Provides the default contract path for testing for the package with name `package`.
-pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
-    let contract_dir = if cfg!(feature = "walrus-mainnet") {
-        "contracts"
-    } else {
-        "testnet-contracts"
-    };
+/// Provides the default contract directory for testing.
+pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
         .unwrap()
         .parent()
         .unwrap()
-        .join(contract_dir)
-        .join(package))
+        .join("contracts"))
 }
 
 /// Publishes the package with a default system object.
@@ -60,7 +54,7 @@ pub fn contract_path_for_testing(package: &str) -> anyhow::Result<PathBuf> {
 pub async fn publish_with_default_system(
     admin_wallet: &mut WalletContext,
     node_wallet: WalletContext,
-) -> Result<(ObjectID, ObjectID)> {
+) -> Result<SystemContext> {
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
@@ -104,20 +98,24 @@ pub async fn publish_with_default_system(
     // call vote end
     end_epoch_zero(&contract_client).await?;
 
-    Ok((system_context.system_object, system_context.staking_object))
+    Ok(system_context)
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemContext {
-    /// The package ID.
-    pub package_id: ObjectID,
+    /// The package ID of the walrus contracts.
+    pub walrus_pkg_id: ObjectID,
     /// The ID of the system Object.
     pub system_object: ObjectID,
     /// The ID of the staking Object.
     pub staking_object: ObjectID,
+    /// The ID of the WAL package.
+    pub wal_pkg_id: ObjectID,
     /// The ID of the WAL treasury Cap.
     pub treasury_cap: ObjectID,
+    /// The ID of the WAL exchange package.
+    pub wal_exchange_pkg_id: ObjectID,
 }
 
 impl SystemContext {
@@ -128,15 +126,13 @@ impl SystemContext {
         backoff_config: ExponentialBackoffConfig,
         gas_budget: u64,
     ) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(
-            wallet,
-            self.system_object,
-            self.staking_object,
-            Some(self.package_id),
-            backoff_config,
-            gas_budget,
-        )
-        .await
+        let contract_config = self.contract_config();
+        SuiContractClient::new(wallet, &contract_config, backoff_config, gas_budget).await
+    }
+
+    /// Returns the contract config for the system.
+    pub fn contract_config(&self) -> ContractConfig {
+        ContractConfig::new(self.system_object, self.staking_object)
     }
 }
 
@@ -150,8 +146,10 @@ pub async fn create_and_init_system_for_test(
     epoch_duration: Duration,
     max_epochs_ahead: Option<EpochCount>,
 ) -> Result<SystemContext> {
+    let temp_dir = tempfile::tempdir()?;
+    let deploy_directory = Some(temp_dir.path().to_path_buf());
     create_and_init_system(
-        contract_path_for_testing("walrus")?,
+        contract_dir_for_testing()?,
         admin_wallet,
         InitSystemParams {
             n_shards,
@@ -160,7 +158,7 @@ pub async fn create_and_init_system_for_test(
             max_epochs_ahead: max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
         },
         DEFAULT_GAS_BUDGET,
-        true,
+        deploy_directory,
     )
     .await
 }
@@ -169,41 +167,59 @@ pub async fn create_and_init_system_for_test(
 ///
 /// Returns the package ID and the object IDs of the system object, the staking object, and the WAL
 /// treasury cap.
+///
+/// If `deploy_directory` is provided, the contracts will be copied to this directory and published
+/// from there to keep the `Move.toml` in the original directory unchanged.
 pub async fn create_and_init_system(
-    contract_path: PathBuf,
+    contract_dir: PathBuf,
     admin_wallet: &mut WalletContext,
     init_system_params: InitSystemParams,
     gas_budget: u64,
-    for_test: bool,
+    deploy_directory: Option<PathBuf>,
 ) -> Result<SystemContext> {
-    let (package_id, cap_id, treasury_cap) = system_setup::publish_coin_and_system_package(
-        admin_wallet,
-        contract_path,
-        gas_budget,
-        for_test,
-    )
-    .await?;
+    let PublishSystemPackageResult {
+        walrus_pkg_id,
+        init_cap_id,
+        upgrade_cap_id,
+        treasury_cap_id,
+        wal_exchange_pkg_id,
+        wal_pkg_id,
+    } = system_setup::publish_coin_and_system_package(admin_wallet, contract_dir, deploy_directory)
+        .await?;
 
     let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
         admin_wallet,
-        package_id,
-        cap_id,
+        walrus_pkg_id,
+        init_cap_id,
+        upgrade_cap_id,
         init_system_params,
         gas_budget,
     )
     .await?;
 
     Ok(SystemContext {
-        package_id,
+        walrus_pkg_id,
         system_object,
         staking_object,
-        treasury_cap,
+        wal_pkg_id,
+        treasury_cap: treasury_cap_id,
+        wal_exchange_pkg_id,
     })
 }
 
 /// Registers the nodes based on the provided parameters, distributes WAL to each contract client,
 /// and stakes an equal amount with each storage node. Each of the contract clients will hold
 /// the `StorageNodeCap` for the node with the same index.
+#[tracing::instrument(
+    err,
+    skip(
+        admin_wallet,
+        system_context,
+        node_params,
+        node_bls_keys,
+        contract_clients
+    )
+)]
 pub async fn register_committee_and_stake(
     admin_wallet: &mut WalletContext,
     system_context: &SystemContext,
@@ -220,7 +236,7 @@ pub async fn register_committee_and_stake(
 
     mint_wal_to_addresses(
         admin_wallet,
-        system_context.package_id,
+        system_context.wal_pkg_id,
         system_context.treasury_cap,
         &receiver_addrs,
         wal_to_mint.max(
@@ -241,19 +257,15 @@ pub async fn register_committee_and_stake(
         .zip(contract_clients)
         .zip(amounts_to_stake)
     {
-        let proof_of_possession = crate::utils::generate_proof_of_possession(
-            bls_sk,
-            contract_client,
-            storage_node_params,
-            current_epoch,
-        );
+        let proof_of_possession =
+            crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
         let node_cap = contract_client
             .register_candidate(storage_node_params, proof_of_possession)
             .await?;
         // stake with storage nodes
         if *amount_to_stake > 0 {
             let _staked_wal = contract_client
-                .stake_with_pool(*amount_to_stake, node_cap.node_id)
+                .stake_with_pools(&[(node_cap.node_id, *amount_to_stake)])
                 .await?;
         }
         node_capabilities.push(node_cap);
@@ -284,7 +296,7 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
 /// Mints WAL to the provided addresses.
 pub async fn mint_wal_to_addresses(
     admin_wallet: &mut WalletContext,
-    pkg_id: ObjectID,
+    wal_pkg_id: ObjectID,
     treasury_cap: ObjectID,
     receiver_addrs: &[SuiAddress],
     value: u64,
@@ -310,7 +322,7 @@ pub async fn mint_wal_to_addresses(
             SUI_FRAMEWORK_PACKAGE_ID,
             Identifier::new("coin").expect("should be able to convert to Identifier"),
             Identifier::new("mint").expect("should be able to convert to Identifier"),
-            vec![TypeTag::from_str(&format!("{pkg_id}::wal::WAL"))?],
+            vec![TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?],
             vec![treasury_cap_arg, amount_arg],
         );
         pt_builder.transfer_arg(*addr, result);

@@ -17,7 +17,12 @@ mod proof_of_possession;
 pub use proof_of_possession::{ProofOfPossession, ProofOfPossessionBody, ProofOfPossessionMsg};
 
 mod storage_confirmation;
-pub use storage_confirmation::{Confirmation, SignedStorageConfirmation, StorageConfirmation};
+pub use storage_confirmation::{
+    BlobPersistenceType,
+    Confirmation,
+    SignedStorageConfirmation,
+    StorageConfirmation,
+};
 
 mod invalid_blob_id;
 pub use invalid_blob_id::{InvalidBlobIdAttestation, InvalidBlobIdMsg};
@@ -219,6 +224,7 @@ impl Intent {
 
 #[cfg(test)]
 mod tests {
+    use storage_confirmation::{BlobPersistenceType, StorageConfirmationBody};
     use walrus_test_utils::{param_test, Result as TestResult};
 
     use super::*;
@@ -231,8 +237,8 @@ mod tests {
     const EPOCH: Epoch = 21;
     const BLOB_ID: BlobId = BlobId([7; 32]);
 
-    impl AsMut<ProtocolMessage<BlobId>> for Confirmation {
-        fn as_mut(&mut self) -> &mut ProtocolMessage<BlobId> {
+    impl AsMut<ProtocolMessage<StorageConfirmationBody>> for Confirmation {
+        fn as_mut(&mut self) -> &mut ProtocolMessage<StorageConfirmationBody> {
             &mut self.0
         }
     }
@@ -245,7 +251,7 @@ mod tests {
 
     param_test! {
         decoding_fails_for_incorrect_message_type -> TestResult: [
-            confirmation: (Confirmation::new(EPOCH, BLOB_ID)),
+            confirmation: (Confirmation::new(EPOCH, BLOB_ID, BlobPersistenceType::Permanent)),
             invalid_blob: (InvalidBlobIdMsg::new(EPOCH, BLOB_ID)),
         ]
     }
@@ -270,7 +276,7 @@ mod tests {
 
     param_test! {
         decoding_fails_for_unsupported_intent_version -> TestResult: [
-            confirmation: (Confirmation::new(EPOCH, BLOB_ID)),
+            confirmation: (Confirmation::new(EPOCH, BLOB_ID, BlobPersistenceType::Permanent)),
         invalid_blob: (InvalidBlobIdMsg::new(EPOCH, BLOB_ID)),
         ]
     }
@@ -295,7 +301,7 @@ mod tests {
 
     param_test! {
         decoding_fails_for_invalid_app_id -> TestResult: [
-            confirmation: (Confirmation::new(EPOCH, BLOB_ID)),
+            confirmation: (Confirmation::new(EPOCH, BLOB_ID, BlobPersistenceType::Permanent)),
             invalid_blob: (InvalidBlobIdMsg::new(EPOCH, BLOB_ID)),
         ]
     }
@@ -320,7 +326,7 @@ mod tests {
 
     param_test! {
         decoding_succeeds_for_valid_message -> TestResult: [
-            confirmation: (Confirmation::new(EPOCH, BLOB_ID)),
+            confirmation: (Confirmation::new(EPOCH, BLOB_ID, BlobPersistenceType::Permanent)),
             invalid_blob: (InvalidBlobIdMsg::new(EPOCH, BLOB_ID)),
         ]
     }

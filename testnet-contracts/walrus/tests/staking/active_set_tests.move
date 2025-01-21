@@ -18,61 +18,61 @@ use walrus::active_set;
 #[test]
 fun test_insert() {
     let mut set = active_set::new(3, 100);
-    set.insert(@0x1.to_id(), 200);
-    set.insert(@0x2.to_id(), 300);
-    set.insert(@0x3.to_id(), 400);
+    set.insert(@1.to_id(), 200);
+    set.insert(@2.to_id(), 300);
+    set.insert(@3.to_id(), 400);
 
     assert_eq!(set.size(), 3);
     assert_eq!(set.max_size(), 3);
 
     let active_ids = set.active_ids();
-    assert!(active_ids.contains(&@0x1.to_id()));
-    assert!(active_ids.contains(&@0x2.to_id()));
-    assert!(active_ids.contains(&@0x3.to_id()));
+    assert!(active_ids.contains(&@1.to_id()));
+    assert!(active_ids.contains(&@2.to_id()));
+    assert!(active_ids.contains(&@3.to_id()));
     assert_eq!(set.cur_min_stake(), 200);
 
     // now insert a node with even more staked WAL
-    set.insert(@0x4.to_id(), 500);
+    set.insert(@4.to_id(), 500);
 
     assert_eq!(set.size(), 3);
     assert_eq!(set.cur_min_stake(), 300);
 
     let active_ids = set.active_ids();
-    assert!(active_ids.contains(&@0x2.to_id()));
-    assert!(active_ids.contains(&@0x3.to_id()));
-    assert!(active_ids.contains(&@0x4.to_id()));
+    assert!(active_ids.contains(&@2.to_id()));
+    assert!(active_ids.contains(&@3.to_id()));
+    assert!(active_ids.contains(&@4.to_id()));
 
     // and now insert a node with less staked WAL
-    set.insert(@0x5.to_id(), 250);
+    set.insert(@5.to_id(), 250);
 
     assert_eq!(set.size(), 3);
     assert_eq!(set.cur_min_stake(), 300);
 
     let active_ids = set.active_ids();
-    assert!(active_ids.contains(&@0x2.to_id()));
-    assert!(active_ids.contains(&@0x3.to_id()));
-    assert!(active_ids.contains(&@0x4.to_id()));
+    assert!(active_ids.contains(&@2.to_id()));
+    assert!(active_ids.contains(&@3.to_id()));
+    assert!(active_ids.contains(&@4.to_id()));
 
     // and now insert 3 more nodes with super high staked WAL
-    set.insert(@0x6.to_id(), 1000);
-    set.insert(@0x7.to_id(), 1000);
-    set.insert(@0x8.to_id(), 1000);
+    set.insert(@6.to_id(), 1000);
+    set.insert(@7.to_id(), 1000);
+    set.insert(@8.to_id(), 1000);
 
     assert_eq!(set.size(), 3);
     assert_eq!(set.cur_min_stake(), 1000);
 
     let active_ids = set.active_ids();
-    assert!(active_ids.contains(&@0x6.to_id()));
-    assert!(active_ids.contains(&@0x7.to_id()));
-    assert!(active_ids.contains(&@0x8.to_id()));
+    assert!(active_ids.contains(&@6.to_id()));
+    assert!(active_ids.contains(&@7.to_id()));
+    assert!(active_ids.contains(&@8.to_id()));
 }
 
 #[test]
 fun test_size_1() {
     let mut set = active_set::new(1, 100);
     assert_eq!(set.cur_min_stake(), 100);
-    set.insert(@0x1.to_id(), 1000);
+    set.insert(@1.to_id(), 1000);
     assert_eq!(set.cur_min_stake(), 1000);
-    set.insert(@0x2.to_id(), 1001);
+    set.insert(@2.to_id(), 1001);
     assert_eq!(set.cur_min_stake(), 1001);
 }

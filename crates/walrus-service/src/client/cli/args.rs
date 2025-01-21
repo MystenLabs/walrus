@@ -3,7 +3,12 @@
 
 //! The arguments to the Walrus client binary.
 
-use std::{net::SocketAddr, num::NonZeroU16, path::PathBuf, time::Duration};
+use std::{
+    net::SocketAddr,
+    num::{NonZeroU16, NonZeroU32},
+    path::PathBuf,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
@@ -11,7 +16,7 @@ use jsonwebtoken::Algorithm;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, BlobId, EpochCount};
+use walrus_core::{encoding::EncodingConfig, ensure, BlobId, EpochCount};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, SuiContractClient},
     utils::SuiNetwork,
@@ -38,7 +43,7 @@ pub struct App {
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(short, long, verbatim_doc_comment)]
+    #[clap(long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
@@ -53,11 +58,11 @@ pub struct App {
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(short, long, verbatim_doc_comment)]
+    #[clap(long, verbatim_doc_comment)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub wallet: Option<PathBuf>,
     /// The gas budget for transactions.
-    #[clap(short, long, default_value_t = default::gas_budget())]
+    #[clap(long, default_value_t = default::gas_budget())]
     #[serde(default = "default::gas_budget")]
     pub gas_budget: u64,
     /// Write output as JSON.
@@ -165,12 +170,17 @@ pub enum CliCommands {
     /// blob (possibly reusing storage resources or uncertified but registered blobs).
     #[clap(alias("write"))]
     Store {
-        /// The file containing the blob to be published to Walrus.
-        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
-        file: PathBuf,
+        /// The files containing the blob to be published to Walrus.
+        #[clap(required = true, value_name = "FILES")]
+        #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
+        files: Vec<PathBuf>,
         /// The number of epochs ahead for which to store the blob.
-        #[clap(short, long)]
-        epochs: Option<EpochCount>,
+        ///
+        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+        /// system object on chain. Otherwise, the blob is stored for the specified number of
+        /// epochs. The number of epochs must be greater than 0.
+        #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
+        epochs: EpochCountOrMax,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -190,6 +200,11 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         deletable: bool,
+
+        /// Whether to put the blob into a shared blob object.
+        #[clap(long, action)]
+        #[serde(default)]
+        share: bool,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -200,7 +215,7 @@ pub enum CliCommands {
         /// The file path where to write the blob.
         ///
         /// If unset, prints the blob to stdout.
-        #[clap(short, long)]
+        #[clap(long)]
         #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
         out: Option<PathBuf>,
         /// The URL of the Sui RPC node to use.
@@ -224,7 +239,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         file_or_blob_id: FileOrBlobId,
         /// Timeout for status requests to storage nodes.
-        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1s")]
+        #[clap(long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
         /// The URL of the Sui RPC node to use.
@@ -233,15 +248,24 @@ pub enum CliCommands {
         rpc_arg: RpcArg,
     },
     /// Print information about the Walrus storage system this client is connected to.
+    /// Several subcommands are available to print different information.
+    ///
+    /// The `all` subcommand prints all information.
+    /// The `epoch` subcommand prints information about the current epoch.
+    /// The `storage` subcommand prints information about the storage nodes.
+    /// The `size` subcommand prints information about the size of the storage system.
+    /// The `price` subcommand prints information about the price of the storage system.
+    /// The `bft` subcommand prints information about the byzantine fault tolerance (BFT) system.
+    /// The `committee` subcommand prints information about the committee.
+    /// When no subcommand is provided, epoch, storage, size, and price information is printed.
     Info {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
-        /// Print extended information for developers.
-        #[clap(long, action)]
-        #[serde(default)]
-        dev: bool,
+        /// The specific info command to run.
+        #[command(subcommand)]
+        command: Option<InfoCommands>,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -251,7 +275,7 @@ pub enum CliCommands {
         /// The number of shards for which to compute the blob ID.
         ///
         /// If not specified, the number of shards is read from chain.
-        #[clap(short, long)]
+        #[clap(long)]
         #[serde(default)]
         n_shards: Option<NonZeroU16>,
         /// The URL of the Sui RPC node to use.
@@ -281,7 +305,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         target: FileOrBlobIdOrObjectId,
         /// Proceed to delete the blob without confirmation.
-        #[clap(short, long, action)]
+        #[clap(long, action)]
         #[serde(default)]
         yes: bool,
         /// Disable checking the status of the blob after deletion.
@@ -293,13 +317,17 @@ pub enum CliCommands {
     },
     /// Stake with storage node.
     Stake {
-        #[clap(long)]
         /// The object ID of the storage node to stake with.
-        node_id: ObjectID,
-        #[clap(short, long, default_value_t = default::staking_amount_frost())]
-        #[serde(default = "default::staking_amount_frost")]
+        #[clap(long, required=true, num_args=1.., alias("node-id"))]
+        node_ids: Vec<ObjectID>,
         /// The amount of FROST (smallest unit of WAL token) to stake with the storage node.
-        amount: u64,
+        ///
+        /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
+        /// values must be equal to the number of node IDs, and each amount is staked at the node
+        /// with the same index.
+        #[clap(long, alias("amount"), default_value = "1000000000")]
+        #[serde(default = "default::staking_amounts_frost")]
+        amounts: Vec<u64>,
     },
     /// Generates a new Sui wallet.
     GenerateSuiWallet {
@@ -316,8 +344,17 @@ pub enum CliCommands {
         #[clap(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
+        /// Whether to attempt to get SUI tokens from the faucet.
+        #[clap(long, action)]
+        #[serde(default)]
+        use_faucet: bool,
         /// Timeout for the faucet call.
-        #[clap(short, long, value_parser = humantime::parse_duration, default_value = "1min")]
+        #[clap(
+            long,
+            value_parser = humantime::parse_duration,
+            default_value = "1min",
+            requires = "use_faucet")
+        ]
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
@@ -328,7 +365,7 @@ pub enum CliCommands {
         ///
         /// This takes precedence over the value in the config file.
         exchange_id: Option<ObjectID>,
-        #[clap(short, long, default_value_t = default::exchange_amount_mist())]
+        #[clap(long, default_value_t = default::exchange_amount_mist())]
         #[serde(default = "default::exchange_amount_mist")]
         /// The amount of MIST to exchange for WAL/FROST.
         amount: u64,
@@ -352,10 +389,63 @@ pub enum CliCommands {
         #[serde(flatten)]
         burn_selection: BurnSelection,
         /// Proceed to burn the blobs without confirmation.
-        #[clap(short, long, action)]
+        #[clap(long, action)]
         #[serde(default)]
         yes: bool,
     },
+
+    /// Fund a shared blob.
+    FundSharedBlob {
+        /// The object ID of the shared blob to fund.
+        #[clap(long)]
+        shared_blob_obj_id: ObjectID,
+        /// The amount of FROST (smallest unit of WAL token) to fund the shared blob with.
+        #[clap(long)]
+        amount: u64,
+    },
+    /// Extend a shared blob.
+    Extend {
+        /// The object ID of the shared blob to extend.
+        #[clap(long)]
+        shared_blob_obj_id: ObjectID,
+        /// The number of epochs to extend the shared blob for.
+        ///
+        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+        /// system object on chain. Otherwise, the blob is stored for the specified number of
+        /// epochs. The number of epochs must be greater than 0.
+        #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
+        epochs_ahead: EpochCountOrMax,
+    },
+    /// Share a blob.
+    Share {
+        /// The object ID of the (owned) blob to share.
+        #[clap(long)]
+        blob_obj_id: ObjectID,
+        /// If specified, share and directly fund the blob.
+        #[clap(long)]
+        amount: Option<u64>,
+    },
+}
+
+/// Subcommands for the `info` command.
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum InfoCommands {
+    /// Print all information listed below.
+    All,
+    /// Print epoch information.
+    Epoch,
+    /// Print storage information.
+    Storage,
+    /// Print size information.
+    Size,
+    /// Print price information.
+    Price,
+    /// Print byzantine fault tolerance (BFT) information.
+    Bft,
+    /// Print committee information.
+    Committee,
 }
 
 /// The daemon commands for the Walrus client.
@@ -552,7 +642,7 @@ pub struct RpcArg {
     /// If unset, the wallet configuration is applied (if set), or the fullnode at
     /// `fullnode.testnet.sui.io:443` is used.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde(default)]
     pub(crate) rpc_url: Option<String>,
 }
@@ -561,7 +651,7 @@ pub struct RpcArg {
 #[serde(rename_all = "camelCase")]
 pub struct DaemonArgs {
     /// The address to which to bind the service.
-    #[clap(short, long, default_value_t = default::bind_address())]
+    #[clap(long, default_value_t = default::bind_address())]
     #[serde(default = "default::bind_address")]
     pub(crate) bind_address: SocketAddr,
     /// Socket address on which the Prometheus server should export its metrics.
@@ -580,11 +670,11 @@ pub struct DaemonArgs {
 #[group(required = true, multiple = false)]
 pub struct FileOrBlobId {
     /// The file containing the blob to be checked.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
@@ -623,20 +713,20 @@ pub struct FileOrBlobIdOrObjectId {
     /// The file containing the blob to be deleted.
     ///
     /// This is equivalent to calling `blob-id` on the file, and then deleting with `--blob-id`.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be deleted.
     ///
     /// This command deletes _all_ owned blob objects matching the provided blob ID.
-    #[clap(short, long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
     /// The object ID of the blob object to be deleted.
     ///
     /// This command deletes only the blob object with the given object ID.
-    #[clap(short, long)]
+    #[clap(long)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) object_id: Option<ObjectID>,
@@ -737,18 +827,60 @@ impl BurnSelection {
     }
 }
 
+/// The number of epochs to store the blob for.
+///
+/// Can be either a non-zero number of epochs or the special value `max`, which will store the blob
+/// for the maximum number of epochs allowed by the system object on chain.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub enum EpochCountOrMax {
+    /// Store the blob for the maximum number of epochs allowed.
+    #[serde(rename = "max")]
+    Max,
+    /// The number of epochs to store the blob for.
+    #[serde(untagged)]
+    Epochs(NonZeroU32),
+}
+
+impl EpochCountOrMax {
+    fn parse_epoch_count(input: &str) -> Result<Self> {
+        if input == "max" {
+            Ok(Self::Max)
+        } else {
+            let epochs = input.parse::<u32>()?;
+            Ok(Self::Epochs(NonZeroU32::new(epochs).ok_or_else(|| {
+                anyhow!("invalid epoch count; please a number >0 or `max`")
+            })?))
+        }
+    }
+
+    /// Tries to convert the `EpochCountOrMax` into an `EpochCount` value.
+    ///
+    /// If the `EpochCountOrMax` is `Max`, the `max_epochs_ahead` is used as the maximum number of
+    /// epochs that can be stored ahead.
+    pub fn try_into_epoch_count(&self, max_epochs_ahead: EpochCount) -> anyhow::Result<EpochCount> {
+        match self {
+            EpochCountOrMax::Max => Ok(max_epochs_ahead),
+            EpochCountOrMax::Epochs(epochs) => {
+                let epochs = epochs.get();
+                ensure!(
+                    epochs <= max_epochs_ahead,
+                    "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+                    max_epochs_ahead,
+                    epochs
+                );
+                Ok(epochs)
+            }
+        }
+    }
+}
+
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
-    use walrus_core::EpochCount;
     use walrus_sui::utils::SuiNetwork;
 
     pub(crate) fn gas_budget() -> u64 {
         100_000_000
-    }
-
-    pub(crate) fn epochs() -> EpochCount {
-        1
     }
 
     pub(crate) fn max_body_size_kib() -> usize {
@@ -806,8 +938,8 @@ pub(crate) mod default {
             .expect("this is a correct socket address")
     }
 
-    pub(crate) fn staking_amount_frost() -> u64 {
-        1_000_000_000 // 1 WAL
+    pub(crate) fn staking_amounts_frost() -> Vec<u64> {
+        vec![1_000_000_000] // 1 WAL
     }
 
     pub(crate) fn exchange_amount_mist() -> u64 {
@@ -832,7 +964,8 @@ mod tests {
 
     use super::*;
 
-    const STORE_STR: &str = r#"{"store": {"file": "README.md"}}"#;
+    const STORE_STR_1: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
+    const STORE_STR_MAX: &str = r#"{"store": {"files": ["README.md"], "epochs": "max"}}"#;
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
@@ -849,13 +982,14 @@ mod tests {
     }
 
     // Fixture for the store command.
-    fn store_command() -> Commands {
+    fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
-            file: PathBuf::from("README.md"),
-            epochs: None,
+            files: vec![PathBuf::from("README.md")],
+            epochs,
             dry_run: false,
             force: false,
             deletable: false,
+            share: false,
         })
     }
 
@@ -897,7 +1031,11 @@ mod tests {
 
     param_test! {
         test_json_string_extraction -> TestResult: [
-            store: (&make_cmd_str(STORE_STR), store_command()),
+            store_max: (&make_cmd_str(STORE_STR_MAX), store_command(EpochCountOrMax::Max)),
+            store_1: (
+                &make_cmd_str(STORE_STR_1),
+                store_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
+            ),
             read: (&make_cmd_str(READ_STR), read_command()),
             daemon: (&make_cmd_str(DAEMON_STR), daemon_command())
         ]

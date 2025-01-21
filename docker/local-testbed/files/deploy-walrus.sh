@@ -1,13 +1,13 @@
+#!/bin/bash
 # Copyright (c) Mysten Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
-#!/bin/bash
 
 # use EPOCH_DURATION to set the epoch duration, default is 1h
 EPOCH_DURATION=${EPOCH_DURATION:-1h}
 
 rm -rf walrus-docs
 git clone https://github.com/MystenLabs/walrus-docs.git
-cp -r walrus-docs/contracts /opt/walrus
+cp -r walrus-docs/contracts /opt/walrus/testnet-contracts
 
 cd /opt/walrus
 

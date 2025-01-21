@@ -3,18 +3,18 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, fmt::Display, sync::Arc, time::Instant};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
-use fastcrypto::{bls12381::min_pk::BLS12381AggregateSignature, traits::AggregateAuthenticator};
 use futures::{Future, FutureExt};
 use indicatif::HumanDuration;
 use metrics::ClientMetricSet;
 use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
-use resource::{PriceComputation, ResourceManager, StoreOp};
+use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
+use responses::BlobStoreResultWithPath;
 use sui_types::base_types::ObjectID;
 use tokio::{
     sync::{RwLock, Semaphore},
@@ -26,11 +26,12 @@ use walrus_core::{
     bft,
     encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
     ensure,
-    messages::{Confirmation, ConfirmationCertificate, SignedStorageConfirmation},
-    metadata::VerifiedBlobMetadataWithId,
+    messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     EpochCount,
+    ShardIndex,
     Sliver,
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
@@ -56,18 +57,12 @@ use crate::common::active_committees::ActiveCommittees;
 pub mod cli;
 pub mod responses;
 
-mod blocklist;
-pub use blocklist::Blocklist;
+pub use crate::common::blocklist::Blocklist;
 
 mod communication;
 
 mod config;
-pub use config::{
-    default_configuration_paths,
-    ClientCommunicationConfig,
-    Config,
-    ExchangeObjectConfig,
-};
+pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 
 mod daemon;
 pub use daemon::{ClientDaemon, WalrusWriteClient};
@@ -87,6 +82,16 @@ pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;
+
+/// The result of encoding as a list of sliver pairs and metadata and a
+/// mapping from blob id to file path.
+#[derive(Debug)]
+pub struct EncodedResult {
+    /// The sliver pairs and metadata.
+    pairs_and_metadata: Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
+    /// The mapping from blob ID to path.
+    id_to_path: HashMap<BlobId, PathBuf>,
+}
 
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
@@ -235,13 +240,46 @@ impl<T: ReadClient> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
+        self.read_blob_internal(blob_id, None).await
+    }
+
+    /// Reconstructs the blob by reading slivers from Walrus shards with the given status.
+    #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
+    pub async fn read_blob_with_status<U>(
+        &self,
+        blob_id: &BlobId,
+        blob_status: BlobStatus,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        self.read_blob_internal(blob_id, Some(blob_status)).await
+    }
+
+    /// Internal method to handle the common logic for reading blobs.
+    async fn read_blob_internal<U>(
+        &self,
+        blob_id: &BlobId,
+        blob_status: Option<BlobStatus>,
+    ) -> ClientResult<Vec<u8>>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
         tracing::debug!("starting to read blob");
         self.check_blob_id(blob_id)?;
 
         let certified_epoch = if self.committees.read().await.is_change_in_progress() {
             tracing::info!("epoch change in progress, reading from initial certified epoch");
-            self.get_blob_status_with_retries(blob_id, &self.sui_client)
-                .await?
+            let blob_status = match blob_status {
+                Some(status) => status,
+                None => {
+                    self.get_blob_status_with_retries(blob_id, &self.sui_client)
+                        .await?
+                }
+            };
+            blob_status
                 .initial_certified_epoch()
                 .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
         } else {
@@ -250,9 +288,10 @@ impl<T: ReadClient> Client<T> {
         };
 
         // Return early if the committee is behind.
-        if certified_epoch > self.committees.read().await.epoch() {
+        let current_epoch = self.committees.read().await.epoch();
+        if certified_epoch > current_epoch {
             return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
-                client_epoch: self.committees.read().await.epoch(),
+                client_epoch: current_epoch,
                 certified_epoch,
             }));
         }
@@ -326,22 +365,21 @@ impl Client<SuiContractClient> {
             .await)
     }
 
-    /// Stores the blob to Walrus, retrying if it fails because of epoch change.
+    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blob_retry_epoch(
+    pub async fn reserve_and_store_blobs_retry_epoch(
         &self,
-        blob: &[u8],
+        blobs: &[&[u8]],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> ClientResult<BlobStoreResult> {
-        let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
+    ) -> ClientResult<Vec<BlobStoreResult>> {
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
 
         retry_if_epoch_change(self, || {
-            self.reserve_and_store_encoded_blob(
-                &pairs,
-                &metadata,
+            self.reserve_and_store_encoded_blobs(
+                &pairs_and_metadata,
                 epochs_ahead,
                 store_when,
                 persistence,
@@ -351,29 +389,159 @@ impl Client<SuiContractClient> {
         .await
     }
 
-    /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
-    /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
-    /// [`ConfirmationCertificate`] on chain.
+    /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
+    /// Similar to `[Client::reserve_and_store_blobs_retry_epoch]`, except the result
+    /// includes the corresponding path for blob.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blob(
+    pub async fn reserve_and_store_blobs_retry_epoch_with_path(
         &self,
-        blob: &[u8],
+        blobs_with_paths: &[(PathBuf, Vec<u8>)],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> ClientResult<BlobStoreResult> {
-        let (pairs, metadata) = self.encode_pairs_and_metadata(blob).await?;
+    ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
+        let EncodedResult {
+            pairs_and_metadata,
+            id_to_path,
+        } = self
+            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
+            .await?;
 
-        self.reserve_and_store_encoded_blob(
-            &pairs,
-            &metadata,
+        let store_results = retry_if_epoch_change(self, || {
+            self.reserve_and_store_encoded_blobs(
+                &pairs_and_metadata,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+            )
+        })
+        .await?;
+
+        // Attach path for the given blob ID to BlobStoreResult.
+        Ok(store_results
+            .into_iter()
+            .map(|result| BlobStoreResultWithPath {
+                path: id_to_path[result.blob_id()].clone(),
+                blob_store_result: result,
+            })
+            .collect::<Vec<_>>())
+    }
+
+    /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
+    /// storage nodes. Finally, the function aggregates the storage confirmations and posts the
+    /// [`ConfirmationCertificate`] on chain.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    pub async fn reserve_and_store_blobs(
+        &self,
+        blobs: &[&[u8]],
+        epochs_ahead: EpochCount,
+        store_when: StoreWhen,
+        persistence: BlobPersistence,
+        post_store: PostStoreAction,
+    ) -> ClientResult<Vec<BlobStoreResult>> {
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+
+        self.reserve_and_store_encoded_blobs(
+            &pairs_and_metadata,
             epochs_ahead,
             store_when,
             persistence,
             post_store,
         )
         .await
+    }
+
+    async fn encode_blobs_to_pairs_and_metadata_with_path(
+        &self,
+        blobs_with_paths: &[(PathBuf, Vec<u8>)],
+    ) -> ClientResult<EncodedResult> {
+        let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs).await?;
+
+        // Build the id_to_path mapping.
+        let id_to_path: HashMap<BlobId, PathBuf> = pairs_and_metadata
+            .iter()
+            .zip(blobs_with_paths.iter())
+            .map(|((_, metadata), (path, _))| (*metadata.blob_id(), path.clone()))
+            .collect();
+
+        tracing::info!(
+            "encoded files to metadata: {}",
+            id_to_path
+                .iter()
+                .map(|(id, path)| format!("{} -> {}", id, path.display()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        Ok(EncodedResult {
+            pairs_and_metadata,
+            id_to_path,
+        })
+    }
+
+    /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
+    /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
+    pub async fn encode_blobs_to_pairs_and_metadata(
+        &self,
+        blobs: &[&[u8]],
+    ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
+        if blobs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        if blobs.len() > 1 {
+            let total_blob_size = blobs.iter().map(|blob| blob.len()).sum::<usize>();
+            let max_total_blob_size = self.config().communication_config.max_total_blob_size;
+            if total_blob_size > max_total_blob_size {
+                return Err(ClientError::from(ClientErrorKind::Other(
+                    format!(
+                        "total blob size {} exceeds the maximum limit of {}",
+                        total_blob_size, max_total_blob_size
+                    )
+                    .into(),
+                )));
+            }
+        }
+
+        let mut failed_indices = Vec::with_capacity(blobs.len());
+        let mut pairs_and_metadata = Vec::with_capacity(blobs.len());
+
+        // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
+        futures::future::join_all(blobs.iter().enumerate().map(|(idx, blob)| async move {
+            match self.encode_pairs_and_metadata(blob).await {
+                Ok(result) => (idx, Ok(result)),
+                Err(e) => {
+                    tracing::warn!("Failed to encode blob at index {}: {}", idx, e);
+                    (idx, Err(e))
+                }
+            }
+        }))
+        .await
+        .into_iter()
+        .for_each(|(idx, result)| match result {
+            Ok(data) => pairs_and_metadata.push(data),
+            Err(e) => failed_indices.push((idx, e)),
+        });
+
+        // Return early if none of blobs are encoded.
+        if pairs_and_metadata.is_empty() {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                format!(
+                    "failed to encode any blob: {}",
+                    failed_indices
+                        .iter()
+                        .map(|(idx, e)| format!("{}: {}", idx, e))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+                .into(),
+            )));
+        }
+
+        Ok(pairs_and_metadata)
     }
 
     async fn encode_pairs_and_metadata(
@@ -406,102 +574,283 @@ impl Client<SuiContractClient> {
         Ok((pairs, metadata))
     }
 
-    async fn reserve_and_store_encoded_blob(
+    async fn reserve_and_store_encoded_blobs(
         &self,
-        pairs: &[SliverPair],
-        metadata: &VerifiedBlobMetadataWithId,
+        pairs_and_metadata: &[(Vec<SliverPair>, VerifiedBlobMetadataWithId)],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-    ) -> ClientResult<BlobStoreResult> {
-        let blob_id = *metadata.blob_id();
-        self.check_blob_id(&blob_id)?;
-        tracing::Span::current().record("blob_id", blob_id.to_string());
-
+    ) -> ClientResult<Vec<BlobStoreResult>> {
+        tracing::info!(
+            "storing {} sliver pairs with metadata",
+            pairs_and_metadata.len()
+        );
         let status_start_timer = Instant::now();
-        let blob_status = self
-            .get_blob_status_with_retries(&blob_id, &self.sui_client)
-            .await?;
+
+        let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
-            "retrieved blob status"
+            "retrieved {} blob statuses",
+            blob_id_to_metadata_with_status.len()
         );
 
         let store_op_timer = Instant::now();
-        let store_operation = self
+        let store_operations = self
             .resource_manager()
             .await
-            .store_operation_for_blob(metadata, epochs_ahead, persistence, store_when, blob_status)
+            .store_operation_for_blobs(
+                &blob_id_to_metadata_with_status
+                    .values()
+                    .map(|(_, metadata, status)| (*metadata, *status))
+                    .collect::<Vec<_>>(),
+                epochs_ahead,
+                persistence,
+                store_when,
+            )
             .await?;
         tracing::info!(
             duration = ?store_op_timer.elapsed(),
-            "blob resource obtained"
+            "{} blob resources obtained",
+            store_operations.len()
         );
 
-        let (mut blob_object, resource_operation) = match store_operation {
-            StoreOp::NoOp(result) => return Ok(result),
-            StoreOp::RegisterNew { blob, operation } => (blob, operation),
-        };
-
-        let (certificate, write_committee_epoch) = {
-            let committees = self.committees.read().await;
-
-            let certificate = match blob_status.initial_certified_epoch() {
-                Some(certified_epoch) if !committees.is_change_in_progress() => {
-                    // If the blob is already certified on chain and there is no committee change in
-                    // progress, all nodes already have the slivers.
-                    self.get_certificate_standalone(&blob_id, certified_epoch)
-                        .await?
+        // Collect store ops for noops and new blobs.
+        let mut noop_results: Vec<_> = Vec::with_capacity(store_operations.len());
+        let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
+        store_operations
+            .into_iter()
+            .for_each(|store_op| match store_op {
+                StoreOp::NoOp(result) => noop_results.push(result),
+                StoreOp::RegisterNew { blob, operation } => {
+                    new_blobs_and_ops.push((blob, operation))
                 }
-                _ => {
-                    // If the blob is not certified, we need to store the slivers. Also, during
-                    // epoch change we may need to store the slivers again for an already certified
-                    // blob, as the current committee may not have synced them yet.
-                    if resource_operation.is_registration() && !blob_status.is_registered() {
-                        tracing::debug!(
-                            delay=?self.config.communication_config.registration_delay,
-                            "waiting to ensure that all storage nodes have seen the registration"
-                        );
-                        tokio::time::sleep(self.config.communication_config.registration_delay)
-                            .await;
-                    }
-                    let certify_start_timer = Instant::now();
-                    let result = self
-                        .send_blob_data_and_get_certificate(metadata, pairs)
-                        .await?;
-                    let duration = certify_start_timer.elapsed();
-                    let blob_size = blob_object.size;
-                    tracing::info!(
-                        ?duration,
-                        blob_size,
-                        "finished sending blob data and collecting certificate"
-                    );
-                    result
-                }
-            };
+            });
 
-            let write_committee_epoch = committees.write_committee().epoch;
-            (certificate, write_committee_epoch)
-        };
+        // Return early if all operations are noops.
+        if new_blobs_and_ops.is_empty() {
+            return Ok(noop_results);
+        }
 
+        // Get certificates for all new blobs.
+        let committees = self.committees.read().await;
+        let blobs_with_certificates = self
+            .get_all_blob_certificates(
+                &new_blobs_and_ops,
+                &blob_id_to_metadata_with_status,
+                &committees,
+            )
+            .await?;
+        // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
-        self.sui_client
-            .certify_blob(blob_object.clone(), &certificate, post_store)
+        let shared_blob_object_map = self
+            .sui_client
+            .certify_blobs(&blobs_with_certificates, post_store)
             .await
-            .map_err(|e| ClientError::from(ClientErrorKind::CertificationFailed(e)))?;
+            .map_err(|e| {
+                tracing::warn!(error = %e, "failed to certify blobs on Sui");
+                ClientError::from(ClientErrorKind::CertificationFailed(e))
+            })?;
         tracing::info!(
             duration = ?sui_cert_timer.elapsed(),
-            "certified blob on Sui"
+            "certified {} blobs on Sui",
+            blobs_with_certificates.len()
         );
-        blob_object.certified_epoch = Some(write_committee_epoch);
-        let cost = self.price_computation.operation_cost(&resource_operation);
 
-        Ok(BlobStoreResult::NewlyCreated {
-            blob_object,
-            resource_operation,
-            cost,
-        })
+        // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
+        let write_committee_epoch = committees.write_committee().epoch;
+        let newly_created_results: Vec<_> = new_blobs_and_ops
+            .into_iter()
+            .map(|(blob, resource_operation)| {
+                let cost = self.price_computation.operation_cost(&resource_operation);
+                BlobStoreResult::NewlyCreated {
+                    blob_object: Blob {
+                        certified_epoch: Some(write_committee_epoch),
+                        ..blob
+                    },
+                    resource_operation,
+                    cost,
+                    shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                }
+            })
+            .collect();
+
+        Ok(newly_created_results
+            .into_iter()
+            .chain(noop_results.into_iter())
+            .collect())
+    }
+
+    /// Fetches the status of each blob, and returns a mapping of blob ID to
+    /// (pair, metadata, status).
+    async fn get_blob_statuses<'a>(
+        &'a self,
+        pairs_and_metadata: &'a [(Vec<SliverPair>, VerifiedBlobMetadataWithId)],
+    ) -> ClientResult<
+        HashMap<
+            BlobId,
+            (
+                &'a Vec<SliverPair>,
+                &'a VerifiedBlobMetadataWithId,
+                BlobStatus,
+            ),
+        >,
+    > {
+        // Filters out all the failed blobs that cannot fetch status and continue.
+        let blob_id_to_metadata_with_status: HashMap<BlobId, (_, _, _)> =
+            futures::future::join_all(pairs_and_metadata.iter().map(
+                |(pair, metadata)| async move {
+                    let blob_id = *metadata.blob_id();
+                    match async {
+                        self.check_blob_id(&blob_id)?;
+                        let status = self
+                            .get_blob_status_with_retries(&blob_id, &self.sui_client)
+                            .await?;
+                        Ok::<_, ClientError>((blob_id, (pair, metadata, status)))
+                    }
+                    .await
+                    {
+                        Ok(result) => Some(result),
+                        Err(e) => {
+                            tracing::warn!("Failed to process blob {}: {}", blob_id, e);
+                            None
+                        }
+                    }
+                },
+            ))
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+
+        // Return early if no blob status is fetched.
+        if blob_id_to_metadata_with_status.is_empty() {
+            return Err(ClientError::from(ClientErrorKind::NoValidStatusReceived));
+        }
+        Ok(blob_id_to_metadata_with_status)
+    }
+
+    /// Fetches the certificates for all the blobs, and returns a vector of
+    /// (blob, certificate) pair.
+    async fn get_all_blob_certificates<'a>(
+        &'a self,
+        new_blobs_and_ops: &'a [(Blob, RegisterBlobOp)],
+        blob_id_to_metadata_with_status: &'a HashMap<
+            BlobId,
+            (
+                &'a Vec<SliverPair>,
+                &'a VerifiedBlobMetadataWithId,
+                BlobStatus,
+            ),
+        >,
+        committees: &'a ActiveCommittees,
+    ) -> ClientResult<Vec<(&'a Blob, ConfirmationCertificate)>> {
+        let get_cert_timer = Instant::now();
+        let mut failed_indices = Vec::with_capacity(new_blobs_and_ops.len());
+        let mut blobs_with_certificates = Vec::with_capacity(new_blobs_and_ops.len());
+
+        // TODO(joy): add concurrency limit with semaphore.
+        futures::future::join_all(new_blobs_and_ops.iter().map(
+            |(blob_object, resource_operation)| {
+                let committees = committees.clone();
+                async move {
+                    let (pairs, metadata, blob_status) =
+                        blob_id_to_metadata_with_status[&blob_object.blob_id];
+                    match self
+                        .get_blob_certificate(
+                            blob_object,
+                            resource_operation,
+                            pairs,
+                            metadata,
+                            &blob_status,
+                            &committees,
+                        )
+                        .await
+                    {
+                        Ok(certificate) => (blob_object.blob_id, Ok((blob_object, certificate))),
+                        Err(e) => {
+                            tracing::warn!(
+                                %blob_object.blob_id,
+                                error = %e,
+                                "Failed to get blob certificate"
+                            );
+                            (blob_object.blob_id, Err(e))
+                        }
+                    }
+                }
+            },
+        ))
+        .await
+        .into_iter()
+        .for_each(|(id, result)| match result {
+            Ok(data) => blobs_with_certificates.push(data),
+            Err(e) => failed_indices.push((id, e)),
+        });
+
+        // Return early if none of blob certificate is fetched.
+        if blobs_with_certificates.is_empty() {
+            return Err(failed_indices.remove(0).1);
+        }
+
+        tracing::info!(
+            duration = ?get_cert_timer.elapsed(),
+            "get {} blobs certificates",
+            blobs_with_certificates.len()
+        );
+
+        Ok(blobs_with_certificates)
+    }
+
+    async fn get_blob_certificate(
+        &self,
+        blob_object: &Blob,
+        resource_operation: &RegisterBlobOp,
+        pairs: &[SliverPair],
+        metadata: &VerifiedBlobMetadataWithId,
+        blob_status: &BlobStatus,
+        committees: &ActiveCommittees,
+    ) -> ClientResult<ConfirmationCertificate> {
+        match blob_status.initial_certified_epoch() {
+            Some(certified_epoch) if !committees.is_change_in_progress() => {
+                // If the blob is already certified on chain and there is no committee change in
+                // progress, all nodes already have the slivers.
+                self.get_certificate_standalone(
+                    &blob_object.blob_id,
+                    certified_epoch,
+                    &blob_object.blob_persistence_type(),
+                )
+                .await
+            }
+            _ => {
+                // If the blob is not certified, we need to store the slivers. Also, during
+                // epoch change we may need to store the slivers again for an already certified
+                // blob, as the current committee may not have synced them yet.
+                if resource_operation.is_registration() && !blob_status.is_registered() {
+                    tracing::debug!(
+                        delay=?self.config.communication_config.registration_delay,
+                        "waiting to ensure that all storage nodes have seen the registration"
+                    );
+                    tokio::time::sleep(self.config.communication_config.registration_delay).await;
+                }
+                let certify_start_timer = Instant::now();
+                let result = self
+                    .send_blob_data_and_get_certificate(
+                        metadata,
+                        pairs,
+                        &blob_object.blob_persistence_type(),
+                    )
+                    .await?;
+                let duration = certify_start_timer.elapsed();
+                let blob_size = blob_object.size;
+                tracing::info!(
+                    blob_id = %metadata.blob_id(),
+                    ?duration,
+                    blob_size,
+                    "finished sending blob data and collecting certificate"
+                );
+                Ok(result)
+            }
+        }
     }
 
     /// Creates a resource manager for the client.
@@ -546,14 +895,23 @@ impl Client<SuiContractClient> {
         Ok(())
     }
 
-    /// Stakes the specified amount of WAL with the node represented by `node_id`.
-    pub async fn stake_with_node_pool(
+    /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the
+    /// second element of the pair with the node represented by the first element of the pair.
+    pub async fn stake_with_node_pools(
         &self,
-        node_id: ObjectID,
-        amount: u64,
-    ) -> ClientResult<StakedWal> {
-        let staked_wal = self.sui_client.stake_with_pool(amount, node_id).await?;
+        node_ids_with_amounts: &[(ObjectID, u64)],
+    ) -> ClientResult<Vec<StakedWal>> {
+        let staked_wal = self
+            .sui_client
+            .stake_with_pools(node_ids_with_amounts)
+            .await?;
         Ok(staked_wal)
+    }
+
+    /// Stakes the specified amount of WAL with the node represented by `node_id`.
+    pub async fn stake_with_node_pool(&self, node_id: ObjectID, amount: u64) -> ClientResult<()> {
+        self.stake_with_node_pools(&[(node_id, amount)]).await?;
+        Ok(())
     }
 
     /// Exchanges the provided amount of SUI (in MIST) for WAL using the specified exchange.
@@ -615,16 +973,18 @@ impl<T> Client<T> {
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
+        blob_persistence_type: &BlobPersistenceType,
     ) -> ClientResult<ConfirmationCertificate> {
-        tracing::info!("starting to send data to storage nodes");
+        tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs).await;
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
-                metadata.metadata().unencoded_length,
+                metadata.metadata().unencoded_length(),
                 &self.encoding_config,
             );
         tracing::debug!(
+            blob_id = %metadata.blob_id(),
             communication_limits = sliver_write_limit,
             "establishing node communications"
         );
@@ -644,6 +1004,7 @@ impl<T> Client<T> {
                 pairs_per_node
                     .remove(&n.node_index)
                     .expect("there are shards for each node"),
+                blob_persistence_type,
             )
             .inspect({
                 let value = progress_bar.clone();
@@ -673,6 +1034,7 @@ impl<T> Client<T> {
                 elapsed_time = ?start.elapsed(),
                 executed_weight = weight,
                 responses = ?requests.into_results(),
+                blob_id = %metadata.blob_id(),
                 "all futures consumed before reaching a threshold of successful responses"
             );
             return Err(self
@@ -680,7 +1042,9 @@ impl<T> Client<T> {
                 .await);
         }
         tracing::debug!(
-            elapsed_time = ?start.elapsed(), "stored metadata and slivers onto a quorum of nodes"
+            elapsed_time = ?start.elapsed(),
+            blob_id = %metadata.blob_id(),
+            "stored metadata and slivers onto a quorum of nodes"
         );
 
         progress_bar.finish_with_message("slivers sent");
@@ -709,6 +1073,7 @@ impl<T> Client<T> {
             .await;
         tracing::debug!(
             elapsed_time = ?start.elapsed(),
+            blob_id = %metadata.blob_id(),
             %completed_reason,
             "stored metadata and slivers onto additional nodes"
         );
@@ -717,7 +1082,7 @@ impl<T> Client<T> {
 
         let results = requests.into_results();
 
-        self.confirmations_to_certificate(metadata.blob_id(), results, &committees)
+        self.confirmations_to_certificate(results, &committees)
             .await
     }
 
@@ -726,17 +1091,16 @@ impl<T> Client<T> {
         &self,
         blob_id: &BlobId,
         certified_epoch: Epoch,
+        blob_persistence_type: &BlobPersistenceType,
     ) -> ClientResult<ConfirmationCertificate> {
         let committees = self.committees.read().await;
         let comms = self
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
 
-        let mut requests = WeightedFutures::new(
-            comms
-                .iter()
-                .map(|n| n.get_confirmation_with_retries(blob_id, committees.epoch())),
-        );
+        let mut requests = WeightedFutures::new(comms.iter().map(|n| {
+            n.get_confirmation_with_retries(blob_id, committees.epoch(), blob_persistence_type)
+        }));
 
         requests
             .execute_weight(
@@ -746,7 +1110,7 @@ impl<T> Client<T> {
             .await;
         let results = requests.into_results();
 
-        self.confirmations_to_certificate(blob_id, results, &committees)
+        self.confirmations_to_certificate(results, &committees)
             .await
     }
 
@@ -755,21 +1119,21 @@ impl<T> Client<T> {
     /// This function _does not_ check that the received confirmations match the current epoch and
     /// blob ID, as it assumes that the storage confirmations were received through
     /// [`NodeCommunication::store_metadata_and_pairs`], which internally verifies it to check the
-    /// blob ID and epoch.
+    /// blob ID, epoch, and blob persistence type.
     async fn confirmations_to_certificate<E: Display>(
         &self,
-        blob_id: &BlobId,
         confirmations: Vec<NodeResult<SignedStorageConfirmation, E>>,
         committees: &ActiveCommittees,
     ) -> ClientResult<ConfirmationCertificate> {
         let mut aggregate_weight = 0;
         let mut signers = Vec::with_capacity(confirmations.len());
-        let mut valid_signatures = Vec::with_capacity(confirmations.len());
+        let mut signed_messages = Vec::with_capacity(confirmations.len());
+
         for NodeResult(_, weight, node, result) in confirmations {
             match result {
                 Ok(confirmation) => {
                     aggregate_weight += weight;
-                    valid_signatures.push(confirmation.signature);
+                    signed_messages.push(confirmation);
                     signers.push(
                         u16::try_from(node)
                             .expect("the node index is computed from the vector of members"),
@@ -787,17 +1151,9 @@ impl<T> Client<T> {
                 .await
         );
 
-        let aggregate =
-            BLS12381AggregateSignature::aggregate(&valid_signatures).map_err(ClientError::other)?;
-        let cert = ConfirmationCertificate::new(
-            signers,
-            bcs::to_bytes(&Confirmation::new(
-                committees.write_committee().epoch,
-                *blob_id,
-            ))
-            .expect("serialization should always succeed"),
-            aggregate,
-        );
+        let cert =
+            ConfirmationCertificate::from_signed_messages_and_indices(signed_messages, signers)
+                .map_err(ClientError::other)?;
         Ok(cert)
     }
 
@@ -853,7 +1209,7 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
-            .get_blob_decoder::<U>(metadata.metadata().unencoded_length)
+            .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
             .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
@@ -864,7 +1220,7 @@ impl<T> Client<T> {
                 &enough_source_symbols,
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
-                        metadata.metadata().unencoded_length,
+                        metadata.metadata().unencoded_length(),
                         &self.encoding_config,
                     ),
             )
@@ -873,6 +1229,7 @@ impl<T> Client<T> {
         progress_bar.finish_with_message("slivers received");
 
         let mut n_not_found = 0; // Counts the number of "not found" status codes received.
+        let mut n_forbidden = 0; // Counts the number of "forbidden" status codes received.
         let slivers = requests
             .take_results()
             .into_iter()
@@ -882,14 +1239,20 @@ impl<T> Client<T> {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
                         if error.is_status_not_found() {
                             n_not_found += 1;
+                        } else if error.is_blob_blocked() {
+                            n_forbidden += 1;
                         }
                     })
                     .ok()
             })
             .collect::<Vec<_>>();
 
-        if committees.is_quorum(n_not_found) {
-            return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+        if committees.is_quorum(n_not_found + n_forbidden) {
+            return if n_not_found > n_forbidden {
+                Err(ClientErrorKind::BlobIdDoesNotExist.into())
+            } else {
+                Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
+            };
         }
 
         if let Some((blob, _meta)) = decoder
@@ -901,8 +1264,14 @@ impl<T> Client<T> {
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
-            self.decode_sliver_by_sliver(&mut requests, &mut decoder, metadata, n_not_found)
-                .await
+            self.decode_sliver_by_sliver(
+                &mut requests,
+                &mut decoder,
+                metadata,
+                n_not_found,
+                n_forbidden,
+            )
+            .await
         }
     }
 
@@ -915,6 +1284,7 @@ impl<T> Client<T> {
         decoder: &mut BlobDecoder<'a, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
+        mut n_forbidden: usize,
     ) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
@@ -925,7 +1295,7 @@ impl<T> Client<T> {
             .next(
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
-                        metadata.metadata().unencoded_length,
+                        metadata.metadata().unencoded_length(),
                         &self.encoding_config,
                     ),
             )
@@ -942,11 +1312,22 @@ impl<T> Client<T> {
                 }
                 Err(error) => {
                     tracing::debug!(%node, %error, "retrieving sliver failed");
-                    if error.is_status_not_found() && {
+                    if error.is_status_not_found() {
                         n_not_found += 1;
-                        self.committees.read().await.is_quorum(n_not_found)
-                    } {
-                        return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                    } else if error.is_blob_blocked() {
+                        n_forbidden += 1;
+                    }
+                    if self
+                        .committees
+                        .read()
+                        .await
+                        .is_quorum(n_not_found + n_forbidden)
+                    {
+                        return if n_not_found > n_forbidden {
+                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                        } else {
+                            Err(ClientErrorKind::BlobIdBlocked(*metadata.blob_id()).into())
+                        };
                     }
                 }
             }
@@ -1008,6 +1389,7 @@ impl<T> Client<T> {
             .await;
 
         let mut n_not_found = 0;
+        let mut n_forbidden = 0;
         for NodeResult(_, weight, node, result) in requests.into_results() {
             match result {
                 Ok(metadata) => {
@@ -1015,14 +1397,25 @@ impl<T> Client<T> {
                     return Ok(metadata);
                 }
                 Err(error) => {
-                    if error.is_status_not_found() && {
-                        n_not_found += weight;
-                        committees.is_quorum(n_not_found)
-                    } {
-                        // TODO(giac): now that we check that the blob is certified before starting
-                        // to read, this error should not technically happen unless (1) the client
-                        // was disconnected while reading, or (2) the bft threshold was exceeded.
-                        return Err(ClientErrorKind::BlobIdDoesNotExist.into());
+                    let res = {
+                        if error.is_status_not_found() {
+                            n_not_found += weight;
+                        } else if error.is_blob_blocked() {
+                            n_forbidden += weight;
+                        }
+                        committees.is_quorum(n_not_found + n_forbidden)
+                    };
+                    if res {
+                        // Return appropriate error based on which response type was more common
+                        return if n_not_found > n_forbidden {
+                            // TODO(giac): now that we check that the blob is certified before
+                            // starting to read, this error should not technically happen unless (1)
+                            // the client was disconnected while reading, or (2) the bft threshold
+                            // was exceeded.
+                            Err(ClientErrorKind::BlobIdDoesNotExist.into())
+                        } else {
+                            Err(ClientErrorKind::BlobIdBlocked(*blob_id).into())
+                        };
                     }
                 }
             }
@@ -1150,6 +1543,19 @@ impl<T> Client<T> {
             }
         }
         Ok(())
+    }
+
+    /// Returns the shards of the given node in the write committee.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn shards_of(&self, node_names: &[String]) -> Vec<ShardIndex> {
+        let committees = self.committees.read().await;
+        committees
+            .write_committee()
+            .members()
+            .iter()
+            .filter(|node| node_names.contains(&node.name))
+            .flat_map(|node| node.shard_ids.clone())
+            .collect::<Vec<_>>()
     }
 
     /// Maps the sliver pairs to the node in the write committee that holds their shard.

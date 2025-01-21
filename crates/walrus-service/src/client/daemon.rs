@@ -85,8 +85,8 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let result = self
-            .reserve_and_store_blob_retry_epoch(
-                blob,
+            .reserve_and_store_blobs_retry_epoch(
+                &[blob],
                 epochs_ahead,
                 store_when,
                 persistence,
@@ -94,7 +94,10 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             )
             .await?;
 
-        Ok(result)
+        Ok(result
+            .into_iter()
+            .next()
+            .expect("there is only one blob, as store was called with one blob"))
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {

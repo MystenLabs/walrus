@@ -7,7 +7,12 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
 use utoipa::ToSchema;
-use walrus_core::{metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, EpochCount};
+use walrus_core::{
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    BlobId,
+    Epoch,
+    EpochCount,
+};
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},
@@ -64,6 +69,7 @@ impl PriceComputation {
 
 /// The operation performed on blob and storage resources to register a blob.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RegisterBlobOp {
     /// The storage and blob resources are purchased from scratch.
     RegisterFromScratch {
@@ -123,59 +129,79 @@ impl<'a> ResourceManager<'a> {
         }
     }
 
-    /// Returns the appropriate store operation for the given blob.
+    /// Returns a list of appropriate store operation for the given blobs.
     ///
     /// The function considers the requirements given to the store operation (epochs ahead,
     /// persistence, force store), the status of the blob on chain, and the available resources in
     /// the wallet.
-    pub async fn store_operation_for_blob(
+    pub async fn store_operation_for_blobs(
         &self,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata_with_status: &[(&VerifiedBlobMetadataWithId, BlobStatus)],
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
-        blob_status: BlobStatus,
-    ) -> ClientResult<StoreOp> {
-        // Return early if the blob is already certified or marked as invalid.
-        // For deletable blobs, we need to check the ones that are owned by the current wallet
-        // later, as there may be multiple already certified that we do not own.
-        if !store_when.is_store_always() && !persistence.is_deletable() {
-            if let Some(result) =
-                self.blob_status_to_store_result(*metadata.blob_id(), epochs_ahead, blob_status)
-            {
-                return Ok(StoreOp::NoOp(result));
-            }
-        };
+    ) -> ClientResult<Vec<StoreOp>> {
+        let mut results = Vec::with_capacity(metadata_with_status.len());
 
-        let (blob, op) = self
-            .get_existing_or_register(metadata, epochs_ahead, persistence, store_when)
+        // Filter for already certified/invalid blobs and add to result, otherwise add it to
+        // to_be_processed.
+        let to_be_processed = metadata_with_status
+            .iter()
+            .filter(|(metadata, blob_status)| {
+                if !store_when.is_store_always() && !persistence.is_deletable() {
+                    if let Some(result) = self.blob_status_to_store_result(
+                        *metadata.blob_id(),
+                        epochs_ahead,
+                        *blob_status,
+                    ) {
+                        tracing::debug!(blob_id=%metadata.blob_id(), "blob is already certified");
+                        results.push(StoreOp::NoOp(result));
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|(m, _)| *m)
+            .collect::<Vec<_>>();
+
+        // If there are no blobs to be processed, return early the results.
+        if to_be_processed.is_empty() {
+            return Ok(results);
+        }
+
+        let blobs_with_ops = self
+            .get_existing_or_register(&to_be_processed, epochs_ahead, persistence, store_when)
             .await?;
 
-        // If the blob is deletable and already certified, return early.
-        let store_op = if blob.certified_epoch.is_some() {
-            debug_assert!(
-                blob.deletable && !store_when.is_store_always(),
-                "get_existing_registration with StoreWhen::Always filters certified blobs"
-            );
-            tracing::debug!(
-                "there is a deletable certified blob in the wallet, and we are not forcing a store"
-            );
-            StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
-                blob_id: *metadata.blob_id(),
-                event_or_object: EventOrObjectId::Object(blob.id),
-                end_epoch: blob.certified_epoch.unwrap(),
-            })
-        } else {
-            StoreOp::RegisterNew {
-                blob,
-                operation: op,
-            }
-        };
-
-        Ok(store_op)
+        for (blob, op) in blobs_with_ops {
+            // If the blob is deletable and already certified, add it results as noop.
+            let store_op = if blob.certified_epoch.is_some() {
+                debug_assert!(
+                    blob.deletable && !store_when.is_store_always(),
+                    "get_existing_registration with StoreWhen::Always filters certified blobs"
+                );
+                tracing::debug!(
+                    blob_id=%blob.blob_id,
+                    "there is a deletable certified blob in the wallet, and we are not forcing
+                    a store"
+                );
+                StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
+                    blob_id: blob.blob_id,
+                    event_or_object: EventOrObjectId::Object(blob.id),
+                    end_epoch: blob.certified_epoch.unwrap(),
+                })
+            } else {
+                StoreOp::RegisterNew {
+                    blob,
+                    operation: op,
+                }
+            };
+            results.push(store_op);
+        }
+        Ok(results)
     }
 
-    /// Returns a [`Blob`] registration object for the specified metadata and number of epochs.
+    /// Returns a list of [`Blob`] registration objects for a list of specified metadata and number
     ///
     /// Tries to reuse existing blob registrations or storage resources if possible.
     /// Specifically:
@@ -190,29 +216,40 @@ impl<'a> ResourceManager<'a> {
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_existing_or_register(
         &self,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata_list: &[&VerifiedBlobMetadataWithId],
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
-    ) -> ClientResult<(Blob, RegisterBlobOp)> {
-        let encoded_length = metadata.metadata().encoded_size().ok_or_else(|| {
-            ClientError::other(ClientErrorKind::Other(
-                anyhow!("the provided metadata is invalid: could not compute the encoded size")
-                    .into(),
-            ))
-        })?;
+    ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
+        let encoded_lengths: Result<Vec<_>, _> =
+            metadata_list
+                .iter()
+                .map(|m| {
+                    m.metadata().encoded_size().ok_or_else(|| {
+                        ClientError::other(ClientErrorKind::Other(
+                    anyhow!("the provided metadata is invalid: could not compute the encoded size")
+                        .into(),
+                ))
+                    })
+                })
+                .collect();
 
         if store_when.is_ignore_resources() {
             tracing::debug!(
                 "ignoring existing resources and creating a new registration from scratch"
             );
-            self.reserve_and_register_blob_op(encoded_length, epochs_ahead, metadata, persistence)
-                .await
+            self.reserve_and_register_blob_op(
+                &encoded_lengths?,
+                epochs_ahead,
+                metadata_list,
+                persistence,
+            )
+            .await
         } else {
             self.get_existing_or_register_with_resources(
-                encoded_length,
+                &encoded_lengths?,
                 epochs_ahead,
-                metadata,
+                metadata_list,
                 persistence,
                 store_when,
             )
@@ -222,72 +259,150 @@ impl<'a> ResourceManager<'a> {
 
     async fn get_existing_or_register_with_resources(
         &self,
-        encoded_length: u64,
+        encoded_lengths: &[u64],
         epochs_ahead: EpochCount,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata_list: &[&VerifiedBlobMetadataWithId],
         persistence: BlobPersistence,
         store_when: StoreWhen,
-    ) -> ClientResult<(Blob, RegisterBlobOp)> {
-        let blob_and_op = if let Some(blob) = self
-            .is_blob_registered_in_wallet(
-                metadata.blob_id(),
-                epochs_ahead,
-                persistence,
-                !store_when.is_store_always(),
-            )
-            .await?
-        {
-            tracing::debug!(
-                end_epoch=%blob.storage.end_epoch,
-                "blob is already registered and valid; using the existing registration"
-            );
-            (blob, RegisterBlobOp::ReuseRegistration { encoded_length })
-        } else if let Some(storage_resource) = self
-            .sui_client
-            .owned_storage_for_size_and_epoch(
-                encoded_length,
-                epochs_ahead + self.write_committee_epoch,
-            )
-            .await?
-        {
-            tracing::debug!(
-                storage_object=%storage_resource.id,
-                "using an existing storage resource to register the blob"
-            );
-            // TODO(giac): consider splitting the storage before reusing it (#811).
-            let blob = self
-                .sui_client
-                .register_blob(&storage_resource, metadata.try_into()?, persistence)
-                .await?;
-            (blob, RegisterBlobOp::ReuseStorage { encoded_length })
-        } else {
-            tracing::debug!(
-                "the blob is not already registered or its lifetime is too short; creating new one"
-            );
-            self.reserve_and_register_blob_op(encoded_length, epochs_ahead, metadata, persistence)
+    ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
+        let max_len = metadata_list.len();
+        debug_assert!(
+            encoded_lengths.len() == max_len,
+            "inconsistent metadata and encoded lengths"
+        );
+        let mut results = Vec::with_capacity(max_len);
+
+        let mut reused_metadata_with_storage = Vec::with_capacity(max_len);
+        let mut reused_encoded_lengths = Vec::with_capacity(max_len);
+
+        let mut new_metadata_list = Vec::with_capacity(max_len);
+        let mut new_encoded_lengths = Vec::with_capacity(max_len);
+
+        // This keeps tracks of selected storage objects and exclude them from selecting again.
+        let mut excluded = Vec::with_capacity(max_len);
+
+        // For all the metadata, if the blob is registered in wallet, add it directly to results.
+        // Otherwise, check if there is existing storage resource selected for the encoded length,
+        // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
+        // Otherwise, add it to new_metadata_list and its length to new_encoded_lengths.
+        for (metadata, encoded_length) in metadata_list.iter().zip(encoded_lengths) {
+            if let Some(blob) = self
+                .is_blob_registered_in_wallet(
+                    metadata.blob_id(),
+                    epochs_ahead,
+                    persistence,
+                    !store_when.is_store_always(),
+                )
                 .await?
-        };
-        Ok(blob_and_op)
+            {
+                tracing::debug!(
+                    end_epoch=%blob.storage.end_epoch,
+                    blob_id=%blob.blob_id,
+                    "blob is already registered and valid; using the existing registration"
+                );
+                results.push((
+                    blob,
+                    RegisterBlobOp::ReuseRegistration {
+                        encoded_length: *encoded_length,
+                    },
+                ))
+            } else if let Some(storage_resource) = self
+                .sui_client
+                .owned_storage_for_size_and_epoch(
+                    *encoded_length,
+                    epochs_ahead + self.write_committee_epoch,
+                    &excluded,
+                )
+                .await?
+            {
+                // TODO(joy): Currently select is done one at a time for each blob using `excluded`
+                // to filter, this might not be efficient if the list is too long, consider better
+                // storage selection strategy.
+                // TODO(giac): consider splitting the storage before reusing it (#811).
+                tracing::debug!(
+                    blob_id=%metadata.blob_id(),
+                    storage_object=%storage_resource.id,
+                    "using an existing storage resource to register the blob"
+                );
+                excluded.push(storage_resource.id);
+                reused_metadata_with_storage.push(((*metadata).try_into()?, storage_resource));
+                reused_encoded_lengths.push(*encoded_length);
+            } else {
+                tracing::debug!(
+                    blob_id=%metadata.blob_id(),
+                    "no storage resource found for the blob"
+                );
+                new_metadata_list.push(*metadata);
+                new_encoded_lengths.push(*encoded_length);
+            };
+        }
+
+        // Register all in reused_metadata_with_storage in one ptb.
+        tracing::debug!(
+            num_blobs=%reused_metadata_with_storage.len(),
+            "registering blobs with its storage resources"
+        );
+        let blobs = self
+            .sui_client
+            .register_blobs(reused_metadata_with_storage, persistence)
+            .await?;
+        results.extend(blobs.into_iter().zip(reused_encoded_lengths.iter()).map(
+            |(blob, &encoded_length)| (blob, RegisterBlobOp::ReuseStorage { encoded_length }),
+        ));
+
+        // Reserve space and register all in new_metadata_list in one ptb.
+        tracing::debug!(
+            num_blobs = ?new_metadata_list.len(),
+            "blobs are not already registered or their lifetime is too short; creating new ones"
+        );
+        results.extend(
+            self.reserve_and_register_blob_op(
+                &new_encoded_lengths,
+                epochs_ahead,
+                &new_metadata_list,
+                persistence,
+            )
+            .await?,
+        );
+        Ok(results)
     }
 
     async fn reserve_and_register_blob_op(
         &self,
-        encoded_length: u64,
+        encoded_lengths: &[u64],
         epochs_ahead: EpochCount,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata_list: &[&VerifiedBlobMetadataWithId],
         persistence: BlobPersistence,
-    ) -> ClientResult<(Blob, RegisterBlobOp)> {
-        let blob = self
+    ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
+        debug_assert!(
+            encoded_lengths.len() == metadata_list.len(),
+            "inconsistent metadata and encoded lengths"
+        );
+        let blobs = self
             .sui_client
-            .reserve_and_register_blob(epochs_ahead, metadata.try_into()?, persistence)
-            .await?;
-        Ok((
-            blob,
-            RegisterBlobOp::RegisterFromScratch {
-                encoded_length,
+            .reserve_and_register_blobs(
                 epochs_ahead,
-            },
-        ))
+                metadata_list
+                    .iter()
+                    .map(|m| (*m).try_into())
+                    .collect::<Result<Vec<_>, _>>()?,
+                persistence,
+            )
+            .await?;
+        Ok(blobs
+            .into_iter()
+            .zip(encoded_lengths.iter())
+            .map(|(blob, &encoded_length)| {
+                tracing::debug!(blob_id=%blob.blob_id, "registering blob from scratch");
+                (
+                    blob,
+                    RegisterBlobOp::RegisterFromScratch {
+                        encoded_length,
+                        epochs_ahead,
+                    },
+                )
+            })
+            .collect())
     }
 
     /// Checks if the blob is registered by the active wallet for a sufficient duration.
@@ -333,7 +448,7 @@ impl<'a> ResourceManager<'a> {
                 ..
             } => {
                 if end_epoch >= self.write_committee_epoch + epochs_ahead {
-                    tracing::debug!(end_epoch, "blob is already certified");
+                    tracing::debug!(end_epoch, blob_id=%blob_id, "blob is already certified");
                     Some(BlobStoreResult::AlreadyCertified {
                         blob_id,
                         event_or_object: EventOrObjectId::Event(status_event),
@@ -341,14 +456,14 @@ impl<'a> ResourceManager<'a> {
                     })
                 } else {
                     tracing::debug!(
-                        end_epoch,
+                        end_epoch, blob_id=%blob_id,
                         "blob is already certified but its lifetime is too short"
                     );
                     None
                 }
             }
             BlobStatus::Invalid { event } => {
-                tracing::debug!("blob is marked as invalid");
+                tracing::debug!(blob_id=%blob_id, "blob is marked as invalid");
                 Some(BlobStoreResult::MarkedInvalid { blob_id, event })
             }
             status => {
@@ -357,7 +472,7 @@ impl<'a> ResourceManager<'a> {
                 // Sui object. The check to see if we own the registered-but-not-certified Blob
                 // object is done in `reserve_and_register_blob`.
                 tracing::debug!(
-                    ?status,
+                    ?status, blob_id=%blob_id,
                     "no corresponding permanent certified `Blob` object exists"
                 );
                 None
