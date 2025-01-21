@@ -92,7 +92,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             bind_address: config.rest_api_address,
             tls_certificate,
             graceful_shutdown_period,
-            http2_config: config.http2_config.clone(),
+            http2_config: config.rest_server.http2_config.clone(),
         }
     }
 }

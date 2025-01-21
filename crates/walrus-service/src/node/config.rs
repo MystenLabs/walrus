@@ -78,7 +78,7 @@ pub struct StorageNodeConfig {
     pub rest_api_address: SocketAddr,
     /// Configuration for the connections establishing in the REST API.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub http2_config: Http2Config,
+    pub rest_server: RestServerConfig,
     /// Duration for which to wait for connections to close before shutting down.
     ///
     /// Set explicitly to None to wait indefinitely.
@@ -139,7 +139,7 @@ impl Default for StorageNodeConfig {
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),
             rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
-            http2_config: Default::default(),
+            rest_server: Default::default(),
             sui: Default::default(),
             blob_recovery: Default::default(),
             tls: Default::default(),
@@ -597,7 +597,16 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
 
 impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
 
-/// Configuration of the connections established by the REST API.
+/// Configuration for the REST server.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RestServerConfig {
+    /// Configuration for incoming HTTP/2 connections.
+    #[serde(flatten, skip_serializing_if = "defaults::is_default")]
+    pub http2_config: Http2Config,
+}
+
+/// Configuration of the HTTP/2 connections established by the REST API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Http2Config {
     /// The maximum number of concurrent streams that a client can open
