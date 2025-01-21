@@ -763,9 +763,9 @@ impl CliOutput for ServiceHealthInfoOutput {
             add_node_health_to_table(&mut table, node, node_idx);
         }
         if table.len() > 3 {
+            println!("\n{}\n", "Summary".bold().walrus_teal());
             table.printstd();
-            println!("\n{}", "Summary".bold().walrus_teal());
-            println!("Total nodes: {}", self.health_info.len());
+            println!("\nTotal nodes: {}", self.health_info.len());
             println!("Owned shards: {}", owned_shards);
             println!("Read-only shards: {}", read_only_shards);
 
@@ -925,8 +925,8 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
                 node.node_name,
                 node.node_id,
                 node.node_url,
-                health_info.node_status,
                 r->health_info.shard_summary.owned,
+                health_info.node_status,
             ]);
         }
         Err(error) => {

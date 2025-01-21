@@ -270,8 +270,7 @@ pub enum CliCommands {
     /// Only one of `--node_id`, `--node_url`, or `--all` can be specified.
     /// If `node_id` is provided, the health information for the node with the given ID is printed.
     /// If `node_url` is provided, the health information for the node at the given URL is printed.
-    /// If `all` is specified, the health information for all nodes is printed, including nodes
-    /// in the current committee as well as the next committee.
+    /// If `all` is specified, the health information for all nodes in the active set is printed.
     Health {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
