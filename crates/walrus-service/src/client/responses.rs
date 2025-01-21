@@ -636,46 +636,32 @@ pub struct ExtendBlobOutput {
     pub epochs_ahead: u32,
 }
 
-/// The health status of a node's service
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum NodeHealthStatus {
-    /// The service is healthy and returned information
-    Ok(ServiceHealthInfo),
-    /// The service could not be reached or returned an error
-    Error(String),
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// The health information of a storage node.
 pub(crate) struct NodeHealthOutput {
     pub node_id: ObjectID,
     pub node_url: String,
+    pub node_name: String,
     /// The health information of the service.
-    pub health_info: NodeHealthStatus,
+    pub health_info: Result<ServiceHealthInfo, String>,
 }
 
 impl NodeHealthOutput {
     pub async fn new(node: StorageNode, detail: bool) -> Self {
-        let Ok(client) =
-            Client::for_storage_node(&node.network_address.0, &node.network_public_key)
-        else {
-            return Self {
-                node_id: node.node_id,
-                node_url: node.network_address.0.clone(),
-                health_info: NodeHealthStatus::Error("failed to build client".to_string()),
-            };
-        };
-
-        let health_info = match client.get_server_health_info(detail).await {
-            Ok(info) => NodeHealthStatus::Ok(info),
-            Err(err) => NodeHealthStatus::Error(err.to_string()),
+        let client = Client::for_storage_node(&node.network_address.0, &node.network_public_key);
+        let health_info = match client {
+            Ok(client) => client
+                .get_server_health_info(detail)
+                .await
+                .map_err(|err| format!("failed to get health info: {:?}", err)),
+            Err(err) => Err(format!("failed to build client: {:?}", err)),
         };
 
         Self {
             node_id: node.node_id,
             node_url: node.network_address.0.clone(),
+            node_name: node.name,
             health_info,
         }
     }
