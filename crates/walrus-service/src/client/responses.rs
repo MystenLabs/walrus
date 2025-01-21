@@ -706,7 +706,9 @@ impl ServiceHealthInfoOutput {
                     .iter()
                     .find(|node| node.network_address.0 == node_url)
                 else {
-                    return Err(anyhow::anyhow!("node {node_url} not found in active set"));
+                    return Err(anyhow::anyhow!(
+                        "node url {node_url} not found in active set, try to query it with node id"
+                    ));
                 };
                 let node_health = NodeHealthOutput::new(storage_node.clone(), detail).await;
                 Ok(Self {
