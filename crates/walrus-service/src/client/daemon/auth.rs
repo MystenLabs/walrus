@@ -135,7 +135,7 @@ where
                 let response = Response::builder()
                     .status(*code)
                     .body(Default::default())
-                    .unwrap();
+                    .expect("Response is valid without any customized headers");
                 Poll::Ready(Ok(response))
             }
             JwtFutureProj::WaitForFuture { future } => future.poll(cx),
