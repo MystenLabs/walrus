@@ -301,6 +301,7 @@ impl BlobSyncHandler {
     ) -> Option<EventHandle> {
         let queued_gauge =
             metrics::with_label!(self.node.metrics.recover_blob_backlog, STATUS_QUEUED);
+        let start = tokio::time::Instant::now();
         let _permit = permits
             .blob
             .acquire_owned()
@@ -310,7 +311,6 @@ impl BlobSyncHandler {
 
         let in_progress_gauge =
             metrics::with_label!(self.node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
-        let start = tokio::time::Instant::now();
 
         let _decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
         let blob_id = synchronizer.blob_id;
@@ -501,12 +501,15 @@ impl BlobSynchronizer {
                                 // abort the task, therefore should never happen.
                                 //
                                 // Returning from this function as if the task was cancelled
-                                // would leave a sliver unrecovered and blog progress, since the
+                                // would leave a sliver unrecovered and block progress, since the
                                 // recovery was not cancelled.
                                 //
                                 // Treating it as success would be worse as we would progress
                                 // but not have the sliver stored. We therefore panic.
-                                tracing::error!("a sliver recovery task cancelled unexpectedly");
+                                tracing::error!(
+                                    error = ?join_err,
+                                    "a sliver recovery task cancelled unexpectedly"
+                                );
                                 panic!("a sliver recovery task cancelled unexpectedly");
                             }
                         }
