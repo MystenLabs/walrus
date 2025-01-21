@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use tracing::{debug, error, info};
 
-use super::query::{get_walrus_committee, NodeInfo};
+use super::query::{get_walrus_nodes, NodeInfo};
 use crate::{register_metric, Allower};
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
@@ -106,7 +106,7 @@ impl WalrusNodeProvider {
     }
     /// update the walrus node list that we will speak with
     async fn update_walrus_nodes(&self) {
-        let committee = match get_walrus_committee(
+        let committee = match get_walrus_nodes(
             &self.rpc_url,
             &self.system_object_id,
             &self.staking_object_id,

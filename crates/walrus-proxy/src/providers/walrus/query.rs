@@ -22,7 +22,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 /// NodeInfo represents a node we discovered that is a member of the staking
 /// committee
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct NodeInfo {
     /// name of the node, can be anything
     pub name: String,
@@ -32,22 +32,8 @@ pub struct NodeInfo {
     pub network_public_key: Vec<u8>,
 }
 
-impl Hash for NodeInfo {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.network_address.hash(state);
-    }
-}
-
-impl PartialEq for NodeInfo {
-    fn eq(&self, other: &Self) -> bool {
-        self.network_address == other.network_address
-    }
-}
-
-impl Eq for NodeInfo {}
-
-/// merge the Committee types into a hashset of NodeInfo and then return a vec of it.
-/// we use previous, current and next epoch members and return a unique vec of them
+/// Merges the Committee types into a hashset of NodeInfo and then returns a vec of it.
+/// We use previous, current and next epoch members and return a unique vec of them.
 pub fn merge_committee_nodes_across_epochs(committees_state: &CommitteesAndState) -> Vec<NodeInfo> {
     let committees: Vec<&Committee> = vec![
         Some(&committees_state.current),
@@ -71,8 +57,9 @@ pub fn merge_committee_nodes_across_epochs(committees_state: &CommitteesAndState
         .collect()
 }
 
-/// public entry point to get walrus committee data for the proxy
-pub async fn get_walrus_committee(
+/// Returns the [`NodeInfo`] for all nodes that are part of the last, current,
+/// or next Walrus committee.
+pub async fn get_walrus_nodes(
     rpc_address: &str,
     system_object_id: &str,
     staking_object_id: &str,
