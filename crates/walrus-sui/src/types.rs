@@ -127,10 +127,12 @@ pub struct NodeUpdateParams {
     pub network_public_key: Option<NetworkPublicKey>,
     /// The next public key of the storage node.
     pub next_public_key: Option<PublicKey>,
+    /// The voting parameters of the storage node.
+    pub voting_params: Option<NodeVotingParams>,
 }
 
 /// Parameters for updating node voting parameters
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeVotingParams {
     /// The storage price to vote for
     pub storage_price: Option<u64>,

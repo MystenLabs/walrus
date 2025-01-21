@@ -473,13 +473,14 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
         .get_staking_pool(node_cap.node_id)
         .await?;
 
-    let node_info = &pool.node_info;
+    let node_info: &walrus_sui::types::StorageNode = &pool.node_info;
 
     let update_params = config.generate_update_params(
         node_info.name.as_str(),
         node_info.network_address.0.as_str(),
         &node_info.public_key,
         &node_info.network_public_key,
+        &pool.voting_params,
     );
 
     if let Some(update_params) = update_params {

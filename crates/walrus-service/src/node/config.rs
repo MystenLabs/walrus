@@ -40,6 +40,7 @@ use walrus_sui::{
         NodeMetadata,
         NodeRegistrationParams,
         NodeUpdateParams,
+        NodeVotingParams,
     },
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -223,6 +224,7 @@ impl StorageNodeConfig {
         network_address: &str,
         public_key: &PublicKey,
         network_public_key: &NetworkPublicKey,
+        voting_params: &VotingParams,
     ) -> Option<NodeUpdateParams> {
         let network_key_pair = self.network_key_pair();
         let protocol_key_pair = self.protocol_key_pair();
@@ -233,33 +235,41 @@ impl StorageNodeConfig {
             NetworkAddress(format!("{}:{}", self.public_host, public_port))
         };
 
-        // Check if any field needs updating
-        let name_update = if name != self.name {
-            Some(self.name.clone())
-        } else {
-            None
-        };
-        let network_address_update = if network_address != public_address.0 {
-            Some(public_address)
-        } else {
-            None
-        };
-        let network_key_update = if network_public_key != network_key_pair.public() {
-            Some(network_key_pair.public().clone())
-        } else {
-            None
-        };
-        let public_key_update = if public_key != protocol_key_pair.public() {
-            Some(protocol_key_pair.public().clone())
-        } else {
-            None
-        };
+        let name_update = (name != self.name).then_some(self.name.clone());
+
+        let network_address_update =
+            (network_address != public_address.0).then_some(public_address);
+
+        let network_key_update = (network_public_key != network_key_pair.public())
+            .then_some(network_key_pair.public().clone());
+
+        let public_key_update = (public_key != protocol_key_pair.public())
+            .then_some(protocol_key_pair.public().clone());
+
+        let storage_price_update = (voting_params.storage_price
+            != self.voting_params.storage_price)
+            .then_some(self.voting_params.storage_price);
+        let write_price_update = (voting_params.write_price != self.voting_params.write_price)
+            .then_some(self.voting_params.write_price);
+        let node_capacity_update = (voting_params.node_capacity
+            != self.voting_params.node_capacity)
+            .then_some(self.voting_params.node_capacity);
+
+        let voting_params_update = (storage_price_update.is_some()
+            || write_price_update.is_some()
+            || node_capacity_update.is_some())
+        .then_some(NodeVotingParams {
+            storage_price: storage_price_update,
+            write_price: write_price_update,
+            node_capacity: node_capacity_update,
+        });
 
         // If all fields are None (no updates needed), return None
         if name_update.is_none()
             && network_address_update.is_none()
             && network_key_update.is_none()
             && public_key_update.is_none()
+            && voting_params_update.is_none()
         {
             return None;
         }
@@ -270,6 +280,7 @@ impl StorageNodeConfig {
             network_address: network_address_update,
             network_public_key: network_key_update,
             next_public_key: public_key_update,
+            voting_params: voting_params_update,
         })
     }
 }

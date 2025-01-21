@@ -229,7 +229,7 @@ pub struct StakingPool {
     /// The current state of the pool.
     state: PoolState,
     /// Current epoch's pool parameters.
-    voting_params: VotingParams,
+    pub voting_params: VotingParams,
     /// The storage node info for the pool.
     pub node_info: StorageNode,
     /// The epoch when the pool is / will be activated.
