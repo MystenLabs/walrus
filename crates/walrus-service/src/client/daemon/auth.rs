@@ -47,7 +47,7 @@ impl Claim {
                 );
                 match err.kind() {
                     jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                        StatusCode::from_u16(499).unwrap()
+                        StatusCode::from_u16(499).expect("status code is in a valid range")
                     }
                     jsonwebtoken::errors::ErrorKind::InvalidSignature
                     | jsonwebtoken::errors::ErrorKind::InvalidAlgorithmName
