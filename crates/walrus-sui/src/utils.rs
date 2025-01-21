@@ -28,6 +28,7 @@ use sui_types::{
     base_types::SuiAddress,
     crypto::SignatureScheme,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::TransactionData,
 };
 use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
@@ -36,10 +37,9 @@ use walrus_core::{
     Epoch,
     EpochCount,
 };
-use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    client::{retry_ptb_executor::RetryPtbExecutor, SuiClientResult, SuiContractClient},
+    client::{SuiClientResult, SuiContractClient},
     contracts::AssociatedContractStruct,
 };
 
@@ -399,7 +399,7 @@ pub async fn get_sui_from_wallet_or_faucet(
     if balance.total_balance >= 3 * one_sui as u128 {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(one_sui));
-        let tx = ptb.finish();
+        let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
         let gas_coins = wallet
             .get_client()
@@ -410,8 +410,16 @@ pub async fn get_sui_from_wallet_or_faucet(
             .iter()
             .map(|coin| coin.object_ref())
             .collect();
-        RetryPtbExecutor::new(gas_budget, ExponentialBackoffConfig::default())
-            .sign_and_send_ptb(sender, wallet, tx, gas_coins)
+
+        let transaction = TransactionData::new_programmable(
+            sender,
+            gas_coins,
+            ptb,
+            gas_budget,
+            wallet.get_reference_gas_price().await?,
+        );
+        wallet
+            .execute_transaction_may_fail(wallet.sign_transaction(&transaction))
             .await?;
         Ok(())
     } else {

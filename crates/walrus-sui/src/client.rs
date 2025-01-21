@@ -9,7 +9,6 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
 use retry_client::RetriableSuiClient;
-use retry_ptb_executor::RetryPtbExecutor;
 use sui_sdk::{
     rpc_types::{
         Coin,
@@ -25,7 +24,7 @@ use sui_types::{
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, ProgrammableTransaction},
+    transaction::{Argument, ProgrammableTransaction, TransactionData},
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -68,7 +67,6 @@ pub use read_client::{
     SuiReadClient,
 };
 pub mod retry_client;
-pub mod retry_ptb_executor;
 
 pub mod transaction_builder;
 use crate::types::move_structs::EventBlob;
@@ -271,7 +269,6 @@ pub struct SuiContractClient {
     wallet: Mutex<WalletContext>,
     /// Client to read Walrus on-chain state.
     pub read_client: SuiReadClient,
-    ptb_executor: RetryPtbExecutor,
     /// The active address of the client from `wallet`. Store here for fast access without
     /// locking the wallet.
     wallet_address: SuiAddress,
@@ -291,7 +288,7 @@ impl SuiContractClient {
             contract_config,
         )
         .await?;
-        Self::new_with_read_client(wallet, gas_budget, read_client, backoff_config)
+        Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
@@ -299,14 +296,11 @@ impl SuiContractClient {
         mut wallet: WalletContext,
         gas_budget: u64,
         read_client: SuiReadClient,
-        backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
         let wallet_address = wallet.active_address()?;
-        let ptb_executor = RetryPtbExecutor::new(gas_budget, backoff_config);
         Ok(Self {
             wallet: Mutex::new(wallet),
             read_client,
-            ptb_executor,
             wallet_address,
             gas_budget,
         })
@@ -1032,16 +1026,28 @@ impl SuiContractClient {
         programmable_transaction: ProgrammableTransaction,
         min_gas_coin_balance: Option<u64>,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        // Get the current gas price from the network
+        let gas_price = wallet.get_reference_gas_price().await?;
+
+        // Construct the transaction with gas coins that meet the minimum balance requirement
+        let transaction = TransactionData::new_programmable(
+            self.wallet_address,
+            self.get_compatible_gas_coins(min_gas_coin_balance).await?,
+            programmable_transaction,
+            self.gas_budget,
+            gas_price,
+        );
+
+        // Sign the transaction with the wallet's keys
+        let signed_transaction = wallet.sign_transaction(&transaction);
+
+        // Execute the transaction and wait for response
         let response = self
-            .ptb_executor
-            .sign_and_send_ptb(
-                self.wallet_address,
-                wallet,
-                programmable_transaction,
-                self.get_compatible_gas_coins(min_gas_coin_balance).await?,
-            )
+            .sui_client()
+            .execute_transaction(signed_transaction)
             .await?;
 
+        // Check transaction execution status from effects
         match response
             .effects
             .as_ref()
@@ -1049,9 +1055,12 @@ impl SuiContractClient {
             .status()
         {
             SuiExecutionStatus::Success => Ok(response),
-            SuiExecutionStatus::Failure { error } => Err(
-                SuiClientError::TransactionExecutionError(error.as_str().into()),
-            ),
+            SuiExecutionStatus::Failure { error } => {
+                // Convert execution error into client error
+                Err(SuiClientError::TransactionExecutionError(
+                    error.as_str().into(),
+                ))
+            }
         }
     }
 

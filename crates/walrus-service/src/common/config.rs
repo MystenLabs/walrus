@@ -39,7 +39,7 @@ pub struct SuiConfig {
     /// Location of the wallet config.
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub wallet_config: PathBuf,
-    /// The configuration for the backoff strategy used for logic transaction retries.
+    /// The configuration for the backoff strategy used for retries.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
     /// Gas budget for transactions.

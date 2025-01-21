@@ -12,6 +12,8 @@ use rand::{
     Rng as _,
 };
 use serde::{de::DeserializeOwned, Serialize};
+#[cfg(msim)]
+use sui_macros::fail_point_if;
 use sui_sdk::{
     apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
@@ -25,14 +27,20 @@ use sui_sdk::{
         SuiObjectResponse,
         SuiObjectResponseQuery,
         SuiRawData,
+        SuiTransactionBlockResponse,
+        SuiTransactionBlockResponseOptions,
     },
     wallet_context::WalletContext,
     SuiClient,
     SuiClientBuilder,
 };
+#[cfg(msim)]
+use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     dynamic_field::derive_dynamic_field_id,
+    quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
+    transaction::Transaction,
     TypeTag,
 };
 use tracing::Level;
@@ -92,7 +100,7 @@ impl RetriableRpcError for SuiClientError {
 }
 
 /// Retries the given function while it returns retriable errors.[
-pub async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
+async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
 where
     S: BackoffStrategy,
     F: FnMut() -> Fut,
@@ -520,8 +528,75 @@ impl RetriableSuiClient {
         Ok(wal_type)
     }
 
+    /// Executes a transaction.
+    #[tracing::instrument(err, skip(self))]
+    pub(crate) async fn execute_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> anyhow::Result<SuiTransactionBlockResponse> {
+        // Retry here must use the exact same transaction to avoid locked objects.
+        retry_rpc_errors(self.get_strategy(), || async {
+            #[cfg(msim)]
+            {
+                maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+            }
+            Ok(self
+                .sui_client
+                .quorum_driver_api()
+                .execute_transaction_block(
+                    transaction.clone(),
+                    SuiTransactionBlockResponseOptions::new()
+                        .with_effects()
+                        .with_input()
+                        .with_events()
+                        .with_object_changes()
+                        .with_balance_changes(),
+                    Some(WaitForLocalExecution),
+                )
+                .await?)
+        })
+        .await
+    }
+
     /// Gets a backoff strategy, seeded from the internal RNG.
     fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
         self.backoff_config.get_strategy(ThreadRng::default().gen())
     }
+}
+
+/// Injects a simulated error for testing retry behavior executing sui transactions.
+/// We use stake_with_pool as an example here to incorporate with the test logic in
+/// `test_ptb_executor_retriable_error` in `test_client.rs`.
+#[cfg(msim)]
+fn maybe_return_injected_error_in_stake_pool_transaction(
+    transaction: &Transaction,
+) -> anyhow::Result<()> {
+    // Check if this transaction contains a stake_with_pool operation
+    let is_stake_pool_tx = transaction
+        .transaction_data()
+        .move_calls()
+        .iter()
+        .any(|(_, _, function_name)| *function_name == "stake_with_pool");
+
+    // Early return if this isn't a stake pool transaction
+    if !is_stake_pool_tx {
+        return Ok(());
+    }
+
+    // Check if we should inject an error via the fail point
+    let mut should_inject_error = false;
+    fail_point_if!("ptb_executor_stake_pool_retriable_error", || {
+        should_inject_error = true;
+    });
+
+    if should_inject_error {
+        tracing::warn!("Injecting a retriable RPC error for stake pool transaction");
+
+        // Simulate a retriable RPC error (502 Bad Gateway)
+        Err(sui_sdk::error::Error::RpcError(
+            anyhow::anyhow!("Server returned an error status code: 502").into(),
+        ))?;
+    }
+
+    Ok(())
 }

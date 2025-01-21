@@ -28,6 +28,7 @@ use sui_types::{
     digests::TransactionDigest,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::TransactionData,
 };
 use test_cluster::{TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
@@ -49,10 +50,9 @@ use walrus_core::{
     Epoch,
 };
 use walrus_test_utils::WithTempDir;
-use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    client::{retry_ptb_executor::RetryPtbExecutor, SuiContractClient},
+    client::SuiContractClient,
     types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
@@ -440,8 +440,15 @@ async fn fund_addresses(
     let amounts = vec![DEFAULT_FUNDING_PER_COIN; recipients.len()];
     ptb.pay_sui(recipients, amounts)?;
 
-    RetryPtbExecutor::new(DEFAULT_GAS_BUDGET, ExponentialBackoffConfig::default())
-        .sign_and_send_ptb(sender, funding_wallet, ptb.finish(), vec![gas_coin])
+    let transaction = TransactionData::new_programmable(
+        sender,
+        vec![gas_coin],
+        ptb.finish(),
+        DEFAULT_GAS_BUDGET,
+        funding_wallet.get_reference_gas_price().await?,
+    );
+    funding_wallet
+        .execute_transaction_may_fail(funding_wallet.sign_transaction(&transaction))
         .await?;
 
     Ok(())
