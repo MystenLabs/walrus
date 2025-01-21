@@ -29,10 +29,18 @@ use sui_types::base_types::SuiAddress;
 use walrus_core::{
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
     messages::ProofOfPossession,
+    NetworkPublicKey,
+    PublicKey,
 };
 use walrus_sui::{
     client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
-    types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
+    types::{
+        move_structs::VotingParams,
+        NetworkAddress,
+        NodeMetadata,
+        NodeRegistrationParams,
+        NodeUpdateParams,
+    },
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -205,6 +213,64 @@ impl StorageNodeConfig {
             node_capacity: self.voting_params.node_capacity,
             metadata: self.metadata.clone(),
         }
+    }
+
+    /// Compares the current node parameters with the on-chain parameters and generates the
+    /// update params if there are any changes.
+    pub fn generate_update_params(
+        &self,
+        name: &str,
+        network_address: &str,
+        public_key: &PublicKey,
+        network_public_key: &NetworkPublicKey,
+    ) -> Option<NodeUpdateParams> {
+        let network_key_pair = self.network_key_pair();
+        let protocol_key_pair = self.protocol_key_pair();
+        let public_port = self.public_port;
+        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&self.public_host) {
+            NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
+        } else {
+            NetworkAddress(format!("{}:{}", self.public_host, public_port))
+        };
+
+        // Check if any field needs updating
+        let name_update = if name != self.name {
+            Some(self.name.clone())
+        } else {
+            None
+        };
+        let network_address_update = if network_address != public_address.0 {
+            Some(public_address)
+        } else {
+            None
+        };
+        let network_key_update = if network_public_key != network_key_pair.public() {
+            Some(network_key_pair.public().clone())
+        } else {
+            None
+        };
+        let public_key_update = if public_key != protocol_key_pair.public() {
+            Some(protocol_key_pair.public().clone())
+        } else {
+            None
+        };
+
+        // If all fields are None (no updates needed), return None
+        if name_update.is_none()
+            && network_address_update.is_none()
+            && network_key_update.is_none()
+            && public_key_update.is_none()
+        {
+            return None;
+        }
+
+        // Otherwise return the update params
+        Some(NodeUpdateParams {
+            name: name_update,
+            network_address: network_address_update,
+            network_public_key: network_key_update,
+            next_public_key: public_key_update,
+        })
     }
 }
 

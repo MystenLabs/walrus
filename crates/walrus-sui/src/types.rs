@@ -115,6 +115,31 @@ impl NodeMetadata {
     }
 }
 
+/// Parameters for updating a storage node.
+/// At least one of the fields must be provided.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeUpdateParams {
+    /// The name of the storage node.
+    pub name: Option<String>,
+    /// The network address of the storage node.
+    pub network_address: Option<NetworkAddress>,
+    /// The network public key of the storage node.
+    pub network_public_key: Option<NetworkPublicKey>,
+    /// The next public key of the storage node.
+    pub next_public_key: Option<PublicKey>,
+}
+
+/// Parameters for updating node voting parameters
+#[derive(Debug, Default)]
+pub struct NodeVotingParams {
+    /// The storage price to vote for
+    pub storage_price: Option<u64>,
+    /// The write price to vote for
+    pub write_price: Option<u64>,
+    /// The node capacity to vote for
+    pub node_capacity: Option<u64>,
+}
+
 /// Node parameters needed to register a node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeRegistrationParams {

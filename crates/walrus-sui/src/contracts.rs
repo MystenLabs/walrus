@@ -235,9 +235,15 @@ pub mod staking {
     contract_ident!(fn staking::initiate_epoch_change);
     contract_ident!(fn staking::epoch_sync_done);
     contract_ident!(fn staking::set_node_metadata);
+    contract_ident!(fn staking::set_name);
     contract_ident!(fn staking::set_network_address);
+    contract_ident!(fn staking::set_network_public_key);
+    contract_ident!(fn staking::set_next_public_key);
     contract_ident!(fn staking::set_commission_receiver);
     contract_ident!(fn staking::set_governance_authorized);
+    contract_ident!(fn staking::set_storage_price_vote);
+    contract_ident!(fn staking::set_write_price_vote);
+    contract_ident!(fn staking::set_node_capacity_vote);
 }
 
 /// Module for tags corresponding to the Move module `staking_inner`.

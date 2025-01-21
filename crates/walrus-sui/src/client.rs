@@ -51,6 +51,7 @@ use crate::{
         Committee,
         ContractEvent,
         NodeRegistrationParams,
+        NodeUpdateParams,
         StakedWal,
         StorageNodeCap,
         StorageResource,
@@ -1221,6 +1222,40 @@ impl SuiContractClient {
             shared_blob_obj_id.len()
         );
         Ok(shared_blob_obj_id[0])
+    }
+
+    /// Updates the parameters for a storage node.
+    pub async fn update_node_params(
+        &self,
+        node_parameters: NodeUpdateParams,
+        proof_of_possession: Option<ProofOfPossession>,
+    ) -> SuiClientResult<()> {
+        let node_capability = self
+            .read_client
+            .get_address_capability_object(self.wallet_address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+
+        tracing::info!(
+            wallet_address = ?self.wallet_address,
+            network_address = ?node_parameters.network_address,
+            "updating node parameters"
+        );
+
+        // Lock the wallet here to ensure there are no race conditions with object references.
+        let wallet = self.wallet().await;
+
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .update_node_params(
+                node_capability.id.into(),
+                proof_of_possession,
+                node_parameters,
+            )
+            .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(&wallet, ptb, None).await?;
+        Ok(())
     }
 }
 

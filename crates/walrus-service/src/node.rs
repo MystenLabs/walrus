@@ -75,7 +75,7 @@ use walrus_sdk::api::{
     StoredOnNodeStatus,
 };
 use walrus_sui::{
-    client::SuiReadClient,
+    client::{ReadClient, SuiReadClient},
     types::{
         BlobCertified,
         BlobDeleted,
@@ -447,6 +447,62 @@ pub struct NodeParameters {
     num_checkpoints_per_blob: Option<u32>,
 }
 
+async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
+    let Some(ref node_wallet_config) = config.sui else {
+        // Not failing here, since the wallet may be absent in the config for testing purposes.
+        // In production, an absence of the wallet will fail the node eventually.
+        // TODO: Find a better solution to distinguish between testing and production
+        // #[cfg(not(test))] does not work for now.
+        tracing::error!("storage config does not contain Sui wallet configuration");
+        return Ok(());
+    };
+
+    let contract_client = node_wallet_config.new_contract_client().await?;
+    let address = contract_client.wallet().await.active_address()?;
+
+    let Some(node_cap) = contract_client
+        .read_client
+        .get_address_capability_object(address)
+        .await?
+    else {
+        return Err(anyhow::anyhow!("failed to get address capability object"));
+    };
+
+    let pool = contract_client
+        .read_client
+        .get_staking_pool(node_cap.node_id)
+        .await?;
+
+    let node_info = &pool.node_info;
+
+    let update_params = config.generate_update_params(
+        node_info.name.as_str(),
+        node_info.network_address.0.as_str(),
+        &node_info.public_key,
+        &node_info.network_public_key,
+    );
+
+    if let Some(update_params) = update_params {
+        let proof_of_possession = if update_params.next_public_key.is_some() {
+            Some(walrus_sui::utils::generate_proof_of_possession(
+                config.protocol_key_pair(),
+                &contract_client,
+                contract_client.read_client.current_epoch().await?,
+            ))
+        } else {
+            None
+        };
+        tracing::info!("Updating node parameters on-chain");
+        contract_client
+            .update_node_params(update_params, proof_of_possession)
+            .await?;
+    } else {
+        tracing::info!("Node parameters are in sync with on-chain values");
+    }
+
+    Ok(())
+}
+
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
@@ -458,17 +514,9 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        #[cfg(not(test))]
-        {
-            if let Some(ref node_wallet_config) = config.sui {
-                let contract_client = node_wallet_config.new_contract_client().await?;
-                contract_client
-                    .set_network_address(format!("{}:{}", config.public_host, config.public_port))
-                    .await?;
-            } else {
-                tracing::error!("storage config does not contain Sui wallet configuration");
-            }
-        }
+        sync_node_params(config)
+            .await
+            .expect("failed to sync node parameters");
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
