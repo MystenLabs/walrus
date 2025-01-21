@@ -617,11 +617,6 @@ impl SuiContractClient {
         if let Some(cap) = existing_capability_object {
             return Err(SuiClientError::CapabilityObjectAlreadyExists(cap.id));
         }
-        tracing::info!(
-            wallet_address = ?self.wallet_address,
-            network_address = ?node_parameters.network_address,
-            "registering candidate node"
-        );
 
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
@@ -685,31 +680,6 @@ impl SuiContractClient {
         self.sui_client().get_sui_objects(cap_ids).await
     }
 
-    /// Sets the network address for a storage node.
-    pub async fn set_network_address(&self, network_address: String) -> SuiClientResult<()> {
-        tracing::info!(
-            wallet_address = ?self.wallet_address,
-            network_address = ?network_address,
-            "setting network address"
-        );
-        let storage_node_cap = self
-            .read_client
-            .get_address_capability_object(self.wallet_address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.wallet().await;
-
-        let mut pt_builder = self.transaction_builder();
-        pt_builder
-            .set_network_address(storage_node_cap.id.into(), network_address)
-            .await?;
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        Ok(())
-    }
-
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
     /// element of the pair with the node represented by the first element of the pair in a single
     /// PTB.
@@ -720,11 +690,6 @@ impl SuiContractClient {
         let count = node_ids_with_amounts.len();
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
-        tracing::info!(
-            wallet_address = ?self.wallet_address,
-            node_ids = ?node_ids_with_amounts.iter().map(|(id, _)| id).collect::<Vec<_>>(),
-            "staking with pools"
-        );
         let mut pt_builder = self.transaction_builder();
         for (node_id, amount) in node_ids_with_amounts.iter() {
             pt_builder.stake_with_pool(*amount, *node_id).await?;
@@ -1236,7 +1201,7 @@ impl SuiContractClient {
             .await?
             .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
-        tracing::info!(
+        tracing::debug!(
             wallet_address = ?self.wallet_address,
             network_address = ?node_parameters.network_address,
             "updating node parameters"

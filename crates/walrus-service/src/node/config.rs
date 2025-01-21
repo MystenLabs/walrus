@@ -216,7 +216,7 @@ impl StorageNodeConfig {
         }
     }
 
-    /// Compares the current node parameters with the on-chain parameters and generates the
+    /// Compares the current node parameters with the passed-in parameters and generates the
     /// update params if there are any changes.
     pub fn generate_update_params(
         &self,

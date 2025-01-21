@@ -789,16 +789,6 @@ mod tests {
             .await
             .unwrap();
 
-        let node = committees
-            .current_committee()
-            .find(&walrus_cluster.nodes[5].public_key)
-            .expect("node should be in the committee");
-
-        assert_eq!(
-            node.network_address.get_host(),
-            &walrus_cluster.nodes[5].storage_node_config.public_host
-        );
-
         assert!(node_health_info[5].shard_detail.is_some());
 
         // Check that shards in the new node matches the shards in the committees.

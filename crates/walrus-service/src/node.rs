@@ -447,6 +447,9 @@ pub struct NodeParameters {
     num_checkpoints_per_blob: Option<u32>,
 }
 
+/// Check if the node parameters are in sync with the on-chain parameters.
+/// If not, update the node parameters on-chain.
+/// If the wallet is not present in the config, do nothing.
 async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     let Some(ref node_wallet_config) = config.sui else {
         // Not failing here, since the wallet may be absent in the config for testing purposes.
@@ -515,9 +518,7 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        sync_node_params(config)
-            .await
-            .expect("failed to sync node parameters");
+        sync_node_params(config).await?;
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
