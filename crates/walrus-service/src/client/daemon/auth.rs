@@ -1,12 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
+use std::{future::Ready, marker::PhantomData, sync::Arc};
 
 use axum::http::{Request, Response, StatusCode};
 use axum_extra::headers::{authorization::Bearer, Authorization, HeaderMapExt};
+use futures::{future::Either, FutureExt};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use pin_project::pin_project;
 use serde::Deserialize;
 use tower::{Layer, Service};
 use tracing::error;
@@ -108,41 +108,6 @@ pub struct Jwt<S> {
     _phantom: PhantomData<Claim>,
 }
 
-#[pin_project(project = JwtFutureProj)]
-pub enum JwtFuture<
-    TService: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    ReqBody,
-    ResBody,
-> {
-    ValidateError(StatusCode),
-    WaitForFuture {
-        #[pin]
-        future: TService::Future,
-    },
-}
-
-impl<TService, ReqBody, ResBody> Future for JwtFuture<TService, ReqBody, ResBody>
-where
-    TService: Service<Request<ReqBody>, Response = Response<ResBody>>,
-    ResBody: Default,
-    for<'de> Claim: Deserialize<'de> + Send + Sync + Clone + 'static,
-{
-    type Output = Result<TService::Response, TService::Error>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        match self.as_mut().project() {
-            JwtFutureProj::ValidateError(code) => {
-                let response = Response::builder()
-                    .status(*code)
-                    .body(Default::default())
-                    .expect("Response is valid without any customized headers");
-                Poll::Ready(Ok(response))
-            }
-            JwtFutureProj::WaitForFuture { future } => future.poll(cx),
-        }
-    }
-}
-
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for Jwt<S>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>> + Send + Clone + 'static,
@@ -152,7 +117,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = JwtFuture<S, ReqBody, ResBody>;
+    type Future = Either<S::Future, Ready<Result<S::Response, S::Error>>>;
 
     fn poll_ready(
         &mut self,
@@ -225,18 +190,27 @@ where
                             }
                         }
                         if valid_upload {
-                            let future = self.inner.call(req);
-                            Self::Future::WaitForFuture { future }
+                            self.inner.call(req).left_future()
                         } else {
-                            Self::Future::ValidateError(StatusCode::PRECONDITION_FAILED)
+                            validation_failed_future(StatusCode::PRECONDITION_FAILED).right_future()
                         }
                     }
-                    Err(code) => Self::Future::ValidateError(code),
+                    Err(code) => validation_failed_future(code).right_future(),
                 }
             }
-            None => Self::Future::ValidateError(StatusCode::UNAUTHORIZED),
+            None => validation_failed_future(StatusCode::UNAUTHORIZED).right_future(),
         }
     }
+}
+
+fn validation_failed_future<B, E>(code: StatusCode) -> Ready<Result<Response<B>, E>>
+where
+    B: Default,
+{
+    std::future::ready(Ok(Response::builder()
+        .status(code)
+        .body(Default::default())
+        .expect("Response is valid without any customized headers")))
 }
 
 fn check_query(queries: Option<&str>, field: &str, value: impl AsRef<str>) -> bool {
