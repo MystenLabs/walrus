@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, marker::PhantomData, pin::Pin, task::Poll};
+use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc, task::Poll};
 
 use axum::http::{Request, Response, StatusCode};
 use axum_extra::headers::{authorization::Bearer, Authorization, HeaderMapExt};
@@ -75,14 +75,14 @@ impl Claim {
 
 #[derive(Clone)]
 pub struct JwtLayer {
-    auth_config: AuthConfig,
+    auth_config: Arc<AuthConfig>,
     _phantom: PhantomData<Claim>,
 }
 
 impl JwtLayer {
     pub fn new(auth_config: AuthConfig) -> Self {
         Self {
-            auth_config,
+            auth_config: Arc::new(auth_config),
             _phantom: PhantomData,
         }
     }
@@ -94,7 +94,7 @@ impl<S> Layer<S> for JwtLayer {
     fn layer(&self, inner: S) -> Self::Service {
         Jwt {
             inner,
-            auth_config: Box::new(self.auth_config.clone()),
+            auth_config: self.auth_config.clone(),
             _phantom: self._phantom,
         }
     }
@@ -104,7 +104,7 @@ impl<S> Layer<S> for JwtLayer {
 #[derive(Clone)]
 pub struct Jwt<S> {
     inner: S,
-    auth_config: Box<AuthConfig>,
+    auth_config: Arc<AuthConfig>,
     _phantom: PhantomData<Claim>,
 }
 
