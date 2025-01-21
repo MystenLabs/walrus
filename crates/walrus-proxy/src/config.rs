@@ -55,6 +55,8 @@ pub struct DynamicPeerValidationConfig {
     /// the interval we will update our peer cache
     #[serde_as(as = "DurationSeconds<u64>")]
     pub interval: Duration,
+    /// system object id to query for current nodes
+    pub system_object_id: String,
     /// staking object id to query for current nodes
     pub staking_object_id: String,
 }

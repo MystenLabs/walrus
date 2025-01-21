@@ -27,7 +27,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
-use super::config::{defaults, StorageNodeConfig};
+use super::config::{defaults, Http2Config, StorageNodeConfig};
 use crate::{
     common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
     node::ServiceState,
@@ -62,6 +62,9 @@ pub struct RestApiConfig {
     ///
     /// Zero waits indefinitely and None immediately closes the connections.
     pub graceful_shutdown_period: Option<Duration>,
+
+    /// Configuration of HTTP/2 connections.
+    pub http2_config: Http2Config,
 }
 
 impl From<&StorageNodeConfig> for RestApiConfig {
@@ -89,6 +92,7 @@ impl From<&StorageNodeConfig> for RestApiConfig {
             bind_address: config.rest_api_address,
             tls_certificate,
             graceful_shutdown_period,
+            http2_config: config.rest_server.http2_config.clone(),
         }
     }
 }
@@ -180,18 +184,14 @@ where
             .into_make_service_with_connect_info::<SocketAddr>();
 
         let handle = self.init_handle().await;
+
         let server = if let Some(tls_config) = self.configure_tls().await? {
-            Either::Left(
-                axum_server::bind_rustls(self.config.bind_address, tls_config)
-                    .handle(handle.clone())
-                    .serve(app),
-            )
+            let server = axum_server::bind_rustls(self.config.bind_address, tls_config)
+                .handle(handle.clone());
+            Either::Left(self.configure_server(server).serve(app))
         } else {
-            Either::Right(
-                axum_server::bind(self.config.bind_address)
-                    .handle(handle.clone())
-                    .serve(app),
-            )
+            let server = axum_server::bind(self.config.bind_address).handle(handle.clone());
+            Either::Right(self.configure_server(server).serve(app))
         };
 
         tokio::spawn(
@@ -206,6 +206,17 @@ where
         server
             .inspect(|_| tracing::info!("server run has completed"))
             .await
+    }
+
+    fn configure_server<A>(&self, mut server: axum_server::Server<A>) -> axum_server::Server<A> {
+        let config = &self.config.http2_config;
+        let mut http2_builder = server.http_builder().http2();
+        http2_builder
+            .max_concurrent_streams(config.http2_max_concurrent_streams)
+            .initial_connection_window_size(config.http2_initial_connection_window_size)
+            .initial_stream_window_size(config.http2_initial_stream_window_size)
+            .adaptive_window(config.http2_adaptive_window);
+        server
     }
 
     async fn handle_shutdown_signal(

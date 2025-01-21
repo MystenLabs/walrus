@@ -76,6 +76,9 @@ pub struct StorageNodeConfig {
     /// Socket address on which the REST API listens.
     #[serde(default = "defaults::rest_api_address")]
     pub rest_api_address: SocketAddr,
+    /// Configuration for the connections establishing in the REST API.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub rest_server: RestServerConfig,
     /// Duration for which to wait for connections to close before shutting down.
     ///
     /// Set explicitly to None to wait indefinitely.
@@ -136,6 +139,7 @@ impl Default for StorageNodeConfig {
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),
             rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
+            rest_server: Default::default(),
             sui: Default::default(),
             blob_recovery: Default::default(),
             tls: Default::default(),
@@ -595,6 +599,43 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
 }
 
 impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
+
+/// Configuration for the REST server.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RestServerConfig {
+    /// Configuration for incoming HTTP/2 connections.
+    #[serde(flatten, skip_serializing_if = "defaults::is_default")]
+    pub http2_config: Http2Config,
+}
+
+/// Configuration of the HTTP/2 connections established by the REST API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Http2Config {
+    /// The maximum number of concurrent streams that a client can open
+    /// over a connection to the server.
+    pub http2_max_concurrent_streams: u32,
+    /// Sets the SETTINGS_INITIAL_WINDOW_SIZE option for HTTP2 stream-level flow control.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub http2_initial_stream_window_size: Option<u32>,
+    /// Sets the max connection-level flow control for HTTP2.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub http2_initial_connection_window_size: Option<u32>,
+    /// Use adaptive flow control, overriding the `http2_initial_stream_window_size` and
+    /// `http2_initial_connection_window_size` settings.
+    pub http2_adaptive_window: bool,
+}
+
+impl Default for Http2Config {
+    fn default() -> Self {
+        Self {
+            http2_max_concurrent_streams: 1000,
+            http2_initial_stream_window_size: None,
+            http2_initial_connection_window_size: None,
+            http2_adaptive_window: true,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

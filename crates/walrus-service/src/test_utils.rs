@@ -2304,6 +2304,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             metrics_address: unused_socket_address(false),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: Default::default(),
+            rest_server: Default::default(),
             blocklist_path: None,
             sui: None,
             blob_recovery: Default::default(),

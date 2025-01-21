@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use tracing::{debug, error, info};
 
-use super::query::{get_walrus_committee, NodeInfo};
+use super::query::{get_walrus_nodes, NodeInfo};
 use crate::{register_metric, Allower};
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
@@ -55,6 +55,7 @@ pub struct WalrusNodeProvider {
     nodes: AllowedPeers,
     rpc_url: String,
     rpc_poll_interval: Duration,
+    system_object_id: String,
     staking_object_id: String,
 }
 
@@ -69,11 +70,17 @@ impl Allower<Secp256r1PublicKey> for WalrusNodeProvider {
 
 impl WalrusNodeProvider {
     /// create a new walrus provider that will poll for nodes in committee
-    pub fn new(rpc_url: &str, rpc_poll_interval: &Duration, staking_object_id: &str) -> Self {
+    pub fn new(
+        rpc_url: &str,
+        rpc_poll_interval: &Duration,
+        system_object_id: &str,
+        staking_object_id: &str,
+    ) -> Self {
         Self {
             nodes: Arc::new(RwLock::new(HashMap::new())),
             rpc_url: rpc_url.to_string(),
             rpc_poll_interval: rpc_poll_interval.to_owned(),
+            system_object_id: system_object_id.to_string(),
             staking_object_id: staking_object_id.to_string(),
         }
     }
@@ -99,7 +106,13 @@ impl WalrusNodeProvider {
     }
     /// update the walrus node list that we will speak with
     async fn update_walrus_nodes(&self) {
-        let committee = match get_walrus_committee(&self.rpc_url, &self.staking_object_id).await {
+        let committee = match get_walrus_nodes(
+            &self.rpc_url,
+            &self.system_object_id,
+            &self.staking_object_id,
+        )
+        .await
+        {
             Ok(v) => {
                 JSON_RPC_STATE
                     .with_label_values(&["update_peer_count", "success"])

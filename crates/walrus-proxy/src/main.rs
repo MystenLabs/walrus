@@ -73,6 +73,7 @@ async fn main() -> Result<()> {
     let walrus_node_provider = providers::WalrusNodeProvider::new(
         &config.dynamic_peers.url,
         &config.dynamic_peers.interval,
+        &config.dynamic_peers.system_object_id,
         &config.dynamic_peers.staking_object_id,
     );
     // begin polling

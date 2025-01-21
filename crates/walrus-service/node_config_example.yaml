@@ -45,6 +45,11 @@ public_host: 0.0.0.0
 public_port: 9185
 metrics_address: 127.0.0.1:9184
 rest_api_address: 0.0.0.0:9185
+rest_server:
+  http2_max_concurrent_streams: 1000
+  http2_initial_stream_window_size: null
+  http2_initial_connection_window_size: null
+  http2_adaptive_window: true
 rest_graceful_shutdown_period_secs: 60
 sui:
   rpc: https://fullnode.testnet.sui.io:443
