@@ -763,7 +763,7 @@ impl CliOutput for ServiceHealthInfoOutput {
             add_node_health_to_table(&mut table, node, node_idx);
         }
         if table.len() > 3 {
-            println!("\n{}\n", "Summary".bold().walrus_teal());
+            println!("\n{}\n", "Summary".bold().walrus_purple());
             table.printstd();
             println!("\nTotal nodes: {}", self.health_info.len());
             println!("Owned shards: {}", owned_shards);

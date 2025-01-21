@@ -693,7 +693,7 @@ impl ServiceHealthInfoOutput {
                 let node_id = node_selection.node_id.unwrap();
                 let Some(storage_node) = storage_nodes.iter().find(|node| node.node_id == node_id)
                 else {
-                    return Err(anyhow::anyhow!("node {node_id} not found in committee"));
+                    return Err(anyhow::anyhow!("node {node_id} not found in active set"));
                 };
                 let node_health = NodeHealthOutput::new(storage_node.clone(), detail).await;
                 Ok(Self {
@@ -706,7 +706,7 @@ impl ServiceHealthInfoOutput {
                     .iter()
                     .find(|node| node.network_address.0 == node_url)
                 else {
-                    return Err(anyhow::anyhow!("node {node_url} not found in committee"));
+                    return Err(anyhow::anyhow!("node {node_url} not found in active set"));
                 };
                 let node_health = NodeHealthOutput::new(storage_node.clone(), detail).await;
                 Ok(Self {
