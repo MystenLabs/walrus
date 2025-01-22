@@ -455,8 +455,6 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     let Some(ref node_wallet_config) = config.sui else {
         // Not failing here, since the wallet may be absent in tests.
         // In production, an absence of the wallet will fail the node eventually.
-        // TODO: Find a better solution to distinguish between testing and production
-        // since #[cfg(not(test))] does not work for now.
         tracing::error!("storage config does not contain Sui wallet configuration");
         return Ok(());
     };
@@ -489,8 +487,13 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
         tracing::info!(
             node_name = config.name,
             node_id = ?node_info.node_id,
-            update_params = ?update_params
+            update_params = ?update_params,
+            "Update Node Params"
         );
+        // TODO: support updating public key.
+        if update_params.next_public_key.is_some() {
+            return Err(anyhow::anyhow!("not supported"));
+        }
         let proof_of_possession = if update_params.next_public_key.is_some() {
             Some(walrus_sui::utils::generate_proof_of_possession(
                 config.protocol_key_pair(),

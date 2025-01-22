@@ -866,7 +866,7 @@ mod tests {
 
     #[walrus_simtest]
     #[ignore = "ignore simtests by default"]
-    async fn test_registered_node_change_network_address() {
+    async fn test_registered_node_update_params() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
@@ -889,7 +889,6 @@ mod tests {
         let client_arc = Arc::new(client);
 
         let new_address = walrus_service::test_utils::unused_socket_address(true);
-        let protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
         let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
         // Generate random voting params
         let voting_params = VotingParams {
@@ -930,7 +929,6 @@ mod tests {
             pool.node_info.network_address
         );
         assert_ne!(pool.voting_params, voting_params);
-        assert_ne!(&pool.node_info.public_key, protocol_key_pair.public());
         assert_ne!(
             &pool.node_info.network_public_key,
             network_key_pair.public()
@@ -941,13 +939,9 @@ mod tests {
         walrus_cluster.nodes[5].storage_node_config.rest_api_address = new_address;
         walrus_cluster.nodes[5].storage_node_config.network_key_pair =
             network_key_pair.clone().into();
-        walrus_cluster.nodes[5]
-            .storage_node_config
-            .protocol_key_pair = protocol_key_pair.clone().into();
         walrus_cluster.nodes[5].storage_node_config.voting_params = voting_params.clone();
         walrus_cluster.nodes[5].rest_api_address = new_address;
         walrus_cluster.nodes[5].network_public_key = network_key_pair.public().clone();
-        walrus_cluster.nodes[5].public_key = protocol_key_pair.public().clone();
 
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
@@ -1006,13 +1000,6 @@ mod tests {
                 .storage_node_config
                 .rest_api_address
                 .into()
-        );
-        assert_eq!(
-            &pool.node_info.public_key,
-            walrus_cluster.nodes[5]
-                .storage_node_config
-                .protocol_key_pair()
-                .public()
         );
         assert_eq!(
             &pool.node_info.network_public_key,

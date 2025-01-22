@@ -690,6 +690,7 @@ impl SuiContractClient {
         let count = node_ids_with_amounts.len();
         // Lock the wallet here to ensure there are no race conditions with object references.
         let wallet = self.wallet().await;
+
         let mut pt_builder = self.transaction_builder();
         for (node_id, amount) in node_ids_with_amounts.iter() {
             pt_builder.stake_with_pool(*amount, *node_id).await?;
