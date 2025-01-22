@@ -60,4 +60,5 @@ walkdir = "2.5.0"
 workspace = true
 
 [target.'cfg(msim)'.dependencies]
+jsonrpsee = { version = "0.24" }
 sui-simulator.workspace = true

@@ -3564,7 +3564,7 @@ dependencies = [
  "hashers",
  "http 0.2.12",
  "instant",
- "jsonwebtoken",
+ "jsonwebtoken 8.3.0",
  "once_cell",
  "pin-project",
  "reqwest 0.11.27",
@@ -5505,13 +5505,27 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
+version = "8.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
+dependencies = [
+ "base64 0.21.7",
+ "pem 1.1.1",
+ "ring 0.16.20",
+ "serde",
+ "serde_json",
+ "simple_asn1",
+]
+
+[[package]]
+name = "jsonwebtoken"
 version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9ae10193d25051e74945f1ea2d0b42e03cc3b890f7e4cc5faa44997d808193f"
 dependencies = [
  "base64 0.21.7",
  "js-sys",
- "pem",
+ "pem 3.0.4",
  "ring 0.17.8",
  "serde",
  "serde_json",
@@ -14136,14 +14150,14 @@ dependencies = [
  "git-version",
  "hex",
  "home",
- "http-body-util",
  "hostname",
+ "http-body-util",
  "humantime",
  "indicatif",
  "indoc",
  "integer-encoding 4.0.2",
  "itertools 0.13.0",
- "jsonwebtoken",
+ "jsonwebtoken 9.3.0",
  "mime",
  "mockall 0.12.1",
  "move-core-types",
@@ -14252,6 +14266,7 @@ dependencies = [
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=2f502fd8570fe4e9cff36eea5bbd6fef22002898)",
  "futures",
  "inflections",
+ "jsonrpsee",
  "move-core-types",
  "rand 0.8.5",
  "regex",

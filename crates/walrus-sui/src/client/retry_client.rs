@@ -594,7 +594,9 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
 
         // Simulate a retriable RPC error (502 Bad Gateway)
         Err(sui_sdk::error::Error::RpcError(
-            anyhow::anyhow!("Server returned an error status code: 502").into(),
+            jsonrpsee::core::ClientError::Custom(
+                "Server returned an error status code: 502".into(),
+            ),
         ))?;
     }
 
