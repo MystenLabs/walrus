@@ -576,7 +576,7 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
         .transaction_data()
         .move_calls()
         .iter()
-        .any(|(_, _, function_name)| *function_name == "stake_with_pool");
+        .any(|(_, _, function_name)| *function_name == contracts::staking::stake_with_pool.name);
 
     // Early return if this isn't a stake pool transaction
     if !is_stake_pool_tx {

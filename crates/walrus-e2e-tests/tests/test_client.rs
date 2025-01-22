@@ -996,7 +996,7 @@ async fn test_post_store_action(
 #[ignore = "ignore E2E tests by default"]
 #[cfg(msim)]
 #[walrus_simtest]
-async fn test_ptb_executor_retriable_error() -> TestResult {
+async fn test_ptb_retriable_error() -> TestResult {
     // Set up test environment with cluster and client
     let (_sui_cluster_handle, cluster, client) = test_cluster::default_setup().await?;
 
