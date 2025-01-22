@@ -175,7 +175,7 @@ pub enum CliCommands {
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The epoch argument to specify either the number of epochs to store the blob, or the
-        /// end epoch, or the earliest expiry in UNIX timestamp ms.
+        /// end epoch, or the earliest expiry time in rfc3339 format.
         ///
         #[clap(flatten)]
         #[serde(flatten)]
@@ -922,13 +922,14 @@ impl EpochCountOrMax {
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
 pub struct EpochArg {
     /// The number of epochs the blob is stored for.
     ///
     /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
     /// system object on chain. Otherwise, the blob is stored for the specified number of
     /// epochs. The number of epochs must be greater than 0.
-    #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
+    #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
     pub(crate) epochs: Option<EpochCountOrMax>,
 
     /// The earliest time when the blob can expire, in RFC3339 format (e.g. "2024-03-20T15:00:00Z")

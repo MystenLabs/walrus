@@ -424,8 +424,10 @@ impl ClientCommandRunner {
             };
             let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
             ensure!(
-                earliest_expiry_ts > estimated_start_of_current_epoch,
-                "earliest_expiry_time must be greater than the current epoch start time"
+                earliest_expiry_ts > estimated_start_of_current_epoch
+                    && earliest_expiry_ts > Utc::now(),
+                "earliest_expiry_time must be greater than the current epoch start time
+                and the current time"
             );
             let delta =
                 (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
