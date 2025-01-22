@@ -1239,7 +1239,7 @@ impl SuiContractClient {
         .await
     }
 
-    /// Extends the owned blob object with given epochs_ahead and WAL amount.
+    /// Extends the owned blob object with given epochs_ahead.
     pub async fn extend_blob(
         &self,
         blob_obj_id: ObjectID,
