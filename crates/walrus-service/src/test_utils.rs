@@ -48,7 +48,7 @@ use walrus_core::{
 };
 use walrus_sdk::client::Client;
 use walrus_sui::{
-    client::{BlobObjectMetadata, FixedSystemParameters},
+    client::{retry_client::RetriableRpcClient, BlobObjectMetadata, FixedSystemParameters},
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
         move_structs::{EpochState, VotingParams},
@@ -2335,7 +2335,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
 
 async fn wait_for_event_processor_to_start(
     event_processor: EventProcessor,
-    client: sui_rpc_api::Client,
+    client: RetriableRpcClient,
 ) -> anyhow::Result<()> {
     // Wait until event processor is actually running and downloaded a few checkpoints
     tokio::time::sleep(Duration::from_secs(5)).await;

@@ -36,7 +36,6 @@ use sui_package_resolver::{
 };
 use sui_sdk::{
     rpc_types::{SuiEvent, SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
-    SuiClient,
     SuiClientBuilder,
 };
 use sui_storage::verify_checkpoint_with_committee;
@@ -64,7 +63,10 @@ use typed_store::{
     TypedStoreError,
 };
 use walrus_core::{ensure, BlobId};
-use walrus_sui::{client::retry_client::RetriableSuiClient, types::ContractEvent};
+use walrus_sui::{
+    client::retry_client::{RetriableRpcClient, RetriableSuiClient},
+    types::ContractEvent,
+};
 use walrus_utils::{
     backoff::ExponentialBackoffConfig,
     checkpoint_downloader::ParallelCheckpointDownloader,
@@ -108,7 +110,7 @@ pub struct LocalDBPackageStore {
     /// The table which stores the package objects.
     package_store_table: DBMap<ObjectID, Object>,
     /// The full node REST client.
-    fallback_client: sui_rpc_api::Client,
+    fallback_client: RetriableRpcClient,
     /// Cache for original package ids.
     original_id_cache: Arc<RwLock<HashMap<AccountAddress, ObjectID>>>,
 }
@@ -142,7 +144,7 @@ pub struct EventProcessorStores {
 #[derive(Clone)]
 pub struct EventProcessor {
     /// Full node REST client.
-    pub client: sui_rpc_api::Client,
+    pub client: RetriableRpcClient,
     /// Event polling interval.
     pub event_polling_interval: Duration,
     /// The address of the Walrus system package.
@@ -230,7 +232,7 @@ pub struct SuiClientSet {
     /// Sui client.
     sui_client: RetriableSuiClient,
     /// Rest client for the full node.
-    client: sui_rpc_api::Client,
+    client: RetriableRpcClient,
 }
 
 impl Debug for SuiClientSet {
@@ -557,10 +559,12 @@ impl EventProcessor {
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         let client = Self::create_and_validate_client(&runtime_config.rpc_address).await?;
+        let retry_client =
+            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default());
         let database = Self::initialize_database(&runtime_config)?;
         let stores = Self::open_stores(&database)?;
         let package_store =
-            LocalDBPackageStore::new(stores.walrus_package_store.clone(), client.clone());
+            LocalDBPackageStore::new(stores.walrus_package_store.clone(), retry_client.clone());
         let original_system_package_id = package_store
             .get_original_package_id(system_config.system_pkg_id.into())
             .await?;
@@ -572,7 +576,7 @@ impl EventProcessor {
         )?;
         let metrics = EventProcessorMetrics::new(registry);
         let event_processor = EventProcessor {
-            client: client.clone(),
+            client: retry_client.clone(),
             stores: stores.clone(),
             system_pkg_id: original_system_package_id,
             event_polling_interval: runtime_config.event_polling_interval,
@@ -595,7 +599,7 @@ impl EventProcessor {
             .map(|t| *t.inner().sequence_number())
             .unwrap_or(0);
 
-        let latest_checkpoint = client.get_latest_checkpoint().await?;
+        let latest_checkpoint = retry_client.get_latest_checkpoint().await?;
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
         let url = runtime_config.rpc_address.clone();
@@ -607,8 +611,8 @@ impl EventProcessor {
             RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
         if current_lag > config.event_stream_catchup_min_checkpoint_lag {
             let clients = SuiClientSet {
-                sui_client: retriable_sui_client,
-                client: client.clone(),
+                sui_client: retriable_sui_client.clone(),
+                client: retry_client.clone(),
             };
             let recovery_path = runtime_config.db_path.join("recovery");
             if let Err(e) = Self::catchup_using_event_blobs(
@@ -626,12 +630,9 @@ impl EventProcessor {
         }
 
         if event_processor.stores.checkpoint_store.is_empty() {
-            let sui_client = SuiClientBuilder::default()
-                .build(runtime_config.rpc_address)
-                .await?;
             let (committee, verified_checkpoint) = Self::get_bootstrap_committee_and_checkpoint(
-                &sui_client,
-                event_processor.client.clone(),
+                retriable_sui_client.clone(),
+                retry_client.clone(),
                 event_processor.system_pkg_id,
             )
             .await?;
@@ -754,30 +755,25 @@ impl EventProcessor {
     /// - The committee for the current or next epoch
     /// - The verified checkpoint containing the system package deployment
     pub async fn get_bootstrap_committee_and_checkpoint(
-        sui_client: &SuiClient,
-        client: sui_rpc_api::Client,
+        sui_client: RetriableSuiClient,
+        client: RetriableRpcClient,
         system_pkg_id: ObjectID,
-    ) -> anyhow::Result<(Committee, VerifiedCheckpoint)> {
+    ) -> Result<(Committee, VerifiedCheckpoint)> {
+        let object_options = SuiObjectDataOptions::new()
+            .with_bcs()
+            .with_type()
+            .with_previous_transaction();
         let object = sui_client
-            .read_api()
-            .get_object_with_options(
-                system_pkg_id,
-                SuiObjectDataOptions::new()
-                    .with_bcs()
-                    .with_type()
-                    .with_previous_transaction(),
-            )
+            .get_object_with_options(system_pkg_id, object_options)
             .await?;
+        let txn_options = SuiTransactionBlockResponseOptions::new();
+        let txn_digest = object
+            .data
+            .ok_or(anyhow!("No object data"))?
+            .previous_transaction
+            .ok_or(anyhow!("No transaction data"))?;
         let txn = sui_client
-            .read_api()
-            .get_transaction_with_options(
-                object
-                    .data
-                    .ok_or(anyhow!("No object data"))?
-                    .previous_transaction
-                    .ok_or(anyhow!("No transaction data"))?,
-                SuiTransactionBlockResponseOptions::new(),
-            )
+            .get_transaction_with_options(txn_digest, txn_options)
             .await?;
         let checkpoint_data = client
             .get_full_checkpoint(txn.checkpoint.ok_or(anyhow!("No checkpoint data"))?)
@@ -785,17 +781,14 @@ impl EventProcessor {
         let epoch = checkpoint_data.checkpoint_summary.epoch;
         let checkpoint_summary = checkpoint_data.checkpoint_summary.clone();
         let committee = if let Some(end_of_epoch_data) = &checkpoint_summary.end_of_epoch_data {
-            Committee::new(
-                epoch + 1,
-                end_of_epoch_data
-                    .next_epoch_committee
-                    .iter()
-                    .cloned()
-                    .collect(),
-            )
+            let next_committee = end_of_epoch_data
+                .next_epoch_committee
+                .iter()
+                .cloned()
+                .collect();
+            Committee::new(epoch + 1, next_committee)
         } else {
             let committee_info = sui_client
-                .governance_api()
                 .get_committee_info(Some(BigInt::from(epoch)))
                 .await?;
             Committee::new(
@@ -1018,7 +1011,7 @@ impl EventProcessor {
 
 impl LocalDBPackageStore {
     /// Creates a new instance of the local package store.
-    pub fn new(package_store_table: DBMap<ObjectID, Object>, client: sui_rpc_api::Client) -> Self {
+    pub fn new(package_store_table: DBMap<ObjectID, Object>, client: RetriableRpcClient) -> Self {
         Self {
             package_store_table,
             fallback_client: client,
@@ -1178,7 +1171,10 @@ mod tests {
             false,
         )?;
         let client = sui_rpc_api::Client::new("http://localhost:8080")?;
-        let package_store = LocalDBPackageStore::new(walrus_package_store.clone(), client.clone());
+        let retry_client =
+            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default());
+        let package_store =
+            LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
             client.clone(),
             checkpoint_store.clone(),
@@ -1193,7 +1189,7 @@ mod tests {
             init_state,
         };
         Ok(EventProcessor {
-            client,
+            client: retry_client,
             stores,
             system_pkg_id: ObjectID::random(),
             event_store_commit_index: Arc::new(Mutex::new(0)),
