@@ -574,7 +574,7 @@ pub struct PublisherArgs {
     pub jwt_algorithm: Option<Algorithm>,
     /// If set and greater than 0, the publisher will check if the JWT token is expired based on
     /// the "issued at" (`iat`) value.
-    #[clap(long)]
+    #[clap(long, default_value_t = 0)]
     #[serde(default)]
     pub jwt_expiring_sec: u64,
     /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
@@ -585,7 +585,7 @@ pub struct PublisherArgs {
     /// - Verify that the `send_object_to` field in the query is the same as the `send_object_to`
     ///   in the JWT, if present;
     // TODO: /// - Verify the size/hash of uploaded file
-    #[clap(long)]
+    #[clap(long, action)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
 }
