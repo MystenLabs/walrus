@@ -419,10 +419,12 @@ pub async fn deploy_walrus_contract(
             package_id: {}\n\
             system_object: {}\n\
             staking_object: {}\n\
+            upgrade_manager_object: {}\n\
             exchange_object: {}",
         system_ctx.walrus_pkg_id,
         system_ctx.system_object,
         system_ctx.staking_object,
+        system_ctx.upgrade_manager_object,
         exchange_object
             .map(|id| id.to_string())
             .unwrap_or_else(|| "None".to_string())

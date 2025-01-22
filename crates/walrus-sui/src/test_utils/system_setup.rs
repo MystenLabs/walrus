@@ -104,6 +104,8 @@ pub struct SystemContext {
     pub system_object: ObjectID,
     /// The ID of the staking Object.
     pub staking_object: ObjectID,
+    /// The ID of the upgrade manager object.
+    pub upgrade_manager_object: ObjectID,
     /// The ID of the WAL package.
     pub wal_pkg_id: ObjectID,
     /// The ID of the WAL exchange package.
@@ -186,20 +188,22 @@ pub async fn create_and_init_system(
     )
     .await?;
 
-    let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
-        admin_wallet,
-        walrus_pkg_id,
-        init_cap_id,
-        upgrade_cap_id,
-        init_system_params,
-        gas_budget,
-    )
-    .await?;
+    let (system_object, staking_object, upgrade_manager_object) =
+        system_setup::create_system_and_staking_objects(
+            admin_wallet,
+            walrus_pkg_id,
+            init_cap_id,
+            upgrade_cap_id,
+            init_system_params,
+            gas_budget,
+        )
+        .await?;
 
     Ok(SystemContext {
         walrus_pkg_id,
         system_object,
         staking_object,
+        upgrade_manager_object,
         wal_pkg_id,
         wal_exchange_pkg_id,
     })

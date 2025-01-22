@@ -260,6 +260,19 @@ pub mod init {
     use super::*;
 
     contract_ident!(fn init::initialize_walrus);
+    contract_ident!(fn init::migrate);
+}
+
+/// Module for tags corresponding to the Move module `upgrade`.
+pub mod upgrade {
+    use super::*;
+
+    contract_ident!(struct upgrade::EmergencyUpgradeCap);
+    contract_ident!(struct upgrade::UpgradeManager);
+    contract_ident!(fn upgrade::vote_for_upgrade);
+    contract_ident!(fn upgrade::authorize_upgrade);
+    contract_ident!(fn upgrade::authorize_emergency_upgrade);
+    contract_ident!(fn upgrade::commit_upgrade);
 }
 
 /// Module for tags corresponding to the Move module `staked_wal`.

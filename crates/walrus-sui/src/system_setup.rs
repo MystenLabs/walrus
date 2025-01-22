@@ -23,7 +23,6 @@ use sui_move_build::{
     PackageDependencies,
 };
 use sui_sdk::{
-    apis::ReadApi,
     rpc_types::{
         SuiExecutionStatus,
         SuiObjectDataFilter,
@@ -96,17 +95,11 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-#[tracing::instrument(err, skip(wallet, build_config))]
-pub(crate) async fn publish_package(
-    wallet: &mut WalletContext,
+pub(crate) async fn compile_package_and_update_lock_file(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
-    gas_budget: Option<u64>,
-) -> Result<SuiTransactionBlockResponse> {
-    let sender = wallet.active_address()?;
-    let client = wallet.get_client().await?;
-    let chain_id = client.read_api().get_chain_identifier().await.ok();
-
+    chain_id: Option<String>,
+) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
     let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
@@ -122,9 +115,7 @@ pub(crate) async fn publish_package(
     };
 
     let (dependencies, compiled_package) =
-        compile_package(client.read_api(), build_config.clone(), &package_path).await?;
-
-    let compiled_modules = compiled_package.get_package_bytes(false);
+        compile_package(build_config.clone(), &package_path, chain_id.clone()).await?;
 
     // Restore original ID.
     if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
@@ -135,6 +126,25 @@ pub(crate) async fn publish_package(
             previous_id,
         )?;
     }
+
+    Ok((dependencies, compiled_package, build_config))
+}
+
+#[tracing::instrument(err, skip(wallet, build_config))]
+pub(crate) async fn publish_package(
+    wallet: &mut WalletContext,
+    package_path: PathBuf,
+    build_config: MoveBuildConfig,
+    gas_budget: Option<u64>,
+) -> Result<SuiTransactionBlockResponse> {
+    let sender = wallet.active_address()?;
+    let client = wallet.get_client().await?;
+    let chain_id = client.read_api().get_chain_identifier().await.ok();
+
+    let (dependencies, compiled_package, build_config) =
+        compile_package_and_update_lock_file(package_path, build_config, chain_id).await?;
+
+    let compiled_modules = compiled_package.get_package_bytes(false);
 
     // Publish the package
     let transaction_kind = client
@@ -181,7 +191,7 @@ pub(crate) async fn publish_package(
         .execute_transaction_may_fail(signed_transaction)
         .await?;
 
-    // Update the lock file
+    // Update the lock file with the new package ID.
     sui_package_management::update_lock_file(
         wallet,
         sui_package_management::LockCommand::Publish,
@@ -197,14 +207,13 @@ pub(crate) async fn publish_package(
 
 // Based on `compile_package` from the sui CLI codebase, simplified for our needs.
 pub(crate) async fn compile_package(
-    read_api: &ReadApi,
     build_config: MoveBuildConfig,
     package_path: &Path,
+    chain_id: Option<String>,
 ) -> Result<(PackageDependencies, CompiledPackage), anyhow::Error> {
     let config = resolve_lock_file_path(build_config, package_path)?;
     let run_bytecode_verifier = true;
     let print_diags_to_stderr = false;
-    let chain_id = read_api.get_chain_identifier().await.ok();
     let config = BuildConfig {
         config,
         run_bytecode_verifier,
@@ -354,6 +363,8 @@ pub struct InitSystemParams {
 }
 
 /// Initialize the system and staking objects on chain.
+///
+/// Returns the IDs of the system, staking, and upgrade manager objects.
 pub async fn create_system_and_staking_objects(
     wallet: &mut WalletContext,
     contract_pkg_id: ObjectID,
@@ -361,7 +372,7 @@ pub async fn create_system_and_staking_objects(
     upgrade_cap: ObjectID,
     system_params: InitSystemParams,
     gas_budget: Option<u64>,
-) -> Result<(ObjectID, ObjectID)> {
+) -> Result<(ObjectID, ObjectID, ObjectID)> {
     let mut pt_builder = ProgrammableTransactionBuilder::new();
 
     let epoch_duration_millis: u64 = system_params
@@ -468,7 +479,20 @@ pub async fn create_system_and_staking_objects(
     )?[..] else {
         bail!("unexpected number of system objects created");
     };
-    Ok((system_object_id, staking_object_id))
+
+    let [upgrade_manager_object_id] = get_created_sui_object_ids_by_type(
+        &response,
+        &contracts::upgrade::UpgradeManager
+            .to_move_struct_tag_with_package(contract_pkg_id, &[])?,
+    )?[..] else {
+        bail!("unexpected number of upgrade manager objects created");
+    };
+
+    Ok((
+        system_object_id,
+        staking_object_id,
+        upgrade_manager_object_id,
+    ))
 }
 
 /// Checks if a treasury cap exists and mints [`WAL_MINT_AMOUNT`] FROST to the `admin_wallet`
