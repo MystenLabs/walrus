@@ -293,7 +293,7 @@ macro_rules! index_type {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}-{}", $display_prefix, self.0)
+                fmt::Display::fmt(&self.0, f)
             }
         }
     };
@@ -323,6 +323,18 @@ impl From<SliverIndex> for SliverPairIndex {
 impl From<SliverPairIndex> for SliverIndex {
     fn from(value: SliverPairIndex) -> Self {
         Self(value.0)
+    }
+}
+
+impl PartialOrd<NonZeroU16> for SliverIndex {
+    fn partial_cmp(&self, other: &NonZeroU16) -> Option<core::cmp::Ordering> {
+        self.0.partial_cmp(&other.get())
+    }
+}
+
+impl PartialEq<NonZeroU16> for SliverIndex {
+    fn eq(&self, other: &NonZeroU16) -> bool {
+        self.0.eq(&other.get())
     }
 }
 
@@ -595,6 +607,68 @@ impl Display for SliverType {
 
 // Symbols.
 
+/// Identifier of a decoding symbol within the set of decoding symbols of a blob.
+///
+/// Defined as `primary_sliver_index * n_shards + secondary_sliver_index`. Must be less than
+/// the square of the number of shards in the system.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct DecodingSymbolId(pub u64);
+
+impl DecodingSymbolId {
+    /// Create a new id from a primary [`SliverIndex`], secondary [`SliverIndex`],
+    /// and the number of shards.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either index is >= the number of shards.
+    pub fn new(primary: SliverIndex, secondary: SliverIndex, n_shards: NonZeroU16) -> Self {
+        assert!(
+            primary < n_shards,
+            "primary index must be less than the number of shards"
+        );
+        assert!(
+            secondary < n_shards,
+            "secondary index must be less than the number of shards"
+        );
+        Self(primary.as_u64() * u64::from(n_shards.get()) + secondary.as_u64())
+    }
+
+    /// Returns a new symbol ID with the specified value.
+    pub fn from_u64(value: u64) -> Self {
+        Self(value)
+    }
+
+    /// Returns the pair `(primary_sliver_index, secondary_sliver_index)` that corresponds
+    /// to the decoding symbol.
+    ///
+    /// Returns None if the `DecodingSymbolId` is greater than or equal to `n_shards^2`.
+    pub fn to_sliver_indices(&self, n_shards: NonZeroU16) -> Option<(SliverIndex, SliverIndex)> {
+        let n_shards_u64 = u64::from(n_shards.get());
+        if n_shards_u64 * n_shards_u64 <= self.0 {
+            return None;
+        }
+
+        let primary_index: u16 = (self.0 / n_shards_u64)
+            .try_into()
+            .expect("assertion above guarantees within range");
+        let secondary_index: u16 = (self.0 % n_shards_u64)
+            .try_into()
+            .expect("assertion above guarantees within range");
+
+        Some((
+            SliverIndex::new(primary_index),
+            SliverIndex::new(secondary_index),
+        ))
+    }
+}
+
+impl Display for DecodingSymbolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        core::fmt::Display::fmt(&self.0, f)
+    }
+}
+
 /// A decoding symbol for recovering a sliver
 ///
 /// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
@@ -814,4 +888,57 @@ macro_rules! ensure {
             return Err(anyhow::anyhow!($fmt, $($arg)*).into());
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_test_utils::param_test;
+
+    use super::*;
+
+    param_test! {
+        decoding_symbol_id_conversion: [
+            zero: (7, DecodingSymbolId(0), 0, 0),
+            eighteen: (7, DecodingSymbolId(18), 2, 4),
+            forty_one: (7, DecodingSymbolId(41), 5, 6),
+            last: (7, DecodingSymbolId(48), 6, 6),
+        ]
+    }
+    fn decoding_symbol_id_conversion(
+        n_shards: u16,
+        id: DecodingSymbolId,
+        primary_sliver_index: u16,
+        secondary_sliver_index: u16,
+    ) {
+        let n_shards = NonZeroU16::new(n_shards).unwrap();
+        let (primary_index, secondary_index) =
+            id.to_sliver_indices(n_shards).expect("valid shards");
+
+        assert_eq!(primary_index.get(), primary_sliver_index);
+        assert_eq!(secondary_index.get(), secondary_sliver_index);
+    }
+
+    param_test! {
+        decoding_symbol_new: [
+            zero: (7, DecodingSymbolId(0), 0, 0),
+            eighteen: (7, DecodingSymbolId(18), 2, 4),
+            forty_one: (7, DecodingSymbolId(41), 5, 6),
+            last: (7, DecodingSymbolId(48), 6, 6),
+        ]
+    }
+    fn decoding_symbol_new(
+        n_shards: u16,
+        id: DecodingSymbolId,
+        primary_sliver_index: u16,
+        secondary_sliver_index: u16,
+    ) {
+        let n_shards = NonZeroU16::new(n_shards).unwrap();
+        let primary_sliver_index = SliverIndex::new(primary_sliver_index);
+        let secondary_sliver_index = SliverIndex::new(secondary_sliver_index);
+
+        assert_eq!(
+            id,
+            DecodingSymbolId::new(primary_sliver_index, secondary_sliver_index, n_shards)
+        );
+    }
 }

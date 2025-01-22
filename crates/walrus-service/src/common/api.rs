@@ -184,6 +184,7 @@ pub(crate) fn into_responses(
         // such as an InternalError from multiple sources.
         descr_list.sort();
         descr_list.dedup();
+        descr_list.retain(|description| !description.trim().is_empty());
 
         let description = if descr_list.len() > 1 {
             let mut output = "May be returned when".to_owned();

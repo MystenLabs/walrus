@@ -15,6 +15,7 @@ use walrus_core::{
     inconsistency::InconsistencyVerificationError,
     messages::MessageVerificationError,
     metadata::VerificationError,
+    DecodingSymbolId,
     Epoch,
     ShardIndex,
 };
@@ -192,6 +193,21 @@ pub enum RetrieveSymbolError {
     #[error("the requested recovery symbol is invalid for the system: {0}")]
     #[rest_api_error(delegate)]
     RecoverySymbolOutOfRange(#[from] IndexOutOfRange),
+
+    /// The recovery symbol ID is invalid for the system.
+    #[error(
+        "the requested recovery symbol is invalid for the system: 0 <= index ({index}) < {max}"
+    )]
+    #[rest_api_error(
+        reason = "INDEX_OUT_OF_RANGE", status = ApiStatusCode::InvalidArgument,
+    )]
+    InvalidRecoverySymbolId { index: DecodingSymbolId, max: u64 },
+
+    #[error("the requested recovery symbol is not the responsibility of this node's shards")]
+    #[rest_api_error(
+        reason = "SYMBOL_NOT_PRESENT_AT_SHARDS", status = ApiStatusCode::FailedPrecondition,
+    )]
+    SymbolNotPresentAtShards,
 
     /// The sliver from which the recovery symbol is extracted could not be retrieved.
     #[error("the sliver from which to extract the recovery symbol could not be retrieved: {0}")]

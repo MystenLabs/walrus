@@ -34,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, RecoverySymbolError},
+    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbolError, Secondary},
     ensure,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -56,6 +56,7 @@ use walrus_core::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
+    DecodingSymbolId,
     Epoch,
     InconsistencyProof,
     PublicKey,
@@ -201,19 +202,15 @@ pub trait ServiceState {
         inconsistency_proof: InconsistencyProof,
     ) -> impl Future<Output = Result<InvalidBlobIdAttestation, InconsistencyProofError>> + Send;
 
-    /// Retrieves a recovery symbol for a shard held by this storage node.
+    /// Retrieves a recovery symbol from a shard held by this storage node.
     ///
-    /// The function creates the recovery symbol for the sliver of type `sliver_type` and of sliver
-    /// pair index `target_pair_index`, starting from the sliver of the orthogonal sliver type and
-    /// index `sliver_pair_index`.
-    ///
-    /// Returns the recovery symbol for the requested sliver.
+    /// Returns a recovery symbol for the identified symbol, if it can be constructed from the
+    /// slivers stored with the storage node.
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_index: SliverPairIndex,
-        sliver_type: SliverType,
-        target_pair_index: SliverPairIndex,
+        symbol_id: DecodingSymbolId,
+        sliver_type: Option<SliverType>,
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError>;
 
     /// Retrieves the blob status for the given `blob_id`.
@@ -1690,6 +1687,34 @@ impl StorageNodeInner {
     fn is_shutting_down(&self) -> bool {
         self.is_shutting_down.load(Ordering::SeqCst)
     }
+
+    fn try_retrieve_recovery_symbol(
+        &self,
+        blob_id: &BlobId,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+        target_pair_index: SliverPairIndex,
+    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
+        let sliver = self.retrieve_sliver(blob_id, sliver_pair_index, sliver_type.orthogonal())?;
+
+        let symbol_result = match sliver {
+            Sliver::Primary(inner) => inner
+                .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                .map(RecoverySymbol::Secondary),
+            Sliver::Secondary(inner) => inner
+                .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                .map(RecoverySymbol::Primary),
+        };
+
+        symbol_result.map_err(|error| match error {
+            RecoverySymbolError::IndexTooLarge => {
+                panic!("index validity must be checked above")
+            }
+            RecoverySymbolError::EncodeError(error) => {
+                RetrieveSymbolError::Internal(anyhow!(error))
+            }
+        })
+    }
 }
 
 fn api_status_from_shard_status(status: ShardStatus) -> ApiShardStatus {
@@ -1790,16 +1815,11 @@ impl ServiceState for StorageNode {
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_index: SliverPairIndex,
-        sliver_type: SliverType,
-        target_pair_index: SliverPairIndex,
+        symbol_id: DecodingSymbolId,
+        sliver_type: Option<SliverType>,
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
-        self.inner.retrieve_recovery_symbol(
-            blob_id,
-            sliver_pair_index,
-            sliver_type,
-            target_pair_index,
-        )
+        self.inner
+            .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
     }
 
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
@@ -1999,36 +2019,65 @@ impl ServiceState for StorageNodeInner {
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
+    #[tracing::instrument(skip_all)]
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        sliver_pair_index: SliverPairIndex,
-        sliver_type: SliverType,
-        target_pair_index: SliverPairIndex,
+        symbol_id: DecodingSymbolId,
+        sliver_type: Option<SliverType>,
     ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
-        // Before touching the database, verify that the target_pair_index is possibly valid, and
-        // not out of range. Checking the sliver_pair_index is done by retrieve_sliver.
-        self.check_index(target_pair_index)?;
-
-        let sliver = self.retrieve_sliver(blob_id, sliver_pair_index, sliver_type.orthogonal())?;
-
-        let symbol_result = match sliver {
-            Sliver::Primary(inner) => inner
-                .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
-                .map(RecoverySymbol::Secondary),
-            Sliver::Secondary(inner) => inner
-                .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
-                .map(RecoverySymbol::Primary),
+        tracing::error!("at the start of the method call");
+        let n_shards = self.n_shards();
+        let Some((primary_index, secondary_index)) = symbol_id.to_sliver_indices(n_shards) else {
+            return Err(RetrieveSymbolError::InvalidRecoverySymbolId {
+                index: symbol_id,
+                max: u64::from(n_shards.get()) * u64::from(n_shards.get()),
+            });
         };
+        let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
+        let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
 
-        symbol_result.map_err(|error| match error {
-            RecoverySymbolError::IndexTooLarge => {
-                panic!("index validity must be checked above")
+        let owned_shards = self.owned_shards();
+
+        // In the event that neither of the slivers are assigned to this shard use this error,
+        // otherwise it is overwritten.
+        let mut final_error = RetrieveSymbolError::SymbolNotPresentAtShards;
+
+        for (source_pair_index, target_sliver_pair, target_sliver_type) in [
+            (
+                primary_pair_index,
+                secondary_pair_index,
+                SliverType::Secondary,
+            ),
+            (
+                secondary_pair_index,
+                primary_pair_index,
+                SliverType::Primary,
+            ),
+        ] {
+            if sliver_type.is_some() && sliver_type != Some(target_sliver_type) {
+                // Respect the caller specified sliver type.
+                continue;
             }
-            RecoverySymbolError::EncodeError(error) => {
-                RetrieveSymbolError::Internal(anyhow!(error))
+
+            let required_shard = &source_pair_index.to_shard_index(n_shards, blob_id);
+            if !owned_shards.contains(required_shard) {
+                // This node does not manage the shard owning the source pair.
+                continue;
             }
-        })
+
+            match self.try_retrieve_recovery_symbol(
+                blob_id,
+                source_pair_index,
+                target_sliver_type,
+                target_sliver_pair,
+            ) {
+                Ok(symbol) => return Ok(symbol),
+                Err(error) => final_error = error,
+            }
+        }
+
+        Err(final_error)
     }
 
     fn n_shards(&self) -> NonZeroU16 {
