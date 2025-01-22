@@ -132,6 +132,9 @@ pub enum SuiClientError {
     /// The sender is not authorized to perform the action on the pool.
     #[error("the sender is not authorized to perform the action on the pool with node ID {0}")]
     NotAuthorizedForPool(ObjectID),
+    /// The storage node is not found.
+    #[error("the storage node {0} is not found")]
+    StorageNodeNotFound(ObjectID),
 }
 
 /// Metadata for a blob object on Sui.
@@ -1225,8 +1228,16 @@ impl ReadClient for SuiContractClient {
         self.read_client.next_committee().await
     }
 
-    async fn get_storage_nodes(&self) -> SuiClientResult<Vec<StorageNode>> {
-        self.read_client.get_storage_nodes().await
+    async fn get_storage_nodes_from_active_set(&self) -> SuiClientResult<Vec<StorageNode>> {
+        self.read_client.get_storage_nodes_from_active_set().await
+    }
+
+    async fn get_storage_nodes_from_committee(&self) -> SuiClientResult<Vec<StorageNode>> {
+        self.read_client.get_storage_nodes_from_committee().await
+    }
+
+    async fn get_storage_node_by_id(&self, node_id: ObjectID) -> SuiClientResult<StorageNode> {
+        self.read_client.get_storage_node_by_id(node_id).await
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

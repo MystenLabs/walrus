@@ -683,25 +683,26 @@ impl ServiceHealthInfoOutput {
         node_selection: NodeSelection,
         detail: bool,
     ) -> anyhow::Result<Self> {
-        let storage_nodes = sui_read_client.get_storage_nodes().await?;
-        match (
-            node_selection.node_id.is_some(),
-            node_selection.node_url.is_some(),
-            node_selection.all,
-        ) {
-            (true, false, false) => {
-                let node_id = node_selection.node_id.unwrap();
-                let Some(storage_node) = storage_nodes.iter().find(|node| node.node_id == node_id)
-                else {
-                    return Err(anyhow::anyhow!("node {node_id} not found in active set"));
-                };
+        match node_selection {
+            NodeSelection {
+                node_id: Some(node_id),
+                node_url: None,
+                committee: false,
+                active_set: false,
+            } => {
+                let storage_node = sui_read_client.get_storage_node_by_id(node_id).await?;
                 let node_health = NodeHealthOutput::new(storage_node.clone(), detail).await;
                 Ok(Self {
                     health_info: vec![node_health],
                 })
             }
-            (false, true, false) => {
-                let node_url = node_selection.node_url.unwrap();
+            NodeSelection {
+                node_id: None,
+                node_url: Some(node_url),
+                committee: false,
+                active_set: false,
+            } => {
+                let storage_nodes = sui_read_client.get_storage_nodes_from_active_set().await?;
                 let Some(storage_node) = storage_nodes
                     .iter()
                     .find(|node| node.network_address.0 == node_url)
@@ -715,7 +716,31 @@ impl ServiceHealthInfoOutput {
                     health_info: vec![node_health],
                 })
             }
-            (false, false, true) => {
+            NodeSelection {
+                node_id: None,
+                node_url: None,
+                committee: true,
+                active_set: false,
+            } => {
+                let storage_nodes = sui_read_client.get_storage_nodes_from_committee().await?;
+                use futures::stream::{self, StreamExt};
+
+                // Process up to 10 health checks concurrently
+                let health_info = stream::iter(storage_nodes)
+                    .map(|node| NodeHealthOutput::new(node, detail))
+                    .buffer_unordered(10)
+                    .collect::<Vec<_>>()
+                    .await;
+
+                Ok(Self { health_info })
+            }
+            NodeSelection {
+                node_id: None,
+                node_url: None,
+                committee: false,
+                active_set: true,
+            } => {
+                let storage_nodes = sui_read_client.get_storage_nodes_from_active_set().await?;
                 use futures::stream::{self, StreamExt};
 
                 // Process up to 10 health checks concurrently

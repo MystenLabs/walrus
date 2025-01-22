@@ -735,64 +735,22 @@ impl CliOutput for ExtendBlobOutput {
     }
 }
 
-impl CliOutput for ServiceHealthInfoOutput {
+impl CliOutput for NodeHealthOutput {
     fn print_cli_output(&self) {
-        println!("\n{}", "Walrus Service Health Information".bold());
-
-        // Initialize summary counters
-        let mut owned_shards = 0;
-        let mut read_only_shards = 0;
-        let mut node_statuses = std::collections::HashMap::new();
-
-        let mut table = create_node_health_table();
-        // Collect summary information while building the table
-        for (node_idx, node) in self.health_info.iter().enumerate() {
-            print_node_health_info(self.health_info.first().unwrap());
-            match &node.health_info {
-                Err(_) => {
-                    *node_statuses.entry("Error".to_string()).or_insert(0) += 1;
-                }
-                Ok(health_info) => {
-                    owned_shards += health_info.shard_summary.owned;
-                    read_only_shards += health_info.shard_summary.read_only;
-                    *node_statuses
-                        .entry(health_info.node_status.to_string())
-                        .or_insert(0) += 1;
-                }
+        println!(
+            "{}: {}\n",
+            "Node Information".bold().walrus_purple(),
+            self.node_name
+        );
+        println!("Node ID: {}", self.node_id);
+        println!("Node URL: {}", self.node_url);
+        match &self.health_info {
+            Err(error) => {
+                println!("Error: {}", error);
             }
-            add_node_health_to_table(&mut table, node, node_idx);
-        }
-        if table.len() > 3 {
-            println!("\n{}\n", "Summary".bold().walrus_purple());
-            table.printstd();
-            println!("\nTotal nodes: {}", self.health_info.len());
-            println!("Owned shards: {}", owned_shards);
-            println!("Read-only shards: {}", read_only_shards);
-
-            println!("\n{}", "Node Status Breakdown".bold().walrus_teal());
-            for (status, count) in &node_statuses {
-                println!("{}: {}", status, count);
-            }
-        }
-        // Print summary
-    }
-}
-
-fn print_node_health_info(node: &NodeHealthOutput) {
-    println!(
-        "{}: {}\n",
-        "Node Information".bold().walrus_purple(),
-        node.node_name
-    );
-    println!("Node ID: {}", node.node_id);
-    println!("Node URL: {}", node.node_url);
-    match &node.health_info {
-        Err(error) => {
-            println!("Error: {}", error);
-        }
-        Ok(health_info) => {
-            printdoc!(
-                "
+            Ok(health_info) => {
+                printdoc!(
+                    "
 
                 {general_heading}
                 Uptime: {uptime}
@@ -814,37 +772,90 @@ fn print_node_health_info(node: &NodeHealthOutput) {
                 In transfer: {in_transfer}
                 In recovery: {in_recovery}
                 ",
-                general_heading = "General Information".bold().walrus_teal(),
-                uptime = humantime::format_duration(health_info.uptime),
-                epoch = health_info.epoch,
-                public_key = health_info.public_key,
-                node_status = health_info.node_status,
-                event_heading = "Event Progress".bold().walrus_teal(),
-                persisted = health_info.event_progress.persisted,
-                pending = health_info.event_progress.pending,
-                shard_heading = "Shard Summary".bold().walrus_teal(),
-                owned = health_info.shard_summary.owned,
-                read_only = health_info.shard_summary.read_only,
-                owned_status_heading = "Owned Shard Status".bold().walrus_teal(),
-                unknown = health_info.shard_summary.owned_shard_status.unknown,
-                ready = health_info.shard_summary.owned_shard_status.ready,
-                in_transfer = health_info.shard_summary.owned_shard_status.in_transfer,
-                in_recovery = health_info.shard_summary.owned_shard_status.in_recovery,
-            );
+                    general_heading = "General Information".bold().walrus_teal(),
+                    uptime = humantime::format_duration(health_info.uptime),
+                    epoch = health_info.epoch,
+                    public_key = health_info.public_key,
+                    node_status = health_info.node_status,
+                    event_heading = "Event Progress".bold().walrus_teal(),
+                    persisted = health_info.event_progress.persisted,
+                    pending = health_info.event_progress.pending,
+                    shard_heading = "Shard Summary".bold().walrus_teal(),
+                    owned = health_info.shard_summary.owned,
+                    read_only = health_info.shard_summary.read_only,
+                    owned_status_heading = "Owned Shard Status".bold().walrus_teal(),
+                    unknown = health_info.shard_summary.owned_shard_status.unknown,
+                    ready = health_info.shard_summary.owned_shard_status.ready,
+                    in_transfer = health_info.shard_summary.owned_shard_status.in_transfer,
+                    in_recovery = health_info.shard_summary.owned_shard_status.in_recovery,
+                );
 
-            // Print shard details if available
-            if let Some(detail) = &health_info.shard_detail {
-                if !detail.owned.is_empty() {
-                    println!("\n{}", "Owned Shard Details".bold().walrus_teal());
-                    for shard in &detail.owned {
-                        println!("Shard {}: {:?}", shard.shard, shard.status);
+                // Print shard details if available
+                if let Some(detail) = &health_info.shard_detail {
+                    if !detail.owned.is_empty() {
+                        println!("\n{}", "Owned Shard Details".bold().walrus_teal());
+                        for shard in &detail.owned {
+                            println!("Shard {}: {:?}", shard.shard, shard.status);
+                        }
+                    }
+                    if !detail.other.is_empty() {
+                        println!("\n{}", "Other Shard Details".bold().walrus_teal());
+                        for shard in &detail.other {
+                            println!("Shard {}: {:?}", shard.shard, shard.status);
+                        }
                     }
                 }
-                if !detail.other.is_empty() {
-                    println!("\n{}", "Other Shard Details".bold().walrus_teal());
-                    for shard in &detail.other {
-                        println!("Shard {}: {:?}", shard.shard, shard.status);
-                    }
+            }
+        }
+    }
+}
+
+impl CliOutput for ServiceHealthInfoOutput {
+    fn print_cli_output(&self) {
+        println!("\n{}", "Walrus Service Health Information".bold());
+
+        // Initialize summary counters
+        let mut owned_shards = 0;
+        let mut read_only_shards = 0;
+        let mut node_statuses = std::collections::HashMap::new();
+        let mut error_nodes = Vec::new();
+
+        let mut table = create_node_health_table();
+        // Collect summary information while building the table
+        for (node_idx, node) in self.health_info.iter().enumerate() {
+            match &node.health_info {
+                Err(_) => {
+                    *node_statuses.entry("Error".to_string()).or_insert(0) += 1;
+                    error_nodes.push(node);
+                }
+                Ok(health_info) => {
+                    node.print_cli_output();
+                    owned_shards += health_info.shard_summary.owned;
+                    read_only_shards += health_info.shard_summary.read_only;
+                    *node_statuses
+                        .entry(health_info.node_status.to_string())
+                        .or_insert(0) += 1;
+                }
+            }
+            add_node_health_to_table(&mut table, node, node_idx);
+        }
+        if table.len() > 3 {
+            println!("\n{}\n", "Summary".bold().walrus_purple());
+            table.printstd();
+            println!("\nTotal nodes: {}", self.health_info.len());
+            println!("Owned shards: {}", owned_shards);
+            println!("Read-only shards: {}", read_only_shards);
+
+            println!("\n{}", "Node Status Breakdown".bold().walrus_purple());
+            for (status, count) in &node_statuses {
+                println!("{}: {}", status, count);
+            }
+
+            // Print error nodes summary if there are any errors
+            if !error_nodes.is_empty() {
+                println!("\n{}\n", "Nodes with Errors".bold().walrus_purple());
+                for node in error_nodes {
+                    node.print_cli_output();
                 }
             }
         }

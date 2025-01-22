@@ -266,11 +266,7 @@ pub enum CliCommands {
         command: Option<InfoCommands>,
     },
     /// Print health information for the storage node.
-    ///
     /// Only one of `--node_id`, `--node_url`, or `--all` can be specified.
-    /// If `node_id` is provided, the health information for the node with the given ID is printed.
-    /// If `node_url` is provided, the health information for the node at the given URL is printed.
-    /// If `all` is specified, the health information for all nodes in the active set is printed.
     Health {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
@@ -810,10 +806,14 @@ pub struct NodeSelection {
     #[clap(long)]
     #[serde(default)]
     pub node_url: Option<String>,
-    /// Select all storage nodes.
+    /// Select all storage nodes in the current committee.
     #[clap(long, action)]
     #[serde(default)]
-    pub all: bool,
+    pub committee: bool,
+    /// Select all storage nodes in the active set.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub active_set: bool,
 }
 
 /// The number of epochs to store the blob for.
