@@ -13972,7 +13972,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-core"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -13994,7 +13994,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-e2e-tests"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -14021,7 +14021,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-orchestrator"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "aws-config",
  "aws-runtime",
@@ -14049,7 +14049,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proc-macros"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "darling 0.20.10",
  "proc-macro2",
@@ -14060,7 +14060,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -14099,7 +14099,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sdk"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "axum 0.7.9",
  "axum-server 0.7.1",
@@ -14131,7 +14131,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-service"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -14215,7 +14215,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-simtest"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -14237,7 +14237,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-stress"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -14258,7 +14258,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sui"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -14298,7 +14298,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-test-utils"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "rand 0.8.5",
  "tempfile",
@@ -14307,7 +14307,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-utils"
-version = "1.10.0"
+version = "1.11.0"
 dependencies = [
  "anyhow",
  "async-channel",
