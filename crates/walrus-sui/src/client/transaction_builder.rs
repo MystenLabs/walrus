@@ -852,6 +852,7 @@ impl WalrusPtbBuilder {
             self.walrus_move_call(contracts::staking::set_network_public_key, args)?;
         }
 
+        // Update network address if provided
         if let Some(network_address) = params.network_address {
             let args = vec![
                 self.staking_arg(Mutability::Mutable).await?,

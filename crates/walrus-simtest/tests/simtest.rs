@@ -882,10 +882,6 @@ mod tests {
             .unwrap();
 
         assert!(walrus_cluster.nodes[5].node_id.is_none());
-        tracing::info!(
-            "Node 5 info: {:?}",
-            walrus_cluster.nodes[5].rest_api_address
-        );
         let client_arc = Arc::new(client);
 
         let new_address = walrus_service::test_utils::unused_socket_address(true);
@@ -912,6 +908,8 @@ mod tests {
             )
             .await
             .expect("Failed to get staking pool");
+
+        // Check that the registered node has the original network address.
         assert_eq!(
             pool.node_info.network_address,
             walrus_cluster.nodes[5]
@@ -919,11 +917,8 @@ mod tests {
                 .rest_api_address
                 .into()
         );
-        tracing::info!(
-            "pool.node_info.network_address: {:?}",
-            pool.node_info.network_address
-        );
-        tracing::info!("new_address: {:?}", new_address);
+
+        // Make sure the new params are different from the on-chain values.
         assert_ne!(
             NetworkAddress::from(new_address),
             pool.node_info.network_address
@@ -934,6 +929,7 @@ mod tests {
             network_key_pair.public()
         );
 
+        // Update the node config with the new params.
         walrus_cluster.nodes[5].storage_node_config.public_port = new_address.port();
         walrus_cluster.nodes[5].storage_node_config.public_host = new_address.ip().to_string();
         walrus_cluster.nodes[5].storage_node_config.rest_api_address = new_address;
@@ -952,6 +948,7 @@ mod tests {
             .await
             .id(),
         );
+
         // Adding stake to the new node so that it can be in Active state.
         client_arc
             .as_ref()
@@ -973,13 +970,14 @@ mod tests {
             .inner
             .get_latest_committees_in_test()
             .await
-            .unwrap();
+            .expect("Should get committees");
 
-        let _ = committees
+        assert!(committees
             .current_committee()
             .find(&walrus_cluster.nodes[5].public_key)
-            .expect("node should be in the committee");
+            .is_some());
 
+        // Check that the new params are updated on-chain.
         let pool = client_arc
             .as_ref()
             .as_ref()
@@ -993,7 +991,7 @@ mod tests {
                     .node_id,
             )
             .await
-            .expect("Failed to get staking pool");
+            .expect("Should get staking pool");
         assert_eq!(
             pool.node_info.network_address,
             walrus_cluster.nodes[5]
@@ -1009,7 +1007,6 @@ mod tests {
                 .public()
         );
         assert_eq!(pool.voting_params, voting_params);
-        // assert_eq!(node.network_address, new_address.into());
 
         assert_eq!(
             get_nodes_health_info(&[&walrus_cluster.nodes[5]])
