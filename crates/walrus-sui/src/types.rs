@@ -117,7 +117,7 @@ impl NodeMetadata {
 
 /// Parameters for updating a storage node.
 /// At least one of the fields must be provided.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeUpdateParams {
     /// The name of the storage node.
     pub name: Option<String>,
@@ -132,7 +132,7 @@ pub struct NodeUpdateParams {
 }
 
 /// Parameters for updating node voting parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeVotingParams {
     /// The storage price to vote for
     pub storage_price: Option<u64>,

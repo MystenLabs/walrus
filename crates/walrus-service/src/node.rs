@@ -75,7 +75,7 @@ use walrus_sdk::api::{
     StoredOnNodeStatus,
 };
 use walrus_sui::{
-    client::{ReadClient, SuiReadClient},
+    client::{ReadClient, SuiClientError, SuiReadClient},
     types::{
         BlobCertified,
         BlobDeleted,
@@ -449,13 +449,14 @@ pub struct NodeParameters {
 
 /// Check if the node parameters are in sync with the on-chain parameters.
 /// If not, update the node parameters on-chain.
+/// If the current node is not registered yet, error out.
 /// If the wallet is not present in the config, do nothing.
 async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     let Some(ref node_wallet_config) = config.sui else {
-        // Not failing here, since the wallet may be absent in the config for testing purposes.
+        // Not failing here, since the wallet may be absent in tests.
         // In production, an absence of the wallet will fail the node eventually.
         // TODO: Find a better solution to distinguish between testing and production
-        // #[cfg(not(test))] does not work for now.
+        // since #[cfg(not(test))] does not work for now.
         tracing::error!("storage config does not contain Sui wallet configuration");
         return Ok(());
     };
@@ -463,13 +464,11 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     let contract_client = node_wallet_config.new_contract_client().await?;
     let address = contract_client.wallet().await.active_address()?;
 
-    let Some(node_cap) = contract_client
+    let node_cap = contract_client
         .read_client
         .get_address_capability_object(address)
         .await?
-    else {
-        return Err(anyhow::anyhow!("failed to get address capability object"));
-    };
+        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
     let pool = contract_client
         .read_client
@@ -505,7 +504,11 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
             .update_node_params(update_params, proof_of_possession)
             .await?;
     } else {
-        tracing::info!("Node parameters are in sync with on-chain values");
+        tracing::info!(
+            node_name = config.name,
+            node_id = ?node_info.node_id,
+            "Node parameters are in sync with on-chain values"
+        );
     }
 
     Ok(())

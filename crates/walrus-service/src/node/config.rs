@@ -938,4 +938,114 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_generate_update_params() -> TestResult {
+        // Create a config with the new desired values
+        let new_voting_params = VotingParams {
+            storage_price: 150,
+            write_price: 250,
+            node_capacity: 2000,
+        };
+        let mut config = StorageNodeConfig {
+            name: "new-name".to_string(),
+            public_host: "192.168.1.1".to_string(),
+            public_port: 9090,
+            protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
+            network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
+            voting_params: new_voting_params,
+            ..Default::default()
+        };
+
+        // Test 1: No changes needed - current values match config
+        let current_addr = "192.168.1.1:9090";
+        let result = config.generate_update_params(
+            &config.name,
+            current_addr,
+            config.protocol_key_pair().public(),
+            config.network_key_pair().public(),
+            &config.voting_params,
+        );
+        assert!(
+            result.is_none(),
+            "Expected no updates when all values match"
+        );
+
+        // Test 2: All fields need updating - current values are all different
+        let old_protocol_keypair = ProtocolKeyPair::generate();
+        let old_network_keypair = NetworkKeyPair::generate();
+        let old_voting_params = VotingParams {
+            storage_price: 100,
+            write_price: 200,
+            node_capacity: 1000,
+        };
+        let old_name = "old-name".to_string();
+        let old_network_address = "127.0.0.1:8080";
+
+        let result = config.generate_update_params(
+            &old_name,
+            old_network_address,
+            old_protocol_keypair.public(),
+            old_network_keypair.public(),
+            &old_voting_params,
+        );
+
+        let expected_update_params = NodeUpdateParams {
+            name: Some(config.name.clone()),
+            network_address: Some(NetworkAddress(format!(
+                "{}:{}",
+                config.public_host, config.public_port
+            ))),
+            next_public_key: Some(config.protocol_key_pair().public().clone()),
+            network_public_key: Some(config.network_key_pair().public().clone()),
+            voting_params: Some(NodeVotingParams {
+                storage_price: Some(config.voting_params.storage_price),
+                write_price: Some(config.voting_params.write_price),
+                node_capacity: Some(config.voting_params.node_capacity),
+            }),
+        };
+        let update_params = result.expect("Expected update params when values differ");
+        assert_eq!(update_params, expected_update_params);
+
+        // Test 3: Only voting params need updating
+        let result = config.generate_update_params(
+            &config.name,
+            &format!("{}:{}", config.public_host, config.public_port),
+            config.protocol_key_pair().public(),
+            config.network_key_pair().public(),
+            &old_voting_params,
+        );
+
+        let expected_update_params = NodeUpdateParams {
+            name: None,
+            network_address: None,
+            next_public_key: None,
+            network_public_key: None,
+            voting_params: Some(NodeVotingParams {
+                storage_price: Some(config.voting_params.storage_price),
+                write_price: Some(config.voting_params.write_price),
+                node_capacity: Some(config.voting_params.node_capacity),
+            }),
+        };
+        let update_params = result.expect("Expected update params when voting params differ");
+        assert_eq!(update_params, expected_update_params);
+
+        // Test 4: Test hostname instead of IP
+        config.public_host = "example.com".to_string();
+        let result = config.generate_update_params(
+            &config.name,
+            "old-domain.com:8080",
+            config.protocol_key_pair().public(),
+            config.network_key_pair().public(),
+            &config.voting_params,
+        );
+
+        let update_params = result.expect("Expected update params when hostname differs");
+        assert_eq!(
+            update_params.network_address.map(|addr| addr.0),
+            Some(format!("{}:{}", config.public_host, config.public_port))
+        );
+
+        Ok(())
+    }
 }

@@ -944,7 +944,7 @@ mod tests {
         walrus_cluster.nodes[5]
             .storage_node_config
             .protocol_key_pair = protocol_key_pair.clone().into();
-        walrus_cluster.nodes[5].storage_node_config.voting_params = voting_params;
+        walrus_cluster.nodes[5].storage_node_config.voting_params = voting_params.clone();
         walrus_cluster.nodes[5].rest_api_address = new_address;
         walrus_cluster.nodes[5].network_public_key = network_key_pair.public().clone();
         walrus_cluster.nodes[5].public_key = protocol_key_pair.public().clone();
@@ -981,12 +981,48 @@ mod tests {
             .await
             .unwrap();
 
-        let node = committees
+        let _ = committees
             .current_committee()
             .find(&walrus_cluster.nodes[5].public_key)
             .expect("node should be in the committee");
 
-        assert_eq!(node.network_address, new_address.into());
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+        assert_eq!(
+            pool.node_info.network_address,
+            walrus_cluster.nodes[5]
+                .storage_node_config
+                .rest_api_address
+                .into()
+        );
+        assert_eq!(
+            &pool.node_info.public_key,
+            walrus_cluster.nodes[5]
+                .storage_node_config
+                .protocol_key_pair()
+                .public()
+        );
+        assert_eq!(
+            &pool.node_info.network_public_key,
+            walrus_cluster.nodes[5]
+                .storage_node_config
+                .network_key_pair()
+                .public()
+        );
+        assert_eq!(pool.voting_params, voting_params);
+        // assert_eq!(node.network_address, new_address.into());
 
         assert_eq!(
             get_nodes_health_info(&[&walrus_cluster.nodes[5]])
