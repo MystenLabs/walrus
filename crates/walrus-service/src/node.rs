@@ -487,6 +487,11 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     );
 
     if let Some(update_params) = update_params {
+        tracing::info!(
+            node_name = config.name,
+            node_id = ?node_info.node_id,
+            update_params = ?update_params
+        );
         let proof_of_possession = if update_params.next_public_key.is_some() {
             Some(walrus_sui::utils::generate_proof_of_possession(
                 config.protocol_key_pair(),
@@ -496,7 +501,6 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
         } else {
             None
         };
-        tracing::info!("Updating node parameters on-chain");
         contract_client
             .update_node_params(update_params, proof_of_possession)
             .await?;

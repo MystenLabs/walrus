@@ -731,6 +731,7 @@ impl StorageNodeHandleBuilder {
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
+            public_port: node_info.rest_api_address.port(),
             blocklist_path: self.blocklist_path,
             disable_event_blob_writer: self.disable_event_blob_writer,
             ..storage_node_config().inner
@@ -867,6 +868,7 @@ impl StorageNodeHandleBuilder {
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
+            public_port: node_info.rest_api_address.port(),
             event_processor_config: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer,

@@ -835,7 +835,7 @@ impl WalrusPtbBuilder {
             let args = vec![
                 self.staking_arg(Mutability::Mutable).await?,
                 self.argument_from_arg_or_obj(storage_node_cap).await?,
-                self.pt_builder.pure(next_public_key)?,
+                self.pt_builder.pure(next_public_key.as_bytes())?,
                 self.pt_builder
                     .pure(proof_of_possession.signature.as_bytes())?,
             ];
@@ -847,9 +847,18 @@ impl WalrusPtbBuilder {
             let args = vec![
                 self.staking_arg(Mutability::Mutable).await?,
                 self.argument_from_arg_or_obj(storage_node_cap).await?,
-                self.pt_builder.pure(network_public_key)?,
+                self.pt_builder.pure(network_public_key.as_bytes())?,
             ];
             self.walrus_move_call(contracts::staking::set_network_public_key, args)?;
+        }
+
+        if let Some(network_address) = params.network_address {
+            let args = vec![
+                self.staking_arg(Mutability::Mutable).await?,
+                self.argument_from_arg_or_obj(storage_node_cap).await?,
+                self.pt_builder.pure(network_address.to_string())?,
+            ];
+            self.walrus_move_call(contracts::staking::set_network_address, args)?;
         }
 
         // Update voting parameters if provided

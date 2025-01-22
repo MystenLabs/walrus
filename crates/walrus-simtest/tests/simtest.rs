@@ -23,7 +23,10 @@ mod tests {
         client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
         test_utils::{test_cluster, SimStorageNodeHandle},
     };
-    use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
+    use walrus_sui::{
+        client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+        types::{move_structs::VotingParams, NetworkAddress},
+    };
     use walrus_test_utils::WithTempDir;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
@@ -886,12 +889,14 @@ mod tests {
         let client_arc = Arc::new(client);
 
         let new_address = walrus_service::test_utils::unused_socket_address(true);
-        let original_address = format!(
-            "{}:{}",
-            walrus_cluster.nodes[5].storage_node_config.public_host,
-            walrus_cluster.nodes[5].storage_node_config.public_port
-        );
-        assert_ne!(new_address.to_string(), original_address);
+        let protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
+        let network_key_pair = walrus_core::keys::NetworkKeyPair::generate();
+        // Generate random voting params
+        let voting_params = VotingParams {
+            storage_price: rand::thread_rng().gen_range(1..1000),
+            write_price: rand::thread_rng().gen_range(1..100),
+            node_capacity: rand::thread_rng().gen_range(1_000_000..1_000_000_000),
+        };
 
         // Check that the registered node has the original network address.
         let pool = client_arc
@@ -915,11 +920,34 @@ mod tests {
                 .rest_api_address
                 .into()
         );
+        tracing::info!(
+            "pool.node_info.network_address: {:?}",
+            pool.node_info.network_address
+        );
+        tracing::info!("new_address: {:?}", new_address);
+        assert_ne!(
+            NetworkAddress::from(new_address),
+            pool.node_info.network_address
+        );
+        assert_ne!(pool.voting_params, voting_params);
+        assert_ne!(&pool.node_info.public_key, protocol_key_pair.public());
+        assert_ne!(
+            &pool.node_info.network_public_key,
+            network_key_pair.public()
+        );
 
         walrus_cluster.nodes[5].storage_node_config.public_port = new_address.port();
         walrus_cluster.nodes[5].storage_node_config.public_host = new_address.ip().to_string();
         walrus_cluster.nodes[5].storage_node_config.rest_api_address = new_address;
+        walrus_cluster.nodes[5].storage_node_config.network_key_pair =
+            network_key_pair.clone().into();
+        walrus_cluster.nodes[5]
+            .storage_node_config
+            .protocol_key_pair = protocol_key_pair.clone().into();
+        walrus_cluster.nodes[5].storage_node_config.voting_params = voting_params;
         walrus_cluster.nodes[5].rest_api_address = new_address;
+        walrus_cluster.nodes[5].network_public_key = network_key_pair.public().clone();
+        walrus_cluster.nodes[5].public_key = protocol_key_pair.public().clone();
 
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
@@ -968,115 +996,5 @@ mod tests {
                 .node_status,
             "Active"
         );
-        // assert_eq!(
-        //     node.network_address.get_host(),
-        //     &walrus_cluster.nodes[5].storage_node_config.public_host
-        // );
-        // assert_eq!(
-        //     node.network_address.try_get_port().unwrap(),
-        //     Some(walrus_cluster.nodes[5].storage_node_config.public_port)
-        // );
-
-        // tracing::info!("Wallet address: {}", client_arc.inner.read_client.wallet_address());
-
-        // client_arc
-        //     .as_ref()
-        //     .as_ref()
-        //     .set_network_address(format!(
-        //         "{}:{}",
-        //         walrus_cluster.nodes[5].storage_node_config.public_host, new_port
-        //     ))
-        //     .await
-        //     .expect("set network address should not fail");
-
-        // let committees = client_arc
-        //     .inner
-        //     .get_latest_committees_in_test()
-        //     .await
-        //     .unwrap();
-
-        // let node = committees
-        //     .current_committee()
-        //     .find(&walrus_cluster.nodes[5].public_key)
-        //     .expect("node should be in the committee");
-
-        // assert_eq!(
-        //     node.network_address.get_host(),
-        //     &walrus_cluster.nodes[5].storage_node_config.public_host
-        // );
-        // assert_eq!(
-        //     node.network_address.try_get_port().unwrap(),
-        //     Some(walrus_cluster.nodes[5].storage_node_config.public_port)
-        // );
-        // assert!(node_health_info[5].shard_detail.is_some());
-
-        // // Check that shards in the new node matches the shards in the committees.
-        // let shards_in_new_node = committees
-        //     .current_committee()
-        //     .shards_for_node_public_key(&walrus_cluster.nodes[5].public_key);
-        // let new_node_shards = node_health_info[5]
-        //     .shard_detail
-        //     .as_ref()
-        //     .unwrap()
-        //     .owned
-        //     .clone();
-        // assert_eq!(shards_in_new_node.len(), new_node_shards.len());
-        // for shard in new_node_shards {
-        //     assert!(shards_in_new_node.contains(&shard.shard));
-        // }
-
-        // for shard in &node_health_info[5].shard_detail.as_ref().unwrap().owned {
-        //     assert_eq!(shard.status, ShardStatus::Ready);
-
-        //     // These shards should not exist in any of the other nodes.
-        //     for i in 0..node_health_info.len() - 1 {
-        //         assert_eq!(
-        //             node_health_info[i]
-        //                 .shard_detail
-        //                 .as_ref()
-        //                 .unwrap()
-        //                 .owned
-        //                 .iter()
-        //                 .find(|s| s.shard == shard.shard),
-        //             None
-        //         );
-        //         let shard_i_status = node_health_info[i]
-        //             .shard_detail
-        //             .as_ref()
-        //             .unwrap()
-        //             .owned
-        //             .iter()
-        //             .find(|s| s.shard == shard.shard);
-        //         assert!(
-        //             shard_i_status.is_none()
-        //                 || shard_i_status.unwrap().status != ShardStatus::ReadOnly
-        //         );
-        //     }
-        // }
-
-        // assert_eq!(
-        //     get_nodes_health_info(&[&walrus_cluster.nodes[5]])
-        //         .await
-        //         .get(0)
-        //         .unwrap()
-        //         .node_status,
-        //     "Active"
-        // );
-
-        // workload_handle.abort();
-
-        // loop {
-        //     if let Some(_blob) = client_arc
-        //         .inner
-        //         .sui_client()
-        //         .read_client
-        //         .last_certified_event_blob()
-        //         .await
-        //         .unwrap()
-        //     {
-        //         break;
-        //     }
-        //     tokio::time::sleep(Duration::from_secs(1)).await;
-        // }
     }
 }

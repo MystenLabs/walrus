@@ -1218,6 +1218,7 @@ impl SuiContractClient {
                 node_parameters,
             )
             .await?;
+        tracing::info!("pt_builder: {:?}", pt_builder);
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(&wallet, ptb, None).await?;
         Ok(())
