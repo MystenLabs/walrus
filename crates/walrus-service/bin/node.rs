@@ -56,11 +56,8 @@ use walrus_sui::{client::SuiContractClient, types::move_structs::VotingParams, u
 const VERSION: &str = version!();
 
 /// Manage and run a Walrus storage node.
-#[derive(Parser)]
-#[clap(rename_all = "kebab-case")]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
-#[derive(Debug)]
+#[derive(Debug, Parser)]
+#[clap(rename_all = "kebab-case", name = env!("CARGO_BIN_NAME"), version = VERSION)]
 struct Args {
     #[command(subcommand)]
     command: Commands,
@@ -129,8 +126,8 @@ enum Commands {
     /// Hidden command for emergency use only.
     #[clap(hide = true)]
     RepairDb {
-        #[clap(long)]
         /// Path to the RocksDB database directory.
+        #[clap(long)]
         db_path: PathBuf,
     },
 }
@@ -177,11 +174,11 @@ impl KeyType {
 
 #[derive(Debug, Clone, clap::Args)]
 struct SetupArgs {
-    #[clap(long)]
     /// The path to the directory in which to set up wallet and node configuration.
-    config_directory: PathBuf,
     #[clap(long)]
+    config_directory: PathBuf,
     /// The path where the Walrus database will be stored.
+    #[clap(long)]
     storage_path: PathBuf,
     /// Sui network for which the config is generated.
     ///
@@ -194,6 +191,7 @@ struct SetupArgs {
     /// Timeout for the faucet call.
     #[clap(long, default_value = "1min", requires = "use_faucet")]
     faucet_timeout: Duration,
+    /// Additional arguments for the generated configuration.
     #[clap(flatten)]
     config_args: ConfigArgs,
     /// Overwrite existing files.
@@ -212,62 +210,66 @@ struct SetupArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct ConfigArgs {
-    #[clap(long)]
     /// Object ID of the Walrus system object. If not provided, a dummy value is used and the
     /// system object needs to be manually added to the configuration file at a later time.
-    system_object: Option<ObjectID>,
     #[clap(long)]
+    system_object: Option<ObjectID>,
     /// Object ID of the Walrus staking object. If not provided, a dummy value is used and the
     /// staking object needs to be manually added to the configuration file at a later time.
-    staking_object: Option<ObjectID>,
     #[clap(long)]
+    staking_object: Option<ObjectID>,
     /// Initial storage capacity of this node in bytes.
     ///
     /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
     /// kilobytes (K), etc.; or have suffixes for the IEC units such as kibibytes (Ki),
     /// mebibytes (Mi), etc.
-    node_capacity: ByteCount,
     #[clap(long)]
+    node_capacity: ByteCount,
     /// The host name or public IP address of the node.
+    #[clap(long)]
     public_host: String,
     /// The name of the storage node used in the registration.
     #[clap(long)]
     name: String,
+
     // ***************************
     //   Optional fields below
     // ***************************
-    #[clap(long)]
     /// HTTP URL of the Sui full-node RPC endpoint (including scheme and port) to use for event
     /// processing.
     ///
     /// If not provided, the RPC node from the wallet's active environment will be used.
+    #[clap(long)]
     sui_rpc: Option<String>,
-    #[clap(long, action)]
     /// Use the legacy event provider instead of the standard checkpoint-based event processor.
-    use_legacy_event_provider: bool,
     #[clap(long, action)]
+    use_legacy_event_provider: bool,
     /// Disable event blob writer
+    #[clap(long, action)]
     disable_event_blob_writer: bool,
-    #[clap(long, default_value_t = REST_API_PORT)]
     /// The port on which the storage node will serve requests.
+    #[clap(long, default_value_t = REST_API_PORT)]
     public_port: u16,
-    #[clap(long, default_value_t = config::defaults::rest_api_address())]
     /// Socket address on which the REST API listens.
+    #[clap(long, default_value_t = config::defaults::rest_api_address())]
     rest_api_address: SocketAddr,
-    #[clap(long, default_value_t = config::defaults::metrics_address())]
     /// Socket address on which the Prometheus server should export its metrics.
+    #[clap(long, default_value_t = config::defaults::metrics_address())]
     metrics_address: SocketAddr,
-    #[clap(long, default_value_t = config::defaults::gas_budget())]
+    /// URL of the Walrus proxy to push metrics to.
+    #[clap(long)]
+    metrics_push_url: Option<String>,
     /// Gas budget for transactions.
+    #[clap(long, default_value_t = config::defaults::gas_budget())]
     gas_budget: u64,
-    #[clap(long, default_value_t = config::defaults::storage_price())]
     /// Initial vote for the storage price in FROST per MiB per epoch.
+    #[clap(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
-    #[clap(long, default_value_t = config::defaults::write_price())]
     /// Initial vote for the write price in FROST per MiB.
+    #[clap(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
-    #[clap(long, default_value_t = 0)]
     /// The commission rate of the storage node, in basis points.
+    #[clap(long, default_value_t = 0)]
     commission_rate: u16,
     /// The image URL of the storage node.
     #[clap(long, default_value = "")]
@@ -282,21 +284,21 @@ struct ConfigArgs {
 
 #[derive(Debug, Clone, clap::Args)]
 struct PathArgs {
-    #[clap(long)]
     /// The output path for the generated configuration file. If the file already exists, it is
     /// not overwritten and the operation will fail unless the `--force` option is provided.
+    #[clap(long)]
     config_path: PathBuf,
-    #[clap(long)]
     /// The path where the Walrus database will be stored.
+    #[clap(long)]
     storage_path: PathBuf,
-    #[clap(long)]
     /// The path to the key pair used in Walrus protocol messages.
+    #[clap(long)]
     protocol_key_path: PathBuf,
-    #[clap(long)]
     /// The path to the key pair used to authenticate nodes in network communication.
-    network_key_path: PathBuf,
     #[clap(long)]
+    network_key_path: PathBuf,
     /// Location of the node's wallet config.
+    #[clap(long)]
     wallet_config: PathBuf,
 }
 
@@ -347,7 +349,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use config::NodeRegistrationParamsForThirdPartyRegistration;
+    use config::{MetricsPushConfig, NodeRegistrationParamsForThirdPartyRegistration};
     use rocksdb::{Options, DB};
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
@@ -438,7 +440,7 @@ mod commands {
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
         let metrics_push_runtime = match config.metrics_push.take() {
             Some(mut mc) => {
-                mc.set_name(&config.name);
+                mc.set_name_and_host_label(&config.name);
                 let network_key_pair = network_key_pair.0.clone();
                 let mp_config = EnableMetricsPush {
                     cancel: cancel_token.child_token(),
@@ -606,6 +608,7 @@ mod commands {
             public_port,
             rest_api_address,
             metrics_address,
+            metrics_push_url,
             gas_budget,
             storage_price,
             write_price,
@@ -657,6 +660,7 @@ mod commands {
         });
         let contract_config = ContractConfig::new(system_object, staking_object);
         let metadata = NodeMetadata::new(image_url, project_url, description);
+        let metrics_push = metrics_push_url.map(MetricsPushConfig::new_for_url);
 
         let config = StorageNodeConfig {
             storage_path,
@@ -684,6 +688,7 @@ mod commands {
             disable_event_blob_writer,
             name,
             metadata,
+            metrics_push,
             ..Default::default()
         };
 

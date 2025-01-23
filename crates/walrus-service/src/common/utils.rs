@@ -349,7 +349,7 @@ impl MetricPushRuntime {
             .worker_threads(1)
             .enable_all()
             .build()
-            .context("meteric push runtime creation failed")?;
+            .context("metric push runtime creation failed")?;
         let _guard = runtime.enter();
 
         let metric_push_handle = tokio::spawn(async move {
