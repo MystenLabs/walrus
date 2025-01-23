@@ -83,6 +83,7 @@ skip-tree = [
   { name = "sui", depth = 6 },
   { name = "test-cluster", depth = 6 },
   { name = "typed-store", depth = 6 },
+  { name = "axum", depth = 4 },
   # several crates depend on an older version of windows-sys
   { name = "windows-sys", depth = 3, version = "0.48" },
 ]
