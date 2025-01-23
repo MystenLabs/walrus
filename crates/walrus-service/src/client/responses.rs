@@ -753,7 +753,8 @@ impl ServiceHealthInfoOutput {
                 Ok(Self { health_info })
             }
             _ => Err(anyhow::anyhow!(
-                "exactly one of `node_id`, `node_url`, or `all` must be specified"
+                "exactly one of `node_id`, `node_url`, \
+                `committee`, or `active_set` must be specified"
             )),
         }
     }

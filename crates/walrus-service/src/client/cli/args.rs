@@ -266,7 +266,7 @@ pub enum CliCommands {
         command: Option<InfoCommands>,
     },
     /// Print health information for the storage node.
-    /// Only one of `--node_id`, `--node_url`, or `--all` can be specified.
+    /// Only one of `--node_id`, `--node_url`, `--committee`, or `--active_set` can be specified.
     Health {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]

@@ -850,13 +850,13 @@ impl CliOutput for ServiceHealthInfoOutput {
             for (status, count) in &node_statuses {
                 println!("{}: {}", status, count);
             }
+        }
 
-            // Print error nodes summary if there are any errors
-            if !error_nodes.is_empty() {
-                println!("\n{}\n", "Nodes with Errors".bold().walrus_purple());
-                for node in error_nodes {
-                    node.print_cli_output();
-                }
+        // Print error nodes summary if there are any errors
+        if !error_nodes.is_empty() {
+            println!("\n{}\n", "Nodes with Errors".bold().walrus_purple());
+            for node in error_nodes {
+                node.print_cli_output();
             }
         }
     }
