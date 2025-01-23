@@ -119,7 +119,8 @@ if ! $existing; then
       --host-addresses "${ips[@]}" \
       --storage-price 5 \
       --write-price 1 \
-      --epoch-duration "$epoch_duration"
+      --epoch-duration "$epoch_duration" \
+      --with-wal-exchange
 
     # Generate configs
     echo Generating configuration...

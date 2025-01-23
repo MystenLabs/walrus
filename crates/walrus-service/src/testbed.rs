@@ -107,7 +107,7 @@ pub struct TestbedConfig {
     /// The objects used in the system contract.
     pub system_ctx: SystemContext,
     /// The object ID of the shared WAL exchange.
-    pub exchange_object: ObjectID,
+    pub exchange_object: Option<ObjectID>,
 }
 
 impl LoadConfig for TestbedConfig {}
@@ -243,6 +243,8 @@ pub struct DeployTestbedContractParameters<'a> {
     /// The path to the admin wallet. If not provided, a new wallet is created and SUI will be
     /// requested from the faucet.
     pub admin_wallet_path: Option<PathBuf>,
+    /// Flag to create a WAL exchange.
+    pub with_wal_exchange: bool,
 }
 
 /// Create and deploy a Walrus contract.
@@ -264,6 +266,7 @@ pub async fn deploy_walrus_contract(
         max_epochs_ahead,
         admin_wallet_path,
         do_not_copy_contracts,
+        with_wal_exchange,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
@@ -349,6 +352,7 @@ pub async fn deploy_walrus_contract(
         },
         gas_budget,
         deploy_directory,
+        with_wal_exchange,
     )
     .await?;
 
@@ -365,19 +369,25 @@ pub async fn deploy_walrus_contract(
 
     let contract_config = system_ctx.contract_config();
 
-    // Create WAL exchange.
-    let contract_client = SuiContractClient::new(
-        admin_wallet,
-        &contract_config,
-        ExponentialBackoffConfig::default(),
-        gas_budget,
-    )
-    .await?;
-
-    // TODO(WAL-520): create multiple exchange objects
-    let exchange_object = contract_client
-        .create_and_fund_exchange(system_ctx.wal_exchange_pkg_id, WAL_AMOUNT_EXCHANGE)
+    let exchange_object = if let Some(wal_exchange_pkg_id) = system_ctx.wal_exchange_pkg_id {
+        // Create WAL exchange.
+        let contract_client = SuiContractClient::new(
+            admin_wallet,
+            &contract_config,
+            ExponentialBackoffConfig::default(),
+            gas_budget,
+        )
         .await?;
+
+        // TODO(WAL-520): create multiple exchange objects
+        Some(
+            contract_client
+                .create_and_fund_exchange(wal_exchange_pkg_id, WAL_AMOUNT_EXCHANGE)
+                .await?,
+        )
+    } else {
+        None
+    };
 
     println!(
         "Walrus contract created:\n\
@@ -389,6 +399,8 @@ pub async fn deploy_walrus_contract(
         system_ctx.system_object,
         system_ctx.staking_object,
         exchange_object
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "None".to_string())
     );
     Ok(TestbedConfig {
         sui_network,
@@ -405,7 +417,7 @@ pub async fn create_client_config(
     sui_network: SuiNetwork,
     set_config_dir: Option<&Path>,
     admin_wallet: &mut WalletContext,
-    exchange_object: ObjectID,
+    exchange_objects: Vec<ObjectID>,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -451,7 +463,7 @@ pub async fn create_client_config(
     // Create the client config.
     let client_config = client::Config {
         contract_config,
-        exchange_objects: vec![exchange_object],
+        exchange_objects,
         wallet_config: Some(wallet_path),
         communication_config: ClientCommunicationConfig::default(),
     };

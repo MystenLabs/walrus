@@ -459,7 +459,12 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
         initialize_contract_and_wallet().await?;
     let exchange_id = walrus_client
         .as_ref()
-        .create_and_fund_exchange(system_context.wal_exchange_pkg_id, 1_000_000)
+        .create_and_fund_exchange(
+            system_context
+                .wal_exchange_pkg_id
+                .expect("wal_exchange should exist for tests"),
+            1_000_000,
+        )
         .await?;
 
     let exchange_val = 100_000;

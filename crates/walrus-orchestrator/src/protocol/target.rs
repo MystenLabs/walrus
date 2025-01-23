@@ -168,6 +168,7 @@ impl ProtocolCommands for TargetProtocol {
             max_epochs_ahead: 104,
             admin_wallet_path: None,
             do_not_copy_contracts: false,
+            with_wal_exchange: true,
         })
         .await
         .expect("Failed to create Walrus contract");
