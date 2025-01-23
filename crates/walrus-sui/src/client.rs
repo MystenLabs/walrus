@@ -1194,7 +1194,6 @@ impl SuiContractClient {
     pub async fn update_node_params(
         &self,
         node_parameters: NodeUpdateParams,
-        proof_of_possession: Option<ProofOfPossession>,
     ) -> SuiClientResult<()> {
         let node_capability = self
             .read_client
@@ -1213,11 +1212,7 @@ impl SuiContractClient {
 
         let mut pt_builder = self.transaction_builder();
         pt_builder
-            .update_node_params(
-                node_capability.id.into(),
-                proof_of_possession,
-                node_parameters,
-            )
+            .update_node_params(node_capability.id.into(), node_parameters)
             .await?;
         tracing::info!("pt_builder: {:?}", pt_builder);
         let (ptb, _sui_cost) = pt_builder.finish().await?;

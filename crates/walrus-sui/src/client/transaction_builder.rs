@@ -25,6 +25,7 @@ use walrus_core::{
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     Epoch,
     EpochCount,
+    NetworkPublicKey,
 };
 
 use super::{
@@ -41,10 +42,12 @@ use crate::{
     contracts::{self, FunctionTag},
     types::{
         move_structs::{Authorized, WalExchange},
+        NetworkAddress,
         NodeMetadata,
         NodeRegistrationParams,
         NodeUpdateParams,
         SystemObject,
+        UpdatePublicKeyParams,
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };
@@ -812,89 +815,149 @@ impl WalrusPtbBuilder {
     pub async fn update_node_params(
         &mut self,
         storage_node_cap: ArgumentOrOwnedObject,
-        proof_of_possession: Option<ProofOfPossession>,
         params: NodeUpdateParams,
     ) -> SuiClientResult<()> {
-        // Update name if provided
         if let Some(name) = params.name {
-            let args = vec![
-                self.staking_arg(Mutability::Mutable).await?,
-                self.argument_from_arg_or_obj(storage_node_cap).await?,
-                self.pt_builder.pure(name)?,
-            ];
-            self.walrus_move_call(contracts::staking::set_name, args)?;
+            self.update_node_name(&storage_node_cap, name).await?;
         }
 
-        // Update next public key if provided
-        if let Some(next_public_key) = params.next_public_key {
-            let Some(proof_of_possession) = proof_of_possession else {
-                return Err(
-                    anyhow::anyhow!("proof of possession required to set next public key").into(),
-                );
-            };
-            let args = vec![
-                self.staking_arg(Mutability::Mutable).await?,
-                self.argument_from_arg_or_obj(storage_node_cap).await?,
-                self.pt_builder.pure(next_public_key.as_bytes())?,
-                self.pt_builder
-                    .pure(proof_of_possession.signature.as_bytes())?,
-            ];
-            self.walrus_move_call(contracts::staking::set_next_public_key, args)?;
+        if let Some(next_public_key_params) = params.next_public_key_params {
+            self.update_next_public_key(&storage_node_cap, next_public_key_params)
+                .await?;
         }
 
-        // Update network public key if provided
         if let Some(network_public_key) = params.network_public_key {
-            let args = vec![
-                self.staking_arg(Mutability::Mutable).await?,
-                self.argument_from_arg_or_obj(storage_node_cap).await?,
-                self.pt_builder.pure(network_public_key.as_bytes())?,
-            ];
-            self.walrus_move_call(contracts::staking::set_network_public_key, args)?;
+            self.update_network_public_key(&storage_node_cap, network_public_key)
+                .await?;
         }
 
-        // Update network address if provided
         if let Some(network_address) = params.network_address {
-            let args = vec![
-                self.staking_arg(Mutability::Mutable).await?,
-                self.argument_from_arg_or_obj(storage_node_cap).await?,
-                self.pt_builder.pure(network_address.to_string())?,
-            ];
-            self.walrus_move_call(contracts::staking::set_network_address, args)?;
+            self.update_network_address(&storage_node_cap, network_address)
+                .await?;
         }
 
-        // Update voting parameters if provided
-        if let Some(voting_params) = params.voting_params {
-            // Update storage price if provided
-            if let Some(storage_price) = voting_params.storage_price {
-                let args = vec![
-                    self.staking_arg(Mutability::Mutable).await?,
-                    self.argument_from_arg_or_obj(storage_node_cap).await?,
-                    self.pt_builder.pure(storage_price)?,
-                ];
-                self.walrus_move_call(contracts::staking::set_storage_price_vote, args)?;
-            }
-
-            // Update write price if provided
-            if let Some(write_price) = voting_params.write_price {
-                let args = vec![
-                    self.staking_arg(Mutability::Mutable).await?,
-                    self.argument_from_arg_or_obj(storage_node_cap).await?,
-                    self.pt_builder.pure(write_price)?,
-                ];
-                self.walrus_move_call(contracts::staking::set_write_price_vote, args)?;
-            }
-
-            // Update node capacity if provided
-            if let Some(node_capacity) = voting_params.node_capacity {
-                let args = vec![
-                    self.staking_arg(Mutability::Mutable).await?,
-                    self.argument_from_arg_or_obj(storage_node_cap).await?,
-                    self.pt_builder.pure(node_capacity)?,
-                ];
-                self.walrus_move_call(contracts::staking::set_node_capacity_vote, args)?;
-            }
+        if let Some(storage_price) = params.storage_price {
+            self.update_storage_price(&storage_node_cap, storage_price)
+                .await?;
         }
 
+        if let Some(write_price) = params.write_price {
+            self.update_write_price(&storage_node_cap, write_price)
+                .await?;
+        }
+
+        if let Some(node_capacity) = params.node_capacity {
+            self.update_node_capacity(&storage_node_cap, node_capacity)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Updates the node name.
+    pub async fn update_node_name(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        name: String,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(name)?,
+        ];
+        self.walrus_move_call(contracts::staking::set_name, args)?;
+        Ok(())
+    }
+
+    /// Updates the next public key of the node.
+    pub async fn update_next_public_key(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        params: UpdatePublicKeyParams,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(params.next_public_key.as_bytes())?,
+            self.pt_builder
+                .pure(params.proof_of_possession.signature.as_bytes())?,
+        ];
+        self.walrus_move_call(contracts::staking::set_next_public_key, args)?;
+        Ok(())
+    }
+
+    /// Updates the network public key of the node.
+    pub async fn update_network_public_key(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        network_public_key: NetworkPublicKey,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(network_public_key.as_bytes())?,
+        ];
+        self.walrus_move_call(contracts::staking::set_network_public_key, args)?;
+        Ok(())
+    }
+
+    /// Updates the network address of the node.
+    pub async fn update_network_address(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        network_address: NetworkAddress,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(network_address.to_string())?,
+        ];
+        self.walrus_move_call(contracts::staking::set_network_address, args)?;
+        Ok(())
+    }
+
+    /// Updates the storage price of the node.
+    pub async fn update_storage_price(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        storage_price: u64,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(storage_price)?,
+        ];
+        self.walrus_move_call(contracts::staking::set_storage_price_vote, args)?;
+        Ok(())
+    }
+
+    /// Updates the write price of the node.
+    pub async fn update_write_price(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        write_price: u64,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(write_price)?,
+        ];
+        self.walrus_move_call(contracts::staking::set_write_price_vote, args)?;
+        Ok(())
+    }
+
+    /// Updates the node capacity of the node.
+    pub async fn update_node_capacity(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        node_capacity: u64,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(node_capacity)?,
+        ];
+        self.walrus_move_call(contracts::staking::set_node_capacity_vote, args)?;
         Ok(())
     }
 

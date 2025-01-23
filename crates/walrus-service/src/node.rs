@@ -75,7 +75,7 @@ use walrus_sdk::api::{
     StoredOnNodeStatus,
 };
 use walrus_sui::{
-    client::{ReadClient, SuiClientError, SuiReadClient},
+    client::{SuiClientError, SuiReadClient},
     types::{
         BlobCertified,
         BlobDeleted,
@@ -488,34 +488,18 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     let update_params = config.generate_update_params(
         node_info.name.as_str(),
         node_info.network_address.0.as_str(),
-        &node_info.public_key,
         &node_info.network_public_key,
         &pool.voting_params,
     );
 
-    if let Some(update_params) = update_params {
+    if update_params.needs_update() {
         tracing::info!(
             node_name = config.name,
             node_id = ?node_info.node_id,
             update_params = ?update_params,
             "Update Node Params"
         );
-        // TODO: support updating public key.
-        if update_params.next_public_key.is_some() {
-            return Err(anyhow::anyhow!("not supported"));
-        }
-        let proof_of_possession = if update_params.next_public_key.is_some() {
-            Some(walrus_sui::utils::generate_proof_of_possession(
-                config.protocol_key_pair(),
-                &contract_client,
-                contract_client.read_client.current_epoch().await?,
-            ))
-        } else {
-            None
-        };
-        contract_client
-            .update_node_params(update_params, proof_of_possession)
-            .await?;
+        contract_client.update_node_params(update_params).await?;
     } else {
         tracing::info!(
             node_name = config.name,

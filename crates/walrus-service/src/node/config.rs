@@ -30,7 +30,6 @@ use walrus_core::{
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
     messages::ProofOfPossession,
     NetworkPublicKey,
-    PublicKey,
 };
 use walrus_sui::{
     client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
@@ -40,7 +39,6 @@ use walrus_sui::{
         NodeMetadata,
         NodeRegistrationParams,
         NodeUpdateParams,
-        NodeVotingParams,
     },
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -223,12 +221,10 @@ impl StorageNodeConfig {
         &self,
         name: &str,
         network_address: &str,
-        public_key: &PublicKey,
         network_public_key: &NetworkPublicKey,
         voting_params: &VotingParams,
-    ) -> Option<NodeUpdateParams> {
+    ) -> NodeUpdateParams {
         let network_key_pair = self.network_key_pair();
-        let protocol_key_pair = self.protocol_key_pair();
         let public_port = self.public_port;
         let public_address = if let Ok(ip_addr) = IpAddr::from_str(&self.public_host) {
             NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
@@ -236,53 +232,34 @@ impl StorageNodeConfig {
             NetworkAddress(format!("{}:{}", self.public_host, public_port))
         };
 
-        let name_update = (name != self.name).then_some(self.name.clone());
+        let mut params = NodeUpdateParams::default();
 
-        let network_address_update =
-            (network_address != public_address.0).then_some(public_address);
-
-        let network_key_update = (network_public_key != network_key_pair.public())
-            .then_some(network_key_pair.public().clone());
-
-        let public_key_update = (public_key != protocol_key_pair.public())
-            .then_some(protocol_key_pair.public().clone());
-
-        let storage_price_update = (voting_params.storage_price
-            != self.voting_params.storage_price)
-            .then_some(self.voting_params.storage_price);
-        let write_price_update = (voting_params.write_price != self.voting_params.write_price)
-            .then_some(self.voting_params.write_price);
-        let node_capacity_update = (voting_params.node_capacity
-            != self.voting_params.node_capacity)
-            .then_some(self.voting_params.node_capacity);
-
-        let voting_params_update = (storage_price_update.is_some()
-            || write_price_update.is_some()
-            || node_capacity_update.is_some())
-        .then_some(NodeVotingParams {
-            storage_price: storage_price_update,
-            write_price: write_price_update,
-            node_capacity: node_capacity_update,
-        });
-
-        // If all fields are None (no updates needed), return None
-        if name_update.is_none()
-            && network_address_update.is_none()
-            && network_key_update.is_none()
-            && public_key_update.is_none()
-            && voting_params_update.is_none()
-        {
-            return None;
+        // Set each parameter that needs updating
+        if name != self.name {
+            params.name = Some(self.name.clone());
         }
 
-        // Otherwise return the update params
-        Some(NodeUpdateParams {
-            name: name_update,
-            network_address: network_address_update,
-            network_public_key: network_key_update,
-            next_public_key: public_key_update,
-            voting_params: voting_params_update,
-        })
+        if network_address != public_address.0 {
+            params.network_address = Some(public_address);
+        }
+
+        if network_public_key != network_key_pair.public() {
+            params.network_public_key = Some(network_key_pair.public().clone());
+        }
+
+        if voting_params.storage_price != self.voting_params.storage_price {
+            params.storage_price = Some(self.voting_params.storage_price);
+        }
+
+        if voting_params.write_price != self.voting_params.write_price {
+            params.write_price = Some(self.voting_params.write_price);
+        }
+
+        if voting_params.node_capacity != self.voting_params.node_capacity {
+            params.node_capacity = Some(self.voting_params.node_capacity);
+        }
+
+        params
     }
 }
 
@@ -741,6 +718,8 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
 
 impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
 
+impl StorageNodeConfig {}
+
 #[cfg(test)]
 mod tests {
     use std::{io::Write as _, str::FromStr};
@@ -952,7 +931,6 @@ mod tests {
             name: "new-name".to_string(),
             public_host: "192.168.1.1".to_string(),
             public_port: 9090,
-            protocol_key_pair: PathOrInPlace::InPlace(ProtocolKeyPair::generate()),
             network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
             voting_params: new_voting_params,
             ..Default::default()
@@ -963,17 +941,15 @@ mod tests {
         let result = config.generate_update_params(
             &config.name,
             current_addr,
-            config.protocol_key_pair().public(),
             config.network_key_pair().public(),
             &config.voting_params,
         );
         assert!(
-            result.is_none(),
+            !result.needs_update(),
             "Expected no updates when all values match"
         );
 
         // Test 2: All fields need updating - current values are all different
-        let old_protocol_keypair = ProtocolKeyPair::generate();
         let old_network_keypair = NetworkKeyPair::generate();
         let old_voting_params = VotingParams {
             storage_price: 100,
@@ -986,7 +962,6 @@ mod tests {
         let result = config.generate_update_params(
             &old_name,
             old_network_address,
-            old_protocol_keypair.public(),
             old_network_keypair.public(),
             &old_voting_params,
         );
@@ -997,22 +972,18 @@ mod tests {
                 "{}:{}",
                 config.public_host, config.public_port
             ))),
-            next_public_key: Some(config.protocol_key_pair().public().clone()),
             network_public_key: Some(config.network_key_pair().public().clone()),
-            voting_params: Some(NodeVotingParams {
-                storage_price: Some(config.voting_params.storage_price),
-                write_price: Some(config.voting_params.write_price),
-                node_capacity: Some(config.voting_params.node_capacity),
-            }),
+            next_public_key_params: None,
+            storage_price: Some(config.voting_params.storage_price),
+            write_price: Some(config.voting_params.write_price),
+            node_capacity: Some(config.voting_params.node_capacity),
         };
-        let update_params = result.expect("Expected update params when values differ");
-        assert_eq!(update_params, expected_update_params);
+        assert_eq!(result, expected_update_params);
 
         // Test 3: Only voting params need updating
         let result = config.generate_update_params(
             &config.name,
             &format!("{}:{}", config.public_host, config.public_port),
-            config.protocol_key_pair().public(),
             config.network_key_pair().public(),
             &old_voting_params,
         );
@@ -1020,30 +991,25 @@ mod tests {
         let expected_update_params = NodeUpdateParams {
             name: None,
             network_address: None,
-            next_public_key: None,
             network_public_key: None,
-            voting_params: Some(NodeVotingParams {
-                storage_price: Some(config.voting_params.storage_price),
-                write_price: Some(config.voting_params.write_price),
-                node_capacity: Some(config.voting_params.node_capacity),
-            }),
+            next_public_key_params: None,
+            storage_price: Some(config.voting_params.storage_price),
+            write_price: Some(config.voting_params.write_price),
+            node_capacity: Some(config.voting_params.node_capacity),
         };
-        let update_params = result.expect("Expected update params when voting params differ");
-        assert_eq!(update_params, expected_update_params);
+        assert_eq!(result, expected_update_params);
 
         // Test 4: Test hostname instead of IP
         config.public_host = "example.com".to_string();
         let result = config.generate_update_params(
             &config.name,
             "old-domain.com:8080",
-            config.protocol_key_pair().public(),
             config.network_key_pair().public(),
             &config.voting_params,
         );
 
-        let update_params = result.expect("Expected update params when hostname differs");
         assert_eq!(
-            update_params.network_address.map(|addr| addr.0),
+            result.network_address.map(|addr| addr.0),
             Some(format!("{}:{}", config.public_host, config.public_port))
         );
 
