@@ -137,6 +137,10 @@ impl CertifiedEventBlobMetadata {
 pub struct EventBlobWriterMetrics {
     /// The latest event certified in an event blob.
     pub latest_certified_event_index: IntGauge,
+    /// The latest event processed in an event blob.
+    pub latest_processed_event_index: IntGauge,
+    /// The latest event in process in an event blob.
+    pub latest_in_progress_event_index: IntGauge,
 }
 
 impl EventBlobWriterMetrics {
@@ -146,6 +150,18 @@ impl EventBlobWriterMetrics {
             latest_certified_event_index: register_int_gauge_with_registry!(
                 "event_blob_writer_latest_certified_event_index",
                 "Latest certified event blob writer index",
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            latest_processed_event_index: register_int_gauge_with_registry!(
+                "event_blob_writer_latest_processed_event_index",
+                "Latest processed event blob writer index",
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            latest_in_progress_event_index: register_int_gauge_with_registry!(
+                "event_blob_writer_latest_in_progress_event_index",
+                "Latest in progress event blob writer index",
                 registry,
             )
             .expect("this is a valid metrics registration"),
@@ -728,7 +744,11 @@ impl EventBlobWriter {
         metadata: &VerifiedBlobMetadataWithId,
         checkpoint_sequence_number: CheckpointSequenceNumber,
     ) -> Result<()> {
-        tracing::debug!("attesting event blob in epoch: {}", self.current_epoch);
+        tracing::debug!(
+            "attesting event blob: {} in epoch: {}",
+            metadata.blob_id(),
+            self.current_epoch
+        );
         match self
             .node
             .contract_service
@@ -740,11 +760,15 @@ impl EventBlobWriter {
             .await
         {
             Ok(_) => {
-                tracing::info!("attested event blob with id: {:?}", metadata.blob_id());
+                tracing::info!("attested event blob with id: {}", metadata.blob_id());
                 Ok(())
             }
             Err(e) => {
-                tracing::info!("failed to attest event blob: {:?}", e);
+                tracing::error!(
+                    error = ?e,
+                    blob_id = ?metadata.blob_id(),
+                    "failed to attest event blob"
+                );
                 Ok(())
             }
         }
@@ -795,6 +819,9 @@ impl EventBlobWriter {
             element_index == self.event_cursor.element_index,
             "Invalid event index"
         );
+        self.metrics
+            .latest_in_progress_event_index
+            .set(element_index as i64);
         self.event_cursor = EventStreamCursor::new(element.element.event_id(), element_index + 1);
         self.update_sequence_range(&element);
         self.write_event_to_buffer(element.clone(), element_index)?;
@@ -811,6 +838,9 @@ impl EventBlobWriter {
         batch.write()?;
 
         self.attest_next_blob().await?;
+        self.metrics
+            .latest_processed_event_index
+            .set(element_index as i64);
 
         Ok(())
     }

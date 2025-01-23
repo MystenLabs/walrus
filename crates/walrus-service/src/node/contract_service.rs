@@ -221,6 +221,7 @@ impl SystemContractService for SuiSystemContractService {
         );
         backoff::retry(backoff, || {
             let blob_metadata = blob_metadata.clone();
+            let blob_id = blob_metadata.blob_id;
             async move {
                 match self
                     .contract_client
@@ -231,19 +232,22 @@ impl SystemContractService for SuiSystemContractService {
                 {
                     Ok(()) => Some(()),
                     Err(SuiClientError::StorageNodeCapabilityObjectNotSet) => {
-                        tracing::debug!("Storage node capability object not set");
+                        tracing::debug!(blob_id = ?blob_id,
+                            "Storage node capability object not set");
                         Some(())
                     }
                     Err(SuiClientError::TransactionExecutionError(e)) => {
                         tracing::debug!(
                             walrus.epoch = epoch,
                             error = ?e,
-                            "repeatedly submitted certify_event_blob"
+                            blob_id = ?blob_id,
+                            "Transaction execution error while attesting event blob"
                         );
                         Some(())
                     }
                     Err(error) => {
-                        tracing::warn!(?error, "submitting certify event blob to contract failed");
+                        tracing::warn!(?error, blob_id = ?blob_id,
+                            "Submitting certify event blob to contract failed, retrying");
                         None
                     }
                 }
