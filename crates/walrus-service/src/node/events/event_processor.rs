@@ -93,7 +93,7 @@ const WALRUS_PACKAGE_STORE: &str = "walrus_package_store";
 /// The name of the committee store.
 const COMMITTEE_STORE: &str = "committee_store";
 /// The name of the event store.
-const EVENT_STORE: &str = "event_store";
+pub(crate) const EVENT_STORE: &str = "event_store";
 /// Event blob state to consider before the first event is processed.
 const INIT_STATE: &str = "init_state";
 /// Max events per stream poll

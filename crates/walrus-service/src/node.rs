@@ -139,6 +139,7 @@ use crate::{
 pub mod committee;
 pub mod config;
 pub mod contract_service;
+pub mod dbtool_commands;
 pub mod events;
 pub mod server;
 pub mod system_events;

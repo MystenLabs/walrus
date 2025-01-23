@@ -28,6 +28,10 @@ use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{database_config::DatabaseTableOptions, DatabaseConfig};
 
+pub(crate) const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "aggregate_blob_info";
+pub(crate) const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
+const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
+
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
@@ -36,26 +40,22 @@ pub(super) struct BlobInfoTable {
 }
 
 impl BlobInfoTable {
-    const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "aggregate_blob_info";
-    const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &'static str = "per_object_blob_info";
-    const EVENT_INDEX_COLUMN_FAMILY_NAME: &'static str = "latest_handled_event_index";
-
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
-            Some(Self::AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME),
+            Some(AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME),
             &ReadWriteOptions::default(),
             false,
         )?;
         let per_object_blob_info = DBMap::reopen(
             database,
-            Some(Self::PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME),
+            Some(PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME),
             &ReadWriteOptions::default(),
             false,
         )?;
         let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
             database,
-            Some(Self::EVENT_INDEX_COLUMN_FAMILY_NAME),
+            Some(EVENT_INDEX_COLUMN_FAMILY_NAME),
             &ReadWriteOptions::default(),
             false,
         )?));
@@ -86,16 +86,13 @@ impl BlobInfoTable {
         };
 
         vec![
+            (AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME, blob_info_options),
             (
-                Self::AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME,
-                blob_info_options,
-            ),
-            (
-                Self::PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME,
+                PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME,
                 per_object_blob_info_options,
             ),
             (
-                Self::EVENT_INDEX_COLUMN_FAMILY_NAME,
+                EVENT_INDEX_COLUMN_FAMILY_NAME,
                 // Doesn't make sense to have special options for the table containing a single
                 // value.
                 DatabaseTableOptions::default().to_options(),
@@ -1422,7 +1419,7 @@ where
     skip(existing_val, operands),
     fields(existing_val = existing_val.is_some())
 )]
-pub(super) fn merge_mergeable<T: Mergeable>(
+pub(crate) fn merge_mergeable<T: Mergeable>(
     key: &[u8],
     existing_val: Option<&[u8]>,
     operands: &MergeOperands,

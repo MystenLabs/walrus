@@ -11692,6 +11692,7 @@ dependencies = [
  "axum-extra",
  "axum-server 0.7.1",
  "bcs",
+ "bincode",
  "byteorder",
  "chrono",
  "clap",

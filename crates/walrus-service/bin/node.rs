@@ -35,6 +35,7 @@ use walrus_service::{
     common::config::SuiConfig,
     node::{
         config::{self, defaults::REST_API_PORT, StorageNodeConfig},
+        dbtool_commands::DbToolCommands,
         events::event_processor_runtime::EventProcessorRuntime,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
@@ -122,13 +123,12 @@ enum Commands {
         force: bool,
     },
 
-    /// Repair a corrupted RocksDB database due to non-clean shutdowns.
+    /// Database inspection and maintenance tools.
     /// Hidden command for emergency use only.
     #[clap(hide = true)]
-    RepairDb {
-        /// Path to the RocksDB database directory.
-        #[clap(long)]
-        db_path: PathBuf,
+    DbTool {
+        #[command(subcommand)]
+        command: DbToolCommands,
     },
 }
 
@@ -345,14 +345,13 @@ fn main() -> anyhow::Result<()> {
             commands::generate_config(path_args, config_args, force)?;
         }
 
-        Commands::RepairDb { db_path } => commands::repair_db(db_path)?,
+        Commands::DbTool { command } => command.execute()?,
     }
     Ok(())
 }
 
 mod commands {
     use config::{MetricsPushConfig, NodeRegistrationParamsForThirdPartyRegistration};
-    use rocksdb::{Options, DB};
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
     use walrus_core::ensure;
@@ -716,15 +715,6 @@ mod commands {
         );
 
         Ok(config)
-    }
-
-    pub fn repair_db(db_path: PathBuf) -> anyhow::Result<()> {
-        let mut opts = Options::default();
-
-        // In case the integrity of the entire database is compromised.
-        opts.create_if_missing(true);
-        opts.set_max_open_files(512_000);
-        DB::repair(&opts, db_path).map_err(|err| err.into())
     }
 
     #[tokio::main]

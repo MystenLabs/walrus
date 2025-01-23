@@ -40,6 +40,7 @@ default = ["client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
+  "dep:bincode",
   "dep:enum_dispatch",
   "dep:mime",
   "dep:mysten-metrics",
@@ -74,6 +75,7 @@ axum = { workspace = true, features = [
 axum-extra = { workspace = true, features = ["typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
+bincode = { workspace = true, optional = true }
 byteorder.workspace = true
 chrono.workspace = true
 clap.workspace = true
