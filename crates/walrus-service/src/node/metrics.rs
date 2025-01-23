@@ -37,6 +37,7 @@ pub(crate) const STATUS_QUEUED: &str = "queued";
 pub(crate) const STATUS_PENDING: &str = "pending";
 pub(crate) const STATUS_PERSISTED: &str = "persisted";
 pub(crate) const STATUS_IN_PROGRESS: &str = "in-progress";
+pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 
 type U64GaugeVec = GenericGaugeVec<AtomicU64>;
 type U64Gauge = GenericGauge<AtomicU64>;

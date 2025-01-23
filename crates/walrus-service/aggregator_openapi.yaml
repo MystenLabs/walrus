@@ -8,7 +8,7 @@ info:
   license:
     name: Apache-2.0
     identifier: Apache-2.0
-  version: 1.10.0
+  version: 1.11.0
 paths:
   /v1/blobs/{blob_id}:
     get:

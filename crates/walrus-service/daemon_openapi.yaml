@@ -8,7 +8,7 @@ info:
   license:
     name: Apache-2.0
     identifier: Apache-2.0
-  version: 1.10.0
+  version: 1.11.0
 paths:
   /v1/blobs:
     put:
@@ -443,6 +443,8 @@ components:
       type: string
       title: Sui address
       description: Sui address encoded as a hexadecimal string
+      examples:
+      - 0x02a212de6a9dfa3a69e22387acfbafbb1a9e591bd9d636e7895dcfc8de0
     u32:
       type: integer
       format: int32

@@ -55,6 +55,8 @@ pub(crate) struct EventProgress {
     pub persisted: u64,
     /// The number of events that are pending to be persisted in the event sequencer.
     pub pending: u64,
+    /// The highest event index that has been finished.
+    pub highest_finished_event_index: u64,
 }
 
 impl From<EventProgress> for walrus_sdk::api::EventProgress {
@@ -62,6 +64,7 @@ impl From<EventProgress> for walrus_sdk::api::EventProgress {
         Self {
             persisted: progress.persisted,
             pending: progress.pending,
+            highest_finished_event_index: progress.highest_finished_event_index,
         }
     }
 }
@@ -73,6 +76,7 @@ pub(super) struct EventCursorTable {
     // Store the number of events that have been persisted and pending separately for fast access.
     persisted_event_count: Arc<AtomicU64>,
     pending_event_count: Arc<AtomicU64>,
+    highest_finished_event_index: Arc<AtomicU64>,
 }
 
 impl EventCursorTable {
@@ -89,6 +93,7 @@ impl EventCursorTable {
             event_queue: Arc::default(),
             persisted_event_count: Arc::new(AtomicU64::new(0)),
             pending_event_count: Arc::new(AtomicU64::new(0)),
+            highest_finished_event_index: Arc::new(AtomicU64::new(0)),
         };
 
         let next_index = this.get_sequentially_processed_event_count()?;
@@ -175,7 +180,15 @@ impl EventCursorTable {
             .store(persisted, Ordering::SeqCst);
         self.pending_event_count.store(pending, Ordering::SeqCst);
 
-        Ok(EventProgress { persisted, pending })
+        // Update highest_finished_event_index if the current event_index is higher
+        let prev_index = self
+            .highest_finished_event_index
+            .fetch_max(event_index, Ordering::SeqCst);
+        Ok(EventProgress {
+            persisted,
+            pending,
+            highest_finished_event_index: std::cmp::max(prev_index, event_index),
+        })
     }
 
     /// Returns the current event cursor.
@@ -183,6 +196,7 @@ impl EventCursorTable {
         Ok(EventProgress {
             persisted: self.persisted_event_count.load(Ordering::SeqCst),
             pending: self.pending_event_count.load(Ordering::SeqCst),
+            highest_finished_event_index: self.highest_finished_event_index.load(Ordering::SeqCst),
         })
     }
 }
