@@ -50,5 +50,6 @@ pub struct ObjectIdSchema(());
     value_type = String,
     title = "Sui address",
     description = "Sui address encoded as a hexadecimal string",
+    examples("0x02a212de6a9dfa3a69e22387acfbafbb1a9e591bd9d636e7895dcfc8de0"),
 )]
 pub struct SuiAddressSchema(());
