@@ -242,6 +242,7 @@ pub struct StorageNodeBuilder {
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
+    ignore_sync_failures: bool, // This will default to false due to bool's default implementation.
 }
 
 impl StorageNodeBuilder {
@@ -259,6 +260,12 @@ impl StorageNodeBuilder {
     /// Sets the [`EventManager`] to be used with the node.
     pub fn with_system_event_manager(mut self, event_manager: Box<dyn EventManager>) -> Self {
         self.event_manager = Some(event_manager);
+        self
+    }
+
+    /// Ignores node parameter sync failures if true.
+    pub fn with_ignore_sync_failures(mut self, ignore_sync_failures: bool) -> Self {
+        self.ignore_sync_failures = ignore_sync_failures;
         self
     }
 
@@ -387,6 +394,7 @@ impl StorageNodeBuilder {
         let node_params = NodeParameters {
             pre_created_storage: self.storage,
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
+            ignore_sync_failures: self.ignore_sync_failures,
         };
 
         StorageNode::new(
@@ -438,13 +446,15 @@ pub struct StorageNodeInner {
 ///
 /// This struct contains optional configuration parameters that can be used
 /// to customize the behavior of a node during its creation or runtime.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct NodeParameters {
     // For testing purposes. TODO(#703): remove.
     pre_created_storage: Option<Storage>,
     // Number of checkpoints per blob to use when creating event blobs.
     // If not provided, the default value will be used.
     num_checkpoints_per_blob: Option<u32>,
+    // Whether to ignore sync failures during node initialization
+    ignore_sync_failures: bool,
 }
 
 /// Check if the node parameters are in sync with the on-chain parameters.
@@ -528,7 +538,14 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        sync_node_params(config).await?;
+        sync_node_params(config).await.or_else(|e| {
+            node_params
+                .ignore_sync_failures
+                .then(|| {
+                    tracing::warn!("Failed to sync node params: {}", e);
+                })
+                .ok_or(e)
+        })?;
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
