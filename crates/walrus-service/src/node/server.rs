@@ -301,7 +301,10 @@ where
 
     fn define_routes(&self) -> Router<Arc<S>> {
         Router::new()
-            .merge(Redoc::with_url(routes::API_DOCS, RestApiDoc::openapi()))
+            .merge(Redoc::with_url(
+                routes::API_DOCS_ENDPOINT,
+                RestApiDoc::openapi(),
+            ))
             .route(
                 routes::METADATA_ENDPOINT,
                 get(routes::get_metadata).put(routes::put_metadata),
@@ -788,7 +791,7 @@ mod tests {
         let metadata = metadata_with_blob_id.metadata();
 
         let blob_id = metadata_with_blob_id.blob_id().to_string();
-        let path = routes::METADATA_ENDPOINT.replace(":blob_id", &blob_id);
+        let path = routes::METADATA_ENDPOINT.replace("{blob_id}", &blob_id);
         let url = format!("https://{}{path}", config.as_ref().rest_api_address);
 
         let client = storage_node_client(config.as_ref()).into_inner();

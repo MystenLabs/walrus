@@ -40,6 +40,8 @@ use walrus_sui::{
     client::ReadClient,
     types::{Blob, Committee, NetworkAddress, StakedWal, StorageNode},
     utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
+    EventIdSchema,
+    ObjectIdSchema,
 };
 
 use super::{
@@ -53,8 +55,10 @@ use crate::client::cli::{format_event_id, HumanReadableFrost};
 #[serde(rename_all = "camelCase")]
 pub enum EventOrObjectId {
     /// The variant representing an event ID.
+    #[schema(value_type = EventIdSchema)]
     Event(EventID),
     /// The variant representing an object ID.
+    #[schema(value_type = ObjectIdSchema)]
     Object(ObjectID),
 }
 
@@ -114,6 +118,7 @@ pub enum BlobStoreResult {
         /// The shared blob object ID if created.
         #[serde_as(as = "Option<DisplayFromStr>")]
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[schema(value_type = Option<ObjectIdSchema>)]
         shared_blob_object: Option<ObjectID>,
     },
     /// The blob is known to Walrus but was marked as invalid.
@@ -125,6 +130,7 @@ pub enum BlobStoreResult {
         #[serde_as(as = "DisplayFromStr")]
         blob_id: BlobId,
         /// The event where the blob was marked as invalid.
+        #[schema(value_type = EventIdSchema)]
         event: EventID,
     },
 }

@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: Walrus Publisher
   description: ''
@@ -7,6 +7,7 @@ info:
     email: build@mystenlabs.com
   license:
     name: Apache-2.0
+    identifier: Apache-2.0
   version: 1.10.0
 paths:
   /v1/blobs:
@@ -27,7 +28,7 @@ paths:
           The default is 1 epoch.
         required: false
         schema:
-          $ref: '#/components/schemas/EpochCount'
+          $ref: '#/components/schemas/u32'
       - name: deletable
         in: query
         description: If true, the publisher creates a deletable blob instead of a permanent one.
@@ -41,16 +42,15 @@ paths:
           this Sui address.
         required: false
         schema:
-          allOf:
+          oneOf:
+          - type: 'null'
           - $ref: '#/components/schemas/SuiAddress'
-          nullable: true
       requestBody:
-        description: Unencoded blob
+        description: Binary data of the unencoded blob to be stored.
         content:
           application/octet-stream:
             schema:
-              type: string
-              format: binary
+              $ref: '#/components/schemas/Binary'
         required: true
       responses:
         '200':
@@ -83,6 +83,9 @@ paths:
                 $ref: '#/components/schemas/Status'
 components:
   schemas:
+    Binary:
+      type: string
+      format: binary
     Blob:
       type: object
       description: Sui object for a blob.
@@ -97,19 +100,23 @@ components:
       properties:
         blobId:
           $ref: '#/components/schemas/BlobId'
+          description: The blob ID.
         certifiedEpoch:
-          allOf:
-          - $ref: '#/components/schemas/Epoch'
-          nullable: true
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/u32'
+            description: The epoch in which the blob was first certified, `None` if the blob is uncertified.
         deletable:
           type: boolean
           description: Marks the blob as deletable.
         encodingType:
           $ref: '#/components/schemas/EncodingType'
+          description: The encoding coding type used for the blob.
         id:
           $ref: '#/components/schemas/ObjectID'
         registeredEpoch:
-          $ref: '#/components/schemas/Epoch'
+          $ref: '#/components/schemas/u32'
+          description: The epoch in which the blob has been registered.
         size:
           type: integer
           format: int64
@@ -117,20 +124,30 @@ components:
           minimum: 0
         storage:
           $ref: '#/components/schemas/StorageResource'
+          description: The [`StorageResource`] used to store the blob.
     BlobId:
       type: string
       format: byte
-      description: A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
-      example: E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
+      description: The ID of a blob.
+      examples:
+      - E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
     BlobStoreResult:
       oneOf:
       - type: object
+        description: |-
+          The blob already exists within Walrus, was certified, and is stored for at least the
+          intended duration.
         required:
         - alreadyCertified
         properties:
           alreadyCertified:
             allOf:
             - $ref: '#/components/schemas/EventOrObjectId'
+              description: |-
+                The event where the blob was certified, or the object ID of the registered blob.
+
+                The object ID of the registered blob is used in place of the event ID when the blob is
+                deletable, already certified, and owned by the client.
             - type: object
               required:
               - blob_id
@@ -138,6 +155,7 @@ components:
               properties:
                 blob_id:
                   $ref: '#/components/schemas/BlobId'
+                  description: The blob ID.
                 end_epoch:
                   type: integer
                   format: int64
@@ -147,6 +165,9 @@ components:
               The blob already exists within Walrus, was certified, and is stored for at least the
               intended duration.
       - type: object
+        description: |-
+          The blob was newly created; this contains the newly created Sui object associated with the
+          blob.
         required:
         - newlyCreated
         properties:
@@ -162,6 +183,7 @@ components:
             properties:
               blob_object:
                 $ref: '#/components/schemas/Blob'
+                description: The Sui blob object that holds the newly created blob.
               cost:
                 type: integer
                 format: int64
@@ -169,11 +191,18 @@ components:
                 minimum: 0
               resource_operation:
                 $ref: '#/components/schemas/RegisterBlobOp'
+                description: The operation that created the blob.
               shared_blob_object:
-                allOf:
+                oneOf:
+                - type: 'null'
                 - $ref: '#/components/schemas/ObjectID'
-                nullable: true
+                  description: The shared blob object ID if created.
       - type: object
+        description: |-
+          The blob is known to Walrus but was marked as invalid.
+
+          This indicates a bug within the client, the storage nodes, or more than a third malicious
+          storage nodes.
         required:
         - markedInvalid
         properties:
@@ -190,8 +219,10 @@ components:
             properties:
               blob_id:
                 $ref: '#/components/schemas/BlobId'
+                description: The blob ID.
               event:
                 $ref: '#/components/schemas/EventID'
+                description: The event where the blob was marked as invalid.
       description: Result when attempting to store a blob.
     EncodingType:
       type: string
@@ -205,6 +236,7 @@ components:
       minimum: 0
     EventID:
       type: object
+      description: Schema for the [`sui_types::event::EventID`] type.
       required:
       - txDigest
       - eventSeq
@@ -212,35 +244,44 @@ components:
         eventSeq:
           type: string
         txDigest:
-          type: string
-          format: binary
-      example:
-        txDigest: EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC
+          type: array
+          items:
+            type: integer
+            format: byte
+            minimum: 0
+      examples:
+      - txDigest: EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC
         eventSeq:
           $serde_json::private::Number: '0'
     EventOrObjectId:
       oneOf:
       - type: object
+        description: The variant representing an event ID.
         required:
         - event
         properties:
           event:
             $ref: '#/components/schemas/EventID'
+            description: The variant representing an event ID.
       - type: object
+        description: The variant representing an object ID.
         required:
         - object
         properties:
           object:
             $ref: '#/components/schemas/ObjectID'
+            description: The variant representing an object ID.
       description: Either an event ID or an object ID.
     ObjectID:
       type: string
-      title: Sui object ID as a hex string
-      format: byte
-      example: 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+      title: Sui object ID
+      description: Sui object ID as a hexadecimal string
+      examples:
+      - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
     RegisterBlobOp:
       oneOf:
       - type: object
+        description: The storage and blob resources are purchased from scratch.
         required:
         - registerFromScratch
         properties:
@@ -260,6 +301,7 @@ components:
                 format: int32
                 minimum: 0
       - type: object
+        description: The storage is reused, but the blob was not registered.
         required:
         - reuseStorage
         properties:
@@ -274,6 +316,7 @@ components:
                 format: int64
                 minimum: 0
       - type: object
+        description: A registration was already present.
         required:
         - reuseRegistration
         properties:
@@ -300,19 +343,21 @@ components:
       properties:
         error:
           allOf:
-          - type: object
-            required:
-            - status
-            - code
-            properties:
-              code:
-                type: integer
-                format: int32
-                description: HTTP status code associated with the error.
-                minimum: 0
-              status:
-                type: string
-                description: General type of error, given as an UPPER_SNAKE_CASE string.
+          - oneOf:
+            - type: object
+              required:
+              - status
+              - code
+              properties:
+                code:
+                  type: integer
+                  format: int32
+                  description: HTTP status code associated with the error.
+                  minimum: 0
+                status:
+                  type: string
+                  description: General type of error, given as an UPPER_SNAKE_CASE string.
+            description: The status code corresponding to the error.
           - type: object
             required:
             - message
@@ -340,13 +385,23 @@ components:
       - storageSize
       properties:
         endEpoch:
-          $ref: '#/components/schemas/Epoch'
+          $ref: '#/components/schemas/u32'
+          description: The end epoch of the resource (exclusive).
         id:
           $ref: '#/components/schemas/ObjectID'
         startEpoch:
-          $ref: '#/components/schemas/Epoch'
+          $ref: '#/components/schemas/u32'
+          description: The start epoch of the resource (inclusive).
         storageSize:
           type: integer
           format: int64
           description: The total amount of reserved storage.
           minimum: 0
+    SuiAddress:
+      type: string
+      title: Sui address
+      description: Sui address encoded as a hexadecimal string
+    u32:
+      type: integer
+      format: int32
+      minimum: 0

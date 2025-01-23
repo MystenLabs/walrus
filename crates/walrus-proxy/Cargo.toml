@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum-extra = { workspace = true, features = ["typed-header"] }
 base64.workspace = true
 bytes.workspace = true
 clap.workspace = true

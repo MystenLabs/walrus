@@ -3,7 +3,6 @@
 
 use anyhow::anyhow;
 use axum::{
-    async_trait,
     body::Bytes,
     extract::{rejection::BytesRejection, FromRequest, FromRequestParts, Request},
     http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
@@ -49,7 +48,6 @@ impl<T: DeserializeOwned> Bcs<T> {
     }
 }
 
-#[async_trait]
 impl<T, S> FromRequest<S> for Bcs<T>
 where
     T: DeserializeOwned,
@@ -118,7 +116,6 @@ where
 #[must_use]
 pub struct Authorization(pub PublicKey);
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Authorization
 where
     S: Send + Sync,

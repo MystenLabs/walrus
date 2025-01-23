@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: Walrus Aggregator
   description: ''
@@ -7,9 +7,10 @@ info:
     email: build@mystenlabs.com
   license:
     name: Apache-2.0
+    identifier: Apache-2.0
   version: 1.10.0
 paths:
-  /v1/blobs/{blobId}:
+  /v1/blobs/{blob_id}:
     get:
       tags:
       - routes
@@ -28,8 +29,11 @@ paths:
           content:
             application/octet-stream:
               schema:
-                type: string
-                format: binary
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
         '404':
           description: ' The requested blob has not yet been stored on Walrus.'
           content:
@@ -53,8 +57,9 @@ components:
     BlobId:
       type: string
       format: byte
-      description: A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
-      example: E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
+      description: The ID of a blob.
+      examples:
+      - E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
     Status:
       type: object
       description: |-
@@ -67,19 +72,21 @@ components:
       properties:
         error:
           allOf:
-          - type: object
-            required:
-            - status
-            - code
-            properties:
-              code:
-                type: integer
-                format: int32
-                description: HTTP status code associated with the error.
-                minimum: 0
-              status:
-                type: string
-                description: General type of error, given as an UPPER_SNAKE_CASE string.
+          - oneOf:
+            - type: object
+              required:
+              - status
+              - code
+              properties:
+                code:
+                  type: integer
+                  format: int32
+                  description: HTTP status code associated with the error.
+                  minimum: 0
+                status:
+                  type: string
+                  description: General type of error, given as an UPPER_SNAKE_CASE string.
+            description: The status code corresponding to the error.
           - type: object
             required:
             - message

@@ -2,21 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use utoipa::OpenApi;
-use walrus_core::{EncodingType, EpochSchema};
+use walrus_core::{BlobId, EncodingType, EpochSchema};
 use walrus_sdk::api::errors::Status;
-use walrus_sui::types::{Blob, StorageResource};
+use walrus_sui::{
+    types::{Blob, StorageResource},
+    EventIdSchema,
+    ObjectIdSchema,
+    SuiAddressSchema,
+};
 
 use super::routes;
 use crate::{
     client::{resource::RegisterBlobOp, responses::EventOrObjectId, BlobStoreResult},
-    common::api::{BlobIdString, EventIdSchema, ObjectIdSchema},
+    common::api::Binary,
 };
 
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Walrus Aggregator"),
     paths(routes::get_blob),
-    components(schemas(BlobIdString, Status,))
+    components(schemas(BlobId, Status,))
 )]
 pub(super) struct AggregatorApiDoc;
 
@@ -26,7 +31,7 @@ pub(super) struct AggregatorApiDoc;
     paths(routes::put_blob),
     components(schemas(
         Blob,
-        BlobIdString,
+        BlobId,
         BlobStoreResult,
         EncodingType,
         EpochSchema,
@@ -36,6 +41,8 @@ pub(super) struct AggregatorApiDoc;
         RegisterBlobOp,
         Status,
         StorageResource,
+        SuiAddressSchema,
+        Binary,
     ))
 )]
 pub(super) struct PublisherApiDoc;
@@ -46,7 +53,7 @@ pub(super) struct PublisherApiDoc;
     paths(routes::get_blob, routes::put_blob),
     components(schemas(
         Blob,
-        BlobIdString,
+        BlobId,
         BlobStoreResult,
         EncodingType,
         EpochSchema,
@@ -56,6 +63,8 @@ pub(super) struct PublisherApiDoc;
         RegisterBlobOp,
         Status,
         StorageResource,
+        SuiAddressSchema,
+        Binary,
     ))
 )]
 pub(super) struct DaemonApiDoc;

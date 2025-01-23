@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: walrus-service
   description: ''
@@ -7,6 +7,7 @@ info:
     email: build@mystenlabs.com
   license:
     name: Apache-2.0
+    identifier: Apache-2.0
   version: 1.10.0
 paths:
   /v1/blobs/{blob_id}/confirmation/deletable/{object_id}:
@@ -35,7 +36,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessStorageConfirmation'
+                $ref: '#/components/schemas/ApiSuccess_StorageConfirmation'
         '400':
           description: May be returned when (1)  The blob has not been registered or has already expired. (2)  The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
           content:
@@ -69,7 +70,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessStorageConfirmation'
+                $ref: '#/components/schemas/ApiSuccess_StorageConfirmation'
         '400':
           description: May be returned when (1)  The blob has not been registered or has already expired. (2)  The storage node cannot produce a certificate, as it does not have the slivers for all of its shards. Complete the uploading of the slivers and then try again.
           content:
@@ -107,8 +108,11 @@ paths:
         content:
           application/octet-stream:
             schema:
-              type: string
-              format: binary
+              type: array
+              items:
+                type: integer
+                format: int32
+                minimum: 0
         required: true
       responses:
         '200':
@@ -116,7 +120,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessSignedMessage'
+                $ref: '#/components/schemas/ApiSuccess_SignedMessage_u8'
         '400':
           description: May be returned when (1)  The metadata for the blob is required but missing. (2)  The provided inconsistency proof is not valid.
           content:
@@ -148,8 +152,11 @@ paths:
           content:
             application/octet-stream:
               schema:
-                type: string
-                format: binary
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
         '404':
           description: ' The requested metadata could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.'
           content:
@@ -191,8 +198,11 @@ paths:
         content:
           application/octet-stream:
             schema:
-              type: string
-              format: binary
+              type: array
+              items:
+                type: integer
+                format: int32
+                minimum: 0
         required: true
       responses:
         '200':
@@ -200,13 +210,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessMessage'
+                $ref: '#/components/schemas/ApiSuccess_String'
         '201':
           description: Metadata successfully stored
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessMessage'
+                $ref: '#/components/schemas/ApiSuccess_String'
         '400':
           description: May be returned when (1)  The blob has not been registered or has already expired. (2)  The provided metadata is not valid for the blob. (3)  Storing the metadata cannot be completed because the blob has been marked as invalid by the system.
           content:
@@ -251,8 +261,11 @@ paths:
           content:
             application/octet-stream:
               schema:
-                type: string
-                format: binary
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
         '400':
           description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The shard associated with the operation is not assigned to this storage node.
           content:
@@ -304,8 +317,11 @@ paths:
         content:
           application/octet-stream:
             schema:
-              type: string
-              format: binary
+              type: array
+              items:
+                type: integer
+                format: int32
+                minimum: 0
         required: true
       responses:
         '200':
@@ -313,7 +329,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessMessage'
+                $ref: '#/components/schemas/ApiSuccess_String'
         '400':
           description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The blob has not been registered or has already expired. (3)  The metadata for the blob is required but missing. (4)  The provided sliver failed verification against the previously uploaded metadata for that blob ID. (5)  The shard associated with the operation is not assigned to this storage node.
           content:
@@ -365,8 +381,11 @@ paths:
           content:
             application/octet-stream:
               schema:
-                type: string
-                format: binary
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
         '400':
           description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The index identifying the resource is out-of-range for the system. (3)  The shard associated with the operation is not assigned to this storage node.
           content:
@@ -412,7 +431,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessBlobStatus'
+                $ref: '#/components/schemas/ApiSuccess_BlobStatus'
         '500':
           description: An internal server error has occurred. Please report this error.
           content:
@@ -439,258 +458,429 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessServiceHealthInfo'
+                $ref: '#/components/schemas/ApiSuccess_ServiceHealthInfo'
 components:
   schemas:
-    ApiSuccessBlobStatus:
-      type: object
-      properties:
-        success:
-          type: object
-          properties:
-            code:
-              type: integer
-              format: int32
-              minimum: 0
-            data:
-              oneOf:
-              - type: string
-                description: The blob does not exist (anymore) within Walrus.
-                enum:
-                - nonexistent
-              - type: object
-                required:
-                - invalid
-                properties:
-                  invalid:
-                    type: object
-                    description: The blob ID has been marked as invalid.
-                    required:
-                    - event
-                    properties:
-                      event:
-                        $ref: '#/components/schemas/EventID'
-              - type: object
-                required:
-                - permanent
-                properties:
-                  permanent:
-                    type: object
-                    description: The blob exists within Walrus in a permanent state.
-                    required:
-                    - end_epoch
-                    - is_certified
-                    - status_event
-                    - deletable_counts
-                    properties:
-                      deletable_counts:
-                        type: object
-                        description: Contains counts of all and certified deletable `Blob` objects.
-                        required:
-                        - count_deletable_total
-                        - count_deletable_certified
-                        properties:
-                          count_deletable_certified:
-                            type: integer
-                            format: int32
-                            description: Number of certified deletable `Blob` objects for the given blob ID.
-                            minimum: 0
-                          count_deletable_total:
-                            type: integer
-                            format: int32
-                            description: Total number of active deletable `Blob` objects for the given blob ID.
-                            minimum: 0
-                      end_epoch:
-                        type: integer
-                        format: int64
-                        description: The latest epoch at which the blob expires (non-inclusive).
-                        minimum: 0
-                      initial_certified_epoch:
-                        allOf:
-                        - $ref: '#/components/schemas/Epoch'
-                        nullable: true
-                      is_certified:
-                        type: boolean
-                        description: Whether the blob is certified (true) or only registered (false).
-                      status_event:
-                        $ref: '#/components/schemas/EventID'
-              - type: object
-                required:
-                - deletable
-                properties:
-                  deletable:
-                    type: object
-                    description: |-
-                      The blob exists within Walrus; but there is no related permanent object, so it may be
-                      deleted at any time.
-                    required:
-                    - deletable_counts
-                    properties:
-                      deletable_counts:
-                        type: object
-                        description: Contains counts of all and certified deletable `Blob` objects.
-                        required:
-                        - count_deletable_total
-                        - count_deletable_certified
-                        properties:
-                          count_deletable_certified:
-                            type: integer
-                            format: int32
-                            description: Number of certified deletable `Blob` objects for the given blob ID.
-                            minimum: 0
-                          count_deletable_total:
-                            type: integer
-                            format: int32
-                            description: Total number of active deletable `Blob` objects for the given blob ID.
-                            minimum: 0
-                      initial_certified_epoch:
-                        allOf:
-                        - $ref: '#/components/schemas/Epoch'
-                        nullable: true
-              description: |-
-                Contains the certification status of a blob.
-
-                If the a permanent blob exists, it also contains its end epoch and the ID of the Sui event
-                from which the latest status (registered or certified) resulted.
-    ApiSuccessMessage:
-      type: object
-      properties:
-        success:
-          type: object
-          properties:
-            code:
-              type: integer
-              format: int32
-              minimum: 0
-            data:
-              type: string
-    ApiSuccessServiceHealthInfo:
-      type: object
-      properties:
-        success:
-          type: object
-          properties:
-            code:
-              type: integer
-              format: int32
-              minimum: 0
-            data:
-              type: object
-              description: Represents information about the health of the storage node service.
-              required:
-              - uptime
-              - epoch
-              - publicKey
-              - nodeStatus
-              - eventProgress
-              - shardSummary
-              properties:
-                epoch:
-                  type: integer
-                  format: int64
-                  description: The epoch of the storage node.
-                  minimum: 0
-                eventProgress:
-                  type: object
-                  description: Represents the progress of the events.
+    ApiSuccess_BlobStatus:
+      oneOf:
+      - type: object
+        required:
+        - success
+        properties:
+          success:
+            type: object
+            required:
+            - code
+            - data
+            properties:
+              code:
+                type: integer
+                format: int32
+                description: 'INV: This is a valid status code.'
+                minimum: 0
+              data:
+                oneOf:
+                - type: string
+                  description: The blob does not exist (anymore) within Walrus.
+                  enum:
+                  - nonexistent
+                - type: object
+                  description: The blob ID has been marked as invalid.
                   required:
-                  - persisted
-                  - pending
+                  - invalid
                   properties:
-                    pending:
-                      type: integer
-                      format: int64
-                      description: The number of events that are pending in memory.
-                      minimum: 0
-                    persisted:
-                      type: integer
-                      format: int64
-                      description: The number of events that have been persisted.
-                      minimum: 0
-                nodeStatus:
-                  type: string
-                  description: The status of the storage node.
-                publicKey:
-                  type: string
-                  format: binary
-                  description: The public key of the storage node.
-                shardDetail:
-                  allOf:
-                  - $ref: '#/components/schemas/ShardStatusDetail'
-                  nullable: true
-                shardSummary:
-                  $ref: '#/components/schemas/ShardStatusSummary'
-                uptime:
-                  type: object
-                  description: The uptime of the service.
-    ApiSuccessSignedMessage:
-      type: object
-      properties:
-        success:
-          type: object
-          properties:
-            code:
-              type: integer
-              format: int32
-              minimum: 0
-            data:
-              type: object
-              description: A signed message from a storage node.
-              required:
-              - serializedMessage
-              - signature
-              properties:
-                serializedMessage:
-                  type: string
-                  format: binary
+                    invalid:
+                      type: object
+                      description: The blob ID has been marked as invalid.
+                      required:
+                      - event
+                      properties:
+                        event:
+                          $ref: '#/components/schemas/EventID'
+                - type: object
+                  description: The blob exists within Walrus in a permanent state.
+                  required:
+                  - permanent
+                  properties:
+                    permanent:
+                      type: object
+                      description: The blob exists within Walrus in a permanent state.
+                      required:
+                      - end_epoch
+                      - is_certified
+                      - status_event
+                      - deletable_counts
+                      properties:
+                        deletable_counts:
+                          oneOf:
+                          - type: object
+                            description: Contains counts of all and certified deletable `Blob` objects.
+                            required:
+                            - count_deletable_total
+                            - count_deletable_certified
+                            properties:
+                              count_deletable_certified:
+                                type: integer
+                                format: int32
+                                description: Number of certified deletable `Blob` objects for the given blob ID.
+                                minimum: 0
+                              count_deletable_total:
+                                type: integer
+                                format: int32
+                                description: Total number of active deletable `Blob` objects for the given blob ID.
+                                minimum: 0
+                          description: Counts of deletable `Blob` objects.
+                        end_epoch:
+                          type: integer
+                          format: int64
+                          description: The latest epoch at which the blob expires (non-inclusive).
+                          minimum: 0
+                        initial_certified_epoch:
+                          oneOf:
+                          - type: 'null'
+                          - $ref: '#/components/schemas/u32'
+                            description: If the blob is certified, contains the epoch where it was initially certified.
+                        is_certified:
+                          type: boolean
+                          description: Whether the blob is certified (true) or only registered (false).
+                        status_event:
+                          $ref: '#/components/schemas/EventID'
+                - type: object
                   description: |-
-                    The BCS-encoded message.
+                    The blob exists within Walrus; but there is no related permanent object, so it may be
+                    deleted at any time.
+                  required:
+                  - deletable
+                  properties:
+                    deletable:
+                      type: object
+                      description: |-
+                        The blob exists within Walrus; but there is no related permanent object, so it may be
+                        deleted at any time.
+                      required:
+                      - deletable_counts
+                      properties:
+                        deletable_counts:
+                          oneOf:
+                          - type: object
+                            description: Contains counts of all and certified deletable `Blob` objects.
+                            required:
+                            - count_deletable_total
+                            - count_deletable_certified
+                            properties:
+                              count_deletable_certified:
+                                type: integer
+                                format: int32
+                                description: Number of certified deletable `Blob` objects for the given blob ID.
+                                minimum: 0
+                              count_deletable_total:
+                                type: integer
+                                format: int32
+                                description: Total number of active deletable `Blob` objects for the given blob ID.
+                                minimum: 0
+                          description: Counts of deletable `Blob` objects.
+                        initial_certified_epoch:
+                          oneOf:
+                          - type: 'null'
+                          - $ref: '#/components/schemas/u32'
+                            description: If the blob is certified, contains the epoch where it was initially certified.
+                description: |-
+                  Contains the certification status of a blob.
 
-                    This is serialized as a base64 string in human-readable encoding formats such as JSON.
-                signature:
-                  type: string
-                  format: binary
-                  description: The signature over the BCS encoded message.
-    ApiSuccessStorageConfirmation:
-      type: object
-      properties:
-        success:
-          type: object
-          properties:
-            code:
-              type: integer
-              format: int32
-              minimum: 0
-            data:
-              oneOf:
-              - type: object
+                  If the a permanent blob exists, it also contains its end epoch and the ID of the Sui event
+                  from which the latest status (registered or certified) resulted.
+      description: |-
+        Successful API response body as JSON.
+
+        Contains the HTTP code as well as a message or response object.
+    ApiSuccess_ServiceHealthInfo:
+      oneOf:
+      - type: object
+        required:
+        - success
+        properties:
+          success:
+            type: object
+            required:
+            - code
+            - data
+            properties:
+              code:
+                type: integer
+                format: int32
+                description: 'INV: This is a valid status code.'
+                minimum: 0
+              data:
+                type: object
+                description: Represents information about the health of the storage node service.
                 required:
-                - signed
+                - uptime
+                - epoch
+                - publicKey
+                - nodeStatus
+                - eventProgress
+                - shardSummary
                 properties:
-                  signed:
-                    $ref: '#/components/schemas/SignedMessage'
-              description: Confirmation from a storage node that it has stored the sliver pairs for a given blob.
-    ApiSuccessStoredOnNodeStatus:
-      type: object
-      properties:
-        success:
-          type: object
-          properties:
-            code:
-              type: integer
-              format: int32
-              minimum: 0
-            data:
-              type: string
-              description: Contains the storage status of a sliver or metadata.
-              enum:
-              - nonexistent
-              - stored
-    BlobId:
-      type: string
-      format: byte
-      description: A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
-      example: E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU
+                  epoch:
+                    type: integer
+                    format: int64
+                    description: The epoch of the storage node.
+                    minimum: 0
+                  eventProgress:
+                    oneOf:
+                    - type: object
+                      description: Represents the progress of the events.
+                      required:
+                      - persisted
+                      - pending
+                      properties:
+                        pending:
+                          type: integer
+                          format: int64
+                          description: The number of events that are pending in memory.
+                          minimum: 0
+                        persisted:
+                          type: integer
+                          format: int64
+                          description: The number of events that have been persisted.
+                          minimum: 0
+                    description: The event progress of the storage node.
+                  nodeStatus:
+                    type: string
+                    description: The status of the storage node.
+                  publicKey:
+                    type: array
+                    items:
+                      type: integer
+                      format: Base58
+                      minimum: 0
+                    description: The public key of the storage node.
+                  shardDetail:
+                    oneOf:
+                    - type: 'null'
+                    - $ref: '#/components/schemas/ShardStatusDetail'
+                      description: The status of the shards for which the node is responsible.
+                  shardSummary:
+                    $ref: '#/components/schemas/ShardStatusSummary'
+                    description: The overall status of the shards.
+                  uptime:
+                    type: object
+                    description: The uptime of the service.
+      description: |-
+        Successful API response body as JSON.
+
+        Contains the HTTP code as well as a message or response object.
+    ApiSuccess_SignedMessage_u8:
+      oneOf:
+      - type: object
+        required:
+        - success
+        properties:
+          success:
+            type: object
+            required:
+            - code
+            - data
+            properties:
+              code:
+                type: integer
+                format: int32
+                description: 'INV: This is a valid status code.'
+                minimum: 0
+              data:
+                type: object
+                description: A signed message from a storage node.
+                required:
+                - serializedMessage
+                - signature
+                properties:
+                  serializedMessage:
+                    type: array
+                    items:
+                      type: integer
+                      format: byte
+                      minimum: 0
+                    description: |-
+                      The BCS-encoded message.
+
+                      This is serialized as a base64 string in human-readable encoding formats such as JSON.
+                  signature:
+                    type: array
+                    items:
+                      type: integer
+                      format: byte
+                      minimum: 0
+                    description: The signature over the BCS encoded message.
+      description: |-
+        Successful API response body as JSON.
+
+        Contains the HTTP code as well as a message or response object.
+    ApiSuccess_StorageConfirmation:
+      oneOf:
+      - type: object
+        required:
+        - success
+        properties:
+          success:
+            type: object
+            required:
+            - code
+            - data
+            properties:
+              code:
+                type: integer
+                format: int32
+                description: 'INV: This is a valid status code.'
+                minimum: 0
+              data:
+                oneOf:
+                - type: object
+                  description: Confirmation based on the storage node's signature.
+                  required:
+                  - signed
+                  properties:
+                    signed:
+                      $ref: '#/components/schemas/SignedMessage_u8'
+                      description: Confirmation based on the storage node's signature.
+                description: Confirmation from a storage node that it has stored the sliver pairs for a given blob.
+      description: |-
+        Successful API response body as JSON.
+
+        Contains the HTTP code as well as a message or response object.
+    ApiSuccess_String:
+      oneOf:
+      - type: object
+        required:
+        - success
+        properties:
+          success:
+            type: object
+            required:
+            - code
+            - data
+            properties:
+              code:
+                type: integer
+                format: int32
+                description: 'INV: This is a valid status code.'
+                minimum: 0
+              data:
+                type: string
+      description: |-
+        Successful API response body as JSON.
+
+        Contains the HTTP code as well as a message or response object.
+    BlobStatus:
+      oneOf:
+      - type: string
+        description: The blob does not exist (anymore) within Walrus.
+        enum:
+        - nonexistent
+      - type: object
+        description: The blob ID has been marked as invalid.
+        required:
+        - invalid
+        properties:
+          invalid:
+            type: object
+            description: The blob ID has been marked as invalid.
+            required:
+            - event
+            properties:
+              event:
+                $ref: '#/components/schemas/EventID'
+      - type: object
+        description: The blob exists within Walrus in a permanent state.
+        required:
+        - permanent
+        properties:
+          permanent:
+            type: object
+            description: The blob exists within Walrus in a permanent state.
+            required:
+            - end_epoch
+            - is_certified
+            - status_event
+            - deletable_counts
+            properties:
+              deletable_counts:
+                oneOf:
+                - type: object
+                  description: Contains counts of all and certified deletable `Blob` objects.
+                  required:
+                  - count_deletable_total
+                  - count_deletable_certified
+                  properties:
+                    count_deletable_certified:
+                      type: integer
+                      format: int32
+                      description: Number of certified deletable `Blob` objects for the given blob ID.
+                      minimum: 0
+                    count_deletable_total:
+                      type: integer
+                      format: int32
+                      description: Total number of active deletable `Blob` objects for the given blob ID.
+                      minimum: 0
+                description: Counts of deletable `Blob` objects.
+              end_epoch:
+                type: integer
+                format: int64
+                description: The latest epoch at which the blob expires (non-inclusive).
+                minimum: 0
+              initial_certified_epoch:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/u32'
+                  description: If the blob is certified, contains the epoch where it was initially certified.
+              is_certified:
+                type: boolean
+                description: Whether the blob is certified (true) or only registered (false).
+              status_event:
+                $ref: '#/components/schemas/EventID'
+      - type: object
+        description: |-
+          The blob exists within Walrus; but there is no related permanent object, so it may be
+          deleted at any time.
+        required:
+        - deletable
+        properties:
+          deletable:
+            type: object
+            description: |-
+              The blob exists within Walrus; but there is no related permanent object, so it may be
+              deleted at any time.
+            required:
+            - deletable_counts
+            properties:
+              deletable_counts:
+                oneOf:
+                - type: object
+                  description: Contains counts of all and certified deletable `Blob` objects.
+                  required:
+                  - count_deletable_total
+                  - count_deletable_certified
+                  properties:
+                    count_deletable_certified:
+                      type: integer
+                      format: int32
+                      description: Number of certified deletable `Blob` objects for the given blob ID.
+                      minimum: 0
+                    count_deletable_total:
+                      type: integer
+                      format: int32
+                      description: Total number of active deletable `Blob` objects for the given blob ID.
+                      minimum: 0
+                description: Counts of deletable `Blob` objects.
+              initial_certified_epoch:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/u32'
+                  description: If the blob is certified, contains the epoch where it was initially certified.
+      description: |-
+        Contains the certification status of a blob.
+
+        If the a permanent blob exists, it also contains its end epoch and the ID of the Sui event
+        from which the latest status (registered or certified) resulted.
     Epoch:
       type: integer
       format: int32
@@ -698,6 +888,7 @@ components:
       minimum: 0
     EventID:
       type: object
+      description: Schema for the [`sui_types::event::EventID`] type.
       required:
       - txDigest
       - eventSeq
@@ -705,17 +896,21 @@ components:
         eventSeq:
           type: string
         txDigest:
-          type: string
-          format: binary
-      example:
-        txDigest: EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC
+          type: array
+          items:
+            type: integer
+            format: byte
+            minimum: 0
+      examples:
+      - txDigest: EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC
         eventSeq:
           $serde_json::private::Number: '0'
     ObjectID:
       type: string
-      title: Sui object ID as a hex string
-      format: byte
-      example: 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+      title: Sui object ID
+      description: Sui object ID as a hexadecimal string
+      examples:
+      - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
     ServiceHealthInfo:
       type: object
       description: Represents information about the health of the storage node service.
@@ -733,35 +928,42 @@ components:
           description: The epoch of the storage node.
           minimum: 0
         eventProgress:
-          type: object
-          description: Represents the progress of the events.
-          required:
-          - persisted
-          - pending
-          properties:
-            pending:
-              type: integer
-              format: int64
-              description: The number of events that are pending in memory.
-              minimum: 0
-            persisted:
-              type: integer
-              format: int64
-              description: The number of events that have been persisted.
-              minimum: 0
+          oneOf:
+          - type: object
+            description: Represents the progress of the events.
+            required:
+            - persisted
+            - pending
+            properties:
+              pending:
+                type: integer
+                format: int64
+                description: The number of events that are pending in memory.
+                minimum: 0
+              persisted:
+                type: integer
+                format: int64
+                description: The number of events that have been persisted.
+                minimum: 0
+          description: The event progress of the storage node.
         nodeStatus:
           type: string
           description: The status of the storage node.
         publicKey:
-          type: string
-          format: binary
+          type: array
+          items:
+            type: integer
+            format: Base58
+            minimum: 0
           description: The public key of the storage node.
         shardDetail:
-          allOf:
+          oneOf:
+          - type: 'null'
           - $ref: '#/components/schemas/ShardStatusDetail'
-          nullable: true
+            description: The status of the shards for which the node is responsible.
         shardSummary:
           $ref: '#/components/schemas/ShardStatusSummary'
+          description: The overall status of the shards.
         uptime:
           type: object
           description: The uptime of the service.
@@ -779,6 +981,7 @@ components:
           minimum: 0
         status:
           $ref: '#/components/schemas/ShardStatus'
+          description: The status of the shard, None if unavailable.
     ShardStatus:
       type: string
       description: The current state of a shard on the storage node.
@@ -830,37 +1033,39 @@ components:
             Their statuses are summarized in `owned_shard_status`.
           minimum: 0
         ownedShardStatus:
-          type: object
-          description: The status of the shards for which the node is responsible.
-          required:
-          - unknown
-          - ready
-          - inTransfer
-          - inRecovery
-          properties:
-            inRecovery:
-              type: integer
-              description: The number of owned shards that are being recovered.
-              minimum: 0
-            inTransfer:
-              type: integer
-              description: The number of owned shards that are being transferred to the node.
-              minimum: 0
-            ready:
-              type: integer
-              description: The number of owned shards that are up-to-date for the epoch.
-              minimum: 0
-            unknown:
-              type: integer
-              description: The number of owned shards in an unknown state.
-              minimum: 0
+          oneOf:
+          - type: object
+            description: The status of the shards for which the node is responsible.
+            required:
+            - unknown
+            - ready
+            - inTransfer
+            - inRecovery
+            properties:
+              inRecovery:
+                type: integer
+                description: The number of owned shards that are being recovered.
+                minimum: 0
+              inTransfer:
+                type: integer
+                description: The number of owned shards that are being transferred to the node.
+                minimum: 0
+              ready:
+                type: integer
+                description: The number of owned shards that are up-to-date for the epoch.
+                minimum: 0
+              unknown:
+                type: integer
+                description: The number of owned shards in an unknown state.
+                minimum: 0
+          description: The statuses of the shards for which this node is responsible.
         readOnly:
           type: integer
           description: |-
             The number of shards, no longer owned by the node, that are read only,
             i.e., only serving reads from this node.
           minimum: 0
-    SignedMessage:
+    SignedMessage_u8:
       type: object
       description: A signed message from a storage node.
       required:
@@ -868,15 +1073,21 @@ components:
       - signature
       properties:
         serializedMessage:
-          type: string
-          format: binary
+          type: array
+          items:
+            type: integer
+            format: byte
+            minimum: 0
           description: |-
             The BCS-encoded message.
 
             This is serialized as a base64 string in human-readable encoding formats such as JSON.
         signature:
-          type: string
-          format: binary
+          type: array
+          items:
+            type: integer
+            format: byte
+            minimum: 0
           description: The signature over the BCS encoded message.
     SliverPairIndex:
       type: integer
@@ -905,19 +1116,21 @@ components:
       properties:
         error:
           allOf:
-          - type: object
-            required:
-            - status
-            - code
-            properties:
-              code:
-                type: integer
-                format: int32
-                description: HTTP status code associated with the error.
-                minimum: 0
-              status:
-                type: string
-                description: General type of error, given as an UPPER_SNAKE_CASE string.
+          - oneOf:
+            - type: object
+              required:
+              - status
+              - code
+              properties:
+                code:
+                  type: integer
+                  format: int32
+                  description: HTTP status code associated with the error.
+                  minimum: 0
+                status:
+                  type: string
+                  description: General type of error, given as an UPPER_SNAKE_CASE string.
+            description: The status code corresponding to the error.
           - type: object
             required:
             - message
@@ -935,3 +1148,18 @@ components:
               message:
                 type: string
                 description: A message describing the error in detail.
+    StorageConfirmation:
+      oneOf:
+      - type: object
+        description: Confirmation based on the storage node's signature.
+        required:
+        - signed
+        properties:
+          signed:
+            $ref: '#/components/schemas/SignedMessage_u8'
+            description: Confirmation based on the storage node's signature.
+      description: Confirmation from a storage node that it has stored the sliver pairs for a given blob.
+    u32:
+      type: integer
+      format: int32
+      minimum: 0

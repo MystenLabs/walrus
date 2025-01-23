@@ -1160,6 +1160,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d6fd624c75e18b3b4c6b9caf42b1afe24437daaee904069137d8bab077be8b8"
+dependencies = [
+ "axum-core 0.5.0",
+ "bytes",
+ "form_urlencoded",
+ "futures-util",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.5.2",
+ "hyper-util",
+ "itoa",
+ "matchit 0.8.4",
+ "memchr",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
+ "sync_wrapper 1.0.2",
+ "tokio",
+ "tower 0.5.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "axum-core"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1198,6 +1232,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-core"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df1362f362fd16024ae199c1970ce98f9661bf5ef94b9808fee734bc3698b733"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "rustversion",
+ "sync_wrapper 1.0.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "axum-extra"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1214,6 +1268,28 @@ dependencies = [
  "http-body-util",
  "mime",
  "multer",
+ "pin-project-lite",
+ "serde",
+ "tower 0.5.2",
+ "tower-layer",
+ "tower-service",
+]
+
+[[package]]
+name = "axum-extra"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "460fc6f625a1f7705c6cf62d0d070794e94668988b1c38111baeec177c715f7b"
+dependencies = [
+ "axum 0.8.1",
+ "axum-core 0.5.0",
+ "bytes",
+ "futures-util",
+ "headers",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "mime",
  "pin-project-lite",
  "serde",
  "tower 0.5.2",
@@ -5860,6 +5936,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
+name = "matchit"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
+
+[[package]]
 name = "md-5"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8480,7 +8562,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.96",
@@ -11091,7 +11173,7 @@ dependencies = [
  "async-graphql-value",
  "async-trait",
  "axum 0.7.9",
- "axum-extra",
+ "axum-extra 0.9.6",
  "bcs",
  "bin-version",
  "chrono",
@@ -13833,9 +13915,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utoipa"
-version = "4.2.3"
+version = "5.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5afb1a60e207dca502682537fefcfd9921e71d0b83e9576060f09abc6efab23"
+checksum = "435c6f69ef38c9017b4b4eea965dfb91e71e53d869e896db40d1cf2441dd75c0"
 dependencies = [
  "indexmap 2.7.0",
  "serde",
@@ -13846,11 +13928,10 @@ dependencies = [
 
 [[package]]
 name = "utoipa-gen"
-version = "4.3.1"
+version = "5.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20c24e8ab68ff9ee746aad22d39b5535601e6416d1b0feeabf78be986a5c4392"
+checksum = "a77d306bc75294fd52f3e99b13ece67c02c1a2789190a6f31d32f736624326f7"
 dependencies = [
- "proc-macro-error",
  "proc-macro2",
  "quote",
  "regex",
@@ -13859,11 +13940,11 @@ dependencies = [
 
 [[package]]
 name = "utoipa-redoc"
-version = "4.0.0"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca44a24600ba6bead97e455954d2f01b062af9eff5facba4266fd3d62687ef0f"
+checksum = "6427547f6db7ec006cbbef95f7565952a16f362e298b416d2d497d9706fef72d"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.1",
  "serde",
  "serde_json",
  "utoipa",
@@ -14063,8 +14144,8 @@ name = "walrus-proxy"
 version = "1.10.0"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
- "axum-extra",
+ "axum 0.8.1",
+ "axum-extra 0.10.0",
  "base64 0.22.1",
  "bytes",
  "clap",
@@ -14101,7 +14182,7 @@ dependencies = [
 name = "walrus-sdk"
 version = "1.10.0"
 dependencies = [
- "axum 0.7.9",
+ "axum 0.8.1",
  "axum-server 0.7.1",
  "bcs",
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=2f502fd8570fe4e9cff36eea5bbd6fef22002898)",
@@ -14135,8 +14216,8 @@ version = "1.10.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.7.9",
- "axum-extra",
+ "axum 0.8.1",
+ "axum-extra 0.10.0",
  "axum-server 0.7.1",
  "bcs",
  "byteorder",

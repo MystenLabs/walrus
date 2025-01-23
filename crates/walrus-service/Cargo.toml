@@ -68,12 +68,14 @@ async-trait = { workspace = true, optional = true }
 axum = { workspace = true, features = [
   "http1",
   "http2",
+  "json",
   "matched-path",
+  "query",
   "tokio",
   "tower-log",
   "tracing",
 ] }
-axum-extra = { version = "0.9.6", features = ["typed-header"] }
+axum-extra = { workspace = true, features = ["typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 byteorder.workspace = true
@@ -134,7 +136,7 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 typed-store = { workspace = true, optional = true }
-utoipa = { workspace = true, features = ["axum_extras", "yaml"] }
+utoipa = { workspace = true, features = ["axum_extras", "macros", "yaml"] }
 utoipa-redoc.workspace = true
 uuid.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }

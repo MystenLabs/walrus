@@ -8,6 +8,7 @@ use std::cmp::{Ordering, Reverse};
 use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tokio::time::Duration;
+use utoipa::openapi::Ref;
 use walrus_core::{Epoch, PublicKey, ShardIndex};
 
 use self::errors::Status;
@@ -46,6 +47,7 @@ pub enum BlobStatus {
     /// The blob ID has been marked as invalid.
     Invalid {
         /// The ID of the Sui event in which the blob was marked as invalid.
+        #[schema(schema_with = event_id_schema)]
         event: EventID,
     },
     /// The blob exists within Walrus in a permanent state.
@@ -56,6 +58,7 @@ pub enum BlobStatus {
         /// Whether the blob is certified (true) or only registered (false).
         is_certified: bool,
         /// The ID of the Sui event that caused the status with the given `end_epoch`.
+        #[schema(schema_with = event_id_schema)]
         status_event: EventID,
         /// Counts of deletable `Blob` objects.
         #[schema(inline)]
@@ -73,6 +76,10 @@ pub enum BlobStatus {
         #[schema(inline)]
         deletable_counts: DeletableCounts,
     },
+}
+
+fn event_id_schema() -> Ref {
+    Ref::new("#/components/schemas/EventID")
 }
 
 impl BlobStatus {

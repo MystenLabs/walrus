@@ -25,7 +25,8 @@ version = "1.10.0"
 anyhow = "1.0.95"
 async-channel = "2.3.1"
 async-trait = "0.1.84"
-axum = { version = "0.7.9", default-features = false, features = ["http2", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http2", "tokio"] }
+axum-extra = { version = "0.10" }
 axum-server = { version = "0.7.1", default-features = false }
 base64 = "0.22.1"
 bcs = "0.1.6"
@@ -103,8 +104,8 @@ tracing-opentelemetry = { version = "0.26", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt"] }
 typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 url = "2.5.4"
-utoipa = { version = "4.2.3" }
-utoipa-redoc = { version = "4.0.0", features = ["axum"] }
+utoipa = { version = "5" }
+utoipa-redoc = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.11.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }

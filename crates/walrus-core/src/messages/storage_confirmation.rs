@@ -1,6 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#[allow(unused)]
+#[cfg(feature = "utoipa")]
+use alloc::{format, string::String, vec::Vec};
+
 use serde::{Deserialize, Serialize};
 
 use super::{Intent, InvalidIntent, MessageVerificationError, ProtocolMessage, SignedMessage};
@@ -12,7 +16,7 @@ use crate::{messages::IntentType, BlobId, Epoch, PublicKey, SuiObjectId};
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum StorageConfirmation {
     /// Confirmation based on the storage node's signature.
-    #[cfg_attr(feature = "utoipa", schema(value_type = SignedMessage::<()>))]
+    #[cfg_attr(feature = "utoipa", schema(value_type = SignedMessage::<u8>))]
     Signed(SignedStorageConfirmation),
 }
 

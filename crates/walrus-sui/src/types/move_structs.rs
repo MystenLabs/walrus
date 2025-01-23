@@ -17,6 +17,7 @@ use sui_types::{
     base_types::{ObjectID, SuiAddress},
     messages_checkpoint::CheckpointSequenceNumber,
 };
+use utoipa::openapi::schema;
 use walrus_core::{
     messages::BlobPersistenceType,
     BlobId,
@@ -36,6 +37,7 @@ use crate::contracts::{self, AssociatedContractStruct, StructTag};
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct StorageResource {
     /// Object ID of the Sui object.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub id: ObjectID,
     /// The start epoch of the resource (inclusive).
     pub start_epoch: Epoch,
@@ -55,6 +57,7 @@ impl AssociatedContractStruct for StorageResource {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Blob {
     /// Object ID of the Sui object.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub id: ObjectID,
     /// The epoch in which the blob has been registered.
     pub registered_epoch: Epoch,
@@ -93,6 +96,10 @@ where
     S: Serializer,
 {
     serializer.collect_str(blob_id)
+}
+
+fn object_id_schema() -> schema::Ref {
+    schema::Ref::new("#/components/schemas/ObjectID")
 }
 
 impl AssociatedContractStruct for Blob {
