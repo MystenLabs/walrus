@@ -224,42 +224,24 @@ impl StorageNodeConfig {
         network_public_key: &NetworkPublicKey,
         voting_params: &VotingParams,
     ) -> NodeUpdateParams {
-        let network_key_pair = self.network_key_pair();
-        let public_port = self.public_port;
-        let public_address = if let Ok(ip_addr) = IpAddr::from_str(&self.public_host) {
-            NetworkAddress(SocketAddr::new(ip_addr, public_port).to_string())
-        } else {
-            NetworkAddress(format!("{}:{}", self.public_host, public_port))
-        };
+        let local_network_public_key = self.network_key_pair().public();
+        let local_public_address =
+            NetworkAddress(format!("{}:{}", self.public_host, self.public_port));
 
-        let mut params = NodeUpdateParams::default();
-
-        // Set each parameter that needs updating
-        if name != self.name {
-            params.name = Some(self.name.clone());
+        NodeUpdateParams {
+            name: (name != self.name).then_some(self.name.clone()),
+            network_address: (network_address != local_public_address.0)
+                .then_some(local_public_address),
+            network_public_key: (network_public_key != local_network_public_key)
+                .then_some(local_network_public_key.clone()),
+            next_public_key_params: None,
+            storage_price: (voting_params.storage_price != self.voting_params.storage_price)
+                .then_some(self.voting_params.storage_price),
+            write_price: (voting_params.write_price != self.voting_params.write_price)
+                .then_some(self.voting_params.write_price),
+            node_capacity: (voting_params.node_capacity != self.voting_params.node_capacity)
+                .then_some(self.voting_params.node_capacity),
         }
-
-        if network_address != public_address.0 {
-            params.network_address = Some(public_address);
-        }
-
-        if network_public_key != network_key_pair.public() {
-            params.network_public_key = Some(network_key_pair.public().clone());
-        }
-
-        if voting_params.storage_price != self.voting_params.storage_price {
-            params.storage_price = Some(self.voting_params.storage_price);
-        }
-
-        if voting_params.write_price != self.voting_params.write_price {
-            params.write_price = Some(self.voting_params.write_price);
-        }
-
-        if voting_params.node_capacity != self.voting_params.node_capacity {
-            params.node_capacity = Some(self.voting_params.node_capacity);
-        }
-
-        params
     }
 }
 
@@ -717,8 +699,6 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
 }
 
 impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
-
-impl StorageNodeConfig {}
 
 #[cfg(test)]
 mod tests {

@@ -908,8 +908,6 @@ mod tests {
             )
             .await
             .expect("Failed to get staking pool");
-
-        // Check that the registered node has the original network address.
         assert_eq!(
             pool.node_info.network_address,
             walrus_cluster.nodes[5]
