@@ -483,7 +483,7 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
         .get_staking_pool(node_cap.node_id)
         .await?;
 
-    let node_info: &walrus_sui::types::StorageNode = &pool.node_info;
+    let node_info = &pool.node_info;
 
     let update_params = config.generate_update_params(
         node_info.name.as_str(),
@@ -497,14 +497,14 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
             node_name = config.name,
             node_id = ?node_info.node_id,
             update_params = ?update_params,
-            "Update Node Params"
+            "update node params"
         );
         contract_client.update_node_params(update_params).await?;
     } else {
         tracing::info!(
             node_name = config.name,
             node_id = ?node_info.node_id,
-            "Node parameters are in sync with on-chain values"
+            "node parameters are in sync with on-chain values"
         );
     }
 
