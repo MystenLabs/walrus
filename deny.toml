@@ -79,11 +79,11 @@ skip = [
 ]
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
+  { name = "axum", depth = 4 },
   { name = "fastcrypto", depth = 4 },
   { name = "sui", depth = 6 },
   { name = "test-cluster", depth = 6 },
   { name = "typed-store", depth = 6 },
-  { name = "axum", depth = 4 },
   # several crates depend on an older version of windows-sys
   { name = "windows-sys", depth = 3, version = "0.48" },
 ]
