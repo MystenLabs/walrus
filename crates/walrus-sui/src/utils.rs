@@ -14,6 +14,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
+use move_package::{source_package::layout::SourcePackageLayout, BuildConfig as MoveBuildConfig};
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
@@ -496,4 +497,30 @@ pub(crate) async fn estimate_gas_budget(
     let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
     let gas_usage_with_overhead = gas_cost_summary.net_gas_usage() + safe_overhead as i64;
     Ok(computation_cost_with_overhead.max(gas_usage_with_overhead.max(0) as u64))
+}
+
+/// Resolve Move.lock file path in package directory (where Move.toml is).
+/// Taken from `sui_move::manage_package::resolve_lock_file_path` to avoid adding a dependency.
+pub(crate) fn resolve_lock_file_path(
+    mut build_config: MoveBuildConfig,
+    package_path: Option<&Path>,
+) -> Result<MoveBuildConfig, anyhow::Error> {
+    if build_config.lock_file.is_none() {
+        let package_root = reroot_path(package_path)?;
+        let lock_file_path = package_root.join(SourcePackageLayout::Lock.path());
+        build_config.lock_file = Some(lock_file_path);
+    }
+    Ok(build_config)
+}
+
+/// Taken from `move_cli::base::reroot_path` to avoid adding a dependency.
+fn reroot_path(path: Option<&Path>) -> anyhow::Result<PathBuf> {
+    let path = path
+        .map(Path::canonicalize)
+        .unwrap_or_else(|| PathBuf::from(".").canonicalize())?;
+    // Always root ourselves to the package root, and then compile relative to that.
+    let rooted_path = SourcePackageLayout::try_find_root(&path)?;
+    std::env::set_current_dir(rooted_path).unwrap();
+
+    Ok(PathBuf::from("."))
 }

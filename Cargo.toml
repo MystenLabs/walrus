@@ -80,7 +80,6 @@ sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0
 sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
-sui-move = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }

@@ -10,19 +10,12 @@ ignore = [
   "RUSTSEC-2023-0071",
   # `rust-yaml` is not maintained, but is a dependency in many of our packages.
   "RUSTSEC-2024-0320",
-  # We have a vulnerable version of `rustls` in our dependency tree through the old version of
-  # `jsonrpsee` used by Sui.
-  "RUSTSEC-2024-0336",
   # `proc-macro-error` is not maintained, but is a dependency in many of our packages.
   "RUSTSEC-2024-0370",
   # `instance` is unmaintained; consider using `web-time`.
   "RUSTSEC-2024-0384",
   # `derivative` is unmaintained.
   "RUSTSEC-2024-0388",
-  # rusoto is unmaintained (TODO: WAL-518 remove once `sui` is removed as dependency)
-  "RUSTSEC-2022-0071",
-  # `tui` is unmaintained (TODO: WAL-518 remove once `sui` is removed as dependency)
-  "RUSTSEC-2023-0049",
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -81,7 +74,6 @@ skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
   { name = "axum", depth = 4 },
   { name = "fastcrypto", depth = 4 },
-  { name = "sui", depth = 6 },
   { name = "test-cluster", depth = 6 },
   { name = "typed-store", depth = 6 },
   # several crates depend on an older version of windows-sys
@@ -109,7 +101,6 @@ allow-git = [
   "https://github.com/bmwill/axum-server",
   "https://github.com/mystenmark/async-task",
   "https://github.com/mystenmark/tokio-madsim-fork",
-  "https://github.com/wlmyng/jsonrpsee",
   "https://github.com/zhiburt/tabled",
   "https://www.github.com/MystenLabs/mysten-sim.git",
 ]
@@ -118,5 +109,4 @@ allow-git = [
 # github.com organizations to allow git sources for
 github = [
   "MystenLabs",
-  "nextest-rs", # TODO: WAL-518 remove once `sui` is removed as dependency
 ]

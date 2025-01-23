@@ -14,7 +14,6 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use move_core_types::account_address::AccountAddress;
 use move_package::BuildConfig as MoveBuildConfig;
-use sui_move::manage_package::resolve_lock_file_path;
 use sui_move_build::{
     build_from_resolution_graph,
     check_invalid_dependencies,
@@ -47,7 +46,7 @@ use walrus_core::{ensure, EpochCount};
 
 use crate::{
     contracts::{self, StructTag},
-    utils::{estimate_gas_budget, get_created_sui_object_ids_by_type},
+    utils::{estimate_gas_budget, get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
 
 const INIT_MODULE: &str = "init";
