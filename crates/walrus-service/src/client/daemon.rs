@@ -20,7 +20,7 @@ use axum_extra::{
     TypedHeader,
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
-use prometheus::{HistogramVec, Registry};
+use prometheus::Registry;
 use reqwest::StatusCode;
 use routes::{PublisherQuery, BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
 use tower::{
@@ -38,7 +38,7 @@ use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContra
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
     client::{config::AuthConfig, daemon::auth::verify_jwt_claim},
-    common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
+    common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
 };
 
 pub mod auth;
@@ -117,7 +117,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
 pub struct ClientDaemon<T> {
     client: Arc<T>,
     network_address: SocketAddr,
-    metrics: HistogramVec,
+    metrics: HttpMetrics,
     router: Router<Arc<T>>,
 }
 

@@ -17,7 +17,7 @@ use fastcrypto::{secp256r1::Secp256r1PrivateKey, traits::ToFromBytes};
 use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
-use prometheus::{HistogramVec, Registry};
+use prometheus::Registry;
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -30,7 +30,7 @@ use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
 use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
 use crate::{
-    common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
+    common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
     node::ServiceState,
 };
 
@@ -145,7 +145,7 @@ pub enum TlsCertificateSource {
 pub struct RestApiServer<S> {
     state: Arc<S>,
     config: RestApiConfig,
-    metrics: HistogramVec,
+    metrics: HttpMetrics,
     cancel_token: CancellationToken,
     handle: Mutex<Option<Handle>>,
 }
