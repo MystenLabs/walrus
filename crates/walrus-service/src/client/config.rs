@@ -111,6 +111,8 @@ pub struct AuthConfig {
     /// The authentication algorithm for the JWT.
     pub(crate) algorithm: Option<Algorithm>,
     /// The duration, in seconds, after which the publisher will consider the JWT as expired.
+    ///
+    /// If set to `0`, the JWT will never be considered expired.
     pub(crate) expiring_sec: u64,
     /// verify upload epochs and address for `send_object_to`
     pub(crate) verify_upload: bool,

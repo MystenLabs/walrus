@@ -1,19 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Ready, marker::PhantomData, sync::Arc};
-
-use axum::http::{Request, Response, StatusCode};
-use axum_extra::headers::{authorization::Bearer, Authorization, HeaderMapExt};
-use futures::{future::Either, FutureExt};
+use axum::{
+    extract::Query,
+    http::{Response, StatusCode},
+};
+use axum_extra::headers::{authorization::Bearer, Authorization};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
-use tower::{Layer, Service};
+use sui_types::base_types::SuiAddress;
 use tracing::error;
 
+use super::routes::PublisherQuery;
 use crate::client::config::AuthConfig;
 
-/// Claim follow RFC7519 with extra storage parameters: address, epoch
+/// Claim follow RFC7519 with extra storage parameters: send_object_to, epochs.
 #[derive(Clone, Deserialize, Debug)]
 #[cfg_attr(test, derive(serde::Serialize))]
 struct Claim {
@@ -26,7 +27,7 @@ struct Claim {
 
     /// The owner address of the sui blob object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub send_object_to: Option<String>,
+    pub send_object_to: Option<SuiAddress>,
 
     /// The number of epochs the blob should be stored for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -73,201 +74,131 @@ impl Claim {
     }
 }
 
-#[derive(Clone)]
-pub struct JwtLayer {
-    auth_config: Arc<AuthConfig>,
-    _phantom: PhantomData<Claim>,
-}
-
-impl JwtLayer {
-    pub fn new(auth_config: AuthConfig) -> Self {
-        Self {
-            auth_config: Arc::new(auth_config),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<S> Layer<S> for JwtLayer {
-    type Service = Jwt<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        Jwt {
-            inner,
-            auth_config: self.auth_config.clone(),
-            _phantom: self._phantom,
-        }
-    }
-}
-
-/// Middleware for validating that a valid JWT token is present in "authorization: bearer <token>".
-#[derive(Clone)]
-pub struct Jwt<S> {
-    inner: S,
-    auth_config: Arc<AuthConfig>,
-    _phantom: PhantomData<Claim>,
-}
-
-impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for Jwt<S>
-where
-    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Send + Clone + 'static,
-    S::Future: Send + 'static,
-    ResBody: Default,
-    for<'de> Claim: Deserialize<'de> + Send + Sync + Clone + 'static,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = Either<S::Future, Ready<Result<S::Response, S::Error>>>;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        match req.headers().typed_get::<Authorization<Bearer>>() {
-            Some(bearer) => {
-                let mut validation = if self.auth_config.secret.is_some() {
-                    self.auth_config
-                        .algorithm
-                        .map(Validation::new)
-                        .unwrap_or_default()
-                } else {
-                    Validation::default()
-                };
-
-                let decode_key = if let Some(secret) = &self.auth_config.secret {
-                    match self.auth_config.algorithm {
-                        None
-                        | Some(Algorithm::HS256)
-                        | Some(Algorithm::HS384)
-                        | Some(Algorithm::HS512) => DecodingKey::from_secret(secret),
-                        Some(Algorithm::EdDSA) => DecodingKey::from_ed_der(secret),
-                        Some(Algorithm::ES256) | Some(Algorithm::ES384) => {
-                            DecodingKey::from_ec_der(secret)
-                        }
-                        Some(Algorithm::RS256)
-                        | Some(Algorithm::RS384)
-                        | Some(Algorithm::RS512)
-                        | Some(Algorithm::PS256)
-                        | Some(Algorithm::PS384)
-                        | Some(Algorithm::PS512) => DecodingKey::from_rsa_der(secret),
-                    }
-                } else {
-                    validation.insecure_disable_signature_validation();
-                    DecodingKey::from_secret(&[])
-                };
-
-                if self.auth_config.expiring_sec > 0 {
-                    validation.set_required_spec_claims(&["exp", "iat"]);
-                }
-
-                match Claim::from_token(bearer.token().trim(), &decode_key, &validation) {
-                    Ok(claim) => {
-                        let mut valid_upload = true;
-                        if self.auth_config.expiring_sec > 0
-                            && (claim.exp - claim.iat.unwrap_or_default())
-                                != self.auth_config.expiring_sec
-                        {
-                            error!("invalid expiring token: {}", bearer.token());
-                            valid_upload = false;
-                        }
-                        if self.auth_config.verify_upload {
-                            let query = req.uri().query();
-                            if let Some(epochs) = claim.epochs {
-                                if !check_query(query, "epochs", epochs.to_string()) {
-                                    tracing::error!(epochs, "upload with invalid epochs");
-                                    valid_upload = false;
-                                }
-                            }
-                            if let Some(send_object_to) = claim.send_object_to {
-                                if !check_query(query, "send_object_to", &send_object_to) {
-                                    error!("upload to an invalid address: {}", send_object_to);
-                                    valid_upload = false;
-                                }
-                            }
-                        }
-                        if valid_upload {
-                            self.inner.call(req).left_future()
-                        } else {
-                            validation_failed_future(StatusCode::PRECONDITION_FAILED).right_future()
-                        }
-                    }
-                    Err(code) => validation_failed_future(code).right_future(),
-                }
-            }
-            None => validation_failed_future(StatusCode::UNAUTHORIZED).right_future(),
-        }
-    }
-}
-
-fn validation_failed_future<B, E>(code: StatusCode) -> Ready<Result<Response<B>, E>>
+pub(crate) fn verify_jwt_claim<B>(
+    query: Query<PublisherQuery>,
+    bearer: Authorization<Bearer>,
+    auth_config: &AuthConfig,
+) -> Result<(), Response<B>>
 where
     B: Default,
 {
-    std::future::ready(Ok(Response::builder()
-        .status(code)
-        .body(Default::default())
-        .expect("Response is valid without any customized headers")))
-}
+    let mut validation = if auth_config.secret.is_some() {
+        auth_config
+            .algorithm
+            .map(Validation::new)
+            .unwrap_or_default()
+    } else {
+        Validation::default()
+    };
 
-fn check_query(queries: Option<&str>, field: &str, value: impl AsRef<str>) -> bool {
-    if let Some(queries) = queries {
-        for (key, var) in querystr::querify(queries) {
-            if key == field && var != value.as_ref() {
-                return false;
+    let decode_key = if let Some(secret) = &auth_config.secret {
+        match auth_config.algorithm {
+            None | Some(Algorithm::HS256) | Some(Algorithm::HS384) | Some(Algorithm::HS512) => {
+                DecodingKey::from_secret(secret)
+            }
+            Some(Algorithm::EdDSA) => DecodingKey::from_ed_der(secret),
+            Some(Algorithm::ES256) | Some(Algorithm::ES384) => DecodingKey::from_ec_der(secret),
+            Some(Algorithm::RS256)
+            | Some(Algorithm::RS384)
+            | Some(Algorithm::RS512)
+            | Some(Algorithm::PS256)
+            | Some(Algorithm::PS384)
+            | Some(Algorithm::PS512) => DecodingKey::from_rsa_der(secret),
+        }
+    } else {
+        validation.insecure_disable_signature_validation();
+        DecodingKey::from_secret(&[])
+    };
+
+    if auth_config.expiring_sec > 0 {
+        validation.set_required_spec_claims(&["exp", "iat"]);
+    }
+
+    match Claim::from_token(bearer.token().trim(), &decode_key, &validation) {
+        Ok(claim) => {
+            let mut valid_upload = true;
+            if auth_config.expiring_sec > 0
+                && (claim.exp - claim.iat.unwrap_or_default()) != auth_config.expiring_sec
+            {
+                error!(toker = bearer.token(), "token with invalid expiration");
+                valid_upload = false;
+            }
+            // TODO(giac): We never actually check that the expiration date is in the future.
+            // i.e., check that claim.exp > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+
+            if auth_config.verify_upload {
+                if let Some(epochs) = claim.epochs {
+                    if query.epochs != epochs {
+                        tracing::error!(
+                            expected = claim.epochs,
+                            actual = query.epochs,
+                            "upload with invalid epochs"
+                        );
+                        valid_upload = false;
+                    }
+                }
+
+                match (claim.send_object_to, query.send_object_to) {
+                    (Some(expected), Some(actual)) if expected != actual => {
+                        tracing::error!(
+                            expected = %expected,
+                            actual = %actual,
+                            "upload with invalid send_object_to field"
+                        );
+                        valid_upload = false;
+                    }
+                    (Some(expected), None) => {
+                        tracing::error!(
+                            expected = %expected,
+                            "send_object_to field is missing"
+                        );
+
+                        valid_upload = false
+                    }
+                    _ => {}
+                }
+            }
+            if valid_upload {
+                Ok(())
+            } else {
+                validation_failed_response(StatusCode::PRECONDITION_FAILED)
             }
         }
+        Err(code) => validation_failed_response(code),
     }
-    true
+}
+
+fn validation_failed_response<B>(code: StatusCode) -> Result<(), Response<B>>
+where
+    B: Default,
+{
+    Err(Response::builder()
+        .status(code)
+        .body(Default::default())
+        .expect("Response is valid without any customized headers"))
 }
 
 #[cfg(test)]
 mod tests {
-    use axum::{routing::get, Router};
+    use std::sync::Arc;
+
+    use axum::{http::Request, routing::get, Router};
     use http_body_util::Empty;
     use jsonwebtoken::{encode, EncodingKey, Header};
     use rand::distributions::{Alphanumeric, DistString};
     use ring::signature::{self, Ed25519KeyPair, KeyPair};
+    use sui_types::base_types::SUI_ADDRESS_LENGTH;
     use tower::{ServiceBuilder, ServiceExt};
 
     use super::*;
-    use crate::client::config::AuthConfig;
+    use crate::client::{config::AuthConfig, daemon::auth_layer};
 
-    #[test]
-    fn query() {
-        let query_example: &'static str = "epochs=100&send_object_to=0x1";
-        assert!(check_query(Some(query_example), "epochs", 100.to_string()));
-        assert!(check_query(Some(query_example), "send_object_to", "0x1"));
-        assert!(!check_query(Some(query_example), "epochs", 1.to_string()));
-        assert!(!check_query(Some(query_example), "send_object_to", "0x9"));
-
-        let no_sender_example: &'static str = "epochs=100";
-        assert!(check_query(
-            Some(no_sender_example),
-            "epochs",
-            100.to_string()
-        ));
-        assert!(check_query(
-            Some(no_sender_example),
-            "send_object_to",
-            "0x1"
-        ));
-        assert!(!check_query(
-            Some(no_sender_example),
-            "epochs",
-            1.to_string()
-        ));
-
-        let empty_example: &'static str = "";
-        assert!(check_query(Some(empty_example), "epochs", 100.to_string()));
-        assert!(check_query(Some(empty_example), "send_object_to", "0x1"));
-    }
+    const ADDRESS: [u8; SUI_ADDRESS_LENGTH] = [42; SUI_ADDRESS_LENGTH];
+    const OTHER_ADDRESS: &str =
+        "0x1111111111111111111111111111111111111111111111111111111111111111";
 
     #[tokio::test]
-    async fn auth_layer() {
+    async fn auth_layer_is_working() {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
         let auth_config = AuthConfig {
             secret: Some(secret.as_str().into()),
@@ -284,7 +215,10 @@ mod tests {
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
+            Arc::new(auth_config),
+            auth_layer,
+        ));
 
         let router = Router::new().route("/", get(|| async {}).route_layer(publisher_layers));
 
@@ -295,7 +229,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Invalid Test bearer missing
         let response = router
@@ -310,7 +244,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test valid
         let response = router
@@ -340,23 +274,26 @@ mod tests {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
-            send_object_to: Some("0x1".to_string()),
+            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
             epochs: Some(1),
         };
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
+            Arc::new(auth_config),
+            auth_layer,
+        ));
 
         let router =
-            Router::new().route("/v1/store", get(|| async {}).route_layer(publisher_layers));
+            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
 
         // Test invalid epoch
         let response = router
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store?epochs=100")
+                    .uri("/v1/blobs?epochs=100")
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -371,7 +308,10 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store?epochs=1&send_object_to=0x2")
+                    .uri(format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        OTHER_ADDRESS
+                    ))
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -386,7 +326,10 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store?epochs=1&send_object_to=0x1")
+                    .uri(format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ))
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -409,23 +352,26 @@ mod tests {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
-            send_object_to: Some("0x1".to_string()),
+            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
             epochs: Some(1),
         };
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
+            Arc::new(auth_config.clone()),
+            auth_layer,
+        ));
 
         let router =
-            Router::new().route("/v1/store", get(|| async {}).route_layer(publisher_layers));
+            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
 
         // Test invalid epoch
         let response = router
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store?epochs=100")
+                    .uri("/v1/blobs?epochs=100")
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -440,7 +386,10 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store?epochs=1&send_object_to=0x2")
+                    .uri(format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        OTHER_ADDRESS
+                    ))
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -455,7 +404,10 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store?epochs=1&send_object_to=0x1")
+                    .uri(format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ))
                     .header("authorization", format!("Bearer {token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -499,17 +451,20 @@ mod tests {
         let invalid_token = encode(&Header::default(), &invalid_claim, &encode_key).unwrap();
         let invalid_token2 = encode(&Header::default(), &invalid_claim2, &encode_key).unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
+            Arc::new(auth_config.clone()),
+            auth_layer,
+        ));
 
         let router =
-            Router::new().route("/v1/store", get(|| async {}).route_layer(publisher_layers));
+            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
 
         // Test invalid token
         let response = router
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store")
+                    .uri("/v1/blobs")
                     .header("authorization", format!("Bearer {invalid_token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -524,7 +479,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store")
+                    .uri("/v1/blobs")
                     .header("authorization", format!("Bearer {invalid_token2}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -539,7 +494,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/store")
+                    .uri("/v1/blobs")
                     .header("authorization", format!("Bearer {valid_token}"))
                     .body(Empty::new())
                     .unwrap(),
@@ -574,7 +529,10 @@ mod tests {
         )
         .unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(JwtLayer::new(auth_config));
+        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
+            Arc::new(auth_config.clone()),
+            auth_layer,
+        ));
 
         let router = Router::new().route("/", get(|| async {}).route_layer(publisher_layers));
 
@@ -585,7 +543,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Invalid Test bearer missing
         let response = router
@@ -600,7 +558,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test valid
         let response = router
