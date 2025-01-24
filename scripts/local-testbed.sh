@@ -44,8 +44,9 @@ shards=10 # Default value of 4 if no argument is provided
 network=devnet
 epoch_duration=1h
 tail_logs=false
+backup_database_url=
 
-while getopts "n:c:s:d:thef" arg; do
+while getopts "n:c:s:d:b:thef" arg; do
     case "${arg}" in
         f)
             tail_logs=true
@@ -64,6 +65,9 @@ while getopts "n:c:s:d:thef" arg; do
             ;;
         e)
             existing=true
+            ;;
+        b)
+            backup_database_url=${OPTARG}
             ;;
         h)
             usage
@@ -86,6 +90,12 @@ if ! [ "$shards" -ge "$committee_size" ] 2>/dev/null; then
     usage
     exit 1
 fi
+
+echo "[local-testbed.sh] Using network: $network"
+echo "[local-testbed.sh] Using committee_size: $committee_size"
+echo "[local-testbed.sh] Using shards: $shards"
+echo "[local-testbed.sh] Using epoch_duration: $epoch_duration"
+echo "[local-testbed.sh] Using backup_database_url: $backup_database_url"
 
 
 echo Building walrus, walrus-node, and walrus-deploy binaries...
@@ -123,8 +133,12 @@ if ! $existing; then
       --with-wal-exchange
 
     # Generate configs
-    echo Generating configuration...
-    ./target/release/walrus-deploy generate-dry-run-configs --working-dir $working_dir
+    generate_dry_run_args=( --working-dir "$working_dir" )
+    if [[ -n "$backup_database_url" ]]; then
+      generate_dry_run_args+=( --backup-database-url "$backup_database_url" )
+    fi
+    echo "Generating configuration [${generate_dry_run_args[*]}]..."
+    ./target/release/walrus-deploy generate-dry-run-configs "${generate_dry_run_args[@]}"
 
     echo "
 event_processor_config:

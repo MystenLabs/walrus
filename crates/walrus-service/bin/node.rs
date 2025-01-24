@@ -42,11 +42,11 @@ use walrus_service::{
     },
     utils::{
         self,
+        load_from_yaml,
         version,
         wait_until_terminated,
         ByteCount,
         EnableMetricsPush,
-        LoadConfig as _,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
     },
@@ -319,7 +319,7 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
             ignore_sync_failures,
         } => commands::run(
-            StorageNodeConfig::load(config_path)?,
+            load_from_yaml(config_path)?,
             cleanup_storage,
             ignore_sync_failures,
         )?,
@@ -384,15 +384,18 @@ mod commands {
 
         let metrics_runtime = MetricsAndLoggingRuntime::start(config.metrics_address)?;
         let registry_clone = metrics_runtime.registry.clone();
-        metrics_runtime.runtime.spawn(async move {
-            registry_clone
-                .register(mysten_metrics::uptime_metric(
-                    "walrus_node",
-                    VERSION,
-                    "walrus",
-                ))
-                .unwrap();
-        });
+        metrics_runtime
+            .runtime
+            .expect("Storage node requires metrics to have their own runtime")
+            .spawn(async move {
+                registry_clone
+                    .register(mysten_metrics::uptime_metric(
+                        "walrus_node",
+                        VERSION,
+                        "walrus",
+                    ))
+                    .unwrap();
+            });
 
         tracing::info!(version = VERSION, "Walrus binary version");
         config.load_keys()?;
@@ -558,7 +561,7 @@ mod commands {
 
     #[tokio::main]
     pub(crate) async fn register_node(config_path: PathBuf) -> anyhow::Result<()> {
-        let mut config = StorageNodeConfig::load(&config_path)?;
+        let mut config: StorageNodeConfig = load_from_yaml(&config_path)?;
 
         config.load_keys()?;
 

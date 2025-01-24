@@ -44,8 +44,9 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
+    backup::BackupNodeConfig,
     client::{self, ClientCommunicationConfig},
-    common::{config::SuiConfig, utils::LoadConfig},
+    common::config::SuiConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
         StorageNodeConfig,
@@ -109,8 +110,6 @@ pub struct TestbedConfig {
     /// The object ID of the shared WAL exchange.
     pub exchange_object: Option<ObjectID>,
 }
-
-impl LoadConfig for TestbedConfig {}
 
 /// Prefix for the node configuration file name.
 pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> String {
@@ -469,6 +468,33 @@ pub async fn create_client_config(
     };
 
     Ok(client_config)
+}
+
+/// Create the config for the walrus-backup node associated with a network.
+pub async fn create_backup_config(
+    system_ctx: &SystemContext,
+    working_dir: &Path,
+    database_url: &str,
+    rpc: String,
+) -> anyhow::Result<BackupNodeConfig> {
+    use crate::{
+        backup::defaults::{max_fetch_attempts_per_blob, message_queue_size, metrics_address},
+        common::config::{defaults::polling_interval, SuiReaderConfig},
+    };
+    Ok(BackupNodeConfig {
+        backup_storage_path: working_dir.join("backup"),
+        metrics_address: metrics_address(),
+        database_url: database_url.to_string(),
+        sui: SuiReaderConfig {
+            rpc,
+            contract_config: system_ctx.contract_config(),
+            backoff_config: ExponentialBackoffConfig::default(),
+            event_polling_interval: polling_interval(),
+        },
+        event_processor_config: Default::default(),
+        message_queue_size: message_queue_size(),
+        max_fetch_attempts_per_blob: max_fetch_attempts_per_blob(),
+    })
 }
 
 /// Create storage node configurations for the testbed.

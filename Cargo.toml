@@ -36,6 +36,8 @@ chrono = "0.4"
 clap = { version = "4.5.27", features = ["derive"] }
 colored = "2.2.0"
 criterion = "0.5.1"
+diesel = { version = "2.2", features = ["postgres", "uuid", "chrono"] }
+diesel-async = { version = "0.5", features = ["postgres"] }
 enum_dispatch = "0.3"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "2f502fd8570fe4e9cff36eea5bbd6fef22002898" }
 futures = { version = "0.3.31", default-features = false, features = ["async-await", "std"] }

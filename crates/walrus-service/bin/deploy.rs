@@ -176,6 +176,9 @@ struct GenerateDryRunConfigsArgs {
     /// This will disable the event blob writer and the event blob writer service.
     #[clap(long, action)]
     disable_event_blob_writer: bool,
+    /// Configure the Postgres database URL for the Backup service.
+    #[clap(long)]
+    backup_database_url: Option<String>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -196,13 +199,14 @@ mod commands {
     use walrus_service::{
         client::cli::HumanReadableFrost,
         testbed::{
+            create_backup_config,
             create_client_config,
             create_storage_node_configs,
             deploy_walrus_contract,
             DeployTestbedContractParameters,
             TestbedConfig,
         },
-        utils::LoadConfig as _,
+        utils::load_from_yaml,
     };
     use walrus_sui::utils::load_wallet;
 
@@ -217,7 +221,7 @@ mod commands {
             gas_budget,
         }: RegisterNodesArgs,
     ) -> anyhow::Result<()> {
-        let config = walrus_service::client::Config::load(client_config)?;
+        let config: walrus_service::client::Config = load_from_yaml(client_config)?;
         let contract_client = config
             .new_contract_client_with_wallet_in_config(gas_budget)
             .await?;
@@ -226,7 +230,8 @@ mod commands {
         let unpacked_registration_params = param_files
             .iter()
             .map(|param_file| {
-                let params = NodeRegistrationParamsForThirdPartyRegistration::load(param_file)?;
+                let params: NodeRegistrationParamsForThirdPartyRegistration =
+                    load_from_yaml(param_file)?;
                 Ok((
                     params.node_registration_params,
                     params.proof_of_possession,
@@ -345,6 +350,7 @@ mod commands {
             faucet_cooldown,
             use_legacy_event_provider,
             disable_event_blob_writer,
+            backup_database_url,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -357,7 +363,7 @@ mod commands {
             .context("canonicalizing the working directory path failed")?;
 
         let testbed_config_path = get_testbed_config_path(testbed_config_path, &working_dir);
-        let testbed_config = TestbedConfig::load(testbed_config_path)?;
+        let testbed_config: TestbedConfig = load_from_yaml(testbed_config_path)?;
 
         if let Some(cooldown) = faucet_cooldown {
             tracing::info!("sleeping for {cooldown} to let faucet cool down");
@@ -378,12 +384,26 @@ mod commands {
             testbed_config.exchange_object.into_iter().collect(),
         )
         .await?;
-
         let serialized_client_config =
             serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
         let client_config_path = working_dir.join("client_config.yaml");
         fs::write(client_config_path, serialized_client_config)
             .context("Failed to write client configs")?;
+
+        if let Some(database_url) = backup_database_url {
+            let backup_config = create_backup_config(
+                &testbed_config.system_ctx,
+                working_dir.as_path(),
+                database_url.as_str(),
+                testbed_config.sui_network.env().rpc,
+            )
+            .await?;
+            let serialized_backup_config = serde_yaml::to_string(&backup_config)
+                .context("Failed to serialize backup config")?;
+            let backup_config_path = working_dir.join("backup_config.yaml");
+            fs::write(backup_config_path, serialized_backup_config)
+                .context("Failed to write backup config")?;
+        }
 
         let committee_size =
             NonZeroU16::new(testbed_config.nodes.len() as u16).expect("committee size must be > 0");

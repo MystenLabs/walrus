@@ -92,18 +92,19 @@ pub use version;
 
 use crate::common::event_blob_downloader::EventBlobDownloader;
 
-/// Trait for loading configuration from a YAML file.
-pub trait LoadConfig: DeserializeOwned {
-    /// Load the configuration from a YAML file located at the provided path.
-    fn load<P: AsRef<Path>>(path: P) -> Result<Self, anyhow::Error> {
-        let path = path.as_ref();
-        tracing::debug!(path = %path.display(), "reading config from file");
+/// Load the config from a YAML file located at the provided path.
+pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::Result<T> {
+    let path = path.as_ref();
+    tracing::debug!(path = %path.display(), "[load_from_yaml] reading from file");
 
-        let reader = std::fs::File::open(path)
-            .with_context(|| format!("Unable to load config from {}", path.display()))?;
+    let reader = std::fs::File::open(path).with_context(|| {
+        format!(
+            "[load_from_yaml] unable to load config from {}",
+            path.display()
+        )
+    })?;
 
-        Ok(serde_yaml::from_reader(reader)?)
-    }
+    Ok(serde_yaml::from_reader(reader)?)
 }
 
 /// Helper functions applied to futures.
@@ -282,7 +283,7 @@ pub struct MetricsAndLoggingRuntime {
     _tracing_handle: TracingHandle,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
-    pub runtime: Runtime,
+    pub runtime: Option<Runtime>,
 }
 
 impl MetricsAndLoggingRuntime {
@@ -311,7 +312,30 @@ impl MetricsAndLoggingRuntime {
         DBMetrics::init(&walrus_registry);
 
         Ok(Self {
-            runtime,
+            runtime: Some(runtime),
+            registry: walrus_registry,
+            _telemetry_guards: telemetry_guards,
+            _tracing_handle: tracing_handle,
+        })
+    }
+    /// Avoid creation of a new runtime.
+    pub fn start_free_running(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
+        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
+        let walrus_registry = registry_service.default_registry();
+
+        // Initialize logging subscriber
+        let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
+            .with_env()
+            .with_prom_registry(&walrus_registry)
+            .with_json()
+            .init();
+
+        // Initialize metrics to track db usage before we create any db instances.
+        DBMetrics::init(&walrus_registry);
+
+        Ok(Self {
+            runtime: None,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,

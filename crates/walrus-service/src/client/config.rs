@@ -26,10 +26,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::{
-    client::error::DecodeError,
-    common::utils::{self, LoadConfig},
-};
+use crate::{client::error::DecodeError, common::utils};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -95,8 +92,6 @@ impl Config {
         &self.communication_config.request_rate_config.backoff_config
     }
 }
-
-impl LoadConfig for Config {}
 
 /// Represents one or more exchange objects to be used for SUI/WAL exchange.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]

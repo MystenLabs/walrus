@@ -16,7 +16,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::common::utils::{self, LoadConfig};
+use crate::common::utils;
 
 /// Sui-specific configuration for Walrus
 #[serde_with::serde_as]
@@ -70,8 +70,6 @@ impl SuiConfig {
     }
 }
 
-impl LoadConfig for SuiConfig {}
-
 impl From<&SuiConfig> for SuiReaderConfig {
     fn from(config: &SuiConfig) -> Self {
         Self {
@@ -117,8 +115,6 @@ impl SuiReaderConfig {
         .await
     }
 }
-
-impl LoadConfig for SuiReaderConfig {}
 
 /// Shared configuration defaults.
 pub mod defaults {

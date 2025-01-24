@@ -3,7 +3,7 @@
 
 //! Walrus client, server, and associated utilities.
 
-#[cfg(feature = "client")]
+#[cfg(any(feature = "client", feature = "backup"))]
 pub mod client;
 
 #[cfg(feature = "node")]

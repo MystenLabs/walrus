@@ -39,10 +39,7 @@ use walrus_sui::types::{
 
 use super::storage::DatabaseConfig;
 use crate::{
-    common::{
-        config::SuiConfig,
-        utils::{self, LoadConfig},
-    },
+    common::{config::SuiConfig, utils},
     node::events::EventProcessorConfig,
 };
 
@@ -317,8 +314,6 @@ pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded PKCS8 certificate private key.
     pub key_path: PathBuf,
 }
-
-impl LoadConfig for StorageNodeConfig {}
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
@@ -638,8 +633,6 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
     /// node.
     pub wallet_address: SuiAddress,
 }
-
-impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
 
 /// Configuration for the REST server.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

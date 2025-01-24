@@ -61,7 +61,7 @@ pub use crate::common::blocklist::Blocklist;
 
 mod communication;
 
-mod config;
+pub(crate) mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 
 mod daemon;
