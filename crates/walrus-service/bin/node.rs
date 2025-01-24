@@ -35,7 +35,7 @@ use walrus_service::{
     common::config::SuiConfig,
     node::{
         config::{self, defaults::REST_API_PORT, StorageNodeConfig},
-        dbtool_commands::DbToolCommands,
+        dbtool::DbToolCommands,
         events::event_processor_runtime::EventProcessorRuntime,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,

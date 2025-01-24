@@ -3,12 +3,14 @@
 
 //! Tools for inspecting and maintaining the RocksDB database.
 
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use bincode::Options;
 use clap::Subcommand;
 use rocksdb::{Options as RocksdbOptions, DB};
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
 use walrus_core::BlobId;
@@ -17,7 +19,8 @@ use super::events::PositionedStreamEvent;
 use crate::node::{
     events::event_processor::EVENT_STORE,
     storage::blob_info::{
-        merge_mergeable,
+        blob_info_cf_options,
+        per_object_blob_info_cf_options,
         BlobInfo,
         PerObjectBlobInfo,
         AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME,
@@ -27,7 +30,8 @@ use crate::node::{
 };
 
 /// Database inspection and maintenance tools.
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[serde_as]
 #[clap(rename_all = "kebab-case")]
 pub enum DbToolCommands {
     /// Repair a corrupted RocksDB database due to non-clean shutdowns.
@@ -56,7 +60,8 @@ pub enum DbToolCommands {
         #[clap(long)]
         db_path: PathBuf,
         /// Blob ID to read.
-        blob_id: String,
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
     },
 
     /// Read object blob info from the RocksDB database.
@@ -65,7 +70,7 @@ pub enum DbToolCommands {
         #[clap(long)]
         db_path: PathBuf,
         /// Object ID to read.
-        object_id: String,
+        object_id: ObjectID,
     },
 }
 
@@ -129,14 +134,8 @@ fn scan_events(db_path: PathBuf, start_event_index: u64, count: u64) -> Result<(
     Ok(())
 }
 
-fn read_blob_info(db_path: PathBuf, blob_id: String) -> Result<()> {
-    let mut blob_info_options = DatabaseConfig::default().blob_info().to_options();
-    blob_info_options.set_merge_operator(
-        "merge blob info",
-        merge_mergeable::<BlobInfo>,
-        |_, _, _| None,
-    );
-
+fn read_blob_info(db_path: PathBuf, blob_id: BlobId) -> Result<()> {
+    let blob_info_options = blob_info_cf_options(&DatabaseConfig::default());
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
@@ -147,9 +146,8 @@ fn read_blob_info(db_path: PathBuf, blob_id: String) -> Result<()> {
     let cf = db
         .cf_handle(AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME)
         .expect("Aggregate blob info column family should exist");
-    let blob_id = BlobId::from_str(&blob_id)?;
-    println!("Reading blob info for Blob ID: {:?}", blob_id);
 
+    println!("Reading blob info for Blob ID: {}", blob_id);
     if let Some(blob_info) = db.get_cf(&cf, &be_fix_int_ser(&blob_id)?)? {
         let blob_info: BlobInfo = bcs::from_bytes(&blob_info)?;
         println!("BlobInfo: {:?}", blob_info);
@@ -160,19 +158,8 @@ fn read_blob_info(db_path: PathBuf, blob_id: String) -> Result<()> {
     Ok(())
 }
 
-fn read_object_blob_info(db_path: PathBuf, object_id: String) -> Result<()> {
-    let per_object_blob_info_options = {
-        let mut options = DatabaseConfig::default()
-            .per_object_blob_info()
-            .to_options();
-        options.set_merge_operator(
-            "merge per object blob info",
-            merge_mergeable::<PerObjectBlobInfo>,
-            |_, _, _| None,
-        );
-        options
-    };
-
+fn read_object_blob_info(db_path: PathBuf, object_id: ObjectID) -> Result<()> {
+    let per_object_blob_info_options = per_object_blob_info_cf_options(&DatabaseConfig::default());
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
@@ -186,7 +173,6 @@ fn read_object_blob_info(db_path: PathBuf, object_id: String) -> Result<()> {
     let cf = db
         .cf_handle(PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME)
         .expect("PerObjectBlobInfo column family should exist");
-    let object_id = ObjectID::from_str(&object_id)?;
     println!("Reading object blob info for Object ID: {:?}", object_id);
 
     if let Some(blob_info) = db.get_cf(&cf, &be_fix_int_ser(&object_id)?)? {

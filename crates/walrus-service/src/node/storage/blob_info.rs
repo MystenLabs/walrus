@@ -39,6 +39,26 @@ pub(super) struct BlobInfoTable {
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
 }
 
+/// Returns the options for the aggregate blob info column family.
+pub(crate) fn blob_info_cf_options(db_config: &DatabaseConfig) -> Options {
+    let mut options = db_config.blob_info().to_options();
+    options.set_merge_operator("merge blob info", merge_mergeable::<BlobInfo>, |_, _, _| {
+        None
+    });
+    options
+}
+
+/// Returns the options for the per object blob info column family.
+pub(crate) fn per_object_blob_info_cf_options(db_config: &DatabaseConfig) -> Options {
+    let mut options = db_config.per_object_blob_info().to_options();
+    options.set_merge_operator(
+        "merge per object blob info",
+        merge_mergeable::<PerObjectBlobInfo>,
+        |_, _, _| None,
+    );
+    options
+}
+
 impl BlobInfoTable {
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
@@ -68,28 +88,14 @@ impl BlobInfoTable {
     }
 
     pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
-        let mut blob_info_options = db_config.blob_info().to_options();
-        blob_info_options.set_merge_operator(
-            "merge blob info",
-            merge_mergeable::<BlobInfo>,
-            |_, _, _| None,
-        );
-
-        let per_object_blob_info_options = {
-            let mut options = db_config.per_object_blob_info().to_options();
-            options.set_merge_operator(
-                "merge per object blob info",
-                merge_mergeable::<PerObjectBlobInfo>,
-                |_, _, _| None,
-            );
-            options
-        };
-
         vec![
-            (AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME, blob_info_options),
+            (
+                AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME,
+                blob_info_cf_options(db_config),
+            ),
             (
                 PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME,
-                per_object_blob_info_options,
+                per_object_blob_info_cf_options(db_config),
             ),
             (
                 EVENT_INDEX_COLUMN_FAMILY_NAME,
