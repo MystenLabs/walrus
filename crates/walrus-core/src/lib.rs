@@ -45,6 +45,7 @@ use inconsistency::{
 use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeAs, DisplayFromStr, SerializeAs};
 #[cfg(feature = "sui-types")]
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
@@ -301,6 +302,8 @@ macro_rules! index_type {
 
 index_type!(
     /// Represents the index of a (primary or secondary) sliver.
+    #[derive(Ord, PartialOrd)]
+    #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
     SliverIndex("sliver")
 );
 
@@ -608,64 +611,92 @@ impl Display for SliverType {
 // Symbols.
 
 /// Identifier of a decoding symbol within the set of decoding symbols of a blob.
-///
-/// Defined as `primary_sliver_index * n_shards + secondary_sliver_index`. Must be less than
-/// the square of the number of shards in the system.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct DecodingSymbolId(pub u64);
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SymbolId {
+    primary: SliverIndex,
+    secondary: SliverIndex,
+}
 
-impl DecodingSymbolId {
-    /// Create a new id from a primary [`SliverIndex`], secondary [`SliverIndex`],
-    /// and the number of shards.
-    ///
-    /// # Panics
-    ///
-    /// Panics if either index is >= the number of shards.
-    pub fn new(primary: SliverIndex, secondary: SliverIndex, n_shards: NonZeroU16) -> Self {
-        assert!(
-            primary < n_shards,
-            "primary index must be less than the number of shards"
-        );
-        assert!(
-            secondary < n_shards,
-            "secondary index must be less than the number of shards"
-        );
-        Self(primary.as_u64() * u64::from(n_shards.get()) + secondary.as_u64())
+impl SymbolId {
+    /// Create a new id from a primary [`SliverIndex`], secondary [`SliverIndex`].
+    pub fn new(primary: SliverIndex, secondary: SliverIndex) -> Self {
+        Self { primary, secondary }
     }
 
-    /// Returns a new symbol ID with the specified value.
-    pub fn from_u64(value: u64) -> Self {
-        Self(value)
+    /// The index of the primary sliver containing the symbol.
+    pub fn primary_sliver_index(&self) -> SliverIndex {
+        self.primary
     }
 
-    /// Returns the pair `(primary_sliver_index, secondary_sliver_index)` that corresponds
-    /// to the decoding symbol.
-    ///
-    /// Returns None if the `DecodingSymbolId` is greater than or equal to `n_shards^2`.
-    pub fn to_sliver_indices(&self, n_shards: NonZeroU16) -> Option<(SliverIndex, SliverIndex)> {
-        let n_shards_u64 = u64::from(n_shards.get());
-        if n_shards_u64 * n_shards_u64 <= self.0 {
-            return None;
-        }
-
-        let primary_index: u16 = (self.0 / n_shards_u64)
-            .try_into()
-            .expect("assertion above guarantees within range");
-        let secondary_index: u16 = (self.0 % n_shards_u64)
-            .try_into()
-            .expect("assertion above guarantees within range");
-
-        Some((
-            SliverIndex::new(primary_index),
-            SliverIndex::new(secondary_index),
-        ))
+    /// The index of the secondary sliver containing the symbol.
+    pub fn secondary_sliver_index(&self) -> SliverIndex {
+        self.secondary
     }
 }
 
-impl Display for DecodingSymbolId {
+impl Display for SymbolId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        core::fmt::Display::fmt(&self.0, f)
+        write!(f, "{}-{}", self.primary, self.secondary)
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for SymbolId {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        alloc::string::String::schema()
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for SymbolId {
+    fn name() -> alloc::borrow::Cow<'static, str> {
+        "SymbolId".into()
+    }
+}
+
+/// Error returned when failing to parse a [`SymbolId`].
+///
+/// The string must be a pair of u16's separated by a hyphen, e.g., 73-241.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("failed to parse a symbol ID from the string")]
+pub struct ParseSymbolIdError;
+
+impl FromStr for SymbolId {
+    type Err = ParseSymbolIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (primary_str, secondary_str) = s.split_once('-').ok_or(ParseSymbolIdError)?;
+        Ok(Self {
+            primary: SliverIndex(primary_str.parse().or(Err(ParseSymbolIdError))?),
+            secondary: SliverIndex(secondary_str.parse().or(Err(ParseSymbolIdError))?),
+        })
+    }
+}
+
+impl Serialize for SymbolId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            <DisplayFromStr as SerializeAs<SymbolId>>::serialize_as(self, serializer)
+        } else {
+            (self.primary, self.secondary).serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SymbolId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            <DisplayFromStr as DeserializeAs<SymbolId>>::deserialize_as(deserializer)
+        } else {
+            let (primary, secondary) = <(SliverIndex, SliverIndex)>::deserialize(deserializer)?;
+            Ok(Self { primary, secondary })
+        }
     }
 }
 
@@ -892,53 +923,27 @@ macro_rules! ensure {
 
 #[cfg(test)]
 mod tests {
-    use walrus_test_utils::param_test;
+    use serde_test::{Configure as _, Token};
 
     use super::*;
 
-    param_test! {
-        decoding_symbol_id_conversion: [
-            zero: (7, DecodingSymbolId(0), 0, 0),
-            eighteen: (7, DecodingSymbolId(18), 2, 4),
-            forty_one: (7, DecodingSymbolId(41), 5, 6),
-            last: (7, DecodingSymbolId(48), 6, 6),
-        ]
-    }
-    fn decoding_symbol_id_conversion(
-        n_shards: u16,
-        id: DecodingSymbolId,
-        primary_sliver_index: u16,
-        secondary_sliver_index: u16,
-    ) {
-        let n_shards = NonZeroU16::new(n_shards).unwrap();
-        let (primary_index, secondary_index) =
-            id.to_sliver_indices(n_shards).expect("valid shards");
-
-        assert_eq!(primary_index.get(), primary_sliver_index);
-        assert_eq!(secondary_index.get(), secondary_sliver_index);
-    }
-
-    param_test! {
-        decoding_symbol_new: [
-            zero: (7, DecodingSymbolId(0), 0, 0),
-            eighteen: (7, DecodingSymbolId(18), 2, 4),
-            forty_one: (7, DecodingSymbolId(41), 5, 6),
-            last: (7, DecodingSymbolId(48), 6, 6),
-        ]
-    }
-    fn decoding_symbol_new(
-        n_shards: u16,
-        id: DecodingSymbolId,
-        primary_sliver_index: u16,
-        secondary_sliver_index: u16,
-    ) {
-        let n_shards = NonZeroU16::new(n_shards).unwrap();
-        let primary_sliver_index = SliverIndex::new(primary_sliver_index);
-        let secondary_sliver_index = SliverIndex::new(secondary_sliver_index);
-
-        assert_eq!(
-            id,
-            DecodingSymbolId::new(primary_sliver_index, secondary_sliver_index, n_shards)
+    #[test]
+    fn symbol_id_serde_compact() {
+        let symbol_id = SymbolId::new(17.into(), 21.into());
+        serde_test::assert_tokens(
+            &symbol_id.compact(),
+            &[
+                Token::Tuple { len: 2 },
+                Token::U16(17),
+                Token::U16(21),
+                Token::TupleEnd,
+            ],
         );
+    }
+
+    #[test]
+    fn symbol_id_serde_human_readable() {
+        let symbol_id = SymbolId::new(17.into(), 21.into());
+        serde_test::assert_tokens(&symbol_id.readable(), &[Token::String("17-21")]);
     }
 }

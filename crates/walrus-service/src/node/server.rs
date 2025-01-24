@@ -398,7 +398,7 @@ mod tests {
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        encoding::{EncodingAxis, Primary, Secondary},
+        encoding::{EncodingAxis, GeneralRecoverySymbol, Primary, Secondary},
         inconsistency::{
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
@@ -415,7 +415,6 @@ mod tests {
         },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
-        DecodingSymbolId,
         InconsistencyProof,
         PublicKey,
         RecoverySymbol,
@@ -423,6 +422,7 @@ mod tests {
         SliverIndex,
         SliverPairIndex,
         SliverType,
+        SymbolId,
     };
     use walrus_sdk::{
         api::{
@@ -507,14 +507,30 @@ mod tests {
         fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
-            symbol_id: DecodingSymbolId,
+            symbol_id: SymbolId,
             _sliver_type: Option<SliverType>,
-        ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
-            if symbol_id == DecodingSymbolId::from_u64(0) {
+        ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
+            if symbol_id == SymbolId::new(0.into(), 0.into()) {
                 if let Some(SliverType::Secondary) = _sliver_type {
-                    Ok(walrus_core::test_utils::recovery_symbol())
+                    let RecoverySymbol::Secondary(symbol) =
+                        walrus_core::test_utils::recovery_symbol()
+                    else {
+                        panic!("util method must return secondary recovery symbol");
+                    };
+                    Ok(GeneralRecoverySymbol::from_recovery_symbol(
+                        symbol,
+                        SliverIndex(0),
+                    ))
                 } else {
-                    Ok(walrus_core::test_utils::primary_recovery_symbol())
+                    let RecoverySymbol::Secondary(symbol) =
+                        walrus_core::test_utils::primary_recovery_symbol()
+                    else {
+                        panic!("util method must return primary recovery symbol");
+                    };
+                    Ok(GeneralRecoverySymbol::from_recovery_symbol(
+                        symbol,
+                        SliverIndex(0),
+                    ))
                 }
             } else {
                 Err(RetrieveSliverError::Unavailable.into())

@@ -21,12 +21,12 @@ use walrus_core::{
     },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     BlobId,
-    DecodingSymbolId,
     InconsistencyProof,
     RecoverySymbol,
     Sliver,
     SliverPairIndex,
     SliverType,
+    SymbolId,
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 use walrus_sui::ObjectIdSchema;
@@ -423,9 +423,10 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
             )
         }
     };
-    let symbol_id = DecodingSymbolId::new(primary_index, secondary_index, n_shards);
-
-    let symbol = state.retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))?;
+    let symbol_id = SymbolId::new(primary_index, secondary_index);
+    let symbol = state
+        .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))?
+        .into();
 
     match symbol {
         RecoverySymbol::Primary(inner) => Ok(Bcs(inner).into_response()),
@@ -451,8 +452,8 @@ fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), Index
 ))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(RECOVERY_SYMBOL_ENDPOINT),
-    params(("blob_id" = BlobId,), ("symbol_id" = DecodingSymbolId, ),),
+    path = RECOVERY_SYMBOL_ENDPOINT,
+    params(("blob_id" = BlobId,), ("symbol_id" = SymbolId, ),),
     responses(
         (status = 200, description = "BCS-encoded primary/secondary recovery symbol", body = [u8]),
         RetrieveSymbolError,
@@ -461,7 +462,7 @@ fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), Index
 )]
 pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
     State(state): State<Arc<S>>,
-    Path((blob_id, symbol_id)): Path<(BlobIdString, DecodingSymbolId)>,
+    Path((blob_id, symbol_id)): Path<(BlobIdString, SymbolId)>,
 ) -> Result<Response, RetrieveSymbolError> {
     let symbol = state.retrieve_recovery_symbol(&blob_id.0, symbol_id, None)?;
 

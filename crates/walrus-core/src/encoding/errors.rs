@@ -140,4 +140,7 @@ pub enum SymbolVerificationError {
     /// The provided metadata is itself invalid.
     #[error("the metadata is invalid")]
     InvalidMetadata,
+    /// The recovery symbol cannot be used to recover the identified sliver.
+    #[error("the symbol cannot be used to recovery the identified sliver")]
+    SymbolNotUsable,
 }

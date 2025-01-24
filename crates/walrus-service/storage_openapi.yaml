@@ -410,6 +410,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+      deprecated: true
   /v1/blobs/{blob_id}/status:
     get:
       tags:

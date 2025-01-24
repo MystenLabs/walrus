@@ -34,10 +34,16 @@ use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbolError, Secondary},
+    encoding::{
+        EncodingAxis,
+        EncodingConfig,
+        GeneralRecoverySymbol,
+        Primary,
+        RecoverySymbolError,
+        Secondary,
+    },
     ensure,
     keys::ProtocolKeyPair,
-    merkle::MerkleProof,
     messages::{
         BlobPersistenceType,
         Confirmation,
@@ -56,15 +62,14 @@ use walrus_core::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    DecodingSymbolId,
     Epoch,
     InconsistencyProof,
     PublicKey,
-    RecoverySymbol,
     ShardIndex,
     Sliver,
     SliverPairIndex,
     SliverType,
+    SymbolId,
 };
 use walrus_sdk::api::{
     BlobStatus,
@@ -209,9 +214,9 @@ pub trait ServiceState {
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        symbol_id: DecodingSymbolId,
+        symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
-    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError>;
+    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError>;
 
     /// Retrieves the blob status for the given `blob_id`.
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
@@ -1508,12 +1513,17 @@ impl StorageNodeInner {
         self.committee_service.get_epoch()
     }
 
-    fn check_index(&self, index: SliverPairIndex) -> Result<(), IndexOutOfRange> {
-        if index.get() < self.n_shards().get() {
+    fn check_index<T>(&self, index: T) -> Result<(), IndexOutOfRange>
+    where
+        T: Into<u16>,
+    {
+        let index: u16 = index.into();
+
+        if index < self.n_shards().get() {
             Ok(())
         } else {
             Err(IndexOutOfRange {
-                index: index.get(),
+                index,
                 max: self.n_shards().get(),
             })
         }
@@ -1692,28 +1702,45 @@ impl StorageNodeInner {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-        sliver_type: SliverType,
+        target_sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
-    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
-        let sliver = self.retrieve_sliver(blob_id, sliver_pair_index, sliver_type.orthogonal())?;
-
-        let symbol_result = match sliver {
-            Sliver::Primary(inner) => inner
-                .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
-                .map(RecoverySymbol::Secondary),
-            Sliver::Secondary(inner) => inner
-                .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
-                .map(RecoverySymbol::Primary),
-        };
-
-        symbol_result.map_err(|error| match error {
+    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
+        let sliver =
+            self.retrieve_sliver(blob_id, sliver_pair_index, target_sliver_type.orthogonal())?;
+        let n_shards = self.n_shards();
+        let convert_error = |error| match error {
             RecoverySymbolError::IndexTooLarge => {
                 panic!("index validity must be checked above")
             }
             RecoverySymbolError::EncodeError(error) => {
                 RetrieveSymbolError::Internal(anyhow!(error))
             }
-        })
+        };
+
+        match sliver {
+            Sliver::Primary(inner) => {
+                let target_index = target_pair_index.to_sliver_index::<Secondary>(n_shards);
+                let recovery_symbol = inner
+                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                    .map_err(convert_error)?;
+
+                Ok(GeneralRecoverySymbol::from_recovery_symbol(
+                    recovery_symbol,
+                    target_index,
+                ))
+            }
+            Sliver::Secondary(inner) => {
+                let target_index = target_pair_index.to_sliver_index::<Primary>(n_shards);
+                let recovery_symbol = inner
+                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                    .map_err(convert_error)?;
+
+                Ok(GeneralRecoverySymbol::from_recovery_symbol(
+                    recovery_symbol,
+                    target_index,
+                ))
+            }
+        }
     }
 }
 
@@ -1815,9 +1842,9 @@ impl ServiceState for StorageNode {
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        symbol_id: DecodingSymbolId,
+        symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
-    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
+    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
         self.inner
             .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
     }
@@ -2023,18 +2050,18 @@ impl ServiceState for StorageNodeInner {
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
-        symbol_id: DecodingSymbolId,
+        symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
-    ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
+    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
         tracing::error!("at the start of the method call");
         let n_shards = self.n_shards();
-        let Some((primary_index, secondary_index)) = symbol_id.to_sliver_indices(n_shards) else {
-            return Err(RetrieveSymbolError::InvalidRecoverySymbolId {
-                index: symbol_id,
-                max: u64::from(n_shards.get()) * u64::from(n_shards.get()),
-            });
-        };
+
+        let primary_index = symbol_id.primary_sliver_index();
+        self.check_index(primary_index)?;
         let primary_pair_index = primary_index.to_pair_index::<Primary>(n_shards);
+
+        let secondary_index = symbol_id.secondary_sliver_index();
+        self.check_index(secondary_index)?;
         let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
 
         let owned_shards = self.owned_shards();
