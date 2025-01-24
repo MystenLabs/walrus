@@ -412,35 +412,47 @@ impl ClientCommandRunner {
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let max_epochs_ahead = system_object.max_epochs_ahead();
 
-        let epochs_ahead = if let Some(epochs) = epoch_arg.epochs {
-            epochs.try_into_epoch_count(max_epochs_ahead)?
-        } else if let Some(earliest_expiry_time) = epoch_arg.earliest_expiry_time {
-            let staking_object = client.sui_client().read_client.get_staking_object().await?;
-            let epoch_state = staking_object.epoch_state();
-            let estimated_start_of_current_epoch = match epoch_state {
-                EpochState::EpochChangeDone(epoch_start)
-                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
-                EpochState::EpochChangeSync(_) => Utc::now(),
-            };
-            let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
-            ensure!(
-                earliest_expiry_ts > estimated_start_of_current_epoch
-                    && earliest_expiry_ts > Utc::now(),
-                "earliest_expiry_time must be greater than the current epoch start time
+        let epochs_ahead = match epoch_arg {
+            EpochArg {
+                epochs: Some(epochs),
+                ..
+            } => epochs.try_into_epoch_count(max_epochs_ahead)?,
+            EpochArg {
+                earliest_expiry_time: Some(earliest_expiry_time),
+                ..
+            } => {
+                let staking_object = client.sui_client().read_client.get_staking_object().await?;
+                let epoch_state = staking_object.epoch_state();
+                let estimated_start_of_current_epoch = match epoch_state {
+                    EpochState::EpochChangeDone(epoch_start)
+                    | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
+                    EpochState::EpochChangeSync(_) => Utc::now(),
+                };
+                let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
+                ensure!(
+                    earliest_expiry_ts > estimated_start_of_current_epoch
+                        && earliest_expiry_ts > Utc::now(),
+                    "earliest_expiry_time must be greater than the current epoch start time
                 and the current time"
-            );
-            let delta =
-                (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
-            (delta / staking_object.epoch_duration() + 1) as u32
-        } else if let Some(end_epoch) = epoch_arg.end_epoch {
-            let current_epoch = client.sui_client().current_epoch().await?;
-            ensure!(
-                end_epoch > current_epoch,
-                "end_epoch must be greater than the current epoch"
-            );
-            (end_epoch - current_epoch) as u32
-        } else {
-            anyhow::bail!("either epochs or earliest_expiry_time must be provided");
+                );
+                let delta = (earliest_expiry_ts - estimated_start_of_current_epoch)
+                    .num_milliseconds() as u64;
+                (delta / staking_object.epoch_duration() + 1) as u32
+            }
+            EpochArg {
+                end_epoch: Some(end_epoch),
+                ..
+            } => {
+                let current_epoch = client.sui_client().current_epoch().await?;
+                ensure!(
+                    end_epoch > current_epoch,
+                    "end_epoch must be greater than the current epoch"
+                );
+                end_epoch - current_epoch
+            }
+            _ => {
+                anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")
+            }
         };
 
         // Check that the number of epochs is lower than the number of epochs the blob can be stored
