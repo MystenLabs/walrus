@@ -105,6 +105,8 @@ jobs:
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
+    env:
+      RUST_LOG: warn
     steps:
       - uses: taiki-e/install-action@v2.47.18
         with:

@@ -81,9 +81,8 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
 pub(crate) async fn publish_package_with_default_build_config(
     wallet: &mut WalletContext,
     package_path: PathBuf,
-    gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
-    publish_package(wallet, package_path, Default::default(), gas_budget).await
+    publish_package(wallet, package_path, Default::default(), None).await
 }
 
 #[tracing::instrument(err, skip(wallet))]
@@ -269,12 +268,9 @@ pub async fn publish_coin_and_system_package(
     };
 
     // Publish `wal` package.
-    let transaction_response = publish_package_with_default_build_config(
-        wallet,
-        walrus_contract_directory.join("wal"),
-        None,
-    )
-    .await?;
+    let transaction_response =
+        publish_package_with_default_build_config(wallet, walrus_contract_directory.join("wal"))
+            .await?;
     let wal_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
     let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
 
@@ -292,7 +288,6 @@ pub async fn publish_coin_and_system_package(
         let transaction_response = publish_package_with_default_build_config(
             wallet,
             walrus_contract_directory.join("wal_exchange"),
-            None,
         )
         .await?;
         Some(get_pkg_id_from_tx_response(&transaction_response)?)
@@ -301,12 +296,9 @@ pub async fn publish_coin_and_system_package(
     };
 
     // Publish `walrus` package.
-    let transaction_response = publish_package_with_default_build_config(
-        wallet,
-        walrus_contract_directory.join("walrus"),
-        None,
-    )
-    .await?;
+    let transaction_response =
+        publish_package_with_default_build_config(wallet, walrus_contract_directory.join("walrus"))
+            .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
     let [init_cap_id] = get_created_sui_object_ids_by_type(
