@@ -510,16 +510,10 @@ async fn test_automatic_wal_coin_squashing(
     let client_2_address = client_2.as_ref().address();
 
     // Fund the wallet with two separate WAL coins.
-    let wallet = client_1.as_ref().wallet().await;
-    let mut tx_builder = client_1.as_ref().transaction_builder();
-    for _ in 0..n_source_coins {
-        tx_builder.pay_wal(client_2_address, source_amount).await?;
-    }
     client_1
         .as_ref()
-        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0)
+        .multiple_pay_wal(client_2_address, source_amount, n_source_coins)
         .await?;
-    drop(wallet);
 
     // Get the number of coins owned by the first wallet to check later that we received exactly
     // `n_target_coins` coins.
@@ -557,14 +551,9 @@ async fn test_automatic_wal_coin_squashing(
 
     // Now send the full amount back in `n_target_coins` coins payments, which should trigger the
     // squashing.
-    let wallet = client_2.as_ref().wallet().await;
-    let mut tx_builder = client_2.as_ref().transaction_builder();
-    for _ in 0..n_target_coins {
-        tx_builder.pay_wal(client_1_address, target_amount).await?;
-    }
     client_2
         .as_ref()
-        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0)
+        .multiple_pay_wal(client_1_address, target_amount, n_target_coins)
         .await?;
 
     // Check that the second wallet has no WAL coins left.

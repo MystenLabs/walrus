@@ -480,7 +480,7 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     };
 
     let contract_client = node_wallet_config.new_contract_client().await?;
-    let address = contract_client.wallet().await.active_address()?;
+    let address = contract_client.address();
 
     let node_cap = contract_client
         .read_client
