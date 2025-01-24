@@ -7121,12 +7121,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "querystr"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a08e2b842d3aaf98316ed56c8dffdd2046d596404a956ef43094f6355c9f1d3"
-
-[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11725,7 +11719,6 @@ dependencies = [
  "pin-project",
  "prettytable",
  "prometheus",
- "querystr",
  "rand 0.8.5",
  "rcgen",
  "regex",

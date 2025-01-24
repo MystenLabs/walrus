@@ -104,7 +104,6 @@ p256.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
-querystr = "1.1.1"
 rand.workspace = true
 rcgen.workspace = true
 regex.workspace = true
