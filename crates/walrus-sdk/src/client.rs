@@ -361,6 +361,7 @@ impl ClientBuilder {
             .inner
             .https_only(true)
             .http2_prior_knowledge()
+            .http2_adaptive_window(true)
             .use_preconfigured_tls(rustls_config)
             .connect_timeout(
                 self.connect_timeout

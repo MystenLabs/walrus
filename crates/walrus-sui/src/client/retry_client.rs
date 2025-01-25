@@ -12,6 +12,9 @@ use rand::{
     Rng as _,
 };
 use serde::{de::DeserializeOwned, Serialize};
+#[cfg(msim)]
+use sui_macros::fail_point_if;
+use sui_rpc_api::{CheckpointData, Client as RpcClient};
 use sui_sdk::{
     apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
@@ -19,20 +22,30 @@ use sui_sdk::{
         Balance,
         Coin,
         ObjectsPage,
+        SuiCommittee,
         SuiMoveNormalizedModule,
         SuiMoveNormalizedType,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiObjectResponseQuery,
         SuiRawData,
+        SuiTransactionBlockResponse,
+        SuiTransactionBlockResponseOptions,
     },
     wallet_context::WalletContext,
     SuiClient,
     SuiClientBuilder,
 };
+#[cfg(msim)]
+use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
-    base_types::{ObjectID, SuiAddress},
+    base_types::{ObjectID, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
+    messages_checkpoint::CertifiedCheckpointSummary,
+    object::Object,
+    quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
+    sui_serde::BigInt,
+    transaction::Transaction,
     TypeTag,
 };
 use tracing::Level;
@@ -88,6 +101,12 @@ impl RetriableRpcError for SuiClientError {
             SuiClientError::Internal(error) => error.is_retriable_rpc_error(),
             _ => false,
         }
+    }
+}
+
+impl RetriableRpcError for tonic::Status {
+    fn is_retriable_rpc_error(&self) -> bool {
+        RETRIABLE_RPC_ERRORS.contains(&self.code().to_string().as_str())
     }
 }
 
@@ -256,6 +275,23 @@ impl RetriableSuiClient {
         .await
     }
 
+    /// Returns a [`SuiTransactionBlockResponse`] based on the provided [`TransactionDigest`].
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_transaction_with_options`] internally.
+    pub async fn get_transaction_with_options(
+        &self,
+        digest: TransactionDigest,
+        options: SuiTransactionBlockResponseOptions,
+    ) -> SuiRpcResult<SuiTransactionBlockResponse> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client
+                .read_api()
+                .get_transaction_with_options(digest, options.clone())
+                .await
+        })
+        .await
+    }
+
     /// Return a list of [SuiObjectResponse] from the given vector of [ObjectID]s.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
@@ -286,6 +322,22 @@ impl RetriableSuiClient {
             self.sui_client
                 .read_api()
                 .get_normalized_move_modules_by_package(package_id)
+                .await
+        })
+        .await
+    }
+
+    /// Returns the committee information for the given epoch.
+    ///
+    /// Calls [`sui_sdk::apis::GovernanceApi::get_committee_info`] internally.
+    pub async fn get_committee_info(
+        &self,
+        epoch: Option<BigInt<u64>>,
+    ) -> SuiRpcResult<SuiCommittee> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client
+                .governance_api()
+                .get_committee_info(epoch)
                 .await
         })
         .await
@@ -520,8 +572,149 @@ impl RetriableSuiClient {
         Ok(wal_type)
     }
 
+    /// Executes a transaction.
+    #[tracing::instrument(err, skip(self))]
+    pub(crate) async fn execute_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> anyhow::Result<SuiTransactionBlockResponse> {
+        // Retry here must use the exact same transaction to avoid locked objects.
+        retry_rpc_errors(self.get_strategy(), || async {
+            #[cfg(msim)]
+            {
+                maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+            }
+            Ok(self
+                .sui_client
+                .quorum_driver_api()
+                .execute_transaction_block(
+                    transaction.clone(),
+                    SuiTransactionBlockResponseOptions::new()
+                        .with_effects()
+                        .with_input()
+                        .with_events()
+                        .with_object_changes()
+                        .with_balance_changes(),
+                    Some(WaitForLocalExecution),
+                )
+                .await?)
+        })
+        .await
+    }
+
     /// Gets a backoff strategy, seeded from the internal RNG.
     fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
         self.backoff_config.get_strategy(ThreadRng::default().gen())
     }
+}
+
+/// A [`sui_rpc_api::Client`] that retries RPC calls with backoff in case of network errors.
+/// RpcClient is used primarily for retrieving checkpoint data from the Sui RPC server while
+/// SuiClient is used for all other RPC calls.
+#[derive(Clone)]
+pub struct RetriableRpcClient {
+    client: RpcClient,
+    backoff_config: ExponentialBackoffConfig,
+}
+
+impl std::fmt::Debug for RetriableRpcClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RetriableRpcClient")
+            .field("backoff_config", &self.backoff_config)
+            // Skip detailed client debug info since it's not typically useful
+            .field("client", &"RpcClient")
+            .finish()
+    }
+}
+
+impl RetriableRpcClient {
+    /// Creates a new retriable client.
+    pub fn new(client: RpcClient, backoff_config: ExponentialBackoffConfig) -> Self {
+        Self {
+            client,
+            backoff_config,
+        }
+    }
+
+    /// Gets a backoff strategy, seeded from the internal RNG.
+    fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
+        self.backoff_config.get_strategy(ThreadRng::default().gen())
+    }
+
+    /// Gets the full checkpoint data for the given sequence number.
+    pub async fn get_full_checkpoint(
+        &self,
+        sequence: u64,
+    ) -> Result<CheckpointData, tonic::Status> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.client.get_full_checkpoint(sequence).await
+        })
+        .await
+    }
+
+    /// Gets the checkpoint summary for the given sequence number.
+    pub async fn get_checkpoint_summary(
+        &self,
+        sequence: u64,
+    ) -> Result<CertifiedCheckpointSummary, tonic::Status> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.client.get_checkpoint_summary(sequence).await
+        })
+        .await
+    }
+
+    /// Gets the latest checkpoint sequence number.
+    pub async fn get_latest_checkpoint(&self) -> Result<CertifiedCheckpointSummary, tonic::Status> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.client.get_latest_checkpoint().await
+        })
+        .await
+    }
+
+    /// Gets the object with the given ID.
+    pub async fn get_object(&self, id: ObjectID) -> Result<Object, tonic::Status> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.client.get_object(id).await
+        })
+        .await
+    }
+}
+
+/// Injects a simulated error for testing retry behavior executing sui transactions.
+/// We use stake_with_pool as an example here to incorporate with the test logic in
+/// `test_ptb_executor_retriable_error` in `test_client.rs`.
+#[cfg(msim)]
+fn maybe_return_injected_error_in_stake_pool_transaction(
+    transaction: &Transaction,
+) -> anyhow::Result<()> {
+    // Check if this transaction contains a stake_with_pool operation
+    let is_stake_pool_tx = transaction
+        .transaction_data()
+        .move_calls()
+        .iter()
+        .any(|(_, _, function_name)| *function_name == contracts::staking::stake_with_pool.name);
+
+    // Early return if this isn't a stake pool transaction
+    if !is_stake_pool_tx {
+        return Ok(());
+    }
+
+    // Check if we should inject an error via the fail point
+    let mut should_inject_error = false;
+    fail_point_if!("ptb_executor_stake_pool_retriable_error", || {
+        should_inject_error = true;
+    });
+
+    if should_inject_error {
+        tracing::warn!("Injecting a retriable RPC error for stake pool transaction");
+
+        // Simulate a retriable RPC error (502 Bad Gateway)
+        Err(sui_sdk::error::Error::RpcError(
+            jsonrpsee::core::ClientError::Custom(
+                "Server returned an error status code: 502".into(),
+            ),
+        ))?;
+    }
+
+    Ok(())
 }

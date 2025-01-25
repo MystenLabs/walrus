@@ -185,7 +185,7 @@ r_{6,0} & r_{6,1} & r_{6,2} & r_{6,3} & r_{6,4} & \textcolor{blue}{r_{6,5}} & \t
 $$
 
 Note again that these symbols do not need to be stored on any node because they can always be recomputed by expanding either a primary or secondary
-symbol. E.g, $r_{4,5}` can be obtained by:
+symbol. E.g, $r_{4,5}$ can be obtained by:
 
 - the secondary-encoding expansion of the 4th primary sliver: $[r_{4,0}, r_{4,1}, r_{4,2}, r_{4,3}, r_{4,4}, \textcolor{blue}{r_{4,5}}, r_{4,6}]$; or
 - the primary-encoding expansion of the 5th secondary sliver: $[r_{0,5}, r_{1,5}, r_{2,5}, r_{3,5}, \textcolor{blue}{r_{4,5}}, r_{5,5}, r_{6,5}]$.

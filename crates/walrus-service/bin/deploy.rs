@@ -130,6 +130,9 @@ struct DeploySystemContractArgs {
     /// the `Move.toml` to point to the new contracts.
     #[arg(long, action)]
     do_not_copy_contracts: bool,
+    /// If set, creates a WAL exchange.
+    #[arg(long, action)]
+    with_wal_exchange: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -286,6 +289,7 @@ mod commands {
             max_epochs_ahead,
             admin_wallet_path,
             do_not_copy_contracts,
+            with_wal_exchange,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -315,6 +319,7 @@ mod commands {
             max_epochs_ahead,
             admin_wallet_path,
             do_not_copy_contracts,
+            with_wal_exchange,
         })
         .await
         .context("Failed to deploy system contract")?;
@@ -370,7 +375,7 @@ mod commands {
             testbed_config.sui_network.clone(),
             set_config_dir.as_deref(),
             &mut admin_wallet,
-            testbed_config.exchange_object,
+            testbed_config.exchange_object.into_iter().collect(),
         )
         .await?;
 

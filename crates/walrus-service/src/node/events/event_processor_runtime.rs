@@ -13,11 +13,13 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::node::{
-    config::SuiConfig,
-    events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-    system_events::{EventManager, SuiSystemEventProvider},
-    EventProcessorConfig,
+use crate::{
+    common::config::SuiReaderConfig,
+    node::{
+        events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
+        system_events::{EventManager, SuiSystemEventProvider},
+        EventProcessorConfig,
+    },
 };
 
 /// Event processor runtime.
@@ -30,20 +32,23 @@ pub struct EventProcessorRuntime {
 
 impl EventProcessorRuntime {
     async fn build_event_processor(
-        sui_config: SuiConfig,
+        sui_reader_config: &SuiReaderConfig,
         event_processor_config: &EventProcessorConfig,
         db_path: &Path,
         metrics_registry: &Registry,
     ) -> anyhow::Result<Arc<EventProcessor>> {
         let runtime_config = EventProcessorRuntimeConfig {
-            rpc_address: sui_config.rpc.clone(),
-            event_polling_interval: sui_config.event_polling_interval,
+            rpc_address: sui_reader_config.rpc.clone(),
+            event_polling_interval: sui_reader_config.event_polling_interval,
             db_path: db_path.join("events"),
         };
         let system_config = SystemConfig {
-            system_pkg_id: sui_config.new_read_client().await?.get_system_package_id(),
-            system_object_id: sui_config.contract_config.system_object,
-            staking_object_id: sui_config.contract_config.staking_object,
+            system_pkg_id: sui_reader_config
+                .new_read_client()
+                .await?
+                .get_system_package_id(),
+            system_object_id: sui_reader_config.contract_config.system_object,
+            staking_object_id: sui_reader_config.contract_config.staking_object,
         };
         Ok(Arc::new(
             EventProcessor::new(
@@ -58,7 +63,7 @@ impl EventProcessorRuntime {
 
     /// Starts the event processor runtime.
     pub fn start(
-        sui_config: SuiConfig,
+        sui_config: SuiReaderConfig,
         event_processor_config: EventProcessorConfig,
         use_legacy_event_provider: bool,
         db_path: &Path,
@@ -86,7 +91,7 @@ impl EventProcessorRuntime {
             } else {
                 let event_processor = runtime.block_on(async {
                     Self::build_event_processor(
-                        sui_config.clone(),
+                        &sui_config,
                         &event_processor_config,
                         db_path,
                         metrics_registry,

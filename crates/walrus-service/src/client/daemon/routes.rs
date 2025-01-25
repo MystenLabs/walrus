@@ -25,15 +25,15 @@ use serde::Deserialize;
 use sui_types::base_types::SuiAddress;
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::EpochCount;
+use walrus_core::{BlobId, EpochCount};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
-use walrus_sui::client::BlobPersistence;
+use walrus_sui::{client::BlobPersistence, SuiAddressSchema};
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
     client::{daemon::PostStoreAction, BlobStoreResult, ClientError, ClientErrorKind, StoreWhen},
-    common::api::{self, BlobIdString, RestApiError},
+    common::api::{Binary, BlobIdString, RestApiError},
 };
 
 /// The status endpoint, which always returns a 200 status when it is available.
@@ -41,7 +41,7 @@ pub const STATUS_ENDPOINT: &str = "/status";
 /// OpenAPI documentation endpoint.
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
-pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/:blobId";
+pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 
@@ -51,7 +51,7 @@ pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_id))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(BLOB_GET_ENDPOINT),
+    path = BLOB_GET_ENDPOINT,
     params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "The blob was reconstructed successfully", body = [u8]),
@@ -149,8 +149,11 @@ impl From<ClientError> for GetBlobError {
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
 #[utoipa::path(
     put,
-    path = api::rewrite_route(BLOB_PUT_ENDPOINT),
-    request_body(content = [u8], description = "Unencoded blob"),
+    path = BLOB_PUT_ENDPOINT,
+    request_body(
+        content = Binary,
+        content_type = "application/octet-stream",
+        description = "Binary data of the unencoded blob to be stored."),
     params(PublisherQuery),
     responses(
         (status = 200, description = "The blob was stored successfully", body = BlobStoreResult),
@@ -251,7 +254,7 @@ pub(super) async fn store_blob_options() -> impl IntoResponse {
 #[tracing::instrument(level = Level::ERROR, skip_all)]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(STATUS_ENDPOINT),
+    path = STATUS_ENDPOINT,
     responses(
         (status = 200, description = "The service is running"),
     ),
@@ -273,6 +276,7 @@ pub(super) struct PublisherQuery {
     #[serde(default)]
     /// If specified, the publisher will send the Blob object resulting from the store operation to
     /// this Sui address.
+    #[param(value_type = Option<SuiAddressSchema>)]
     send_object_to: Option<SuiAddress>,
 }
 

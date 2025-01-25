@@ -7,21 +7,23 @@ use std::{
     net::SocketAddr,
     num::{NonZeroU16, NonZeroU32},
     path::PathBuf,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{anyhow, Result};
 use clap::{Args, Parser, Subcommand};
+use jsonwebtoken::Algorithm;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, ensure, BlobId, EpochCount};
+use walrus_core::{encoding::EncodingConfig, ensure, BlobId, Epoch, EpochCount};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, SuiContractClient},
     utils::SuiNetwork,
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
+use crate::client::config::AuthConfig;
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -172,13 +174,12 @@ pub enum CliCommands {
         #[clap(required = true, value_name = "FILES")]
         #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
-        /// The number of epochs ahead for which to store the blob.
+        /// The epoch argument to specify either the number of epochs to store the blob, or the
+        /// end epoch, or the earliest expiry time in rfc3339 format.
         ///
-        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
-        /// system object on chain. Otherwise, the blob is stored for the specified number of
-        /// epochs. The number of epochs must be greater than 0.
-        #[clap(short, long, value_parser = EpochCountOrMax::parse_epoch_count)]
-        epochs: EpochCountOrMax,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
         /// Perform a dry-run of the store without performing any actions on chain.
         ///
         /// This assumes `--force`; i.e., it does not check the current status of the blob.
@@ -264,6 +265,22 @@ pub enum CliCommands {
         /// The specific info command to run.
         #[command(subcommand)]
         command: Option<InfoCommands>,
+    },
+    /// Print health information for the storage node.
+    /// Only one of `--node_id`, `--node_url`, `--committee`, or `--active_set` can be specified.
+    Health {
+        /// The URL of the Sui RPC node to use.
+        #[clap(flatten)]
+        #[serde(flatten)]
+        rpc_arg: RpcArg,
+        /// The node selector for the storage node to print health information for.
+        #[clap(flatten)]
+        #[serde(flatten)]
+        node_selection: NodeSelection,
+        /// Print detailed health information.
+        #[clap(long, action)]
+        #[serde(default)]
+        detail: bool,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -401,12 +418,17 @@ pub enum CliCommands {
         #[clap(long)]
         amount: u64,
     },
-    /// Extend a shared blob.
+    /// Extend an owned or shared blob.
     Extend {
-        /// The object ID of the shared blob to extend.
+        /// The object ID of the blob to extend.
         #[clap(long)]
-        shared_blob_obj_id: ObjectID,
-        /// The number of epochs to extend the shared blob for.
+        blob_obj_id: ObjectID,
+
+        /// If the blob_obj_id refers to a shared blob object, this flag must be present.
+        #[clap(long)]
+        shared: bool,
+
+        /// The number of epochs to extend the blob for.
         ///
         /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
         /// system object on chain. Otherwise, the blob is stored for the specified number of
@@ -555,6 +577,37 @@ pub struct PublisherArgs {
     #[clap(long, action)]
     #[serde(default)]
     pub keep: bool,
+    /// If set, the publisher will verify the JWT token.
+    ///
+    /// If not specified, the verification is disabled.
+    /// This is useful, e.g., in case the API Gateway has already checked the token.
+    /// The secret can be hex string, starting with `0x`.
+    #[clap(long)]
+    #[serde(default)]
+    pub jwt_decode_secret: Option<String>,
+    /// If unset, the JWT authentication algorithm will be HMAC.
+    ///
+    /// The following algorithms are supported: "HS256", "HS384", "HS512", "ES256", "ES384",
+    /// "RS256", "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA".
+    #[clap(long)]
+    #[serde(default)]
+    pub jwt_algorithm: Option<Algorithm>,
+    /// If set and greater than 0, the publisher will check if the JWT token is expired based on
+    /// the "issued at" (`iat`) value.
+    #[clap(long, default_value_t = 0)]
+    #[serde(default)]
+    pub jwt_expiring_sec: u64,
+    /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
+    ///
+    /// Specifically, the publisher will:
+    /// - Verify that the number of `epochs` in query is the the same as `epochs` in the JWT, if
+    ///   present;
+    /// - Verify that the `send_object_to` field in the query is the same as the `send_object_to`
+    ///   in the JWT, if present;
+    // TODO: /// - Verify the size/hash of uploaded file
+    #[clap(long, action)]
+    #[serde(default)]
+    pub jwt_verify_upload: bool,
 }
 
 impl PublisherArgs {
@@ -579,6 +632,24 @@ impl PublisherArgs {
             max_body_size = self.format_max_body_size(),
             message
         );
+    }
+
+    pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
+        if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
+            let mut config = self
+                .jwt_decode_secret
+                .take()
+                .map(AuthConfig::new)
+                .unwrap_or(Ok(AuthConfig::default()))?;
+            config.expiring_sec = self.jwt_expiring_sec;
+            config.verify_upload = self.jwt_verify_upload;
+            config.algorithm = self.jwt_algorithm;
+            tracing::info!("Auth config applied: {config:?}");
+            Ok(Some(config))
+        } else {
+            tracing::info!("Auth disabled");
+            Ok(None)
+        }
     }
 }
 
@@ -776,6 +847,30 @@ impl BurnSelection {
     }
 }
 
+/// Selector for the storage nodes.
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct NodeSelection {
+    /// The ID of the storage node to be selected.
+    #[clap(long)]
+    #[serde(default)]
+    pub node_id: Option<ObjectID>,
+    /// The URL of the storage node to be selected.
+    #[clap(long)]
+    #[serde(default)]
+    pub node_url: Option<String>,
+    /// Select all storage nodes in the current committee.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub committee: bool,
+    /// Select all storage nodes in the active set.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub active_set: bool,
+}
+
 /// The number of epochs to store the blob for.
 ///
 /// Can be either a non-zero number of epochs or the special value `max`, which will store the blob
@@ -819,6 +914,45 @@ impl EpochCountOrMax {
                 );
                 Ok(epochs)
             }
+        }
+    }
+}
+
+/// The number of epochs to store the blob for.
+#[serde_as]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[group(required = true, multiple = false)]
+pub struct EpochArg {
+    /// The number of epochs the blob is stored for.
+    ///
+    /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
+    /// system object on chain. Otherwise, the blob is stored for the specified number of
+    /// epochs. The number of epochs must be greater than 0.
+    #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
+    pub(crate) epochs: Option<EpochCountOrMax>,
+
+    /// The earliest time when the blob can expire, in RFC3339 format (e.g. "2024-03-20T15:00:00Z")
+    /// or a more relaxed format (e.g. "2024-03-20 15:00:00").
+    #[clap(long, value_parser = humantime::parse_rfc3339_weak)]
+    pub(crate) earliest_expiry_time: Option<SystemTime>,
+
+    /// The end epoch for the blob.
+    #[clap(long)]
+    pub(crate) end_epoch: Option<Epoch>,
+}
+
+impl EpochArg {
+    pub(crate) fn exactly_one_is_some(&self) -> Result<()> {
+        match (
+            self.epochs.is_some(),
+            self.earliest_expiry_time.is_some(),
+            self.end_epoch.is_some(),
+        ) {
+            (true, false, false) | (false, true, false) | (false, false, true) => Ok(()),
+            _ => Err(anyhow!(
+                "exactly one of `epochs`, `earliest-expiry-time`, or `end-epoch` must be specified"
+            )),
         }
     }
 }
@@ -934,7 +1068,11 @@ mod tests {
     fn store_command(epochs: EpochCountOrMax) -> Commands {
         Commands::Cli(CliCommands::Store {
             files: vec![PathBuf::from("README.md")],
-            epochs,
+            epoch_arg: EpochArg {
+                epochs: Some(epochs),
+                earliest_expiry_time: None,
+                end_epoch: None,
+            },
             dry_run: false,
             force: false,
             deletable: false,
@@ -970,6 +1108,10 @@ mod tests {
                 wal_refill_amount: default::wal_refill_amount(),
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
                 keep: false,
+                jwt_decode_secret: None,
+                jwt_algorithm: None,
+                jwt_expiring_sec: 0,
+                jwt_verify_upload: false,
             },
         })
     }

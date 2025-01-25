@@ -3,6 +3,9 @@
 
 //! Signed off-chain messages.
 
+#[allow(unused)]
+#[cfg(feature = "utoipa")]
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::{fmt::Debug, marker::PhantomData};
 

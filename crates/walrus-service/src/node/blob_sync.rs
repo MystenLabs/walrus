@@ -9,16 +9,16 @@ use std::{
 };
 
 use futures::{
-    future::try_join_all,
-    stream::{self, FuturesUnordered},
+    future::{self, try_join_all},
+    stream,
     FutureExt as _,
     StreamExt,
+    TryFutureExt,
 };
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use tokio::{
-    select,
     sync::{Notify, Semaphore},
-    task::JoinHandle,
+    task::{JoinHandle, JoinSet},
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
@@ -45,7 +45,7 @@ use crate::common::utils::FutureHelpers as _;
 #[derive(Debug, Clone)]
 struct Permits {
     blob: Arc<Semaphore>,
-    sliver: Arc<Semaphore>,
+    sliver_pairs: Arc<Semaphore>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +67,7 @@ impl BlobSyncHandler {
             node,
             permits: Permits {
                 blob: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
-                sliver: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
+                sliver_pairs: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
             },
         }
     }
@@ -228,7 +228,6 @@ impl BlobSyncHandler {
         blob_id: BlobId,
         certified_epoch: Epoch,
         event_handle: Option<EventHandle>,
-        start: tokio::time::Instant,
     ) -> Result<Arc<Notify>, TypedStoreError> {
         let mut in_progress = self
             .blob_syncs_in_progress
@@ -261,7 +260,6 @@ impl BlobSyncHandler {
                 let synchronizer = BlobSynchronizer::new(
                     blob_id,
                     certified_epoch,
-                    event_handle,
                     self.node.clone(),
                     cancel_token.clone(),
                 );
@@ -272,7 +270,7 @@ impl BlobSyncHandler {
 
                 let sync_handle = tokio::spawn(async move {
                     let result = blob_sync_handler_clone
-                        .sync(synchronizer, start, permits_clone)
+                        .sync_blob_for_all_shards(synchronizer, permits_clone, event_handle)
                         .instrument(spawned_trace)
                         .await;
                     notify_clone.notify_one();
@@ -295,14 +293,15 @@ impl BlobSyncHandler {
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn sync(
+    pub async fn sync_blob_for_all_shards(
         self,
         synchronizer: BlobSynchronizer,
-        start: tokio::time::Instant,
         permits: Permits,
+        mut event_handle: Option<EventHandle>,
     ) -> Option<EventHandle> {
         let queued_gauge =
             metrics::with_label!(self.node.metrics.recover_blob_backlog, STATUS_QUEUED);
+        let start = tokio::time::Instant::now();
         let _permit = permits
             .blob
             .acquire_owned()
@@ -312,22 +311,24 @@ impl BlobSyncHandler {
 
         let in_progress_gauge =
             metrics::with_label!(self.node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
+
         let _decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
         let blob_id = synchronizer.blob_id;
 
-        let (label, event_handle) = async move {
-            select! {
-                _ = synchronizer.cancel_token.cancelled() => {
-                    tracing::info!("cancelled blob sync");
-                    (metrics::STATUS_CANCELLED, synchronizer.event_handle)
-                }
-                _ = synchronizer.run(permits.sliver) => {
-                    synchronizer.event_handle.mark_as_complete();
-                    (metrics::STATUS_SUCCESS, None)
-                }
+        let cancel_token = synchronizer.cancel_token.clone();
+        let label = tokio::select! {
+            biased;
+
+            _ = cancel_token.cancelled() => {
+                tracing::debug!("cancelled blob sync");
+                metrics::STATUS_CANCELLED
+            },
+            _ = synchronizer.run(permits.sliver_pairs) => {
+                event_handle.mark_as_complete();
+                event_handle = None;
+                metrics::STATUS_SUCCESS
             }
-        }
-        .await;
+        };
 
         // We remove the blob handler regardless of the result.
         self.remove_sync_handle(&blob_id).await;
@@ -385,7 +386,6 @@ enum RecoverSliverError {
 pub(super) struct BlobSynchronizer {
     blob_id: BlobId,
     node: Arc<StorageNodeInner>,
-    event_handle: Option<EventHandle>,
     certified_epoch: Epoch,
     cancel_token: CancellationToken,
 }
@@ -394,14 +394,12 @@ impl BlobSynchronizer {
     pub fn new(
         blob_id: BlobId,
         certified_epoch: Epoch,
-        event_handle: Option<EventHandle>,
         node: Arc<StorageNodeInner>,
         cancel_token: CancellationToken,
     ) -> Self {
         Self {
             blob_id,
             node,
-            event_handle,
             certified_epoch,
             cancel_token,
         }
@@ -427,26 +425,23 @@ impl BlobSynchronizer {
         &self.node.metrics
     }
 
+    /// Runs the synchronizer and returns true if successful, false if cancelled.
     #[tracing::instrument(skip_all)]
-    async fn run(&self, sliver_permits: Arc<Semaphore>) {
-        let histograms = &self.metrics().recover_blob_part_duration_seconds;
+    async fn run(self, sliver_permits: Arc<Semaphore>) {
+        let this = Arc::new(self);
+        let histograms = &this.metrics().recover_blob_part_duration_seconds;
 
-        let (_, metadata) = self
+        let shared_metadata = this
+            .clone()
             .recover_metadata()
             .observe(histograms.clone(), labels_from_metadata_result)
+            .map_ok(|(_, metadata)| Arc::new(metadata))
             .await
             .expect("database operations should not fail");
-        let metadata = Arc::new(metadata);
 
-        let futures_iter = self.node.owned_shards().into_iter().flat_map(|shard| {
-            [
-                self.recover_sliver::<Primary>(shard, metadata.clone())
-                    .observe(histograms.clone(), labels_from_sliver_result::<Primary>)
-                    .left_future(),
-                self.recover_sliver::<Secondary>(shard, metadata.clone())
-                    .observe(histograms.clone(), labels_from_sliver_result::<Secondary>)
-                    .right_future(),
-            ]
+        let futures_iter = this.node.owned_shards().into_iter().map(|shard| {
+            this.clone()
+                .recover_slivers_for_shard(shared_metadata.clone(), shard)
         });
 
         let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
@@ -465,7 +460,8 @@ impl BlobSynchronizer {
             }
         });
         let mut futures_with_permits = std::pin::pin!(futures_with_permits);
-        let mut pending_futures = FuturesUnordered::new();
+        // When stored in a JoinSet, tasks are aborted on drop.
+        let mut pending_tasks = JoinSet::new();
 
         loop {
             tokio::select! {
@@ -473,38 +469,90 @@ impl BlobSynchronizer {
 
                 Some(future) = futures_with_permits.next() => {
                     // Add the permit and the future to the list of pending futures
-                    pending_futures.push(future);
+                    pending_tasks.spawn(future);
                 }
-                Some((result, _permit)) = pending_futures.next() => {
-                    match result {
-                        Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
+                Some(join_result) = pending_tasks.join_next() => {
+                    match join_result {
+                        Ok((Err(RecoverSliverError::Inconsistent(inconsistency_proof)), _permit)) =>
+                        {
                             tracing::warn!("received an inconsistency proof");
                             // No need to recover other slivers, sync the proof and return
-                            self.sync_inconsistency_proof(&inconsistency_proof)
+                            this.sync_inconsistency_proof(&inconsistency_proof)
                                 .observe(histograms.clone(), labels_from_inconsistency_sync_result)
                                 .await;
                             break;
                         }
-                        Err(RecoverSliverError::Database(err)) => {
+                        Ok((Err(RecoverSliverError::Database(err)), _)) => {
                             panic!("database operations should not fail: {:?}", err)
                         }
-                        _ => (),
+                        Ok(_) => (),
+                        Err(join_err) => match join_err.try_into_panic() {
+                            Ok(reason) => {
+                                // Cancel other tasks (as a precaution) and resume the panic on
+                                // the main task, which was the prior behaviour when we were
+                                // using futures instead of tasks.
+                                pending_tasks.abort_all();
+                                std::panic::resume_unwind(reason);
+                            }
+                            Err(join_err) => {
+                                assert!(join_err.is_cancelled());
+                                // We do not poll after cancelling the tasks, and as we have the
+                                // join handle in our JoinSet, no one else should be able to
+                                // abort the task, therefore should never happen.
+                                //
+                                // Returning from this function as if the task was cancelled
+                                // would leave a sliver unrecovered and block progress, since the
+                                // recovery was not cancelled.
+                                //
+                                // Treating it as success would be worse as we would progress
+                                // but not have the sliver stored. We therefore panic.
+                                tracing::error!(
+                                    error = ?join_err,
+                                    "a sliver recovery task cancelled unexpectedly"
+                                );
+                                panic!("a sliver recovery task cancelled unexpectedly");
+                            }
+                        }
                     }
                 }
                 else => {
-                    // Both the pending futures and the waiting futures streams have completed, we
-                    // are therefore complete.
+                    // Both the pending futures and the waiting futures streams have completed,
+                    // we are therefore complete.
                     break;
                 }
             }
         }
     }
 
+    /// Drives the recovery and storage of the slivers associated with this blob, for one shard.
+    ///
+    /// May end early if either sliver results in an inconsistency proof.
+    #[tracing::instrument(skip_all, fields(shard))]
+    async fn recover_slivers_for_shard(
+        self: Arc<Self>,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        shard: ShardIndex,
+    ) -> Result<(), RecoverSliverError> {
+        let histograms = &self.metrics().recover_blob_part_duration_seconds;
+
+        future::try_join(
+            self.clone()
+                .recover_sliver::<Primary>(shard, metadata.clone())
+                .observe(histograms.clone(), labels_from_sliver_result::<Primary>),
+            self.clone()
+                .recover_sliver::<Secondary>(shard, metadata.clone())
+                .observe(histograms.clone(), labels_from_sliver_result::<Secondary>),
+        )
+        .await?;
+
+        Ok(())
+    }
+
     /// Returns the metadata and `true` if it was recovered, `false` if it was retrieved from
     /// storage.
     #[tracing::instrument(skip_all, err)]
     async fn recover_metadata(
-        &self,
+        self: Arc<Self>,
     ) -> Result<(bool, VerifiedBlobMetadataWithId), TypedStoreError> {
         if let Some(metadata) = self.storage().get_metadata(&self.blob_id)? {
             tracing::debug!("not syncing metadata: already stored");
@@ -533,7 +581,7 @@ impl BlobSynchronizer {
         )
     )]
     async fn recover_sliver<A: EncodingAxis>(
-        &self,
+        self: Arc<Self>,
         shard: ShardIndex,
         metadata: Arc<VerifiedBlobMetadataWithId>,
     ) -> Result<bool, RecoverSliverError> {

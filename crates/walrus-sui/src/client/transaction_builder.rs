@@ -384,6 +384,7 @@ impl WalrusPtbBuilder {
         self.mark_arg_as_consumed(&blob_arg);
         Ok(())
     }
+
     /// Adds a call to create a new shared blob and fund it.
     pub async fn new_funded_shared_blob(
         &mut self,
@@ -454,6 +455,29 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Adds a call to extend an owned blob.
+    pub async fn extend_blob(
+        &mut self,
+        blob_object: ArgumentOrOwnedObject,
+        epochs_ahead: EpochCount,
+        encoded_size: u64,
+    ) -> SuiClientResult<()> {
+        let price = self
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .await?;
+
+        self.fill_wal_balance(price).await?;
+
+        let args = vec![
+            self.system_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(blob_object).await?,
+            self.pt_builder.pure(epochs_ahead)?,
+            self.wal_coin_arg()?,
+        ];
+        self.walrus_move_call(contracts::system::extend_blob, args)?;
+        self.reduce_wal_balance(price)?;
+        Ok(())
+    }
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.
     pub async fn transfer<I: IntoIterator<Item = ArgumentOrOwnedObject>>(
         &mut self,

@@ -44,7 +44,9 @@ use crate::client::{
         InfoPriceOutput,
         InfoSizeOutput,
         InfoStorageOutput,
+        NodeHealthOutput,
         ReadOutput,
+        ServiceHealthInfoOutput,
         ShareBlobOutput,
         StakeOutput,
         StorageNodeInfo,
@@ -126,7 +128,8 @@ impl CliOutput for BlobStoreResultWithPath {
                     Sui object ID: {}\n\
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
-                    Cost (excluding gas): {} {}{}",
+                    Cost (excluding gas): {} {} \n\
+                    Expiry epoch (exclusive): {}{}\n",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
@@ -140,8 +143,9 @@ impl CliOutput for BlobStoreResultWithPath {
                     HumanReadableBytes(resource_operation.encoded_length()),
                     HumanReadableFrost::from(*cost),
                     operation_str,
+                    blob_object.storage.end_epoch,
                     shared_blob_object
-                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id))
+                        .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id)),
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
@@ -206,6 +210,11 @@ impl CliOutput for DryRunOutput {
 impl CliOutput for BlobStatusOutput {
     fn print_cli_output(&self) {
         let blob_str = blob_and_file_str(&self.blob_id, &self.file);
+        let expiry_str = if let Some(expiry) = self.estimated_expiry_timestamp {
+            format!("Estimated expiry timestamp: {}\n", expiry.to_rfc3339())
+        } else {
+            "".to_string()
+        };
         match self.status {
             BlobStatus::Nonexistent => println!("Blob ID {blob_str} is not stored on Walrus."),
             BlobStatus::Deletable {
@@ -254,6 +263,7 @@ impl CliOutput for BlobStatusOutput {
                 println!(
                     "There is a {status} permanent Blob object for blob ID {blob_str}.\n\
                         Expiry epoch: {end_epoch}\n\
+                        {expiry_str}\
                         Related event: {}\
                         {initial_certified_str}",
                     format_event_id(&status_event)
@@ -733,6 +743,133 @@ impl CliOutput for ExtendBlobOutput {
     }
 }
 
+impl CliOutput for NodeHealthOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{}: {}\n",
+            "Node Information".bold().walrus_purple(),
+            self.node_name
+        );
+        println!("Node ID: {}", self.node_id);
+        println!("Node URL: {}", self.node_url);
+        match &self.health_info {
+            Err(error) => {
+                println!("Error: {}", error);
+            }
+            Ok(health_info) => {
+                printdoc!(
+                    "
+
+                {general_heading}
+                Uptime: {uptime}
+                Current epoch: {epoch}
+                Public key: {public_key}
+                Node status: {node_status}
+
+                {event_heading}
+                Events persisted: {persisted}
+                Events pending: {pending}
+
+                {shard_heading}
+                Owned shards: {owned}
+                Read-only shards: {read_only}
+
+                {owned_status_heading}
+                Unknown: {unknown}
+                Ready: {ready}
+                In transfer: {in_transfer}
+                In recovery: {in_recovery}
+                ",
+                    general_heading = "General Information".bold().walrus_teal(),
+                    uptime = humantime::format_duration(health_info.uptime),
+                    epoch = health_info.epoch,
+                    public_key = health_info.public_key,
+                    node_status = health_info.node_status,
+                    event_heading = "Event Progress".bold().walrus_teal(),
+                    persisted = health_info.event_progress.persisted,
+                    pending = health_info.event_progress.pending,
+                    shard_heading = "Shard Summary".bold().walrus_teal(),
+                    owned = health_info.shard_summary.owned,
+                    read_only = health_info.shard_summary.read_only,
+                    owned_status_heading = "Owned Shard Status".bold().walrus_teal(),
+                    unknown = health_info.shard_summary.owned_shard_status.unknown,
+                    ready = health_info.shard_summary.owned_shard_status.ready,
+                    in_transfer = health_info.shard_summary.owned_shard_status.in_transfer,
+                    in_recovery = health_info.shard_summary.owned_shard_status.in_recovery,
+                );
+
+                // Print shard details if available
+                if let Some(detail) = &health_info.shard_detail {
+                    if !detail.owned.is_empty() {
+                        println!("\n{}", "Owned Shard Details".bold().walrus_teal());
+                        for shard in &detail.owned {
+                            println!("Shard {}: {:?}", shard.shard, shard.status);
+                        }
+                    }
+                    if !detail.other.is_empty() {
+                        println!("\n{}", "Other Shard Details".bold().walrus_teal());
+                        for shard in &detail.other {
+                            println!("Shard {}: {:?}", shard.shard, shard.status);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl CliOutput for ServiceHealthInfoOutput {
+    fn print_cli_output(&self) {
+        println!("\n{}", "Walrus Service Health Information".bold());
+
+        // Initialize summary counters
+        let mut owned_shards = 0;
+        let mut read_only_shards = 0;
+        let mut node_statuses = std::collections::HashMap::new();
+        let mut error_nodes = Vec::new();
+
+        let mut table = create_node_health_table();
+        // Collect summary information while building the table
+        for (node_idx, node) in self.health_info.iter().enumerate() {
+            match &node.health_info {
+                Err(_) => {
+                    *node_statuses.entry("Error".to_string()).or_insert(0) += 1;
+                    error_nodes.push(node);
+                }
+                Ok(health_info) => {
+                    node.print_cli_output();
+                    owned_shards += health_info.shard_summary.owned;
+                    read_only_shards += health_info.shard_summary.read_only;
+                    *node_statuses
+                        .entry(health_info.node_status.to_string())
+                        .or_insert(0) += 1;
+                }
+            }
+            add_node_health_to_table(&mut table, node, node_idx);
+        }
+        if table.len() > 3 {
+            println!("\n{}\n", "Summary".bold().walrus_purple());
+            table.printstd();
+            println!("\nTotal nodes: {}", self.health_info.len());
+            println!("Owned shards: {}", owned_shards);
+            println!("Read-only shards: {}", read_only_shards);
+
+            println!("\n{}", "Node Status Breakdown".bold().walrus_purple());
+            for (status, count) in &node_statuses {
+                println!("{}: {}", status, count);
+            }
+        }
+
+        // Print error nodes summary if there are any errors
+        if !error_nodes.is_empty() {
+            println!("\n{}\n", "Nodes with Errors".bold().walrus_purple());
+            for node in error_nodes {
+                node.print_cli_output();
+            }
+        }
+    }
+}
+
 /// Default style for tables printed to stdout.
 fn default_table_format() -> format::TableFormat {
     format::FormatBuilder::new()
@@ -783,4 +920,51 @@ fn print_storage_node_info(node: &StorageNodeInfo, node_idx: usize, n_shards: &N
         network_public_key = node.network_public_key,
         shards = DisplayShardList(&node.shard_ids),
     );
+}
+
+fn create_node_health_table() -> Table {
+    let mut table = Table::new();
+    table.set_format(default_table_format());
+    table.set_titles(row![
+        b->"Idx",
+        b->"Name",
+        b->"Node ID",
+        b->"Address",
+        b->"# Owned Shards",
+        b->"Status",
+    ]);
+    table
+}
+
+fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx: usize) {
+    match &node.health_info {
+        Ok(health_info) => {
+            table.add_row(row![
+                node_idx,
+                node.node_name,
+                node.node_id,
+                node.node_url,
+                r->health_info.shard_summary.owned,
+                health_info.node_status,
+            ]);
+        }
+        Err(error) => {
+            // Truncate error message to 20 chars and add ellipsis if needed
+            let error_msg = error.to_string();
+            let truncated_error = if error_msg.len() > 40 {
+                format!("{}...", &error_msg[..37])
+            } else {
+                error_msg
+            };
+
+            table.add_row(row![
+                node_idx,
+                node.node_name,
+                node.node_id,
+                node.node_url,
+                r->"N/A",
+                Fr->truncated_error,
+            ]);
+        }
+    }
 }

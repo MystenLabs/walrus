@@ -15,16 +15,19 @@ use tokio_stream::{wrappers::IntervalStream, Stream};
 use tracing::Level;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
-use super::{config::SuiConfig, metrics, StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
-use crate::node::{
-    events::{
-        event_processor::EventProcessor,
-        CheckpointEventPosition,
-        EventStreamCursor,
-        InitState,
-        PositionedStreamEvent,
+use super::{metrics, StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
+use crate::{
+    common::config::SuiConfig,
+    node::{
+        events::{
+            event_processor::EventProcessor,
+            CheckpointEventPosition,
+            EventStreamCursor,
+            InitState,
+            PositionedStreamEvent,
+        },
+        storage::EventProgress,
     },
-    storage::EventProgress,
 };
 
 /// The capacity of the event channel.

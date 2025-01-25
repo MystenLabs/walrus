@@ -20,32 +20,29 @@ use serde_with::{
     ser::SerializeAsWrap,
     serde_as,
     DeserializeAs,
-    DurationMilliSeconds,
     DurationSeconds,
     SerializeAs,
 };
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::SuiAddress;
 use walrus_core::{
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
     messages::ProofOfPossession,
     NetworkPublicKey,
 };
-use walrus_sui::{
-    client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
-    types::{
-        move_structs::VotingParams,
-        NetworkAddress,
-        NodeMetadata,
-        NodeRegistrationParams,
-        NodeUpdateParams,
-    },
+use walrus_sui::types::{
+    move_structs::VotingParams,
+    NetworkAddress,
+    NodeMetadata,
+    NodeRegistrationParams,
+    NodeUpdateParams,
 };
-use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::storage::DatabaseConfig;
 use crate::{
-    common::utils::{self, LoadConfig},
+    common::{
+        config::SuiConfig,
+        utils::{self, LoadConfig},
+    },
     node::events::EventProcessorConfig,
 };
 
@@ -81,6 +78,9 @@ pub struct StorageNodeConfig {
     /// Socket address on which the REST API listens.
     #[serde(default = "defaults::rest_api_address")]
     pub rest_api_address: SocketAddr,
+    /// Configuration for the connections establishing in the REST API.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub rest_server: RestServerConfig,
     /// Duration for which to wait for connections to close before shutting down.
     ///
     /// Set explicitly to None to wait indefinitely.
@@ -141,6 +141,7 @@ impl Default for StorageNodeConfig {
             metrics_address: defaults::metrics_address(),
             rest_api_address: defaults::rest_api_address(),
             rest_graceful_shutdown_period_secs: defaults::rest_graceful_shutdown_period_secs(),
+            rest_server: Default::default(),
             sui: Default::default(),
             blob_recovery: Default::default(),
             tls: Default::default(),
@@ -414,6 +415,8 @@ pub struct ShardSyncConfig {
     pub blob_certified_check_interval: Duration,
     /// The number of metadata to fetch in parallel.
     pub max_concurrent_metadata_fetch: usize,
+    /// Maximum number of concurrent shard syncs allowed per node.
+    pub shard_sync_concurrency: usize,
 }
 
 impl Default for ShardSyncConfig {
@@ -425,63 +428,10 @@ impl Default for ShardSyncConfig {
             max_concurrent_blob_recovery_during_shard_recovery: 5,
             blob_certified_check_interval: Duration::from_secs(60),
             max_concurrent_metadata_fetch: 10,
+            shard_sync_concurrency: 10,
         }
     }
 }
-
-/// Sui-specific configuration for Walrus
-#[serde_with::serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct SuiConfig {
-    /// HTTP URL of the Sui full-node RPC endpoint (including scheme). This is used in the event
-    /// processor and some other read operations; for all write operations, the RPC URL from the
-    /// wallet is used.
-    pub rpc: String,
-    /// Configuration of the contract packages and shared objects.
-    #[serde(flatten)]
-    pub contract_config: ContractConfig,
-    /// Interval with which events are polled, in milliseconds.
-    #[serde_as(as = "DurationMilliSeconds")]
-    #[serde(
-        rename = "event_polling_interval_millis",
-        default = "defaults::polling_interval"
-    )]
-    pub event_polling_interval: Duration,
-    /// Location of the wallet config.
-    #[serde(deserialize_with = "utils::resolve_home_dir")]
-    pub wallet_config: PathBuf,
-    /// The configuration for the backoff strategy used for retries.
-    #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub backoff_config: ExponentialBackoffConfig,
-    /// Gas budget for transactions.
-    #[serde(default = "defaults::gas_budget")]
-    pub gas_budget: u64,
-}
-
-impl SuiConfig {
-    /// Creates a new [`SuiReadClient`] based on the configuration.
-    pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new_for_rpc(
-            &self.rpc,
-            &self.contract_config,
-            self.backoff_config.clone(),
-        )
-        .await
-    }
-
-    /// Creates a [`SuiContractClient`] based on the configuration.
-    pub async fn new_contract_client(&self) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(
-            WalletContext::new(&self.wallet_config, None, None)?,
-            &self.contract_config,
-            self.backoff_config.clone(),
-            self.gas_budget,
-        )
-        .await
-    }
-}
-
-impl LoadConfig for SuiConfig {}
 
 /// Default values for the storage-node configuration.
 pub mod defaults {
@@ -490,13 +440,12 @@ pub mod defaults {
     use walrus_sui::utils::SuiNetwork;
 
     use super::*;
+    pub use crate::common::config::defaults::{gas_budget, is_default, polling_interval};
 
     /// Default metrics port.
     pub const METRICS_PORT: u16 = 9184;
     /// Default REST API port.
     pub const REST_API_PORT: u16 = 9185;
-    /// Default polling interval in milliseconds.
-    pub const POLLING_INTERVAL_MS: u64 = 400;
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
 
@@ -520,16 +469,6 @@ pub mod defaults {
         (Ipv4Addr::UNSPECIFIED, REST_API_PORT).into()
     }
 
-    /// Returns the default polling interval.
-    pub fn polling_interval() -> Duration {
-        Duration::from_millis(POLLING_INTERVAL_MS)
-    }
-
-    /// Returns the default gas budget.
-    pub fn gas_budget() -> u64 {
-        500_000_000
-    }
-
     /// Returns the default network ([`SuiNetwork::Devnet`])
     pub fn network() -> SuiNetwork {
         SuiNetwork::Devnet
@@ -547,13 +486,6 @@ pub mod defaults {
     /// The default vote for the write price.
     pub fn write_price() -> u64 {
         2000
-    }
-
-    /// Returns true iff the value is the default and we don't run in test mode.
-    pub fn is_default<T: PartialEq + Default>(t: &T) -> bool {
-        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
-        // to generate the example configuration files.
-        !cfg!(test) && t == &T::default()
     }
 
     /// Returns true iff the value is `None` and we don't run in test mode.
@@ -700,6 +632,43 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
 
 impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
 
+/// Configuration for the REST server.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RestServerConfig {
+    /// Configuration for incoming HTTP/2 connections.
+    #[serde(flatten, skip_serializing_if = "defaults::is_default")]
+    pub http2_config: Http2Config,
+}
+
+/// Configuration of the HTTP/2 connections established by the REST API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Http2Config {
+    /// The maximum number of concurrent streams that a client can open
+    /// over a connection to the server.
+    pub http2_max_concurrent_streams: u32,
+    /// Sets the SETTINGS_INITIAL_WINDOW_SIZE option for HTTP2 stream-level flow control.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub http2_initial_stream_window_size: Option<u32>,
+    /// Sets the max connection-level flow control for HTTP2.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub http2_initial_connection_window_size: Option<u32>,
+    /// Use adaptive flow control, overriding the `http2_initial_stream_window_size` and
+    /// `http2_initial_connection_window_size` settings.
+    pub http2_adaptive_window: bool,
+}
+
+impl Default for Http2Config {
+    fn default() -> Self {
+        Self {
+            http2_max_concurrent_streams: 1000,
+            http2_initial_stream_window_size: None,
+            http2_initial_connection_window_size: None,
+            http2_adaptive_window: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{io::Write as _, str::FromStr};
@@ -709,6 +678,7 @@ mod tests {
     use sui_types::base_types::ObjectID;
     use tempfile::NamedTempFile;
     use walrus_core::test_utils;
+    use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;
 
     use super::*;

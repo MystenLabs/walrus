@@ -26,7 +26,8 @@ use walrus_sui::{
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::{committee::CommitteeService, config::SuiConfig};
+use super::committee::CommitteeService;
+use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
@@ -220,6 +221,7 @@ impl SystemContractService for SuiSystemContractService {
         );
         backoff::retry(backoff, || {
             let blob_metadata = blob_metadata.clone();
+            let blob_id = blob_metadata.blob_id;
             async move {
                 match self
                     .contract_client
@@ -229,16 +231,23 @@ impl SystemContractService for SuiSystemContractService {
                     .await
                 {
                     Ok(()) => Some(()),
+                    Err(SuiClientError::StorageNodeCapabilityObjectNotSet) => {
+                        tracing::debug!(blob_id = ?blob_id,
+                            "Storage node capability object not set");
+                        Some(())
+                    }
                     Err(SuiClientError::TransactionExecutionError(e)) => {
                         tracing::debug!(
                             walrus.epoch = epoch,
                             error = ?e,
-                            "repeatedly submitted certify_event_blob"
+                            blob_id = ?blob_id,
+                            "Transaction execution error while attesting event blob"
                         );
                         Some(())
                     }
                     Err(error) => {
-                        tracing::warn!(?error, "submitting certify event blob to contract failed");
+                        tracing::warn!(?error, blob_id = ?blob_id,
+                            "Submitting certify event blob to contract failed, retrying");
                         None
                     }
                 }

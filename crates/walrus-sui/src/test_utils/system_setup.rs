@@ -115,7 +115,7 @@ pub struct SystemContext {
     /// The ID of the WAL treasury Cap.
     pub treasury_cap: ObjectID,
     /// The ID of the WAL exchange package.
-    pub wal_exchange_pkg_id: ObjectID,
+    pub wal_exchange_pkg_id: Option<ObjectID>,
 }
 
 impl SystemContext {
@@ -159,6 +159,7 @@ pub async fn create_and_init_system_for_test(
         },
         DEFAULT_GAS_BUDGET,
         deploy_directory,
+        true,
     )
     .await
 }
@@ -176,6 +177,7 @@ pub async fn create_and_init_system(
     init_system_params: InitSystemParams,
     gas_budget: u64,
     deploy_directory: Option<PathBuf>,
+    with_wal_exchange: bool,
 ) -> Result<SystemContext> {
     let PublishSystemPackageResult {
         walrus_pkg_id,
@@ -184,8 +186,13 @@ pub async fn create_and_init_system(
         treasury_cap_id,
         wal_exchange_pkg_id,
         wal_pkg_id,
-    } = system_setup::publish_coin_and_system_package(admin_wallet, contract_dir, deploy_directory)
-        .await?;
+    } = system_setup::publish_coin_and_system_package(
+        admin_wallet,
+        contract_dir,
+        deploy_directory,
+        with_wal_exchange,
+    )
+    .await?;
 
     let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
         admin_wallet,

@@ -4,7 +4,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Error;
 use axum::{
-    async_trait,
     body::{Body, Bytes},
     extract::{Extension, FromRequest},
     http::{header, Request, StatusCode},
@@ -161,7 +160,6 @@ pub struct MetricFamilyWithStaticLabels {
 #[derive(Debug)]
 pub struct LenDelimProtobuf(pub MetricFamilyWithStaticLabels);
 
-#[async_trait]
 impl<S> FromRequest<S> for LenDelimProtobuf
 where
     S: Send + Sync,

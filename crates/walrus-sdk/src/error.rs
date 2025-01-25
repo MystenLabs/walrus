@@ -59,6 +59,36 @@ impl NodeError {
             .unwrap_or(false)
     }
 
+    /// Returns true if the HTTP error status code associated with number 499
+    pub fn is_expired(&self) -> bool {
+        Some(StatusCode::from_u16(499).expect("status code is in a valid range"))
+            == self.http_status_code()
+    }
+
+    /// Returns true if the HTTP error status code associated with the error is
+    /// [`StatusCode::UNAUTHORIZED`].
+    pub fn is_unauthorized(&self) -> bool {
+        Some(StatusCode::UNAUTHORIZED) == self.http_status_code()
+    }
+
+    /// Returns true if the HTTP error status code associated with the error is
+    /// [`StatusCode::BAD_REQUEST`].
+    pub fn is_user_error(&self) -> bool {
+        Some(StatusCode::BAD_REQUEST) == self.http_status_code()
+    }
+
+    /// Returns true if the HTTP error status code associated with the error is
+    /// [`StatusCode::SERVICE_UNAVAILABLE`].
+    pub fn is_crypto_error(&self) -> bool {
+        Some(StatusCode::SERVICE_UNAVAILABLE) == self.http_status_code()
+    }
+
+    /// Returns true if the HTTP error status code associated with the error is
+    /// [`StatusCode::INTERNAL_SERVER_ERROR`].
+    pub fn is_unknown_issue(&self) -> bool {
+        Some(StatusCode::INTERNAL_SERVER_ERROR) == self.http_status_code()
+    }
+
     /// Wrap a standard error as a Node error.
     pub fn other<E>(err: E) -> Self
     where

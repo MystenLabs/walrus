@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use itertools::Itertools as _;
 use prometheus::Registry;
 use rand::seq::SliceRandom;
@@ -20,10 +21,12 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
     encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
+    ensure,
     metadata::BlobMetadataApi as _,
     BlobId,
     EpochCount,
 };
+use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -32,6 +35,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
+    types::move_structs::EpochState,
     utils::SuiNetwork,
 };
 
@@ -40,9 +44,11 @@ use super::args::{
     CliCommands,
     DaemonArgs,
     DaemonCommands,
+    EpochArg,
     FileOrBlobId,
     FileOrBlobIdOrObjectId,
     InfoCommands,
+    NodeSelection,
     PublisherArgs,
     RpcArg,
     UserConfirmation,
@@ -50,7 +56,6 @@ use super::args::{
 use crate::{
     client::{
         cli::{
-            args::EpochCountOrMax,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -80,6 +85,7 @@ use crate::{
             InfoSizeOutput,
             InfoStorageOutput,
             ReadOutput,
+            ServiceHealthInfoOutput,
             ShareBlobOutput,
             StakeOutput,
             WalletOutput,
@@ -146,7 +152,7 @@ impl ClientCommandRunner {
 
             CliCommands::Store {
                 files,
-                epochs,
+                epoch_arg,
                 dry_run,
                 force,
                 deletable,
@@ -154,7 +160,7 @@ impl ClientCommandRunner {
             } => {
                 self.store(
                     files,
-                    epochs,
+                    epoch_arg,
                     dry_run,
                     StoreWhen::always(force),
                     BlobPersistence::from_deletable(deletable),
@@ -173,6 +179,12 @@ impl ClientCommandRunner {
                 rpc_arg: RpcArg { rpc_url },
                 command,
             } => self.info(rpc_url, command).await,
+
+            CliCommands::Health {
+                node_selection,
+                detail,
+                rpc_arg: RpcArg { rpc_url },
+            } => self.health(rpc_url, node_selection, detail).await,
 
             CliCommands::BlobId {
                 file,
@@ -254,7 +266,8 @@ impl ClientCommandRunner {
             }
 
             CliCommands::Extend {
-                shared_blob_obj_id,
+                blob_obj_id,
+                shared,
                 epochs_ahead,
             } => {
                 let sui_client = self
@@ -268,9 +281,13 @@ impl ClientCommandRunner {
                 let epochs_ahead =
                     epochs_ahead.try_into_epoch_count(fixed_parames.max_epochs_ahead)?;
 
-                sui_client
-                    .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
-                    .await?;
+                if shared {
+                    sui_client
+                        .extend_shared_blob(blob_obj_id, epochs_ahead)
+                        .await?;
+                } else {
+                    sui_client.extend_blob(blob_obj_id, epochs_ahead).await?;
+                }
 
                 spinner.finish_with_message("done");
                 ExtendBlobOutput { epochs_ahead }.print_output(self.json)
@@ -378,29 +395,81 @@ impl ClientCommandRunner {
         ReadOutput::new(out, blob_id, blob).print_output(self.json)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn store(
         self,
         files: Vec<PathBuf>,
-        epochs: EpochCountOrMax,
+        epoch_arg: EpochArg,
         dry_run: bool,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> Result<()> {
+        epoch_arg.exactly_one_is_some()?;
+
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+
+        let system_object = client.sui_client().read_client.get_system_object().await?;
+        let max_epochs_ahead = system_object.max_epochs_ahead();
+
+        let epochs_ahead = match epoch_arg {
+            EpochArg {
+                epochs: Some(epochs),
+                ..
+            } => epochs.try_into_epoch_count(max_epochs_ahead)?,
+            EpochArg {
+                earliest_expiry_time: Some(earliest_expiry_time),
+                ..
+            } => {
+                let staking_object = client.sui_client().read_client.get_staking_object().await?;
+                let epoch_state = staking_object.epoch_state();
+                let estimated_start_of_current_epoch = match epoch_state {
+                    EpochState::EpochChangeDone(epoch_start)
+                    | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
+                    EpochState::EpochChangeSync(_) => Utc::now(),
+                };
+                let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
+                ensure!(
+                    earliest_expiry_ts > estimated_start_of_current_epoch
+                        && earliest_expiry_ts > Utc::now(),
+                    "earliest_expiry_time must be greater than the current epoch start time
+                and the current time"
+                );
+                let delta = (earliest_expiry_ts - estimated_start_of_current_epoch)
+                    .num_milliseconds() as u64;
+                (delta / staking_object.epoch_duration() + 1) as u32
+            }
+            EpochArg {
+                end_epoch: Some(end_epoch),
+                ..
+            } => {
+                let current_epoch = client.sui_client().current_epoch().await?;
+                ensure!(
+                    end_epoch > current_epoch,
+                    "end_epoch must be greater than the current epoch"
+                );
+                end_epoch - current_epoch
+            }
+            _ => {
+                anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")
+            }
+        };
 
         // Check that the number of epochs is lower than the number of epochs the blob can be stored
         // for.
-        let fixed_params = client.sui_client().fixed_system_parameters().await?;
-
-        let epochs = epochs.try_into_epoch_count(fixed_params.max_epochs_ahead)?;
+        ensure!(
+            epochs_ahead <= max_epochs_ahead,
+            "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+            max_epochs_ahead,
+            epochs_ahead
+        );
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
         if dry_run {
-            return Self::store_dry_run(client, files, epochs, self.json).await;
+            return Self::store_dry_run(client, files, epochs_ahead, self.json).await;
         }
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
@@ -412,7 +481,7 @@ impl ClientCommandRunner {
         let results = client
             .reserve_and_store_blobs_retry_epoch_with_path(
                 &blobs,
-                epochs,
+                epochs_ahead,
                 store_when,
                 persistence,
                 post_store,
@@ -497,10 +566,32 @@ impl ClientCommandRunner {
         let status = client
             .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
             .await?;
+
+        // Compute estimated blob expiry in DateTime if it is a permanent blob.
+        let estimated_expiry_timestamp = if let BlobStatus::Permanent { end_epoch, .. } = status {
+            let staking_object = sui_read_client.get_staking_object().await?;
+            let epoch_duration = Duration::from_millis(staking_object.epoch_duration());
+            let epoch_state = staking_object.epoch_state();
+            let current_epoch = staking_object.epoch();
+
+            let estimated_start_of_current_epoch = match epoch_state {
+                EpochState::EpochChangeDone(epoch_start)
+                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
+                EpochState::EpochChangeSync(_) => Utc::now(),
+            };
+            ensure!(
+                end_epoch > current_epoch,
+                "end_epoch must be greater than the current epoch"
+            );
+            Some(estimated_start_of_current_epoch + epoch_duration * (end_epoch - current_epoch))
+        } else {
+            None
+        };
         BlobStatusOutput {
             blob_id,
             file,
             status,
+            estimated_expiry_timestamp,
         }
         .print_output(self.json)
     }
@@ -549,6 +640,25 @@ impl ClientCommandRunner {
         }
     }
 
+    pub(crate) async fn health(
+        self,
+        rpc_url: Option<String>,
+        node_selection: NodeSelection,
+        detail: bool,
+    ) -> Result<()> {
+        let config = self.config?;
+        let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+            &config,
+            rpc_url,
+            self.wallet,
+            self.wallet_path.is_none(),
+        )
+        .await?;
+        ServiceHealthInfoOutput::get_health_info(&sui_read_client, node_selection, detail)
+            .await?
+            .print_output(self.json)
+    }
+
     pub(crate) async fn blob_id(
         self,
         file: PathBuf,
@@ -595,7 +705,11 @@ impl ClientCommandRunner {
         blobs.print_output(self.json)
     }
 
-    pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
+    pub(crate) async fn publisher(
+        self,
+        registry: &Registry,
+        mut args: PublisherArgs,
+    ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus publisher");
         let client = ClientMultiplexer::new(
             self.wallet?,
@@ -605,9 +719,11 @@ impl ClientCommandRunner {
             &args,
         )
         .await?;
+        let auth_config = args.generate_auth_config()?;
 
         ClientDaemon::new_publisher(
             client,
+            auth_config,
             args.daemon_args.bind_address,
             args.max_body_size(),
             registry,
@@ -640,8 +756,10 @@ impl ClientCommandRunner {
         Ok(())
     }
 
-    pub(crate) async fn daemon(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
+    pub(crate) async fn daemon(self, registry: &Registry, mut args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
+        let auth_config = args.generate_auth_config()?;
+
         let client = get_contract_client(
             self.config?,
             self.wallet,
@@ -651,6 +769,7 @@ impl ClientCommandRunner {
         .await?;
         ClientDaemon::new_daemon(
             client,
+            auth_config,
             args.daemon_args.bind_address,
             args.max_body_size(),
             registry,

@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::bail;
 use itertools::Itertools;
+use jsonwebtoken::Algorithm;
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
@@ -25,7 +26,10 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::common::utils::{self, LoadConfig};
+use crate::{
+    client::error::DecodeError,
+    common::utils::{self, LoadConfig},
+};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -93,6 +97,55 @@ impl Config {
 }
 
 impl LoadConfig for Config {}
+
+/// Represents one or more exchange objects to be used for SUI/WAL exchange.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ExchangeObjectConfig {
+    /// A single exchange is configured.
+    One(ObjectID),
+    /// Multiple exchanges are configured. A random one is chosen to perform the exchange.
+    Multiple(Vec<ObjectID>),
+}
+
+/// Configuration for the JWT authentication on the publisher.
+#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct AuthConfig {
+    /// The secret with which to authenticate the JWT.
+    pub(crate) secret: Option<Vec<u8>>,
+    /// The authentication algorithm for the JWT.
+    pub(crate) algorithm: Option<Algorithm>,
+    /// The duration, in seconds, after which the publisher will consider the JWT as expired.
+    pub(crate) expiring_sec: u64,
+    /// verify upload epochs and address for `send_object_to`
+    pub(crate) verify_upload: bool,
+}
+
+impl AuthConfig {
+    pub fn new(secret: String) -> Result<Self, DecodeError> {
+        if secret.starts_with("0x") {
+            if secret.len() % 2 != 0 {
+                Err(DecodeError("jwt-decode-secret"))
+            } else {
+                let mut s = Vec::new();
+                for i in (2..secret.len()).step_by(2) {
+                    let int = u8::from_str_radix(&secret[i..i + 2], 16)
+                        .map_err(|_| DecodeError("jwt-decode-secret"))?;
+                    s.push(int);
+                }
+                Ok(Self {
+                    secret: Some(s),
+                    ..Default::default()
+                })
+            }
+        } else {
+            Ok(Self {
+                secret: Some(secret.into_bytes()),
+                ..Default::default()
+            })
+        }
+    }
+}
 
 /// Configuration for the communication parameters of the client
 #[serde_as]
@@ -590,6 +643,17 @@ mod tests {
         "};
 
         let _: Config = serde_yaml::from_str(yaml)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_new_auth_config() -> TestResult {
+        let c = AuthConfig::new("0xff".into())?;
+        assert_eq!(c.secret, Some(vec![255]));
+
+        assert!(AuthConfig::new("0xf".into()).is_err());
+        assert!(AuthConfig::new("0xfg".into()).is_err());
 
         Ok(())
     }

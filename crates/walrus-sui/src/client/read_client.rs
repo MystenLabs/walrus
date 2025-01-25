@@ -157,6 +157,22 @@ pub trait ReadClient: Send + Sync {
     // INV: next_committee.epoch == current_committee.epoch + 1
     fn next_committee(&self) -> impl Future<Output = SuiClientResult<Option<Committee>>> + Send;
 
+    /// Returns the storage nodes in the active set.
+    fn get_storage_nodes_from_active_set(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<Vec<StorageNode>>> + Send;
+
+    /// Returns the storage nodes in the current committee.
+    fn get_storage_nodes_from_committee(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<Vec<StorageNode>>> + Send;
+
+    /// Returns the storage node with the given ID.
+    fn get_storage_node_by_id(
+        &self,
+        node_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<StorageNode>> + Send;
+
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
 
@@ -552,7 +568,8 @@ impl SuiReadClient {
         &self.wal_type
     }
 
-    pub(crate) async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
+    /// Returns the system object.
+    pub async fn get_system_object(&self) -> SuiClientResult<SystemObject> {
         let SystemObjectForDeserialization {
             id,
             version,
@@ -583,7 +600,8 @@ impl SuiReadClient {
         })
     }
 
-    pub(crate) async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
+    /// Returns the staking object.
+    pub async fn get_staking_object(&self) -> SuiClientResult<StakingObject> {
         let StakingObjectForDeserialization {
             id,
             version,
@@ -786,6 +804,57 @@ impl ReadClient for SuiReadClient {
     async fn next_committee(&self) -> SuiClientResult<Option<Committee>> {
         tracing::debug!("getting next committee from Sui");
         self.query_staking_for_committee(WhichCommittee::Next).await
+    }
+
+    async fn get_storage_nodes_from_active_set(&self) -> SuiClientResult<Vec<StorageNode>> {
+        // Get node IDs from stake assignment
+        let node_ids: Vec<ObjectID> = self.stake_assignment().await?.keys().copied().collect();
+
+        // Fetch StakingPool objects in batches
+        let mut storage_nodes = Vec::new();
+        for node_id_batch in node_ids.chunks(MULTI_GET_OBJ_LIMIT) {
+            let pool_responses = self
+                .sui_client
+                .multi_get_object_with_options(
+                    node_id_batch.to_vec(),
+                    SuiObjectDataOptions::new().with_type().with_bcs(),
+                )
+                .await?;
+
+            // Extract StorageNode info from each StakingPool
+            for response in pool_responses {
+                if let Ok(pool) = get_sui_object_from_object_response::<StakingPool>(&response) {
+                    storage_nodes.push(pool.node_info);
+                } else {
+                    tracing::warn!(?response, "Failed to parse StakingPool object");
+                }
+            }
+        }
+
+        Ok(storage_nodes)
+    }
+
+    async fn get_storage_nodes_from_committee(&self) -> SuiClientResult<Vec<StorageNode>> {
+        let committee = self.current_committee().await?;
+        let mut storage_nodes = Vec::new();
+        for node in committee.members() {
+            storage_nodes.push(node.clone());
+        }
+        Ok(storage_nodes)
+    }
+
+    async fn get_storage_node_by_id(&self, node_id: ObjectID) -> SuiClientResult<StorageNode> {
+        let pool_response = self
+            .sui_client
+            .get_object_with_options(node_id, SuiObjectDataOptions::new().with_type().with_bcs())
+            .await?;
+
+        if let Ok(pool) = get_sui_object_from_object_response::<StakingPool>(&pool_response) {
+            Ok(pool.node_info)
+        } else {
+            tracing::warn!(?pool_response, "Failed to parse StakingPool object");
+            Err(SuiClientError::StorageNodeNotFound(node_id))
+        }
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

@@ -9,6 +9,9 @@
 extern crate alloc;
 extern crate std;
 
+#[allow(unused)]
+#[cfg(feature = "utoipa")]
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::{
     fmt::{self, Debug, Display},
@@ -74,8 +77,7 @@ pub type EpochCount = u32;
 /// Walrus epoch.
 // Schema definition for the type alias used in OpenAPI schemas.
 #[derive(Debug)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[cfg_attr(feature = "utoipa", schema(as = Epoch))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema), schema(as = Epoch))]
 pub struct EpochSchema(pub u32);
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -86,6 +88,12 @@ pub mod test_utils;
 /// The ID of a blob.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 #[repr(transparent)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema), schema(
+    as = BlobId,
+    value_type = String,
+    format = Byte,
+    examples("E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU"),
+))]
 pub struct BlobId(pub [u8; Self::LENGTH]);
 
 impl BlobId {

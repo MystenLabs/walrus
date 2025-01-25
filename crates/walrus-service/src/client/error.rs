@@ -22,6 +22,10 @@ pub enum StoreError {
     Confirmation(NodeError),
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("the content of `{0}` could not be decoded")]
+pub struct DecodeError(pub &'static str);
+
 /// The sliver could not be stored on the node.
 #[derive(Debug, thiserror::Error)]
 #[error("the sliver could not be stored")]

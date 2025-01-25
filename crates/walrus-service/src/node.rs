@@ -93,7 +93,7 @@ use walrus_sui::{
 use self::{
     blob_sync::BlobSyncHandler,
     committee::{CommitteeService, NodeCommitteeService},
-    config::{StorageNodeConfig, SuiConfig},
+    config::StorageNodeConfig,
     contract_service::{SuiSystemContractService, SystemContractService},
     errors::{
         BlobStatusError,
@@ -122,7 +122,13 @@ use self::{
     storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
     system_events::{EventManager, SuiSystemEventProvider},
 };
-use crate::{client::Blocklist, common::utils::ShardDiff};
+use crate::{
+    client::Blocklist,
+    common::{
+        config::SuiConfig,
+        utils::{should_reposition_cursor, ShardDiff},
+    },
+};
 
 pub mod committee;
 pub mod config;
@@ -410,7 +416,9 @@ impl StorageNodeBuilder {
     }
 }
 
-async fn create_read_client(sui_config: &SuiConfig) -> Result<SuiReadClient, anyhow::Error> {
+pub(crate) async fn create_read_client(
+    sui_config: &SuiConfig,
+) -> Result<SuiReadClient, anyhow::Error> {
     Ok(sui_config.new_read_client().await?)
 }
 
@@ -697,7 +705,7 @@ impl StorageNode {
 
         let storage_index = storage_node_cursor.element_index;
         let mut storage_node_cursor_repositioned = false;
-        if self.should_reposition_cursor(storage_index, actual_event_index) {
+        if should_reposition_cursor(storage_index, actual_event_index) {
             tracing::info!(
                 "Repositioning storage node cursor from {} to {}",
                 storage_index,
@@ -713,7 +721,7 @@ impl StorageNode {
         let mut event_blob_writer_repositioned = false;
         if let Some(writer) = event_blob_writer {
             let event_blob_writer_index = event_blob_writer_cursor.element_index;
-            if self.should_reposition_cursor(event_blob_writer_index, actual_event_index) {
+            if should_reposition_cursor(event_blob_writer_index, actual_event_index) {
                 tracing::info!(
                     "Repositioning event blob writer cursor from {} to {}",
                     event_blob_writer_index,
@@ -760,33 +768,6 @@ impl StorageNode {
             }
         );
         Ok(cursor)
-    }
-
-    /// Returns whether the storage node cursor should be repositioned.
-    ///
-    /// The storage node cursor should be repositioned if the storage node cursor is behind the
-    /// actual event index and the storage node cursor is at the beginning of the event stream.
-    ///
-    /// - `storage_index`: The index of the next event the node needs to process.
-    /// - `actual_event_index`: The index of the first event available in the current event stream.
-    ///
-    /// Usually, these indices match up, meaning the node picks up processing right where it left
-    /// off. However, there's a special case during node bootstrapping (when starting with no
-    /// previous state) and event processor bootstrapping itself from event blobs:
-    ///
-    /// When a node starts up for the first time, older event blobs might have expired due to the
-    /// MAX_EPOCHS_AHEAD limit. Let's say the earliest available event starts at index N ( where N >
-    /// 0).
-    ///
-    /// In this case, the event stream can only provide events starting from index N. But the
-    /// storage node, being brand new, wants to start processing from index 0. In this scenario, we
-    /// actually want to reposition the storage node cursor to index N. This is safe because those
-    /// events are no longer available in the system anyway (they've expired), and marking them as
-    /// completed prevents the event tracking system from flagging this natural gap as an error.
-    fn should_reposition_cursor(&self, event_index: u64, actual_event_index: u64) -> bool {
-        let is_behind = event_index < actual_event_index;
-        let is_at_beginning = event_index == 0;
-        is_behind && is_at_beginning
     }
 
     async fn process_events(&self) -> anyhow::Result<()> {
@@ -1060,7 +1041,7 @@ impl StorageNode {
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
-            .start_sync(event.blob_id, event.epoch, Some(event_handle), start)
+            .start_sync(event.blob_id, event.epoch, Some(event_handle))
             .await?;
 
         Ok(())
@@ -2143,6 +2124,7 @@ mod tests {
     use std::{sync::OnceLock, time::Duration};
 
     use chrono::Utc;
+    use config::ShardSyncConfig;
     use contract_service::MockSystemContractService;
     use storage::{
         tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
@@ -2182,6 +2164,10 @@ mod tests {
     const BLOB: &[u8] = &[
         0, 1, 255, 0, 2, 254, 0, 3, 253, 0, 4, 252, 0, 5, 251, 0, 6, 250, 0, 7, 249, 0, 8, 248,
     ];
+
+    struct ShardStorageSet {
+        pub shard_storage: Vec<Arc<ShardStorage>>,
+    }
 
     async fn storage_node_with_storage(storage: WithTempDir<Storage>) -> StorageNodeHandle {
         StorageNodeHandle::builder()
@@ -2507,7 +2493,7 @@ mod tests {
     async fn correctly_handles_blob_deletions_with_concurrent_instances(
         current_epoch: Epoch,
     ) -> TestResult {
-        let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]]).await?;
+        let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]], None).await?;
         advance_cluster_to_epoch(&cluster, &[&events], current_epoch).await?;
 
         let node = &cluster.nodes[0];
@@ -2836,17 +2822,20 @@ mod tests {
 
     async fn cluster_at_epoch1_without_blobs(
         assignment: &[&[u16]],
+        shard_sync_config: Option<ShardSyncConfig>,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>)> {
         let events = Sender::new(48);
 
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
-            TestCluster::<StorageNodeHandle>::builder()
+            let mut builder = TestCluster::<StorageNodeHandle>::builder()
                 .with_shard_assignment(assignment)
-                .with_system_event_providers(events.clone())
-                .build()
-                .await?
+                .with_system_event_providers(events.clone());
+            if let Some(shard_sync_config) = shard_sync_config {
+                builder = builder.with_shard_sync_config(shard_sync_config);
+            }
+            builder.build().await?
         };
 
         Ok((cluster, events))
@@ -2860,7 +2849,7 @@ mod tests {
     where
         F: FnMut(&ShardIndex, SliverType) -> bool,
     {
-        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment).await?;
+        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment, None).await?;
 
         let config = cluster.encoding_config();
         let blob_details = EncodedBlob::new(blob, config);
@@ -2876,8 +2865,10 @@ mod tests {
         assignment: &[&[u16]],
         blobs: &[&[u8]],
         initial_epoch: Epoch,
+        shard_sync_config: Option<ShardSyncConfig>,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>, Vec<EncodedBlob>)> {
-        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment).await?;
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs(assignment, shard_sync_config).await?;
 
         let config = cluster.encoding_config();
         let mut details = Vec::new();
@@ -3099,7 +3090,7 @@ mod tests {
     async fn does_not_start_blob_sync_for_already_expired_blob() -> TestResult {
         let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4]];
 
-        let (cluster, events) = cluster_at_epoch1_without_blobs(shards).await?;
+        let (cluster, events) = cluster_at_epoch1_without_blobs(shards, None).await?;
         let node = &cluster.nodes[0];
 
         // Register and certify an already expired blob.
@@ -3173,7 +3164,7 @@ mod tests {
         cluster.nodes[0]
             .storage_node
             .blob_sync_handler
-            .start_sync(*blob.blob_id(), 1, None, Instant::now())
+            .start_sync(*blob.blob_id(), 1, None)
             .await
             .unwrap();
 
@@ -3496,7 +3487,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 2).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 2, None).await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3539,7 +3530,7 @@ mod tests {
     async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
         // Note that the blobs are certified in epoch 0.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3565,7 +3556,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_unauthorized_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
 
         let error: walrus_sdk::error::NodeError = cluster.nodes[0]
             .client
@@ -3584,7 +3575,7 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_request_verification_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
 
         let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 1);
         let sync_shard_msg = SyncShardMsg::new(1, request);
@@ -3624,9 +3615,13 @@ mod tests {
         requester_epoch: Epoch,
     ) -> TestResult {
         // Creates a cluster with initial epoch set to 3.
-        let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], cluster_epoch)
-                .await?;
+        let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blob(
+            &[&[0], &[1]],
+            &[BLOB],
+            cluster_epoch,
+            None,
+        )
+        .await?;
 
         // Requests a shard from epoch 0.
         let error = cluster.nodes[0]
@@ -3766,31 +3761,49 @@ mod tests {
     }
 
     // The common setup for shard sync tests.
+    // By default:
     //   - Initial cluster with 2 nodes. Shard 0 in node 0 and shard 1 in node 1.
     //   - 23 blobs created and certified in node 0.
     //   - Create a new shard in node 1 with shard index 0 to test sync.
+    // If assignment is provided, it will be used to create the cluster, then all
+    // shards in the first node will be created in the second node for sync.
+    // If shard_sync_config is provided, it will be used to configure the shard sync.
     async fn setup_cluster_for_shard_sync_tests(
-    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorage>)> {
+        assignment: Option<&[&[u16]]>,
+        shard_sync_config: Option<ShardSyncConfig>,
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
+        let assignment = assignment.unwrap_or(&[&[0], &[1]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &blobs, 2).await?;
+            cluster_with_initial_epoch_and_certified_blob(assignment, &blobs, 2, shard_sync_config)
+                .await?;
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
             &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
         };
+        let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
         node_inner
             .storage
-            .create_storage_for_shards(&[ShardIndex(0)])?;
-        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-        shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+            .create_storage_for_shards(&shard_indices)?;
+        let shard_storage_set = ShardStorageSet {
+            shard_storage: shard_indices
+                .iter()
+                .map(|i| node_inner.storage.shard_storage(*i).unwrap())
+                .collect(),
+        };
+        let shard_storage_set = Arc::new(shard_storage_set);
+
+        for shard_storage in shard_storage_set.shard_storage.iter() {
+            shard_storage.update_status_in_test(ShardStatus::None)?;
+        }
 
         Ok((
             cluster,
             blob_details,
             node_inner.storage.clone(),
-            shard_storage_dst.clone(),
+            shard_storage_set.clone(),
         ))
     }
 
@@ -3871,6 +3884,31 @@ mod tests {
         Ok(())
     }
 
+    async fn wait_for_shards_in_active_state(shard_storage_set: &ShardStorageSet) -> TestResult {
+        // Waits for the shard to be synced.
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let mut all_active = true;
+                for shard_storage in &shard_storage_set.shard_storage {
+                    let status = shard_storage
+                        .status()
+                        .expect("Shard status should be present");
+                    if status != ShardStatus::Active {
+                        all_active = false;
+                        break;
+                    }
+                }
+                if all_active {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
     // Tests shard transfer only using shard sync functionality.
     async_param_test! {
         sync_shard_complete_transfer -> TestResult: [
@@ -3881,9 +3919,18 @@ mod tests {
     async fn sync_shard_complete_transfer(
         wipe_metadata_before_transfer_in_dst: bool,
     ) -> TestResult {
-        let (cluster, blob_details, storage_dst, shard_storage_dst) =
-            setup_cluster_for_shard_sync_tests().await?;
+        let assignment: &[&[u16]] = &[&[0, 1, 2], &[3]];
+        let shard_sync_config: ShardSyncConfig = ShardSyncConfig {
+            shard_sync_concurrency: rand::thread_rng().gen_range(1..=assignment.len()),
+            ..Default::default()
+        };
+        let (cluster, blob_details, storage_dst, shard_storage_set) =
+            setup_cluster_for_shard_sync_tests(Some(assignment), Some(shard_sync_config)).await?;
 
+        let expected_shard_count = assignment[0].len();
+
+        assert_eq!(shard_storage_set.shard_storage.len(), expected_shard_count);
+        let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
         if wipe_metadata_before_transfer_in_dst {
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
@@ -3902,15 +3949,17 @@ mod tests {
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 0);
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 0);
 
+        let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
+
         // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
             .shard_sync_handler
-            .start_sync_shards(vec![ShardIndex(0)], wipe_metadata_before_transfer_in_dst)
+            .start_sync_shards(shard_indices, wipe_metadata_before_transfer_in_dst)
             .await?;
 
         // Waits for the shard to be synced.
-        wait_for_shard_in_active_state(&shard_storage_dst).await?;
+        wait_for_shards_in_active_state(&shard_storage_set).await?;
 
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 23);
         assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 23);
@@ -4158,7 +4207,7 @@ mod tests {
         cluster.nodes[1]
             .storage_node
             .shard_sync_handler
-            .start_new_shard_sync(ShardIndex(0))
+            .start_sync_shards(vec![ShardIndex(0)], false)
             .await?;
 
         // Shard recovery should be completed, and all the data should be synced.
@@ -4227,9 +4276,11 @@ mod tests {
             break_index: u64,
             sliver_type: SliverType,
         ) -> TestResult {
-            let (cluster, blob_details, storage_dst, shard_storage_dst) =
-                setup_cluster_for_shard_sync_tests().await?;
+            let (cluster, blob_details, storage_dst, shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, None).await?;
 
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_arg(
                 "fail_point_fetch_sliver",
                 move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
@@ -4243,7 +4294,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
 
             // Waits for the shard sync process to stop.
@@ -4293,16 +4344,18 @@ mod tests {
             ]
         }
         async fn sync_shard_src_abnormal_return(fail_point: &'static str) -> TestResult {
-            let (cluster, _blob_details, storage_dst, shard_storage_dst) =
-                setup_cluster_for_shard_sync_tests().await?;
+            let (cluster, _blob_details, storage_dst, shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, None).await?;
 
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_if(fail_point, || true);
 
             // Starts the shard syncing process in the new shard, which will return empty slivers.
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
 
             // Waits for the shard sync process to stop.
@@ -4325,7 +4378,7 @@ mod tests {
             let blobs_expired: Vec<_> = blobs_expired.iter().map(|b| &b[..]).collect();
 
             // Generates a cluster with two nodes and one shard each.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]]).await?;
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]], None).await?;
 
             // Uses fail point to track whether shard sync recovery is triggered.
             let shard_sync_recovery_triggered = Arc::new(AtomicBool::new(false));
@@ -4387,7 +4440,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
 
             // Waits for the shard sync process to stop.
@@ -4453,7 +4506,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .shard_sync_handler
-                .start_new_shard_sync(ShardIndex(0))
+                .start_sync_shards(vec![ShardIndex(0)], false)
                 .await?;
             // Waits for the shard sync process to stop.
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
@@ -4507,9 +4560,11 @@ mod tests {
         async fn sync_shard_recovery_metadata_restart(
             fail_before_start_fetching: bool,
         ) -> TestResult {
-            let (cluster, blob_details, storage_dst, shard_storage_dst) =
-                setup_cluster_for_shard_sync_tests().await?;
+            let (cluster, blob_details, storage_dst, shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, None).await?;
 
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             if fail_before_start_fetching {
                 register_fail_point_if(
                     "fail_point_shard_sync_recovery_metadata_error_before_fetch",
@@ -4571,7 +4626,7 @@ mod tests {
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
             let (cluster, events, _blob_detail) =
-                cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[BLOB], 2).await?;
+                cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[BLOB], 2, None).await?;
             cluster.nodes[0]
                 .storage_node
                 .start_epoch_change_finisher
@@ -4679,7 +4734,7 @@ mod tests {
             });
 
             // Create a cluster and send some events.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]]).await?;
+            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0]], None).await?;
             events.send(BlobRegistered::for_testing(BLOB_ID).into())?;
             tokio::time::sleep(Duration::from_secs(10)).await;
 
@@ -4694,7 +4749,7 @@ mod tests {
         }
     }
 
-    // Waits until the storage node processes the specified number of events.
+    /// Waits until the storage node processes the specified number of events.
     async fn wait_until_events_processed(
         node: &StorageNodeHandle,
         processed_event_count: u64,
@@ -4869,7 +4924,8 @@ mod tests {
         let _ = tracing_subscriber::fmt::try_init();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
         let lookup_service_handle = cluster
             .lookup_service_handle
             .as_ref()
@@ -4960,7 +5016,7 @@ mod tests {
         let _ = tracing_subscriber::fmt::try_init();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[], 1).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
         events.send(

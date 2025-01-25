@@ -12,8 +12,19 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use sui::client_commands::{Opts, OptsWithGas, SuiClientCommands};
+use move_core_types::account_address::AccountAddress;
+use move_package::BuildConfig as MoveBuildConfig;
+use sui_move_build::{
+    build_from_resolution_graph,
+    check_invalid_dependencies,
+    check_unpublished_dependencies,
+    gather_published_ids,
+    BuildConfig,
+    CompiledPackage,
+    PackageDependencies,
+};
 use sui_sdk::{
+    apis::ReadApi,
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
         base_types::ObjectID,
@@ -35,7 +46,7 @@ use walrus_core::{ensure, EpochCount};
 
 use crate::{
     contracts::{self, StructTag},
-    utils::get_created_sui_object_ids_by_type,
+    utils::{estimate_gas_budget, get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
 
 const INIT_MODULE: &str = "init";
@@ -67,45 +78,152 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
         .ok_or_else(|| anyhow!("no immutable object was created"))
 }
 
+pub(crate) async fn publish_package_with_default_build_config(
+    wallet: &mut WalletContext,
+    package_path: PathBuf,
+) -> Result<SuiTransactionBlockResponse> {
+    publish_package(wallet, package_path, Default::default(), None).await
+}
+
 #[tracing::instrument(err, skip(wallet))]
 pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
     package_path: PathBuf,
+    build_config: MoveBuildConfig,
+    gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
-    let sui_client_command = SuiClientCommands::Publish {
-        package_path,
-        build_config: Default::default(),
-        opts: OptsWithGas {
-            gas: None,
-            rest: Opts {
-                gas_budget: None,
-                dry_run: false,
-                dev_inspect: false,
-                serialize_unsigned_transaction: false,
-                serialize_signed_transaction: false,
-            },
-        },
-        skip_dependency_verification: true,
-        with_unpublished_dependencies: true,
+    let sender = wallet.active_address()?;
+    let client = wallet.get_client().await?;
+    let chain_id = client.read_api().get_chain_identifier().await.ok();
+
+    let package_path = package_path.canonicalize()?;
+
+    let build_config = resolve_lock_file_path(build_config, Some(&package_path))?;
+
+    // Set the package ID to zero.
+    let previous_id = if let Some(ref chain_id) = chain_id {
+        sui_package_management::set_package_id(
+            &package_path,
+            build_config.install_dir.clone(),
+            chain_id,
+            AccountAddress::ZERO,
+        )?
+    } else {
+        None
     };
-    let result = sui_client_command.execute(wallet).await?;
-    let transaction_response = result
-        .tx_block_response()
-        .ok_or_else(|| anyhow!("no transaction response"))?
-        .to_owned();
+
+    let (dependencies, compiled_package) =
+        compile_package(client.read_api(), build_config.clone(), &package_path).await?;
+
+    let compiled_modules = compiled_package.get_package_bytes(false);
+    // Restore original ID.
+    if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
+        let _ = sui_package_management::set_package_id(
+            &package_path,
+            build_config.install_dir.clone(),
+            &chain_id,
+            previous_id,
+        )?;
+    }
+
+    // Publish the package
+    let transaction_kind = client
+        .transaction_builder()
+        .publish_tx_kind(
+            sender,
+            compiled_modules,
+            dependencies.published.into_values().collect(),
+        )
+        .await?;
+
+    let gas_budget = if let Some(gas_budget) = gas_budget {
+        gas_budget
+    } else {
+        estimate_gas_budget(&client, sender, transaction_kind.clone()).await?
+    };
+
+    let gas_coins = client
+        .coin_read_api()
+        .select_coins(sender, None, gas_budget as u128, vec![])
+        .await?
+        .into_iter()
+        .map(|coin| coin.coin_object_id)
+        .collect::<Vec<_>>();
+
+    let transaction = client
+        .transaction_builder()
+        .tx_data(
+            sender,
+            transaction_kind,
+            gas_budget,
+            wallet.get_reference_gas_price().await?,
+            gas_coins,
+            None,
+        )
+        .await?;
+
+    let signed_transaction = wallet.sign_transaction(&transaction);
+    let response = wallet
+        .execute_transaction_may_fail(signed_transaction)
+        .await?;
+
+    // Update the lock file
+    sui_package_management::update_lock_file(
+        wallet,
+        sui_package_management::LockCommand::Publish,
+        build_config.install_dir,
+        build_config.lock_file,
+        &response,
+    )
+    .await
+    .context("failed to update Move.lock")?;
+
+    Ok(response)
+}
+
+// Based on `compile_package` from the sui CLI codebase, simplified for our needs.
+pub(crate) async fn compile_package(
+    read_api: &ReadApi,
+    build_config: MoveBuildConfig,
+    package_path: &Path,
+) -> Result<(PackageDependencies, CompiledPackage), anyhow::Error> {
+    let config = resolve_lock_file_path(build_config, Some(package_path))?;
+    let run_bytecode_verifier = true;
+    let print_diags_to_stderr = false;
+    let chain_id = read_api.get_chain_identifier().await.ok();
+    let config = BuildConfig {
+        config,
+        run_bytecode_verifier,
+        print_diags_to_stderr,
+        chain_id: chain_id.clone(),
+    };
+    let resolution_graph = config.resolution_graph(package_path, chain_id.clone())?;
+    let (_, dependencies) = gather_published_ids(&resolution_graph, chain_id.clone());
+
+    // Check that the dependencies have a valid published address.
+    check_invalid_dependencies(&dependencies.invalid)?;
+    // Check that all dependencies are published.
+    check_unpublished_dependencies(&dependencies.unpublished)?;
+
+    let compiled_package = build_from_resolution_graph(
+        resolution_graph,
+        run_bytecode_verifier,
+        print_diags_to_stderr,
+        chain_id,
+    )?;
 
     ensure!(
-        transaction_response.status_ok() == Some(true),
-        "Error during transaction execution: {:?}",
-        transaction_response.errors
+        compiled_package.published_root_module().is_none(),
+        "package was already published, modules must all have 0x0 as their addresses."
     );
-    Ok(transaction_response)
+
+    Ok((dependencies, compiled_package))
 }
 
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
     pub wal_pkg_id: ObjectID,
-    pub wal_exchange_pkg_id: ObjectID,
+    pub wal_exchange_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
     pub treasury_cap_id: ObjectID,
@@ -140,6 +258,7 @@ pub async fn publish_coin_and_system_package(
     wallet: &mut WalletContext,
     walrus_contract_directory: PathBuf,
     deploy_directory: Option<PathBuf>,
+    with_wal_exchange: bool,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
         copy_recursively(&walrus_contract_directory, &deploy_directory)?;
@@ -150,7 +269,8 @@ pub async fn publish_coin_and_system_package(
 
     // Publish `wal` package.
     let transaction_response =
-        publish_package(wallet, walrus_contract_directory.join("wal")).await?;
+        publish_package_with_default_build_config(wallet, walrus_contract_directory.join("wal"))
+            .await?;
     let wal_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
     let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
 
@@ -163,14 +283,22 @@ pub async fn publish_coin_and_system_package(
         bail!("unexpected number of TreasuryCap objects created");
     };
 
-    // Publish `wal_exchange` package.
-    let transaction_response =
-        publish_package(wallet, walrus_contract_directory.join("wal_exchange")).await?;
-    let wal_exchange_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
+    let wal_exchange_pkg_id = if with_wal_exchange {
+        // Publish `wal_exchange` package.
+        let transaction_response = publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("wal_exchange"),
+        )
+        .await?;
+        Some(get_pkg_id_from_tx_response(&transaction_response)?)
+    } else {
+        None
+    };
 
     // Publish `walrus` package.
     let transaction_response =
-        publish_package(wallet, walrus_contract_directory.join("walrus")).await?;
+        publish_package_with_default_build_config(wallet, walrus_contract_directory.join("walrus"))
+            .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
     let [init_cap_id] = get_created_sui_object_ids_by_type(

@@ -18,19 +18,15 @@ use axum::{
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use sui_types::base_types::ObjectID;
 use utoipa::{
     openapi::{
         schema,
         ContentBuilder,
-        ObjectBuilder,
         RefOr,
         Response as OpenApiResponse,
         ResponseBuilder,
         ResponsesBuilder,
-        Schema,
     },
-    PartialSchema,
     ToSchema,
 };
 use walrus_core::BlobId;
@@ -38,51 +34,14 @@ use walrus_sdk::api::errors::{ErrorInfo, Status, StatusCode as ApiStatusCode};
 
 /// A blob ID encoded as a URL-safe Base64 string, without the trailing equal (=) signs.
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
-#[schema(
-    as = BlobId,
-    value_type = String,
-    format = Byte,
-    example = json!("E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU"),
-)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct BlobIdString(#[serde_as(as = "DisplayFromStr")] pub(crate) BlobId);
-
-// Schema for the [`sui_types::event::EventID`] type.
-#[allow(missing_docs)]
-#[derive(Debug, ToSchema)]
-#[schema(
-    as = EventID,
-    rename_all = "camelCase",
-    example = json!({
-        "txDigest": "EhtoQF9UpPyg5PsPUs69LdkcRrjQ3R4cTsHnwxZVTNrC",
-        "eventSeq": 0
-    })
-)]
-pub(crate) struct EventIdSchema {
-    #[schema(format = Byte)]
-    tx_digest: Vec<u8>,
-    // u64 represented as a string
-    #[schema(value_type = String)]
-    event_seq: u64,
-}
-
-// Schema for the [`sui_types::ObjectID`] type.
-#[serde_as]
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
-#[schema(
-    as = ObjectID,
-    value_type = String,
-    format = Byte,
-    title = "Sui object ID as a hex string",
-    example = "0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60"
-)]
-pub(crate) struct ObjectIdSchema(#[serde_as(as = "DisplayFromStr")] pub(crate) ObjectID);
 
 /// Successful API response body as JSON.
 ///
 /// Contains the HTTP code as well as a message or response object.
 #[allow(missing_docs)]
-#[derive(Debug, Serialize, Clone, Copy)]
+#[derive(Debug, Serialize, Clone, Copy, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ApiSuccess<T> {
     Success {
@@ -91,6 +50,10 @@ pub(crate) enum ApiSuccess<T> {
         data: T,
     },
 }
+
+#[derive(Debug, ToSchema)]
+#[schema(value_type = String, format = Binary)]
+pub(crate) struct Binary(());
 
 impl<T> ApiSuccess<T> {
     /// Generates a new message with the provided status code.
@@ -108,26 +71,6 @@ impl<T> ApiSuccess<T> {
             data,
         }
     }
-
-    /// Generates the OpenAPI schema for this message.
-    pub(crate) fn schema_with_data(data: RefOr<Schema>) -> RefOr<Schema> {
-        let object = ObjectBuilder::new()
-            .property(
-                "success",
-                ObjectBuilder::new()
-                    .property("code", <u16 as PartialSchema>::schema())
-                    .property("data", data),
-            )
-            .build();
-
-        object.into()
-    }
-}
-
-impl<'s, T: ToSchema<'s>> PartialSchema for ApiSuccess<T> {
-    fn schema() -> RefOr<Schema> {
-        Self::schema_with_data(T::schema().1)
-    }
 }
 
 impl<T: Serialize> IntoResponse for ApiSuccess<T> {
@@ -139,29 +82,6 @@ impl<T: Serialize> IntoResponse for ApiSuccess<T> {
         )
             .into_response()
     }
-}
-
-/// Creates `ToSchema` API implementations and type aliases for `ApiSuccess<T>`.
-///
-/// This is required as utoipa's current method for handling generics in schemas is not
-/// working for enums. See <https://github.com/juhaku/utoipa/issues/835>.
-#[macro_export]
-macro_rules! api_success_alias {
-    (@schema PartialSchema $name:ident) => {
-        $crate::common::api::ApiSuccess::<$name>::schema_with_data($name::schema())
-    };
-    (@schema ToSchema $name:ident) => {
-        <$crate::common::api::ApiSuccess<$name> as PartialSchema>::schema()
-    };
-    ($name:ident as $alias:ident, $method:tt) => {
-        pub(crate) struct $alias;
-
-        impl<'r> ToSchema<'r> for $alias {
-            fn schema() -> (&'r str, RefOr<Schema>) {
-                (stringify!($alias), $crate::api_success_alias!(@schema $method $name))
-            }
-        }
-    };
 }
 
 /// Trait identifying objects that can be converted into an [`Status`].
@@ -243,7 +163,7 @@ pub(crate) fn describe_error_response(
     description: String,
 ) -> (String, RefOr<OpenApiResponse>) {
     let content = ContentBuilder::new()
-        .schema(schema::Ref::from_schema_name("RestApiJsonError"))
+        .schema(Some(schema::Ref::from_schema_name("RestApiJsonError")))
         .build();
     let response = ResponseBuilder::new()
         .description(description)
@@ -272,7 +192,7 @@ pub(crate) fn into_responses(
         };
 
         let content = ContentBuilder::new()
-            .schema(schema::Ref::from_schema_name("Status"))
+            .schema(Some(schema::Ref::from_schema_name("Status")))
             .build();
 
         let response = ResponseBuilder::new()
@@ -284,13 +204,4 @@ pub(crate) fn into_responses(
     }
 
     builder.build().into()
-}
-
-/// Convert the path with variables of the form `:id` to the form `{id}`.
-pub(crate) fn rewrite_route(path: &str) -> String {
-    regex::Regex::new(r":(?<param>\w+)")
-        .expect("this is a valid regex")
-        .replace_all(path, "{$param}")
-        .as_ref()
-        .into()
 }

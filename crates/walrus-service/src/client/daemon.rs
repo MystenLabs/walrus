@@ -5,6 +5,7 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
+use auth::JwtLayer;
 use axum::{
     error_handling::HandleErrorLayer,
     extract::DefaultBodyLimit,
@@ -31,8 +32,12 @@ use walrus_core::{encoding::Primary, BlobId, EpochCount};
 use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
-use crate::common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan};
+use crate::{
+    client::config::AuthConfig,
+    common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
+};
 
+mod auth;
 mod openapi;
 mod routes;
 
@@ -172,6 +177,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with publisher functionality.
     pub fn new_publisher(
         client: T,
+        auth_config: Option<AuthConfig>,
         network_address: SocketAddr,
         max_body_limit: usize,
         registry: &Registry,
@@ -179,6 +185,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_concurrent_requests: usize,
     ) -> Self {
         Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
+            auth_config,
             max_body_limit,
             max_request_buffer_size,
             max_concurrent_requests,
@@ -188,6 +195,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
     pub fn new_daemon(
         client: T,
+        auth_config: Option<AuthConfig>,
         network_address: SocketAddr,
         max_body_limit: usize,
         registry: &Registry,
@@ -197,6 +205,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         Self::new::<DaemonApiDoc>(client, network_address, registry)
             .with_aggregator()
             .with_publisher(
+                auth_config,
                 max_body_limit,
                 max_request_buffer_size,
                 max_concurrent_requests,
@@ -206,6 +215,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Specifies that the daemon should expose the publisher interface (store blobs).
     fn with_publisher(
         mut self,
+        auth_config: Option<AuthConfig>,
         max_body_limit: usize,
         max_request_buffer_size: usize,
         max_concurrent_requests: usize,
@@ -216,19 +226,33 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             %max_concurrent_requests,
             "configuring the publisher endpoint",
         );
-        let publisher_layers = ServiceBuilder::new()
+
+        let base_layers = ServiceBuilder::new()
             .layer(DefaultBodyLimit::max(max_body_limit))
             .layer(HandleErrorLayer::new(handle_publisher_error))
             .layer(LoadShedLayer::new())
             .layer(BufferLayer::new(max_request_buffer_size))
             .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
 
-        self.router = self.router.route(
-            BLOB_PUT_ENDPOINT,
-            put(routes::put_blob)
-                .route_layer(publisher_layers)
-                .options(routes::store_blob_options),
-        );
+        if let Some(auth_config) = auth_config {
+            self.router = self.router.route(
+                BLOB_PUT_ENDPOINT,
+                put(routes::put_blob)
+                    .route_layer(
+                        ServiceBuilder::new()
+                            .layer(JwtLayer::new(auth_config))
+                            .layer(base_layers),
+                    )
+                    .options(routes::store_blob_options),
+            );
+        } else {
+            self.router = self.router.route(
+                BLOB_PUT_ENDPOINT,
+                put(routes::put_blob)
+                    .route_layer(base_layers)
+                    .options(routes::store_blob_options),
+            );
+        }
         self
     }
 }

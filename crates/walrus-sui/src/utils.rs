@@ -12,23 +12,30 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
+use move_package::{source_package::layout::SourcePackageLayout, BuildConfig as MoveBuildConfig};
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
-    rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
+    rpc_types::{
+        ObjectChange,
+        Page,
+        SuiObjectResponse,
+        SuiTransactionBlockEffectsAPI,
+        SuiTransactionBlockResponse,
+    },
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
     wallet_context::WalletContext,
     SuiClient,
 };
 use sui_types::{
-    base_types::{ObjectRef, SuiAddress},
+    base_types::SuiAddress,
     crypto::SignatureScheme,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{ProgrammableTransaction, TransactionData},
+    transaction::{TransactionData, TransactionKind},
 };
 use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
@@ -49,6 +56,13 @@ use crate::{
 // Change the unit there if it changes.
 /// The number of bytes per storage unit.
 pub const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
+
+/// The gas overhead to add to the gas budget to ensure that the transaction will succeed.
+/// Set based on `GAS_SAFE_OVERHEAD` in the sui CLI.
+const GAS_SAFE_OVERHEAD: u64 = 1000;
+
+/// The maximum gas allowed in a transaction, in MIST (50 SUI).
+const MAX_GAS_BUDGET: u64 = 50_000_000_000;
 
 // Keep in sync with the same function in `contracts/walrus/sources/system/system_state_inner.move`.
 /// Calculates the number of storage units required to store a blob with the
@@ -276,29 +290,6 @@ impl std::fmt::Display for SuiNetwork {
     }
 }
 
-/// Sign and send a [`ProgrammableTransaction`].
-pub async fn sign_and_send_ptb(
-    sender: SuiAddress,
-    wallet: &WalletContext,
-    programmable_transaction: ProgrammableTransaction,
-    gas_coins: Vec<ObjectRef>,
-    gas_budget: u64,
-) -> anyhow::Result<SuiTransactionBlockResponse> {
-    let gas_price = wallet.get_reference_gas_price().await?;
-
-    let transaction = TransactionData::new_programmable(
-        sender,
-        gas_coins,
-        programmable_transaction,
-        gas_budget,
-        gas_price,
-    );
-
-    let transaction = wallet.sign_transaction(&transaction);
-
-    wallet.execute_transaction_may_fail(transaction).await
-}
-
 /// Loads a sui wallet from `config_path`.
 pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
     let config_path =
@@ -405,7 +396,7 @@ pub async fn request_sui_from_faucet(
 
 /// Gets 1 SUI for `address` from the provided wallet if the wallet has at least 2 SUI, otherwise
 /// request SUI from the faucet.
-// TODO(WAL-529): Refactor and completely remove the faucet from the deploymentflow.
+// TODO(WAL-529): Refactor and completely remove the faucet from the deployment flow.
 pub async fn get_sui_from_wallet_or_faucet(
     address: SuiAddress,
     wallet: &mut WalletContext,
@@ -422,7 +413,7 @@ pub async fn get_sui_from_wallet_or_faucet(
     if balance.total_balance >= 3 * one_sui as u128 {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(one_sui));
-        let tx = ptb.finish();
+        let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
         let gas_coins = wallet
             .get_client()
@@ -433,7 +424,17 @@ pub async fn get_sui_from_wallet_or_faucet(
             .iter()
             .map(|coin| coin.object_ref())
             .collect();
-        sign_and_send_ptb(sender, wallet, tx, gas_coins, gas_budget).await?;
+
+        let transaction = TransactionData::new_programmable(
+            sender,
+            gas_coins,
+            ptb,
+            gas_budget,
+            wallet.get_reference_gas_price().await?,
+        );
+        wallet
+            .execute_transaction_may_fail(wallet.sign_transaction(&transaction))
+            .await?;
         Ok(())
     } else {
         request_sui_from_faucet(address, network, &wallet.get_client().await?).await?;
@@ -462,4 +463,64 @@ pub fn generate_proof_of_possession_for_address(
         sui_address.to_inner(),
         bls_sk.public().clone(),
     ))
+}
+
+/// Calls a dry run with the transaction data to estimate the gas budget.
+///
+/// This performs the same calculation as the Sui CLI and the TypeScript SDK.
+pub(crate) async fn estimate_gas_budget(
+    sui_client: &SuiClient,
+    signer: SuiAddress,
+    kind: TransactionKind,
+) -> Result<u64, anyhow::Error> {
+    let reference_gas_price = sui_client.read_api().get_reference_gas_price().await?;
+    let dry_run_tx_data = sui_client
+        .transaction_builder()
+        .tx_data_for_dry_run(
+            signer,
+            kind,
+            MAX_GAS_BUDGET,
+            reference_gas_price,
+            None,
+            None,
+        )
+        .await;
+    let effects = sui_client
+        .read_api()
+        .dry_run_transaction_block(dry_run_tx_data)
+        .await
+        .context("dry run failed")?
+        .effects;
+    let gas_cost_summary = effects.gas_cost_summary();
+
+    let safe_overhead = GAS_SAFE_OVERHEAD * reference_gas_price;
+    let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
+    let gas_usage_with_overhead = gas_cost_summary.net_gas_usage() + safe_overhead as i64;
+    Ok(computation_cost_with_overhead.max(gas_usage_with_overhead.max(0) as u64))
+}
+
+/// Resolve Move.lock file path in package directory (where Move.toml is).
+/// Taken from `sui_move::manage_package::resolve_lock_file_path` to avoid adding a dependency.
+pub(crate) fn resolve_lock_file_path(
+    mut build_config: MoveBuildConfig,
+    package_path: Option<&Path>,
+) -> Result<MoveBuildConfig, anyhow::Error> {
+    if build_config.lock_file.is_none() {
+        let package_root = reroot_path(package_path)?;
+        let lock_file_path = package_root.join(SourcePackageLayout::Lock.path());
+        build_config.lock_file = Some(lock_file_path);
+    }
+    Ok(build_config)
+}
+
+/// Taken from `move_cli::base::reroot_path` to avoid adding a dependency.
+fn reroot_path(path: Option<&Path>) -> anyhow::Result<PathBuf> {
+    let path = path
+        .map(Path::canonicalize)
+        .unwrap_or_else(|| PathBuf::from(".").canonicalize())?;
+    // Always root ourselves to the package root, and then compile relative to that.
+    let rooted_path = SourcePackageLayout::try_find_root(&path)?;
+    std::env::set_current_dir(rooted_path).unwrap();
+
+    Ok(PathBuf::from("."))
 }

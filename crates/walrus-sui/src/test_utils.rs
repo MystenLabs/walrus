@@ -28,6 +28,7 @@ use sui_types::{
     digests::TransactionDigest,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::TransactionData,
 };
 use test_cluster::{TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
@@ -53,7 +54,7 @@ use walrus_test_utils::WithTempDir;
 use crate::{
     client::SuiContractClient,
     types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
-    utils::{create_wallet, request_sui_from_faucet, sign_and_send_ptb, SuiNetwork},
+    utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 
 /// Default gas budget for transactions in tests and benchmarks.
@@ -439,14 +440,16 @@ async fn fund_addresses(
     let amounts = vec![DEFAULT_FUNDING_PER_COIN; recipients.len()];
     ptb.pay_sui(recipients, amounts)?;
 
-    sign_and_send_ptb(
+    let transaction = TransactionData::new_programmable(
         sender,
-        funding_wallet,
-        ptb.finish(),
         vec![gas_coin],
+        ptb.finish(),
         DEFAULT_GAS_BUDGET,
-    )
-    .await?;
+        funding_wallet.get_reference_gas_price().await?,
+    );
+    funding_wallet
+        .execute_transaction_may_fail(funding_wallet.sign_transaction(&transaction))
+        .await?;
 
     Ok(())
 }

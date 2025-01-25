@@ -3,6 +3,11 @@
 
 //! Contains end-to-end tests for the Walrus client interacting with a Walrus test cluster.
 
+#[cfg(msim)]
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
@@ -10,6 +15,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(msim)]
+use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
 use walrus_core::{
@@ -42,7 +49,7 @@ use walrus_service::{
 };
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
-    types::{move_structs::SharedBlob, BlobEvent, ContractEvent},
+    types::{move_structs::SharedBlob, Blob, BlobEvent, ContractEvent},
 };
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -827,6 +834,51 @@ async fn test_burn_blobs() -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
+async fn test_extend_owned_blobs() -> TestResult {
+    let _ = tracing_subscriber::fmt::try_init();
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let blob = walrus_test_utils::random_data(314);
+    let result = client
+        .as_ref()
+        .reserve_and_store_blobs(
+            &[blob.as_slice()],
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let (end_epoch, blob_object_id) = {
+        let BlobStoreResult::NewlyCreated { blob_object, .. } = result
+            .into_iter()
+            .next()
+            .expect("expect one blob store result")
+        else {
+            panic!("expect newly stored blob")
+        };
+        (blob_object.storage.end_epoch, blob_object.id)
+    };
+
+    // Extend it by 5 epochs.
+    client
+        .as_ref()
+        .sui_client()
+        .extend_blob(blob_object_id, 5)
+        .await?;
+
+    let blob: Blob = client
+        .as_ref()
+        .sui_client()
+        .sui_client()
+        .get_sui_object(blob_object_id)
+        .await?;
+    assert_eq!(blob.storage.end_epoch, end_epoch + 5);
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
 async fn test_share_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
@@ -983,5 +1035,44 @@ async fn test_post_store_action(
             }
         }
     }
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[cfg(msim)]
+#[walrus_simtest]
+async fn test_ptb_retriable_error() -> TestResult {
+    // Set up test environment with cluster and client
+    let (_sui_cluster_handle, cluster, client) = test_cluster::default_setup().await?;
+
+    // Create an atomic counter to track number of failure attempts
+    let failure_counter = Arc::new(AtomicU32::new(0));
+    let failure_counter_clone = failure_counter.clone();
+
+    // Register a fail point that will fail the first 2 attempts and succeed on the 3rd
+    register_fail_point_if("ptb_executor_stake_pool_retriable_error", move || {
+        let attempt_number = failure_counter_clone.fetch_add(1, Ordering::SeqCst);
+        attempt_number < 2 // Return true (fail) for first 2 attempts
+    });
+
+    // Attempt to stake with the node pool - this should retry on failure
+    let result = client
+        .inner
+        .stake_with_node_pool(
+            cluster.nodes[0]
+                .storage_node_capability
+                .as_ref()
+                .unwrap()
+                .node_id,
+            1234567, // Stake amount
+        )
+        .await;
+
+    // Verify the operation was attempted 3 times (2 failures + 1 success)
+    assert_eq!(failure_counter.load(Ordering::SeqCst), 3);
+    assert!(result.is_ok());
+
+    // Clean up the fail point
+    clear_fail_point("ptb_executor_stake_pool_retriable_error");
     Ok(())
 }

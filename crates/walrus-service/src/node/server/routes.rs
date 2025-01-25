@@ -15,10 +15,12 @@ use walrus_core::{
     messages::{
         BlobPersistenceType,
         InvalidBlobIdAttestation,
+        SignedMessage,
         SignedSyncShardRequest,
         StorageConfirmation,
     },
     metadata::{BlobMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+    BlobId,
     InconsistencyProof,
     RecoverySymbol,
     Sliver,
@@ -26,14 +28,15 @@ use walrus_core::{
     SliverType,
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
+use walrus_sui::ObjectIdSchema;
 
 use super::{
     extract::{Authorization, Bcs},
-    openapi,
+    openapi::{self},
     responses::OrRejection,
 };
 use crate::{
-    common::api::{self, ApiSuccess, BlobIdString},
+    common::api::{ApiSuccess, BlobIdString},
     node::{
         BlobStatusError,
         ComputeStorageConfirmationError,
@@ -49,28 +52,29 @@ use crate::{
 };
 
 /// OpenAPI documentation endpoint.
-pub const API_DOCS: &str = "/v1/api";
+pub const API_DOCS_ENDPOINT: &str = "/v1/api";
 /// The path to get and store blob metadata.
-pub const METADATA_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata";
+pub const METADATA_ENDPOINT: &str = "/v1/blobs/{blob_id}/metadata";
 /// The path to get the status of metadata for a blob.
-pub const METADATA_STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/metadata/status";
+pub const METADATA_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/metadata/status";
 /// The path to get and store slivers.
-pub const SLIVER_ENDPOINT: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";
+pub const SLIVER_ENDPOINT: &str = "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}";
 /// The path to check if a sliver is stored.
 pub const SLIVER_STATUS_ENDPOINT: &str =
-    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/status";
+    "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/status";
 /// The path to get blob confirmations for permanent blobs.
-pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/:blob_id/confirmation/permanent";
+pub const PERMANENT_BLOB_CONFIRMATION_ENDPOINT: &str = "/v1/blobs/{blob_id}/confirmation/permanent";
 /// The path to get blob confirmations for deletable blobs.
 pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
-    "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
+    "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
 /// The path to get recovery symbols.
 pub const RECOVERY_ENDPOINT: &str =
-    "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
+    "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}";
 /// The path to push inconsistency proofs.
-pub const INCONSISTENCY_PROOF_ENDPOINT: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
+pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
+    "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
 /// The path to get the status of a blob.
-pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/:blob_id/status";
+pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
 
@@ -84,7 +88,7 @@ impl<T: ServiceState + Send + Sync + 'static> SyncServiceState for T {}
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(METADATA_ENDPOINT),
+    path = METADATA_ENDPOINT,
     params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "BCS encoded blob metadata", body = [u8]),
@@ -103,13 +107,13 @@ pub async fn get_metadata<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(METADATA_STATUS_ENDPOINT),
+    path = METADATA_STATUS_ENDPOINT,
     params(("blob_id" = BlobId,)),
     responses(
         (
             status = 200,
             description = "The storage status of the blob metadata",
-            body = ApiSuccessStoredOnNodeStatus
+            body = ApiSuccess<StoredOnNodeStatus>
         ),
         RetrieveMetadataError
     ),
@@ -133,12 +137,12 @@ pub async fn get_metadata_status<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     put,
-    path = api::rewrite_route(METADATA_ENDPOINT),
+    path = METADATA_ENDPOINT,
     params(("blob_id" = BlobId,)),
     request_body(content = [u8], description = "BCS-encoded metadata octet-stream"),
     responses(
-        (status = CREATED, description = "Metadata successfully stored", body = ApiSuccessMessage),
-        (status = OK, description = "Metadata is already stored", body = ApiSuccessMessage),
+        (status = CREATED, description = "Metadata successfully stored", body = ApiSuccess<String>),
+        (status = OK, description = "Metadata is already stored", body = ApiSuccess<String>),
         StoreMetadataError,
     ),
     tag = openapi::GROUP_STORING_BLOBS
@@ -170,7 +174,7 @@ pub async fn put_metadata<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(SLIVER_ENDPOINT),
+    path = SLIVER_ENDPOINT,
     params(
         ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -210,7 +214,7 @@ pub async fn get_sliver<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     put,
-    path = api::rewrite_route(SLIVER_ENDPOINT),
+    path = SLIVER_ENDPOINT,
     params(
         ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -218,7 +222,7 @@ pub async fn get_sliver<S: SyncServiceState>(
     ),
     request_body(content = [u8], description = "BCS-encoded sliver octet-stream"),
     responses(
-        (status = OK, description = "Sliver successfully stored", body = ApiSuccessMessage),
+        (status = OK, description = "Sliver successfully stored", body = ApiSuccess<String>),
         StoreSliverError,
     ),
     tag = openapi::GROUP_STORING_BLOBS,
@@ -256,7 +260,7 @@ pub async fn put_sliver<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(SLIVER_STATUS_ENDPOINT),
+    path = SLIVER_STATUS_ENDPOINT,
     params(
         ("blob_id" = BlobId, ),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -266,7 +270,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         (
             status = 200,
             description = "The storage status of the primary or secondary sliver",
-            body=ApiSuccessStoredOnNodeStatus,
+            body = ApiSuccess<StoredOnNodeStatus>,
         ),
         RetrieveSliverError,
     ),
@@ -297,11 +301,11 @@ pub async fn get_sliver_status<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(PERMANENT_BLOB_CONFIRMATION_ENDPOINT),
+    path = PERMANENT_BLOB_CONFIRMATION_ENDPOINT,
     params(("blob_id" = BlobId,)),
     responses(
         (status = 200, description = "A signed confirmation of storage",
-        body = ApiSuccessStorageConfirmation),
+        body = ApiSuccess<StorageConfirmation>),
         ComputeStorageConfirmationError,
     ),
     tag = openapi::GROUP_STORING_BLOBS
@@ -328,11 +332,11 @@ pub async fn get_permanent_blob_confirmation<S: SyncServiceState>(
 )]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(DELETABLE_BLOB_CONFIRMATION_ENDPOINT),
-    params(("blob_id" = BlobId,), ("object_id" = ObjectID,)),
+    path = DELETABLE_BLOB_CONFIRMATION_ENDPOINT,
+    params(("blob_id" = BlobId,), ("object_id" = ObjectIdSchema,)),
     responses(
         (status = 200, description = "A signed confirmation of storage",
-        body = ApiSuccessStorageConfirmation),
+        body = ApiSuccess<StorageConfirmation>),
         ComputeStorageConfirmationError,
     ),
     tag = openapi::GROUP_STORING_BLOBS
@@ -369,7 +373,7 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(RECOVERY_ENDPOINT),
+    path = RECOVERY_ENDPOINT,
     params(
         ("blob_id" = BlobId,),
         ("sliver_pair_index" = SliverPairIndex, ),
@@ -414,12 +418,12 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
 ))]
 #[utoipa::path(
     post,
-    path = api::rewrite_route(INCONSISTENCY_PROOF_ENDPOINT),
+    path = INCONSISTENCY_PROOF_ENDPOINT,
     params(("blob_id" = BlobId,), ("sliver_type" = SliverType,)),
     request_body(content = [u8], description = "BCS-encoded inconsistency proof"),
     responses(
         (status = 200, description = "Signed invalid blob-id attestation",
-        body = ApiSuccessSignedMessage),
+        body = ApiSuccess<SignedMessage::<u8>>),
         InconsistencyProofError,
     ),
     tag = openapi::GROUP_RECOVERY
@@ -449,10 +453,10 @@ pub async fn inconsistency_proof<S: SyncServiceState>(
 #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(BLOB_STATUS_ENDPOINT),
+    path = BLOB_STATUS_ENDPOINT,
     params(("blob_id" = BlobId,)),
     responses(
-        (status = 200, description = "The status of the blob", body = ApiSuccessBlobStatus),
+        (status = 200, description = "The status of the blob", body = ApiSuccess<BlobStatus>),
         BlobStatusError
     ),
     tag = openapi::GROUP_READING_BLOBS
@@ -478,10 +482,10 @@ pub struct HealthInfoQuery {
 #[tracing::instrument(skip_all)]
 #[utoipa::path(
     get,
-    path = api::rewrite_route(HEALTH_ENDPOINT),
+    path = HEALTH_ENDPOINT,
     params(HealthInfoQuery),
     responses(
-        (status = 200, description = "Server is running", body = ApiSuccessServiceHealthInfo),
+        (status = 200, description = "Server is running", body = ApiSuccess<ServiceHealthInfo>),
     ),
     tag = openapi::GROUP_STATUS
 )]
@@ -495,11 +499,11 @@ pub async fn health_info<S: SyncServiceState>(
 #[tracing::instrument(skip_all)]
 #[utoipa::path(
     post,
-    path = api::rewrite_route(SYNC_SHARD_ENDPOINT),
+    path = SYNC_SHARD_ENDPOINT,
     params(
         ("Authorization" = String, Header, description = "Public key for authorization")
     ),
-    request_body(content = [u8], description = "BCS-encoded SignedMessage<SyncShardRequest>"),
+    request_body(content = [u8], description = "BCS-encoded SignedMessage"),
     responses(
         (status = 200, description = "BCS encoded vector of slivers", body = [u8]),
         SyncShardServiceError

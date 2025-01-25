@@ -21,12 +21,27 @@ name = "walrus-deploy"
 path = "bin/deploy.rs"
 required-features = ["deploy"]
 
+[[bin]]
+name = "walrus-backup"
+path = "bin/backup.rs"
+required-features = ["backup"]
+
 [features]
+backup = [
+  "dep:async-trait",
+  "dep:enum_dispatch",
+  "dep:mime",
+  "dep:mysten-metrics",
+  "dep:rocksdb",
+  "dep:tokio-stream",
+  "dep:tokio-util",
+  "dep:typed-store",
+]
 client = [
   "dep:colored",
   "dep:prettytable",
 ]
-default = ["client", "deploy", "node"]
+default = ["backup", "client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
@@ -53,11 +68,14 @@ async-trait = { workspace = true, optional = true }
 axum = { workspace = true, features = [
   "http1",
   "http2",
+  "json",
   "matched-path",
+  "query",
   "tokio",
   "tower-log",
   "tracing",
 ] }
+axum-extra = { workspace = true, features = ["typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 byteorder.workspace = true
@@ -76,6 +94,7 @@ indicatif.workspace = true
 indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
+jsonwebtoken = "9.2.0"
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
@@ -85,6 +104,7 @@ p256.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
+querystr = "1.1.1"
 rand.workspace = true
 rcgen.workspace = true
 regex.workspace = true
@@ -116,7 +136,7 @@ tracing.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 typed-store = { workspace = true, optional = true }
-utoipa = { workspace = true, features = ["axum_extras", "yaml"] }
+utoipa = { workspace = true, features = ["axum_extras", "macros", "yaml"] }
 utoipa-redoc.workspace = true
 uuid.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
@@ -127,7 +147,10 @@ walrus-test-utils = { workspace = true, optional = true }
 walrus-utils.workspace = true
 
 [dev-dependencies]
+hex = "0.4.3"
+http-body-util = "0.1.1"
 mockall.workspace = true
+ring = "0.17.8"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }

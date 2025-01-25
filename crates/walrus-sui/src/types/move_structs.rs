@@ -17,6 +17,7 @@ use sui_types::{
     base_types::{ObjectID, SuiAddress},
     messages_checkpoint::CheckpointSequenceNumber,
 };
+use utoipa::openapi::schema;
 use walrus_core::{
     messages::BlobPersistenceType,
     BlobId,
@@ -36,6 +37,7 @@ use crate::contracts::{self, AssociatedContractStruct, StructTag};
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct StorageResource {
     /// Object ID of the Sui object.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub id: ObjectID,
     /// The start epoch of the resource (inclusive).
     pub start_epoch: Epoch,
@@ -55,6 +57,7 @@ impl AssociatedContractStruct for StorageResource {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Blob {
     /// Object ID of the Sui object.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub id: ObjectID,
     /// The epoch in which the blob has been registered.
     pub registered_epoch: Epoch,
@@ -93,6 +96,10 @@ where
     S: Serializer,
 {
     serializer.collect_str(blob_id)
+}
+
+fn object_id_schema() -> schema::Ref {
+    schema::Ref::new("#/components/schemas/ObjectID")
 }
 
 impl AssociatedContractStruct for Blob {
@@ -337,6 +344,23 @@ pub struct StakingObject {
     pub(crate) inner: StakingInnerV1,
 }
 
+impl StakingObject {
+    /// Returns the number of epochs ahead that can be used to extend a blob.
+    pub fn epoch_state(&self) -> &EpochState {
+        &self.inner.epoch_state
+    }
+
+    /// Returns the epoch duration.
+    pub fn epoch_duration(&self) -> u64 {
+        self.inner.epoch_duration
+    }
+
+    /// Returns the current epoch.
+    pub fn epoch(&self) -> Epoch {
+        self.inner.epoch
+    }
+}
+
 /// Sui type for outer staking object. Used for deserialization.
 #[derive(Debug, Deserialize)]
 pub(crate) struct StakingObjectForDeserialization {
@@ -478,6 +502,11 @@ impl SystemObject {
     /// Returns the number of members in the committee.
     pub(crate) fn committee_size(&self) -> u16 {
         self.inner.committee.members.len() as u16
+    }
+
+    /// Returns the number of epochs ahead that can be used to extend a blob.
+    pub fn max_epochs_ahead(&self) -> u32 {
+        self.inner.future_accounting.length()
     }
 }
 
