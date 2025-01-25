@@ -1281,17 +1281,16 @@ impl SuiContractClient {
             "updating node parameters"
         );
 
-        // Lock the wallet here to ensure there are no race conditions with object references.
-        let wallet = self.wallet().await;
-
-        let mut pt_builder = self.transaction_builder();
-        pt_builder
-            .update_node_params(node_capability.id.into(), node_parameters)
-            .await?;
-        tracing::info!("pt_builder: {:?}", pt_builder);
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        self.sign_and_send_ptb(&wallet, ptb, None).await?;
-        Ok(())
+        self.with_wallet_critical_section(|wallet| async move {
+            let mut pt_builder = self.transaction_builder();
+            pt_builder
+                .update_node_params(node_capability.id.into(), node_parameters)
+                .await?;
+            let (ptb, _sui_cost) = pt_builder.finish().await?;
+            self.sign_and_send_ptb(&wallet, ptb, None).await?;
+            Ok(())
+        })
+        .await
     }
 }
 
