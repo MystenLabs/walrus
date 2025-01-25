@@ -962,7 +962,7 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(65)).await;
 
         let committees = client_arc
             .inner
