@@ -26,6 +26,7 @@ use crate::{
             InitState,
             PositionedStreamEvent,
         },
+        metrics::STATUS_HIGHEST_FINISHED,
         storage::EventProgress,
     },
 };
@@ -86,7 +87,11 @@ impl EventHandle {
             event_id = ?self.event_id,
             "marking event as complete",
         );
-        let EventProgress { persisted, pending } = self
+        let EventProgress {
+            persisted,
+            pending,
+            highest_finished_event_index,
+        } = self
             .node
             .storage
             .maybe_advance_event_cursor(self.index, &self.event_id)
@@ -95,6 +100,8 @@ impl EventHandle {
         let event_cursor_progress = &self.node.metrics.event_cursor_progress;
         metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).set(persisted);
         metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
+        metrics::with_label!(event_cursor_progress, STATUS_HIGHEST_FINISHED)
+            .set(highest_finished_event_index);
         self.can_be_dropped = true;
     }
 }

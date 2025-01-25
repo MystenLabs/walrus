@@ -633,7 +633,13 @@ components:
                       required:
                       - persisted
                       - pending
+                      - highestFinishedEventIndex
                       properties:
+                        highestFinishedEventIndex:
+                          type: integer
+                          format: int64
+                          description: The highest event index that has been finished.
+                          minimum: 0
                         pending:
                           type: integer
                           format: int64
@@ -934,7 +940,13 @@ components:
             required:
             - persisted
             - pending
+            - highestFinishedEventIndex
             properties:
+              highestFinishedEventIndex:
+                type: integer
+                format: int64
+                description: The highest event index that has been finished.
+                minimum: 0
               pending:
                 type: integer
                 format: int64
