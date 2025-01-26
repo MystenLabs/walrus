@@ -5,10 +5,8 @@
 //! Event blob writer.
 
 use std::{
-    fs,
-    fs::{File, OpenOptions},
-    io,
-    io::{BufWriter, Seek, SeekFrom, Write},
+    fs::{self, File, OpenOptions},
+    io::{self, BufWriter, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -17,6 +15,7 @@ use anyhow::{Context, Result};
 use byteorder::{BigEndian, WriteBytesExt};
 use futures_util::future::try_join_all;
 use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
+use rand::{thread_rng, Rng};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
@@ -26,7 +25,15 @@ use typed_store::{
     Map,
 };
 use walrus_core::{ensure, metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, Sliver};
-use walrus_sui::types::{BlobEvent, ContractEvent, EpochChangeEvent};
+use walrus_sui::{
+    client::SuiClientError,
+    types::{
+        move_errors::{MoveExecutionError, SystemStateInnerError},
+        BlobEvent,
+        ContractEvent,
+        EpochChangeEvent,
+    },
+};
 
 use crate::node::{
     errors::StoreSliverError,
@@ -44,6 +51,7 @@ use crate::node::{
 const CERTIFIED: &str = "certified_blob_store";
 const ATTESTED: &str = "attested_blob_store";
 const PENDING: &str = "pending_blob_store";
+const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
 const NUM_CHECKPOINTS_PER_BLOB: u32 = 18_000;
 
@@ -64,6 +72,9 @@ pub struct EventBlobMetadata<T, U> {
 
 /// Metadata for a blob that is waiting for attestation.
 type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
+
+/// Metadata for a blob that failed to attest.
+type FailedToAttestEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last attested.
 type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
@@ -94,6 +105,16 @@ impl PendingEventBlobMetadata {
             event_cursor: self.event_cursor,
             epoch: self.epoch,
             blob_id: *blob_metadata.blob_id(),
+        }
+    }
+
+    fn to_failed_to_attest(&self, blob_id: BlobId) -> FailedToAttestEventBlobMetadata {
+        FailedToAttestEventBlobMetadata {
+            start: self.start,
+            end: self.end,
+            event_cursor: self.event_cursor,
+            epoch: self.epoch,
+            blob_id,
         }
     }
 }
@@ -194,6 +215,8 @@ pub struct EventBlobWriterFactory {
     attested: DBMap<(), AttestedEventBlobMetadata>,
     /// Pending blobs metadata.
     pending: DBMap<u64, PendingEventBlobMetadata>,
+    /// Failed to attest blobs metadata.
+    failed_to_attest: DBMap<(), FailedToAttestEventBlobMetadata>,
     /// Number of checkpoints per blob.
     num_checkpoints_per_blob: Option<u32>,
 }
@@ -231,6 +254,7 @@ impl EventBlobWriterFactory {
                 (PENDING, Options::default()),
                 (ATTESTED, Options::default()),
                 (CERTIFIED, Options::default()),
+                (FAILED_TO_ATTEST, Options::default()),
             ],
         )?;
         if database.cf_handle(CERTIFIED).is_none() {
@@ -246,6 +270,11 @@ impl EventBlobWriterFactory {
         if database.cf_handle(PENDING).is_none() {
             database
                 .create_cf(PENDING, &Options::default())
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
+        if database.cf_handle(FAILED_TO_ATTEST).is_none() {
+            database
+                .create_cf(FAILED_TO_ATTEST, &Options::default())
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         let certified: DBMap<(), CertifiedEventBlobMetadata> = DBMap::reopen(
@@ -266,10 +295,23 @@ impl EventBlobWriterFactory {
             &ReadWriteOptions::default(),
             false,
         )?;
+        let failed_to_attest: DBMap<(), FailedToAttestEventBlobMetadata> = DBMap::reopen(
+            &database,
+            Some(FAILED_TO_ATTEST),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
         let event_cursor = pending
             .unbounded_iter()
             .last()
             .map(|(_, metadata)| metadata.event_cursor)
+            .or_else(|| {
+                failed_to_attest
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.event_cursor)
+            })
             .or_else(|| {
                 attested
                     .get(&())
@@ -288,6 +330,13 @@ impl EventBlobWriterFactory {
             .unbounded_iter()
             .last()
             .map(|(_, metadata)| metadata.epoch)
+            .or_else(|| {
+                failed_to_attest
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.epoch)
+            })
             .or_else(|| {
                 attested
                     .get(&())
@@ -317,6 +366,7 @@ impl EventBlobWriterFactory {
             certified,
             attested,
             pending,
+            failed_to_attest,
             num_checkpoints_per_blob,
         })
     }
@@ -340,6 +390,7 @@ impl EventBlobWriterFactory {
             certified: self.certified.clone(),
             attested: self.attested.clone(),
             pending: self.pending.clone(),
+            failed_to_attest: self.failed_to_attest.clone(),
         };
         let event_cursor = self.event_cursor.unwrap_or(EventStreamCursor::new(None, 0));
         let epoch = self.epoch.unwrap_or(0);
@@ -366,24 +417,33 @@ impl EventBlobWriterFactory {
 
 /// EventBlobWriter manages the creation, storage, and certification of event blobs.
 /// ```
-///                   +-------------------+
-///                   |  EventBlobWriter  |
-///                   +-------------------+
-///                            |
-///                            v
-///   +------------+    +-------------+    +-------------+    +--------------+
-///   |Current Blob|--->| Pending Blob|--->|Attested Blob|--->|Certified Blob|
-///   +------------+    +-------------+    +-------------+    +--------------+
-///         |                 ^                 |                   ^
-///         |                 |                 |                   |
-///         |                 |                 v                   |
-///   +-----------------+    +------------------+             +-----------+
-///   |Filesystem (tmp) |--->| Database Storage |<------------| System    |
-///   +-----------------+    +------------------+             | Contract  |
-///                                                           +-----------+
+///  +-------------------+
+///  |  EventBlobWriter  |
+///  +-------------------+
+///           |
+///           v
+///   +------------+    +-------------+    +-------------+    +---------------+
+///   |Current Blob|--->| Pending Blob|--->|Attested Blob|--->|System Contract|
+///   +------------+    +-------------+    +-------------+    +---------------+
+///         |                 |                  ^                   |
+///         |                 |                  |                   |
+///         |                 v                  |                   |
+///   +-----------------+    +------------------+                    |
+///   |Filesystem (tmp) |    | Failed to Attest |                    |
+///   +-----------------+    +------------------+                    |
+///                                                                  v
+///                  +------------------+                     +--------------+
+///                  | Database Storage |<------------------- |Certified Blob|
+///                  +------------------+                     +--------------+
+///                  (Blob removed from
+///                   filesystem after
+///                   certification)
 ///
-/// Flow: Current -> Pending -> Attested -> Certified
 /// ```
+/// Flow: Current -> Pending -> Attested -> Certified
+///                     |
+///                     +-> Failed to Attest -> Attested -> Certified
+/// ```text
 ///
 /// Blob Lifecycle:
 ///
@@ -409,7 +469,11 @@ impl EventBlobWriterFactory {
 /// not attest any more blobs (but keep writing events to the current blob and accumulate more
 /// pending blobs).
 ///
-/// d. Certified:
+/// d. Failed to Attest:
+/// If the node fails to attest a blob, it moves the blob to the failed to attest database.
+/// The node will attempt to attest this blob again with a backoff logic.
+///
+/// e. Certified:
 /// Once a blob is certified by the quorum, its metadata moves to the certified database.
 /// The system removes the file for certified blobs from the filesystem to save space.
 /// The system is now ready to attest the next pending blob.
@@ -448,6 +512,8 @@ pub struct EventBlobWriter {
     certified: DBMap<(), CertifiedEventBlobMetadata>,
     /// Attested blobs metadata.
     attested: DBMap<(), AttestedEventBlobMetadata>,
+    /// Failed to attest blobs metadata.
+    failed_to_attest: DBMap<(), FailedToAttestEventBlobMetadata>,
     /// Pending blobs metadata.
     pending: DBMap<u64, PendingEventBlobMetadata>,
     /// Client to store the slivers and metadata of the event blob.
@@ -464,6 +530,10 @@ pub struct EventBlobWriter {
     metrics: Arc<EventBlobWriterMetrics>,
     /// Number of checkpoints per blob.
     num_checkpoints_per_blob: u32,
+    /// Whether to pause blob attestations.
+    pause_attestations: bool,
+    /// Backoff logic for event writing.
+    backoff: EventBackoff,
 }
 
 /// Struct to group database-related parameters.
@@ -471,6 +541,7 @@ pub struct EventBlobWriter {
 pub struct EventBlobDatabases {
     certified: DBMap<(), CertifiedEventBlobMetadata>,
     attested: DBMap<(), AttestedEventBlobMetadata>,
+    failed_to_attest: DBMap<(), FailedToAttestEventBlobMetadata>,
     pending: DBMap<u64, PendingEventBlobMetadata>,
 }
 
@@ -487,6 +558,64 @@ pub struct EventBlobWriterConfig {
     prev_certified_blob_id: BlobId,
     /// Metrics for the event blob writer.
     metrics: Arc<EventBlobWriterMetrics>,
+}
+
+/// Struct to manage event-based backoff logic.
+#[derive(Debug)]
+struct EventBackoff {
+    /// Base number of events to wait before retry
+    base_events: u64,
+    /// Current number of events to wait
+    current_wait: u64,
+    /// Number of events processed since last attempt
+    events_since_attempt: u64,
+    /// Maximum number of retry attempts after which
+    /// the backoff will stop increasing
+    max_increase_backoff_for_attempts: u32,
+    /// Current number of attempts
+    attempts: u32,
+}
+
+impl EventBackoff {
+    /// Creates a new EventBackoff instance with base event count and max attempts.
+    fn new(base_events: u64, max_increase_backoff_for_attempts: u32) -> Self {
+        Self {
+            base_events,
+            current_wait: base_events,
+            events_since_attempt: 0,
+            max_increase_backoff_for_attempts,
+            attempts: 0,
+        }
+    }
+
+    /// Returns the next wait count. Once max attempts is reached,
+    /// keeps returning the current wait count without doubling.
+    fn update_next_attempt(&mut self) {
+        if self.attempts < self.max_increase_backoff_for_attempts {
+            self.current_wait *= 2
+        }
+        self.attempts += 1;
+        // Add random jitter between -10% and +10%
+        let jitter = thread_rng().gen_range(-0.1..0.1);
+        self.current_wait = (self.current_wait as f64 * (1.0 + jitter)) as u64;
+    }
+
+    /// Records an event.
+    fn tick(&mut self) {
+        self.events_since_attempt += 1;
+    }
+
+    /// Checks if enough events have passed to retry.
+    fn can_retry(&self) -> bool {
+        self.events_since_attempt >= self.current_wait
+    }
+
+    /// Resets the backoff to initial state.
+    fn reset(&mut self) {
+        self.current_wait = self.base_events;
+        self.events_since_attempt = 0;
+        self.attempts = 0;
+    }
 }
 
 impl EventBlobWriter {
@@ -511,6 +640,7 @@ impl EventBlobWriter {
             attested: databases.attested,
             certified: databases.certified,
             pending: databases.pending,
+            failed_to_attest: databases.failed_to_attest,
             node,
             current_epoch: config.current_epoch,
             event_cursor: config.event_stream_cursor,
@@ -518,11 +648,14 @@ impl EventBlobWriter {
             prev_certified_event_id: config.event_stream_cursor.event_id,
             metrics: config.metrics,
             num_checkpoints_per_blob,
+            pause_attestations: false,
+            backoff: EventBackoff::new(5, 5),
         };
+
         // Upon receiving a blob_certified event for an event blob, we may have crashed after making
         // the db changes but before attesting the next pending blob (since those two events are
         // not atomic).This invocation is to account for that particular scenario.
-        blob_writer.attest_next_blob().await?;
+        blob_writer.try_attest_next_blob().await;
         Ok(blob_writer)
     }
 
@@ -740,15 +873,22 @@ impl EventBlobWriter {
     ///
     /// This method sends a request to the system contract to certify the event blob.
     async fn attest_blob(
-        &self,
+        &mut self,
         metadata: &VerifiedBlobMetadataWithId,
         checkpoint_sequence_number: CheckpointSequenceNumber,
     ) -> Result<()> {
+        let blob_id = *metadata.blob_id();
+
+        if self.attestations_paused() {
+            tracing::debug!("attestations are paused, skipping blob: {}", blob_id);
+            return Ok(());
+        }
         tracing::debug!(
             "attesting event blob: {} in epoch: {}",
-            metadata.blob_id(),
+            blob_id,
             self.current_epoch
         );
+
         match self
             .node
             .contract_service
@@ -760,16 +900,61 @@ impl EventBlobWriter {
             )
             .await
         {
-            Ok(_) => {
-                tracing::info!("attested event blob with id: {}", metadata.blob_id());
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = ?e,
-                    blob_id = ?metadata.blob_id(),
-                    "failed to attest event blob"
-                );
+            Ok(()) => Ok(()),
+            Err(err) => {
+                let result = match err {
+                    SuiClientError::TransactionExecutionError(
+                        MoveExecutionError::SystemStateInner(
+                            SystemStateInnerError::EInvalidIdEpoch(_)
+                            | SystemStateInnerError::ENotCommitteeMember(_),
+                        ),
+                    ) => {
+                        self.pause_attestations();
+                        Ok(())
+                    }
+
+                    e @ SuiClientError::TransactionExecutionError(
+                        MoveExecutionError::SystemStateInner(
+                            SystemStateInnerError::EIncorrectAttestation(_)
+                            | SystemStateInnerError::ERepeatedAttestation(_),
+                        ),
+                    ) => {
+                        tracing::error!(
+                            walrus.epoch = self.current_epoch,
+                            error = ?e,
+                            blob_id = ?blob_id,
+                            "Unexpected non-retriable event blob certification error \
+                            while attesting event blob"
+                        );
+                        Ok(())
+                    }
+                    SuiClientError::TransactionExecutionError(MoveExecutionError::NotParsable(
+                        _,
+                    )) => {
+                        tracing::error!(blob_id = ?blob_id,
+                                "Unexpected unknown transaction execution error while \
+                                attesting event blob, retrying");
+                        Err(err)
+                    }
+                    ref e @ SuiClientError::TransactionExecutionError(_) => {
+                        tracing::warn!(error = ?e, blob_id = ?blob_id,
+                                "Unexpected move execution error while attesting event blob");
+                        Err(err)
+                    }
+                    SuiClientError::SharedObjectCongestion(_) => {
+                        tracing::debug!(blob_id = ?blob_id,
+                                "Shared object congestion error while attesting event blob, \
+                                retrying");
+                        Err(err)
+                    }
+                    ref e => {
+                        tracing::error!(error = ?e, blob_id = ?blob_id,
+                                "Unexpected event blob certification error while attesting \
+                                event blob");
+                        Err(err)
+                    }
+                };
+                result?;
                 Ok(())
             }
         }
@@ -778,15 +963,11 @@ impl EventBlobWriter {
     /// Attests the next pending blob.
     ///
     /// This method processes the next pending blob by storing its slivers,
-    /// attesting it, and updating the database state.
-    async fn attest_next_blob(&mut self) -> Result<()> {
-        if !self.attested.is_empty() {
-            return Ok(());
-        }
-
+    /// attesting it, and updating the database state. Returns the blob id if it is attested.
+    async fn attest_pending_blob(&mut self) -> Result<Option<BlobId>> {
         let Some((event_index, metadata)) = self.pending.unbounded_iter().seek_to_first().next()
         else {
-            return Ok(());
+            return Ok(None);
         };
 
         self.update_blob_header(
@@ -796,15 +977,90 @@ impl EventBlobWriter {
         )?;
 
         let blob_metadata = self.store_slivers(&metadata).await?;
-        let attested_metadata = metadata.to_attested(blob_metadata.clone());
+        let blob_id = *blob_metadata.blob_id();
 
-        self.attest_blob(&blob_metadata, metadata.end).await?;
         let mut batch = self.pending.batch();
-        batch.insert_batch(&self.attested, std::iter::once(((), attested_metadata)))?;
-        batch.delete_batch(&self.pending, std::iter::once(event_index))?;
-        batch.write()?;
+        match self.attest_blob(&blob_metadata, metadata.end).await {
+            Ok(_) => {
+                let attested_metadata = metadata.to_attested(blob_metadata.clone());
+                batch.insert_batch(&self.attested, std::iter::once(((), attested_metadata)))?;
+                batch.delete_batch(&self.pending, std::iter::once(event_index))?;
+                batch.write()?;
+                Ok(Some(blob_id))
+            }
+            Err(e) => {
+                batch.insert_batch(
+                    &self.failed_to_attest,
+                    std::iter::once(((), metadata.to_failed_to_attest(blob_id))),
+                )?;
+                batch.delete_batch(&self.pending, std::iter::once(event_index))?;
+                batch.write()?;
+                self.backoff.reset();
+                Err(e.context(blob_id.to_string()))
+            }
+        }
+    }
 
-        Ok(())
+    /// Attempts to attest the blob which previously failed to attest if the backoff logic allows it
+    /// and if there is a blob to attest.
+    ///
+    /// This method processes a failed to attest blob by storing its slivers,
+    /// attesting it, and updating the database state.
+    async fn attest_failed_to_attest_blob(&mut self) -> Result<Option<BlobId>> {
+        let Some(metadata) = self.failed_to_attest.get(&())? else {
+            return Ok(None);
+        };
+        if !self.backoff.can_retry() {
+            return Err(anyhow::anyhow!("backoff cannot retry"));
+        } else {
+            self.backoff.update_next_attempt();
+        }
+        let blob_metadata = self.store_slivers(&metadata.to_pending()).await?;
+        let blob_id = *blob_metadata.blob_id();
+
+        match self.attest_blob(&blob_metadata, metadata.end).await {
+            Ok(_) => {
+                let mut batch = self.failed_to_attest.batch();
+                batch.insert_batch(&self.attested, std::iter::once(((), metadata)))?;
+                batch.delete_batch(&self.failed_to_attest, std::iter::once(()))?;
+                batch.write()?;
+                Ok(Some(blob_id))
+            }
+            Err(e) => Err(e.context(blob_id.to_string())),
+        }
+    }
+
+    /// Attempts to attest the next blob, catching and logging any errors.
+    async fn attest_next_blob(&mut self) -> Result<Option<BlobId>> {
+        self.backoff.tick();
+
+        if !self.attested.is_empty() {
+            return Ok(None);
+        }
+
+        match self.attest_failed_to_attest_blob().await {
+            Ok(Some(blob_id)) => Ok(Some(blob_id)),
+            Ok(None) => self.attest_pending_blob().await,
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Attempts to attest the next blob, catching and logging any errors.
+    /// This is a wrapper around `attest_next_blob` that ensures execution continues
+    /// even if attestation fails.
+    async fn try_attest_next_blob(&mut self) {
+        match self.attest_next_blob().await {
+            Ok(Some(blob_id)) => {
+                tracing::info!("attested event blob with id: {}", blob_id);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::debug!(
+                    error = ?e,
+                    "failed to attest event blob, will retry later"
+                );
+            }
+        }
     }
 
     /// Writes an event to the current blob.
@@ -838,10 +1094,11 @@ impl EventBlobWriter {
 
         batch.write()?;
 
-        self.attest_next_blob().await?;
         self.metrics
             .latest_processed_event_index
             .set(element_index as i64);
+
+        self.try_attest_next_blob().await;
 
         Ok(())
     }
@@ -902,12 +1159,7 @@ impl EventBlobWriter {
         else {
             return Ok(());
         };
-        let Some(metadata) = self.attested.get(&())? else {
-            return Ok(());
-        };
-        if metadata.blob_id != blob_id {
-            return Ok(());
-        }
+
         self.node
             .storage()
             .update_blob_info_with_metadata(&blob_id)
@@ -916,11 +1168,22 @@ impl EventBlobWriter {
         self.metrics
             .latest_certified_event_index
             .set(element_index as i64);
-        batch.delete_batch(&self.attested, std::iter::once(()))?;
-        batch.insert_batch(
-            &self.certified,
-            std::iter::once(((), metadata.to_certified())),
-        )?;
+
+        let attested = self.attested.clone();
+        let failed_to_attest = self.failed_to_attest.clone();
+        let metadata = self
+            .handle_blob_certification(blob_id, batch, &attested)?
+            .or_else(|| {
+                self.handle_blob_certification(blob_id, batch, &failed_to_attest)
+                    .ok()
+                    .flatten()
+            });
+
+        let Some(metadata) = metadata else {
+            return Ok(());
+        };
+
+        batch.insert_batch(&self.certified, std::iter::once(((), metadata.clone())))?;
 
         let file_path = self
             .blob_dir()
@@ -934,22 +1197,65 @@ impl EventBlobWriter {
         Ok(())
     }
 
+    /// Handles the certification of a blob from either attested or failed to attest state.
+    ///
+    /// This method checks if the blob exists in either the attested or failed to attest map,
+    /// and if so, deletes it from the corresponding map and returns the certified metadata.
+    fn handle_blob_certification(
+        &mut self,
+        blob_id: BlobId,
+        batch: &mut DBBatch,
+        db_map: &DBMap<(), EventBlobMetadata<CheckpointSequenceNumber, BlobId>>,
+    ) -> Result<Option<CertifiedEventBlobMetadata>> {
+        let Some(metadata) = db_map.get(&())? else {
+            return Ok(None);
+        };
+
+        if metadata.blob_id != blob_id {
+            return Ok(None);
+        }
+
+        batch.delete_batch(db_map, std::iter::once(()))?;
+        Ok(Some(metadata.to_certified()))
+    }
+
+    /// Pauses attestations until next epoch, logging the state change.
+    fn pause_attestations(&mut self) {
+        if !self.pause_attestations {
+            tracing::info!(
+                "pausing attestations until next epoch {}",
+                self.current_epoch + 1
+            );
+            self.pause_attestations = true;
+        }
+    }
+
+    /// Resumes attestations if they were paused, logging the state change.
+    fn resume_attestations(&mut self) {
+        if self.pause_attestations {
+            tracing::info!("resuming attestations in new epoch {}", self.current_epoch);
+            self.pause_attestations = false;
+        }
+    }
+
+    /// Returns true if attestations are currently paused
+    fn attestations_paused(&self) -> bool {
+        self.pause_attestations
+    }
+
     /// Updates the current epoch based on epoch change events.
     ///
     /// This method checks for epoch change events and updates the current epoch
     /// and blob states accordingly.
-    fn update_epoch(
-        &mut self,
-        indexed_stream_element: &PositionedStreamEvent,
-        batch: &mut DBBatch,
-    ) -> Result<()> {
+    fn update_epoch(&mut self, event: &PositionedStreamEvent, batch: &mut DBBatch) -> Result<()> {
         let EventStreamElement::ContractEvent(ContractEvent::EpochChangeEvent(
             EpochChangeEvent::EpochChangeStart(new_epoch),
-        )) = &indexed_stream_element.element
+        )) = &event.element
         else {
             return Ok(());
         };
         self.current_epoch = new_epoch.epoch;
+        self.resume_attestations();
         self.move_attested_blob_to_pending(batch)?;
         Ok(())
     }
@@ -1030,11 +1336,12 @@ mod tests {
 
     use anyhow::Result;
     use prometheus::Registry;
+    use sui_types::{digests::TransactionDigest, event::EventID};
     use typed_store::Map;
     use walrus_core::{BlobId, ShardIndex};
     use walrus_sui::{
         test_utils::EventForTesting,
-        types::{BlobCertified, ContractEvent},
+        types::{BlobCertified, ContractEvent, EpochChangeEvent, EpochChangeStart},
     };
 
     use crate::{
@@ -1097,6 +1404,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_blob_writer_with_paused_attestations() -> Result<()> {
+        const NUM_BLOBS: u64 = 10;
+        const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
+
+        let dir: PathBuf = tempfile::tempdir()?.into_path();
+        let node = create_test_node().await?;
+        let registry = Registry::new();
+
+        let blob_writer_factory = EventBlobWriterFactory::new(
+            &dir,
+            node.storage_node.inner().clone(),
+            &registry,
+            Some(10),
+        )?;
+        let mut blob_writer = blob_writer_factory.create().await?;
+        let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
+
+        // Verify attestations are not paused
+        assert!(!blob_writer.attestations_paused());
+
+        // Simulate error and pause attestations
+        blob_writer.pause_attestations();
+        assert!(blob_writer.attestations_paused());
+
+        // Generate and write events
+        generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
+            .await?;
+
+        // Simulate epoch change
+        let epoch_change_event = PositionedStreamEvent::new(
+            ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                epoch: 1,
+                event_id: EventID {
+                    tx_digest: TransactionDigest::default(),
+                    event_seq: 0,
+                },
+            })),
+            CheckpointEventPosition::new(0, 0),
+        );
+
+        blob_writer
+            .write(epoch_change_event, blob_writer.event_cursor.element_index)
+            .await?;
+
+        // Verify attestations are resumed
+        assert!(!blob_writer.attestations_paused());
+
+        // There should be one attested blob
+        let attested_blob = blob_writer
+            .attested
+            .get(&())?
+            .expect("Attested blob should exist");
+        let attested_blob_id = attested_blob.blob_id;
+
+        let pending_blobs: Vec<_> = blob_writer.pending.unbounded_iter().collect();
+        assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
+        let first_pending_blob_event_index = pending_blobs[0].0;
+
+        // Certify blob and verify state
+        certify_attested_blob(&mut blob_writer, attested_blob_id, num_checkpoints).await?;
+
+        verify_certified_blob(&blob_writer, attested_blob_id)?;
+        verify_next_attested_blob(
+            &blob_writer,
+            &dir,
+            first_pending_blob_event_index + 1,
+            attested_blob_id,
+        )?;
+
+        assert_eq!(
+            blob_writer.pending.unbounded_iter().count() as u64,
+            NUM_BLOBS - 2
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_blob_writer_e2e() -> Result<()> {
         const NUM_BLOBS: u64 = 10;
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 1;
@@ -1126,6 +1511,7 @@ mod tests {
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
         let first_pending_blob_event_index = pending_blobs[0].0;
 
+        // Certify blob and verify state
         certify_attested_blob(&mut blob_writer, attested_blob_id, num_checkpoints).await?;
 
         verify_certified_blob(&blob_writer, attested_blob_id)?;

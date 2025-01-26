@@ -17,7 +17,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Error;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -1392,8 +1391,8 @@ impl SystemContractService for StubContractService {
         _ending_checkpoint_seq_num: u64,
         _epoch: u32,
         _node_capability_object_id: ObjectID,
-    ) -> Result<(), Error> {
-        anyhow::bail!("stub service cannot certify event blob")
+    ) -> Result<(), SuiClientError> {
+        Ok(())
     }
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
@@ -2037,7 +2036,7 @@ where
         ending_checkpoint_seq_num: u64,
         epoch: u32,
         node_capability_object_id: ObjectID,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SuiClientError> {
         self.as_ref()
             .inner
             .certify_event_blob(
