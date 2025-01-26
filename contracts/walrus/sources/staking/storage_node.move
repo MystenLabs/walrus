@@ -138,6 +138,10 @@ public(package) fun set_next_public_key(self: &mut StorageNodeInfo, public_key: 
     self.next_epoch_public_key.swap_or_fill(g1_to_uncompressed_g1(&public_key));
 }
 
+public(package) fun reset_next_public_key(self: &mut StorageNodeInfo) {
+    self.next_epoch_public_key = option::none();
+}
+
 /// Sets the name of the storage node.
 public(package) fun set_name(self: &mut StorageNodeInfo, name: String) {
     self.name = name;

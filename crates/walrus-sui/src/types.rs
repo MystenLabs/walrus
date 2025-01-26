@@ -132,6 +132,15 @@ pub struct UpdatePublicKeyParams {
     pub proof_of_possession: ProofOfPossession,
 }
 
+/// Action to take on the next public key of the storage node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NextPublicKeyAction {
+    /// Update the next public key of the storage node.
+    Update(UpdatePublicKeyParams),
+    /// Reset the next public key of the storage node.
+    Reset,
+}
+
 /// Parameters for updating a node's configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct NodeUpdateParams {
@@ -142,7 +151,7 @@ pub struct NodeUpdateParams {
     /// The network public key of the storage node.
     pub network_public_key: Option<NetworkPublicKey>,
     /// The next public key parameters of the storage node.
-    pub next_public_key_params: Option<UpdatePublicKeyParams>,
+    pub next_public_key_action: Option<NextPublicKeyAction>,
     /// The storage price to vote for
     pub storage_price: Option<u64>,
     /// The write price to vote for
@@ -157,7 +166,7 @@ impl NodeUpdateParams {
         self.name.is_some()
             || self.network_address.is_some()
             || self.network_public_key.is_some()
-            || self.next_public_key_params.is_some()
+            || self.next_public_key_action.is_some()
             || self.storage_price.is_some()
             || self.write_price.is_some()
             || self.node_capacity.is_some()

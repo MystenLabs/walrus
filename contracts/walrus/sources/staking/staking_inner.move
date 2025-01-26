@@ -369,6 +369,11 @@ public(package) fun set_next_public_key(
     self.pools[cap.node_id()].set_next_public_key(public_key, proof_of_possession, wctx, ctx);
 }
 
+/// Resets the next public key of the storage node.
+public(package) fun reset_next_public_key(self: &mut StakingInnerV1, cap: &StorageNodeCap) {
+    self.pools[cap.node_id()].reset_next_public_key();
+}
+
 /// Sets the name of a storage node.
 public(package) fun set_name(self: &mut StakingInnerV1, cap: &StorageNodeCap, name: String) {
     self.pools[cap.node_id()].set_name(name);

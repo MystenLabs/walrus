@@ -255,7 +255,7 @@ impl StorageNodeConfig {
                 .then_some(local_public_address),
             network_public_key: (network_public_key != local_network_public_key)
                 .then_some(local_network_public_key.clone()),
-            next_public_key_params: None,
+            next_public_key_action: None,
             storage_price: (voting_params.storage_price != self.voting_params.storage_price)
                 .then_some(self.voting_params.storage_price),
             write_price: (voting_params.write_price != self.voting_params.write_price)
@@ -943,7 +943,7 @@ mod tests {
                 config.public_host, config.public_port
             ))),
             network_public_key: Some(config.network_key_pair().public().clone()),
-            next_public_key_params: None,
+            next_public_key_action: None,
             storage_price: Some(config.voting_params.storage_price),
             write_price: Some(config.voting_params.write_price),
             node_capacity: Some(config.voting_params.node_capacity),
@@ -962,7 +962,7 @@ mod tests {
             name: None,
             network_address: None,
             network_public_key: None,
-            next_public_key_params: None,
+            next_public_key_action: None,
             storage_price: Some(config.voting_params.storage_price),
             write_price: Some(config.voting_params.write_price),
             node_capacity: Some(config.voting_params.node_capacity),

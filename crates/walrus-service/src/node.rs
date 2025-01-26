@@ -75,7 +75,7 @@ use walrus_sdk::api::{
     StoredOnNodeStatus,
 };
 use walrus_sui::{
-    client::{SuiClientError, SuiReadClient},
+    client::{ReadClient, SuiClientError, SuiReadClient},
     types::{
         BlobCertified,
         BlobDeleted,
@@ -85,7 +85,9 @@ use walrus_sui::{
         EpochChangeEvent,
         EpochChangeStart,
         InvalidBlobId,
+        NextPublicKeyAction,
         PackageEvent,
+        UpdatePublicKeyParams,
         GENESIS_EPOCH,
     },
 };
@@ -493,7 +495,7 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
 
     let node_info = &pool.node_info;
 
-    let update_params = config.generate_update_params(
+    let mut update_params = config.generate_update_params(
         node_info.name.as_str(),
         node_info.network_address.0.as_str(),
         &node_info.network_public_key,
@@ -514,6 +516,21 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
                 "Going to update remote next public key to {:?}",
                 next_public_key
             );
+
+            update_params.next_public_key_action =
+                Some(NextPublicKeyAction::Update(UpdatePublicKeyParams {
+                    next_public_key,
+                    proof_of_possession:
+                        walrus_sui::utils::generate_proof_of_possession_for_address(
+                            config.next_protocol_key_pair().unwrap(),
+                            address,
+                            contract_client.read_client.current_epoch().await?,
+                        ),
+                }));
+        }
+        ProtocolKeyAction::ResetRemoteNextPublicKey => {
+            tracing::info!("Going to reset remote next public key");
+            update_params.next_public_key_action = Some(NextPublicKeyAction::Reset);
         }
         ProtocolKeyAction::RotateLocalKeyPair => {}
         ProtocolKeyAction::DoNothing => {}
@@ -539,7 +556,8 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
 }
 
 enum ProtocolKeyAction {
-    UpdateRemoteNextPublicKey(Option<PublicKey>),
+    UpdateRemoteNextPublicKey(PublicKey),
+    ResetRemoteNextPublicKey,
     RotateLocalKeyPair,
     DoNothing,
 }
@@ -552,14 +570,19 @@ fn calculate_protocol_key_action(
 ) -> anyhow::Result<ProtocolKeyAction> {
     // Case 1: Local public key matches remote public key
     if local_public_key == remote_public_key {
-        // If next public keys don't match, update remote next key
-        if local_next_public_key != remote_next_public_key {
-            return Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(
-                local_next_public_key,
-            ));
+        match (local_next_public_key, remote_next_public_key) {
+            // If local has no next key but remote does, reset remote's next key
+            (None, Some(_)) => Ok(ProtocolKeyAction::ResetRemoteNextPublicKey),
+
+            // If local has next key and it differs from remote's next key (or remote has none),
+            // update remote's next key
+            (Some(local_next), remote_next) if Some(local_next.clone()) != remote_next => {
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(local_next))
+            }
+
+            // Keys match or both have no next key - do nothing
+            _ => Ok(ProtocolKeyAction::DoNothing),
         }
-        // Next public keys match - do nothing
-        Ok(ProtocolKeyAction::DoNothing)
     }
     // Case 2: Local public key doesn't match remote public key
     else {
@@ -5157,7 +5180,7 @@ mod tests {
             );
             assert!(matches!(
                 result,
-                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(Some(k))) if k == key2
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
             ));
 
             // Case 1b: Local has next key, remote doesn't - should update remote
@@ -5165,15 +5188,15 @@ mod tests {
                 calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key1.clone(), None);
             assert!(matches!(
                 result,
-                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(Some(k))) if k == key2
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
             ));
 
-            // Case 1c: Local doesn't have next key, remote does - should update remote with None
+            // Case 1c: Local doesn't have next key, remote does - should reset remote
             let result =
                 calculate_protocol_key_action(key1.clone(), None, key1.clone(), Some(key2.clone()));
             assert!(matches!(
                 result,
-                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(None))
+                Ok(ProtocolKeyAction::ResetRemoteNextPublicKey)
             ));
 
             // Case 1d: Next public keys match - should do nothing
