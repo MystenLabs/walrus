@@ -735,6 +735,7 @@ impl StorageNodeHandleBuilder {
         let config = StorageNodeConfig {
             storage_path: temp_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
+            next_protocol_key_pair: None,
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
@@ -873,6 +874,7 @@ impl StorageNodeHandleBuilder {
         let storage_node_config = StorageNodeConfig {
             storage_path: storage_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
+            next_protocol_key_pair: None,
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
@@ -2301,6 +2303,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
         inner: StorageNodeConfig {
             name: "node".to_string(),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
+            next_protocol_key_pair: None,
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address,
             metrics_address: unused_socket_address(false),

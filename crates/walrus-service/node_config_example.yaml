@@ -39,6 +39,7 @@ db_config:
   pending_recover_slivers: null
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
+next_protocol_key_pair: null
 network_key_pair:
   path: /opt/walrus/config/network.key
 public_host: 0.0.0.0

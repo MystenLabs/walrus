@@ -658,6 +658,7 @@ mod commands {
         let contract_config = ContractConfig::new(system_object, staking_object);
         let metadata = NodeMetadata::new(image_url, project_url, description);
 
+        // TODO: Add next_protocol_key_pair to the config
         let config = StorageNodeConfig {
             storage_path,
             protocol_key_pair: PathOrInPlace::from_path(protocol_key_path),

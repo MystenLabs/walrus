@@ -500,6 +500,25 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
         &pool.voting_params,
     );
 
+    let action = calculate_protocol_key_action(
+        config.protocol_key_pair().public().clone(),
+        config
+            .next_protocol_key_pair()
+            .map(|kp| kp.public().clone()),
+        node_info.public_key.clone(),
+        node_info.next_epoch_public_key.clone(),
+    )?;
+    match action {
+        ProtocolKeyAction::UpdateRemoteNextPublicKey(next_public_key) => {
+            tracing::info!(
+                "Going to update remote next public key to {:?}",
+                next_public_key
+            );
+        }
+        ProtocolKeyAction::RotateLocalKeyPair => {}
+        ProtocolKeyAction::DoNothing => {}
+    }
+
     if update_params.needs_update() {
         tracing::info!(
             node_name = config.name,
@@ -517,6 +536,65 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+enum ProtocolKeyAction {
+    UpdateRemoteNextPublicKey(Option<PublicKey>),
+    RotateLocalKeyPair,
+    DoNothing,
+}
+
+fn calculate_protocol_key_action(
+    local_public_key: PublicKey,
+    local_next_public_key: Option<PublicKey>,
+    remote_public_key: PublicKey,
+    remote_next_public_key: Option<PublicKey>,
+) -> anyhow::Result<ProtocolKeyAction> {
+    // Case 1: Local public key matches remote public key
+    if local_public_key == remote_public_key {
+        // If next public keys don't match, update remote next key
+        if local_next_public_key != remote_next_public_key {
+            return Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(
+                local_next_public_key,
+            ));
+        }
+        // Next public keys match - do nothing
+        Ok(ProtocolKeyAction::DoNothing)
+    }
+    // Case 2: Local public key doesn't match remote public key
+    else {
+        // Check if local next key matches remote current key
+        if let Some(local_next) = local_next_public_key.clone() {
+            if local_next == remote_public_key {
+                // Warn if remote has a next key set
+                if remote_next_public_key.is_some() {
+                    tracing::warn!(
+                        local_public_key = ?local_public_key.clone(),
+                        remote_public_key = ?remote_public_key.clone(),
+                        local_next_public_key = ?local_next_public_key.clone(),
+                        remote_next_public_key = ?remote_next_public_key.clone(),
+                        "Remote node has next public key set while local node is rotating"
+                    );
+                }
+                return Ok(ProtocolKeyAction::RotateLocalKeyPair);
+            }
+        }
+
+        // Keys don't match and local next key doesn't match remote current key
+        let error_msg = "Local protocol key pair does not match remote protocol key pair, \
+            please update the protocol key pair to match the remote protocol public key";
+
+        tracing::error!(
+            local_public_key = ?local_public_key,
+            remote_public_key = ?remote_public_key,
+            local_next_public_key = ?local_next_public_key,
+            remote_next_public_key = ?remote_next_public_key,
+            error = error_msg,
+            "Protocol key mismatch"
+        );
+
+        Err(anyhow::anyhow!(error_msg))
+    }
 }
 
 impl StorageNode {
@@ -5060,5 +5138,85 @@ mod tests {
             .is_blob_registered(blob_details.blob_id())?);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_handle_protocol_key_pair_update() {
+        let key1 = ProtocolKeyPair::generate().public().clone();
+        let key2 = ProtocolKeyPair::generate().public().clone();
+        let key3 = ProtocolKeyPair::generate().public().clone();
+
+        // Case 1: Local public key matches remote public key
+        {
+            // Case 1a: Next public keys don't match - should update remote
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key2.clone()),
+                key1.clone(),
+                Some(key3.clone()),
+            );
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(Some(k))) if k == key2
+            ));
+
+            // Case 1b: Local has next key, remote doesn't - should update remote
+            let result =
+                calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key1.clone(), None);
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(Some(k))) if k == key2
+            ));
+
+            // Case 1c: Local doesn't have next key, remote does - should update remote with None
+            let result =
+                calculate_protocol_key_action(key1.clone(), None, key1.clone(), Some(key2.clone()));
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(None))
+            ));
+
+            // Case 1d: Next public keys match - should do nothing
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key2.clone()),
+                key1.clone(),
+                Some(key2.clone()),
+            );
+            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
+
+            // Case 1e: Neither has next key - should do nothing
+            let result = calculate_protocol_key_action(key1.clone(), None, key1.clone(), None);
+            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
+        }
+
+        // Case 2: Local public key doesn't match remote public key
+        {
+            // Case 2a: Local next key matches remote current key - should rotate local
+            let result =
+                calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key2.clone(), None);
+            assert!(matches!(result, Ok(ProtocolKeyAction::RotateLocalKeyPair)));
+
+            // Case 2b: Local next key matches remote current key, but remote has next key set
+            // Should rotate local but emit warning (warning check would require log capture)
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key2.clone()),
+                key2.clone(),
+                Some(key3.clone()),
+            );
+            assert!(matches!(result, Ok(ProtocolKeyAction::RotateLocalKeyPair)));
+
+            // Case 2c: Keys don't match and local next key doesn't match remote current key
+            // Should return error
+            let result =
+                calculate_protocol_key_action(key1.clone(), Some(key3.clone()), key2.clone(), None);
+            assert!(result.is_err());
+
+            // Case 2d: Keys don't match and local has no next key
+            // Should return error
+            let result = calculate_protocol_key_action(key1.clone(), None, key2.clone(), None);
+            assert!(result.is_err());
+        }
     }
 }

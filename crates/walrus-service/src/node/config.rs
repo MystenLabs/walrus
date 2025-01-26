@@ -64,6 +64,10 @@ pub struct StorageNodeConfig {
     /// Key pair used in Walrus protocol messages.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
+    /// The next protocol key pair to use for the storage node.
+    #[serde_as(as = "Option<PathOrInPlace<Base64>>")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
@@ -135,6 +139,7 @@ impl Default for StorageNodeConfig {
             blocklist_path: Default::default(),
             db_config: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
+            next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
             public_host: defaults::rest_api_address().ip().to_string(),
             public_port: defaults::rest_api_port(),
@@ -166,6 +171,9 @@ impl StorageNodeConfig {
     /// Loads the keys from disk into memory.
     pub fn load_keys(&mut self) -> Result<(), anyhow::Error> {
         self.protocol_key_pair.load()?;
+        if let Some(next_protocol_key_pair) = self.next_protocol_key_pair.as_mut() {
+            next_protocol_key_pair.load()?;
+        }
         self.network_key_pair.load()?;
         Ok(())
     }
@@ -190,6 +198,18 @@ impl StorageNodeConfig {
         self.protocol_key_pair
             .get()
             .expect("key pair should already be loaded into memory")
+    }
+
+    /// Returns the next protocol key pair, if it exists.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the next protocol key pair exists but hasn't been loaded into memory yet.
+    pub fn next_protocol_key_pair(&self) -> Option<&ProtocolKeyPair> {
+        self.next_protocol_key_pair.as_ref().map(|k| {
+            k.get()
+                .expect("next protocol key pair should already be loaded into memory")
+        })
     }
 
     /// Converts the configuration into registration parameters used for node registration.
