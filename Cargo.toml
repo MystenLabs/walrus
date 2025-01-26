@@ -33,7 +33,7 @@ bcs = "0.1.6"
 byteorder = "1.5.0"
 bytes = { version = "1.9.0", features = ["serde"] }
 chrono = "0.4"
-clap = { version = "4.5.26", features = ["derive"] }
+clap = { version = "4.5.27", features = ["derive"] }
 colored = "2.2.0"
 criterion = "0.5.1"
 enum_dispatch = "0.3"
@@ -71,7 +71,7 @@ rocksdb = "0.21.0"
 rustls = { version = "0.23.21", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.134"
+serde_json = "1.0.137"
 serde_test = "1.0.177"
 serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
@@ -107,7 +107,7 @@ typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.
 url = "2.5.4"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
-uuid = { version = "1.11.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.12.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
