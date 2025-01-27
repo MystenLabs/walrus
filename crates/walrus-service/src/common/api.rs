@@ -180,6 +180,11 @@ pub(crate) fn into_responses(
     let mut builder = ResponsesBuilder::new();
 
     for (code, mut descr_list) in code_description_map {
+        // Remove duplicates. This is necessary as responses derived from nested errors may repeat,
+        // such as an InternalError from multiple sources.
+        descr_list.sort();
+        descr_list.dedup();
+
         let description = if descr_list.len() > 1 {
             let mut output = "May be returned when".to_owned();
             for (i, item) in descr_list.into_iter().enumerate() {
