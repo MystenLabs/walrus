@@ -13,7 +13,6 @@ test-utils = ["walrus-test-utils"]
 [dependencies]
 base64.workspace = true
 bcs.workspace = true
-bytes.workspace = true
 enum_dispatch = { workspace = true }
 fastcrypto.workspace = true
 rand.workspace = true

@@ -522,7 +522,7 @@ mod tests {
                         SliverIndex(0),
                     ))
                 } else {
-                    let RecoverySymbol::Secondary(symbol) =
+                    let RecoverySymbol::Primary(symbol) =
                         walrus_core::test_utils::primary_recovery_symbol()
                     else {
                         panic!("util method must return primary recovery symbol");

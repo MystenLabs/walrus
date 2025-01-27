@@ -2053,7 +2053,6 @@ impl ServiceState for StorageNodeInner {
         symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-        tracing::error!("at the start of the method call");
         let n_shards = self.n_shards();
 
         let primary_index = symbol_id.primary_sliver_index();
