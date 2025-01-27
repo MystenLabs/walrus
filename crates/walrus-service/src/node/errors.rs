@@ -339,3 +339,11 @@ pub enum SyncShardClientError {
     #[error(transparent)]
     RequestError(#[from] NodeError),
 }
+
+/// Errors returned by the storage node.
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub enum StorageNodeError {
+    /// The protocol key pair rotation is required.
+    #[error("Node protocol key pair rotation is required")]
+    ProtocolKeyPairRotationRequired,
+}

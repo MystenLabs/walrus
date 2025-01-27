@@ -168,6 +168,51 @@ impl Default for StorageNodeConfig {
 }
 
 impl StorageNodeConfig {
+    /// Rotates the protocol key pair.
+    pub fn rotate_protocol_key_pair(&mut self) {
+        if let Some(next_key_pair) = self.next_protocol_key_pair.clone() {
+            self.protocol_key_pair = next_key_pair;
+            self.next_protocol_key_pair = None;
+        }
+    }
+
+    /// Rotates the protocol key pair and persists the config to disk.
+    /// This happens when the on-chain protocol key pair has been rotated.
+    /// The protocol_key_pair is set to the new key pair, and the
+    /// next_protocol_key_pair is cleared.
+    pub fn rotate_protocol_key_pair_persist(path: PathBuf) -> anyhow::Result<()> {
+        // Load config from path
+        let config_content = std::fs::read_to_string(&path).map_err(|e| {
+            anyhow::anyhow!("failed to read config file at '{}': {e}", path.display())
+        })?;
+        let mut config: StorageNodeConfig = serde_yaml::from_str(&config_content).map_err(|e| {
+            anyhow::anyhow!("failed to parse config file at '{}': {e}", path.display())
+        })?;
+
+        // Rotate the protocol key pair
+        config.rotate_protocol_key_pair();
+
+        // Write to temporary file first
+        let temp_path = path.with_extension("tmp");
+        let config_str = serde_yaml::to_string(&config)
+            .map_err(|e| anyhow::anyhow!("failed to serialize config: {e}"))?;
+        std::fs::write(&temp_path, config_str)
+            .map_err(|e| anyhow::anyhow!("failed to write temporary config file: {e}"))?;
+
+        // Remove old file if it exists
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+
+        // Rename temporary file to actual config file
+        // If crash happens before rename happens, the old config will be lost,but the new config
+        // has already been written to disk.
+        // This is a trade-off in case rename() is not atomic on some platforms.
+        std::fs::rename(&temp_path, &path)?;
+
+        Ok(())
+    }
+
     /// Loads the keys from disk into memory.
     pub fn load_keys(&mut self) -> Result<(), anyhow::Error> {
         self.protocol_key_pair.load()?;
@@ -696,7 +741,7 @@ mod tests {
     use indoc::indoc;
     use rand::{rngs::StdRng, SeedableRng as _};
     use sui_types::base_types::ObjectID;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, TempDir};
     use walrus_core::test_utils;
     use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;
@@ -981,6 +1026,57 @@ mod tests {
         assert_eq!(
             result.network_address.map(|addr| addr.0),
             Some(format!("{}:{}", config.public_host, config.public_port))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rotate_protocol_key_pair_persist() -> TestResult {
+        // Create temporary directory for test
+        let temp_dir = TempDir::new()?;
+        let config_path = temp_dir.path().join("config.yaml");
+
+        // Create initial config with protocol key pair and next protocol key pair
+        let initial_protocol_key = test_utils::protocol_key_pair();
+        let next_protocol_key = test_utils::protocol_key_pair();
+
+        let config = StorageNodeConfig {
+            protocol_key_pair: PathOrInPlace::InPlace(initial_protocol_key.clone()),
+            next_protocol_key_pair: Some(PathOrInPlace::InPlace(next_protocol_key.clone())),
+            name: "test-node".to_string(),
+            storage_path: temp_dir.path().to_path_buf(),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            public_host: "localhost".to_string(),
+            public_port: 9185,
+            voting_params: VotingParams {
+                storage_price: 100,
+                write_price: 2000,
+                node_capacity: 250_000_000,
+            },
+            ..Default::default()
+        };
+
+        // Write config to file
+        let config_str = serde_yaml::to_string(&config)?;
+        std::fs::write(&config_path, config_str)?;
+
+        // Call rotate_protocol_key_pair_persist
+        StorageNodeConfig::rotate_protocol_key_pair_persist(config_path.clone())?;
+
+        // Read back the config and verify the rotation
+        let config_content = std::fs::read_to_string(&config_path)?;
+        let loaded_config: StorageNodeConfig = serde_yaml::from_str(&config_content)?;
+
+        // Verify that the protocol key pair was rotated
+        assert_eq!(
+            loaded_config.protocol_key_pair,
+            PathOrInPlace::InPlace(next_protocol_key),
+            "Protocol key pair should be rotated to next key pair"
+        );
+        assert_eq!(
+            loaded_config.next_protocol_key_pair, None,
+            "Next protocol key pair should be cleared after rotation"
         );
 
         Ok(())

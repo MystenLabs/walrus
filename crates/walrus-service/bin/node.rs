@@ -50,6 +50,7 @@ use walrus_service::{
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
     },
+    StorageNodeError,
 };
 use walrus_sui::{client::SuiContractClient, types::move_structs::VotingParams, utils::SuiNetwork};
 
@@ -316,11 +317,29 @@ fn main() -> anyhow::Result<()> {
             config_path,
             cleanup_storage,
             ignore_sync_failures,
-        } => commands::run(
-            StorageNodeConfig::load(config_path)?,
-            cleanup_storage,
-            ignore_sync_failures,
-        )?,
+        } => {
+            let result = commands::run(
+                StorageNodeConfig::load(&config_path)?,
+                cleanup_storage,
+                ignore_sync_failures,
+            );
+
+            match result {
+                Err(e)
+                    if e.downcast_ref::<StorageNodeError>()
+                        == Some(&StorageNodeError::ProtocolKeyPairRotationRequired) =>
+                {
+                    tracing::info!("Protocol key pair rotation required, rotating key pair...");
+                    StorageNodeConfig::rotate_protocol_key_pair_persist(config_path.clone())?;
+                    commands::run(
+                        StorageNodeConfig::load(&config_path)?,
+                        cleanup_storage,
+                        ignore_sync_failures,
+                    )?
+                }
+                other => other?,
+            }
+        }
 
         Commands::KeyGen {
             out,

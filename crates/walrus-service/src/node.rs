@@ -107,6 +107,7 @@ use self::{
         RetrieveSliverError,
         RetrieveSymbolError,
         ShardNotAssigned,
+        StorageNodeError,
         StoreMetadataError,
         StoreSliverError,
         SyncShardServiceError,
@@ -532,7 +533,9 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
             tracing::info!("Going to reset remote next public key");
             update_params.next_public_key_action = Some(NextPublicKeyAction::Reset);
         }
-        ProtocolKeyAction::RotateLocalKeyPair => {}
+        ProtocolKeyAction::RotateLocalKeyPair => {
+            return Err(StorageNodeError::ProtocolKeyPairRotationRequired.into());
+        }
         ProtocolKeyAction::DoNothing => {}
     }
 
@@ -632,12 +635,19 @@ impl StorageNode {
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         sync_node_params(config).await.or_else(|e| {
-            node_params
-                .ignore_sync_failures
-                .then(|| {
-                    tracing::warn!("Failed to sync node params: {}", e);
-                })
-                .ok_or(e)
+            if matches!(
+                e.downcast_ref(),
+                Some(StorageNodeError::ProtocolKeyPairRotationRequired)
+            ) {
+                Err(e)
+            } else {
+                node_params
+                    .ignore_sync_failures
+                    .then(|| {
+                        tracing::warn!("Failed to sync node params: {}", e);
+                    })
+                    .ok_or(e)
+            }
         })?;
         let encoding_config = committee_service.encoding_config().clone();
 

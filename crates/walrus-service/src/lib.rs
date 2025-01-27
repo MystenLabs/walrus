@@ -8,6 +8,7 @@ pub mod client;
 
 #[cfg(feature = "node")]
 pub mod node;
+pub use node::errors::StorageNodeError;
 
 #[cfg(feature = "deploy")]
 pub mod testbed;
