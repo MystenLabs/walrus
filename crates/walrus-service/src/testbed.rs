@@ -44,9 +44,12 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    backup::BackupNodeConfig,
+    backup::{
+        defaults::{max_fetch_attempts_per_blob, message_queue_size, metrics_address},
+        BackupNodeConfig,
+    },
     client::{self, ClientCommunicationConfig},
-    common::config::SuiConfig,
+    common::config::{defaults::polling_interval, SuiConfig, SuiReaderConfig},
     node::config::{
         defaults::{self, REST_API_PORT},
         StorageNodeConfig,
@@ -477,10 +480,6 @@ pub async fn create_backup_config(
     database_url: &str,
     rpc: String,
 ) -> anyhow::Result<BackupNodeConfig> {
-    use crate::{
-        backup::defaults::{max_fetch_attempts_per_blob, message_queue_size, metrics_address},
-        common::config::{defaults::polling_interval, SuiReaderConfig},
-    };
     Ok(BackupNodeConfig {
         backup_storage_path: working_dir.join("backup"),
         metrics_address: metrics_address(),
