@@ -1548,8 +1548,10 @@ impl StorageNodeInner {
 
     fn init_gauges(&self) -> Result<(), TypedStoreError> {
         let persisted = self.storage.get_sequentially_processed_event_count()?;
+        let node_status = self.storage.node_status()?;
 
         metrics::with_label!(self.metrics.event_cursor_progress, "persisted").set(persisted);
+        self.metrics.current_node_status.set(node_status.to_i64());
 
         Ok(())
     }
