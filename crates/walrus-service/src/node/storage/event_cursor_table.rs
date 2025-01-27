@@ -64,7 +64,7 @@ impl From<EventProgress> for walrus_sdk::api::EventProgress {
         Self {
             persisted: progress.persisted,
             pending: progress.pending,
-            highest_finished_event_index: progress.highest_finished_event_index,
+            highest_finished_event_index: Some(progress.highest_finished_event_index),
         }
     }
 }

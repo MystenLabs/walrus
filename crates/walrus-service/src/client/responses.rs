@@ -256,7 +256,9 @@ pub(crate) struct InfoOutput {
     pub(crate) storage_info: InfoStorageOutput,
     pub(crate) size_info: InfoSizeOutput,
     pub(crate) price_info: InfoPriceOutput,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) committee_info: Option<InfoCommitteeOutput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) bft_info: Option<InfoBftOutput>,
 }
 

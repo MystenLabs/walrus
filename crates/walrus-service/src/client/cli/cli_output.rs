@@ -10,7 +10,7 @@ use itertools::Itertools as _;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
-use walrus_sdk::api::{BlobStatus, DeletableCounts};
+use walrus_sdk::api::{BlobStatus, DeletableCounts, EventProgress};
 use walrus_sui::types::Blob;
 
 use super::warning;
@@ -745,49 +745,61 @@ impl CliOutput for ExtendBlobOutput {
 
 impl CliOutput for NodeHealthOutput {
     fn print_cli_output(&self) {
-        println!(
-            "{}: {}\n",
-            "Node Information".bold().walrus_purple(),
-            self.node_name
-        );
-        println!("Node ID: {}", self.node_id);
-        println!("Node URL: {}", self.node_url);
+        printdoc! {"
+
+            {heading}: {node_name}
+            Node ID: {node_id}
+            Node URL: {node_url}
+            ",
+            heading = "Node Information".bold().walrus_purple(),
+            node_name = self.node_name,
+            node_id = self.node_id,
+            node_url = self.node_url
+        };
         match &self.health_info {
             Err(error) => {
                 println!("Error: {}", error);
             }
             Ok(health_info) => {
-                printdoc!(
-                    "
+                let EventProgress {
+                    persisted,
+                    pending,
+                    highest_finished_event_index,
+                } = health_info.event_progress;
+                printdoc! {"
 
-                {general_heading}
-                Uptime: {uptime}
-                Current epoch: {epoch}
-                Public key: {public_key}
-                Node status: {node_status}
+                    {general_heading}
+                    Uptime: {uptime}
+                    Current epoch: {epoch}
+                    Public key: {public_key}
+                    Node status: {node_status}
 
-                {event_heading}
-                Events persisted: {persisted}
-                Events pending: {pending}
+                    {event_heading}
+                    Events persisted: {persisted}
+                    Events pending: {pending}{highest_finished_event_index_output}
 
-                {shard_heading}
-                Owned shards: {owned}
-                Read-only shards: {read_only}
+                    {shard_heading}
+                    Owned shards: {owned}
+                    Read-only shards: {read_only}
 
-                {owned_status_heading}
-                Unknown: {unknown}
-                Ready: {ready}
-                In transfer: {in_transfer}
-                In recovery: {in_recovery}
-                ",
+                    {owned_status_heading}
+                    Unknown: {unknown}
+                    Ready: {ready}
+                    In transfer: {in_transfer}
+                    In recovery: {in_recovery}
+                    ",
                     general_heading = "General Information".bold().walrus_teal(),
-                    uptime = humantime::format_duration(health_info.uptime),
+                    uptime = humantime::format_duration(
+                        std::time::Duration::from_secs(health_info.uptime.as_secs())
+                    ),
                     epoch = health_info.epoch,
                     public_key = health_info.public_key,
                     node_status = health_info.node_status,
                     event_heading = "Event Progress".bold().walrus_teal(),
-                    persisted = health_info.event_progress.persisted,
-                    pending = health_info.event_progress.pending,
+                    highest_finished_event_index_output = highest_finished_event_index
+                        .map_or("".to_string(), |index| format!(
+                            "\nHighest finished event index: {index}\n"
+                        )),
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
                     read_only = health_info.shard_summary.read_only,
@@ -796,7 +808,7 @@ impl CliOutput for NodeHealthOutput {
                     ready = health_info.shard_summary.owned_shard_status.ready,
                     in_transfer = health_info.shard_summary.owned_shard_status.in_transfer,
                     in_recovery = health_info.shard_summary.owned_shard_status.in_recovery,
-                );
+                };
 
                 // Print shard details if available
                 if let Some(detail) = &health_info.shard_detail {
@@ -862,7 +874,7 @@ impl CliOutput for ServiceHealthInfoOutput {
 
         // Print error nodes summary if there are any errors
         if !error_nodes.is_empty() {
-            println!("\n{}\n", "Nodes with Errors".bold().walrus_purple());
+            println!("\n{}", "Nodes with Errors".bold().walrus_purple());
             for node in error_nodes {
                 node.print_cli_output();
             }
