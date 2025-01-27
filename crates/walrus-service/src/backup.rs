@@ -161,10 +161,6 @@ async fn dispatch_contract_event(
     conn: &mut AsyncPgConnection,
 ) -> Result<()> {
     match contract_event {
-        ContractEvent::BlobEvent(BlobEvent::Registered(_)) => {}
-        ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(_)) => {}
-        ContractEvent::BlobEvent(BlobEvent::Deleted(_)) => {}
-        ContractEvent::BlobEvent(BlobEvent::DenyListBlobDeleted(_)) => {}
         ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) => {
             diesel::dsl::sql_query(
                 "INSERT INTO blob_state (blob_id, state, end_epoch, fetch_attempts)
@@ -202,9 +198,7 @@ async fn dispatch_contract_event(
             .execute(conn)
             .await?;
         }
-        ContractEvent::EpochChangeEvent(_) => {}
-        ContractEvent::PackageEvent(_package_event) => {}
-        ContractEvent::DenyListEvent(_deny_list_event) => {}
+        _ => {}
     }
     Ok(())
 }

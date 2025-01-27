@@ -76,7 +76,7 @@ mod commands {
 
         let cancel_token = CancellationToken::new();
 
-        let event_manager = EventProcessorRuntime::start_free_running(
+        let event_manager = EventProcessorRuntime::start_async(
             config.sui.clone(),
             config.event_processor_config.clone(),
             &config.backup_storage_path,
