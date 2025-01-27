@@ -288,7 +288,7 @@ pub struct MetricsAndLoggingRuntime {
 
 impl MetricsAndLoggingRuntime {
     /// Start metrics and log collection in a new runtime
-    pub fn start(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
+    pub fn start(metrics_address: SocketAddr) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("metrics-runtime")
             .worker_threads(2)
@@ -297,29 +297,11 @@ impl MetricsAndLoggingRuntime {
             .context("metrics runtime creation failed")?;
         let _guard = runtime.enter();
 
-        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
-        let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
-        let walrus_registry = registry_service.default_registry();
-
-        // Initialize logging subscriber
-        let (telemetry_guards, tracing_handle) = telemetry_subscribers::TelemetryConfig::new()
-            .with_env()
-            .with_prom_registry(&walrus_registry)
-            .with_json()
-            .init();
-
-        // Initialize metrics to track db usage before we create any db instances.
-        DBMetrics::init(&walrus_registry);
-
-        Ok(Self {
-            runtime: Some(runtime),
-            registry: walrus_registry,
-            _telemetry_guards: telemetry_guards,
-            _tracing_handle: tracing_handle,
-        })
+        Self::new(metrics_address, Some(runtime))
     }
-    /// Avoid creation of a new runtime.
-    pub fn start_free_running(mut metrics_address: SocketAddr) -> anyhow::Result<Self> {
+
+    /// Create a new runtime for metrics and logging.
+    pub fn new(mut metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
         metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
@@ -335,7 +317,7 @@ impl MetricsAndLoggingRuntime {
         DBMetrics::init(&walrus_registry);
 
         Ok(Self {
-            runtime: None,
+            runtime,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,

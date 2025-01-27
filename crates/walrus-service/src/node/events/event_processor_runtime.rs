@@ -118,15 +118,15 @@ impl EventProcessorRuntime {
         ))
     }
 
-    /// Starts the event processor in a free-running fashion.
-    pub async fn start_free_running(
+    /// Starts the event processor within the context of a pre-existing async runtime.
+    pub async fn start_async(
         sui_config: SuiReaderConfig,
         event_processor_config: EventProcessorConfig,
         db_path: &Path,
         metrics_registry: &Registry,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Arc<EventProcessor>> {
-        tracing::error!("[start_free_running] 111111");
+        tracing::error!(?db_path, "[start_free_running] running");
         let event_processor = Self::build_event_processor(
             &sui_config,
             &event_processor_config,

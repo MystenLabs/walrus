@@ -89,7 +89,7 @@ async fn stream_events(
     mut pg_connection: AsyncPgConnection,
 ) -> Result<()> {
     let event_cursor = get_backup_node_cursor(&mut pg_connection).await?;
-    tracing::debug!(?event_cursor, "[stream_events] starting");
+    tracing::info!(?event_cursor, "[stream_events] starting");
     let event_stream = Pin::from(event_processor.events(event_cursor).await?);
     let next_event_index = event_cursor.element_index;
     let index_stream = stream::iter(next_event_index..);
@@ -104,7 +104,6 @@ async fn stream_events(
     {
         match &element {
             EventStreamElement::ContractEvent(ref contract_event) => {
-                println!("{}", serde_json::to_string(contract_event).unwrap());
                 record_event(
                     &mut pg_connection,
                     &element,

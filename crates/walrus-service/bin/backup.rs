@@ -55,7 +55,7 @@ mod commands {
     use super::*;
 
     pub(super) async fn run_backup_node(config: BackupNodeConfig) -> anyhow::Result<()> {
-        let metrics_runtime = MetricsAndLoggingRuntime::start_free_running(config.metrics_address)?;
+        let metrics_runtime = MetricsAndLoggingRuntime::new(config.metrics_address, None)?;
         let registry_clone = metrics_runtime.registry.clone();
         tokio::spawn(async move {
             registry_clone

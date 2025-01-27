@@ -175,7 +175,7 @@ impl ProtocolCommands for TargetProtocol {
 
         // Generate a command to upload benchmark and testbed config to all instances.
         let serialized_testbed_config =
-            serde_yaml::to_string(&testbed_config).expect("Failed to serialize sui configs");
+            serde_yaml::to_string(&testbed_config).expect("failed to serialize sui configs");
         let testbed_config_path = parameters.settings.working_dir.join("testbed_config.yaml");
         let upload_testbed_config_command = format!(
             "echo -e '{serialized_testbed_config}' > {}",
