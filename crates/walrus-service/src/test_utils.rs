@@ -771,6 +771,7 @@ impl StorageNodeHandleBuilder {
             blocklist_path: self.blocklist_path,
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
+            config_monitor_interval: Duration::from_secs(5),
             ..storage_node_config().inner
         };
 

@@ -248,7 +248,7 @@ pub trait ServiceState {
 }
 
 /// Builder to construct a [`StorageNode`].
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct StorageNodeBuilder {
     storage: Option<Storage>,
     event_manager: Option<Box<dyn EventManager>>,
@@ -259,10 +259,27 @@ pub struct StorageNodeBuilder {
     enable_config_monitor: bool,
 }
 
+impl Default for StorageNodeBuilder {
+    fn default() -> Self {
+        Self {
+            storage: None,
+            event_manager: None,
+            committee_service: None,
+            contract_service: None,
+            num_checkpoints_per_blob: None,
+            ignore_sync_failures: false,
+            enable_config_monitor: true,
+        }
+    }
+}
+
 impl StorageNodeBuilder {
     /// Creates a new builder.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            enable_config_monitor: true,
+            ..Default::default()
+        }
     }
 
     /// Sets the underlying storage for the node, instead of constructing one from the config.
@@ -417,7 +434,6 @@ impl StorageNodeBuilder {
             ignore_sync_failures: self.ignore_sync_failures,
             enable_config_monitor: self.enable_config_monitor,
         };
-
         StorageNode::new(
             config,
             protocol_key_pair,
@@ -732,6 +748,10 @@ impl StorageNode {
             None
         };
 
+        tracing::info!(
+            "Creating StorageNode with config monitor enabled: {}",
+            node_params.enable_config_monitor
+        );
         let config_monitor = if node_params.enable_config_monitor {
             Arc::new(ConfigMonitor::new(
                 config.clone(),
@@ -799,6 +819,7 @@ impl StorageNode {
             },
             // Add config monitor task
             config_monitor_result = self.config_monitor.run() => {
+                tracing::info!("config monitor task ended");
                 match config_monitor_result {
                     Ok(()) => unreachable!("config monitor never returns"),
                     Err(e) => return Err(e),

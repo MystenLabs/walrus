@@ -1040,7 +1040,7 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4, 1],
+                &[1, 2, 3, 3, 4, 0],
                 false,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
@@ -1051,7 +1051,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(walrus_cluster.nodes[5].node_id.is_some());
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
         let client_arc = Arc::new(client);
 
         // Get current committee and verify node[5] is in it
@@ -1064,7 +1064,7 @@ mod tests {
         assert!(committees
             .current_committee()
             .find(&walrus_cluster.nodes[5].public_key)
-            .is_some());
+            .is_none());
 
         // Check the current protocol key in the staking pool
         let pool = client_arc
@@ -1088,39 +1088,42 @@ mod tests {
         // Make sure the new protocol key is different from the current one
         assert_ne!(&pool.node_info.public_key, new_protocol_key_pair.public());
 
-        // Tracks if a crash has been triggered.
-        let fail_triggered = Arc::new(AtomicBool::new(false));
-        let target_fail_node_id = walrus_cluster.nodes[5]
-            .node_id
-            .expect("node id should be set");
-        let fail_triggered_clone = fail_triggered.clone();
+        // Update the next protocol key pair in the node's config
+        walrus_cluster.nodes[5]
+            .storage_node_config
+            .next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
+        // Update the node's public key to match the new protocol key pair
+        walrus_cluster.nodes[5].public_key = new_protocol_key_pair.public().clone();
 
-        // Trigger node crash during some DB access.
-        register_fail_points(DB_FAIL_POINTS, move || {
-            crash_target_node(target_fail_node_id, fail_triggered_clone.clone());
-        });
-
-        tokio::time::sleep(Duration::from_secs(150)).await;
-
-        // Verify node is healthy
-        let node_health = get_node_health_info(&walrus_cluster.nodes[5])
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                walrus_cluster.nodes[5].storage_node_config.clone(),
+                None,
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
             .await
-            .expect("Node health check should succeed after restart");
-        assert_eq!(node_health.node_status, "Active");
+            .id(),
+        );
 
-        // Verify node is in committee
-        let committees = client_arc
-            .inner
-            .get_latest_committees_in_test()
+        // Adding stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
             .await
-            .expect("Should get committees");
+            .expect("stake with node pool should not fail");
 
-        assert!(committees
-            .current_committee()
-            .find(&walrus_cluster.nodes[5].public_key)
-            .is_some());
+        // Wait for a bit to let the node start up
+        tokio::time::sleep(Duration::from_secs(100)).await;
 
-        // Verify protocol key was updated in staking pool
+        // Check that the protocol key in StakePool is updated to the new one
         let pool = client_arc
             .as_ref()
             .as_ref()
@@ -1134,7 +1137,7 @@ mod tests {
                     .node_id,
             )
             .await
-            .expect("Should get staking pool");
+            .expect("Failed to get staking pool");
 
         assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
     }
