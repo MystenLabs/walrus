@@ -221,7 +221,7 @@ pub async fn start_backup_node(
     event_processor: Arc<EventProcessor>,
     config: BackupNodeConfig,
 ) -> Result<()> {
-    // Connect to the database, if we are configured to do so.
+    // Connect to the database.
     let pg_connection = establish_connection(&config.database_url).await?;
 
     let (tx, rx) =
