@@ -29,11 +29,7 @@ pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
-use tokio::{
-    select,
-    sync::watch,
-    time::{Duration, Instant},
-};
+use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
@@ -259,7 +255,8 @@ pub struct StorageNodeBuilder {
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
-    ignore_sync_failures: bool, // This will default to false due to bool's default implementation.
+    ignore_sync_failures: bool,
+    enable_config_monitor: bool,
 }
 
 impl StorageNodeBuilder {
@@ -305,6 +302,12 @@ impl StorageNodeBuilder {
     /// Sets the [`CommitteeService`] used with the node.
     pub fn with_committee_service(mut self, service: Arc<dyn CommitteeService>) -> Self {
         self.committee_service = Some(service);
+        self
+    }
+
+    /// Enables or disables the config monitor.
+    pub fn with_config_monitor(mut self, enable: bool) -> Self {
+        self.enable_config_monitor = enable;
         self
     }
 
@@ -412,6 +415,7 @@ impl StorageNodeBuilder {
             pre_created_storage: self.storage,
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
             ignore_sync_failures: self.ignore_sync_failures,
+            enable_config_monitor: self.enable_config_monitor,
         };
 
         StorageNode::new(
@@ -443,7 +447,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
-    config_monitor: Arc<ConfigMonitor>, // Add this field
+    config_monitor: Arc<ConfigMonitor>,
 }
 
 /// The internal state of a Walrus storage node.
@@ -475,6 +479,8 @@ pub struct NodeParameters {
     num_checkpoints_per_blob: Option<u32>,
     // Whether to ignore sync failures during node initialization
     ignore_sync_failures: bool,
+    // Whether to enable config monitoring
+    enable_config_monitor: bool,
 }
 
 /// Check if the node parameters are in sync with the on-chain parameters.
@@ -726,11 +732,19 @@ impl StorageNode {
             None
         };
 
-        let config_monitor = Arc::new(ConfigMonitor::new(
-            config.clone(),
-            contract_service.clone(),
-            Duration::from_secs(60), // Check every minute
-        ));
+        let config_monitor = if node_params.enable_config_monitor {
+            Arc::new(ConfigMonitor::new(
+                config.clone(),
+                contract_service.clone(),
+                config.config_monitor_interval,
+            ))
+        } else {
+            Arc::new(ConfigMonitor::disabled(
+                config.clone(),
+                contract_service.clone(),
+                config.config_monitor_interval,
+            ))
+        };
 
         Ok(StorageNode {
             inner,
@@ -740,7 +754,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             event_blob_writer_factory,
-            config_monitor: config_monitor.clone(),
+            config_monitor,
         })
     }
 

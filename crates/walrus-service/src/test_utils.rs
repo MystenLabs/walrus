@@ -2361,6 +2361,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             public_port: rest_api_address.port(),
             metrics_push: None,
             metadata: Default::default(),
+            config_monitor_interval: Default::default(),
         },
         temp_dir,
     }

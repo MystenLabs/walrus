@@ -114,3 +114,6 @@ metadata:
   description: ''
   extra_fields: []
 metrics_push: null
+config_monitor_interval:
+  secs: 0
+  nanos: 0

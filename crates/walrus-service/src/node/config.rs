@@ -130,6 +130,9 @@ pub struct StorageNodeConfig {
     /// Metric push configuration.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub metrics_push: Option<MetricsPushConfig>,
+    /// Interval between config monitoring checks
+    #[serde(default = "defaults::config_monitor_interval")]
+    pub config_monitor_interval: Duration,
 }
 
 impl Default for StorageNodeConfig {
@@ -163,6 +166,7 @@ impl Default for StorageNodeConfig {
             name: Default::default(),
             metrics_push: None,
             metadata: Default::default(),
+            config_monitor_interval: Default::default(),
         }
     }
 }
@@ -513,6 +517,8 @@ pub mod defaults {
     pub const REST_API_PORT: u16 = 9185;
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
+    /// Default interval between config monitoring checks in seconds.
+    pub const CONFIG_MONITOR_INTERVAL_SECS: u64 = 60 * 60;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -558,6 +564,11 @@ pub mod defaults {
         // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
         // to generate the example configuration files.
         !cfg!(test) && t.is_none()
+    }
+
+    /// The default interval between config monitoring checks
+    pub fn config_monitor_interval() -> Duration {
+        Duration::from_secs(CONFIG_MONITOR_INTERVAL_SECS)
     }
 }
 

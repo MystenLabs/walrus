@@ -171,6 +171,11 @@ impl NodeUpdateParams {
             || self.write_price.is_some()
             || self.node_capacity.is_some()
     }
+
+    /// Returns true if the node needs a reboot due to the proposed changes.
+    pub fn needs_reboot(&self) -> bool {
+        false
+    }
 }
 
 /// Node parameters needed to register a node.

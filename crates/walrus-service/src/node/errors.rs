@@ -346,4 +346,7 @@ pub enum StorageNodeError {
     /// The protocol key pair rotation is required.
     #[error("Node protocol key pair rotation is required")]
     ProtocolKeyPairRotationRequired,
+    /// The node configuration has changed.
+    #[error("Node needs reboot")]
+    NodeNeedsReboot,
 }

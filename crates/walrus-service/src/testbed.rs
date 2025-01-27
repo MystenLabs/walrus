@@ -627,6 +627,7 @@ pub async fn create_storage_node_configs(
             },
             metrics_push: None,
             metadata: Default::default(),
+            config_monitor_interval: Duration::from_secs(60 * 60),
         });
     }
 
