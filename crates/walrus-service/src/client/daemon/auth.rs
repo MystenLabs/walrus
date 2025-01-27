@@ -6,7 +6,7 @@ use axum::{
     http::{Response, StatusCode},
 };
 use axum_extra::headers::{authorization::Bearer, Authorization};
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::Deserialize;
 use sui_types::base_types::SuiAddress;
 use tracing::error;
@@ -82,7 +82,7 @@ pub(crate) fn verify_jwt_claim<B>(
 where
     B: Default,
 {
-    let mut validation = if auth_config.secret.is_some() {
+    let mut validation = if auth_config.decoding_key.is_some() {
         auth_config
             .algorithm
             .map(Validation::new)
@@ -91,30 +91,18 @@ where
         Validation::default()
     };
 
-    let decode_key = if let Some(secret) = &auth_config.secret {
-        match auth_config.algorithm {
-            None | Some(Algorithm::HS256) | Some(Algorithm::HS384) | Some(Algorithm::HS512) => {
-                DecodingKey::from_secret(secret)
-            }
-            Some(Algorithm::EdDSA) => DecodingKey::from_ed_der(secret),
-            Some(Algorithm::ES256) | Some(Algorithm::ES384) => DecodingKey::from_ec_der(secret),
-            Some(Algorithm::RS256)
-            | Some(Algorithm::RS384)
-            | Some(Algorithm::RS512)
-            | Some(Algorithm::PS256)
-            | Some(Algorithm::PS384)
-            | Some(Algorithm::PS512) => DecodingKey::from_rsa_der(secret),
-        }
-    } else {
+    let default_key = DecodingKey::from_secret(&[]);
+    let decode_key = auth_config.decoding_key.as_ref().unwrap_or_else(|| {
+        // No decoding key is provided in the configuration, so we disable signature validation.
         validation.insecure_disable_signature_validation();
-        DecodingKey::from_secret(&[])
-    };
+        &default_key
+    });
 
     if auth_config.expiring_sec > 0 {
         validation.set_required_spec_claims(&["exp", "iat"]);
     }
 
-    match Claim::from_token(bearer.token().trim(), &decode_key, &validation) {
+    match Claim::from_token(bearer.token().trim(), decode_key, &validation) {
         Ok(claim) => {
             let mut valid_upload = true;
             if auth_config.expiring_sec > 0
@@ -184,7 +172,7 @@ mod tests {
 
     use axum::{http::Request, routing::get, Router};
     use http_body_util::Empty;
-    use jsonwebtoken::{encode, EncodingKey, Header};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use rand::distributions::{Alphanumeric, DistString};
     use ring::signature::{self, Ed25519KeyPair, KeyPair};
     use sui_types::base_types::SUI_ADDRESS_LENGTH;
@@ -197,15 +185,31 @@ mod tests {
     const OTHER_ADDRESS: &str =
         "0x1111111111111111111111111111111111111111111111111111111111111111";
 
+    fn auth_config_for_tests(
+        secret: Option<&str>,
+        algorithm: Option<Algorithm>,
+        expiring_sec: u64,
+        verify_upload: bool,
+    ) -> AuthConfig {
+        let mut config = AuthConfig {
+            decoding_key: None,
+            algorithm,
+            expiring_sec,
+            verify_upload,
+        };
+
+        if let Some(secret) = secret {
+            config.with_key_from_str(secret).unwrap();
+        }
+
+        config
+    }
+
     #[tokio::test]
     async fn auth_layer_is_working() {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = AuthConfig {
-            secret: Some(secret.as_str().into()),
-            algorithm: None,
-            expiring_sec: 0,
-            verify_upload: false,
-        };
+        let auth_config = auth_config_for_tests(Some(&secret), None, 0, false);
+
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
@@ -265,12 +269,8 @@ mod tests {
     #[tokio::test]
     async fn verify_upload() {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = AuthConfig {
-            secret: Some(secret.as_str().into()),
-            algorithm: None,
-            expiring_sec: 0,
-            verify_upload: true,
-        };
+        let auth_config = auth_config_for_tests(Some(&secret), None, 0, true);
+
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
@@ -343,12 +343,8 @@ mod tests {
     #[tokio::test]
     async fn verify_upload_skip_check_token() {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = AuthConfig {
-            secret: None, // No secret, and skip verify token
-            algorithm: None,
-            expiring_sec: 0,
-            verify_upload: true,
-        };
+        let auth_config = auth_config_for_tests(None, None, 0, true);
+
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
@@ -421,12 +417,8 @@ mod tests {
     #[tokio::test]
     async fn verify_exp() {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = AuthConfig {
-            secret: Some(secret.as_str().into()),
-            algorithm: None,
-            expiring_sec: u64::MAX - 1,
-            verify_upload: false,
-        };
+        let auth_config = auth_config_for_tests(Some(&secret), None, u64::MAX - 1, false);
+
         let valid_claim = Claim {
             iat: Some(0),
             exp: u64::MAX - 1,
@@ -512,8 +504,13 @@ mod tests {
         let pair = Ed25519KeyPair::from_pkcs8(doc.as_ref()).unwrap();
         let public_key = pair.public_key().as_ref().to_vec();
         let secret = format!("0x{}", hex::encode(&public_key));
-        let mut auth_config = AuthConfig::new(secret).unwrap();
-        auth_config.algorithm = Some(jsonwebtoken::Algorithm::EdDSA);
+
+        let auth_config = auth_config_for_tests(
+            Some(&secret),
+            Some(jsonwebtoken::Algorithm::EdDSA),
+            0,
+            false,
+        );
 
         let claim = Claim {
             iat: None,
