@@ -43,7 +43,7 @@ pub struct App {
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(long, verbatim_doc_comment)]
+    #[clap(long, verbatim_doc_comment, global = true)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub config: Option<PathBuf>,
     /// The path to the Sui wallet configuration file.
@@ -58,17 +58,17 @@ pub struct App {
     /// If an invalid path is specified through this option or in the configuration file, an error
     /// is returned.
     // NB: Keep this in sync with `crate::cli`.
-    #[clap(long, verbatim_doc_comment)]
+    #[clap(long, verbatim_doc_comment, global = true)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub wallet: Option<PathBuf>,
     /// The gas budget for transactions.
-    #[clap(long, default_value_t = default::gas_budget())]
+    #[clap(long, default_value_t = default::gas_budget(), global = true)]
     #[serde(default = "default::gas_budget")]
     pub gas_budget: u64,
     /// Write output as JSON.
     ///
     /// This is always done in JSON mode.
-    #[clap(long, action)]
+    #[clap(long, action, global = true)]
     #[serde(default)]
     pub json: bool,
     /// The command to run.
