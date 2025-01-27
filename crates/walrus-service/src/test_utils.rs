@@ -66,7 +66,7 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
-use crate::common::config::SuiConfig;
+use super::StorageNodeError;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
@@ -311,14 +311,17 @@ impl SimStorageNodeHandle {
             .init(move || {
                 tracing::info!(?ip, "starting simulator node");
 
-                let config = config.clone();
+                let mut config = config.clone();
                 let cancel_token = cancel_token.clone();
                 let startup_sender = startup_sender.clone();
 
                 async move {
+
+                loop {
+                    let config_clone = config.clone();
                     let (rest_api_handle, node_handle, event_processor_handle) =
                         Self::build_and_run_node(
-                            config,
+                            config_clone,
                             num_checkpoints_per_blob,
                             cancel_token.clone(),
                         )
@@ -330,20 +333,45 @@ impl SimStorageNodeHandle {
                     tokio::select! {
                         _ = rest_api_handle => {
                             tracing::info!("REST API stopped");
+                            break;
                         }
-                        _ = node_handle => {
-                            tracing::info!("node stopped");
+                        result = node_handle => {
+                            match result {
+                                Ok(Err(e))
+                                    if e.downcast_ref::<StorageNodeError>().map_or(
+                                        false,
+                                        |e| matches!(
+                                            e, StorageNodeError::ProtocolKeyPairRotationRequired),
+                                    ) =>
+                                {
+                                    tracing::info!(
+                                        "Protocol key pair rotation required, retrying"
+                                    );
+                                    config.rotate_protocol_key_pair();
+                                    continue;
+                                    // Handle rotation required case
+
+                                }
+                                _ => {
+                                    tracing::info!("node stopped");
+                                    break;
+                                }
+                            }
                         }
                         _ = event_processor_handle => {
                             tracing::info!("event processor stopped");
+                            break;
                         }
                         _ = cancel_token.cancelled() => {
                             tracing::info!("node stopped by cancellation");
+                            break;
                         }
                     }
 
-                    tracing::info!("node stopped");
                 }
+
+                tracing::info!("node stopped");
+            }
             })
             .build();
 

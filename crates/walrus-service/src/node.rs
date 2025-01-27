@@ -29,7 +29,11 @@ pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::event::EventID;
 use system_events::{CompletableHandle, EventHandle};
-use tokio::{select, sync::watch, time::Instant};
+use tokio::{
+    select,
+    sync::watch,
+    time::{Duration, Instant},
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
@@ -150,6 +154,10 @@ mod start_epoch_change_finisher;
 
 pub(crate) mod errors;
 mod storage;
+
+// Add new module
+mod config_monitor;
+use config_monitor::ConfigMonitor;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -435,6 +443,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
+    config_monitor: Arc<ConfigMonitor>, // Add this field
 }
 
 /// The internal state of a Walrus storage node.
@@ -717,6 +726,12 @@ impl StorageNode {
             None
         };
 
+        let config_monitor = Arc::new(ConfigMonitor::new(
+            config.clone(),
+            contract_service.clone(),
+            Duration::from_secs(60), // Check every minute
+        ));
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
@@ -725,6 +740,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             event_blob_writer_factory,
+            config_monitor: config_monitor.clone(),
         })
     }
 
@@ -765,6 +781,13 @@ impl StorageNode {
                         }
                         return Err(e.into());
                     },
+                }
+            },
+            // Add config monitor task
+            config_monitor_result = self.config_monitor.run() => {
+                match config_monitor_result {
+                    Ok(()) => unreachable!("config monitor never returns"),
+                    Err(e) => return Err(e),
                 }
             }
         }
