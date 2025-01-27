@@ -31,6 +31,7 @@ use crate::{
     RecoverySymbol as EitherRecoverySymbol,
     SliverIndex,
     SliverType,
+    SymbolId,
 };
 
 /// A set of encoded symbols.
@@ -419,6 +420,22 @@ pub struct GeneralRecoverySymbol<U = MerkleProof> {
     proof: U,
 }
 
+impl<U> GeneralRecoverySymbol<U> {
+    /// Returns the ID of the recovery symbol, identifying it within the blob.
+    pub fn id(&self) -> SymbolId {
+        // A primary decoding symbol implies that the target is a primary sliver,
+        // likewise for a secondary decoding symbol.
+        match &self.symbol {
+            EitherDecodingSymbol::Primary(symbol) => {
+                SymbolId::new(self.target_index, symbol.index.into())
+            }
+            EitherDecodingSymbol::Secondary(symbol) => {
+                SymbolId::new(symbol.index.into(), self.target_index)
+            }
+        }
+    }
+}
+
 impl GeneralRecoverySymbol {
     /// Creates a new general recovery symbol from an axis-specific variant.
     pub fn from_recovery_symbol<T, U>(
@@ -480,15 +497,15 @@ impl<U: MerkleAuth> GeneralRecoverySymbol<U> {
             .get_expected_root(metadata, n_shards)
             .ok_or(SymbolVerificationError::InvalidMetadata)?;
 
-        if self.proof.verify_proof(
+        if !self.proof.verify_proof(
             expected_root,
             self.symbol.data(),
             self.target_index.as_usize(),
         ) {
-            Ok(())
-        } else {
-            Err(SymbolVerificationError::InvalidProof)
+            return Err(SymbolVerificationError::InvalidProof);
         }
+
+        Ok(())
     }
 
     fn get_expected_root<'a>(
