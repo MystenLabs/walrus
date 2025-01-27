@@ -62,9 +62,10 @@ pub struct App {
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub wallet: Option<PathBuf>,
     /// The gas budget for transactions.
-    #[clap(long, default_value_t = default::gas_budget(), global = true)]
-    #[serde(default = "default::gas_budget")]
-    pub gas_budget: u64,
+    ///
+    /// If not specified, the gas budget is estimated automatically.
+    #[clap(long, global = true)]
+    pub gas_budget: Option<u64>,
     /// Write output as JSON.
     ///
     /// This is always done in JSON mode.
@@ -962,10 +963,6 @@ pub(crate) mod default {
 
     use walrus_sui::utils::SuiNetwork;
 
-    pub(crate) fn gas_budget() -> u64 {
-        100_000_000
-    }
-
     pub(crate) fn max_body_size_kib() -> usize {
         10_240
     }
@@ -1132,7 +1129,7 @@ mod tests {
         let mut app = App {
             config: None,
             wallet: None,
-            gas_budget: 100,
+            gas_budget: None,
             json: false,
             command: Commands::Json {
                 command_string: Some(json.to_string()),

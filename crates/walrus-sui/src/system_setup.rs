@@ -4,7 +4,6 @@
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
 use std::{
-    collections::BTreeSet,
     num::NonZeroU16,
     path::{Path, PathBuf},
     str::FromStr,
@@ -36,7 +35,7 @@ use sui_sdk::{
     wallet_context::WalletContext,
 };
 use sui_types::{
-    transaction::ObjectArg,
+    transaction::{ObjectArg, TransactionKind},
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
@@ -45,8 +44,9 @@ use walkdir::WalkDir;
 use walrus_core::{ensure, EpochCount};
 
 use crate::{
+    client::retry_client::RetriableSuiClient,
     contracts::{self, StructTag},
-    utils::{estimate_gas_budget, get_created_sui_object_ids_by_type, resolve_lock_file_path},
+    utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
 
 const INIT_MODULE: &str = "init";
@@ -81,8 +81,9 @@ fn get_pkg_id_from_tx_response(tx_response: &SuiTransactionBlockResponse) -> Res
 pub(crate) async fn publish_package_with_default_build_config(
     wallet: &mut WalletContext,
     package_path: PathBuf,
+    gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
-    publish_package(wallet, package_path, Default::default(), None).await
+    publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
 #[tracing::instrument(err, skip(wallet))]
@@ -139,7 +140,11 @@ pub(crate) async fn publish_package(
     let gas_budget = if let Some(gas_budget) = gas_budget {
         gas_budget
     } else {
-        estimate_gas_budget(&client, sender, transaction_kind.clone()).await?
+        let retry_client = RetriableSuiClient::new(client.clone(), Default::default());
+        let gas_price = retry_client.get_reference_gas_price().await?;
+        retry_client
+            .estimate_gas_budget(sender, transaction_kind.clone(), gas_price)
+            .await?
     };
 
     let gas_coins = client
@@ -259,6 +264,7 @@ pub async fn publish_coin_and_system_package(
     walrus_contract_directory: PathBuf,
     deploy_directory: Option<PathBuf>,
     with_wal_exchange: bool,
+    gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
         copy_recursively(&walrus_contract_directory, &deploy_directory)?;
@@ -268,9 +274,12 @@ pub async fn publish_coin_and_system_package(
     };
 
     // Publish `wal` package.
-    let transaction_response =
-        publish_package_with_default_build_config(wallet, walrus_contract_directory.join("wal"))
-            .await?;
+    let transaction_response = publish_package_with_default_build_config(
+        wallet,
+        walrus_contract_directory.join("wal"),
+        gas_budget,
+    )
+    .await?;
     let wal_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
     let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
 
@@ -288,6 +297,7 @@ pub async fn publish_coin_and_system_package(
         let transaction_response = publish_package_with_default_build_config(
             wallet,
             walrus_contract_directory.join("wal_exchange"),
+            gas_budget,
         )
         .await?;
         Some(get_pkg_id_from_tx_response(&transaction_response)?)
@@ -296,9 +306,12 @@ pub async fn publish_coin_and_system_package(
     };
 
     // Publish `walrus` package.
-    let transaction_response =
-        publish_package_with_default_build_config(wallet, walrus_contract_directory.join("walrus"))
-            .await?;
+    let transaction_response = publish_package_with_default_build_config(
+        wallet,
+        walrus_contract_directory.join("walrus"),
+        gas_budget,
+    )
+    .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
     let [init_cap_id] = get_created_sui_object_ids_by_type(
@@ -345,7 +358,7 @@ pub async fn create_system_and_staking_objects(
     init_cap: ObjectID,
     upgrade_cap: ObjectID,
     system_params: InitSystemParams,
-    gas_budget: u64,
+    gas_budget: Option<u64>,
 ) -> Result<(ObjectID, ObjectID)> {
     let mut pt_builder = ProgrammableTransactionBuilder::new();
 
@@ -399,21 +412,37 @@ pub async fn create_system_and_staking_objects(
     // finalize transaction
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
-    let gas_price = wallet.get_reference_gas_price().await?;
-    let gas = wallet
-        .gas_for_owner_budget(address, gas_budget, BTreeSet::new())
-        .await?;
-    let transaction = TransactionData::new_programmable(
-        address,
-        vec![gas.1.object_ref()],
-        ptb,
-        gas_budget,
-        gas_price,
-    );
+
+    let retry_client = RetriableSuiClient::new(wallet.get_client().await?, Default::default());
+    let gas_price = retry_client.get_reference_gas_price().await?;
+
+    let gas_budget = if let Some(gas_budget) = gas_budget {
+        gas_budget
+    } else {
+        retry_client
+            .estimate_gas_budget(
+                address,
+                TransactionKind::ProgrammableTransaction(ptb.clone()),
+                gas_price,
+            )
+            .await?
+    };
+
+    let gas_coins = retry_client
+        .select_coins(address, None, gas_budget as u128, vec![])
+        .await?
+        .into_iter()
+        .map(|coin| coin.object_ref())
+        .collect::<Vec<_>>();
+
+    let transaction =
+        TransactionData::new_programmable(address, gas_coins, ptb, gas_budget, gas_price);
 
     // sign and send transaction
-    let transaction = wallet.sign_transaction(&transaction);
-    let response = wallet.execute_transaction_may_fail(transaction).await?;
+    let signed_transaction = wallet.sign_transaction(&transaction);
+    let response = wallet
+        .execute_transaction_may_fail(signed_transaction)
+        .await?;
 
     if let SuiExecutionStatus::Failure { error } = response
         .effects

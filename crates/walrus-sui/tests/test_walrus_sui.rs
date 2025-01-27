@@ -42,8 +42,6 @@ use walrus_sui::{
 use walrus_test_utils::{async_param_test, WithTempDir};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-const GAS_BUDGET: u64 = 1_000_000_000;
-
 async fn initialize_contract_and_wallet() -> anyhow::Result<(
     Arc<TestClusterHandle>,
     WithTempDir<SuiContractClient>,
@@ -74,7 +72,7 @@ async fn initialize_contract_and_wallet() -> anyhow::Result<(
                     wallet,
                     &contract_config,
                     ExponentialBackoffConfig::default(),
-                    GAS_BUDGET,
+                    None,
                 )
             })
             .await?,
@@ -519,7 +517,7 @@ async fn test_automatic_wal_coin_squashing(
     }
     client_1
         .as_ref()
-        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
+        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0)
         .await?;
     drop(wallet);
 
@@ -566,7 +564,7 @@ async fn test_automatic_wal_coin_squashing(
     }
     client_2
         .as_ref()
-        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0, None)
+        .sign_and_send_ptb(&wallet, tx_builder.finish().await?.0)
         .await?;
 
     // Check that the second wallet has no WAL coins left.

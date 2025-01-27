@@ -439,7 +439,7 @@ pub mod defaults {
     use walrus_sui::utils::SuiNetwork;
 
     use super::*;
-    pub use crate::common::config::defaults::{gas_budget, is_default, polling_interval};
+    pub use crate::common::config::defaults::{is_default, polling_interval};
 
     /// Default metrics port.
     pub const METRICS_PORT: u16 = 9184;
@@ -712,7 +712,7 @@ mod tests {
                 event_polling_interval: defaults::polling_interval(),
                 wallet_config: PathBuf::from("/opt/walrus/config/sui_config.yaml"),
                 backoff_config: Default::default(),
-                gas_budget: defaults::gas_budget(),
+                gas_budget: None,
             }),
             ..Default::default()
         };

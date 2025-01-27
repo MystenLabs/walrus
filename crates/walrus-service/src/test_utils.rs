@@ -889,7 +889,7 @@ impl StorageNodeHandleBuilder {
                 wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
-                gas_budget: config::defaults::gas_budget(),
+                gas_budget: None,
             }),
             ..storage_node_config().inner
         };
@@ -1959,7 +1959,6 @@ pub mod test_cluster {
                 register_committee_and_stake,
             },
             TestClusterHandle,
-            DEFAULT_GAS_BUDGET,
         },
     };
 
@@ -2099,7 +2098,7 @@ pub mod test_cluster {
                     system_ctx.new_contract_client(
                         wallet,
                         ExponentialBackoffConfig::default(),
-                        DEFAULT_GAS_BUDGET,
+                        None,
                     )
                 })
                 .await?;
@@ -2220,7 +2219,7 @@ pub mod test_cluster {
 
         // Create the client with the admin wallet to ensure that we have some WAL.
         let sui_contract_client = wallet.and_then(|wallet| {
-            SuiContractClient::new_with_read_client(wallet, DEFAULT_GAS_BUDGET, sui_read_client)
+            SuiContractClient::new_with_read_client(wallet, None, sui_read_client)
         })?;
         let config = Config {
             contract_config,

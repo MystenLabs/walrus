@@ -65,8 +65,8 @@ struct RegisterNodesArgs {
     #[clap(long)]
     stake_amount: Option<u64>,
     /// Gas budget for Sui transactions to register the nodes.
-    #[arg(long, default_value_t = 1_000_000_000)]
-    gas_budget: u64,
+    #[arg(long)]
+    gas_budget: Option<u64>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -84,8 +84,10 @@ struct DeploySystemContractArgs {
     #[clap(long, default_value = "./contracts")]
     contract_dir: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
-    #[arg(long, default_value_t = 1_000_000_000)]
-    gas_budget: u64,
+    ///
+    /// If not specified, the gas budget is estimated automatically.
+    #[arg(long)]
+    gas_budget: Option<u64>,
     /// The total number of shards. The shards are distributed evenly among the storage nodes.
     #[arg(long, default_value = "1000")]
     n_shards: NonZeroU16,

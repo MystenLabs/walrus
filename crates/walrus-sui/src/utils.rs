@@ -12,20 +12,14 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use move_package::{source_package::layout::SourcePackageLayout, BuildConfig as MoveBuildConfig};
 use serde::{Deserialize, Serialize};
 use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
-    rpc_types::{
-        ObjectChange,
-        Page,
-        SuiObjectResponse,
-        SuiTransactionBlockEffectsAPI,
-        SuiTransactionBlockResponse,
-    },
+    rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
     wallet_context::WalletContext,
@@ -35,7 +29,7 @@ use sui_types::{
     base_types::SuiAddress,
     crypto::SignatureScheme,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{TransactionData, TransactionKind},
+    transaction::TransactionData,
 };
 use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
@@ -56,13 +50,6 @@ use crate::{
 // Change the unit there if it changes.
 /// The number of bytes per storage unit.
 pub const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
-
-/// The gas overhead to add to the gas budget to ensure that the transaction will succeed.
-/// Set based on `GAS_SAFE_OVERHEAD` in the sui CLI.
-const GAS_SAFE_OVERHEAD: u64 = 1000;
-
-/// The maximum gas allowed in a transaction, in MIST (50 SUI).
-const MAX_GAS_BUDGET: u64 = 50_000_000_000;
 
 // Keep in sync with the same function in `contracts/walrus/sources/system/system_state_inner.move`.
 /// Calculates the number of storage units required to store a blob with the
@@ -463,40 +450,6 @@ pub fn generate_proof_of_possession_for_address(
         sui_address.to_inner(),
         bls_sk.public().clone(),
     ))
-}
-
-/// Calls a dry run with the transaction data to estimate the gas budget.
-///
-/// This performs the same calculation as the Sui CLI and the TypeScript SDK.
-pub(crate) async fn estimate_gas_budget(
-    sui_client: &SuiClient,
-    signer: SuiAddress,
-    kind: TransactionKind,
-) -> Result<u64, anyhow::Error> {
-    let reference_gas_price = sui_client.read_api().get_reference_gas_price().await?;
-    let dry_run_tx_data = sui_client
-        .transaction_builder()
-        .tx_data_for_dry_run(
-            signer,
-            kind,
-            MAX_GAS_BUDGET,
-            reference_gas_price,
-            None,
-            None,
-        )
-        .await;
-    let effects = sui_client
-        .read_api()
-        .dry_run_transaction_block(dry_run_tx_data)
-        .await
-        .context("dry run failed")?
-        .effects;
-    let gas_cost_summary = effects.gas_cost_summary();
-
-    let safe_overhead = GAS_SAFE_OVERHEAD * reference_gas_price;
-    let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
-    let gas_usage_with_overhead = gas_cost_summary.net_gas_usage() + safe_overhead as i64;
-    Ok(computation_cost_with_overhead.max(gas_usage_with_overhead.max(0) as u64))
 }
 
 /// Resolve Move.lock file path in package directory (where Move.toml is).

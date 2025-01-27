@@ -260,8 +260,10 @@ struct ConfigArgs {
     #[clap(long)]
     metrics_push_url: Option<String>,
     /// Gas budget for transactions.
-    #[clap(long, default_value_t = config::defaults::gas_budget())]
-    gas_budget: u64,
+    ///
+    /// If not specified, the gas budget is estimated automatically.
+    #[clap(long)]
+    gas_budget: Option<u64>,
     /// Initial vote for the storage price in FROST per MiB per epoch.
     #[clap(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,

@@ -29,8 +29,6 @@ use walrus_sui::{
     utils::SuiNetwork,
 };
 
-const DEFAULT_GAS_BUDGET: u64 = 100_000_000;
-
 /// Minimum burst duration.
 const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
 /// Number of seconds per load period.
@@ -94,7 +92,7 @@ impl LoadGenerator {
                 WriteClient::new(
                     &client_config,
                     &network,
-                    DEFAULT_GAS_BUDGET,
+                    None,
                     min_size_log2,
                     max_size_log2,
                     refiller.clone(),

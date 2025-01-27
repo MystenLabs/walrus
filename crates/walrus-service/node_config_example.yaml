@@ -61,7 +61,6 @@ sui:
     min_backoff_millis: 1000
     max_backoff_millis: 30000
     max_retries: 5
-  gas_budget: 500000000
 blob_recovery:
   max_concurrent_blob_syncs: 100
   max_concurrent_sliver_syncs: 2000

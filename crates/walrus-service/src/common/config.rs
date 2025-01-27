@@ -43,8 +43,8 @@ pub struct SuiConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
     /// Gas budget for transactions.
-    #[serde(default = "defaults::gas_budget")]
-    pub gas_budget: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gas_budget: Option<u64>,
 }
 
 impl SuiConfig {
@@ -137,10 +137,5 @@ pub mod defaults {
         // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
         // to generate the example configuration files.
         !cfg!(test) && t == &T::default()
-    }
-
-    /// Returns the default gas budget.
-    pub fn gas_budget() -> u64 {
-        500_000_000
     }
 }

@@ -149,7 +149,7 @@ impl ProtocolCommands for TargetProtocol {
             working_dir: parameters.settings.working_dir.as_path(),
             sui_network: parameters.node_parameters.sui_network.clone(),
             contract_dir: parameters.node_parameters.contract_dir.clone(),
-            gas_budget: walrus_sui::test_utils::DEFAULT_GAS_BUDGET,
+            gas_budget: None,
             host_addresses: ips.iter().map(|ip| ip.to_string()).collect(),
             rest_api_port: parameters.node_parameters.rest_api_port,
             storage_capacity: 1_000_000_000_000,

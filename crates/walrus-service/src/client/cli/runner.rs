@@ -111,7 +111,7 @@ pub struct ClientCommandRunner {
     /// Whether to output JSON.
     json: bool,
     /// The gas budget for the client commands.
-    gas_budget: u64,
+    gas_budget: Option<u64>,
 }
 
 impl ClientCommandRunner {
@@ -119,7 +119,7 @@ impl ClientCommandRunner {
     pub fn new(
         config: &Option<PathBuf>,
         wallet: &Option<PathBuf>,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
         let config = load_configuration(config);

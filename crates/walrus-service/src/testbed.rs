@@ -28,15 +28,12 @@ use walrus_core::{
 use walrus_sui::{
     client::SuiContractClient,
     system_setup::InitSystemParams,
-    test_utils::{
-        system_setup::{
-            create_and_init_system,
-            end_epoch_zero,
-            mint_wal_to_addresses,
-            register_committee_and_stake,
-            SystemContext,
-        },
-        DEFAULT_GAS_BUDGET,
+    test_utils::system_setup::{
+        create_and_init_system,
+        end_epoch_zero,
+        mint_wal_to_addresses,
+        register_committee_and_stake,
+        SystemContext,
     },
     types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
     utils::{create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet, SuiNetwork},
@@ -215,8 +212,8 @@ pub struct DeployTestbedContractParameters<'a> {
     pub sui_network: SuiNetwork,
     /// The path of the contract.
     pub contract_dir: PathBuf,
-    /// The gas budget to use for deployment.
-    pub gas_budget: u64,
+    /// The gas budget to use for deployment. If not provided, the gas budget is estimated.
+    pub gas_budget: Option<u64>,
     /// The hostnames or public ip addresses of the nodes.
     pub host_addresses: Vec<String>,
     /// The rest api port of the nodes.
@@ -587,7 +584,7 @@ pub async fn create_storage_node_configs(
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             backoff_config: ExponentialBackoffConfig::default(),
-            gas_budget: defaults::gas_budget(),
+            gas_budget: None,
         });
 
         let storage_path = set_db_path
@@ -632,11 +629,7 @@ pub async fn create_storage_node_configs(
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
         testbed_config
             .system_ctx
-            .new_contract_client(
-                wallet,
-                ExponentialBackoffConfig::default(),
-                DEFAULT_GAS_BUDGET,
-            )
+            .new_contract_client(wallet, ExponentialBackoffConfig::default(), None)
             .await
             .expect("should not fail")
     }))

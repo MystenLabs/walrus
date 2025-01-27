@@ -21,6 +21,7 @@ use sui_sdk::{
     rpc_types::{
         Balance,
         Coin,
+        DryRunTransactionBlockResponse,
         ObjectsPage,
         SuiCommittee,
         SuiMoveNormalizedModule,
@@ -29,6 +30,7 @@ use sui_sdk::{
         SuiObjectResponse,
         SuiObjectResponseQuery,
         SuiRawData,
+        SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
     },
@@ -45,7 +47,7 @@ use sui_types::{
     object::Object,
     quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
-    transaction::Transaction,
+    transaction::{Transaction, TransactionData, TransactionKind},
     TypeTag,
 };
 use tracing::Level;
@@ -61,6 +63,13 @@ use crate::{
 
 /// The list of HTTP status codes that are retriable.
 const RETRIABLE_RPC_ERRORS: &[&str] = &["429", "500", "502"];
+
+/// The gas overhead to add to the gas budget to ensure that the transaction will succeed.
+/// Set based on `GAS_SAFE_OVERHEAD` in the sui CLI. Used for gas budget estimation.
+const GAS_SAFE_OVERHEAD: u64 = 1000;
+
+/// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
+const MAX_GAS_BUDGET: u64 = 50_000_000_000;
 
 /// The maximum number of objects to get in a single RPC call.
 pub(crate) const MULTI_GET_OBJ_LIMIT: usize = 50;
@@ -343,6 +352,32 @@ impl RetriableSuiClient {
         .await
     }
 
+    /// Returns the reference gas price.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_reference_gas_price`] internally.
+    pub async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client.read_api().get_reference_gas_price().await
+        })
+        .await
+    }
+
+    /// Executes a transaction dry run.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::dry_run_transaction_block`] internally.
+    pub async fn dry_run_transaction_block(
+        &self,
+        transaction: TransactionData,
+    ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client
+                .read_api()
+                .dry_run_transaction_block(transaction.clone())
+                .await
+        })
+        .await
+    }
+
     /// Returns a reference to the [`EventApi`].
     ///
     /// Internally calls the [`SuiClient::event_api`] function. Note that no retries are
@@ -570,6 +605,35 @@ impl RetriableSuiClient {
 
         tracing::debug!(?wal_type, "WAL type");
         Ok(wal_type)
+    }
+
+    /// Calls a dry run with the transaction data to estimate the gas budget.
+    ///
+    /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
+    pub(crate) async fn estimate_gas_budget(
+        &self,
+        signer: SuiAddress,
+        kind: TransactionKind,
+        gas_price: u64,
+    ) -> SuiClientResult<u64> {
+        let dry_run_tx_data = self
+            .sui_client
+            .transaction_builder()
+            .tx_data_for_dry_run(signer, kind, MAX_GAS_BUDGET, gas_price, None, None)
+            .await;
+        let effects = self
+            .dry_run_transaction_block(dry_run_tx_data)
+            .await
+            .inspect_err(|error| {
+                tracing::debug!(%error, "transaction dry run failed");
+            })?
+            .effects;
+        let gas_cost_summary = effects.gas_cost_summary();
+
+        let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
+        let computation_cost_with_overhead = gas_cost_summary.computation_cost + safe_overhead;
+        let gas_usage_with_overhead = gas_cost_summary.net_gas_usage() + safe_overhead as i64;
+        Ok(computation_cost_with_overhead.max(gas_usage_with_overhead.max(0) as u64))
     }
 
     /// Executes a transaction.

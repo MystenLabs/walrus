@@ -77,11 +77,7 @@ pub async fn publish_with_default_system(
 
     // Initialize client
     let contract_client = system_context
-        .new_contract_client(
-            node_wallet,
-            ExponentialBackoffConfig::default(),
-            DEFAULT_GAS_BUDGET,
-        )
+        .new_contract_client(node_wallet, ExponentialBackoffConfig::default(), None)
         .await?;
 
     register_committee_and_stake(
@@ -124,7 +120,7 @@ impl SystemContext {
         &self,
         wallet: WalletContext,
         backoff_config: ExponentialBackoffConfig,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
         let contract_config = self.contract_config();
         SuiContractClient::new(wallet, &contract_config, backoff_config, gas_budget).await
@@ -157,7 +153,7 @@ pub async fn create_and_init_system_for_test(
             epoch_duration,
             max_epochs_ahead: max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
         },
-        DEFAULT_GAS_BUDGET,
+        None,
         deploy_directory,
         true,
     )
@@ -175,7 +171,7 @@ pub async fn create_and_init_system(
     contract_dir: PathBuf,
     admin_wallet: &mut WalletContext,
     init_system_params: InitSystemParams,
-    gas_budget: u64,
+    gas_budget: Option<u64>,
     deploy_directory: Option<PathBuf>,
     with_wal_exchange: bool,
 ) -> Result<SystemContext> {
@@ -191,6 +187,7 @@ pub async fn create_and_init_system(
         contract_dir,
         deploy_directory,
         with_wal_exchange,
+        gas_budget,
     )
     .await?;
 

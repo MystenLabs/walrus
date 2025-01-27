@@ -23,8 +23,6 @@ use crate::generator::LoadGenerator;
 
 mod generator;
 
-/// Gas budget for transactions.
-const GAS_BUDGET: u64 = 1_000_000_000;
 /// The amount of gas or MIST to refil each time.
 const COIN_REFILL_AMOUNT: u64 = 500_000_000;
 /// The minimum balance to keep in the wallet.
@@ -100,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
 
     let wallet = load_wallet_context(&args.wallet_path)?;
-    let contract_client = config.new_contract_client(wallet, GAS_BUDGET).await?;
+    let contract_client = config.new_contract_client(wallet, None).await?;
 
     let refiller = Refiller::new(
         contract_client,
