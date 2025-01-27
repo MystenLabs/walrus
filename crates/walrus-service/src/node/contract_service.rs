@@ -22,7 +22,10 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::move_structs::EpochState,
+    types::{
+        move_errors::{MoveExecutionError, SystemStateInnerError},
+        move_structs::EpochState,
+    },
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
@@ -236,18 +239,66 @@ impl SystemContractService for SuiSystemContractService {
                             "Storage node capability object not set");
                         Some(())
                     }
-                    Err(SuiClientError::TransactionExecutionError(e)) => {
+                    Err(
+                        e @ SuiClientError::TransactionExecutionError(
+                            MoveExecutionError::SystemStateInner(
+                                SystemStateInnerError::EInvalidIdEpoch(_),
+                            ),
+                        ),
+                    ) => {
                         tracing::debug!(
                             walrus.epoch = epoch,
                             error = ?e,
                             blob_id = ?blob_id,
-                            "Transaction execution error while attesting event blob"
+                            "Non-retriable event blob certification error while \
+                            attesting event blob"
                         );
                         Some(())
                     }
+                    Err(
+                        e @ SuiClientError::TransactionExecutionError(
+                            MoveExecutionError::SystemStateInner(
+                                SystemStateInnerError::EIncorrectAttestation(_)
+                                | SystemStateInnerError::ERepeatedAttestation(_)
+                                | SystemStateInnerError::ENotCommitteeMember(_),
+                            ),
+                        ),
+                    ) => {
+                        tracing::warn!(
+                            walrus.epoch = epoch,
+                            error = ?e,
+                            blob_id = ?blob_id,
+                            "Unexpected non-retriable event blob certification error \
+                            while attesting event blob"
+                        );
+                        Some(())
+                    }
+                    Err(SuiClientError::TransactionExecutionError(e))
+                        if !matches!(e, MoveExecutionError::NotParsable(_)) =>
+                    {
+                        tracing::warn!(error = ?e, blob_id = ?blob_id,
+                            "Unexpected move execution error while attesting event blob");
+                        Some(())
+                    }
+                    Err(SuiClientError::SharedObjectCongestion(object_ids)) => {
+                        tracing::debug!(blob_id = ?blob_id,
+                            object_ids = ?object_ids,
+                            "Shared object congestion error while attesting event blob, retrying");
+                        None
+                    }
+                    Err(SuiClientError::TransactionExecutionError(
+                        MoveExecutionError::NotParsable(_),
+                    )) => {
+                        tracing::error!(blob_id = ?blob_id,
+                            "Unexpected unknown transaction execution error while \
+                            attesting event blob, retrying");
+                        None
+                    }
                     Err(error) => {
-                        tracing::warn!(?error, blob_id = ?blob_id,
-                            "Submitting certify event blob to contract failed, retrying");
+                        tracing::error!(?error, blob_id = ?blob_id,
+                            "Unexpected unknown sui client error while attesting event blob, \
+                            retrying"
+                        );
                         None
                     }
                 }

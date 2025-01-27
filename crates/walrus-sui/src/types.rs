@@ -42,7 +42,7 @@ pub use move_structs::{
     SystemObject,
 };
 
-pub(crate) mod move_errors;
+pub mod move_errors;
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{

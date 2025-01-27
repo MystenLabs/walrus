@@ -97,9 +97,11 @@ pub enum SuiClientError {
     NoCompatibleGasCoins,
     /// The Walrus system object does not exist.
     #[error(
-        "the specified Walrus system object {0} does not exist or is incompatible with this binary;\
-        \nmake sure you have the latest binary and configuration, and the correct Sui network is \
-        activated in your Sui wallet"
+        "the specified Walrus system object {0} does not exist
+        or is incompatible with this binary;\n\
+        make sure you have the latest binary and configuration,
+        and the correct Sui network is activated \
+        in your Sui wallet"
     )]
     WalrusSystemObjectDoesNotExist(ObjectID),
     /// The specified Walrus package could not be found.
@@ -136,6 +138,34 @@ pub enum SuiClientError {
     /// The storage node is not found.
     #[error("the storage node {0} is not found")]
     StorageNodeNotFound(ObjectID),
+    /// Transaction execution was cancelled due to shared object congestion
+    #[error("execution cancelled due to shared object congestion on objects {0:?}")]
+    SharedObjectCongestion(Vec<ObjectID>),
+}
+
+impl SuiClientError {
+    /// Attempts to parse a shared object congestion error from an error string.
+    /// Returns None if the string does not match the expected format.
+    pub fn parse_congestion_error(error: &str) -> Result<Self, anyhow::Error> {
+        use regex::Regex;
+        let re = Regex::new(
+            r"(?x)
+            ExecutionCancelledDueToSharedObjectCongestion\x20\{\x20congested_objects:
+            \x20CongestedObjects\(\[(0x[a-f0-9]+)\]\)\x20\}",
+        )
+        .unwrap();
+        re.captures(error)
+            .and_then(|caps| caps.get(1))
+            .map(|objects_match| {
+                objects_match
+                    .as_str()
+                    .split(", ")
+                    .filter_map(|id| ObjectID::from_hex_literal(id).ok())
+                    .collect::<Vec<_>>()
+            })
+            .map(Self::SharedObjectCongestion)
+            .ok_or_else(|| anyhow::anyhow!("not a congestion error: {}", error))
+    }
 }
 
 /// Metadata for a blob object on Sui.
@@ -1061,9 +1091,12 @@ impl SuiContractClient {
             SuiExecutionStatus::Success => Ok(response),
             SuiExecutionStatus::Failure { error } => {
                 // Convert execution error into client error
-                Err(SuiClientError::TransactionExecutionError(
-                    error.as_str().into(),
-                ))
+                // Try parsing congestion error first, fallback to general execution error
+                Err(
+                    SuiClientError::parse_congestion_error(error.as_str()).unwrap_or_else(|_| {
+                        SuiClientError::TransactionExecutionError(error.as_str().into())
+                    }),
+                )
             }
         }
     }
@@ -1384,5 +1417,29 @@ impl fmt::Debug for SuiContractClient {
             .field("wallet_address", &self.wallet_address)
             .field("gas_budget", &self.gas_budget)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_congestion_error() {
+        let error_string = "ExecutionCancelledDueToSharedObjectCongestion { \
+            congested_objects: \
+            CongestedObjects([0x98ebc47370603fe81d9e15491b2f1443d619d1dab720d586e429ed233e1255c1]) \
+        }";
+
+        let error = SuiClientError::parse_congestion_error(error_string);
+        assert!(error.is_ok());
+        let congestion_error = error.unwrap();
+        assert!(matches!(
+            congestion_error,
+            SuiClientError::SharedObjectCongestion(obj_ids)
+                if obj_ids[0] == ObjectID::from_hex_literal(
+                    "0x98ebc47370603fe81d9e15491b2f1443d619d1dab720d586e429ed233e1255c1"
+                ).unwrap()
+        ));
     }
 }
