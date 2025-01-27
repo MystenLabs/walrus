@@ -345,6 +345,24 @@ mod tests {
         }
     }
 
+    /// Helper function to get health info for a single node.
+    async fn get_node_health_info(
+        node: &SimStorageNodeHandle,
+    ) -> anyhow::Result<ServiceHealthInfo> {
+        let client = walrus_sdk::client::Client::builder()
+            .authenticate_with_public_key(node.network_public_key.clone())
+            // Disable proxy and root certs from the OS for tests.
+            .no_proxy()
+            .tls_built_in_root_certs(false)
+            .build_for_remote_ip(node.rest_api_address)
+            .context("failed to create node client")?;
+
+        client
+            .get_server_health_info(true)
+            .await
+            .context("failed to get server health info")
+    }
+
     /// Helper function to get health info for a list of nodes.
     async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
         futures::future::join_all(
@@ -1014,5 +1032,110 @@ mod tests {
                 .node_status,
             "Active"
         );
+    }
+
+    #[walrus_simtest]
+    #[ignore = "ignore simtests by default"]
+    async fn test_registered_node_update_protocol_key() {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                &[1, 2, 3, 3, 4, 1],
+                false,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                None,
+                Some(10),
+            )
+            .await
+            .unwrap();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_some());
+        let client_arc = Arc::new(client);
+
+        // Get current committee and verify node[5] is in it
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .expect("Should get committees");
+
+        assert!(committees
+            .current_committee()
+            .find(&walrus_cluster.nodes[5].public_key)
+            .is_some());
+
+        // Check the current protocol key in the staking pool
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+
+        // Generate new protocol key pair
+        let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
+
+        // Make sure the new protocol key is different from the current one
+        assert_ne!(&pool.node_info.public_key, new_protocol_key_pair.public());
+
+        // Tracks if a crash has been triggered.
+        let fail_triggered = Arc::new(AtomicBool::new(false));
+        let target_fail_node_id = walrus_cluster.nodes[5]
+            .node_id
+            .expect("node id should be set");
+        let fail_triggered_clone = fail_triggered.clone();
+
+        // Trigger node crash during some DB access.
+        register_fail_points(DB_FAIL_POINTS, move || {
+            crash_target_node(target_fail_node_id, fail_triggered_clone.clone());
+        });
+
+        tokio::time::sleep(Duration::from_secs(150)).await;
+
+        // Verify node is healthy
+        let node_health = get_node_health_info(&walrus_cluster.nodes[5])
+            .await
+            .expect("Node health check should succeed after restart");
+        assert_eq!(node_health.node_status, "Active");
+
+        // Verify node is in committee
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .expect("Should get committees");
+
+        assert!(committees
+            .current_committee()
+            .find(&walrus_cluster.nodes[5].public_key)
+            .is_some());
+
+        // Verify protocol key was updated in staking pool
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Should get staking pool");
+
+        assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
     }
 }
