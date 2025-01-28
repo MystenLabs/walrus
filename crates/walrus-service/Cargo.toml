@@ -30,7 +30,7 @@ required-features = ["backup"]
 backup = [
   "dep:async-channel",
   "dep:diesel",
-  "dep:diesel-async"
+  "dep:diesel-async",
 ]
 client = [
   "dep:colored",
@@ -59,7 +59,7 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
-async-channel = {workspace = true, optional = true}
+async-channel = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 axum = { workspace = true, features = [
   "http1",

@@ -425,6 +425,8 @@ async fn backup_fetcher_core(
 pub mod defaults {
     use std::net::{Ipv4Addr, SocketAddr};
 
+    use super::WORKER_COUNT;
+
     /// Default backup node metrics port.
     pub const METRICS_PORT: u16 = 10184;
 
@@ -441,7 +443,7 @@ pub mod defaults {
     }
     /// Default backup work item queue size.
     pub fn message_queue_size() -> u32 {
-        WORKER_COUNT
+        WORKER_COUNT.try_into().expect("WORKER_COUNT overflow")
     }
     /// Default backup max_fetch_attempts_per_blob.
     pub fn max_fetch_attempts_per_blob() -> u32 {

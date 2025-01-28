@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
@@ -30,8 +33,4 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(
-    blob_state,
-    epoch_change_start_event,
-    stream_event,
-);
+diesel::allow_tables_to_appear_in_same_query!(blob_state, epoch_change_start_event, stream_event,);

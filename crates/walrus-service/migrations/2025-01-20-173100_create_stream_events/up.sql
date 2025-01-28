@@ -34,7 +34,7 @@ CREATE TABLE blob_state (
     PRIMARY KEY (blob_id),
     CONSTRAINT valid_blob_state
     CHECK (
-           (state = 'archived'
+        (state = 'archived'
             AND initiate_fetch_after IS NULL
             AND backup_url IS NOT NULL
             AND fetch_attempts IS NULL)
