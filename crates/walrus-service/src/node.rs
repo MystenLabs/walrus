@@ -504,6 +504,11 @@ pub struct NodeParameters {
 /// If the current node is not registered yet, error out.
 /// If the wallet is not present in the config, do nothing.
 async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
+    tracing::info!(
+        "Syncing node params cureent: {:?} \nnext: {:?}",
+        config.protocol_key_pair,
+        config.next_protocol_key_pair
+    );
     let Some(ref node_wallet_config) = config.sui else {
         // Not failing here, since the wallet may be absent in tests.
         // In production, an absence of the wallet will fail the node eventually.

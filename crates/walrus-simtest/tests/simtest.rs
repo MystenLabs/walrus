@@ -15,7 +15,7 @@ mod tests {
     use sui_macros::{register_fail_point_async, register_fail_points};
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
-    use tokio::{task::JoinHandle, time::Instant};
+    use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
     use walrus_core::encoding::{Primary, Secondary};
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
@@ -776,7 +776,9 @@ mod tests {
 
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
-                walrus_cluster.nodes[5].storage_node_config.clone(),
+                Arc::new(RwLock::new(
+                    walrus_cluster.nodes[5].storage_node_config.clone(),
+                )),
                 None,
                 walrus_cluster.nodes[5].cancel_token.clone(),
             )
@@ -957,7 +959,9 @@ mod tests {
 
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
-                walrus_cluster.nodes[5].storage_node_config.clone(),
+                Arc::new(RwLock::new(
+                    walrus_cluster.nodes[5].storage_node_config.clone(),
+                )),
                 None,
                 walrus_cluster.nodes[5].cancel_token.clone(),
             )
@@ -1095,9 +1099,23 @@ mod tests {
         // Update the node's public key to match the new protocol key pair
         walrus_cluster.nodes[5].public_key = new_protocol_key_pair.public().clone();
 
+        let config = Arc::new(RwLock::new(
+            walrus_cluster.nodes[5].storage_node_config.clone(),
+        ));
+        // Trace the protocol key and next protocol key before spawning the node
+        tracing::info!(
+            "Current protocol key: {:?}, Next protocol key: {:?}",
+            config.read().await.protocol_key_pair().public(),
+            config
+                .read()
+                .await
+                .next_protocol_key_pair()
+                .as_ref()
+                .map(|kp| kp.public())
+        );
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
-                walrus_cluster.nodes[5].storage_node_config.clone(),
+                config.clone(),
                 None,
                 walrus_cluster.nodes[5].cancel_token.clone(),
             )
@@ -1140,5 +1158,8 @@ mod tests {
             .expect("Failed to get staking pool");
 
         assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
+        // assert_eq!(config.read().await.protocol_key_pair(), new_protocol_key_pair.into());
+        let public_key = config.read().await.protocol_key_pair().public().clone();
+        assert_eq!(&public_key, new_protocol_key_pair.public());
     }
 }

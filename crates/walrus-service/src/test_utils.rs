@@ -25,6 +25,8 @@ use prometheus::Registry;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
+#[cfg(msim)]
+use tokio::sync::RwLock;
 use tokio::{task::JoinHandle, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
@@ -67,6 +69,8 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
 use super::StorageNodeError;
+#[cfg(msim)]
+use crate::common::config::SuiConfig;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
@@ -281,14 +285,14 @@ impl SimStorageNodeHandle {
     /// Starts and runs a storage node with the provided configuration in a dedicated simulator
     /// node.
     pub async fn spawn_node(
-        config: StorageNodeConfig,
+        config: Arc<RwLock<StorageNodeConfig>>, // Changed to Arc
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
 
         // Extract the IP address from the configuration.
-        let ip = match config.rest_api_address {
+        let ip = match config.read().await.rest_api_address {
             SocketAddr::V4(v4) => std::net::IpAddr::V4(*v4.ip()),
             _ => panic!("unsupported protocol"),
         };
@@ -303,6 +307,8 @@ impl SimStorageNodeHandle {
             .name(&format!(
                 "{:?}",
                 config
+                    .read()
+                    .await
                     .protocol_key_pair
                     .get()
                     .expect("config must contain protocol key pair")
@@ -311,17 +317,14 @@ impl SimStorageNodeHandle {
             .init(move || {
                 tracing::info!(?ip, "starting simulator node");
 
-                let mut config = config.clone();
+                let mut config = config.clone(); // Clone the Arc, not the config itself
                 let cancel_token = cancel_token.clone();
                 let startup_sender = startup_sender.clone();
 
                 async move {
-
-                loop {
-                    let config_clone = config.clone();
                     let (rest_api_handle, node_handle, event_processor_handle) =
                         Self::build_and_run_node(
-                            config_clone,
+                            config.clone(),
                             num_checkpoints_per_blob,
                             cancel_token.clone(),
                         )
@@ -333,7 +336,6 @@ impl SimStorageNodeHandle {
                     tokio::select! {
                         _ = rest_api_handle => {
                             tracing::info!("REST API stopped");
-                            break;
                         }
                         result = node_handle => {
                             match result {
@@ -344,34 +346,25 @@ impl SimStorageNodeHandle {
                                             e, StorageNodeError::ProtocolKeyPairRotationRequired),
                                     ) =>
                                 {
-                                    tracing::info!(
-                                        "Protocol key pair rotation required, retrying"
-                                    );
-                                    config.rotate_protocol_key_pair();
-                                    continue;
-                                    // Handle rotation required case
-
+                                    let mut config_guard = config.write().await;
+                                    config_guard.rotate_protocol_key_pair();
+                                    sui_simulator::task::kill_current_node(
+                                        Some(Duration::from_secs(10)));
                                 }
                                 _ => {
                                     tracing::info!("node stopped");
-                                    break;
                                 }
                             }
                         }
                         _ = event_processor_handle => {
                             tracing::info!("event processor stopped");
-                            break;
                         }
                         _ = cancel_token.cancelled() => {
                             tracing::info!("node stopped by cancellation");
-                            break;
                         }
                     }
-
+                    tracing::info!("node stopped");
                 }
-
-                tracing::info!("node stopped");
-            }
             })
             .build();
 
@@ -387,7 +380,7 @@ impl SimStorageNodeHandle {
     /// Builds and runs a storage node with the provided configuration. Returns the handles to the
     /// REST API, the node, and the event processor.
     async fn build_and_run_node(
-        config: StorageNodeConfig,
+        config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
@@ -397,6 +390,8 @@ impl SimStorageNodeHandle {
     )> {
         // TODO(#996): extract the common code to start the code, and use it here as well as in
         // StorageNodeRuntime::start.
+        let config_guard = config.read().await;
+        let config = config_guard.clone();
 
         let metrics_registry = Registry::default();
 
@@ -926,11 +921,12 @@ impl StorageNodeHandleBuilder {
         };
 
         let cancel_token = CancellationToken::new();
+        let config = Arc::new(RwLock::new(storage_node_config.clone()));
 
         let node_id = if start_node {
             Some(
                 SimStorageNodeHandle::spawn_node(
-                    storage_node_config.clone(),
+                    config.clone(),
                     num_checkpoints_per_blob,
                     cancel_token.clone(),
                 )
