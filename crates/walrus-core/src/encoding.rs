@@ -58,6 +58,7 @@ pub use symbols::{
     RecoverySymbolPair,
     SecondaryRecoverySymbol,
     Symbols,
+    EitherDecodingSymbol,
 };
 
 mod utils;

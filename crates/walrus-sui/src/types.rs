@@ -10,6 +10,7 @@ use std::{
     num::{NonZeroU16, ParseIntError},
 };
 
+use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
 mod events;
@@ -360,11 +361,9 @@ impl Committee {
             .any(|node| node.public_key == *public_key)
     }
 
-    /// Returns the node with the specified public key, if any.
-    pub fn find(&self, public_key: &PublicKey) -> Option<&StorageNode> {
-        self.members
-            .iter()
-            .find(|node| node.public_key == *public_key)
+    /// Returns the node with the specified node ID, if any.
+    pub fn find(&self, node_id: &ObjectID) -> Option<&StorageNode> {
+        self.members.iter().find(|node| node.node_id == *node_id)
     }
 
     /// Returns the node response for the specified shard.

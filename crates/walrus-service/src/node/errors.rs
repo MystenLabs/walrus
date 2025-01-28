@@ -211,6 +211,20 @@ pub enum RetrieveSymbolError {
 
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
+pub enum ListSymbolsError {
+    #[error("at least one symbol ID must be specified")]
+    #[rest_api_error(
+        reason = "NO_SYMBOLS_SPECIFIED", status = ApiStatusCode::FailedPrecondition,
+    )]
+    NoSymbolsSpecified,
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Last(#[from] RetrieveSymbolError),
+}
+
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum StoreSliverError {
     /// The index of the identified sliver is out of range for the system.
     #[error("the requested sliver index is out of range: {0}")]

@@ -347,6 +347,10 @@ where
                 get(routes::get_recovery_symbol_by_id),
             )
             .route(
+                routes::RECOVERY_SYMBOL_LIST_ENDPOINT,
+                get(routes::list_recovery_symbols),
+            )
+            .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
                 post(routes::inconsistency_proof),
             )
@@ -432,7 +436,7 @@ mod tests {
             ShardStatusSummary,
             StoredOnNodeStatus,
         },
-        client::{Client, ClientBuilder},
+        client::{Client, ClientBuilder, RecoverySymbolsFilter},
     };
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
@@ -441,6 +445,7 @@ mod tests {
     use crate::{
         node::{
             config::{StorageNodeConfig, TlsCertificateAndKey},
+            errors::ListSymbolsError,
             BlobStatusError,
             ComputeStorageConfirmationError,
             InconsistencyProofError,
@@ -535,6 +540,17 @@ mod tests {
             } else {
                 Err(RetrieveSliverError::Unavailable.into())
             }
+        }
+
+        fn retrieve_multiple_recovery_symbols(
+            &self,
+            blob_id: &BlobId,
+            _filter: RecoverySymbolsFilter,
+        ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+            let symbol = self
+                .retrieve_recovery_symbol(blob_id, SymbolId::new(0.into(), 0.into()), None)
+                .unwrap();
+            Ok(vec![symbol.clone(), symbol])
         }
 
         /// Successful only for the pair index 0, otherwise, returns an internal error.
@@ -1010,7 +1026,7 @@ mod tests {
         let intersecting_pair_index = SliverPairIndex(0);
 
         let _symbol = client
-            .get_recovery_symbol::<Primary>(
+            .get_recovery_symbol_legacy::<Primary>(
                 &blob_id,
                 sliver_pair_at_remote,
                 intersecting_pair_index,
@@ -1027,7 +1043,7 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(1); // Triggers a not found response
         let blob_id = walrus_core::test_utils::random_blob_id();
         let Err(err) = client
-            .get_recovery_symbol::<Primary>(&blob_id, sliver_pair_id, SliverPairIndex(0))
+            .get_recovery_symbol_legacy::<Primary>(&blob_id, sliver_pair_id, SliverPairIndex(0))
             .await
         else {
             panic!("must return an error for pair-id 1");
@@ -1197,5 +1213,30 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    async_param_test! {
+        list_recovery_symbols: [
+            one_id: (RecoverySymbolsFilter::ids(vec![SymbolId::new(1.into(), 2.into())], SliverType::Primary)),
+            multiple_ids: (RecoverySymbolsFilter::ids(vec![
+                    SymbolId::new(1.into(), 2.into()),
+                    SymbolId::new(3.into(), 4.into())
+            ], SliverType::Secondary)),
+            for_sliver: (RecoverySymbolsFilter::ForSliver {
+                target: 17.into(),
+                target_type: SliverType::Primary
+            })
+        ]
+    }
+    async fn list_recovery_symbols(filter: RecoverySymbolsFilter) {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        let symbols = client
+            .list_recovery_symbols(&blob_id, filter)
+            .await
+            .expect("request should succeed");
+        assert!(symbols.len() >= 2);
     }
 }

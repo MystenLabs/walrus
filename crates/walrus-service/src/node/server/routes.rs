@@ -5,13 +5,16 @@ use std::{num::NonZeroU16, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
+use axum_extra::extract::Query as ExtraQuery;
+use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr, OneOrMany};
 use sui_types::base_types::ObjectID;
 use tracing::Level;
 use walrus_core::{
-    encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
+    encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{
         BlobPersistenceType,
         InvalidBlobIdAttestation,
@@ -24,11 +27,15 @@ use walrus_core::{
     InconsistencyProof,
     RecoverySymbol,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
     SymbolId,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
+use walrus_sdk::{
+    api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
+    client::RecoverySymbolsFilter,
+};
 use walrus_sui::ObjectIdSchema;
 
 use super::{
@@ -39,7 +46,7 @@ use super::{
 use crate::{
     common::api::{ApiSuccess, BlobIdString},
     node::{
-        errors::IndexOutOfRange,
+        errors::{IndexOutOfRange, ListSymbolsError},
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -74,6 +81,8 @@ pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}";
 /// The path to get recovery symbols.
 pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
+/// The path to get multiple recovery symbols.
+pub const RECOVERY_SYMBOL_LIST_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
@@ -428,10 +437,19 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
         .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))?
         .into();
 
-    match symbol {
-        RecoverySymbol::Primary(inner) => Ok(Bcs(inner).into_response()),
-        RecoverySymbol::Secondary(inner) => Ok(Bcs(inner).into_response()),
-    }
+    let mut response = match symbol {
+        RecoverySymbol::Primary(inner) => Bcs(inner).into_response(),
+        RecoverySymbol::Secondary(inner) => Bcs(inner).into_response(),
+    };
+
+    // TODO(jsmith): Remove along with this endpoint.
+    // We use this header at the client to detect support for the the new recovery symbol endpoint,
+    // without needing to try querying it and failing, nor using using config parameters.
+    let _ = response
+        .headers_mut()
+        .insert("Deprecation", HeaderValue::from_static("@1739491200"));
+
+    Ok(response)
 }
 
 fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), IndexOutOfRange> {
@@ -446,6 +464,7 @@ fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), Index
 }
 
 /// Get a recovery symbol by its ID.
+// TODO(jsmith): Query params
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.recovery.symbol_id = %symbol_id
@@ -467,6 +486,76 @@ pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
     let symbol = state.retrieve_recovery_symbol(&blob_id.0, symbol_id, None)?;
 
     Ok(Bcs(symbol).into_response())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListRecoverySymbolsQuery {
+    #[serde(flatten)]
+    filter: ListRecoverySymbolsFilter,
+}
+
+// TODO(jsmith): Add open-api documentation
+#[serde_as]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ListRecoverySymbolsFilter {
+    /// Limit the results to the specified symbols.
+    #[serde(untagged, rename_all = "camelCase")]
+    Id {
+        #[serde_as(as = "OneOrMany<_>")]
+        id: Vec<SymbolId>,
+        /// The type of the sliver being recovered.
+        target_type: SliverType,
+    },
+
+    /// Return all available symbols that can be used to recover the specified sliver.
+    #[serde(untagged, rename_all = "camelCase")]
+    ForSliver {
+        /// The ID of the target sliver being recovered.
+        #[serde_as(as = "DisplayFromStr")]
+        target: SliverIndex,
+        /// The type of the sliver being recovered.
+        target_type: SliverType,
+    },
+}
+
+/// Get multiple recovery symbols.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
+#[utoipa::path(
+    get,
+    path = RECOVERY_SYMBOL_LIST_ENDPOINT,
+    params(("blob_id" = BlobId,),),
+    responses(
+        (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
+        ListSymbolsError,
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn list_recovery_symbols<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
+) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
+    let filter = match query.filter {
+        ListRecoverySymbolsFilter::Id {
+            id: mut symbol_ids,
+            target_type,
+        } => {
+            symbol_ids.sort_unstable();
+            symbol_ids.dedup();
+
+            RecoverySymbolsFilter::ids(symbol_ids, target_type)
+        }
+        ListRecoverySymbolsFilter::ForSliver {
+            target,
+            target_type,
+        } => RecoverySymbolsFilter::for_sliver(target, target_type),
+    };
+
+    let symbols = state.retrieve_multiple_recovery_symbols(&blob_id, filter)?;
+
+    Ok(Bcs(symbols))
 }
 
 /// Verify blob inconsistency.

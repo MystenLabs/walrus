@@ -341,6 +341,14 @@ impl PartialEq<NonZeroU16> for SliverIndex {
     }
 }
 
+impl FromStr for SliverIndex {
+    type Err = <u16 as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(SliverIndex(s.parse()?))
+    }
+}
+
 impl SliverPairIndex {
     /// Computes the index of the [`Sliver`] of the corresponding axis starting from the index of
     /// the [`SliverPair`][encoding::SliverPair].
@@ -611,7 +619,7 @@ impl Display for SliverType {
 // Symbols.
 
 /// Identifier of a decoding symbol within the set of decoding symbols of a blob.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolId {
     primary: SliverIndex,
     secondary: SliverIndex,
@@ -631,6 +639,14 @@ impl SymbolId {
     /// The index of the secondary sliver containing the symbol.
     pub fn secondary_sliver_index(&self) -> SliverIndex {
         self.secondary
+    }
+
+    /// Returns the index component of the sliver identified by `sliver_type`.
+    pub fn sliver_index(&self, sliver_type: SliverType) -> SliverIndex {
+        match sliver_type {
+            SliverType::Primary => self.primary,
+            SliverType::Secondary => self.secondary,
+        }
     }
 }
 

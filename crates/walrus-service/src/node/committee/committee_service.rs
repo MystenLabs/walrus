@@ -35,7 +35,12 @@ use walrus_sui::types::Committee;
 
 use super::{
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
-    request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
+    request_futures::{
+        GetAndVerifyMetadata,
+        GetInvalidBlobCertificate,
+        LegacyRecoverSliver,
+        RecoverSliver,
+    },
     BeginCommitteeChangeError,
     CommitteeLookupService,
     CommitteeService,
@@ -57,6 +62,8 @@ use crate::{
         metrics::CommitteeServiceMetricSet,
     },
 };
+
+const USE_BATCHED_RECOVERY: bool = true;
 
 pub(crate) struct NodeCommitteeServiceBuilder<T> {
     service_factory: Box<dyn NodeServiceFactory<Service = T>>,
@@ -509,15 +516,27 @@ where
         sliver_type: SliverType,
         certified_epoch: Epoch,
     ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
-        RecoverSliver::new(
-            metadata,
-            sliver_id,
-            sliver_type,
-            certified_epoch,
-            &self.inner,
-        )
-        .run()
-        .await
+        if USE_BATCHED_RECOVERY {
+            RecoverSliver::new(
+                metadata,
+                sliver_id,
+                sliver_type,
+                certified_epoch,
+                &self.inner,
+            )
+            .run()
+            .await
+        } else {
+            LegacyRecoverSliver::new(
+                metadata,
+                sliver_id,
+                sliver_type,
+                certified_epoch,
+                &self.inner,
+            )
+            .run()
+            .await
+        }
     }
 
     #[tracing::instrument(name = "get_invalid_blob_certificate committee", skip_all)]

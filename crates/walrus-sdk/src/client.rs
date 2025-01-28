@@ -19,12 +19,20 @@ use reqwest::{
 };
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{de::DeserializeOwned, ser::SerializeMap as _, Serialize};
 use sui_types::base_types::ObjectID;
 use tracing::{field, Instrument as _, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, RecoverySymbol, Secondary, SliverData},
+    encoding::{
+        EncodingAxis,
+        EncodingConfig,
+        GeneralRecoverySymbol,
+        Primary,
+        RecoverySymbol,
+        Secondary,
+        SliverData,
+    },
     inconsistency::InconsistencyProof,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -45,8 +53,10 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
+    SymbolId,
 };
 
 use crate::{
@@ -64,8 +74,10 @@ const SLIVER_STATUS_TEMPLATE: &str =
 const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confirmation/permanent";
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
-const RECOVERY_URL_TEMPLATE: &str =
+const LEGACY_RECOVERY_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type/:target_pair_index";
+const RECOVERY_SYMBOL_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols/:symbol_id";
+const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
@@ -174,7 +186,7 @@ impl UrlEndpoints {
         )
     }
 
-    fn recovery_symbol<A: EncodingAxis>(
+    fn legacy_recovery_symbol<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver_pair_at_remote: SliverPairIndex,
@@ -186,7 +198,21 @@ impl UrlEndpoints {
                 sliver_pair_at_remote,
                 Some(&intersecting_pair_index.0.to_string()),
             ),
-            RECOVERY_URL_TEMPLATE,
+            LEGACY_RECOVERY_URL_TEMPLATE,
+        )
+    }
+
+    fn recovery_symbol(&self, blob_id: &BlobId, symbol_id: SymbolId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id, &format!("recoverySymbols/{}", symbol_id)),
+            RECOVERY_SYMBOL_URL_TEMPLATE,
+        )
+    }
+
+    fn list_recovery_symbols(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id, "recoverySymbols"),
+            LIST_RECOVERY_SYMBOLS_URL_TEMPLATE,
         )
     }
 
@@ -211,6 +237,80 @@ impl UrlEndpoints {
                 .expect("this is a valid URL"),
             SYNC_SHARD_TEMPLATE,
         )
+    }
+}
+
+/// Filter for [`Client::list_recovery_symbols()`] endpoint.
+#[derive(Debug, Clone)]
+pub enum RecoverySymbolsFilter {
+    /// Limit the results to the specified symbols.
+    Id {
+        /// The identified symbols.
+        id: Vec<SymbolId>,
+        /// The type of the sliver being recovered.
+        target_type: SliverType,
+    },
+    /// Return all available symbols that can be used to recover the specified sliver.
+    ForSliver {
+        /// The ID of the target sliver being recovered.
+        target: SliverIndex,
+        /// The type of the sliver being recovered.
+        target_type: SliverType,
+    },
+}
+
+impl RecoverySymbolsFilter {
+    /// Returns a new filter for the identified list of symbols.
+    pub fn ids(ids: Vec<SymbolId>, target_type: SliverType) -> Self {
+        Self::Id {
+            id: ids,
+            target_type,
+        }
+    }
+
+    /// Returns a new filter that filters to all held symbols for the identified sliver.
+    pub fn for_sliver(target: SliverIndex, target_type: SliverType) -> Self {
+        Self::ForSliver {
+            target,
+            target_type,
+        }
+    }
+
+    fn target_type(&self) -> SliverType {
+        match self {
+            RecoverySymbolsFilter::Id { target_type, .. } => *target_type,
+            RecoverySymbolsFilter::ForSliver { target_type, .. } => *target_type,
+        }
+    }
+}
+
+impl Serialize for RecoverySymbolsFilter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            RecoverySymbolsFilter::Id {
+                id: symbol_ids,
+                target_type,
+            } => {
+                let mut map = serializer.serialize_map(Some(1 + symbol_ids.len()))?;
+                map.serialize_entry("targetType", target_type)?;
+                for id in symbol_ids {
+                    map.serialize_entry("id", id)?;
+                }
+                map.end()
+            }
+            RecoverySymbolsFilter::ForSliver {
+                target,
+                target_type,
+            } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("target", target)?;
+                map.serialize_entry("targetType", target_type)?;
+                map.end()
+            }
+        }
     }
 }
 
@@ -608,17 +708,107 @@ impl Client {
         ),
         err(level = Level::DEBUG)
     )]
-    pub async fn get_recovery_symbol<A: EncodingAxis>(
+    pub async fn get_recovery_symbol_legacy<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         remote_sliver_pair: SliverPairIndex,
         local_sliver_pair: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
-        let (url, template) =
-            self.endpoints
-                .recovery_symbol::<A>(blob_id, remote_sliver_pair, local_sliver_pair);
+        let (url, template) = self.endpoints.legacy_recovery_symbol::<A>(
+            blob_id,
+            remote_sliver_pair,
+            local_sliver_pair,
+        );
         self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
             .await
+    }
+
+    /// Gets a recovery symbol that can be used to recover a sliver.
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.blob_id = %blob_id, walrus.recovery.symbol_id = %symbol_id),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn get_recovery_symbol(
+        &self,
+        blob_id: &BlobId,
+        symbol_id: SymbolId,
+    ) -> Result<GeneralRecoverySymbol, NodeError> {
+        let (url, template) = self.endpoints.recovery_symbol(blob_id, symbol_id);
+        self.send_and_parse_bcs_response(Request::new(Method::GET, url), template)
+            .await
+    }
+
+    /// Gets multiple recovery symbols.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn list_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
+        let (url, template) = self.endpoints.list_recovery_symbols(blob_id);
+        let request = self
+            .inner
+            .get(url)
+            .query(&filter)
+            .build()
+            .expect("creating a URL from typed arguments should always succeed");
+        self.send_and_parse_bcs_response(request, template).await
+    }
+
+    /// Gets and verifies multiple recovery symbols.
+    #[tracing::instrument(
+        skip_all, fields(walrus.blob_id = %metadata.blob_id(),), err(level = Level::DEBUG)
+    )]
+    pub async fn list_and_verify_recovery_symbols(
+        &self,
+        filter: RecoverySymbolsFilter,
+        metadata: &VerifiedBlobMetadataWithId,
+        encoding_config: &EncodingConfig,
+        target_index: SliverIndex,
+        target_type: SliverType,
+    ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
+        #[derive(Debug, thiserror::Error)]
+        #[error("the server returned an empty list of symbols")]
+        struct EmptyResponse;
+
+        let filter_target_type = filter.target_type();
+        let mut symbols = self
+            .list_recovery_symbols(metadata.blob_id(), filter)
+            .await?;
+        let mut final_error = NodeError::other(EmptyResponse);
+
+        symbols.retain(|symbol| {
+            if symbol.proof_axis() == filter_target_type {
+                tracing::debug!("server returned a symbol with an unrequested proof axis");
+                return false;
+            }
+
+            if let Err(error) = symbol.verify(
+                metadata.metadata(),
+                encoding_config,
+                target_index,
+                target_type,
+            ) {
+                tracing::debug!(?error, "recovery symbol verification failed");
+                final_error = NodeError::other(error);
+                return false;
+            }
+
+            return true;
+        });
+
+        if symbols.is_empty() {
+            Err(final_error)
+        } else {
+            Ok(symbols)
+        }
     }
 
     /// Gets the recovery symbol for a primary or secondary sliver.
@@ -642,7 +832,11 @@ impl Client {
         local_sliver_pair: SliverPairIndex,
     ) -> Result<RecoverySymbol<A, MerkleProof>, NodeError> {
         let symbol = self
-            .get_recovery_symbol::<A>(metadata.blob_id(), remote_sliver_pair, local_sliver_pair)
+            .get_recovery_symbol_legacy::<A>(
+                metadata.blob_id(),
+                remote_sliver_pair,
+                local_sliver_pair,
+            )
             .await?;
 
         symbol
@@ -954,7 +1148,7 @@ impl Injector for HeaderInjector<'_> {
 #[cfg(test)]
 mod tests {
     use walrus_core::{encoding::Primary, test_utils, SuiObjectId};
-    use walrus_test_utils::param_test;
+    use walrus_test_utils::{param_test, Result as TestResult};
 
     use super::*;
 
@@ -980,7 +1174,7 @@ mod tests {
             ),
             sliver: (|e| e.sliver::<Primary>(&BLOB_ID, SliverPairIndex(1)).0, "slivers/1/primary"),
             recovery_symbol: (
-                |e| e.recovery_symbol::<Primary>(
+                |e| e.legacy_recovery_symbol::<Primary>(
                     &BLOB_ID, SliverPairIndex(1), SliverPairIndex(2)
                 ).0,
                 "slivers/1/primary/2"
@@ -1020,5 +1214,45 @@ mod tests {
         let (url, _) = endpoints.sync_shard();
 
         assert_eq!(url.to_string(), "https://node.com/v1/migrate/sync_shard");
+    }
+
+    param_test! {
+        recovery_symbols_filter_to_query -> TestResult: [
+            id_single: (
+                RecoverySymbolsFilter::ids(
+                    vec![SymbolId::new(1.into(), 2.into())],
+                    SliverType::Primary
+                ),
+                "targetType=primary&id=1-2"
+            ),
+            id_multiple: (
+                RecoverySymbolsFilter::ids(
+                    vec![SymbolId::new(1.into(), 2.into()), SymbolId::new(3.into(), 4.into())],
+                    SliverType::Secondary
+                ),
+                "targetType=secondary&id=1-2&id=3-4"
+            ),
+            all: (
+                RecoverySymbolsFilter::ForSliver{
+                    target: SliverIndex(72), target_type: SliverType::Primary
+                },
+                "target=72&targetType=primary"
+            )
+        ]
+    }
+    fn recovery_symbols_filter_to_query(
+        filter: RecoverySymbolsFilter,
+        expected_query: &str,
+    ) -> TestResult {
+        let request = reqwest::Client::new()
+            .get("https://node.com")
+            .query(&filter)
+            .build()?;
+
+        assert_eq!(
+            request.url().query().expect("query should be present"),
+            expected_query
+        );
+        Ok(())
     }
 }
