@@ -10,7 +10,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
 use serde::Deserialize;
@@ -18,7 +18,8 @@ use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
 use walrus_core::{encoding::EncodingConfig, ensure, BlobId, Epoch, EpochCount};
 use walrus_sui::{
-    client::{ExpirySelectionPolicy, SuiContractClient},
+    client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
+    types::StorageNode,
     utils::SuiNetwork,
 };
 
@@ -267,8 +268,9 @@ pub enum CliCommands {
         #[command(subcommand)]
         command: Option<InfoCommands>,
     },
-    /// Print health information for the storage node.
-    /// Only one of `--node_id`, `--node_url`, `--committee`, or `--active_set` can be specified.
+    /// Print health information for one or multiple storage nodes.
+    ///
+    /// Only one of `--node_ids`, `--node_urls`, `--committee`, and `--active_set` can be specified.
     Health {
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
@@ -854,14 +856,14 @@ impl BurnSelection {
 #[serde(rename_all = "camelCase")]
 #[group(required = true, multiple = false)]
 pub struct NodeSelection {
-    /// The ID of the storage node to be selected.
-    #[clap(long)]
+    /// The IDs of the storage nodes to be selected.
+    #[clap(long, alias="node-id", num_args=1..)]
     #[serde(default)]
-    pub node_id: Option<ObjectID>,
-    /// The URL of the storage node to be selected.
-    #[clap(long)]
+    pub node_ids: Vec<ObjectID>,
+    /// The URLs of the storage nodes to be selected.
+    #[clap(long, alias="node-url", num_args=1..)]
     #[serde(default)]
-    pub node_url: Option<String>,
+    pub node_urls: Vec<String>,
     /// Select all storage nodes in the current committee.
     #[clap(long, action)]
     #[serde(default)]
@@ -870,6 +872,61 @@ pub struct NodeSelection {
     #[clap(long, action)]
     #[serde(default)]
     pub active_set: bool,
+}
+
+impl NodeSelection {
+    /// Checks that exactly one of the node selection options is set and returns an error otherwise.
+    pub(crate) fn exactly_one_is_set(&self) -> Result<()> {
+        match (
+            !self.node_ids.is_empty(),
+            !self.node_urls.is_empty(),
+            self.committee,
+            self.active_set,
+        ) {
+            (true, false, false, false)
+            | (false, true, false, false)
+            | (false, false, true, false)
+            | (false, false, false, true) => Ok(()),
+            _ => Err(anyhow!(
+                "exactly one of `nodeId`, `nodeUrl`, `committee`, or `activeSet` must be specified"
+            )),
+        }
+    }
+
+    /// Returns the list of storage nodes to be queried.
+    pub(crate) async fn get_nodes(
+        &self,
+        sui_read_client: &impl ReadClient,
+    ) -> Result<Vec<StorageNode>> {
+        match self {
+            Self { node_ids, .. } if !node_ids.is_empty() => {
+                sui_read_client.get_storage_nodes_by_ids(node_ids).await
+            }
+            Self { node_urls, .. } if !node_urls.is_empty() => {
+                let active_set = sui_read_client.get_storage_nodes_from_active_set().await?;
+                node_urls
+                    .iter()
+                    .map(|node_url| {
+                        active_set
+                            .iter()
+                            .find(|node| &node.network_address.0 == node_url)
+                            .cloned()
+                            .context(format!(
+                                "node URL {node_url} not found in active set; \
+                                try to query it by node ID"
+                            ))
+                    })
+                    .collect::<Result<Vec<_>>>()
+            }
+            Self {
+                committee: true, ..
+            } => Ok(sui_read_client.get_storage_nodes_from_committee().await?),
+            Self {
+                active_set: true, ..
+            } => sui_read_client.get_storage_nodes_from_active_set().await,
+            _ => unreachable!("we checked that exactly one of the node selection options is set"),
+        }
+    }
 }
 
 /// The number of epochs to store the blob for.

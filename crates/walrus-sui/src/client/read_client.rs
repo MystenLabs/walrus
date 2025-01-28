@@ -160,18 +160,18 @@ pub trait ReadClient: Send + Sync {
     /// Returns the storage nodes in the active set.
     fn get_storage_nodes_from_active_set(
         &self,
-    ) -> impl Future<Output = SuiClientResult<Vec<StorageNode>>> + Send;
+    ) -> impl Future<Output = Result<Vec<StorageNode>>> + Send;
 
     /// Returns the storage nodes in the current committee.
     fn get_storage_nodes_from_committee(
         &self,
     ) -> impl Future<Output = SuiClientResult<Vec<StorageNode>>> + Send;
 
-    /// Returns the storage node with the given ID.
-    fn get_storage_node_by_id(
+    /// Returns the storage nodes with the given IDs.
+    fn get_storage_nodes_by_ids(
         &self,
-        node_id: ObjectID,
-    ) -> impl Future<Output = SuiClientResult<StorageNode>> + Send;
+        node_ids: &[ObjectID],
+    ) -> impl Future<Output = Result<Vec<StorageNode>>> + Send;
 
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
@@ -806,55 +806,25 @@ impl ReadClient for SuiReadClient {
         self.query_staking_for_committee(WhichCommittee::Next).await
     }
 
-    async fn get_storage_nodes_from_active_set(&self) -> SuiClientResult<Vec<StorageNode>> {
-        // Get node IDs from stake assignment
+    async fn get_storage_nodes_from_active_set(&self) -> Result<Vec<StorageNode>> {
         let node_ids: Vec<ObjectID> = self.stake_assignment().await?.keys().copied().collect();
-
-        // Fetch StakingPool objects in batches
-        let mut storage_nodes = Vec::new();
-        for node_id_batch in node_ids.chunks(MULTI_GET_OBJ_LIMIT) {
-            let pool_responses = self
-                .sui_client
-                .multi_get_object_with_options(
-                    node_id_batch.to_vec(),
-                    SuiObjectDataOptions::new().with_type().with_bcs(),
-                )
-                .await?;
-
-            // Extract StorageNode info from each StakingPool
-            for response in pool_responses {
-                if let Ok(pool) = get_sui_object_from_object_response::<StakingPool>(&response) {
-                    storage_nodes.push(pool.node_info);
-                } else {
-                    tracing::warn!(?response, "Failed to parse StakingPool object");
-                }
-            }
-        }
-
-        Ok(storage_nodes)
+        self.get_storage_nodes_by_ids(&node_ids).await
     }
 
     async fn get_storage_nodes_from_committee(&self) -> SuiClientResult<Vec<StorageNode>> {
         let committee = self.current_committee().await?;
-        let mut storage_nodes = Vec::new();
-        for node in committee.members() {
-            storage_nodes.push(node.clone());
-        }
-        Ok(storage_nodes)
+        Ok(committee.members().to_vec())
     }
 
-    async fn get_storage_node_by_id(&self, node_id: ObjectID) -> SuiClientResult<StorageNode> {
-        let pool_response = self
+    async fn get_storage_nodes_by_ids(&self, node_ids: &[ObjectID]) -> Result<Vec<StorageNode>> {
+        Ok(self
             .sui_client
-            .get_object_with_options(node_id, SuiObjectDataOptions::new().with_type().with_bcs())
-            .await?;
-
-        if let Ok(pool) = get_sui_object_from_object_response::<StakingPool>(&pool_response) {
-            Ok(pool.node_info)
-        } else {
-            tracing::warn!(?pool_response, "Failed to parse StakingPool object");
-            Err(SuiClientError::StorageNodeNotFound(node_id))
-        }
+            .get_sui_objects::<StakingPool>(node_ids)
+            .await
+            .context("one or multiple node IDs were not found")?
+            .into_iter()
+            .map(|pool| pool.node_info)
+            .collect())
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

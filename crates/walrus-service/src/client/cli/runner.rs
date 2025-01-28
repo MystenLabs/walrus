@@ -646,6 +646,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
     ) -> Result<()> {
+        node_selection.exactly_one_is_set()?;
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -654,9 +655,13 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        ServiceHealthInfoOutput::get_health_info(&sui_read_client, node_selection, detail)
-            .await?
-            .print_output(self.json)
+
+        ServiceHealthInfoOutput::new_for_nodes(
+            node_selection.get_nodes(&sui_read_client).await?,
+            detail,
+        )
+        .await?
+        .print_output(self.json)
     }
 
     pub(crate) async fn blob_id(

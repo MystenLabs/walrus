@@ -420,7 +420,7 @@ impl RetriableSuiClient {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub(crate) async fn get_sui_objects<U>(
         &self,
-        object_ids: Vec<ObjectID>,
+        object_ids: &[ObjectID],
     ) -> SuiClientResult<Vec<U>>
     where
         U: AssociatedContractStruct,

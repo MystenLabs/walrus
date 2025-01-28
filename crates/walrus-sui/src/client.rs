@@ -135,9 +135,6 @@ pub enum SuiClientError {
     /// The sender is not authorized to perform the action on the pool.
     #[error("the sender is not authorized to perform the action on the pool with node ID {0}")]
     NotAuthorizedForPool(ObjectID),
-    /// The storage node is not found.
-    #[error("the storage node {0} is not found")]
-    StorageNodeNotFound(ObjectID),
     /// Transaction execution was cancelled due to shared object congestion
     #[error("execution cancelled due to shared object congestion on objects {0:?}")]
     SharedObjectCongestion(Vec<ObjectID>),
@@ -848,7 +845,7 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(blob_obj_ids).await
+        self.sui_client().get_sui_objects(&blob_obj_ids).await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -894,7 +891,7 @@ impl SuiContractClientInner {
             expected_num_blobs
         );
 
-        self.sui_client().get_sui_objects(blob_obj_ids).await
+        self.sui_client().get_sui_objects(&blob_obj_ids).await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -966,7 +963,7 @@ impl SuiContractClientInner {
             // to shared blob object id.
             let shared_blobs = self
                 .sui_client()
-                .get_sui_objects::<SharedBlob>(object_ids)
+                .get_sui_objects::<SharedBlob>(&object_ids)
                 .await?;
             Ok(shared_blobs
                 .into_iter()
@@ -1106,7 +1103,7 @@ impl SuiContractClientInner {
             cap_ids.len(),
         );
 
-        self.sui_client().get_sui_objects(cap_ids).await
+        self.sui_client().get_sui_objects(&cap_ids).await
     }
 
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
@@ -1136,7 +1133,7 @@ impl SuiContractClientInner {
             count
         );
 
-        self.sui_client().get_sui_objects(staked_wal).await
+        self.sui_client().get_sui_objects(&staked_wal).await
     }
 
     /// Call to end voting and finalize the next epoch parameters.
@@ -1675,7 +1672,7 @@ impl ReadClient for SuiContractClient {
         self.read_client.next_committee().await
     }
 
-    async fn get_storage_nodes_from_active_set(&self) -> SuiClientResult<Vec<StorageNode>> {
+    async fn get_storage_nodes_from_active_set(&self) -> Result<Vec<StorageNode>> {
         self.read_client.get_storage_nodes_from_active_set().await
     }
 
@@ -1683,8 +1680,8 @@ impl ReadClient for SuiContractClient {
         self.read_client.get_storage_nodes_from_committee().await
     }
 
-    async fn get_storage_node_by_id(&self, node_id: ObjectID) -> SuiClientResult<StorageNode> {
-        self.read_client.get_storage_node_by_id(node_id).await
+    async fn get_storage_nodes_by_ids(&self, node_ids: &[ObjectID]) -> Result<Vec<StorageNode>> {
+        self.read_client.get_storage_nodes_by_ids(node_ids).await
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {
