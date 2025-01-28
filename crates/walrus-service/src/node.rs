@@ -259,6 +259,7 @@ pub struct StorageNodeBuilder {
     enable_config_monitor: bool,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for StorageNodeBuilder {
     fn default() -> Self {
         Self {
@@ -268,7 +269,10 @@ impl Default for StorageNodeBuilder {
             contract_service: None,
             num_checkpoints_per_blob: None,
             ignore_sync_failures: false,
+            #[cfg(not(test))]
             enable_config_monitor: true,
+            #[cfg(test)]
+            enable_config_monitor: false,
         }
     }
 }
@@ -277,6 +281,9 @@ impl StorageNodeBuilder {
     /// Creates a new builder.
     pub fn new() -> Self {
         Self {
+            #[cfg(test)]
+            enable_config_monitor: false,
+            #[cfg(not(test))]
             enable_config_monitor: true,
             ..Default::default()
         }
@@ -434,6 +441,7 @@ impl StorageNodeBuilder {
             ignore_sync_failures: self.ignore_sync_failures,
             enable_config_monitor: self.enable_config_monitor,
         };
+
         StorageNode::new(
             config,
             protocol_key_pair,
@@ -504,11 +512,6 @@ pub struct NodeParameters {
 /// If the current node is not registered yet, error out.
 /// If the wallet is not present in the config, do nothing.
 async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
-    tracing::info!(
-        "Syncing node params cureent: {:?} \nnext: {:?}",
-        config.protocol_key_pair,
-        config.next_protocol_key_pair
-    );
     let Some(ref node_wallet_config) = config.sui else {
         // Not failing here, since the wallet may be absent in tests.
         // In production, an absence of the wallet will fail the node eventually.
@@ -670,6 +673,24 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
+        tracing::info!(
+            "Creating StorageNode with config monitor enabled: {}",
+            node_params.enable_config_monitor
+        );
+        let config_monitor = if node_params.enable_config_monitor {
+            Arc::new(ConfigMonitor::new(
+                config.clone(),
+                contract_service.clone(),
+                config.config_monitor_interval,
+            ))
+        } else {
+            Arc::new(ConfigMonitor::disabled(
+                config.clone(),
+                contract_service.clone(),
+                config.config_monitor_interval,
+            ))
+        };
+
         sync_node_params(config).await.or_else(|e| {
             if matches!(
                 e.downcast_ref(),
@@ -751,24 +772,6 @@ impl StorageNode {
             )?)
         } else {
             None
-        };
-
-        tracing::info!(
-            "Creating StorageNode with config monitor enabled: {}",
-            node_params.enable_config_monitor
-        );
-        let config_monitor = if node_params.enable_config_monitor {
-            Arc::new(ConfigMonitor::new(
-                config.clone(),
-                contract_service.clone(),
-                config.config_monitor_interval,
-            ))
-        } else {
-            Arc::new(ConfigMonitor::disabled(
-                config.clone(),
-                contract_service.clone(),
-                config.config_monitor_interval,
-            ))
         };
 
         Ok(StorageNode {
@@ -1212,6 +1215,23 @@ impl StorageNode {
 
             return Ok(());
         }
+        tracing::info!(
+            walrus.blob_id = %event.blob_id,
+            walrus.node.status = ?self.inner.storage.node_status()?,
+            "processing blob certified event"
+        );
+
+        let public_key = self.inner.public_key();
+        let storage = &self.inner.storage;
+        let committees = self.inner.committee_service.active_committees();
+        let shard_diff =
+            ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
+        tracing::info!(
+        walrus.epoch = event.epoch,
+        ?shard_diff,
+        public_key = ?public_key,
+        "shard diff for node recovery"
+        );
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
@@ -1280,6 +1300,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        self.config_monitor.sync_node_params().await?;
         // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
@@ -1414,6 +1435,12 @@ impl StorageNode {
         // Create storage for shards that are currently owned by the node in the latest epoch.
         let shard_diff =
             ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
+        tracing::info!(
+            walrus.epoch = event.epoch,
+            ?shard_diff,
+            public_key = ?public_key,
+            "shard diff for node recovery"
+        );
         self.inner
             .create_storage_for_shards_in_background(shard_diff.gained)
             .await?;
@@ -1428,6 +1455,12 @@ impl StorageNode {
                 .set_active_status()?;
         }
 
+        tracing::info!(
+            walrus.epoch = event.epoch,
+            public_key = ?public_key,
+            walrus.node_status = "RecoveryInProgress",
+            "node status changed to RecoveryInProgress"
+        );
         // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
         // the node will be in a state where it has all the shards and blobs that it should have.
         self.node_recovery_handler

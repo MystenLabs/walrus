@@ -232,6 +232,7 @@ impl Storage {
         &self,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
+        tracing::info!("Creating storage for shards: {:?}", new_shards);
         let mut locked_map = self.shards.write().unwrap();
         for &shard_index in new_shards {
             match locked_map.entry(shard_index) {
@@ -259,6 +260,7 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
+        tracing::info!("Removing storage for shards: {:?}", removed);
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = {

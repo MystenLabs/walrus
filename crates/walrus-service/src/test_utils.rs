@@ -317,7 +317,7 @@ impl SimStorageNodeHandle {
             .init(move || {
                 tracing::info!(?ip, "starting simulator node");
 
-                let mut config = config.clone(); // Clone the Arc, not the config itself
+                let config = config.clone(); // Clone the Arc, not the config itself
                 let cancel_token = cancel_token.clone();
                 let startup_sender = startup_sender.clone();
 
@@ -347,6 +347,13 @@ impl SimStorageNodeHandle {
                                     ) =>
                                 {
                                     let mut config_guard = config.write().await;
+                                    tracing::info!(
+                                        protocol_key = ?config_guard.protocol_key_pair().public(),
+                                        next_protocol_key = ?config_guard
+                                            .next_protocol_key_pair()
+                                            .map(|kp| kp.public()),
+                                        "Rotating protocol key pair"
+                                    );
                                     config_guard.rotate_protocol_key_pair();
                                     sui_simulator::task::kill_current_node(
                                         Some(Duration::from_secs(10)));
@@ -1283,6 +1290,10 @@ pub struct StubContractService {
 
 #[async_trait]
 impl SystemContractService for StubContractService {
+    async fn sync_node_params(&self, _config: &StorageNodeConfig) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service does not sync node params")
+    }
+
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
 
     async fn epoch_sync_done(&self, _epoch: Epoch) {}
@@ -1884,6 +1895,10 @@ impl<T> SystemContractService for Arc<WithTempDir<T>>
 where
     T: SystemContractService,
 {
+    async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.sync_node_params(config).await
+    }
+
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
         self.as_ref().inner.end_voting().await
     }

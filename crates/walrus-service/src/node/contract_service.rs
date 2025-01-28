@@ -22,11 +22,17 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::move_structs::EpochState,
+    types::{move_structs::EpochState, NextPublicKeyAction, UpdatePublicKeyParams},
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::committee::CommitteeService;
+use super::{
+    calculate_protocol_key_action,
+    committee::CommitteeService,
+    config::StorageNodeConfig,
+    errors::StorageNodeError,
+    ProtocolKeyAction,
+};
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
@@ -36,6 +42,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(3600);
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait SystemContractService: std::fmt::Debug + Sync + Send {
+    /// Syncs the node parameters with the on-chain values.
+    async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), anyhow::Error>;
+
     /// Returns the current epoch and the state that the committee's state.
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
 
@@ -112,6 +121,94 @@ impl SuiSystemContractService {
 
 #[async_trait]
 impl SystemContractService for SuiSystemContractService {
+    async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), anyhow::Error> {
+        tracing::info!("Syncing node params");
+
+        let contract_client = self.contract_client.lock().await;
+        let address = contract_client.wallet().await.active_address()?;
+
+        let node_cap = contract_client
+            .read_client
+            .get_address_capability_object(address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+
+        let pool = contract_client
+            .read_client
+            .get_staking_pool(node_cap.node_id)
+            .await?;
+
+        let node_info = &pool.node_info;
+
+        let mut update_params = config.generate_update_params(
+            node_info.name.as_str(),
+            node_info.network_address.0.as_str(),
+            &node_info.network_public_key,
+            &pool.voting_params,
+        );
+
+        let action = calculate_protocol_key_action(
+            config.protocol_key_pair().public().clone(),
+            config
+                .next_protocol_key_pair()
+                .map(|kp| kp.public().clone()),
+            node_info.public_key.clone(),
+            node_info.next_epoch_public_key.clone(),
+        )?;
+        match action {
+            ProtocolKeyAction::UpdateRemoteNextPublicKey(next_public_key) => {
+                tracing::info!(
+                    "Going to update remote next public key to {:?}",
+                    next_public_key
+                );
+
+                update_params.next_public_key_action =
+                    Some(NextPublicKeyAction::Update(UpdatePublicKeyParams {
+                        next_public_key,
+                        proof_of_possession:
+                            walrus_sui::utils::generate_proof_of_possession_for_address(
+                                config.next_protocol_key_pair().unwrap(),
+                                address,
+                                contract_client.read_client.current_epoch().await?,
+                            ),
+                    }));
+            }
+            ProtocolKeyAction::ResetRemoteNextPublicKey => {
+                tracing::info!("Going to reset remote next public key");
+                update_params.next_public_key_action = Some(NextPublicKeyAction::Reset);
+            }
+            ProtocolKeyAction::RotateLocalKeyPair => {
+                tracing::info!("Going to rotate local key pair");
+                return Err(StorageNodeError::ProtocolKeyPairRotationRequired.into());
+            }
+            ProtocolKeyAction::DoNothing => {}
+        }
+
+        if update_params.needs_update() {
+            tracing::info!(
+                node_name = config.name,
+                node_id = ?node_info.node_id,
+                update_params = ?update_params,
+                "update node params"
+            );
+            contract_client
+                .update_node_params(update_params.clone())
+                .await?;
+            if update_params.needs_reboot() {
+                tracing::info!("Node needs reboot");
+                return Err(StorageNodeError::NodeNeedsReboot.into());
+            }
+        } else {
+            tracing::info!(
+                node_name = config.name,
+                node_id = ?node_info.node_id,
+                "node parameters are in sync with on-chain values"
+            );
+        }
+
+        Ok(())
+    }
+
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
         let client = self.contract_client.lock().await;
         let committees = client.get_committees_and_state().await?;
