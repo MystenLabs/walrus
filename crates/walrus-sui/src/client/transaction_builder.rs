@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeSet, HashSet},
     fmt::Debug,
     str::FromStr,
+    sync::Arc,
 };
 
 use fastcrypto::traits::ToFromBytes;
@@ -99,7 +100,7 @@ impl From<&ObjectID> for ArgumentOrOwnedObject {
 /// A PTB builder for Walrus transactions.
 pub struct WalrusPtbBuilder {
     pt_builder: ProgrammableTransactionBuilder,
-    read_client: SuiReadClient,
+    read_client: Arc<SuiReadClient>,
     tx_wal_balance: u64,
     tx_sui_cost: u64,
     used_wal_coins: BTreeSet<ObjectID>,
@@ -130,7 +131,7 @@ impl Debug for WalrusPtbBuilder {
 
 impl WalrusPtbBuilder {
     /// Constructor for [`WalrusPtbBuilder`].
-    pub fn new(read_client: SuiReadClient, sender_address: SuiAddress) -> Self {
+    pub fn new(read_client: Arc<SuiReadClient>, sender_address: SuiAddress) -> Self {
         Self {
             pt_builder: ProgrammableTransactionBuilder::new(),
             read_client,

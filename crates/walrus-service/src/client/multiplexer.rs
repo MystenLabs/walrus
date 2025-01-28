@@ -61,7 +61,7 @@ impl ClientMultiplexer {
         let main_address = contract_client.address();
 
         let sui_client = contract_client.sui_client().clone();
-        let sui_read_client = contract_client.read_client.clone();
+        let sui_read_client = (*contract_client.read_client).clone();
         let read_client = Client::new_read_client(config.clone(), sui_read_client).await?;
 
         let refiller = Refiller::new(

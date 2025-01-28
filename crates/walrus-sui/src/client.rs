@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
@@ -302,7 +302,7 @@ pub type SuiClientResult<T> = Result<T, SuiClientError>;
 pub struct SuiContractClient {
     inner: Mutex<SuiContractClientInner>,
     /// Client to read Walrus on-chain state.
-    pub read_client: SuiReadClient,
+    pub read_client: Arc<SuiReadClient>,
     /// The active address of the client from `wallet`. Store here for fast access without
     /// locking the wallet.
     wallet_address: SuiAddress,
@@ -319,11 +319,13 @@ impl SuiContractClient {
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
-        let read_client = SuiReadClient::new(
-            RetriableSuiClient::new_from_wallet(&wallet, backoff_config.clone()).await?,
-            contract_config,
-        )
-        .await?;
+        let read_client = Arc::new(
+            SuiReadClient::new(
+                RetriableSuiClient::new_from_wallet(&wallet, backoff_config.clone()).await?,
+                contract_config,
+            )
+            .await?,
+        );
         Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
@@ -331,7 +333,7 @@ impl SuiContractClient {
     pub fn new_with_read_client(
         mut wallet: WalletContext,
         gas_budget: Option<u64>,
-        read_client: SuiReadClient,
+        read_client: Arc<SuiReadClient>,
     ) -> SuiClientResult<Self> {
         let wallet_address = wallet.active_address()?;
         Ok(Self {
@@ -755,7 +757,7 @@ impl SuiContractClient {
 
 struct SuiContractClientInner {
     wallet: WalletContext,
-    read_client: SuiReadClient,
+    read_client: Arc<SuiReadClient>,
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
     /// the required gas budget.
     gas_budget: Option<u64>,
@@ -765,7 +767,7 @@ impl SuiContractClientInner {
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
     pub fn new(
         wallet: WalletContext,
-        read_client: SuiReadClient,
+        read_client: Arc<SuiReadClient>,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
         Ok(Self {

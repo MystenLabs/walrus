@@ -2219,7 +2219,7 @@ pub mod test_cluster {
 
         // Create the client with the admin wallet to ensure that we have some WAL.
         let sui_contract_client = wallet.and_then(|wallet| {
-            SuiContractClient::new_with_read_client(wallet, None, sui_read_client)
+            SuiContractClient::new_with_read_client(wallet, None, Arc::new(sui_read_client))
         })?;
         let config = Config {
             contract_config,
