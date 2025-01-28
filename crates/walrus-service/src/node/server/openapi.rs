@@ -72,13 +72,10 @@ mod tests {
 
         std::fs::write(NODE_OPENAPI_HTML_PATH, Redoc::new(spec.clone()).to_html())?;
 
-        let spec_yaml = spec.clone().to_yaml()?;
-        let spec_yaml_are_in_sync = std::fs::read_to_string(NODE_OPENAPI_SPEC_PATH)? == spec_yaml;
-        std::fs::write(NODE_OPENAPI_SPEC_PATH, spec_yaml)?;
-        assert!(
-            spec_yaml_are_in_sync,
-            "OpenAPI specification was out of sync; was updated automatically"
-        );
+        walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            NODE_OPENAPI_SPEC_PATH,
+            spec.to_yaml()?,
+        )?;
 
         Ok(())
     }

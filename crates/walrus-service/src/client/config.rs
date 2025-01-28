@@ -545,13 +545,10 @@ mod tests {
             communication_config: Default::default(),
         };
 
-        let serialized = serde_yaml::to_string(&config).unwrap();
-        let configs_are_in_sync = std::fs::read_to_string(EXAMPLE_CONFIG_PATH)? == serialized;
-        std::fs::write(EXAMPLE_CONFIG_PATH, serialized.clone()).unwrap();
-        assert!(
-            configs_are_in_sync,
-            "example configuration was out of sync; was updated automatically"
-        );
+        walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            EXAMPLE_CONFIG_PATH,
+            serde_yaml::to_string(&config)?,
+        )?;
 
         Ok(())
     }

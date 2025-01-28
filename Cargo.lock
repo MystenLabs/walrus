@@ -11858,6 +11858,7 @@ dependencies = [
 name = "walrus-test-utils"
 version = "1.12.0"
 dependencies = [
+ "anyhow",
  "rand 0.8.5",
  "tempfile",
  "tokio",
