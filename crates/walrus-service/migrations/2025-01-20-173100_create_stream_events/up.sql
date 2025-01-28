@@ -33,9 +33,19 @@ CREATE TABLE blob_state (
     fetch_attempts       INT            NULL,
     PRIMARY KEY (blob_id),
     CONSTRAINT valid_blob_state
-    CHECK ((state = 'archived' AND initiate_fetch_after IS     NULL AND backup_url IS NOT NULL AND fetch_attempts IS     NULL) OR
-           (state = 'waiting'  AND initiate_fetch_after IS NOT NULL AND backup_url IS     NULL AND fetch_attempts IS NOT NULL) OR
-           (state = 'deleted'  AND initiate_fetch_after IS     NULL AND backup_url IS     NULL AND fetch_attempts IS     NULL))
+    CHECK (
+           (state = 'archived'
+            AND initiate_fetch_after IS NULL
+            AND backup_url IS NOT NULL
+            AND fetch_attempts IS NULL)
+        OR (state = 'waiting'
+            AND initiate_fetch_after IS NOT NULL
+            AND backup_url IS NULL
+            AND fetch_attempts IS NOT NULL)
+        OR (state = 'deleted'
+            AND initiate_fetch_after IS NULL
+            AND backup_url IS NULL
+            AND fetch_attempts IS NULL))
 );
 
 CREATE INDEX blob_state_delegate_after

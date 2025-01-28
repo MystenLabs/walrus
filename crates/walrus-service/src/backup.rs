@@ -163,23 +163,24 @@ async fn dispatch_contract_event(
     match contract_event {
         ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) => {
             diesel::dsl::sql_query(
-                "INSERT INTO blob_state (blob_id, state, end_epoch, fetch_attempts)
-                 VALUES ($1, 'waiting', $2, 0)
-                 ON CONFLICT (blob_id)
-                 DO UPDATE SET
-                     end_epoch = GREATEST(EXCLUDED.end_epoch, blob_state.end_epoch),
-                     state = CASE WHEN
-                         blob_state.state = 'archived' THEN
-                             blob_state.state
-                         ELSE
-                             'waiting'
-                         END,
-                     fetch_attempts = CASE WHEN
-                         blob_state.state = 'waiting' THEN
-                             0
-                         ELSE
-                             NULL
-                         END",
+                "
+                INSERT INTO blob_state (blob_id, state, end_epoch, fetch_attempts)
+                VALUES ($1, 'waiting', $2, 0)
+                ON CONFLICT (blob_id)
+                DO UPDATE SET
+                    end_epoch = GREATEST(EXCLUDED.end_epoch, blob_state.end_epoch),
+                    state = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            blob_state.state
+                        ELSE
+                            'waiting'
+                        END,
+                    fetch_attempts = CASE WHEN
+                        blob_state.state = 'waiting' THEN
+                            0
+                        ELSE
+                            NULL
+                        END",
             )
             .bind::<diesel::sql_types::Bytea, _>(blob_certified.blob_id.0.to_vec())
             .bind::<diesel::sql_types::Int8, _>(i64::from(blob_certified.end_epoch))
@@ -191,8 +192,9 @@ async fn dispatch_contract_event(
             ..
         })) => {
             diesel::dsl::sql_query(
-                "INSERT INTO epoch_change_start_event (epoch) VALUES ($1)
-                 ON CONFLICT DO NOTHING",
+                "
+                INSERT INTO epoch_change_start_event (epoch) VALUES ($1)
+                ON CONFLICT DO NOTHING",
             )
             .bind::<diesel::sql_types::Int8, _>(i64::from(*epoch))
             .execute(conn)
@@ -391,15 +393,16 @@ async fn backup_fetcher_core(
             .run::<_, anyhow::Error, _>(|conn| {
                 async move {
                     Ok(diesel::sql_query(
-                        "UPDATE blob_state
-                         SET state = 'archived',
-                             backup_url = $1,
-                             initiate_fetch_after = NULL,
-                             fetch_attempts = NULL
-                         WHERE
-                             blob_id = $2
-                             AND backup_url IS NULL
-                             AND state = 'waiting'
+                        "
+                        UPDATE blob_state
+                        SET state = 'archived',
+                            backup_url = $1,
+                            initiate_fetch_after = NULL,
+                            fetch_attempts = NULL
+                        WHERE
+                            blob_id = $2
+                            AND backup_url IS NULL
+                            AND state = 'waiting'
                         ",
                     )
                     // TODO: use the real GCS URL. (See WAL-550.)
