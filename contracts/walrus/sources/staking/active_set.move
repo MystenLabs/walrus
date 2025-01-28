@@ -87,7 +87,7 @@ public(package) fun update(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
 /// in the active set. If the active set is full, the node with the smallest
 /// staked WAL is removed to make space for the new node.
 /// Returns true if the node was inserted, false otherwise.
-public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
+fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
     assert!(set.nodes.find_index!(|entry| entry.node_id == node_id).is_none(), EDuplicateInsertion);
 
     // If the nodes are less than the max size, insert the node.
