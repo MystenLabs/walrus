@@ -80,6 +80,53 @@ fun test_staking_active_set() {
 }
 
 #[test]
+// Scenario:
+// 1. Alice stakes for pool_one enough for it to be in the active set.
+// 2. Bob and Carl stake for pool_two and pool_three, respectively.
+// 3. Alice unstakes from pool_one.
+// 4. Advance epoch.
+// 5. Expecting pool_one to NOT be in the active set.
+fun test_staking_active_set_early_withdraw() {
+    let ctx = &mut tx_context::dummy();
+    let mut staking = {
+        let clock = clock::create_for_testing(ctx);
+        let staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
+        clock.destroy_for_testing();
+        staking
+    };
+
+    // register pools in the `StakingInnerV1`.
+    let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
+    let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
+
+    // Alice stakes for pool_one
+    let wal_alice = staking.stake_with_pool(test::mint(100_000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint(100_000, ctx), pool_two, ctx);
+    let wal_carl = staking.stake_with_pool(test::mint(100_000, ctx), pool_three, ctx);
+
+    let active_ids = staking.active_set().active_ids();
+    assert!(active_ids.contains(&pool_one));
+    assert!(active_ids.contains(&pool_two));
+    assert!(active_ids.contains(&pool_three));
+
+    // Alice performs an early withdraw
+    assert_eq!(staking.withdraw_stake(wal_alice, ctx).burn_for_testing(), 100_000);
+
+    staking.select_committee();
+    staking.advance_epoch(vec_map::empty());
+
+    let cmt = staking.committee();
+
+    assert!(!cmt.contains(&pool_one)); // should not be in the set
+    assert!(cmt.contains(&pool_two));
+    assert!(cmt.contains(&pool_three));
+
+    destroy(vector[wal_bob, wal_carl]);
+    destroy(staking);
+}
+
+#[test]
 fun test_parameter_changes() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
