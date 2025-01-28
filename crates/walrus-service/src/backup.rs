@@ -206,7 +206,7 @@ async fn dispatch_contract_event(
 async fn establish_connection(database_url: &str) -> Result<AsyncPgConnection> {
     AsyncPgConnection::establish(database_url)
         .await
-        .context("error connecting to database")
+        .with_context(|| format!("connecting to the database [database_url={database_url}]"))
 }
 
 /// Work item for the backup fetcher.
@@ -260,7 +260,7 @@ async fn backup_delegator(
     use self::models::BlobIdRow;
 
     tracing::info!("[backup_delegator] Starting worker with config: {backup_config:?}");
-    let mut conn = AsyncPgConnection::establish(&backup_config.database_url).await?;
+    let mut conn = establish_connection(&backup_config.database_url).await?;
     let max_fetch_attempts_per_blob = i32::try_from(backup_config.max_fetch_attempts_per_blob)
         .expect("max_fetch_attempts_per_blob config overflow");
     let message_queue_size = i32::try_from(backup_config.message_queue_size)
@@ -300,6 +300,8 @@ async fn backup_delegator(
                         SELECT blob_id FROM ready_blob_states",
                     )
                     .bind::<diesel::sql_types::Int4, _>(max_fetch_attempts_per_blob)
+                    // TODO: incorporate the current queue length when deciding how full to make
+                    // the queue. (See WAL-560.)
                     .bind::<diesel::sql_types::Int4, _>(message_queue_size)
                     .get_results(conn)
                     .await?)
@@ -339,9 +341,7 @@ async fn backup_fetcher_core(
     rx: async_channel::Receiver<BackupWorkItem>,
 ) -> Result<()> {
     tracing::info!("[backup_fetcher:{worker_id}] starting worker");
-    let mut conn = AsyncPgConnection::establish(&backup_config.database_url)
-        .await
-        .with_context(|| format!("[backup_fetcher:{worker_id}] connecting to postgres"))?;
+    let mut conn = establish_connection(&backup_config.database_url).await?;
     let rpc_url = backup_config.sui.rpc;
     let sui_read_client = SuiReadClient::new(
         RetriableSuiClient::new_for_rpc(&rpc_url, backup_config.sui.backoff_config.clone())
@@ -438,7 +438,7 @@ pub mod defaults {
     }
     /// Default backup work item queue size.
     pub fn message_queue_size() -> u32 {
-        100
+        WORKER_COUNT
     }
     /// Default backup max_fetch_attempts_per_blob.
     pub fn max_fetch_attempts_per_blob() -> u32 {
