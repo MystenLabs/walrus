@@ -77,3 +77,32 @@ fun test_size_1() {
     set.insert_or_update(@2.to_id(), 1001);
     assert_eq!(set.cur_min_stake(), 1001);
 }
+
+#[test]
+fun kick_out_attack() {
+    let mut set = active_set::new(3, 0);
+    set.insert_or_update(@1.to_id(), 100);
+    set.insert_or_update(@2.to_id(), 200);
+    set.insert_or_update(@3.to_id(), 300);
+
+    assert_eq!(set.size(), 3);
+    assert_eq!(set.cur_min_stake(), 100);
+    assert_eq!(set.threshold_stake(), 0);
+
+    // now insert a node that kicks out the first one
+    // and then removes itself
+    set.insert_or_update(@4.to_id(), 101);
+
+    assert_eq!(set.size(), 3);
+    assert!(set.active_ids().contains(&@4.to_id()));
+    assert!(!set.active_ids().contains(&@1.to_id())); // kicked out
+
+    set.insert_or_update(@4.to_id(), 0); // stake is 0, removes itself
+
+    assert_eq!(set.size(), 2);
+    assert!(!set.active_ids().contains(&@4.to_id()));
+    assert!(!set.active_ids().contains(&@1.to_id()));
+
+    // TODO: can we have a reserve that keeps the node with less than min stake
+    // in the active set and "returns" it when the attacking node leaves?
+}
