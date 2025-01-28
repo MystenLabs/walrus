@@ -36,7 +36,7 @@ client = [
   "dep:colored",
   "dep:prettytable",
 ]
-default = ["backup", "client", "deploy", "node"]
+default = ["client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",

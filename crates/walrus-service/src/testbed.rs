@@ -40,11 +40,12 @@ use walrus_sui::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
+#[cfg(feature = "backup")]
+use crate::backup::{
+    defaults::{max_fetch_attempts_per_blob, message_queue_size, metrics_address},
+    BackupNodeConfig,
+};
 use crate::{
-    backup::{
-        defaults::{max_fetch_attempts_per_blob, message_queue_size, metrics_address},
-        BackupNodeConfig,
-    },
     client::{self, ClientCommunicationConfig},
     common::config::{defaults::polling_interval, SuiConfig, SuiReaderConfig},
     node::config::{
