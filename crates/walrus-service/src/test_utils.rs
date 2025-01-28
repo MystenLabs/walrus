@@ -317,7 +317,7 @@ impl SimStorageNodeHandle {
             .init(move || {
                 tracing::info!(?ip, "starting simulator node");
 
-                let config = config.clone(); // Clone the Arc, not the config itself
+                let config = config.clone();
                 let cancel_token = cancel_token.clone();
                 let startup_sender = startup_sender.clone();
 
@@ -397,8 +397,7 @@ impl SimStorageNodeHandle {
     )> {
         // TODO(#996): extract the common code to start the code, and use it here as well as in
         // StorageNodeRuntime::start.
-        let config_guard = config.read().await;
-        let config = config_guard.clone();
+        let config_guard = config.read().await.config_guard.clone();
 
         let metrics_registry = Registry::default();
 
@@ -2373,7 +2372,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             public_port: rest_api_address.port(),
             metrics_push: None,
             metadata: Default::default(),
-            config_monitor_interval: Default::default(),
+            ..Default::default()
         },
         temp_dir,
     }

@@ -75,7 +75,7 @@ use walrus_sdk::api::{
     StoredOnNodeStatus,
 };
 use walrus_sui::{
-    client::{ReadClient, SuiClientError, SuiReadClient},
+    client::SuiReadClient,
     types::{
         BlobCertified,
         BlobDeleted,
@@ -85,9 +85,7 @@ use walrus_sui::{
         EpochChangeEvent,
         EpochChangeStart,
         InvalidBlobId,
-        NextPublicKeyAction,
         PackageEvent,
-        UpdatePublicKeyParams,
         GENESIS_EPOCH,
     },
 };
@@ -248,7 +246,7 @@ pub trait ServiceState {
 }
 
 /// Builder to construct a [`StorageNode`].
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct StorageNodeBuilder {
     storage: Option<Storage>,
     event_manager: Option<Box<dyn EventManager>>,
@@ -256,37 +254,12 @@ pub struct StorageNodeBuilder {
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
     ignore_sync_failures: bool,
-    enable_config_monitor: bool,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for StorageNodeBuilder {
-    fn default() -> Self {
-        Self {
-            storage: None,
-            event_manager: None,
-            committee_service: None,
-            contract_service: None,
-            num_checkpoints_per_blob: None,
-            ignore_sync_failures: false,
-            #[cfg(not(test))]
-            enable_config_monitor: true,
-            #[cfg(test)]
-            enable_config_monitor: false,
-        }
-    }
 }
 
 impl StorageNodeBuilder {
     /// Creates a new builder.
     pub fn new() -> Self {
-        Self {
-            #[cfg(test)]
-            enable_config_monitor: false,
-            #[cfg(not(test))]
-            enable_config_monitor: true,
-            ..Default::default()
-        }
+        Self::default()
     }
 
     /// Sets the underlying storage for the node, instead of constructing one from the config.
@@ -326,12 +299,6 @@ impl StorageNodeBuilder {
     /// Sets the [`CommitteeService`] used with the node.
     pub fn with_committee_service(mut self, service: Arc<dyn CommitteeService>) -> Self {
         self.committee_service = Some(service);
-        self
-    }
-
-    /// Enables or disables the config monitor.
-    pub fn with_config_monitor(mut self, enable: bool) -> Self {
-        self.enable_config_monitor = enable;
         self
     }
 
@@ -439,7 +406,6 @@ impl StorageNodeBuilder {
             pre_created_storage: self.storage,
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
             ignore_sync_failures: self.ignore_sync_failures,
-            enable_config_monitor: self.enable_config_monitor,
         };
 
         StorageNode::new(
@@ -503,98 +469,6 @@ pub struct NodeParameters {
     num_checkpoints_per_blob: Option<u32>,
     // Whether to ignore sync failures during node initialization
     ignore_sync_failures: bool,
-    // Whether to enable config monitoring
-    enable_config_monitor: bool,
-}
-
-/// Check if the node parameters are in sync with the on-chain parameters.
-/// If not, update the node parameters on-chain.
-/// If the current node is not registered yet, error out.
-/// If the wallet is not present in the config, do nothing.
-async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
-    let Some(ref node_wallet_config) = config.sui else {
-        // Not failing here, since the wallet may be absent in tests.
-        // In production, an absence of the wallet will fail the node eventually.
-        tracing::error!("storage config does not contain Sui wallet configuration");
-        return Ok(());
-    };
-
-    let contract_client = node_wallet_config.new_contract_client().await?;
-    let address = contract_client.wallet().await.active_address()?;
-
-    let node_cap = contract_client
-        .read_client
-        .get_address_capability_object(address)
-        .await?
-        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
-    let pool = contract_client
-        .read_client
-        .get_staking_pool(node_cap.node_id)
-        .await?;
-
-    let node_info = &pool.node_info;
-
-    let mut update_params = config.generate_update_params(
-        node_info.name.as_str(),
-        node_info.network_address.0.as_str(),
-        &node_info.network_public_key,
-        &pool.voting_params,
-    );
-
-    let action = calculate_protocol_key_action(
-        config.protocol_key_pair().public().clone(),
-        config
-            .next_protocol_key_pair()
-            .map(|kp| kp.public().clone()),
-        node_info.public_key.clone(),
-        node_info.next_epoch_public_key.clone(),
-    )?;
-    match action {
-        ProtocolKeyAction::UpdateRemoteNextPublicKey(next_public_key) => {
-            tracing::info!(
-                "Going to update remote next public key to {:?}",
-                next_public_key
-            );
-
-            update_params.next_public_key_action =
-                Some(NextPublicKeyAction::Update(UpdatePublicKeyParams {
-                    next_public_key,
-                    proof_of_possession:
-                        walrus_sui::utils::generate_proof_of_possession_for_address(
-                            config.next_protocol_key_pair().unwrap(),
-                            address,
-                            contract_client.read_client.current_epoch().await?,
-                        ),
-                }));
-        }
-        ProtocolKeyAction::ResetRemoteNextPublicKey => {
-            tracing::info!("Going to reset remote next public key");
-            update_params.next_public_key_action = Some(NextPublicKeyAction::Reset);
-        }
-        ProtocolKeyAction::RotateLocalKeyPair => {
-            return Err(StorageNodeError::ProtocolKeyPairRotationRequired.into());
-        }
-        ProtocolKeyAction::DoNothing => {}
-    }
-
-    if update_params.needs_update() {
-        tracing::info!(
-            node_name = config.name,
-            node_id = ?node_info.node_id,
-            update_params = ?update_params,
-            "update node params"
-        );
-        contract_client.update_node_params(update_params).await?;
-    } else {
-        tracing::info!(
-            node_name = config.name,
-            node_id = ?node_info.node_id,
-            "node parameters are in sync with on-chain values"
-        );
-    }
-
-    Ok(())
 }
 
 enum ProtocolKeyAction {
@@ -602,64 +476,6 @@ enum ProtocolKeyAction {
     ResetRemoteNextPublicKey,
     RotateLocalKeyPair,
     DoNothing,
-}
-
-fn calculate_protocol_key_action(
-    local_public_key: PublicKey,
-    local_next_public_key: Option<PublicKey>,
-    remote_public_key: PublicKey,
-    remote_next_public_key: Option<PublicKey>,
-) -> anyhow::Result<ProtocolKeyAction> {
-    // Case 1: Local public key matches remote public key
-    if local_public_key == remote_public_key {
-        match (local_next_public_key, remote_next_public_key) {
-            // If local has no next key but remote does, reset remote's next key
-            (None, Some(_)) => Ok(ProtocolKeyAction::ResetRemoteNextPublicKey),
-
-            // If local has next key and it differs from remote's next key (or remote has none),
-            // update remote's next key
-            (Some(local_next), remote_next) if Some(local_next.clone()) != remote_next => {
-                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(local_next))
-            }
-
-            // Keys match or both have no next key - do nothing
-            _ => Ok(ProtocolKeyAction::DoNothing),
-        }
-    }
-    // Case 2: Local public key doesn't match remote public key
-    else {
-        // Check if local next key matches remote current key
-        if let Some(local_next) = local_next_public_key.clone() {
-            if local_next == remote_public_key {
-                // Warn if remote has a next key set
-                if remote_next_public_key.is_some() {
-                    tracing::warn!(
-                        local_public_key = ?local_public_key.clone(),
-                        remote_public_key = ?remote_public_key.clone(),
-                        local_next_public_key = ?local_next_public_key.clone(),
-                        remote_next_public_key = ?remote_next_public_key.clone(),
-                        "Remote node has next public key set while local node is rotating"
-                    );
-                }
-                return Ok(ProtocolKeyAction::RotateLocalKeyPair);
-            }
-        }
-
-        // Keys don't match and local next key doesn't match remote current key
-        let error_msg = "Local protocol key pair does not match remote protocol key pair, \
-            please update the protocol key pair to match the remote protocol public key";
-
-        tracing::error!(
-            local_public_key = ?local_public_key,
-            remote_public_key = ?remote_public_key,
-            local_next_public_key = ?local_next_public_key,
-            remote_next_public_key = ?remote_next_public_key,
-            error = error_msg,
-            "Protocol key mismatch"
-        );
-
-        Err(anyhow::anyhow!(error_msg))
-    }
 }
 
 impl StorageNode {
@@ -675,9 +491,9 @@ impl StorageNode {
         let start_time = Instant::now();
         tracing::info!(
             "Creating StorageNode with config monitor enabled: {}",
-            node_params.enable_config_monitor
+            config.enable_config_monitor
         );
-        let config_monitor = if node_params.enable_config_monitor {
+        let config_monitor = if config.enable_config_monitor {
             Arc::new(ConfigMonitor::new(
                 config.clone(),
                 contract_service.clone(),
@@ -691,7 +507,7 @@ impl StorageNode {
             ))
         };
 
-        sync_node_params(config).await.or_else(|e| {
+        config_monitor.sync_node_params().await.or_else(|e| {
             if matches!(
                 e.downcast_ref(),
                 Some(StorageNodeError::ProtocolKeyPairRotationRequired)
@@ -825,7 +641,6 @@ impl StorageNode {
                     },
                 }
             },
-            // Add config monitor task
             config_monitor_result = self.config_monitor.run() => {
                 tracing::info!("config monitor task ended");
                 match config_monitor_result {
@@ -5267,85 +5082,5 @@ mod tests {
             .is_blob_registered(blob_details.blob_id())?);
 
         Ok(())
-    }
-
-    #[test]
-    fn test_handle_protocol_key_pair_update() {
-        let key1 = ProtocolKeyPair::generate().public().clone();
-        let key2 = ProtocolKeyPair::generate().public().clone();
-        let key3 = ProtocolKeyPair::generate().public().clone();
-
-        // Case 1: Local public key matches remote public key
-        {
-            // Case 1a: Next public keys don't match - should update remote
-            let result = calculate_protocol_key_action(
-                key1.clone(),
-                Some(key2.clone()),
-                key1.clone(),
-                Some(key3.clone()),
-            );
-            assert!(matches!(
-                result,
-                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
-            ));
-
-            // Case 1b: Local has next key, remote doesn't - should update remote
-            let result =
-                calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key1.clone(), None);
-            assert!(matches!(
-                result,
-                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
-            ));
-
-            // Case 1c: Local doesn't have next key, remote does - should reset remote
-            let result =
-                calculate_protocol_key_action(key1.clone(), None, key1.clone(), Some(key2.clone()));
-            assert!(matches!(
-                result,
-                Ok(ProtocolKeyAction::ResetRemoteNextPublicKey)
-            ));
-
-            // Case 1d: Next public keys match - should do nothing
-            let result = calculate_protocol_key_action(
-                key1.clone(),
-                Some(key2.clone()),
-                key1.clone(),
-                Some(key2.clone()),
-            );
-            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
-
-            // Case 1e: Neither has next key - should do nothing
-            let result = calculate_protocol_key_action(key1.clone(), None, key1.clone(), None);
-            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
-        }
-
-        // Case 2: Local public key doesn't match remote public key
-        {
-            // Case 2a: Local next key matches remote current key - should rotate local
-            let result =
-                calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key2.clone(), None);
-            assert!(matches!(result, Ok(ProtocolKeyAction::RotateLocalKeyPair)));
-
-            // Case 2b: Local next key matches remote current key, but remote has next key set
-            // Should rotate local but emit warning (warning check would require log capture)
-            let result = calculate_protocol_key_action(
-                key1.clone(),
-                Some(key2.clone()),
-                key2.clone(),
-                Some(key3.clone()),
-            );
-            assert!(matches!(result, Ok(ProtocolKeyAction::RotateLocalKeyPair)));
-
-            // Case 2c: Keys don't match and local next key doesn't match remote current key
-            // Should return error
-            let result =
-                calculate_protocol_key_action(key1.clone(), Some(key3.clone()), key2.clone(), None);
-            assert!(result.is_err());
-
-            // Case 2d: Keys don't match and local has no next key
-            // Should return error
-            let result = calculate_protocol_key_action(key1.clone(), None, key2.clone(), None);
-            assert!(result.is_err());
-        }
     }
 }

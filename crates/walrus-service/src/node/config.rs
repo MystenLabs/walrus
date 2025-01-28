@@ -133,6 +133,9 @@ pub struct StorageNodeConfig {
     /// Interval between config monitoring checks
     #[serde(default = "defaults::config_monitor_interval")]
     pub config_monitor_interval: Duration,
+    /// Enable the config monitor
+    #[serde(default = "defaults::config_monitor_enabled")]
+    pub enable_config_monitor: bool,
 }
 
 impl Default for StorageNodeConfig {
@@ -167,6 +170,7 @@ impl Default for StorageNodeConfig {
             metrics_push: None,
             metadata: Default::default(),
             config_monitor_interval: Default::default(),
+            enable_config_monitor: Default::default(),
         }
     }
 }
@@ -569,6 +573,11 @@ pub mod defaults {
     /// The default interval between config monitoring checks
     pub fn config_monitor_interval() -> Duration {
         Duration::from_secs(CONFIG_MONITOR_INTERVAL_SECS)
+    }
+
+    /// Returns false in test mode, true for simtest and prod.
+    pub fn config_monitor_enabled() -> bool {
+        !cfg!(test)
     }
 }
 

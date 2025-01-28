@@ -43,11 +43,11 @@ use crate::{
     types::{
         move_structs::{Authorized, WalExchange},
         NetworkAddress,
-        NextPublicKeyAction,
         NodeMetadata,
         NodeRegistrationParams,
         NodeUpdateParams,
         SystemObject,
+        UpdateNextPublicKeyAction,
         UpdatePublicKeyParams,
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
@@ -848,11 +848,11 @@ impl WalrusPtbBuilder {
 
         if let Some(next_public_key_action) = params.next_public_key_action {
             match next_public_key_action {
-                NextPublicKeyAction::Update(params) => {
+                UpdateNextPublicKeyAction::Update(params) => {
                     self.update_next_public_key(&storage_node_cap, params)
                         .await?;
                 }
-                NextPublicKeyAction::Reset => {
+                UpdateNextPublicKeyAction::Reset => {
                     self.reset_next_public_key(&storage_node_cap).await?;
                 }
             }

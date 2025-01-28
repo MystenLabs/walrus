@@ -134,7 +134,7 @@ pub struct UpdatePublicKeyParams {
 
 /// Action to take on the next public key of the storage node.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NextPublicKeyAction {
+pub enum UpdateNextPublicKeyAction {
     /// Update the next public key of the storage node.
     Update(UpdatePublicKeyParams),
     /// Reset the next public key of the storage node.
@@ -151,7 +151,7 @@ pub struct NodeUpdateParams {
     /// The network public key of the storage node.
     pub network_public_key: Option<NetworkPublicKey>,
     /// The next public key parameters of the storage node.
-    pub next_public_key_action: Option<NextPublicKeyAction>,
+    pub next_public_key_action: Option<UpdateNextPublicKeyAction>,
     /// The storage price to vote for
     pub storage_price: Option<u64>,
     /// The write price to vote for
