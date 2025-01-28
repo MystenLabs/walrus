@@ -1217,7 +1217,11 @@ mod tests {
 
     async_param_test! {
         list_recovery_symbols: [
-            one_id: (RecoverySymbolsFilter::ids(vec![SymbolId::new(1.into(), 2.into())], SliverType::Primary)),
+            one_id: (
+                RecoverySymbolsFilter::ids(
+                    vec![SymbolId::new(1.into(), 2.into())], SliverType::Primary
+                )
+            ),
             multiple_ids: (RecoverySymbolsFilter::ids(vec![
                     SymbolId::new(1.into(), 2.into()),
                     SymbolId::new(3.into(), 4.into())
