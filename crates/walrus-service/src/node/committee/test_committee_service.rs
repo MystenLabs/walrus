@@ -535,11 +535,6 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         .build(committee_lookup)
         .await?;
 
-    let _guards = tracing_subscriber::fmt()
-        .pretty()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
-
     let mut pending_request = committee_service.recover_sliver(
         metadata.into(),
         target_sliver_index.into(),

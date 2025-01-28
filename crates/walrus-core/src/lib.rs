@@ -9,10 +9,10 @@
 extern crate alloc;
 extern crate std;
 
+use alloc::vec::Vec;
 #[allow(unused)]
 #[cfg(feature = "utoipa")]
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{format, string::String};
 use core::{
     fmt::{self, Debug, Display},
     num::NonZeroU16,
@@ -641,7 +641,10 @@ impl SymbolId {
         self.secondary
     }
 
-    /// Returns the index component of the sliver identified by `sliver_type`.
+    /// Returns the corresponding primary or secondary index, as identified by the sliver type.
+    ///
+    /// That is, returns [`Self::primary_sliver_index()`] when `sliver_type == SliverType::Primary`,
+    /// and otherwise [`Self::secondary_sliver_index()`].
     pub fn sliver_index(&self, sliver_type: SliverType) -> SliverIndex {
         match sliver_type {
             SliverType::Primary => self.primary,
@@ -659,7 +662,20 @@ impl Display for SymbolId {
 #[cfg(feature = "utoipa")]
 impl utoipa::PartialSchema for SymbolId {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
-        alloc::string::String::schema()
+        use alloc::borrow::ToOwned;
+
+        use utoipa::openapi::{ObjectBuilder, RefOr, Schema, Type};
+
+        let object = ObjectBuilder::new()
+            .schema_type(Type::String)
+            .description(Some(
+                "An ID of primary and secondary sliver indices that identifies a recovery symbol"
+                    .to_owned(),
+            ))
+            .examples(["0-0", "999-32"])
+            .pattern(Some(r"[0-9]+-[0-9]+"))
+            .build();
+        RefOr::T(Schema::Object(object))
     }
 }
 

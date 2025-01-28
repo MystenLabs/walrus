@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use walrus_core::{messages::SignedMessage, EpochSchema, SliverPairIndex, SliverType};
+use walrus_core::{messages::SignedMessage, EpochSchema, SliverPairIndex, SliverType, SymbolId};
 use walrus_sdk::api::{
     errors::Status,
     ServiceHealthInfo,
@@ -31,6 +31,7 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         routes::get_sliver,
         routes::health_info,
         routes::inconsistency_proof,
+        routes::list_recovery_symbols,
         routes::put_metadata,
         routes::put_sliver,
     ),
@@ -47,7 +48,8 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         SliverPairIndex,
         SliverType,
         Status,
-    ))
+        SymbolId,
+    )),
 )]
 pub(super) struct RestApiDoc;
 

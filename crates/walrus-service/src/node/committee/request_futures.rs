@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    cmp::{self, Reverse},
+    cmp,
     collections::{hash_map::IntoValues, HashMap, VecDeque},
     future::Future,
     pin::Pin,
@@ -177,7 +177,7 @@ where
     }
 }
 
-#[allow(unused)]
+// TODO(jsmith): Remove once the new code is enabled by default.
 pub(super) struct LegacyRecoverSliver<'a, T> {
     metadata: Arc<VerifiedBlobMetadataWithId>,
     sliver_id: SliverPairIndex,
@@ -850,6 +850,9 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 /// Tracks the collection of recovery symbols.
 #[derive(Debug, Clone)]
 struct SymbolTracker {
+    // Since all the symbols will be from a common axis, we do not need to store the full `SymbolId`
+    // as the key, so use just the sliver index of the orthogonal axis. The enclosing struct handles
+    // conversions to `SymbolId`.
     collected: HashMap<SliverIndex, GeneralRecoverySymbol>,
     symbols_in_progress_count: usize,
     symbols_still_required_count: usize,
@@ -937,6 +940,11 @@ impl SymbolTracker {
     /// Convert the tracker into the collected symbols of the specified type.
     ///
     /// The stored symbols must be of the required typed.
+    // TODO(jsmith): Remove once inconsistency proofs are updated to use the new recovery symbol.
+    //
+    // Inconsistency proofs have not yet been updated, so for now, simply use only recovery symbols
+    // of a single type. This is ensured by the filter argument when requesting symbols as well as
+    // in the client when receiving the results.
     fn into_symbols<A: EncodingAxis>(
         self,
     ) -> impl Iterator<Item = RecoverySymbolData<A, MerkleProof>>
@@ -952,26 +960,38 @@ impl SymbolTracker {
     }
 }
 
+/// Track the remaining shards to be queried, grouped by storage node.
+///
+/// Since we request multiple symbols from each storage node, track the remaining set of storage
+/// nodes from the committee, as well as their shards from which we have not yet requested symbols.
+///
+/// Storage nodes are returned in a random order, with the chance of a node appearing earlier being
+/// proportional to the number of shards that it has.
 #[derive(Debug, Clone, Default)]
 struct RemainingShards {
-    upcoming_nodes: VecDeque<usize>,
+    // Store the node indices as u16 instead of usize to save on space.
+    upcoming_nodes: VecDeque<u16>,
     next_shard_index: usize,
 }
 
 impl RemainingShards {
     fn new(committee: &Committee, rng: &mut StdRng) -> Self {
-        let mut node_indices: Vec<_> = (0..committee.n_members()).collect();
+        let n_members = u16::try_from(committee.n_members()).expect("at most 65k members");
 
-        // Group the nodes by their number of shards, and shuffle the groups such that the nodes
-        // with the most shards are first in the sequence. If every node has a unique number of
-        // shards, then this is equivalent to a descending sort. Otherwise, nodes will be in a
-        // random order within each group due to the sort being stable.
-        node_indices.shuffle(rng);
-        node_indices
-            .sort_by_key(|node_index| Reverse(committee.members()[*node_index].shard_ids.len()));
+        let node_indices: Vec<u16> = (0..n_members).collect();
+        let upcoming_nodes = node_indices
+            .choose_multiple_weighted(rng, committee.n_members(), |node_index| {
+                let n_shards = committee.members()[usize::from(*node_index)]
+                    .shard_ids
+                    .len();
+                u16::try_from(n_shards).expect("number of shards fits within u16")
+            })
+            .expect("u16 weights are valid")
+            .copied()
+            .collect();
 
         Self {
-            upcoming_nodes: node_indices.into(),
+            upcoming_nodes,
             next_shard_index: 0,
         }
     }
@@ -989,7 +1009,7 @@ impl RemainingShards {
         }
 
         let next_node_index = self.upcoming_nodes.pop_front()?;
-        let node_info = &committee.members()[next_node_index];
+        let node_info = &committee.members()[usize::from(next_node_index)];
         tracing::trace!(limit, next_node_index, "taking shards from the next node");
 
         let range_start = self.next_shard_index;
@@ -1010,7 +1030,7 @@ impl RemainingShards {
             self.next_shard_index = 0;
         }
 
-        Some((next_node_index, shards))
+        Some((usize::from(next_node_index), shards))
     }
 }
 

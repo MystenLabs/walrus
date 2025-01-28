@@ -5,7 +5,7 @@ use std::{num::NonZeroU16, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderValue, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::Query as ExtraQuery;
@@ -437,19 +437,10 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
         .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))?
         .into();
 
-    let mut response = match symbol {
-        RecoverySymbol::Primary(inner) => Bcs(inner).into_response(),
-        RecoverySymbol::Secondary(inner) => Bcs(inner).into_response(),
-    };
-
-    // TODO(jsmith): Remove along with this endpoint.
-    // We use this header at the client to detect support for the the new recovery symbol endpoint,
-    // without needing to try querying it and failing, nor using using config parameters.
-    let _ = response
-        .headers_mut()
-        .insert("Deprecation", HeaderValue::from_static("@1739491200"));
-
-    Ok(response)
+    match symbol {
+        RecoverySymbol::Primary(inner) => Ok(Bcs(inner).into_response()),
+        RecoverySymbol::Secondary(inner) => Ok(Bcs(inner).into_response()),
+    }
 }
 
 fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), IndexOutOfRange> {
@@ -464,7 +455,6 @@ fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), Index
 }
 
 /// Get a recovery symbol by its ID.
-// TODO(jsmith): Query params
 #[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
     walrus.blob_id = %blob_id.0,
     walrus.recovery.symbol_id = %symbol_id
@@ -488,21 +478,24 @@ pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
     Ok(Bcs(symbol).into_response())
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Specifies the set of recovery symbols to be returned.
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(style = Form, parameter_in = Query)]
 pub struct ListRecoverySymbolsQuery {
     #[serde(flatten)]
+    #[param(inline)]
     filter: ListRecoverySymbolsFilter,
 }
 
-// TODO(jsmith): Add open-api documentation
 #[serde_as]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase", untagged)]
 pub(crate) enum ListRecoverySymbolsFilter {
     /// Limit the results to the specified symbols.
-    #[serde(untagged, rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase")]
     Id {
+        /// One or more symbol IDs to be returned.
         #[serde_as(as = "OneOrMany<_>")]
         id: Vec<SymbolId>,
         /// The type of the sliver being recovered.
@@ -510,7 +503,7 @@ pub(crate) enum ListRecoverySymbolsFilter {
     },
 
     /// Return all available symbols that can be used to recover the specified sliver.
-    #[serde(untagged, rename_all = "camelCase")]
+    #[serde(rename_all = "camelCase")]
     ForSliver {
         /// The ID of the target sliver being recovered.
         #[serde_as(as = "DisplayFromStr")]
@@ -525,7 +518,7 @@ pub(crate) enum ListRecoverySymbolsFilter {
 #[utoipa::path(
     get,
     path = RECOVERY_SYMBOL_LIST_ENDPOINT,
-    params(("blob_id" = BlobId,),),
+    params(("blob_id" = BlobId,), ListRecoverySymbolsQuery),
     responses(
         (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
         ListSymbolsError,

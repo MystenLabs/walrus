@@ -63,6 +63,9 @@ use crate::{
     },
 };
 
+// TODO(jsmith): Set to false before merging to code base.
+// TODO(jsmith): Remove once all storage nodes have deployed this version, along with legacy code.
+// Avoids using [allow(unused)] for code that is currently deactivated.
 const USE_BATCHED_RECOVERY: bool = true;
 
 pub(crate) struct NodeCommitteeServiceBuilder<T> {
