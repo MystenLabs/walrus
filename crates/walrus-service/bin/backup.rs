@@ -50,8 +50,6 @@ async fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use walrus_service::utils;
-
     use super::*;
 
     pub(super) async fn run_backup_node(config: BackupNodeConfig) -> anyhow::Result<()> {

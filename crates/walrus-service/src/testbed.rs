@@ -41,12 +41,9 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    backup::{
-        defaults::{max_fetch_attempts_per_blob, message_queue_size, metrics_address},
-        BackupNodeConfig,
-    },
+    backup::BackupNodeConfig,
     client::{self, ClientCommunicationConfig},
-    common::config::{defaults::polling_interval, SuiConfig, SuiReaderConfig},
+    common::config::SuiConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
         StorageNodeConfig,
@@ -477,20 +474,16 @@ pub async fn create_backup_config(
     database_url: &str,
     rpc: String,
 ) -> anyhow::Result<BackupNodeConfig> {
-    Ok(BackupNodeConfig {
-        backup_storage_path: working_dir.join("backup"),
-        metrics_address: metrics_address(),
-        database_url: database_url.to_string(),
-        sui: SuiReaderConfig {
+    Ok(BackupNodeConfig::new_with_defaults(
+        working_dir.join("backup"),
+        crate::common::config::SuiReaderConfig {
             rpc,
             contract_config: system_ctx.contract_config(),
             backoff_config: ExponentialBackoffConfig::default(),
-            event_polling_interval: polling_interval(),
+            event_polling_interval: defaults::polling_interval(),
         },
-        event_processor_config: Default::default(),
-        message_queue_size: message_queue_size(),
-        max_fetch_attempts_per_blob: max_fetch_attempts_per_blob(),
-    })
+        database_url.to_string(),
+    ))
 }
 
 /// Create storage node configurations for the testbed.
