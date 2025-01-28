@@ -160,7 +160,7 @@ where
     }
 
     /// Runs the server, may only be called once for a given instance.
-    pub async fn run(&self) -> Result<(), std::io::Error> {
+    pub async fn run(&self, address: SocketAddr) -> Result<(), std::io::Error> {
         {
             let handle = self.handle.lock().await;
             assert!(handle.is_none(), "run can only be called once");
@@ -186,11 +186,10 @@ where
         let handle = self.init_handle().await;
 
         let server = if let Some(tls_config) = self.configure_tls().await? {
-            let server = axum_server::bind_rustls(self.config.bind_address, tls_config)
-                .handle(handle.clone());
+            let server = axum_server::bind_rustls(address, tls_config).handle(handle.clone());
             Either::Left(self.configure_server(server).serve(app))
         } else {
-            let server = axum_server::bind(self.config.bind_address).handle(handle.clone());
+            let server = axum_server::bind(address).handle(handle.clone());
             Either::Right(self.configure_server(server).serve(app))
         };
 

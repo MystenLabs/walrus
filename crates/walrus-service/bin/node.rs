@@ -890,7 +890,7 @@ impl StorageNodeRuntime {
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api
-                .run()
+                .run(rest_api_address)
                 .await
                 .inspect_err(|error| tracing::error!(?error, "REST API exited with an error"));
 
@@ -901,7 +901,7 @@ impl StorageNodeRuntime {
 
             result
         });
-        tracing::info!("started REST API on {}", node_config.rest_api_address);
+        tracing::info!("started REST API on {}", rest_api_address);
 
         Ok(Self {
             runtime,

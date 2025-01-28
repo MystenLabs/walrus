@@ -794,7 +794,7 @@ impl StorageNodeHandleBuilder {
 
             tokio::task::spawn(
                 async move {
-                    let status = rest_api_clone.run().await;
+                    let status = rest_api_clone.run(config.rest_api_address).await;
                     if let Err(error) = status {
                         tracing::error!(?error, "REST API stopped with an error");
                         std::process::exit(1);
