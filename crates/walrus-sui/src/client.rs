@@ -769,7 +769,7 @@ impl SuiContractClientInner {
         gas_budget: Option<u64>,
     ) -> SuiClientResult<Self> {
         Ok(Self {
-            wallet: wallet,
+            wallet,
             read_client,
             gas_budget,
         })
