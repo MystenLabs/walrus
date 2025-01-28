@@ -268,9 +268,6 @@ public(package) fun stake(
 
 /// Request withdrawal of the given amount from the staked WAL.
 /// Marks the `StakedWal` as withdrawing and updates the activation epoch.
-///
-/// TODO: if pool is out and is withdrawing, we can perform the withdrawal
-/// immediately
 public(package) fun request_withdraw_stake(
     pool: &mut StakingPool,
     staked_wal: &mut StakedWal,

@@ -113,6 +113,12 @@ fun test_staking_active_set_early_withdraw() {
     // Alice performs an early withdraw
     assert_eq!(staking.withdraw_stake(wal_alice, ctx).burn_for_testing(), 100_000);
 
+    // make sure the node is removed from active set
+    let active_ids = staking.active_set().active_ids();
+    assert!(!active_ids.contains(&pool_one));
+    assert!(active_ids.contains(&pool_two));
+    assert!(active_ids.contains(&pool_three));
+
     staking.select_committee();
     staking.advance_epoch(vec_map::empty());
 
