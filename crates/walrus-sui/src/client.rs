@@ -300,6 +300,9 @@ pub type SuiClientResult<T> = Result<T, SuiClientError>;
 
 /// Client implementation for interacting with the Walrus smart contracts.
 pub struct SuiContractClient {
+    /// SuiContractClientInner executes Sui transactions in a mutually exclusive manner. It makes
+    /// sure that only one transaction is executed at a time, which prevents race conditions in
+    /// using the same owned object in multiple transactions.
     inner: Mutex<SuiContractClientInner>,
     /// Client to read Walrus on-chain state.
     pub read_client: Arc<SuiReadClient>,
@@ -756,7 +759,9 @@ impl SuiContractClient {
 }
 
 struct SuiContractClientInner {
+    /// The wallet used by the client.
     wallet: WalletContext,
+    /// The read client used by the client.
     read_client: Arc<SuiReadClient>,
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
     /// the required gas budget.
@@ -764,7 +769,7 @@ struct SuiContractClientInner {
 }
 
 impl SuiContractClientInner {
-    /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
+    /// Constructor for [`SuiContractClientInner`] with an existing [`SuiReadClient`].
     pub fn new(
         wallet: WalletContext,
         read_client: Arc<SuiReadClient>,
