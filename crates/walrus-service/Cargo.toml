@@ -71,7 +71,7 @@ axum = { workspace = true, features = [
   "tower-log",
   "tracing",
 ] }
-axum-extra = { workspace = true, features = ["typed-header", "query"] }
+axum-extra = { workspace = true, features = ["query", "typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 byteorder.workspace = true

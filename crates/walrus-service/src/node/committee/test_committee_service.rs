@@ -504,9 +504,9 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
                 ..
             } => {
                 assert_eq!(sliver_pair_at_remote, remote_pair_index);
-                return Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
+                Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
                     symbol.clone(),
-                )));
+                )))
             }
             Request::ListVerifiedRecoverySymbols {
                 filter,
@@ -514,9 +514,9 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
                 ..
             } => {
                 assert!(matches!(filter, RecoverySymbolsFilter::ForSliver { .. }));
-                return Ok(Response::VerifiedRecoverySymbols(vec![
+                Ok(Response::VerifiedRecoverySymbols(vec![
                     GeneralRecoverySymbol::from_recovery_symbol(symbol.clone(), target_index),
-                ]));
+                ]))
             }
             request => panic!("unexpected request: {request:?}"),
         });

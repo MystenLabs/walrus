@@ -782,7 +782,10 @@ impl Client {
         let mut symbols = self
             .list_recovery_symbols(metadata.blob_id(), filter)
             .await?;
-        tracing::trace!(n_symbols = symbols.len(), "the server returned recovery symbols");
+        tracing::trace!(
+            n_symbols = symbols.len(),
+            "the server returned recovery symbols"
+        );
         let mut final_error = NodeError::other(EmptyResponse);
 
         symbols.retain(|symbol| {
@@ -802,7 +805,7 @@ impl Client {
                 return false;
             }
 
-            return true;
+            true
         });
 
         if symbols.is_empty() {

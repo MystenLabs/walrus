@@ -698,7 +698,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 
         let upcoming_nodes = if let Some(committee) = committee.upgrade() {
             let mut rng_guard = shared.rng.lock().expect("mutex not poisoned");
-            RemainingShards::new(&committee, &mut *rng_guard)
+            RemainingShards::new(&committee, &mut rng_guard)
         } else {
             RemainingShards::default()
         };
@@ -769,7 +769,11 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
                     let symbol_id = self.symbol_id_at_shard(*shard_id);
 
                     if self.tracker.is_collected(symbol_id) {
-                        tracing::trace!(%shard_id, %symbol_id, "skipping symbol from shard as it is already collected");
+                        tracing::trace!(
+                            %shard_id,
+                            %symbol_id,
+                            "skipping symbol from shard as it is already collected"
+                        );
                         return None;
                     }
                     Some(symbol_id)

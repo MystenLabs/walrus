@@ -52,13 +52,13 @@ mod symbols;
 pub use symbols::{
     min_symbols_for_recovery,
     DecodingSymbol,
+    EitherDecodingSymbol,
     GeneralRecoverySymbol,
     PrimaryRecoverySymbol,
     RecoverySymbol,
     RecoverySymbolPair,
     SecondaryRecoverySymbol,
     Symbols,
-    EitherDecodingSymbol,
 };
 
 mod utils;
