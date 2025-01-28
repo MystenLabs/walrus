@@ -102,7 +102,8 @@ mod tests {
         let spec_path = format!("{label}_openapi.yaml");
         let html_path = format!("{label}_openapi.html");
 
-        let spec = T::openapi();
+        let mut spec = T::openapi();
+        spec.info.version = "<VERSION>".to_string();
 
         std::fs::write(html_path, Redoc::new(spec.clone()).to_html())?;
         std::fs::write(spec_path, spec.clone().to_yaml()?)?;
