@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
@@ -170,6 +171,7 @@ impl WriteClient {
                 &metadata,
                 &pairs,
                 &blob_sui_object.blob_persistence_type(),
+                &MultiProgress::new(),
             )
             .await?;
 

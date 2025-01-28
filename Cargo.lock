@@ -11550,6 +11550,7 @@ version = "1.12.0"
 dependencies = [
  "anyhow",
  "futures",
+ "indicatif",
  "prometheus",
  "reqwest",
  "serde_yaml 0.9.34+deprecated",
@@ -11798,6 +11799,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
+ "indicatif",
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",

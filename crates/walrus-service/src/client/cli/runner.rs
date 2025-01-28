@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use prometheus::Registry;
 use rand::seq::SliceRandom;
@@ -521,7 +522,9 @@ impl ClientCommandRunner {
 
         for file in files {
             let blob = read_blob_from_file(&file)?;
-            let (_, metadata) = client.encode_pairs_and_metadata(&blob).await?;
+            let (_, metadata) = client
+                .encode_pairs_and_metadata(&blob, &MultiProgress::new())
+                .await?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size =
                 encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)

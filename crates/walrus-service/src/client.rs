@@ -9,7 +9,7 @@ use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
-use indicatif::HumanDuration;
+use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetricSet;
 use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
@@ -509,13 +509,20 @@ impl Client<SuiContractClient> {
         let mut failed_indices = Vec::with_capacity(blobs.len());
         let mut pairs_and_metadata = Vec::with_capacity(blobs.len());
 
+        let multi_pb = Arc::new(MultiProgress::new());
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        futures::future::join_all(blobs.iter().enumerate().map(|(idx, blob)| async move {
-            match self.encode_pairs_and_metadata(blob).await {
-                Ok(result) => (idx, Ok(result)),
-                Err(e) => {
-                    tracing::warn!("Failed to encode blob at index {}: {}", idx, e);
-                    (idx, Err(e))
+        futures::future::join_all(blobs.iter().enumerate().map(|(idx, blob)| {
+            let multi_pb_clone = multi_pb.clone();
+            async move {
+                match self
+                    .encode_pairs_and_metadata(blob, multi_pb_clone.as_ref())
+                    .await
+                {
+                    Ok(result) => (idx, Ok(result)),
+                    Err(e) => {
+                        tracing::warn!("Failed to encode blob at index {}: {}", idx, e);
+                        (idx, Err(e))
+                    }
                 }
             }
         }))
@@ -547,8 +554,9 @@ impl Client<SuiContractClient> {
     async fn encode_pairs_and_metadata(
         &self,
         blob: &[u8],
+        multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
-        let spinner = styled_spinner();
+        let spinner = multi_pb.add(styled_spinner());
         spinner.set_message("encoding the blob");
 
         let encode_start_timer = Instant::now();
@@ -750,8 +758,10 @@ impl Client<SuiContractClient> {
         let mut blobs_with_certificates = Vec::with_capacity(new_blobs_and_ops.len());
 
         // TODO(joy): add concurrency limit with semaphore.
+        let multi_pb = Arc::new(MultiProgress::new());
         futures::future::join_all(new_blobs_and_ops.iter().map(
             |(blob_object, resource_operation)| {
+                let multi_pb_arc = Arc::clone(&multi_pb);
                 let committees = committees.clone();
                 async move {
                     let (pairs, metadata, blob_status) =
@@ -764,6 +774,7 @@ impl Client<SuiContractClient> {
                             metadata,
                             &blob_status,
                             &committees,
+                            multi_pb_arc.as_ref(),
                         )
                         .await
                     {
@@ -801,6 +812,7 @@ impl Client<SuiContractClient> {
         Ok(blobs_with_certificates)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn get_blob_certificate(
         &self,
         blob_object: &Blob,
@@ -809,6 +821,7 @@ impl Client<SuiContractClient> {
         metadata: &VerifiedBlobMetadataWithId,
         blob_status: &BlobStatus,
         committees: &ActiveCommittees,
+        multi_pb: &MultiProgress,
     ) -> ClientResult<ConfirmationCertificate> {
         match blob_status.initial_certified_epoch() {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
@@ -838,6 +851,7 @@ impl Client<SuiContractClient> {
                         metadata,
                         pairs,
                         &blob_object.blob_persistence_type(),
+                        multi_pb,
                     )
                     .await?;
                 let duration = certify_start_timer.elapsed();
@@ -974,6 +988,7 @@ impl<T> Client<T> {
         metadata: &VerifiedBlobMetadataWithId,
         pairs: &[SliverPair],
         blob_persistence_type: &BlobPersistenceType,
+        multi_pb: &MultiProgress,
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
         let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs).await;
@@ -994,9 +1009,11 @@ impl<T> Client<T> {
             .communication_factory
             .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
 
-        let progress_bar =
-            styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
-        progress_bar.set_message("sending slivers");
+        let progress_bar = {
+            let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
+            pb.set_message(format!("sending slivers {}", metadata.blob_id()));
+            multi_pb.add(pb)
+        };
 
         let mut requests = WeightedFutures::new(comms.iter().map(|n| {
             n.store_metadata_and_pairs(
@@ -1047,7 +1064,7 @@ impl<T> Client<T> {
             "stored metadata and slivers onto a quorum of nodes"
         );
 
-        progress_bar.finish_with_message("slivers sent");
+        progress_bar.finish_with_message(format!("slivers sent {}", metadata.blob_id()));
 
         let extra_time = self
             .config
@@ -1055,11 +1072,15 @@ impl<T> Client<T> {
             .sliver_write_extra_time
             .extra_time(start.elapsed());
 
-        let spinner = styled_spinner();
-        spinner.set_message(format!(
-            "waiting at most {} more, to store on additional nodes",
-            HumanDuration(extra_time)
-        ));
+        let spinner = {
+            let pb = styled_spinner();
+            pb.set_message(format!(
+                "waiting at most {} more, to store on additional nodes {}",
+                HumanDuration(extra_time),
+                metadata.blob_id()
+            ));
+            multi_pb.add(pb)
+        };
 
         // Allow extra time for the client to store the slivers.
         let completed_reason = requests
@@ -1078,7 +1099,7 @@ impl<T> Client<T> {
             "stored metadata and slivers onto additional nodes"
         );
 
-        spinner.finish_with_message("additional slivers stored");
+        spinner.finish_with_message(format!("additional slivers stored {}", metadata.blob_id()));
 
         let results = requests.into_results();
 

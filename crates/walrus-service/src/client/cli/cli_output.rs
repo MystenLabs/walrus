@@ -75,6 +75,27 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
         for result in self {
             result.print_cli_output();
         }
+        let total_encoded_size = self
+            .iter()
+            .map(|res| match &res.blob_store_result {
+                BlobStoreResult::NewlyCreated {
+                    resource_operation, ..
+                } => resource_operation.encoded_length(),
+                _ => 0,
+            })
+            .sum();
+        let total_cost = self
+            .iter()
+            .map(|res| match res.blob_store_result {
+                BlobStoreResult::NewlyCreated { cost, .. } => cost,
+                _ => 0,
+            })
+            .sum::<u64>();
+        println!(
+            "Total encoded size: {}",
+            HumanReadableBytes(total_encoded_size)
+        );
+        println!("Total cost: {}", HumanReadableFrost::from(total_cost));
     }
 }
 
