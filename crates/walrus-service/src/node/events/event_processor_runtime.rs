@@ -126,7 +126,7 @@ impl EventProcessorRuntime {
         metrics_registry: &Registry,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Arc<EventProcessor>> {
-        tracing::error!(?db_path, "[start_async] running");
+        tracing::info!(?db_path, "[start_async] running");
         let event_processor = Self::build_event_processor(
             &sui_config,
             &event_processor_config,

@@ -59,6 +59,7 @@ move-core-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1
 move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 num-bigint = { version = "0.4.5", default-features = false }
+object_store = { version = "0.11.2", features = ["gcp"] }
 opentelemetry = { version = "=0.25.0", default-features = false, features = ["trace"] }
 p256 = "0.13.2"
 pin-project = "1.1.7"

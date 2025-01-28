@@ -6155,14 +6155,44 @@ dependencies = [
  "md-5",
  "parking_lot 0.12.3",
  "percent-encoding",
- "quick-xml",
+ "quick-xml 0.36.2",
  "rand 0.8.5",
  "reqwest",
  "ring 0.17.8",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
- "snafu",
+ "snafu 0.7.5",
+ "tokio",
+ "tracing",
+ "url",
+ "walkdir",
+]
+
+[[package]]
+name = "object_store"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cfccb68961a56facde1163f9319e0d15743352344e7808a11795fb99698dcaf"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "humantime",
+ "hyper 1.6.0",
+ "itertools 0.13.0",
+ "parking_lot 0.12.3",
+ "percent-encoding",
+ "quick-xml 0.37.2",
+ "rand 0.8.5",
+ "reqwest",
+ "ring 0.17.8",
+ "rustls-pemfile 2.2.0",
+ "serde",
+ "serde_json",
+ "snafu 0.8.5",
  "tokio",
  "tracing",
  "url",
@@ -7146,6 +7176,16 @@ name = "quick-xml"
 version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7649a7b4df05aed9ea7ec6f628c67c9953a43869b8bc50929569b2999d443fe"
+dependencies = [
+ "memchr",
+ "serde",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.37.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "165859e9e55f79d67b96c5d96f4e88b6f2695a1972849c15a6a3f5c59fc2c003"
 dependencies = [
  "memchr",
  "serde",
@@ -8473,7 +8513,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4de37ad025c587a29e8f3f5605c00f70b98715ef90b9061a815b9e59e9042d6"
 dependencies = [
  "doc-comment",
- "snafu-derive",
+ "snafu-derive 0.7.5",
+]
+
+[[package]]
+name = "snafu"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "223891c85e2a29c3fe8fb900c1fae5e69c2e42415e3177752e8718475efa5019"
+dependencies = [
+ "snafu-derive 0.8.5",
 ]
 
 [[package]]
@@ -8486,6 +8535,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "snafu-derive"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03c3c6b7927ffe7ecaa769ee0e3994da3b8cafc8f444578982c83ecb161af917"
+dependencies = [
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
 ]
 
 [[package]]
@@ -8809,7 +8870,7 @@ dependencies = [
  "futures",
  "indicatif",
  "num_enum",
- "object_store",
+ "object_store 0.10.2",
  "prometheus",
  "rand 0.8.5",
  "serde",
@@ -8849,7 +8910,7 @@ dependencies = [
  "fastcrypto 0.1.8 (git+https://github.com/MystenLabs/fastcrypto?rev=69d496c71fb37e3d22fe85e5bbfd4256d61422b9)",
  "move-vm-config",
  "mysten-common",
- "object_store",
+ "object_store 0.10.2",
  "once_cell",
  "prometheus",
  "rand 0.8.5",
@@ -8903,7 +8964,7 @@ dependencies = [
  "mysten-network",
  "nonempty",
  "num_cpus",
- "object_store",
+ "object_store 0.10.2",
  "once_cell",
  "parking_lot 0.12.3",
  "prometheus",
@@ -8956,7 +9017,7 @@ dependencies = [
  "futures",
  "mysten-metrics",
  "notify",
- "object_store",
+ "object_store 0.10.2",
  "prometheus",
  "serde",
  "serde_json",
@@ -9139,7 +9200,7 @@ dependencies = [
  "move-bytecode-utils",
  "move-core-types",
  "mysten-metrics",
- "object_store",
+ "object_store 0.10.2",
  "prometheus",
  "rand 0.8.5",
  "rayon",
@@ -9813,7 +9874,7 @@ dependencies = [
  "indicatif",
  "integer-encoding 3.0.4",
  "num_enum",
- "object_store",
+ "object_store 0.10.2",
  "prometheus",
  "serde",
  "serde_json",
@@ -9857,7 +9918,7 @@ dependencies = [
  "move-core-types",
  "mysten-metrics",
  "num_enum",
- "object_store",
+ "object_store 0.10.2",
  "parking_lot 0.12.3",
  "percent-encoding",
  "prometheus",
@@ -11709,7 +11770,6 @@ name = "walrus-service"
 version = "1.13.0"
 dependencies = [
  "anyhow",
- "async-channel",
  "async-trait",
  "axum 0.8.1",
  "axum-extra",
@@ -11717,6 +11777,7 @@ dependencies = [
  "bcs",
  "bincode",
  "byteorder",
+ "bytes",
  "chrono",
  "clap",
  "colored",
@@ -11742,6 +11803,7 @@ dependencies = [
  "move-core-types",
  "mysten-metrics",
  "num-bigint 0.4.6",
+ "object_store 0.11.2",
  "opentelemetry",
  "p256",
  "pin-project",

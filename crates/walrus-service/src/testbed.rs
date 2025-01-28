@@ -41,7 +41,7 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    backup::BackupNodeConfig,
+    backup::BackupConfig,
     client::{self, ClientCommunicationConfig},
     common::config::SuiConfig,
     node::config::{
@@ -473,8 +473,8 @@ pub async fn create_backup_config(
     working_dir: &Path,
     database_url: &str,
     rpc: String,
-) -> anyhow::Result<BackupNodeConfig> {
-    Ok(BackupNodeConfig::new_with_defaults(
+) -> anyhow::Result<BackupConfig> {
+    Ok(BackupConfig::new_with_defaults(
         working_dir.join("backup"),
         crate::common::config::SuiReaderConfig {
             rpc,

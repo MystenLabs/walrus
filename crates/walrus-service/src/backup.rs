@@ -4,7 +4,7 @@
 //! Walrus blob backup service.
 
 mod config;
-pub use config::BackupNodeConfig;
+pub use config::{BackupConfig, BACKUP_BLOB_ARCHIVE_SUBDIR};
 
 #[cfg(feature = "backup")]
 mod models;
@@ -16,4 +16,4 @@ mod schema;
 mod service;
 
 #[cfg(feature = "backup")]
-pub use service::start_backup_node;
+pub use service::{start_backup_fetcher, start_backup_orchestrator, VERSION};

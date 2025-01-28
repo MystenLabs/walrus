@@ -9,9 +9,12 @@ diesel::table! {
         end_epoch -> Int8,
         state -> Text,
         backup_url -> Nullable<Text>,
+        orchestrator_version -> Text,
+        fetcher_version -> Nullable<Text>,
         created_at -> Timestamptz,
         initiate_fetch_after -> Nullable<Timestamptz>,
-        fetch_attempts -> Nullable<Int4>,
+        retry_count -> Nullable<Int4>,
+        last_error -> Nullable<Text>,
     }
 }
 
