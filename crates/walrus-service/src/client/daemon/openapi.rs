@@ -106,7 +106,14 @@ mod tests {
         spec.info.version = "<VERSION>".to_string();
 
         std::fs::write(html_path, Redoc::new(spec.clone()).to_html())?;
-        std::fs::write(spec_path, spec.clone().to_yaml()?)?;
+
+        let spec_yaml = spec.clone().to_yaml()?;
+        let spec_yaml_are_in_sync = std::fs::read_to_string(&spec_path)? == spec_yaml;
+        std::fs::write(spec_path, spec_yaml)?;
+        assert!(
+            spec_yaml_are_in_sync,
+            "OpenAPI specification was out of sync; was updated automatically"
+        );
 
         Ok(())
     }

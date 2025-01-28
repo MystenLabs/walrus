@@ -43,6 +43,7 @@ jobs:
       isMove: ${{ steps.diff.outputs.isMove }}
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
+      isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
       isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
@@ -244,6 +245,31 @@ jobs:
               `#[serde(default)]` on it, see `BlobRecoveryConfig` as an example.
             - You may need to update the [walrus-docs](https://github.com/MystenLabs/walrus-docs)
               repository to reflect the changes.
+
+  openapi-warning:
+    name: Check if the PR touches any of the OpenAPI files
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isOpenapi == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Post a warning if the PR touches an OpenAPI file
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            **Warning:** This PR modifies one of the OpenAPI files. Please consider the
+            following:
+
+            - Make sure the API changes are backwards compatible.
+            - Make sure to follow existing conventions for any added parameters, requests, and
+              responses.
+            - Make sure the generated HTML files do not contain errors.
+            - This probably requires release notes and maybe changes to the documentation.
+
+            cc @jpcsmith @mlegner
 
   check-all:
     name: Check if all code checks succeeded
