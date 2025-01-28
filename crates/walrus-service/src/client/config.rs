@@ -118,7 +118,9 @@ pub struct AuthConfig {
     /// the issued-at time (iat) and expiration time (exp) in the JWT. I.e., if `expiring_sec > 0`,
     /// the publisher will check that `exp - iat == expiring_sec`.
     pub(crate) expiring_sec: u64,
-    /// verify upload epochs and address for `send_object_to`
+    /// Verify the upload epochs and address for `send_object_to` in the request.
+    ///
+    /// The token expiration is still checked, even if `verify_upload == true`.
     pub(crate) verify_upload: bool,
 }
 

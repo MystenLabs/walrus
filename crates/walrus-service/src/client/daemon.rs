@@ -6,6 +6,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
+    body::HttpBody,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
     middleware::{self, Next},
@@ -270,7 +271,14 @@ pub(crate) async fn auth_layer(
     request: Request,
     next: Next,
 ) -> Response {
-    if let Err(resp) = verify_jwt_claim(query, bearer_header, &auth_config) {
+    // Get a hint on the body size if possible.
+    // Note: this is a preliminary check. It is fine if the body is actually larger than this,
+    // because we will check again the size when storing to Walrus. Hence, we can use `0` as the
+    // body size safely, if the hint is not available.
+    let body_size_hint = request.body().size_hint().upper().unwrap_or(0);
+    tracing::debug!(%body_size_hint, query = ?query.0, "authenticating a request to store a blob");
+
+    if let Err(resp) = verify_jwt_claim(query, bearer_header, &auth_config, body_size_hint) {
         resp
     } else {
         next.run(request).await
