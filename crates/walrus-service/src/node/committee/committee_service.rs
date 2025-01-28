@@ -508,7 +508,16 @@ where
             .await
     }
 
-    #[tracing::instrument(name = "recover_sliver committee", skip_all)]
+    #[tracing::instrument(
+        name = "recover_sliver__committee",
+        skip_all,
+        fields(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.pair_index = %sliver_id,
+            walrus.sliver.type = %sliver_type,
+            walrus.blob.certified_epoch = certified_epoch,
+        )
+    )]
     async fn recover_sliver(
         &self,
         metadata: Arc<VerifiedBlobMetadataWithId>,

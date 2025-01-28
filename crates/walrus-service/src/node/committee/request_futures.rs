@@ -518,6 +518,12 @@ where
     }
 
     pub async fn run(mut self) -> Result<Sliver, InconsistencyProofEnum> {
+        tracing::trace!(
+            sliver_type = %self.target_sliver_type,
+            sliver_index = %self.target_index,
+            "starting recovery for sliver"
+        );
+
         // Since recovery currently consumes the symbols, rather than copy the symbols in every
         // case to handle the rare cases when we fail to *decode* the sliver despite collecting the
         // required number of symbols, we instead retry the entire process with an increased amount.
@@ -533,6 +539,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn recover_with_additional_symbols(
         &mut self,
         additional_symbols: usize,
@@ -714,10 +721,12 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 
             if let Some(symbols) = maybe_symbols {
                 self.tracker.extend_collected(symbols);
-            } else {
-                // Request failed and was logged, replenish the future.
-                self.refill_pending_requests();
             }
+
+            // The request submitted with some or all of the requested symbols, or it failed
+            // completely. In both cases, we need to replenish the requests as the number requested
+            // is potentially not equal to the number returned.
+            self.refill_pending_requests();
         }
 
         debug_assert!(self.pending_requests.is_empty());
@@ -730,6 +739,7 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
     }
 
     fn refill_pending_requests(&mut self) {
+        let mut new_request_count = 0;
         let Some(committee) = self.committee.upgrade() else {
             tracing::trace!("committee has been dropped, skipping refill");
             return;
@@ -739,7 +749,14 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             .upcoming_nodes
             .take_at_most(self.tracker.number_of_symbols_to_request(), &committee)
         {
+            let _span_guard =
+                tracing::trace_span!("refill_pending_requests", node_index = node_index).entered();
+
             let node_info = &committee.members()[node_index];
+            tracing::trace!(
+                ?shard_ids,
+                "selected node and shards to request symbols from"
+            );
 
             let Some(client) = self.shared.get_node_service_by_id(&node_info.public_key) else {
                 tracing::trace!("unable to get the client: creation failed or epoch is changing");
@@ -750,7 +767,12 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
                 .iter()
                 .filter_map(|shard_id| {
                     let symbol_id = self.symbol_id_at_shard(*shard_id);
-                    (!self.tracker.is_collected(symbol_id)).then_some(symbol_id)
+
+                    if self.tracker.is_collected(symbol_id) {
+                        tracing::trace!(%shard_id, %symbol_id, "skipping symbol from shard as it is already collected");
+                        return None;
+                    }
+                    Some(symbol_id)
                 })
                 .collect();
             let symbols_count = symbols_to_request.len();
@@ -783,7 +805,14 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 
             self.pending_requests.push(request);
             self.tracker.increase_pending(symbols_count);
+
+            new_request_count += 1;
         }
+
+        tracing::trace!(
+            new_request_count,
+            "completed refilling pending requests with additional futures"
+        );
     }
 
     fn symbol_id_at_shard(&self, shard_id: ShardIndex) -> SymbolId {
@@ -950,8 +979,14 @@ impl RemainingShards {
         limit: usize,
         committee: &'a Committee,
     ) -> Option<(usize, &'a [ShardIndex])> {
+        if limit == 0 {
+            tracing::trace!("requested no shards, returning None");
+            return None;
+        }
+
         let next_node_index = self.upcoming_nodes.pop_front()?;
         let node_info = &committee.members()[next_node_index];
+        tracing::trace!(limit, next_node_index, "taking shards from the next node");
 
         let range_start = self.next_shard_index;
         let range_end = std::cmp::min(range_start + limit, node_info.shard_ids.len());
@@ -959,9 +994,14 @@ impl RemainingShards {
 
         if range_end != node_info.shard_ids.len() {
             // If the node has more shards, we can push it back onto the set of remaining nodes.
+            tracing::trace!(
+                n_remaining = node_info.shard_ids.len() - range_end,
+                "the next node has shards remaining, replacing on queue"
+            );
             self.upcoming_nodes.push_front(next_node_index);
             self.next_shard_index = range_end;
         } else {
+            tracing::trace!("the next node has no shards remaining, moving on to next node");
             // Otherwise, reset the next_shard_index for the next node.
             self.next_shard_index = 0;
         }

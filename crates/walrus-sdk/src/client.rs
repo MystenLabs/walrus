@@ -782,6 +782,7 @@ impl Client {
         let mut symbols = self
             .list_recovery_symbols(metadata.blob_id(), filter)
             .await?;
+        tracing::trace!(n_symbols = symbols.len(), "the server returned recovery symbols");
         let mut final_error = NodeError::other(EmptyResponse);
 
         symbols.retain(|symbol| {

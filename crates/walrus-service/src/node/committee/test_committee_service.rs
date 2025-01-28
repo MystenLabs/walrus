@@ -18,7 +18,7 @@ use tokio::time;
 use tower::{util::BoxCloneService, ServiceExt as _};
 use walrus_core::{
     bft,
-    encoding::{self, EncodingConfig, Primary, PrimaryRecoverySymbol},
+    encoding::{self, EncodingConfig, GeneralRecoverySymbol, Primary, PrimaryRecoverySymbol},
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -32,7 +32,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::error::ClientBuildError;
+use walrus_sdk::{client::RecoverySymbolsFilter, error::ClientBuildError};
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -498,18 +498,27 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
             "test service function requires at most 1 shard per node"
         );
 
-        service_map.insert_ready(node.public_key.clone(), move |request| {
-            if let Request::GetVerifiedRecoverySymbol {
+        service_map.insert_ready(node.public_key.clone(), move |request| match request {
+            Request::GetVerifiedRecoverySymbol {
                 sliver_pair_at_remote,
                 ..
-            } = request
-            {
+            } => {
                 assert_eq!(sliver_pair_at_remote, remote_pair_index);
                 return Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
                     symbol.clone(),
                 )));
             }
-            panic!("unexpected request: {request:?}");
+            Request::ListVerifiedRecoverySymbols {
+                filter,
+                target_index,
+                ..
+            } => {
+                assert!(matches!(filter, RecoverySymbolsFilter::ForSliver { .. }));
+                return Ok(Response::VerifiedRecoverySymbols(vec![
+                    GeneralRecoverySymbol::from_recovery_symbol(symbol.clone(), target_index),
+                ]));
+            }
+            request => panic!("unexpected request: {request:?}"),
         });
     }
 
@@ -525,6 +534,11 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
         })
         .build(committee_lookup)
         .await?;
+
+    let _guards = tracing_subscriber::fmt()
+        .pretty()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
 
     let mut pending_request = committee_service.recover_sliver(
         metadata.into(),

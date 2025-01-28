@@ -2129,6 +2129,7 @@ impl ServiceState for StorageNodeInner {
         Err(final_error)
     }
 
+    #[tracing::instrument(skip_all)]
     fn retrieve_multiple_recovery_symbols(
         &self,
         blob_id: &BlobId,
