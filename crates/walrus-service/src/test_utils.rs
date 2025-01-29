@@ -300,7 +300,7 @@ impl SimStorageNodeHandle {
     /// Starts and runs a storage node with the provided configuration in a dedicated simulator
     /// node.
     pub async fn spawn_node(
-        config: Arc<RwLock<StorageNodeConfig>>, // Changed to Arc
+        config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
@@ -503,8 +503,9 @@ impl SimStorageNodeHandle {
     }
 }
 
-/// A storage node handle for simulation tests. Comparing to StorageNodeHandle, this struct
-/// removes any storage node internal state, and adds a simulator node id for node management.
+/// A storage node handle builder for simulation tests. The main difference between
+/// SimStorageNodeHandle and StorageNodeHandle is that SimStorageNodeHandle is used in crash
+/// recovery simulation and therefore the StorageNode instance may change overtime.
 #[cfg(msim)]
 impl StorageNodeHandleTrait for SimStorageNodeHandle {
     fn cancel(&self) {
@@ -1025,7 +1026,7 @@ async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
     .await?
 }
 
-/// Returns a test config for a storage node that would make a valid committee when paired
+/// Returns with a test config for a storage node that would make a valid committee when paired
 /// with the provided node, if necessary.
 ///
 /// The number of shards in the system inferred from the shards assigned in the provided config.
