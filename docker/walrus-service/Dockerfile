@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y cmake clang
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY contracts ./contracts
 COPY contracts /tmp/contracts
 
 RUN cargo build --features walrus-service/backup \
