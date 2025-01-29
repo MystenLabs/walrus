@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y cmake clang
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-COPY contracts contracts
+COPY contracts /tmp/contracts
 
 RUN cargo build --features walrus-service/backup \
     --profile $PROFILE \
@@ -30,7 +30,7 @@ COPY --from=builder /walrus/target/release/walrus /opt/walrus/bin/walrus
 COPY --from=builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
 COPY --from=builder /walrus/target/release/walrus-node /opt/walrus/bin/walrus-node
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
-COPY --from=builder contracts /opt/walrus/contracts
+COPY --from=builder /tmp/contracts /opt/walrus/contracts
 
 ARG BUILD_DATE
 ARG GIT_REVISION
@@ -70,7 +70,7 @@ ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
-COPY --from=builder contracts /opt/walrus/contracts
+COPY --from=builder /tmp/contracts /opt/walrus/contracts
 
 ARG BUILD_DATE
 ARG GIT_REVISION
