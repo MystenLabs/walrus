@@ -881,7 +881,8 @@ impl SymbolTracker {
     ///
     /// This excludes the number of symbols that have been requested but are pending completion.
     fn number_of_symbols_to_request(&self) -> usize {
-        self.symbols_still_required_count - self.symbols_in_progress_count
+        self.symbols_still_required_count
+            .saturating_sub(self.symbols_in_progress_count)
     }
 
     /// Returns true if the identified symbol has already been collected.
@@ -891,8 +892,8 @@ impl SymbolTracker {
     }
 
     /// Increase the number of symbols in progress.
-    fn increase_pending(&mut self, symbols_count: usize) {
-        self.symbols_in_progress_count += symbols_count;
+    fn increase_pending(&mut self, symbol_count: usize) {
+        self.symbols_in_progress_count += symbol_count;
     }
 
     /// Decreases the number of symbols in progress.
@@ -924,7 +925,12 @@ impl SymbolTracker {
             let key = self.symbol_id_to_key(symbol.id());
             // Only decrement the number of symbols required if an equivalent symbol wasnt present.
             if self.collected.insert(key, symbol).is_none() {
-                self.symbols_still_required_count -= 1;
+                // This holds the potential to underflow because we accept all valid symbols
+                // returned by storage nodes, which may be more symbols than initially requested.
+                // This can occur, for example, due to the remote node advancing an epoch and
+                // responding to the request using their new shard assignment.
+                self.symbols_still_required_count =
+                    self.symbols_still_required_count.saturating_sub(1);
             }
         }
     }

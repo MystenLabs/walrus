@@ -366,6 +366,13 @@ impl Committee {
         self.members.iter().find(|node| node.node_id == *node_id)
     }
 
+    /// Returns the first node with the specified public key, if any.
+    pub fn find_by_public_key(&self, public_key: &PublicKey) -> Option<&StorageNode> {
+        self.members
+            .iter()
+            .find(|node| node.public_key == *public_key)
+    }
+
     /// Returns the node response for the specified shard.
     pub fn find_by_shard<S: Into<ShardIndex>>(&self, shard: S) -> Option<&StorageNode> {
         self.member_index_for_shard(shard.into())

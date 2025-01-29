@@ -972,7 +972,7 @@ mod tests {
 
         assert!(committees
             .current_committee()
-            .find(&walrus_cluster.nodes[5].public_key)
+            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
             .is_some());
 
         // Check that the new params are updated on-chain.

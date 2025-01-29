@@ -2069,7 +2069,7 @@ impl ServiceState for StorageNodeInner {
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
@@ -2176,10 +2176,9 @@ impl ServiceState for StorageNodeInner {
                             target,
                             pair_stored.to_sliver_index::<Secondary>(n_shards),
                         ),
-                        SliverType::Secondary => SymbolId::new(
-                            pair_stored.to_sliver_index::<Secondary>(n_shards),
-                            target,
-                        ),
+                        SliverType::Secondary => {
+                            SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), target)
+                        }
                     }
                 });
                 output.extend(symbol_ids.filter_map(|id| try_for_symbol(id, target_type)));
