@@ -4,7 +4,7 @@
 //! Walrus Sui build script. Currently only used to generate error definitions based on the
 //! Move errors.
 
-use std::{collections::HashSet, env, fs, path::Path};
+use std::{collections::HashSet, convert::identity, env, fs, path::Path};
 
 use inflections::Inflect;
 use regex::Regex;
@@ -35,12 +35,21 @@ impl ModuleErrorDefs {
 
 fn main() {
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR should be set automatically by cargo");
+    let contracts_dir = "../../contracts";
+    let contracts_dir_path = Path::new(contracts_dir);
 
-    for contracts_dir in ["../../contracts", "../../testnet-contracts"] {
-        generate_error_defs_for_contracts(Path::new(contracts_dir), Path::new(&out_dir));
-        // Tell cargo to rerun if relevant files change
-        println!("cargo:rerun-if-changed={}", contracts_dir);
+    if !(fs::exists(contracts_dir_path).is_ok_and(identity)) {
+        println!(
+            "cargo::error=The directory {} (relative to crates/walrus-sui) \
+            is required to generate Move errors.",
+            contracts_dir_path.display()
+        );
+        return;
     }
+
+    generate_error_defs_for_contracts(contracts_dir_path, Path::new(&out_dir));
+    // Tell cargo to rerun if relevant files change
+    println!("cargo::rerun-if-changed={}", contracts_dir);
 }
 
 fn generate_error_defs_for_contracts(contracts_dir: &Path, out_dir: &Path) {
