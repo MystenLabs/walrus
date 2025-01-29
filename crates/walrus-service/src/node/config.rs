@@ -522,7 +522,7 @@ pub mod defaults {
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
     /// Default interval between config monitoring checks in seconds.
-    pub const CONFIG_MONITOR_INTERVAL_SECS: u64 = 60 * 60;
+    pub const CONFIG_MONITOR_INTERVAL_SECS: u64 = 3600;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -575,9 +575,9 @@ pub mod defaults {
         Duration::from_secs(CONFIG_MONITOR_INTERVAL_SECS)
     }
 
-    /// Returns false in test mode, true for simtest and prod.
+    /// Returns false in test mode.
     pub fn config_monitor_enabled() -> bool {
-        !cfg!(test) || cfg!(feature = "simtest")
+        !cfg!(test)
     }
 }
 
@@ -790,6 +790,8 @@ mod tests {
                 backoff_config: Default::default(),
                 gas_budget: defaults::gas_budget(),
             }),
+            config_monitor_interval: Duration::from_secs(defaults::CONFIG_MONITOR_INTERVAL_SECS),
+            enable_config_monitor: true,
             ..Default::default()
         };
 

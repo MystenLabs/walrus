@@ -115,6 +115,6 @@ metadata:
   extra_fields: []
 metrics_push: null
 config_monitor_interval:
-  secs: 0
+  secs: 3600
   nanos: 0
-enable_config_monitor: false
+enable_config_monitor: true
