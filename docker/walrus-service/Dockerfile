@@ -70,6 +70,7 @@ ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
+COPY --from=builder contracts /opt/walrus/contracts
 
 ARG BUILD_DATE
 ARG GIT_REVISION
