@@ -2,7 +2,7 @@
 #
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.84-bookworm AS builder
 ARG PROFILE=release
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y cmake clang
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 
-RUN cargo build --profile $PROFILE \
+RUN cargo build --features="backup" \
+    --profile $PROFILE \
     --bin walrus \
     --bin walrus-backup \
     --bin walrus-node \
