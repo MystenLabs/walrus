@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y cmake clang
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
 
-RUN cargo build --features="backup" \
+RUN cargo build --features walrus-service/backup \
     --profile $PROFILE \
     --bin walrus \
     --bin walrus-backup \

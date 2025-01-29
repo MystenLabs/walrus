@@ -99,7 +99,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
       - name: Build Rust code
-        run: cargo build --workspace --verbose
+        run: cargo build --workspace --features "walrus-service/backup" --verbose
 
   test:
     name: Test Rust code
@@ -118,7 +118,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
       - name: Run tests
-        run: cargo nextest run --workspace --profile ci --run-ignored all
+        run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all
 
   test-coverage:
     name: Run all Rust tests and report coverage
