@@ -21,7 +21,7 @@ mod tests {
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
-        test_utils::{test_cluster, SimStorageNodeHandle},
+        test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
     };
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
@@ -919,7 +919,7 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_monitor: true,
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -1077,7 +1077,7 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_monitor: true,
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
