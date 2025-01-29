@@ -30,6 +30,7 @@ COPY --from=builder /walrus/target/release/walrus /opt/walrus/bin/walrus
 COPY --from=builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
 COPY --from=builder /walrus/target/release/walrus-node /opt/walrus/bin/walrus-node
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
+COPY --from=builder contracts /opt/walrus/contracts
 
 ARG BUILD_DATE
 ARG GIT_REVISION
