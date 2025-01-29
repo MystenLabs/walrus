@@ -1011,7 +1011,7 @@ impl<T> Client<T> {
 
         let progress_bar = {
             let pb = styled_progress_bar(bft::min_n_correct(committees.n_shards()).get().into());
-            pb.set_message(format!("sending slivers {}", metadata.blob_id()));
+            pb.set_message(format!("sending slivers ({})", metadata.blob_id()));
             multi_pb.add(pb)
         };
 
@@ -1064,7 +1064,7 @@ impl<T> Client<T> {
             "stored metadata and slivers onto a quorum of nodes"
         );
 
-        progress_bar.finish_with_message(format!("slivers sent {}", metadata.blob_id()));
+        progress_bar.finish_with_message(format!("slivers sent ({})", metadata.blob_id()));
 
         let extra_time = self
             .config
@@ -1075,7 +1075,7 @@ impl<T> Client<T> {
         let spinner = {
             let pb = styled_spinner();
             pb.set_message(format!(
-                "waiting at most {} more, to store on additional nodes {}",
+                "waiting at most {} more, to store on additional nodes ({})",
                 HumanDuration(extra_time),
                 metadata.blob_id()
             ));
@@ -1099,7 +1099,10 @@ impl<T> Client<T> {
             "stored metadata and slivers onto additional nodes"
         );
 
-        spinner.finish_with_message(format!("additional slivers stored {}", metadata.blob_id()));
+        spinner.finish_with_message(format!(
+            "additional slivers stored ({})",
+            metadata.blob_id()
+        ));
 
         let results = requests.into_results();
 

@@ -91,6 +91,7 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
                 _ => 0,
             })
             .sum::<u64>();
+        println!("Summary for Newly Created Blobs");
         println!(
             "Total encoded size: {}",
             HumanReadableBytes(total_encoded_size)
