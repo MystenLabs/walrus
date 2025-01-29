@@ -273,9 +273,15 @@ impl SystemContractService for SuiSystemContractService {
                         );
                         Some(())
                     }
-                    Err(SuiClientError::TransactionExecutionError(e))
-                        if !matches!(e, MoveExecutionError::NotParsable(_)) =>
-                    {
+                    Err(SuiClientError::TransactionExecutionError(
+                        MoveExecutionError::NotParsable(_),
+                    )) => {
+                        tracing::error!(blob_id = ?blob_id,
+                            "Unexpected unknown transaction execution error while \
+                            attesting event blob, retrying");
+                        None
+                    }
+                    Err(SuiClientError::TransactionExecutionError(e)) => {
                         tracing::warn!(error = ?e, blob_id = ?blob_id,
                             "Unexpected move execution error while attesting event blob");
                         Some(())
@@ -284,14 +290,6 @@ impl SystemContractService for SuiSystemContractService {
                         tracing::debug!(blob_id = ?blob_id,
                             object_ids = ?object_ids,
                             "Shared object congestion error while attesting event blob, retrying");
-                        None
-                    }
-                    Err(SuiClientError::TransactionExecutionError(
-                        MoveExecutionError::NotParsable(_),
-                    )) => {
-                        tracing::error!(blob_id = ?blob_id,
-                            "Unexpected unknown transaction execution error while \
-                            attesting event blob, retrying");
                         None
                     }
                     Err(error) => {
