@@ -947,6 +947,7 @@ impl StorageNodeHandleBuilder {
                 gas_budget: config::defaults::gas_budget(),
             }),
             enable_config_monitor: self.enable_node_config_monitor,
+            config_monitor_interval: Duration::from_secs(5),
             ..storage_node_config().inner
         };
 
@@ -1300,6 +1301,10 @@ impl CommitteeService for StubCommitteeService {
     async fn begin_committee_change_to_latest_committee(
         &self,
     ) -> Result<(), BeginCommitteeChangeError> {
+        Ok(())
+    }
+
+    async fn async_committee_members(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }

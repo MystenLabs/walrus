@@ -483,19 +483,22 @@ impl StorageNode {
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         tracing::info!(
-            "Creating StorageNode with config monitor enabled: {}",
-            config.enable_config_monitor
+            "Creating StorageNode with config monitor enabled: {}, interval: {:?}",
+            config.enable_config_monitor,
+            config.config_monitor_interval
         );
         let config_monitor = if config.enable_config_monitor {
             Arc::new(ConfigMonitor::new(
                 config.clone(),
                 contract_service.clone(),
+                committee_service.clone(),
                 config.config_monitor_interval,
             ))
         } else {
             Arc::new(ConfigMonitor::disabled(
                 config.clone(),
                 contract_service.clone(),
+                committee_service.clone(),
                 config.config_monitor_interval,
             ))
         };

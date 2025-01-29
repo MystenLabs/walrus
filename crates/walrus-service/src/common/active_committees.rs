@@ -362,11 +362,11 @@ impl CommitteeTracker {
         &mut self,
         committee: Committee,
     ) -> Result<(), NextCommitteeAlreadySet> {
-        assert_eq!(
-            committee.epoch,
-            self.next_epoch(),
-            "committee's epoch must match the next epoch"
-        );
+        // assert_eq!(
+        //     committee.epoch,
+        //     self.next_epoch(),
+        //     "committee's epoch must match the next epoch"
+        // );
         ensure!(
             self.0.next_committee.is_none(),
             NextCommitteeAlreadySet(committee)

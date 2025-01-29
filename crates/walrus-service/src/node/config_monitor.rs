@@ -11,12 +11,17 @@ use std::{
 
 use tracing::{self, instrument};
 
-use super::{config::StorageNodeConfig, contract_service::SystemContractService};
+use super::{
+    committee::CommitteeService,
+    config::StorageNodeConfig,
+    contract_service::SystemContractService,
+};
 
 /// Monitors and syncs node configuration with on-chain parameters
 pub struct ConfigMonitor {
     config: StorageNodeConfig,
-    _contract_service: Arc<dyn SystemContractService>,
+    contract_service: Arc<dyn SystemContractService>,
+    committee_service: Arc<dyn CommitteeService>,
     check_interval: Duration,
     enabled: AtomicBool,
 }
@@ -26,11 +31,13 @@ impl ConfigMonitor {
     pub fn new(
         config: StorageNodeConfig,
         contract_service: Arc<dyn SystemContractService>,
+        committee_service: Arc<dyn CommitteeService>,
         check_interval: Duration,
     ) -> Self {
         Self {
             config,
-            _contract_service: contract_service,
+            contract_service,
+            committee_service,
             check_interval,
             enabled: AtomicBool::new(true),
         }
@@ -40,11 +47,13 @@ impl ConfigMonitor {
     pub fn disabled(
         config: StorageNodeConfig,
         contract_service: Arc<dyn SystemContractService>,
+        committee_service: Arc<dyn CommitteeService>,
         check_interval: Duration,
     ) -> Self {
         Self {
             config,
-            _contract_service: contract_service,
+            contract_service,
+            committee_service,
             check_interval,
             enabled: AtomicBool::new(false),
         }
@@ -64,6 +73,10 @@ impl ConfigMonitor {
                 tracing::error!("Failed to sync node params: {}", e);
                 return Err(e);
             }
+            if let Err(e) = self.sync_committee().await {
+                tracing::error!("Failed to sync committee: {}", e);
+                return Err(e);
+            }
             tokio::time::sleep(self.check_interval).await;
         }
     }
@@ -81,7 +94,18 @@ impl ConfigMonitor {
             return Ok(());
         }
 
-        self._contract_service.sync_node_params(&self.config).await
+        self.contract_service.sync_node_params(&self.config).await
+    }
+
+    /// Refreshes the committee to the latest committee on chain.
+    async fn sync_committee(&self) -> anyhow::Result<()> {
+        if !self.enabled.load(Ordering::Relaxed) {
+            tracing::warn!("Config monitor is disabled, skipping committee sync");
+            return Ok(());
+        }
+        self.committee_service.async_committee_members().await?;
+
+        Ok(())
     }
 }
 
