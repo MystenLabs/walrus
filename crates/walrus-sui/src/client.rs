@@ -426,8 +426,6 @@ impl SuiContractClient {
     /// returns the certified blob.
     ///
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
-    // NB: This intentionally takes an owned `Blob` object even though it is not required, as the
-    // corresponding object on Sui will be changed in the process.
     pub async fn certify_blobs(
         &self,
         blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
@@ -903,8 +901,6 @@ impl SuiContractClientInner {
     /// returns the certified blob.
     ///
     /// If the post store action is `share`, returns a mapping blob ID -> shared_blob_object_id.
-    // NB: This intentionally takes an owned `Blob` object even though it is not required, as the
-    // corresponding object on Sui will be changed in the process.
     pub async fn certify_blobs(
         &mut self,
         blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
@@ -1360,10 +1356,6 @@ impl SuiContractClientInner {
             .await
     }
 
-    // TODO(giac): Currently we pass the wallet as an argument to ensure that the caller can lock
-    // before taking the object references. This ensures that no race conditions occur. We could
-    // consider a more ergonomic approach, where this function takes `&mut self`, and the whole
-    // client needs to be locked. (#1023).
     async fn sign_and_send_ptb_inner(
         &mut self,
         programmable_transaction: ProgrammableTransaction,
