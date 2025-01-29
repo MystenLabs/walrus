@@ -471,13 +471,6 @@ pub struct NodeParameters {
     ignore_sync_failures: bool,
 }
 
-enum ProtocolKeyAction {
-    UpdateRemoteNextPublicKey(PublicKey),
-    ResetRemoteNextPublicKey,
-    RotateLocalKeyPair,
-    DoNothing,
-}
-
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
@@ -1030,23 +1023,6 @@ impl StorageNode {
 
             return Ok(());
         }
-        tracing::info!(
-            walrus.blob_id = %event.blob_id,
-            walrus.node.status = ?self.inner.storage.node_status()?,
-            "processing blob certified event"
-        );
-
-        let public_key = self.inner.public_key();
-        let storage = &self.inner.storage;
-        let committees = self.inner.committee_service.active_committees();
-        let shard_diff =
-            ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
-        tracing::info!(
-        walrus.epoch = event.epoch,
-        ?shard_diff,
-        public_key = ?public_key,
-        "shard diff for node recovery"
-        );
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
@@ -1250,12 +1226,6 @@ impl StorageNode {
         // Create storage for shards that are currently owned by the node in the latest epoch.
         let shard_diff =
             ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
-        tracing::info!(
-            walrus.epoch = event.epoch,
-            ?shard_diff,
-            public_key = ?public_key,
-            "shard diff for node recovery"
-        );
         self.inner
             .create_storage_for_shards_in_background(shard_diff.gained)
             .await?;
@@ -1270,12 +1240,6 @@ impl StorageNode {
                 .set_active_status()?;
         }
 
-        tracing::info!(
-            walrus.epoch = event.epoch,
-            public_key = ?public_key,
-            walrus.node_status = "RecoveryInProgress",
-            "node status changed to RecoveryInProgress"
-        );
         // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
         // the node will be in a state where it has all the shards and blobs that it should have.
         self.node_recovery_handler

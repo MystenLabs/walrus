@@ -260,6 +260,7 @@ impl Storage {
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
         for shard_index in removed {
+            tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = {
                 let mut shards = self.shards.write().expect("take lock shouldn't fail");
                 shards.remove(shard_index)

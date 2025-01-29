@@ -11,7 +11,7 @@ use walrus_core::{
 };
 use walrus_service::{
     client::ClientCommunicationConfig,
-    test_utils::{test_cluster, StorageNodeHandle},
+    test_utils::{test_cluster, StorageNodeHandle, TestNodesConfig},
 };
 use walrus_sui::client::ReadClient;
 
@@ -19,14 +19,17 @@ use walrus_sui::client::ReadClient;
 #[ignore = "ignore E2E tests by default"]
 async fn test_event_blobs() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
-            &[1, 1],
-            false,
-            false,
-            Some(10),
-            ClientCommunicationConfig::default_for_test(),
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_monitor: false,
+            },
             None,
+            ClientCommunicationConfig::default_for_test(),
         )
         .await?;
 
@@ -83,14 +86,17 @@ async fn test_event_blobs() -> anyhow::Result<()> {
 #[ignore = "ignore E2E tests by default"]
 async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
-            &[1, 1],
-            false,
-            true,
-            Some(10),
-            ClientCommunicationConfig::default_for_test(),
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: true,
+                blocklist_dir: None,
+                enable_node_config_monitor: false,
+            },
             None,
+            ClientCommunicationConfig::default_for_test(),
         )
         .await?;
 

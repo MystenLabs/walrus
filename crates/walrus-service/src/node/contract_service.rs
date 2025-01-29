@@ -26,16 +26,18 @@ use walrus_sui::{
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::{
-    committee::CommitteeService,
-    config::StorageNodeConfig,
-    errors::StorageNodeError,
-    ProtocolKeyAction,
-};
+use super::{committee::CommitteeService, config::StorageNodeConfig, errors::StorageNodeError};
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
+
+enum ProtocolKeyAction {
+    UpdateRemoteNextPublicKey(PublicKey),
+    ResetRemoteNextPublicKey,
+    RotateLocalKeyPair,
+    DoNothing,
+}
 
 /// A service for interacting with the system contract.
 #[cfg_attr(test, mockall::automock)]

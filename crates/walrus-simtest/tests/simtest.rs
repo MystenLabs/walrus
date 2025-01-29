@@ -197,11 +197,15 @@ mod tests {
         let (_sui_cluster, _cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
-                &[1, 2, 3, 3, 4],
-                false,
-                ClientCommunicationConfig::default_for_test(),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
                 None,
-                Some(10),
+                ClientCommunicationConfig::default_for_test(),
             )
             .await
             .unwrap();
@@ -239,11 +243,15 @@ mod tests {
         let (sui_cluster, _walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
-                &[1, 2, 3, 3, 4],
-                false,
-                ClientCommunicationConfig::default_for_test(),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
                 None,
-                Some(10),
+                ClientCommunicationConfig::default_for_test(),
             )
             .await
             .unwrap();
@@ -414,13 +422,17 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4],
-                true,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
+                None,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                None,
             )
             .await
             .unwrap();
@@ -557,13 +569,17 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(10),
-                &[1, 2, 3, 3, 4],
-                true,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
+                None,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
-                None,
-                None,
             )
             .await
             .unwrap();
@@ -687,13 +703,17 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4],
-                true,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
+                Some(100),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(100),
             )
             .await
             .unwrap();
@@ -752,13 +772,17 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4, 0],
-                false,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
+                Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(10),
             )
             .await
             .unwrap();
@@ -890,13 +914,17 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4, 0],
-                false,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
+                Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(10),
             )
             .await
             .unwrap();
@@ -1044,13 +1072,17 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4, 0],
-                false,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_monitor: false,
+                },
+                Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(10),
             )
             .await
             .unwrap();
@@ -1158,7 +1190,6 @@ mod tests {
             .expect("Failed to get staking pool");
 
         assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
-        // assert_eq!(config.read().await.protocol_key_pair(), new_protocol_key_pair.into());
         let public_key = config.read().await.protocol_key_pair().public().clone();
         assert_eq!(&public_key, new_protocol_key_pair.public());
     }

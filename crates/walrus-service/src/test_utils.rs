@@ -180,6 +180,21 @@ pub trait StorageNodeHandleTrait {
     fn use_distinct_ip() -> bool;
 }
 
+/// Configuration for test node setup
+#[derive(Debug, Clone)]
+pub struct TestNodesConfig {
+    /// The weights of the nodes in the cluster.
+    pub node_weights: Vec<u16>,
+    /// Whether to use the legacy event processor.
+    pub use_legacy_event_processor: bool,
+    /// Whether to disable the event blob writer.
+    pub disable_event_blob_writer: bool,
+    /// The directory to store the blocklist.
+    pub blocklist_dir: Option<PathBuf>,
+    /// Whether to enable the node config monitor.
+    pub enable_node_config_monitor: bool,
+}
+
 /// A storage node and associated data for testing.
 #[derive(Debug)]
 pub struct StorageNodeHandle {
@@ -397,7 +412,7 @@ impl SimStorageNodeHandle {
     )> {
         // TODO(#996): extract the common code to start the code, and use it here as well as in
         // StorageNodeRuntime::start.
-        let config_guard = config.read().await.config_guard.clone();
+        let config = config.read().await.clone();
 
         let metrics_registry = Registry::default();
 
@@ -488,9 +503,8 @@ impl SimStorageNodeHandle {
     }
 }
 
-/// A storage node handle builder for simulation tests. The main difference between
-/// SimStorageNodeHandle and StorageNodeHandle is that SimStorageNodeHandle is used in crash
-/// recovery simulation and therefore the StorageNode instance may change overtime.
+/// A storage node handle for simulation tests. Comparing to StorageNodeHandle, this struct
+/// removes any storage node internal state, and adds a simulator node id for node management.
 #[cfg(msim)]
 impl StorageNodeHandleTrait for SimStorageNodeHandle {
     fn cancel(&self) {
@@ -573,6 +587,7 @@ pub struct StorageNodeHandleBuilder {
     storage_node_capability: Option<StorageNodeCap>,
     node_wallet_dir: Option<PathBuf>,
     num_checkpoints_per_blob: Option<u32>,
+    enable_node_config_monitor: bool,
 }
 
 impl StorageNodeHandleBuilder {
@@ -588,6 +603,12 @@ impl StorageNodeHandleBuilder {
     /// storage also dictates the shard assignment to this storage node in the created committee.
     pub fn with_storage(mut self, storage: WithTempDir<Storage>) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    /// Enable or disable the node's config monitor.
+    pub fn with_enable_node_config_monitor(mut self, enable: bool) -> Self {
+        self.enable_node_config_monitor = enable;
         self
     }
 
@@ -773,6 +794,7 @@ impl StorageNodeHandleBuilder {
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
             config_monitor_interval: Duration::from_secs(5),
+            enable_config_monitor: self.enable_node_config_monitor,
             ..storage_node_config().inner
         };
 
@@ -923,6 +945,7 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: config::defaults::gas_budget(),
             }),
+            enable_config_monitor: self.enable_node_config_monitor,
             ..storage_node_config().inner
         };
 
@@ -984,6 +1007,7 @@ impl Default for StorageNodeHandleBuilder {
             storage_node_capability: None,
             node_wallet_dir: None,
             num_checkpoints_per_blob: None,
+            enable_node_config_monitor: false,
         }
     }
 }
@@ -1001,7 +1025,7 @@ async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
     .await?
 }
 
-/// Returns with a test config for a storage node that would make a valid committee when paired
+/// Returns a test config for a storage node that would make a valid committee when paired
 /// with the provided node, if necessary.
 ///
 /// The number of shards in the system inferred from the shards assigned in the provided config.
@@ -1492,6 +1516,7 @@ pub struct TestClusterBuilder {
     num_checkpoints_per_blob: Option<u32>,
     blocklist_files: Vec<Option<PathBuf>>,
     disable_event_blob_writer: Vec<bool>,
+    enable_node_config_monitor: bool,
 }
 
 impl TestClusterBuilder {
@@ -1511,6 +1536,12 @@ impl TestClusterBuilder {
     /// Returns a reference to the storage node test configs of the builder.
     pub fn storage_node_test_configs(&self) -> &Vec<StorageNodeTestConfig> {
         &self.storage_node_configs
+    }
+
+    /// Sets the enable storage node config monitor flag for each storage node.
+    pub fn with_enable_node_config_monitor(mut self, enable_node_config_monitor: bool) -> Self {
+        self.enable_node_config_monitor = enable_node_config_monitor;
+        self
     }
 
     /// Sets the shard sync config for the cluster.
@@ -1716,7 +1747,12 @@ impl TestClusterBuilder {
                 .with_node_wallet_dir(node_wallet_dir)
                 .with_blocklist_file(blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
-                .with_disabled_event_blob_writer(disable_event_blob_writer);
+                .with_disabled_event_blob_writer(disable_event_blob_writer)
+                .with_enable_node_config_monitor(self.enable_node_config_monitor);
+            tracing::info!(
+                "Test cluster builder build enable_node_config_monitor: {}",
+                self.enable_node_config_monitor
+            );
 
             let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
             {
@@ -1885,6 +1921,7 @@ impl Default for TestClusterBuilder {
             sui_cluster_handle: None,
             use_distinct_ip: false,
             num_checkpoints_per_blob: None,
+            enable_node_config_monitor: false,
         }
     }
 }
@@ -2039,14 +2076,18 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
-        let node_weights = [1, 2, 3, 3, 4];
+        let test_nodes_config = TestNodesConfig {
+            node_weights: vec![1, 2, 3, 3, 4],
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: None,
+            enable_node_config_monitor: false,
+        };
         default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
-            &node_weights,
-            true,
-            ClientCommunicationConfig::default_for_test(),
-            None,
+            test_nodes_config,
             Some(10),
+            ClientCommunicationConfig::default_for_test(),
         )
         .await
     }
@@ -2055,11 +2096,9 @@ pub mod test_cluster {
     /// specified storage node handle.
     pub async fn default_setup_with_epoch_duration_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
-        node_weights: &[u16],
-        use_legacy_event_processor: bool,
-        communication_config: ClientCommunicationConfig,
-        blocklist_dir: Option<PathBuf>,
+        test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
+        communication_config: ClientCommunicationConfig,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2067,12 +2106,9 @@ pub mod test_cluster {
     )> {
         default_setup_with_num_checkpoints_generic(
             epoch_duration,
-            node_weights,
-            use_legacy_event_processor,
-            false,
+            test_nodes_config,
             num_checkpoints_per_blob,
             communication_config,
-            blocklist_dir,
         )
         .await
     }
@@ -2081,12 +2117,9 @@ pub mod test_cluster {
     /// specified storage node handle.
     pub async fn default_setup_with_num_checkpoints_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
-        node_weights: &[u16],
-        use_legacy_event_processor: bool,
-        disable_event_blob_writer: bool,
+        test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
-        blocklist_dir: Option<PathBuf>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2102,10 +2135,10 @@ pub mod test_cluster {
 
         // Specify an empty assignment to ensure that storage nodes are not created with invalid
         // shard assignments.
-        let n_shards = NonZeroU16::new(node_weights.iter().sum())
+        let n_shards = NonZeroU16::new(test_nodes_config.node_weights.iter().sum())
             .expect("sum of non-zero weights is not zero");
-        let cluster_builder =
-            TestCluster::<T>::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
+        let cluster_builder = TestCluster::<T>::builder()
+            .with_shard_assignment(&vec![[]; test_nodes_config.node_weights.len()]);
 
         // Get the default committee from the test cluster builder
         let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
@@ -2147,16 +2180,17 @@ pub mod test_cluster {
             let temp_dir = client.temp_dir.path().to_owned();
             node_wallet_dirs.push(temp_dir.clone());
             contract_clients.push(client);
-            let blocklist_dir = blocklist_dir.clone().unwrap_or(temp_dir);
+            let blocklist_dir = test_nodes_config.blocklist_dir.clone().unwrap_or(temp_dir);
             blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
-            disable_event_blob_writers.push(disable_event_blob_writer);
+            disable_event_blob_writers.push(test_nodes_config.disable_event_blob_writer);
         }
         let contract_clients_refs = contract_clients
             .iter()
             .map(|client| &client.inner)
             .collect::<Vec<_>>();
 
-        let amounts_to_stake = node_weights
+        let amounts_to_stake = test_nodes_config
+            .node_weights
             .iter()
             .map(|&weight| FROST_PER_NODE_WEIGHT * weight as u64)
             .collect::<Vec<_>>();
@@ -2219,7 +2253,7 @@ pub mod test_cluster {
             .with_system_contract_services(&node_contract_services);
 
         let event_processor_config = Default::default();
-        let cluster_builder = if use_legacy_event_processor {
+        let cluster_builder = if test_nodes_config.use_legacy_event_processor {
             setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
         } else {
             setup_checkpoint_based_event_processors(
@@ -2251,8 +2285,8 @@ pub mod test_cluster {
                     .collect(),
             )
             .with_disable_event_blob_writer(disable_event_blob_writers)
-            .with_blocklist_files(blocklist_files);
-
+            .with_blocklist_files(blocklist_files)
+            .with_enable_node_config_monitor(test_nodes_config.enable_node_config_monitor);
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;

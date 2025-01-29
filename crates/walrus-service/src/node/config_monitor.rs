@@ -53,6 +53,7 @@ impl ConfigMonitor {
     /// Runs the config monitoring loop until an error occurs
     pub async fn run(&self) -> anyhow::Result<()> {
         if !self.enabled.load(Ordering::Relaxed) {
+            tracing::warn!("Config monitor is disabled, skipping background run");
             // If disabled, wait forever instead of returning
             std::future::pending::<()>().await;
             unreachable!();

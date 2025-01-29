@@ -577,7 +577,7 @@ pub mod defaults {
 
     /// Returns false in test mode, true for simtest and prod.
     pub fn config_monitor_enabled() -> bool {
-        !cfg!(test)
+        !cfg!(test) || cfg!(feature = "simtest")
     }
 }
 
