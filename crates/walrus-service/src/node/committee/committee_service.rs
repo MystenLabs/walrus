@@ -48,7 +48,6 @@ use crate::{
         ActiveCommittees,
         ChangeNotInProgress,
         CommitteeTracker,
-        NextCommitteeAlreadySet,
         StartChangeError,
     },
     node::{
@@ -265,21 +264,14 @@ where
         let modify_tracker = |tracker: &mut CommitteeTracker| {
             // Guaranteed by the caller.
             assert_eq!(tracker.next_epoch(), next_committee.epoch);
-            if let Err(NextCommitteeAlreadySet(next_committee)) =
-                tracker.set_committee_for_next_epoch(next_committee)
-            {
-                let stored_next_committee = tracker
-                    .committees()
-                    .next_committee()
-                    .expect("committee is already set");
-
-                if let Err(error) = next_committee.compare_essential(stored_next_committee) {
+            tracker
+                .set_committee_for_next_epoch(next_committee)
+                .unwrap_or_else(|error| {
                     panic!(
                         "committee for the next epoch cannot change after being fetched: {}",
                         error
                     );
-                }
-            }
+                });
 
             modify_result = tracker.start_change().map_err(|error| match error {
                 StartChangeError::UnknownNextCommittee => unreachable!("committee set above"),
