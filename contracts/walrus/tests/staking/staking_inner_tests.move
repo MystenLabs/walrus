@@ -64,7 +64,7 @@ fun test_staking_active_set() {
     assert!(staking.active_set().cur_min_stake() == 0);
 
     // trigger `advance_epoch` to update the committee
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     // we expect:
@@ -131,7 +131,7 @@ fun test_epoch_sync_done() {
     let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(EPOCH_DURATION);
@@ -172,7 +172,7 @@ fun test_epoch_sync_done_duplicate() {
     let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
@@ -206,7 +206,7 @@ fun test_epoch_sync_wrong_epoch() {
     let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);

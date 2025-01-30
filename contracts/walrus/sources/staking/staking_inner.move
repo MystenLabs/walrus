@@ -221,8 +221,7 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     };
 
     // Assign the next epoch committee.
-    self.select_committee();
-    self.next_epoch_params = option::some(self.calculate_votes());
+    self.select_committee_and_calculate_votes();
 
     // Set the new epoch state.
     self.epoch_state = EpochState::NextParamsSelected(last_epoch_change);
@@ -231,34 +230,51 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     events::emit_epoch_parameters_selected(self.epoch + 1);
 }
 
-/// Calculates the votes for the next epoch parameters. The function sorts the
-/// write and storage prices and picks the value that satisfies a quorum of the weight.
-public(package) fun calculate_votes(self: &StakingInnerV1): EpochParams {
-    assert!(self.next_committee.is_some(), ENextCommitteeIsEmpty);
+/// Selects the committee for the next epoch.
+public(package) fun select_committee_and_calculate_votes(self: &mut StakingInnerV1) {
+    assert!(self.next_committee.is_none(), ECommitteeSelected);
 
-    let committee = self.next_committee.borrow();
-    let size = committee.size();
-    let inner = committee.inner();
+    // prepare next epoch public_keys collection
+    let committee = self.compute_next_committee();
+    let mut public_keys = vector[];
+    let (keys, weights) = (*committee.inner()).into_keys_values();
+
+    // prepare voting parameters
     let mut write_prices = priority_queue::new(vector[]);
     let mut storage_prices = priority_queue::new(vector[]);
     let mut capacity_votes = priority_queue::new(vector[]);
 
-    size.do!(|i| {
-        let (node_id, shards) = inner.get_entry_by_idx(i);
-        let pool = &self.pools[*node_id];
-        let weight = shards.length();
+    // perform iteration over the next committee to do the following:
+    // - store the next epoch public keys for the nodes
+    // - calculate the votes for the next epoch parameters
+    keys.length().do!(|idx| {
+        let id = keys[idx];
+        let pool = &self.pools[id];
+        let weight = weights[idx].length();
+
+        // store the public key for the node
+        public_keys.push_back(*pool.node_info().next_epoch_public_key());
+
+        // perform calculation of the votes
         write_prices.insert(pool.write_price(), weight);
         storage_prices.insert(pool.storage_price(), weight);
-        // The vote for capacity is determined by the node capacity and number of assigned shards.
         let capacity_vote = (pool.node_capacity() * (self.n_shards as u64)) / weight;
         capacity_votes.insert(capacity_vote, weight);
     });
 
-    epoch_parameters::new(
+    // public keys are inherently sorted by the Node ID
+    let public_keys = vec_map::from_keys_values(keys, public_keys);
+
+    self.next_epoch_public_keys.swap(public_keys);
+    self.next_committee = option::some(committee);
+
+    let epoch_params = epoch_parameters::new(
         quorum_above(&mut capacity_votes, self.n_shards),
         quorum_below(&mut storage_prices, self.n_shards),
         quorum_below(&mut write_prices, self.n_shards),
-    )
+    );
+
+    self.next_epoch_params = option::some(epoch_params);
 }
 
 /// Take the highest value, s.t. a quorum (2f + 1) voted for a value larger or equal to this.
@@ -492,22 +508,6 @@ public(package) fun compute_next_committee(self: &StakingInnerV1): Committee {
     // nodes in a sequential manner. Assuming there is at least 1 node in the set.
     if (self.committee.size() == 0) committee::initialize(distribution)
     else self.committee.transition(distribution)
-}
-
-/// Selects the committee for the next epoch.
-public(package) fun select_committee(self: &mut StakingInnerV1) {
-    assert!(self.next_committee.is_none(), ECommitteeSelected);
-
-    let committee = self.compute_next_committee();
-
-    // inherently sorted by node ID
-    let public_keys = vec_map::from_keys_values(
-        committee.inner().keys(),
-        committee.inner().keys().map!(|id| *self.pools[id].node_info().next_epoch_public_key()),
-    );
-
-    self.next_epoch_public_keys.swap(public_keys);
-    self.next_committee = option::some(committee);
 }
 
 fun apportionment(self: &StakingInnerV1): (vector<ID>, vector<u16>) {
