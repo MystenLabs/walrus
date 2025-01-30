@@ -141,9 +141,6 @@ public fun create_for_test(
 
 /// Destructor for [Storage] objects
 public fun destroy(storage: Storage) {
-    let Storage {
-        id,
-        ..,
-    } = storage;
+    let Storage { id, .. } = storage;
     id.delete();
 }

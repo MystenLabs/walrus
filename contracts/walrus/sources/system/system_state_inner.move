@@ -695,3 +695,8 @@ public(package) fun future_accounting_mut(
 ): &mut FutureAccountingRingBuffer {
     &mut self.future_accounting
 }
+
+#[test_only]
+public (package) fun destroy_for_testing(s: SystemStateInnerV1) {
+    sui::test_utils::destroy(s)
+}
