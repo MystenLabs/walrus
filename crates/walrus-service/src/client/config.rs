@@ -114,7 +114,9 @@ pub struct AuthConfig {
     pub(crate) algorithm: Option<Algorithm>,
     /// The duration, in seconds, after which the publisher will consider the JWT as expired.
     ///
-    /// If set to `0`, the JWT will never be considered expired.
+    /// If set to `0`, the publisher will not check that the expiration is correctly set based in
+    /// the issued-at time (iat) and expiration time (exp) in the JWT. I.e., if `expiring_sec > 0`,
+    /// the publisher will check that `exp - iat == expiring_sec`.
     pub(crate) expiring_sec: u64,
     /// verify upload epochs and address for `send_object_to`
     pub(crate) verify_upload: bool,
