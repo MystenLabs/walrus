@@ -1,18 +1,18 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::{
-    extract::Query,
-    http::{Response, StatusCode},
-};
+use axum::{body::Body, extract::Query, http::Response};
 use axum_extra::headers::{authorization::Bearer, Authorization};
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use serde::Deserialize;
 use sui_types::base_types::SuiAddress;
 use tracing::error;
+use walrus_proc_macros::RestApiError;
 
 use super::routes::PublisherQuery;
-use crate::client::config::AuthConfig;
+use crate::{client::config::AuthConfig, common::api::RestApiError};
+
+pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 
 /// Claim follows RFC7519 with extra storage parameters: send_object_to, epochs.
 #[derive(Clone, Deserialize, Debug)]
@@ -39,33 +39,33 @@ impl Claim {
         token: &str,
         decoding_key: &DecodingKey,
         validation: &Validation,
-    ) -> Result<Self, StatusCode> {
+    ) -> Result<Self, PublisherAuthError> {
         let claim: Claim = decode(token, decoding_key, validation)
             .map_err(|err| {
-                error!(
+                tracing::debug!(
                     error = &err as &dyn std::error::Error,
                     "failed to convert token to claim"
                 );
                 match err.kind() {
                     jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                        StatusCode::from_u16(499).expect("status code is in a valid range")
+                        PublisherAuthError::ExpiredSignature
                     }
                     jsonwebtoken::errors::ErrorKind::InvalidSignature
                     | jsonwebtoken::errors::ErrorKind::InvalidAlgorithmName
                     | jsonwebtoken::errors::ErrorKind::InvalidIssuer
                     | jsonwebtoken::errors::ErrorKind::ImmatureSignature => {
-                        StatusCode::UNAUTHORIZED
+                        PublisherAuthError::InvalidSignature
                     }
                     jsonwebtoken::errors::ErrorKind::InvalidToken
                     | jsonwebtoken::errors::ErrorKind::InvalidAlgorithm
                     | jsonwebtoken::errors::ErrorKind::Base64(_)
                     | jsonwebtoken::errors::ErrorKind::Json(_)
-                    | jsonwebtoken::errors::ErrorKind::Utf8(_) => StatusCode::BAD_REQUEST,
+                    | jsonwebtoken::errors::ErrorKind::Utf8(_) => PublisherAuthError::InvalidToken,
                     jsonwebtoken::errors::ErrorKind::MissingAlgorithm => {
-                        StatusCode::INTERNAL_SERVER_ERROR
+                        PublisherAuthError::InternalError
                     }
-                    jsonwebtoken::errors::ErrorKind::Crypto(_) => StatusCode::SERVICE_UNAVAILABLE,
-                    _ => StatusCode::INTERNAL_SERVER_ERROR,
+                    jsonwebtoken::errors::ErrorKind::Crypto(_) => PublisherAuthError::InternalError,
+                    _ => PublisherAuthError::InternalError,
                 }
             })?
             .claims;
@@ -74,14 +74,11 @@ impl Claim {
     }
 }
 
-pub(crate) fn verify_jwt_claim<B>(
+pub(crate) fn verify_jwt_claim(
     query: Query<PublisherQuery>,
     bearer: Authorization<Bearer>,
     auth_config: &AuthConfig,
-) -> Result<(), Response<B>>
-where
-    B: Default,
-{
+) -> Result<(), Response<Body>> {
     let mut validation = if auth_config.decoding_key.is_some() {
         auth_config
             .algorithm
@@ -104,15 +101,14 @@ where
 
     match Claim::from_token(bearer.token().trim(), decode_key, &validation) {
         Ok(claim) => {
-            let mut valid_upload = true;
+            let mut publisher_auth_error = None;
+
             if auth_config.expiring_sec > 0
                 && (claim.exp - claim.iat.unwrap_or_default()) != auth_config.expiring_sec
             {
                 error!(toker = bearer.token(), "token with invalid expiration");
-                valid_upload = false;
+                publisher_auth_error = Some(PublisherAuthError::InvalidExpiration);
             }
-            // TODO(giac): We never actually check that the expiration date is in the future.
-            // i.e., check that claim.exp > SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
 
             if auth_config.verify_upload {
                 if let Some(epochs) = claim.epochs {
@@ -122,7 +118,7 @@ where
                             actual = query.epochs,
                             "upload with invalid epochs"
                         );
-                        valid_upload = false;
+                        publisher_auth_error = Some(PublisherAuthError::InvalidEpochs);
                     }
                 }
 
@@ -133,7 +129,7 @@ where
                             actual = %actual,
                             "upload with invalid send_object_to field"
                         );
-                        valid_upload = false;
+                        publisher_auth_error = Some(PublisherAuthError::InvalidSendObjectTo);
                     }
                     (Some(expected), None) => {
                         tracing::debug!(
@@ -141,36 +137,76 @@ where
                             "send_object_to field is missing"
                         );
 
-                        valid_upload = false
+                        publisher_auth_error = Some(PublisherAuthError::MissingSendObjectTo);
                     }
                     _ => {}
                 }
             }
-            if valid_upload {
-                Ok(())
+
+            if let Some(publisher_auth_error) = publisher_auth_error {
+                Err(publisher_auth_error.to_response())
             } else {
-                validation_failed_response(StatusCode::PRECONDITION_FAILED)
+                Ok(())
             }
         }
-        Err(code) => validation_failed_response(code),
+        Err(code) => Err(code.to_response()),
     }
 }
 
-fn validation_failed_response<B>(code: StatusCode) -> Result<(), Response<B>>
-where
-    B: Default,
-{
-    Err(Response::builder()
-        .status(code)
-        .body(Default::default())
-        .expect("Response is valid without any customized headers"))
+/// Type representing the possible errors that can occur during the authentication process.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = PUBLISHER_AUTH_DOMAIN)]
+enum PublisherAuthError {
+    /// The expiration in the query does not match the token.
+    #[error("the expiration in the query does not match the token")]
+    #[rest_api_error(reason = "INVALID_EXPIRATION", status = ApiStatusCode::FailedPrecondition)]
+    InvalidExpiration,
+
+    /// The epochs field in the query does not match the token.
+    #[error("the epochs field in the query does not match the token")]
+    #[rest_api_error(reason = "INVALID_EPOCHS", status = ApiStatusCode::FailedPrecondition)]
+    InvalidEpochs,
+
+    /// The send_object_to field in the query does not match the token, or is missing.
+    #[error("the send_object_to field in the query does not match the token, or is missing")]
+    #[rest_api_error(reason = "INVALID_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
+    InvalidSendObjectTo,
+
+    /// The send_object_to field is missing from the query, but it is required.
+    #[error("the send_object_to field is missing from the query, but it is required")]
+    #[rest_api_error(reason = "MISSING_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
+    MissingSendObjectTo,
+
+    /// The signature on the token has expired.
+    #[error("the signature on the token has expired")]
+    #[rest_api_error(reason = "EXPIRED_SIGNATURE", status = ApiStatusCode::DeadlineExceeded)]
+    ExpiredSignature,
+
+    /// The signature on the token is invalid.
+    #[error("the signature on the token is invalid")]
+    #[rest_api_error(reason = "INVALID_SIGNATURE", status = ApiStatusCode::Unauthenticated)]
+    InvalidSignature,
+
+    /// The JWT token is invalid.
+    #[error("the JWT token is invalid")]
+    #[rest_api_error(reason = "INVALID_TOKEN", status = ApiStatusCode::FailedPrecondition)]
+    InvalidToken,
+
+    /// Other errors that are not covered by the other variants.
+    #[error("an internal error occurred")]
+    #[rest_api_error(reason = "INTERNAL_SERVER_ERROR", status = ApiStatusCode::Internal)]
+    InternalError,
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use axum::{http::Request, routing::get, Router};
+    use axum::{
+        http::{Request, StatusCode},
+        routing::get,
+        Router,
+    };
     use http_body_util::Empty;
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use rand::distributions::{Alphanumeric, DistString};
@@ -301,7 +337,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test invalid address
         let response = router
@@ -319,7 +355,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test valid
         let response = router
@@ -375,7 +411,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test invalid address
         let response = router
@@ -393,7 +429,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test valid
         let response = router
@@ -464,7 +500,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test invalid token
         let response = router
@@ -479,7 +515,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         // Test valid token
         let response = router
