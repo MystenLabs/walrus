@@ -14,7 +14,7 @@ use tracing::error;
 use super::routes::PublisherQuery;
 use crate::client::config::AuthConfig;
 
-/// Claim follow RFC7519 with extra storage parameters: send_object_to, epochs.
+/// Claim follows RFC7519 with extra storage parameters: send_object_to, epochs.
 #[derive(Clone, Deserialize, Debug)]
 #[cfg_attr(test, derive(serde::Serialize))]
 struct Claim {
