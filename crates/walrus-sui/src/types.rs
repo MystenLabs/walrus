@@ -390,7 +390,7 @@ impl Committee {
     }
 
     /// Compares two committees based only on epoch, n_shards, and storage node ids/shards
-    pub fn compare_essential(&self, other: &Committee) -> Result<(), String> {
+    pub fn compare_essential(&self, other: &Committee) -> anyhow::Result<()> {
         let mut error_msgs = Vec::new();
 
         // Compare epoch
@@ -424,20 +424,18 @@ impl Committee {
 
         // Check each node in left committee exists in right with matching shards
         for (node_id, left_shards) in self_nodes.iter() {
-            match other_nodes.get(node_id) {
-                None => {
-                    error_msgs.push(format!(
-                        "Node {:?} exists in left but not in right",
-                        node_id
-                    ));
-                }
-                Some(right_shards) if *left_shards != *right_shards => {
+            if let Some(right_shards) = other_nodes.get(node_id) {
+                if *left_shards != *right_shards {
                     error_msgs.push(format!(
                         "Shard assignment mismatch for node {:?}: left {:?}, right {:?}",
                         node_id, left_shards, right_shards
                     ));
                 }
-                _ => {}
+            } else {
+                error_msgs.push(format!(
+                    "Node {:?} exists in left but not in right",
+                    node_id
+                ));
             }
         }
 
@@ -454,7 +452,7 @@ impl Committee {
         if error_msgs.is_empty() {
             Ok(())
         } else {
-            Err(error_msgs.join("\n"))
+            Err(anyhow::anyhow!(error_msgs.join("\n")))
         }
     }
 }
