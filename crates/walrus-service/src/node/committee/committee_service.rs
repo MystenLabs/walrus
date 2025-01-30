@@ -272,10 +272,14 @@ where
                     .committees()
                     .next_committee()
                     .expect("committee is already set");
-                assert_eq!(
-                    next_committee, **stored_next_committee,
-                    "committee for the next epoch cannot change after being fetched"
-                );
+
+                if let Err(error) = next_committee.compare_essential(stored_next_committee) {
+                    tracing::error!(
+                        "committee for the next epoch cannot change after being fetched: {}",
+                        error
+                    );
+                    panic!("committee for the next epoch cannot change after being fetched");
+                }
             }
 
             modify_result = tracker.start_change().map_err(|error| match error {

@@ -5,6 +5,7 @@
 //! structs to use with the SDK.
 
 use std::{
+    collections::HashMap,
     fmt::Display,
     net::SocketAddr,
     num::{NonZeroU16, ParseIntError},
@@ -386,5 +387,77 @@ impl Committee {
     #[cfg(any(test, feature = "test-utils"))]
     pub fn members_mut(&mut self) -> &mut Vec<StorageNode> {
         &mut self.members
+    }
+
+    /// Compares two committees based only on epoch, n_shards, and storage node ids/shards
+    pub fn compare_essential(&self, other: &Committee) -> Result<(), String> {
+        // Compare epoch
+        if self.epoch != other.epoch {
+            return Err(format!(
+                "Epoch mismatch: left {}, right {}",
+                self.epoch, other.epoch
+            ));
+        }
+
+        // Compare n_shards
+        if self.n_shards != other.n_shards {
+            return Err(format!(
+                "Number of shards mismatch: left {}, right {}",
+                self.n_shards, other.n_shards
+            ));
+        }
+
+        // Create HashMaps of node_id -> shard_ids for both committees
+        let self_nodes: HashMap<_, _> = self
+            .members
+            .iter()
+            .map(|node| (&node.node_id, &node.shard_ids))
+            .collect();
+
+        let other_nodes: HashMap<_, _> = other
+            .members
+            .iter()
+            .map(|node| (&node.node_id, &node.shard_ids))
+            .collect();
+
+        // Compare number of nodes
+        if self_nodes.len() != other_nodes.len() {
+            return Err(format!(
+                "Number of nodes mismatch: left {}, right {}",
+                self_nodes.len(),
+                other_nodes.len()
+            ));
+        }
+
+        // Compare each node's shard assignments
+        for (node_id, left_shards) in self_nodes.iter() {
+            match other_nodes.get(node_id) {
+                None => {
+                    return Err(format!(
+                        "Node {:?} exists in left but not in right",
+                        node_id
+                    ));
+                }
+                Some(right_shards) if *left_shards != *right_shards => {
+                    return Err(format!(
+                        "Shard assignment mismatch for node {:?}: left {:?}, right {:?}",
+                        node_id, left_shards, right_shards
+                    ));
+                }
+                _ => continue,
+            }
+        }
+
+        // Check for nodes in right that aren't in left
+        for node_id in other_nodes.keys() {
+            if !self_nodes.contains_key(node_id) {
+                return Err(format!(
+                    "Node {:?} exists in right but not in left",
+                    node_id
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
