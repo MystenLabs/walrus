@@ -237,7 +237,7 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     // prepare next epoch public_keys collection
     let committee = self.compute_next_committee();
     let mut public_keys = vector[];
-    let (node_ids, shard_assignment) = (*committee.inner()).into_keys_values();
+    let (node_ids, shard_assignments) = (*committee.inner()).into_keys_values();
 
     // prepare voting parameters
     let mut write_prices = priority_queue::new(vector[]);
@@ -247,10 +247,10 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     // perform iteration over the next committee to do the following:
     // - store the next epoch public keys for the nodes
     // - calculate the votes for the next epoch parameters
-    keys.length().do!(|idx| {
-        let id = keys[idx];
+    node_ids.length().do!(|idx| {
+        let id = node_ids[idx];
         let pool = &self.pools[id];
-        let weight = weights[idx].length();
+        let weight = shard_assignments[idx].length();
 
         // store the public key for the node
         public_keys.push_back(*pool.node_info().next_epoch_public_key());
@@ -263,7 +263,7 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     });
 
     // public keys are inherently sorted by the Node ID
-    let public_keys = vec_map::from_keys_values(keys, public_keys);
+    let public_keys = vec_map::from_keys_values(node_ids, public_keys);
 
     self.next_epoch_public_keys.swap(public_keys);
     self.next_committee = option::some(committee);
