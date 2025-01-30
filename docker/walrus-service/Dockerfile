@@ -23,7 +23,7 @@ RUN cargo build --features walrus-service/backup \
 
 # Production Image for all binaries under walrus-service
 FROM debian:bookworm-slim AS walrus-service
-RUN apt-get update && apt-get install -y ca-certificates curl git
+RUN apt-get update && apt-get install -y ca-certificates curl git libpg5
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
@@ -40,7 +40,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus CLI
 FROM debian:bookworm-slim AS walrus-cli
-RUN apt-get update && apt-get install -y ca-certificates curl
+RUN apt-get update && apt-get install -y ca-certificates curl libpq5
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
@@ -53,7 +53,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus node
 FROM debian:bookworm-slim AS walrus-node
-RUN apt-get update && apt-get install -y ca-certificates curl
+RUN apt-get update && apt-get install -y ca-certificates curl libpq5
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
@@ -66,7 +66,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus deployment CLI
 FROM debian:bookworm-slim AS walrus-deploy
-RUN apt-get update && apt-get install -y ca-certificates curl
+RUN apt-get update && apt-get install -y ca-certificates curl libpq5
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
@@ -80,7 +80,7 @@ LABEL git-revision=$GIT_REVISION
 
 # Production Image for walrus backup CLI
 FROM debian:bookworm-slim AS walrus-backup
-RUN apt-get update && apt-get install -y ca-certificates curl
+RUN apt-get update && apt-get install -y ca-certificates curl libpq5
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
