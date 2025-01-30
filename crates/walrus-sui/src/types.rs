@@ -391,9 +391,11 @@ impl Committee {
 
     /// Compares two committees based only on epoch, n_shards, and storage node ids/shards
     pub fn compare_essential(&self, other: &Committee) -> Result<(), String> {
+        let mut error_msgs = Vec::new();
+
         // Compare epoch
         if self.epoch != other.epoch {
-            return Err(format!(
+            error_msgs.push(format!(
                 "Epoch mismatch: left {}, right {}",
                 self.epoch, other.epoch
             ));
@@ -401,7 +403,7 @@ impl Committee {
 
         // Compare n_shards
         if self.n_shards != other.n_shards {
-            return Err(format!(
+            error_msgs.push(format!(
                 "Number of shards mismatch: left {}, right {}",
                 self.n_shards, other.n_shards
             ));
@@ -420,44 +422,39 @@ impl Committee {
             .map(|node| (&node.node_id, &node.shard_ids))
             .collect();
 
-        // Compare number of nodes
-        if self_nodes.len() != other_nodes.len() {
-            return Err(format!(
-                "Number of nodes mismatch: left {}, right {}",
-                self_nodes.len(),
-                other_nodes.len()
-            ));
-        }
-
-        // Compare each node's shard assignments
+        // Check each node in left committee exists in right with matching shards
         for (node_id, left_shards) in self_nodes.iter() {
             match other_nodes.get(node_id) {
                 None => {
-                    return Err(format!(
+                    error_msgs.push(format!(
                         "Node {:?} exists in left but not in right",
                         node_id
                     ));
                 }
                 Some(right_shards) if *left_shards != *right_shards => {
-                    return Err(format!(
+                    error_msgs.push(format!(
                         "Shard assignment mismatch for node {:?}: left {:?}, right {:?}",
                         node_id, left_shards, right_shards
                     ));
                 }
-                _ => continue,
+                _ => {}
             }
         }
 
-        // Check for nodes in right that aren't in left
+        // Check each node in right committee exists in left
         for node_id in other_nodes.keys() {
             if !self_nodes.contains_key(node_id) {
-                return Err(format!(
+                error_msgs.push(format!(
                     "Node {:?} exists in right but not in left",
                     node_id
                 ));
             }
         }
 
-        Ok(())
+        if error_msgs.is_empty() {
+            Ok(())
+        } else {
+            Err(error_msgs.join("\n"))
+        }
     }
 }
