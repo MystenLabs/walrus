@@ -340,39 +340,75 @@ async fn test_get_committee() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Tests that multiple storage node capability objects can be created for the same node, but only
+/// one can be used at a time.
+///
+/// This test verifies that:
+/// 1. Multiple capability objects can be created for the same node
+/// 2. When multiple capability objects exist, operations requiring a capability object will fail
+///    unless explicitly provided with one
+/// 3. Different capability objects for the same node have different IDs but reference the same
+///    node ID
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
-async fn test_register_candidate() -> anyhow::Result<()> {
+async fn test_allow_multiple_capability_objects() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
     let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
+
+    // Generate keys and registration params for a test node
     let protocol_key_pair = ProtocolKeyPair::generate();
     let network_key_pair = NetworkKeyPair::generate();
-
     let registration_params =
         NodeRegistrationParams::new_for_test(protocol_key_pair.public(), network_key_pair.public());
-
     let proof_of_possession = utils::generate_proof_of_possession(
         &protocol_key_pair,
         &walrus_client.inner,
         walrus_client.inner.current_epoch().await?,
     );
 
-    let _cap = walrus_client
+    // Register first capability object
+    let cap_0 = walrus_client
         .inner
         .register_candidate(&registration_params, proof_of_possession.clone())
         .await?;
 
-    // Second registration should fail since there is already a capability object exist in the
-    // address.
-    let second_registration_result = walrus_client
+    // Without specifying capability, operation should not fail due to multiple capabilities
+    let result = walrus_client.inner.epoch_sync_done(10, None).await;
+    // Since we are not running a walrus cluster, and contract call cannot succeed, we just check
+    // that the operation failure is not due to multiple capabilities.
+    assert!(result.is_err());
+    assert!(!matches!(
+        result.unwrap_err(),
+        SuiClientError::MultipleStorageNodeCapabilities
+    ));
+
+    // Register second capability object
+    let cap_1 = walrus_client
         .inner
         .register_candidate(&registration_params, proof_of_possession)
-        .await;
+        .await?;
 
+    // With multiple capabilities, operation should fail with MultipleStorageNodeCapabilities
+    let result = walrus_client.inner.epoch_sync_done(10, None).await;
     assert!(matches!(
-        second_registration_result,
-        Err(SuiClientError::CapabilityObjectAlreadyExists(_))
+        result.unwrap_err(),
+        SuiClientError::MultipleStorageNodeCapabilities
     ));
+
+    // Explicitly specifying capability should fail but not due to multiple capabilities
+    let result = walrus_client
+        .inner
+        .epoch_sync_done(10, Some(cap_0.id))
+        .await;
+    assert!(result.is_err());
+    assert!(!matches!(
+        result.unwrap_err(),
+        SuiClientError::MultipleStorageNodeCapabilities
+    ));
+
+    // Verify capabilities have different IDs but same node ID
+    assert_ne!(cap_0.id, cap_1.id);
+    assert_ne!(cap_0.node_id, cap_1.node_id);
 
     Ok(())
 }

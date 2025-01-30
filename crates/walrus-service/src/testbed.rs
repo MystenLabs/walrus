@@ -641,6 +641,7 @@ pub async fn create_storage_node_configs(
             },
             metrics_push: None,
             metadata: Default::default(),
+            storage_node_cap: None,
         });
     }
 
@@ -656,7 +657,7 @@ pub async fn create_storage_node_configs(
 
     let amounts_to_stake = vec![1_000 * 1_000_000_000; node_params.len()];
 
-    register_committee_and_stake(
+    let storage_node_caps = register_committee_and_stake(
         admin_wallet,
         &testbed_config.system_ctx,
         &node_params,
@@ -666,6 +667,13 @@ pub async fn create_storage_node_configs(
         &amounts_to_stake,
     )
     .await?;
+
+    for (config, node_cap) in storage_node_configs
+        .iter_mut()
+        .zip(storage_node_caps.iter())
+    {
+        config.storage_node_cap = Some(node_cap.id);
+    }
 
     end_epoch_zero(
         contract_clients

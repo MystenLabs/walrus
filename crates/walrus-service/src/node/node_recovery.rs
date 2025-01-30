@@ -124,7 +124,11 @@ impl NodeRecoveryHandler {
             if current_node_status == NodeStatus::RecoveryInProgress(epoch) {
                 tracing::info!("node recovery task finished; set node status to active");
                 match node.set_node_status(NodeStatus::Active) {
-                    Ok(()) => node.contract_service.epoch_sync_done(epoch).await,
+                    Ok(()) => {
+                        node.contract_service
+                            .epoch_sync_done(epoch, node.node_capability())
+                            .await
+                    }
                     Err(error) => {
                         tracing::error!(?error, "failed to set node status to active");
                     }

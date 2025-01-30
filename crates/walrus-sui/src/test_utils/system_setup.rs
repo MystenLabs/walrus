@@ -253,7 +253,9 @@ pub async fn register_committee_and_stake(
     .await?;
     let current_epoch = contract_clients[0].current_epoch().await?;
 
-    // Initialize client
+    // Initialize client.
+    // Note that it is important to return the node capabilities in the same order as the nodes
+    // were registered, so that the node capabilities match the nodes in the node config.
     let mut node_capabilities = Vec::new();
     for (((storage_node_params, bls_sk), contract_client), amount_to_stake) in node_params
         .iter()
@@ -263,6 +265,20 @@ pub async fn register_committee_and_stake(
     {
         let proof_of_possession =
             crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
+
+        #[cfg(msim)]
+        {
+            use rand::Rng;
+            // In simtest, have a small probability of storage node owning multiple capability
+            // objects
+            // for the same node.
+            if rand::thread_rng().gen_bool(0.1) {
+                let _ = contract_client
+                    .register_candidate(storage_node_params, proof_of_possession.clone())
+                    .await?;
+            }
+        }
+
         let node_cap = contract_client
             .register_candidate(storage_node_params, proof_of_possession)
             .await?;

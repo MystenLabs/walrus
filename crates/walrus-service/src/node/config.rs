@@ -23,7 +23,7 @@ use serde_with::{
     DurationSeconds,
     SerializeAs,
 };
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
     messages::ProofOfPossession,
@@ -123,6 +123,9 @@ pub struct StorageNodeConfig {
     /// Metric push configuration.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub metrics_push: Option<MetricsPushConfig>,
+    /// The capability object ID of the storage node.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub storage_node_cap: Option<ObjectID>,
 }
 
 impl Default for StorageNodeConfig {
@@ -155,6 +158,7 @@ impl Default for StorageNodeConfig {
             name: Default::default(),
             metrics_push: None,
             metadata: Default::default(),
+            storage_node_cap: None,
         }
     }
 }

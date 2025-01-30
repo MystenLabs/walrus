@@ -493,6 +493,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         Self: Sized,
     {
         let num_checkpoints_per_blob = builder.num_checkpoints_per_blob.as_ref().cloned();
+        let node_capability = builder.storage_node_capability.as_ref().cloned();
         builder
             .start_node(
                 sui_cluster_handle.expect("SUI cluster handle must be provided in simtest"),
@@ -501,6 +502,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
                 start_node,
                 disable_event_blob_writer,
                 num_checkpoints_per_blob,
+                node_capability,
             )
             .await
     }
@@ -742,6 +744,7 @@ impl StorageNodeHandleBuilder {
             blocklist_path: self.blocklist_path,
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
+            storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
             ..storage_node_config().inner
         };
 
@@ -862,6 +865,7 @@ impl StorageNodeHandleBuilder {
         start_node: bool,
         disable_event_blob_writer: bool,
         num_checkpoints_per_blob: Option<u32>,
+        node_capability: Option<StorageNodeCap>,
     ) -> anyhow::Result<SimStorageNodeHandle> {
         use walrus_sui::client::contract_config::ContractConfig;
 
@@ -891,6 +895,7 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
             }),
+            storage_node_cap: node_capability.map(|cap| cap.id),
             ..storage_node_config().inner
         };
 
@@ -1258,7 +1263,7 @@ pub struct StubContractService {
 impl SystemContractService for StubContractService {
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
 
-    async fn epoch_sync_done(&self, _epoch: Epoch) {}
+    async fn epoch_sync_done(&self, _epoch: Epoch, _node_capability: Option<ObjectID>) {}
 
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
         anyhow::bail!("stub service does not store the epoch or state")
@@ -1285,6 +1290,7 @@ impl SystemContractService for StubContractService {
         _blob_metadata: BlobObjectMetadata,
         _ending_checkpoint_seq_num: u64,
         _epoch: u32,
+        _node_capability: Option<ObjectID>,
     ) -> Result<(), Error> {
         anyhow::bail!("stub service cannot certify event blob")
     }
@@ -1865,8 +1871,11 @@ where
         self.as_ref().inner.invalidate_blob_id(certificate).await
     }
 
-    async fn epoch_sync_done(&self, epoch: Epoch) {
-        self.as_ref().inner.epoch_sync_done(epoch).await
+    async fn epoch_sync_done(&self, epoch: Epoch, node_capability: Option<ObjectID>) {
+        self.as_ref()
+            .inner
+            .epoch_sync_done(epoch, node_capability)
+            .await
     }
 
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
@@ -1890,10 +1899,16 @@ where
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability: Option<ObjectID>,
     ) -> Result<(), Error> {
         self.as_ref()
             .inner
-            .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
+            .certify_event_blob(
+                blob_metadata,
+                ending_checkpoint_seq_num,
+                epoch,
+                node_capability,
+            )
             .await
     }
 
@@ -2329,6 +2344,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             public_port: rest_api_address.port(),
             metrics_push: None,
             metadata: Default::default(),
+            storage_node_cap: None,
         },
         temp_dir,
     }

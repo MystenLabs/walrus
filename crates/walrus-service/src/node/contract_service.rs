@@ -12,6 +12,7 @@ use std::{
 use anyhow::{Context as _, Error};
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch};
 use walrus_sui::{
@@ -52,7 +53,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
-    async fn epoch_sync_done(&self, epoch: Epoch);
+    ///
+    /// If `node_capability` is provided, it will be used to set the node capability object ID.
+    async fn epoch_sync_done(&self, epoch: Epoch, node_capability: Option<ObjectID>);
 
     /// Ends voting for the parameters of the next epoch.
     async fn end_voting(&self) -> Result<(), anyhow::Error>;
@@ -61,11 +64,14 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
 
     /// Certify an event blob to the contract.
+    ///
+    /// If `node_capability` is provided, it will be used to set the node capability object ID.
     async fn certify_event_blob(
         &self,
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability: Option<ObjectID>,
     ) -> Result<(), Error>;
 
     /// Refreshes the contract package that the service is using.
@@ -165,7 +171,7 @@ impl SystemContractService for SuiSystemContractService {
         .await;
     }
 
-    async fn epoch_sync_done(&self, epoch: Epoch) {
+    async fn epoch_sync_done(&self, epoch: Epoch, node_capability: Option<ObjectID>) {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
@@ -187,7 +193,7 @@ impl SystemContractService for SuiSystemContractService {
                 .contract_client
                 .lock()
                 .await
-                .epoch_sync_done(epoch)
+                .epoch_sync_done(epoch, node_capability)
                 .await
             {
                 Ok(()) => Some(()),
@@ -215,6 +221,7 @@ impl SystemContractService for SuiSystemContractService {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability: Option<ObjectID>,
     ) -> Result<(), Error> {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
@@ -230,7 +237,12 @@ impl SystemContractService for SuiSystemContractService {
                     .contract_client
                     .lock()
                     .await
-                    .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
+                    .certify_event_blob(
+                        blob_metadata,
+                        ending_checkpoint_seq_num,
+                        epoch,
+                        node_capability,
+                    )
                     .await
                 {
                     Ok(()) => Some(()),

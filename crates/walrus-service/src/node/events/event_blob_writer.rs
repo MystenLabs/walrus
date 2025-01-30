@@ -756,6 +756,7 @@ impl EventBlobWriter {
                 metadata.try_into()?,
                 checkpoint_sequence_number,
                 self.current_epoch,
+                self.node.node_capability(),
             )
             .await
         {

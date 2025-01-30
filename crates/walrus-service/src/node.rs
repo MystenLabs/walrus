@@ -27,7 +27,7 @@ use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
-use sui_types::event::EventID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -440,6 +440,7 @@ pub struct StorageNode {
 /// The internal state of a Walrus storage node.
 #[derive(Debug)]
 pub struct StorageNodeInner {
+    config: StorageNodeConfig,
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
     encoding_config: Arc<EncodingConfig>,
@@ -483,15 +484,22 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     let contract_client = node_wallet_config.new_contract_client().await?;
     let address = contract_client.address();
 
-    let node_cap = contract_client
-        .read_client
-        .get_address_capability_object(address)
-        .await?
-        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+    let node_capability = if let Some(node_cap) = config.storage_node_cap {
+        contract_client
+            .sui_client()
+            .get_sui_object(node_cap)
+            .await?
+    } else {
+        contract_client
+            .read_client
+            .get_address_capability_object(address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
+    };
 
     let pool = contract_client
         .read_client
-        .get_staking_pool(node_cap.node_id)
+        .get_staking_pool(node_capability.node_id)
         .await?;
 
     let node_info = &pool.node_info;
@@ -510,7 +518,9 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
             update_params = ?update_params,
             "update node params"
         );
-        contract_client.update_node_params(update_params).await?;
+        contract_client
+            .update_node_params(update_params, Some(node_capability.id))
+            .await?;
     } else {
         tracing::info!(
             node_name = config.name,
@@ -557,6 +567,7 @@ impl StorageNode {
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
 
         let inner = Arc::new(StorageNodeInner {
+            config: config.clone(),
             protocol_key_pair: key_pair,
             storage,
             event_manager,
@@ -1458,6 +1469,11 @@ impl StorageNode {
 impl StorageNodeInner {
     pub(crate) fn encoding_config(&self) -> &EncodingConfig {
         &self.encoding_config
+    }
+
+    /// Returns the node capability object ID.
+    pub fn node_capability(&self) -> Option<ObjectID> {
+        self.config.storage_node_cap
     }
 
     pub(crate) fn owned_shards(&self) -> Vec<ShardIndex> {

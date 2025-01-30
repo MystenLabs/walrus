@@ -79,6 +79,9 @@ enum Commands {
         /// The path to the node's configuration file.
         #[clap(long)]
         config_path: PathBuf,
+        /// Overwrite existing storage node capability object if the input config already has one.
+        #[clap(long)]
+        force: bool,
     },
 
     /// Run a storage node with the provided configuration.
@@ -314,7 +317,7 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         Commands::Setup(setup_args) => commands::setup(setup_args)?,
 
-        Commands::Register { config_path } => commands::register_node(config_path)?,
+        Commands::Register { config_path, force } => commands::register_node(config_path, force)?,
 
         Commands::Run {
             config_path,
@@ -561,8 +564,15 @@ mod commands {
     }
 
     #[tokio::main]
-    pub(crate) async fn register_node(config_path: PathBuf) -> anyhow::Result<()> {
+    pub(crate) async fn register_node(config_path: PathBuf, force: bool) -> anyhow::Result<()> {
         let mut config: StorageNodeConfig = load_from_yaml(&config_path)?;
+
+        if !force && config.storage_node_cap.is_some() {
+            bail!(
+                "storage node capability object already exists, \
+                use the '--force' option to overwrite it"
+            );
+        }
 
         config.load_keys()?;
 
@@ -590,6 +600,11 @@ mod commands {
         println!("Successfully registered storage node:",);
         println!("      Capability object ID: {}", node_capability.id);
         println!("      Node ID: {}", node_capability.node_id);
+
+        // Update the config in `config_path` with the new storage node capability object ID.
+        config.storage_node_cap = Some(node_capability.id);
+        write_config_to_file(&config, &config_path, true)?;
+
         Ok(())
     }
 
@@ -696,23 +711,7 @@ mod commands {
             ..Default::default()
         };
 
-        // Generate and write config file.
-        let yaml_config =
-            serde_yaml::to_string(&config).context("failed to serialize configuration to YAML")?;
-        let mut file = create_file(&config_path, force).with_context(|| {
-            format!(
-                "failed to create the config file '{}'",
-                config_path.display()
-            )
-        })?;
-        file.write_all(yaml_config.as_bytes()).context(format!(
-            "failed to write the generated configuration to '{}'",
-            config_path.display()
-        ))?;
-        println!(
-            "storage node configuration written to '{}'",
-            config_path.display()
-        );
+        write_config_to_file(&config, &config_path, force)?;
 
         Ok(config)
     }
@@ -817,6 +816,27 @@ mod commands {
         } else {
             File::create_new(path)
         }
+    }
+
+    /// Writes the given storage node config to the specified file.
+    fn write_config_to_file(
+        config: &StorageNodeConfig,
+        config_path: &Path,
+        force: bool,
+    ) -> anyhow::Result<()> {
+        let yaml_config =
+            serde_yaml::to_string(&config).context("failed to serialize configuration to YAML")?;
+        let mut file = create_file(config_path, force).with_context(|| {
+            format!(
+                "failed to create the config file '{}'",
+                config_path.display()
+            )
+        })?;
+        file.write_all(yaml_config.as_bytes()).context(format!(
+            "failed to write the generated configuration to '{}'",
+            config_path.display()
+        ))?;
+        Ok(())
     }
 }
 
