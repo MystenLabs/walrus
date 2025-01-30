@@ -19,7 +19,7 @@ use walrus_sui::client::ReadClient;
 #[ignore = "ignore E2E tests by default"]
 async fn test_event_blobs() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client) =
-        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
             TestNodesConfig {
                 node_weights: vec![1, 1],
@@ -86,7 +86,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
 #[ignore = "ignore E2E tests by default"]
 async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client) =
-        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
             TestNodesConfig {
                 node_weights: vec![1, 1],

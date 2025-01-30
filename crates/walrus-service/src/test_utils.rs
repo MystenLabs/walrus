@@ -373,6 +373,15 @@ impl SimStorageNodeHandle {
                                     sui_simulator::task::kill_current_node(
                                         Some(Duration::from_secs(10)));
                                 }
+                                else if e.downcast_ref::<StorageNodeError>().map_or(
+                                    false,
+                                    |e| matches!(e, StorageNodeError::NodeNeedsReboot),
+                                ) =>
+                                {
+                                    tracing::info!("Node needs reboot, killing current node");
+                                    sui_simulator::task::kill_current_node(
+                                        Some(Duration::from_secs(10)));
+                                }
                                 _ => {
                                     tracing::info!("node stopped");
                                 }
