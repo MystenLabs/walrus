@@ -1218,18 +1218,27 @@ mod tests {
     async_param_test! {
         list_recovery_symbols: [
             one_id: (
-                RecoverySymbolsFilter::ids(
-                    vec![SymbolId::new(1.into(), 2.into())], SliverType::Primary
-                )
+                RecoverySymbolsFilter::ids(vec![SymbolId::new(1.into(), 2.into())]).unwrap()
             ),
-            multiple_ids: (RecoverySymbolsFilter::ids(vec![
+            multiple_ids: (
+                RecoverySymbolsFilter::ids(vec![
                     SymbolId::new(1.into(), 2.into()),
                     SymbolId::new(3.into(), 4.into())
-            ], SliverType::Secondary)),
-            for_sliver: (RecoverySymbolsFilter::ForSliver {
-                target: 17.into(),
-                target_type: SliverType::Primary
-            })
+                ]).unwrap()
+            ),
+            ids_with_proof_type: (
+                RecoverySymbolsFilter::ids(vec![
+                    SymbolId::new(1.into(), 2.into()),
+                    SymbolId::new(3.into(), 4.into())
+                ])
+                .unwrap()
+                .require_proof_from_axis(SliverType::Primary)
+            ),
+            for_sliver: (RecoverySymbolsFilter::recovers(17.into(), SliverType::Primary)),
+            for_sliver_with_proof_type: (
+                RecoverySymbolsFilter::recovers(17.into(), SliverType::Primary)
+                    .require_proof_from_axis(SliverType::Secondary)
+            )
         ]
     }
     async fn list_recovery_symbols(filter: RecoverySymbolsFilter) {
@@ -1238,7 +1247,7 @@ mod tests {
         let blob_id = walrus_core::test_utils::random_blob_id();
 
         let symbols = client
-            .list_recovery_symbols(&blob_id, filter)
+            .list_recovery_symbols(&blob_id, &filter)
             .await
             .expect("request should succeed");
         assert!(symbols.len() >= 2);

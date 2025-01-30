@@ -20,6 +20,7 @@ use errors::ListSymbolsError;
 use events::event_blob_writer::EventBlobWriter;
 use fastcrypto::traits::KeyPair;
 use futures::{stream, Stream, StreamExt, TryFutureExt as _};
+use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -82,7 +83,7 @@ use walrus_sdk::{
         ShardStatusSummary,
         StoredOnNodeStatus,
     },
-    client::RecoverySymbolsFilter,
+    client::{RecoverySymbolsFilter, SymbolIdFilter},
 };
 use walrus_sui::{
     client::{SuiClientError, SuiReadClient},
@@ -2135,53 +2136,44 @@ impl ServiceState for StorageNodeInner {
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
     ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+        let n_shards = self.n_shards();
+
+        let symbol_id_iter = match filter.id_filter() {
+            SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
+
+            SymbolIdFilter::Recovers {
+                target_sliver: target,
+                target_type,
+            } => Either::Right(self.owned_shards().into_iter().map(|shard_id| {
+                let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
+                match *target_type {
+                    SliverType::Primary => {
+                        SymbolId::new(*target, pair_stored.to_sliver_index::<Secondary>(n_shards))
+                    }
+                    SliverType::Secondary => {
+                        SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
+                    }
+                }
+            })),
+        };
+
         let mut output = vec![];
         let mut last_error = ListSymbolsError::NoSymbolsSpecified;
-        let mut try_for_symbol = |symbol_id: SymbolId, target_type| {
-            match self.retrieve_recovery_symbol(blob_id, symbol_id, Some(target_type)) {
-                Ok(symbol) => Some(symbol),
+
+        // If a specific proof axis is requested, then specify the target-type to the retrieve
+        // function, otherwise, specify only the symbol IDs.
+        let target_type_from_proof = filter.proof_axis().map(|axis| axis.orthogonal());
+
+        for symbol_id in symbol_id_iter {
+            match self.retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof) {
+                Ok(symbol) => output.push(symbol),
+
                 // Callers may request symbols that are not stored with this shard, or
-                // completely invalid symbols. These are ignored unless there are no
-                // successes.
+                // completely invalid symbols. These are ignored unless there are no successes.
                 Err(error) => {
                     tracing::debug!(%error, %symbol_id, "failed to get requested symbol");
                     last_error = error.into();
-                    None
                 }
-            }
-        };
-
-        match filter {
-            RecoverySymbolsFilter::Id {
-                id: symbol_ids,
-                target_type,
-            } => {
-                output.extend(
-                    symbol_ids
-                        .iter()
-                        .copied()
-                        .filter_map(|id| try_for_symbol(id, target_type)),
-                );
-            }
-
-            RecoverySymbolsFilter::ForSliver {
-                target,
-                target_type,
-            } => {
-                let n_shards = self.n_shards();
-                let symbol_ids = self.owned_shards().into_iter().map(|shard_id| {
-                    let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
-                    match target_type {
-                        SliverType::Primary => SymbolId::new(
-                            target,
-                            pair_stored.to_sliver_index::<Secondary>(n_shards),
-                        ),
-                        SliverType::Secondary => {
-                            SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), target)
-                        }
-                    }
-                });
-                output.extend(symbol_ids.filter_map(|id| try_for_symbol(id, target_type)));
             }
         }
 

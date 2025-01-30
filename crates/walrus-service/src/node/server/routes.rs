@@ -483,23 +483,24 @@ pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
 #[serde(rename_all = "camelCase")]
 #[into_params(style = Form, parameter_in = Query)]
 pub struct ListRecoverySymbolsQuery {
+    /// The sliver axis from which the proof should be constructed.
+    ///
+    /// Only necessary if you intend to construct inconsistency proofs with the returned symbols.
+    proof_axis: Option<SliverType>,
+
     #[serde(flatten)]
     #[param(inline)]
-    filter: ListRecoverySymbolsFilter,
+    ids: ListRecoverySymbolIdsFilter,
 }
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase", untagged)]
-pub(crate) enum ListRecoverySymbolsFilter {
+#[serde(untagged, rename_all = "camelCase")]
+pub(crate) enum ListRecoverySymbolIdsFilter {
     /// Limit the results to the specified symbols.
-    #[serde(rename_all = "camelCase")]
     Id {
-        /// One or more symbol IDs to be returned.
         #[serde_as(as = "OneOrMany<_>")]
         id: Vec<SymbolId>,
-        /// The type of the sliver being recovered.
-        target_type: SliverType,
     },
 
     /// Return all available symbols that can be used to recover the specified sliver.
@@ -507,10 +508,36 @@ pub(crate) enum ListRecoverySymbolsFilter {
     ForSliver {
         /// The ID of the target sliver being recovered.
         #[serde_as(as = "DisplayFromStr")]
-        target: SliverIndex,
+        target_sliver: SliverIndex,
         /// The type of the sliver being recovered.
         target_type: SliverType,
     },
+}
+
+impl TryFrom<ListRecoverySymbolsQuery> for RecoverySymbolsFilter {
+    type Error = ListSymbolsError;
+
+    fn try_from(query: ListRecoverySymbolsQuery) -> Result<Self, Self::Error> {
+        let filter = match query.ids {
+            ListRecoverySymbolIdsFilter::Id { id: mut symbol_ids } => {
+                symbol_ids.sort_unstable();
+                symbol_ids.dedup();
+
+                RecoverySymbolsFilter::ids(symbol_ids)
+                    .ok_or(ListSymbolsError::NoSymbolsSpecified)?
+            }
+            ListRecoverySymbolIdsFilter::ForSliver {
+                target_sliver,
+                target_type,
+            } => RecoverySymbolsFilter::recovers(target_sliver, target_type),
+        };
+
+        if let Some(proof_axis) = query.proof_axis {
+            Ok(filter.require_proof_from_axis(proof_axis))
+        } else {
+            Ok(filter)
+        }
+    }
 }
 
 /// Get multiple recovery symbols.
@@ -530,22 +557,7 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
 ) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
-    let filter = match query.filter {
-        ListRecoverySymbolsFilter::Id {
-            id: mut symbol_ids,
-            target_type,
-        } => {
-            symbol_ids.sort_unstable();
-            symbol_ids.dedup();
-
-            RecoverySymbolsFilter::ids(symbol_ids, target_type)
-        }
-        ListRecoverySymbolsFilter::ForSliver {
-            target,
-            target_type,
-        } => RecoverySymbolsFilter::for_sliver(target, target_type),
-    };
-
+    let filter = query.try_into()?;
     let symbols = state.retrieve_multiple_recovery_symbols(&blob_id, filter)?;
 
     Ok(Bcs(symbols))

@@ -787,10 +787,11 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             }
 
             let filter = if symbols_to_request.len() == node_info.shard_ids.len() {
-                RecoverySymbolsFilter::for_sliver(self.target_index(), self.target_sliver_type())
+                RecoverySymbolsFilter::recovers(self.target_index(), self.target_sliver_type())
             } else {
-                RecoverySymbolsFilter::ids(symbols_to_request, self.target_sliver_type())
+                RecoverySymbolsFilter::ids(symbols_to_request).expect("symbols list is non-empty")
             };
+            let filter = filter.require_proof_from_axis(self.target_sliver_type().orthogonal());
 
             let request = Request::ListVerifiedRecoverySymbols {
                 filter,

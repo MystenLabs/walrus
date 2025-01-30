@@ -241,7 +241,17 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/BlobId'
-      - name: filter
+      - name: proofAxis
+        in: query
+        description: |-
+          The sliver axis from which the proof should be constructed.
+
+          Only necessary if you intend to construct inconsistency proofs with the returned symbols.
+        required: false
+        schema:
+          $ref: '#/components/schemas/SliverType'
+        style: form
+      - name: ids
         in: query
         required: true
         schema:
@@ -250,23 +260,18 @@ paths:
             description: Limit the results to the specified symbols.
             required:
             - id
-            - targetType
             properties:
               id:
                 type: array
                 items:
                   $ref: '#/components/schemas/SymbolId'
-                description: One or more symbol IDs to be returned.
-              targetType:
-                $ref: '#/components/schemas/SliverType'
-                description: The type of the sliver being recovered.
           - type: object
             description: Return all available symbols that can be used to recover the specified sliver.
             required:
-            - target
+            - targetSliver
             - targetType
             properties:
-              target:
+              targetSliver:
                 $ref: '#/components/schemas/SliverIndex'
                 description: The ID of the target sliver being recovered.
               targetType:

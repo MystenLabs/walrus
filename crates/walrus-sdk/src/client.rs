@@ -19,7 +19,7 @@ use reqwest::{
 };
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
-use serde::{de::DeserializeOwned, ser::SerializeMap as _, Serialize};
+use serde::{de::DeserializeOwned, Serialize, Serializer};
 use sui_types::base_types::ObjectID;
 use tracing::{field, Instrument as _, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -241,77 +241,105 @@ impl UrlEndpoints {
 }
 
 /// Filter for [`Client::list_recovery_symbols()`] endpoint.
-#[derive(Debug, Clone)]
-pub enum RecoverySymbolsFilter {
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverySymbolsFilter {
+    /// The type of proof expected to be used within the symbol.
+    proof_axis: Option<SliverType>,
+
+    /// Specification of the symbol IDs.
+    #[serde(flatten)]
+    id_spec: SymbolIdFilter,
+}
+
+/// Filter for [`Client::list_recovery_symbols()`] endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub enum SymbolIdFilter {
     /// Limit the results to the specified symbols.
-    Id {
-        /// The identified symbols.
-        id: Vec<SymbolId>,
-        /// The type of the sliver being recovered.
-        target_type: SliverType,
-    },
+    #[serde(untagged, serialize_with = "serialize_ids_in_query")]
+    Ids(Vec<SymbolId>),
+
     /// Return all available symbols that can be used to recover the specified sliver.
-    ForSliver {
+    #[serde(untagged, rename_all = "camelCase")]
+    Recovers {
         /// The ID of the target sliver being recovered.
-        target: SliverIndex,
+        target_sliver: SliverIndex,
         /// The type of the sliver being recovered.
         target_type: SliverType,
     },
 }
 
 impl RecoverySymbolsFilter {
-    /// Returns a new filter for the identified list of symbols.
-    pub fn ids(ids: Vec<SymbolId>, target_type: SliverType) -> Self {
-        Self::Id {
-            id: ids,
-            target_type,
+    /// Returns a new filter for the identified list of symbols, or None if the list is empty.
+    pub fn ids(ids: Vec<SymbolId>) -> Option<Self> {
+        if ids.is_empty() {
+            return None;
         }
+
+        Some(Self {
+            proof_axis: None,
+            id_spec: SymbolIdFilter::Ids(ids),
+        })
     }
 
     /// Returns a new filter that filters to all held symbols for the identified sliver.
-    pub fn for_sliver(target: SliverIndex, target_type: SliverType) -> Self {
-        Self::ForSliver {
-            target,
-            target_type,
+    pub fn recovers(target: SliverIndex, target_type: SliverType) -> Self {
+        Self {
+            proof_axis: None,
+            id_spec: SymbolIdFilter::Recovers {
+                target_sliver: target,
+                target_type,
+            },
         }
     }
 
-    fn target_type(&self) -> SliverType {
-        match self {
-            RecoverySymbolsFilter::Id { target_type, .. } => *target_type,
-            RecoverySymbolsFilter::ForSliver { target_type, .. } => *target_type,
+    /// Sets the expectation that the proof is of a specific type.
+    ///
+    /// This is currently only necessary if the intention is to construct an inconsistency proof
+    /// of a specific type with the returned symbols.
+    pub fn require_proof_from_axis(mut self, proof_axis: SliverType) -> Self {
+        self.proof_axis = Some(proof_axis);
+        self
+    }
+
+    /// Returns true if the provided symbol is accepted by the filter.
+    pub fn accepts(&self, symbol: &GeneralRecoverySymbol) -> bool {
+        if self
+            .proof_axis
+            .map(|required_axis| required_axis != symbol.proof_axis())
+            .unwrap_or(false)
+        {
+            return false;
         }
+
+        match self.id_spec {
+            SymbolIdFilter::Ids(ref vec) => vec.contains(&symbol.id()),
+            SymbolIdFilter::Recovers {
+                target_sliver,
+                target_type,
+            } => {
+                // Check that the axis of the target's type matches the target sliver's index.
+                symbol.id().sliver_index(target_type) == target_sliver
+            }
+        }
+    }
+
+    /// Returns specification of which ids should be returned.
+    pub fn id_filter(&self) -> &SymbolIdFilter {
+        &self.id_spec
+    }
+
+    /// Returns the axis over which the proof is expected to be computed.
+    pub fn proof_axis(&self) -> Option<SliverType> {
+        self.proof_axis
     }
 }
 
-impl Serialize for RecoverySymbolsFilter {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            RecoverySymbolsFilter::Id {
-                id: symbol_ids,
-                target_type,
-            } => {
-                let mut map = serializer.serialize_map(Some(1 + symbol_ids.len()))?;
-                map.serialize_entry("targetType", target_type)?;
-                for id in symbol_ids {
-                    map.serialize_entry("id", id)?;
-                }
-                map.end()
-            }
-            RecoverySymbolsFilter::ForSliver {
-                target,
-                target_type,
-            } => {
-                let mut map = serializer.serialize_map(Some(2))?;
-                map.serialize_entry("target", target)?;
-                map.serialize_entry("targetType", target_type)?;
-                map.end()
-            }
-        }
-    }
+fn serialize_ids_in_query<S>(symbols: &Vec<SymbolId>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_map(symbols.iter().map(|id| ("id", id)))
 }
 
 /// A builder that can be used to construct a [`Client`].
@@ -750,7 +778,7 @@ impl Client {
     pub async fn list_recovery_symbols(
         &self,
         blob_id: &BlobId,
-        filter: RecoverySymbolsFilter,
+        filter: &RecoverySymbolsFilter,
     ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
         let (url, template) = self.endpoints.list_recovery_symbols(blob_id);
         let request = self
@@ -768,7 +796,7 @@ impl Client {
     )]
     pub async fn list_and_verify_recovery_symbols(
         &self,
-        filter: RecoverySymbolsFilter,
+        filter: &RecoverySymbolsFilter,
         metadata: &VerifiedBlobMetadataWithId,
         encoding_config: &EncodingConfig,
         target_index: SliverIndex,
@@ -778,9 +806,8 @@ impl Client {
         #[error("the server returned an empty list of symbols")]
         struct EmptyResponse;
 
-        let filter_target_type = filter.target_type();
         let mut symbols = self
-            .list_recovery_symbols(metadata.blob_id(), filter)
+            .list_recovery_symbols(metadata.blob_id(), &filter)
             .await?;
         tracing::trace!(
             n_symbols = symbols.len(),
@@ -789,8 +816,14 @@ impl Client {
         let mut final_error = NodeError::other(EmptyResponse);
 
         symbols.retain(|symbol| {
-            if symbol.proof_axis() == filter_target_type {
-                tracing::debug!("server returned a symbol with an unrequested proof axis");
+            let _guard = tracing::info_span!(
+                "list_and_verify_recovery_symbols__retain",
+                walrus.symbol.id = %symbol.id()
+            )
+            .entered();
+
+            if !filter.accepts(&symbol) {
+                tracing::warn!("server returned a symbol with an unrequested proof axis");
                 return false;
             }
 
@@ -800,7 +833,7 @@ impl Client {
                 target_index,
                 target_type,
             ) {
-                tracing::debug!(?error, "recovery symbol verification failed");
+                tracing::warn!(?error, "recovery symbol verification failed");
                 final_error = NodeError::other(error);
                 return false;
             }
@@ -1223,24 +1256,27 @@ mod tests {
     param_test! {
         recovery_symbols_filter_to_query -> TestResult: [
             id_single: (
-                RecoverySymbolsFilter::ids(
-                    vec![SymbolId::new(1.into(), 2.into())],
-                    SliverType::Primary
-                ),
-                "targetType=primary&id=1-2"
+                RecoverySymbolsFilter::ids(vec![SymbolId::new(1.into(), 2.into())])
+                    .unwrap()
+                    .require_proof_from_axis(SliverType::Primary),
+                "proofAxis=primary&id=1-2"
             ),
             id_multiple: (
                 RecoverySymbolsFilter::ids(
                     vec![SymbolId::new(1.into(), 2.into()), SymbolId::new(3.into(), 4.into())],
-                    SliverType::Secondary
-                ),
-                "targetType=secondary&id=1-2&id=3-4"
+                )
+                .unwrap()
+                .require_proof_from_axis(SliverType::Secondary),
+                "proofAxis=secondary&id=1-2&id=3-4"
             ),
             all: (
-                RecoverySymbolsFilter::ForSliver{
-                    target: SliverIndex(72), target_type: SliverType::Primary
-                },
-                "target=72&targetType=primary"
+                RecoverySymbolsFilter::recovers(SliverIndex(72), SliverType::Primary),
+                "targetSliver=72&targetType=primary"
+            ),
+            all_with_proof_type: (
+                RecoverySymbolsFilter::recovers(SliverIndex(18), SliverType::Secondary)
+                    .require_proof_from_axis(SliverType::Primary),
+                "proofAxis=primary&targetSliver=18&targetType=secondary"
             )
         ]
     }
@@ -1251,7 +1287,8 @@ mod tests {
         let request = reqwest::Client::new()
             .get("https://node.com")
             .query(&filter)
-            .build()?;
+            .build()
+            .expect("query should serialize successfully");
 
         assert_eq!(
             request.url().query().expect("query should be present"),

@@ -32,7 +32,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::{client::RecoverySymbolsFilter, error::ClientBuildError};
+use walrus_sdk::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
@@ -513,10 +513,10 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
                 target_index,
                 ..
             } => {
-                assert!(matches!(filter, RecoverySymbolsFilter::ForSliver { .. }));
-                Ok(Response::VerifiedRecoverySymbols(vec![
-                    GeneralRecoverySymbol::from_recovery_symbol(symbol.clone(), target_index),
-                ]))
+                let symbol =
+                    GeneralRecoverySymbol::from_recovery_symbol(symbol.clone(), target_index);
+                assert!(filter.accepts(&symbol));
+                Ok(Response::VerifiedRecoverySymbols(vec![symbol]))
             }
             request => panic!("unexpected request: {request:?}"),
         });
