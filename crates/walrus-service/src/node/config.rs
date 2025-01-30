@@ -197,6 +197,16 @@ impl StorageNodeConfig {
             anyhow::anyhow!("failed to parse config file at '{}': {e}", path.display())
         })?;
 
+        if config.next_protocol_key_pair.is_none() {
+            return Err(anyhow::anyhow!("next_protocol_key_pair is not set"));
+        }
+        assert!(config.protocol_key_pair.is_path());
+        if let Some(ref next_protocol_key_pair) = config.next_protocol_key_pair {
+            assert!(next_protocol_key_pair.is_path());
+        } else {
+            return Err(anyhow::anyhow!("next_protocol_key_pair is not set"));
+        }
+
         // Rotate the protocol key pair
         config.rotate_protocol_key_pair();
 
@@ -522,7 +532,7 @@ pub mod defaults {
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
     /// Default interval between config monitoring checks in seconds.
-    pub const CONFIG_MONITOR_INTERVAL_SECS: u64 = 3600;
+    pub const CONFIG_MONITOR_INTERVAL_SECS: u64 = 900;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -1058,14 +1068,14 @@ mod tests {
         // Create temporary directory for test
         let temp_dir = TempDir::new()?;
         let config_path = temp_dir.path().join("config.yaml");
-
-        // Create initial config with protocol key pair and next protocol key pair
-        let initial_protocol_key = test_utils::protocol_key_pair();
-        let next_protocol_key = test_utils::protocol_key_pair();
+        let key_path = temp_dir.path().join("protocol_key.key");
+        let next_key_path = temp_dir.path().join("next_protocol_key.key");
+        create_protocol_key_file(&key_path)?;
+        create_protocol_key_file(&next_key_path)?;
 
         let config = StorageNodeConfig {
-            protocol_key_pair: PathOrInPlace::InPlace(initial_protocol_key.clone()),
-            next_protocol_key_pair: Some(PathOrInPlace::InPlace(next_protocol_key.clone())),
+            protocol_key_pair: PathOrInPlace::from_path(key_path),
+            next_protocol_key_pair: Some(PathOrInPlace::from_path(next_key_path.clone())),
             name: "test-node".to_string(),
             storage_path: temp_dir.path().to_path_buf(),
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
@@ -1093,13 +1103,22 @@ mod tests {
         // Verify that the protocol key pair was rotated
         assert_eq!(
             loaded_config.protocol_key_pair,
-            PathOrInPlace::InPlace(next_protocol_key),
+            PathOrInPlace::from_path(next_key_path.clone()),
             "Protocol key pair should be rotated to next key pair"
         );
         assert_eq!(
             loaded_config.next_protocol_key_pair, None,
             "Next protocol key pair should be cleared after rotation"
         );
+
+        Ok(())
+    }
+
+    fn create_protocol_key_file(path: &Path) -> Result<(), anyhow::Error> {
+        let mut file = std::fs::File::create(path)
+            .with_context(|| format!("Cannot create the keyfile '{}'", path.display()))?;
+
+        file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
 
         Ok(())
     }

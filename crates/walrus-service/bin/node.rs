@@ -318,29 +318,38 @@ fn main() -> anyhow::Result<()> {
             cleanup_storage,
             ignore_sync_failures,
         } => {
-            let result = commands::run(
-                StorageNodeConfig::load(&config_path)?,
-                cleanup_storage,
-                ignore_sync_failures,
-            );
+            let mut result;
+            loop {
+                result = commands::run(
+                    StorageNodeConfig::load(&config_path)?,
+                    cleanup_storage,
+                    ignore_sync_failures,
+                );
 
-            match result {
-                Err(e)
-                    if matches!(
-                        e.downcast_ref::<StorageNodeError>(),
-                        Some(StorageNodeError::ProtocolKeyPairRotationRequired)
-                    ) =>
-                {
-                    tracing::info!("Protocol key pair rotation required, rotating key pair...");
-                    StorageNodeConfig::rotate_protocol_key_pair_persist(config_path.clone())?;
-                    commands::run(
-                        StorageNodeConfig::load(&config_path)?,
-                        cleanup_storage,
-                        ignore_sync_failures,
-                    )
+                match &result {
+                    Err(e)
+                        if matches!(
+                            e.downcast_ref::<StorageNodeError>(),
+                            Some(StorageNodeError::ProtocolKeyPairRotationRequired)
+                        ) =>
+                    {
+                        tracing::info!("Protocol key pair rotation required, rotating key pair...");
+                        StorageNodeConfig::rotate_protocol_key_pair_persist(config_path.clone())?;
+                        continue;
+                    }
+                    Err(e)
+                        if matches!(
+                            e.downcast_ref::<StorageNodeError>(),
+                            Some(StorageNodeError::NodeNeedsReboot)
+                        ) =>
+                    {
+                        tracing::info!("Node needs reboot, restarting...");
+                        continue;
+                    }
+                    _ => break,
                 }
-                other => Ok(other?),
-            }?
+            }
+            result?
         }
 
         Commands::KeyGen {

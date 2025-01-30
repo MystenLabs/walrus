@@ -615,7 +615,7 @@ where
         self.end_committee_change_to(epoch)
     }
 
-    async fn async_committee_members(&self) -> Result<(), anyhow::Error> {
+    async fn sync_committee_members(&self) -> Result<(), anyhow::Error> {
         let latest = self
             .committee_lookup
             .get_active_committees()

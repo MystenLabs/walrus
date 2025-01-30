@@ -174,7 +174,7 @@ impl NodeUpdateParams {
 
     /// Returns true if the node needs a reboot due to the proposed changes.
     pub fn needs_reboot(&self) -> bool {
-        false
+        self.network_public_key.is_some() || self.network_address.is_some()
     }
 }
 

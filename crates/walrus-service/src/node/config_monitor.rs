@@ -17,7 +17,8 @@ use super::{
     contract_service::SystemContractService,
 };
 
-/// Monitors and syncs node configuration with on-chain parameters
+/// Monitors and syncs node configuration with on-chain parameters.
+/// Syncs committee member information with on-chain committee information
 pub struct ConfigMonitor {
     config: StorageNodeConfig,
     contract_service: Arc<dyn SystemContractService>,
@@ -27,7 +28,7 @@ pub struct ConfigMonitor {
 }
 
 impl ConfigMonitor {
-    /// Creates a new enabled ConfigMonitor instance
+    /// Creates a new enabled ConfigMonitor instance.
     pub fn new(
         config: StorageNodeConfig,
         contract_service: Arc<dyn SystemContractService>,
@@ -69,6 +70,8 @@ impl ConfigMonitor {
         }
 
         loop {
+            tokio::time::sleep(self.check_interval).await;
+
             if let Err(e) = self.sync_node_params().await {
                 tracing::error!("Failed to sync node params: {}", e);
                 return Err(e);
@@ -77,7 +80,6 @@ impl ConfigMonitor {
                 tracing::error!("Failed to sync committee: {}", e);
                 return Err(e);
             }
-            tokio::time::sleep(self.check_interval).await;
         }
     }
 
@@ -103,7 +105,7 @@ impl ConfigMonitor {
             tracing::warn!("Config monitor is disabled, skipping committee sync");
             return Ok(());
         }
-        self.committee_service.async_committee_members().await?;
+        self.committee_service.sync_committee_members().await?;
 
         Ok(())
     }

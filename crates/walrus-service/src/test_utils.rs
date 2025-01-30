@@ -1304,7 +1304,7 @@ impl CommitteeService for StubCommitteeService {
         Ok(())
     }
 
-    async fn async_committee_members(&self) -> Result<(), anyhow::Error> {
+    async fn sync_committee_members(&self) -> Result<(), anyhow::Error> {
         Ok(())
     }
 }

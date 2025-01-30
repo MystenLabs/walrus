@@ -175,7 +175,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
 
     /// Update information about committee members from the latest committee on chain.
     /// This does not change the committee, but updates the internal state of the node.
-    async fn async_committee_members(&self) -> Result<(), anyhow::Error>;
+    async fn sync_committee_members(&self) -> Result<(), anyhow::Error>;
 
     /// Get and verify metadata.
     async fn get_and_verify_metadata(
