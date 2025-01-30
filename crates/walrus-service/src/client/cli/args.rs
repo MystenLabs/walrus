@@ -376,12 +376,13 @@ pub enum CliCommands {
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
-    /// Exchange SUI for WAL through the configured exchange.
+    /// Exchange SUI for WAL through the configured exchange. This command is only available on
+    /// Testnet.
     GetWal {
         #[clap(long)]
         /// The object ID of the exchange to use.
         ///
-        /// This takes precedence over the value in the config file.
+        /// This takes precedence over any values set in the configuration file.
         exchange_id: Option<ObjectID>,
         #[clap(long, default_value_t = default::exchange_amount_mist())]
         #[serde(default = "default::exchange_amount_mist")]
@@ -546,7 +547,7 @@ pub struct PublisherArgs {
     pub max_concurrent_requests: usize,
     /// The number of clients to use for the publisher.
     ///
-    /// The publisher uses this number of clients to publish blobs concurrenty.
+    /// The publisher uses this number of clients to publish blobs concurrently.
     #[clap(long, default_value_t = default::n_publisher_clients())]
     #[serde(default = "default::n_publisher_clients")]
     pub n_clients: usize,
@@ -556,6 +557,7 @@ pub struct PublisherArgs {
     pub refill_interval: Duration,
     /// The directory where the publisher will store the sub-wallets used for client multiplexing.
     #[clap(long)]
+    #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
     pub sub_wallets_dir: PathBuf,
     /// The amount of MIST transferred at every refill.
     #[clap(long, default_value_t = default::gas_refill_amount())]

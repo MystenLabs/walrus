@@ -927,8 +927,9 @@ impl ClientCommandRunner {
                     .copied()
             })
             .context(
-                "Object ID of exchange object must be specified either in the config file or as a \
-            command-line argument.",
+                "The object ID of an exchange object must be specified either in the config file \
+                or as a command-line argument.\n\
+                Note that this command is only available on Testnet.",
             )?;
         let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
         tracing::info!(
