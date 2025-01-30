@@ -477,14 +477,12 @@ public(package) fun withdraw_stake(
     let wctx = &self.new_walrus_context();
     let node_id = staked_wal.node_id();
     let pool = &mut self.pools[node_id];
-    let wal_balance = pool
-        .withdraw_stake(
-            staked_wal,
-            self.committee.contains(&node_id),
-            self.next_committee.is_some_and!(|cmt| cmt.contains(&node_id)),
-            wctx,
-        )
-        ;
+    let wal_balance = pool.withdraw_stake(
+        staked_wal,
+        self.committee.contains(&node_id),
+        self.next_committee.is_some_and!(|cmt| cmt.contains(&node_id)),
+        wctx,
+    );
 
     let balance = match (self.epoch_state) {
         EpochState::NextParamsSelected(_) => pool.wal_balance_at_epoch(wctx.epoch() + 2),
