@@ -274,11 +274,10 @@ where
                     .expect("committee is already set");
 
                 if let Err(error) = next_committee.compare_essential(stored_next_committee) {
-                    tracing::error!(
+                    panic!(
                         "committee for the next epoch cannot change after being fetched: {}",
                         error
                     );
-                    panic!("committee for the next epoch cannot change after being fetched");
                 }
             }
 
