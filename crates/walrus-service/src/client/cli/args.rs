@@ -652,7 +652,7 @@ impl PublisherArgs {
                 auth_config.with_key_from_str(secret)?;
             }
 
-            tracing::info!("auth config applied");
+            tracing::info!(config=?auth_config, "authentication config applied");
             Ok(Some(auth_config))
         } else {
             tracing::info!("auth disabled");

@@ -3,6 +3,7 @@
 
 use std::{
     env,
+    fmt,
     num::{NonZeroU16, NonZeroUsize},
     path::PathBuf,
     time::Duration,
@@ -105,7 +106,6 @@ pub enum ExchangeObjectConfig {
 }
 
 /// Configuration for the JWT authentication on the publisher.
-#[allow(missing_debug_implementations)]
 #[derive(Default, Clone)]
 pub struct AuthConfig {
     /// The secret with which to authenticate the JWT.
@@ -118,6 +118,16 @@ pub struct AuthConfig {
     pub(crate) expiring_sec: u64,
     /// verify upload epochs and address for `send_object_to`
     pub(crate) verify_upload: bool,
+}
+
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("algorithm", &self.algorithm)
+            .field("expiring_sec", &self.expiring_sec)
+            .field("verify_upload", &self.verify_upload)
+            .finish()
+    }
 }
 
 impl AuthConfig {
