@@ -237,7 +237,7 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     // prepare next epoch public_keys collection
     let committee = self.compute_next_committee();
     let mut public_keys = vector[];
-    let (keys, weights) = (*committee.inner()).into_keys_values();
+    let (node_ids, shard_assignment) = (*committee.inner()).into_keys_values();
 
     // prepare voting parameters
     let mut write_prices = priority_queue::new(vector[]);
