@@ -700,6 +700,8 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
             let mut rng_guard = shared.rng.lock().expect("mutex not poisoned");
             RemainingShards::new(&committee, &mut rng_guard)
         } else {
+            // The committee has been dropped, so there are no nodes to query,
+            // this will likely be followed by a refresh of the committee.
             RemainingShards::default()
         };
 
@@ -978,7 +980,8 @@ impl SymbolTracker {
 struct RemainingShards {
     // Store the node indices as u16 instead of usize to save on space.
     upcoming_nodes: VecDeque<u16>,
-    next_shard_index: usize,
+    /// For the node at the head of the queue, this is the starting index into their list of shards.
+    shard_id_range_start: usize,
 }
 
 impl RemainingShards {
@@ -999,7 +1002,7 @@ impl RemainingShards {
 
         Self {
             upcoming_nodes,
-            next_shard_index: 0,
+            shard_id_range_start: 0,
         }
     }
 
@@ -1019,7 +1022,7 @@ impl RemainingShards {
         let node_info = &committee.members()[usize::from(next_node_index)];
         tracing::trace!(limit, next_node_index, "taking shards from the next node");
 
-        let range_start = self.next_shard_index;
+        let range_start = self.shard_id_range_start;
         let range_end = std::cmp::min(range_start + limit, node_info.shard_ids.len());
         let shards = &node_info.shard_ids[range_start..range_end];
 
@@ -1030,11 +1033,11 @@ impl RemainingShards {
                 "the next node has shards remaining, replacing on queue"
             );
             self.upcoming_nodes.push_front(next_node_index);
-            self.next_shard_index = range_end;
+            self.shard_id_range_start = range_end;
         } else {
             tracing::trace!("the next node has no shards remaining, moving on to next node");
             // Otherwise, reset the next_shard_index for the next node.
-            self.next_shard_index = 0;
+            self.shard_id_range_start = 0;
         }
 
         Some((usize::from(next_node_index), shards))
