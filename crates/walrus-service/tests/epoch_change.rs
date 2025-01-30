@@ -27,7 +27,7 @@ async fn nodes_drive_epoch_change() -> TestResult {
                 use_legacy_event_processor: true,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
-                enable_node_config_monitor: false,
+                enable_node_config_synchronizer: false,
             },
             None,
             ClientCommunicationConfig::default_for_test(),

@@ -131,11 +131,11 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub metrics_push: Option<MetricsPushConfig>,
     /// Interval between config monitoring checks
-    #[serde(default = "defaults::config_monitor_interval")]
-    pub config_monitor_interval: Duration,
+    #[serde(default = "defaults::config_synchronizer_interval")]
+    pub config_synchronizer_interval: Duration,
     /// Enable the config monitor
-    #[serde(default = "defaults::config_monitor_enabled")]
-    pub enable_config_monitor: bool,
+    #[serde(default = "defaults::config_synchronizer_enabled")]
+    pub enable_config_synchronizer: bool,
 }
 
 impl Default for StorageNodeConfig {
@@ -169,8 +169,8 @@ impl Default for StorageNodeConfig {
             name: Default::default(),
             metrics_push: None,
             metadata: Default::default(),
-            config_monitor_interval: Default::default(),
-            enable_config_monitor: Default::default(),
+            config_synchronizer_interval: Default::default(),
+            enable_config_synchronizer: Default::default(),
         }
     }
 }
@@ -532,7 +532,7 @@ pub mod defaults {
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
     /// Default interval between config monitoring checks in seconds.
-    pub const CONFIG_MONITOR_INTERVAL_SECS: u64 = 900;
+    pub const CONFIG_SYNCHRONIZER_INTERVAL_SECS: u64 = 900;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -581,12 +581,12 @@ pub mod defaults {
     }
 
     /// The default interval between config monitoring checks
-    pub fn config_monitor_interval() -> Duration {
-        Duration::from_secs(CONFIG_MONITOR_INTERVAL_SECS)
+    pub fn config_synchronizer_interval() -> Duration {
+        Duration::from_secs(CONFIG_SYNCHRONIZER_INTERVAL_SECS)
     }
 
     /// Returns false in test mode.
-    pub fn config_monitor_enabled() -> bool {
+    pub fn config_synchronizer_enabled() -> bool {
         !cfg!(test)
     }
 }
@@ -800,8 +800,10 @@ mod tests {
                 backoff_config: Default::default(),
                 gas_budget: defaults::gas_budget(),
             }),
-            config_monitor_interval: Duration::from_secs(defaults::CONFIG_MONITOR_INTERVAL_SECS),
-            enable_config_monitor: true,
+            config_synchronizer_interval: Duration::from_secs(
+                defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS,
+            ),
+            enable_config_synchronizer: true,
             ..Default::default()
         };
 

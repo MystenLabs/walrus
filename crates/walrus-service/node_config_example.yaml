@@ -114,7 +114,7 @@ metadata:
   description: ''
   extra_fields: []
 metrics_push: null
-config_monitor_interval:
+config_synchronizer_interval:
   secs: 900
   nanos: 0
-enable_config_monitor: true
+enable_config_synchronizer: true

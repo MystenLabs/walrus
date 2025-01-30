@@ -150,8 +150,8 @@ pub(crate) mod errors;
 mod storage;
 
 // Add new module
-mod config_monitor;
-use config_monitor::ConfigMonitor;
+mod config_synchronizer;
+use config_synchronizer::ConfigSynchronizer;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -437,7 +437,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
-    config_monitor: Arc<ConfigMonitor>,
+    config_synchronizer: Arc<ConfigSynchronizer>,
 }
 
 /// The internal state of a Walrus storage node.
@@ -484,26 +484,26 @@ impl StorageNode {
         let start_time = Instant::now();
         tracing::info!(
             "Creating StorageNode with config monitor enabled: {}, interval: {:?}",
-            config.enable_config_monitor,
-            config.config_monitor_interval
+            config.enable_config_synchronizer,
+            config.config_synchronizer_interval
         );
-        let config_monitor = if config.enable_config_monitor {
-            Arc::new(ConfigMonitor::new(
+        let config_synchronizer = if config.enable_config_synchronizer {
+            Arc::new(ConfigSynchronizer::new(
                 config.clone(),
                 contract_service.clone(),
                 committee_service.clone(),
-                config.config_monitor_interval,
+                config.config_synchronizer_interval,
             ))
         } else {
-            Arc::new(ConfigMonitor::disabled(
+            Arc::new(ConfigSynchronizer::disabled(
                 config.clone(),
                 contract_service.clone(),
                 committee_service.clone(),
-                config.config_monitor_interval,
+                config.config_synchronizer_interval,
             ))
         };
 
-        config_monitor.sync_node_params().await.or_else(|e| {
+        config_synchronizer.sync_node_params().await.or_else(|e| {
             if matches!(
                 e.downcast_ref(),
                 Some(StorageNodeError::ProtocolKeyPairRotationRequired)
@@ -594,7 +594,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             event_blob_writer_factory,
-            config_monitor,
+            config_synchronizer,
         })
     }
 
@@ -637,9 +637,9 @@ impl StorageNode {
                     },
                 }
             },
-            config_monitor_result = self.config_monitor.run() => {
+            config_synchronizer_result = self.config_synchronizer.run() => {
                 tracing::info!("config monitor task ended");
-                match config_monitor_result {
+                match config_synchronizer_result {
                     Ok(()) => unreachable!("config monitor never returns"),
                     Err(e) => return Err(e),
                 }
@@ -1094,7 +1094,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        self.config_monitor.sync_node_params().await?;
+        self.config_synchronizer.sync_node_params().await?;
         // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change

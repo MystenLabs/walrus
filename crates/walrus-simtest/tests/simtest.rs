@@ -202,9 +202,9 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_synchronizer: false,
                 },
-                None,
+                Some(10),
                 ClientCommunicationConfig::default_for_test(),
             )
             .await
@@ -248,9 +248,9 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_synchronizer: false,
                 },
-                None,
+                Some(10),
                 ClientCommunicationConfig::default_for_test(),
             )
             .await
@@ -354,8 +354,9 @@ mod tests {
     }
 
     /// Helper function to get health info for a single node.
-    async fn get_node_health_info(
+    async fn wait_until_node_is_active(
         node: &SimStorageNodeHandle,
+        timeout: Duration,
     ) -> anyhow::Result<ServiceHealthInfo> {
         let client = walrus_sdk::client::Client::builder()
             .authenticate_with_public_key(node.network_public_key.clone())
@@ -365,10 +366,30 @@ mod tests {
             .build_for_remote_ip(node.rest_api_address)
             .context("failed to create node client")?;
 
-        client
-            .get_server_health_info(true)
-            .await
-            .context("failed to get server health info")
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timed out waiting for node to become active after {:?}",
+                    timeout
+                );
+            }
+
+            match client.get_server_health_info(true).await {
+                Ok(info) if info.node_status == "Active" => {
+                    return Ok(info);
+                }
+                Ok(info) => {
+                    tracing::debug!("Node status: {}, waiting...", info.node_status);
+                }
+                Err(e) => {
+                    tracing::debug!("Failed to get node health info: {}, retrying...", e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     /// Helper function to get health info for a list of nodes.
@@ -427,7 +448,7 @@ mod tests {
                     use_legacy_event_processor: true,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_synchronizer: false,
                 },
                 None,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -574,7 +595,7 @@ mod tests {
                     use_legacy_event_processor: true,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_synchronizer: false,
                 },
                 None,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -708,7 +729,7 @@ mod tests {
                     use_legacy_event_processor: true,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_synchronizer: false,
                 },
                 Some(100),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -777,7 +798,7 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: false,
+                    enable_node_config_synchronizer: false,
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -919,7 +940,7 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: true,
+                    enable_node_config_synchronizer: true,
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -1077,7 +1098,7 @@ mod tests {
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
-                    enable_node_config_monitor: true,
+                    enable_node_config_synchronizer: true,
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
@@ -1192,5 +1213,9 @@ mod tests {
         assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
         let public_key = config.read().await.protocol_key_pair().public().clone();
         assert_eq!(&public_key, new_protocol_key_pair.public());
+
+        wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
+            .await
+            .expect("Node should be active");
     }
 }

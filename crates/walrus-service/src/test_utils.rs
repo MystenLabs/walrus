@@ -192,7 +192,7 @@ pub struct TestNodesConfig {
     /// The directory to store the blocklist.
     pub blocklist_dir: Option<PathBuf>,
     /// Whether to enable the node config monitor.
-    pub enable_node_config_monitor: bool,
+    pub enable_node_config_synchronizer: bool,
 }
 
 /// A storage node and associated data for testing.
@@ -337,61 +337,69 @@ impl SimStorageNodeHandle {
                 let startup_sender = startup_sender.clone();
 
                 async move {
-                    let (rest_api_handle, node_handle, event_processor_handle) =
-                        Self::build_and_run_node(
-                            config.clone(),
-                            num_checkpoints_per_blob,
-                            cancel_token.clone(),
-                        )
-                        .await
-                        .expect("Should start node successfully");
+                    let result = async {
+                        let (rest_api_handle, node_handle, event_processor_handle) =
+                            Self::build_and_run_node(
+                                config.clone(),
+                                num_checkpoints_per_blob,
+                                cancel_token.clone(),
+                            )
+                            .await?;
 
-                    startup_sender.send(true).ok();
+                        startup_sender.send(true).ok();
 
-                    tokio::select! {
-                        _ = rest_api_handle => {
-                            tracing::info!("REST API stopped");
-                        }
-                        result = node_handle => {
-                            match result {
-                                Ok(Err(e))
-                                    if e.downcast_ref::<StorageNodeError>().map_or(
-                                        false,
-                                        |e| matches!(
-                                            e, StorageNodeError::ProtocolKeyPairRotationRequired),
-                                    ) =>
-                                {
-                                    let mut config_guard = config.write().await;
-                                    tracing::info!(
-                                        protocol_key = ?config_guard.protocol_key_pair().public(),
-                                        next_protocol_key = ?config_guard
-                                            .next_protocol_key_pair()
-                                            .map(|kp| kp.public()),
-                                        "Rotating protocol key pair"
-                                    );
-                                    config_guard.rotate_protocol_key_pair();
-                                    sui_simulator::task::kill_current_node(
-                                        Some(Duration::from_secs(10)));
-                                }
-                                else if e.downcast_ref::<StorageNodeError>().map_or(
-                                    false,
-                                    |e| matches!(e, StorageNodeError::NodeNeedsReboot),
-                                ) =>
-                                {
-                                    tracing::info!("Node needs reboot, killing current node");
-                                    sui_simulator::task::kill_current_node(
-                                        Some(Duration::from_secs(10)));
-                                }
-                                _ => {
-                                    tracing::info!("node stopped");
-                                }
+                        tokio::select! {
+                            _ = rest_api_handle => {
+                                tracing::info!("REST API stopped");
+                                Ok(())
+                            }
+                            result = node_handle => {
+                                tracing::info!("node handle completed");
+                                result?
+                            }
+                            _ = event_processor_handle => {
+                                tracing::info!("event processor stopped");
+                                Ok(())
+                            }
+                            _ = cancel_token.cancelled() => {
+                                tracing::info!("node stopped by cancellation");
+                                Ok(())
                             }
                         }
-                        _ = event_processor_handle => {
-                            tracing::info!("event processor stopped");
+                    }
+                    .await;
+
+                    match result {
+                        Err(e) => {
+                            if e.downcast_ref::<StorageNodeError>().map_or(false, |e| {
+                                matches!(e, StorageNodeError::ProtocolKeyPairRotationRequired)
+                            }) {
+                                let mut config_guard = config.write().await;
+                                tracing::info!(
+                                    protocol_key = ?config_guard.protocol_key_pair().public(),
+                                    next_protocol_key = ?config_guard
+                                        .next_protocol_key_pair()
+                                        .map(|kp| kp.public()),
+                                    "Rotating protocol key pair"
+                                );
+                                config_guard.rotate_protocol_key_pair();
+                                sui_simulator::task::kill_current_node(Some(Duration::from_secs(
+                                    10,
+                                )));
+                            } else if e
+                                .downcast_ref::<StorageNodeError>()
+                                .map_or(false, |e| matches!(e, StorageNodeError::NodeNeedsReboot))
+                            {
+                                tracing::info!("Node needs reboot, killing current node");
+                                sui_simulator::task::kill_current_node(Some(Duration::from_secs(
+                                    10,
+                                )));
+                            } else {
+                                tracing::info!("node stopped with error: {e}");
+                            }
                         }
-                        _ = cancel_token.cancelled() => {
-                            tracing::info!("node stopped by cancellation");
+                        _ => {
+                            tracing::info!("node stopped");
                         }
                     }
                     tracing::info!("node stopped");
@@ -597,7 +605,7 @@ pub struct StorageNodeHandleBuilder {
     storage_node_capability: Option<StorageNodeCap>,
     node_wallet_dir: Option<PathBuf>,
     num_checkpoints_per_blob: Option<u32>,
-    enable_node_config_monitor: bool,
+    enable_node_config_synchronizer: bool,
 }
 
 impl StorageNodeHandleBuilder {
@@ -617,8 +625,8 @@ impl StorageNodeHandleBuilder {
     }
 
     /// Enable or disable the node's config monitor.
-    pub fn with_enable_node_config_monitor(mut self, enable: bool) -> Self {
-        self.enable_node_config_monitor = enable;
+    pub fn with_enable_node_config_synchronizer(mut self, enable: bool) -> Self {
+        self.enable_node_config_synchronizer = enable;
         self
     }
 
@@ -803,8 +811,8 @@ impl StorageNodeHandleBuilder {
             blocklist_path: self.blocklist_path,
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
-            config_monitor_interval: Duration::from_secs(5),
-            enable_config_monitor: self.enable_node_config_monitor,
+            config_synchronizer_interval: Duration::from_secs(5),
+            enable_config_synchronizer: self.enable_node_config_synchronizer,
             ..storage_node_config().inner
         };
 
@@ -955,8 +963,8 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: config::defaults::gas_budget(),
             }),
-            enable_config_monitor: self.enable_node_config_monitor,
-            config_monitor_interval: Duration::from_secs(5),
+            enable_config_synchronizer: self.enable_node_config_synchronizer,
+            config_synchronizer_interval: Duration::from_secs(5),
             ..storage_node_config().inner
         };
 
@@ -1018,7 +1026,7 @@ impl Default for StorageNodeHandleBuilder {
             storage_node_capability: None,
             node_wallet_dir: None,
             num_checkpoints_per_blob: None,
-            enable_node_config_monitor: false,
+            enable_node_config_synchronizer: false,
         }
     }
 }
@@ -1531,7 +1539,7 @@ pub struct TestClusterBuilder {
     num_checkpoints_per_blob: Option<u32>,
     blocklist_files: Vec<Option<PathBuf>>,
     disable_event_blob_writer: Vec<bool>,
-    enable_node_config_monitor: bool,
+    enable_node_config_synchronizer: bool,
 }
 
 impl TestClusterBuilder {
@@ -1554,8 +1562,11 @@ impl TestClusterBuilder {
     }
 
     /// Sets the enable storage node config monitor flag for each storage node.
-    pub fn with_enable_node_config_monitor(mut self, enable_node_config_monitor: bool) -> Self {
-        self.enable_node_config_monitor = enable_node_config_monitor;
+    pub fn with_enable_node_config_synchronizer(
+        mut self,
+        enable_node_config_synchronizer: bool,
+    ) -> Self {
+        self.enable_node_config_synchronizer = enable_node_config_synchronizer;
         self
     }
 
@@ -1763,10 +1774,10 @@ impl TestClusterBuilder {
                 .with_blocklist_file(blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
                 .with_disabled_event_blob_writer(disable_event_blob_writer)
-                .with_enable_node_config_monitor(self.enable_node_config_monitor);
+                .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer);
             tracing::info!(
-                "Test cluster builder build enable_node_config_monitor: {}",
-                self.enable_node_config_monitor
+                "Test cluster builder build enable_node_config_synchronizer: {}",
+                self.enable_node_config_synchronizer
             );
 
             let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
@@ -1936,7 +1947,7 @@ impl Default for TestClusterBuilder {
             sui_cluster_handle: None,
             use_distinct_ip: false,
             num_checkpoints_per_blob: None,
-            enable_node_config_monitor: false,
+            enable_node_config_synchronizer: false,
         }
     }
 }
@@ -2096,7 +2107,7 @@ pub mod test_cluster {
             use_legacy_event_processor: true,
             disable_event_blob_writer: false,
             blocklist_dir: None,
-            enable_node_config_monitor: false,
+            enable_node_config_synchronizer: false,
         };
         default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
@@ -2301,7 +2312,9 @@ pub mod test_cluster {
             )
             .with_disable_event_blob_writer(disable_event_blob_writers)
             .with_blocklist_files(blocklist_files)
-            .with_enable_node_config_monitor(test_nodes_config.enable_node_config_monitor);
+            .with_enable_node_config_synchronizer(
+                test_nodes_config.enable_node_config_synchronizer,
+            );
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
