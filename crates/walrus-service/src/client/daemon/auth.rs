@@ -117,7 +117,7 @@ where
             if auth_config.verify_upload {
                 if let Some(epochs) = claim.epochs {
                     if query.epochs != epochs {
-                        tracing::error!(
+                        tracing::debug!(
                             expected = claim.epochs,
                             actual = query.epochs,
                             "upload with invalid epochs"
@@ -128,7 +128,7 @@ where
 
                 match (claim.send_object_to, query.send_object_to) {
                     (Some(expected), Some(actual)) if expected != actual => {
-                        tracing::error!(
+                        tracing::debug!(
                             expected = %expected,
                             actual = %actual,
                             "upload with invalid send_object_to field"
@@ -136,7 +136,7 @@ where
                         valid_upload = false;
                     }
                     (Some(expected), None) => {
-                        tracing::error!(
+                        tracing::debug!(
                             expected = %expected,
                             "send_object_to field is missing"
                         );
