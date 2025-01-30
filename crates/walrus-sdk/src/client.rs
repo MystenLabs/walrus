@@ -335,7 +335,7 @@ impl RecoverySymbolsFilter {
     }
 }
 
-fn serialize_ids_in_query<S>(symbols: &Vec<SymbolId>, serializer: S) -> Result<S::Ok, S::Error>
+fn serialize_ids_in_query<S>(symbols: &[SymbolId], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -807,7 +807,7 @@ impl Client {
         struct EmptyResponse;
 
         let mut symbols = self
-            .list_recovery_symbols(metadata.blob_id(), &filter)
+            .list_recovery_symbols(metadata.blob_id(), filter)
             .await?;
         tracing::trace!(
             n_symbols = symbols.len(),
@@ -822,7 +822,7 @@ impl Client {
             )
             .entered();
 
-            if !filter.accepts(&symbol) {
+            if !filter.accepts(symbol) {
                 tracing::warn!("server returned a symbol with an unrequested proof axis");
                 return false;
             }
