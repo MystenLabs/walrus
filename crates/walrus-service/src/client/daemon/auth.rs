@@ -62,10 +62,10 @@ impl Claim {
                     | jsonwebtoken::errors::ErrorKind::Json(_)
                     | jsonwebtoken::errors::ErrorKind::Utf8(_) => PublisherAuthError::InvalidToken,
                     jsonwebtoken::errors::ErrorKind::MissingAlgorithm => {
-                        PublisherAuthError::InternalError
+                        PublisherAuthError::Internal
                     }
-                    jsonwebtoken::errors::ErrorKind::Crypto(_) => PublisherAuthError::InternalError,
-                    _ => PublisherAuthError::InternalError,
+                    jsonwebtoken::errors::ErrorKind::Crypto(_) => PublisherAuthError::Internal,
+                    _ => PublisherAuthError::Internal,
                 }
             })?
             .claims;
@@ -195,7 +195,7 @@ enum PublisherAuthError {
     /// Other errors that are not covered by the other variants.
     #[error("an internal error occurred")]
     #[rest_api_error(reason = "INTERNAL_SERVER_ERROR", status = ApiStatusCode::Internal)]
-    InternalError,
+    Internal,
 }
 
 #[cfg(test)]
