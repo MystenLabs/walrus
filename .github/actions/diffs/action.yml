@@ -25,6 +25,9 @@ outputs:
   isExampleConfig:
     description: True when changes happened in the example config files
     value: "${{ steps.diff.outputs.isExampleConfig }}"
+  isOpenapi:
+    description: True when changes happened in the OpenAPI files
+    value: "${{ steps.diff.outputs.isOpenapi }}"
 
 runs:
   using: composite
@@ -61,3 +64,6 @@ runs:
           isExampleConfig:
             - 'crates/walrus-service/node_config_example.yaml'
             - 'crates/walrus-service/client_config_example.yaml'
+          isOpenapi:
+            - 'crates/walrus-service/*_openapi.html'
+            - 'crates/walrus-service/*_openapi.yaml'

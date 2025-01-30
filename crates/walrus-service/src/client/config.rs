@@ -26,10 +26,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::{
-    client::error::DecodeError,
-    common::utils::{self, LoadConfig},
-};
+use crate::{client::error::DecodeError, common::utils};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -61,7 +58,7 @@ impl Config {
     pub async fn new_contract_client(
         &self,
         wallet: WalletContext,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
             wallet,
@@ -78,7 +75,7 @@ impl Config {
     /// configuration.
     pub async fn new_contract_client_with_wallet_in_config(
         &self,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
         let Some(wallet_config) = self.wallet_config.as_ref() else {
             bail!(
@@ -95,8 +92,6 @@ impl Config {
         &self.communication_config.request_rate_config.backoff_config
     }
 }
-
-impl LoadConfig for Config {}
 
 /// Represents one or more exchange objects to be used for SUI/WAL exchange.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -550,13 +545,10 @@ mod tests {
             communication_config: Default::default(),
         };
 
-        let serialized = serde_yaml::to_string(&config).unwrap();
-        let configs_are_in_sync = std::fs::read_to_string(EXAMPLE_CONFIG_PATH)? == serialized;
-        std::fs::write(EXAMPLE_CONFIG_PATH, serialized.clone()).unwrap();
-        assert!(
-            configs_are_in_sync,
-            "example configuration was out of sync; was updated automatically"
-        );
+        walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            EXAMPLE_CONFIG_PATH,
+            serde_yaml::to_string(&config)?,
+        )?;
 
         Ok(())
     }

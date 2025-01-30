@@ -15,7 +15,7 @@ use anyhow::Context;
 use clap::Parser;
 use walrus_service::{
     client::{metrics::ClientMetrics, Config, Refiller},
-    utils::{load_wallet_context, LoadConfig},
+    utils::{load_from_yaml, load_wallet_context},
 };
 use walrus_sui::utils::SuiNetwork;
 
@@ -23,8 +23,6 @@ use crate::generator::LoadGenerator;
 
 mod generator;
 
-/// Gas budget for transactions.
-const GAS_BUDGET: u64 = 1_000_000_000;
 /// The amount of gas or MIST to refil each time.
 const COIN_REFILL_AMOUNT: u64 = 500_000_000;
 /// The minimum balance to keep in the wallet.
@@ -86,7 +84,8 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _ = tracing_subscriber::fmt::try_init();
 
-    let config = Config::load(args.config_path).context("Failed to load client config")?;
+    let config: Config =
+        load_from_yaml(args.config_path).context("Failed to load client config")?;
     let n_clients = args.n_clients.get();
 
     // Start the metrics server.
@@ -100,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
 
     let wallet = load_wallet_context(&args.wallet_path)?;
-    let contract_client = config.new_contract_client(wallet, GAS_BUDGET).await?;
+    let contract_client = config.new_contract_client(wallet, None).await?;
 
     let refiller = Refiller::new(
         contract_client,

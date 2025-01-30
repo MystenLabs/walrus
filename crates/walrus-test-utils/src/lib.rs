@@ -3,8 +3,9 @@
 
 //! Test utilities shared between various crates.
 
-use std::future::Future;
+use std::{fs, future::Future, path::Path};
 
+use anyhow::ensure;
 use rand::{rngs::StdRng, seq::SliceRandom, RngCore, SeedableRng};
 use tempfile::TempDir;
 
@@ -380,6 +381,25 @@ macro_rules! nonzero {
     ($value:literal) => {
         NonZero::new($value).expect("is non-zero")
     };
+}
+
+/// Overwrites a file with the provided content and returns an error if the file is not equal to the
+/// original content.
+pub fn overwrite_file_and_fail_if_not_equal(
+    path: impl AsRef<Path>,
+    content: impl AsRef<str>,
+) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    let content = content.as_ref();
+    let original = fs::read_to_string(path)?;
+    fs::write(path, content)?;
+    ensure!(
+        // Compare lines so this also works on Windows where line endings are different.
+        original.lines().eq(content.lines()),
+        "file {} was out of sync; was updated automatically",
+        path.display()
+    );
+    Ok(())
 }
 
 #[cfg(test)]

@@ -17,6 +17,10 @@ filter = 'package(walrus-e2e-tests) or package(walrus-sui) or test(nodes_drive_e
 slow-timeout = { period = "2m", terminate-after = 5 } # Mark E2E tests as slow only after 2 minutes
 threads-required = 4
 
+[[profile.ci.overrides]]
+filter = 'test(check_and_update_example_config) or test(check_and_update_openapi)'
+retries = 0 # Do not retry these tests as they always succeed on the second run
+
 [profile.simtest]
 slow-timeout = { period = "5m", terminate-after = 6 } # Timeout tests after 30 minutes
 test-threads = "num-cpus"

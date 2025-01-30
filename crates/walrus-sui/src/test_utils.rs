@@ -57,8 +57,8 @@ use crate::{
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 
-/// Default gas budget for transactions in tests and benchmarks.
-pub const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
+/// Default gas budget for some transactions in tests and benchmarks.
+const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
 const DEFAULT_FUNDING_PER_COIN: u64 = 10_000_000_000;
 
 /// Returns a random `EventID` for testing.
@@ -385,7 +385,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
                 wallet,
                 &contract_config,
                 existing_client.read_client().backoff_config().clone(),
-                DEFAULT_GAS_BUDGET,
+                None,
             )
         })
         .await?;

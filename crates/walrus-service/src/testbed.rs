@@ -28,15 +28,12 @@ use walrus_core::{
 use walrus_sui::{
     client::SuiContractClient,
     system_setup::InitSystemParams,
-    test_utils::{
-        system_setup::{
-            create_and_init_system,
-            end_epoch_zero,
-            mint_wal_to_addresses,
-            register_committee_and_stake,
-            SystemContext,
-        },
-        DEFAULT_GAS_BUDGET,
+    test_utils::system_setup::{
+        create_and_init_system,
+        end_epoch_zero,
+        mint_wal_to_addresses,
+        register_committee_and_stake,
+        SystemContext,
     },
     types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
     utils::{create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet, SuiNetwork},
@@ -44,8 +41,9 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
+    backup::BackupNodeConfig,
     client::{self, ClientCommunicationConfig},
-    common::{config::SuiConfig, utils::LoadConfig},
+    common::config::SuiConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
         StorageNodeConfig,
@@ -109,8 +107,6 @@ pub struct TestbedConfig {
     /// The object ID of the shared WAL exchange.
     pub exchange_object: Option<ObjectID>,
 }
-
-impl LoadConfig for TestbedConfig {}
 
 /// Prefix for the node configuration file name.
 pub fn node_config_name_prefix(node_index: u16, committee_size: NonZeroU16) -> String {
@@ -215,8 +211,8 @@ pub struct DeployTestbedContractParameters<'a> {
     pub sui_network: SuiNetwork,
     /// The path of the contract.
     pub contract_dir: PathBuf,
-    /// The gas budget to use for deployment.
-    pub gas_budget: u64,
+    /// The gas budget to use for deployment. If not provided, the gas budget is estimated.
+    pub gas_budget: Option<u64>,
     /// The hostnames or public ip addresses of the nodes.
     pub host_addresses: Vec<String>,
     /// The rest api port of the nodes.
@@ -471,6 +467,25 @@ pub async fn create_client_config(
     Ok(client_config)
 }
 
+/// Create the config for the walrus-backup node associated with a network.
+pub async fn create_backup_config(
+    system_ctx: &SystemContext,
+    working_dir: &Path,
+    database_url: &str,
+    rpc: String,
+) -> anyhow::Result<BackupNodeConfig> {
+    Ok(BackupNodeConfig::new_with_defaults(
+        working_dir.join("backup"),
+        crate::common::config::SuiReaderConfig {
+            rpc,
+            contract_config: system_ctx.contract_config(),
+            backoff_config: ExponentialBackoffConfig::default(),
+            event_polling_interval: defaults::polling_interval(),
+        },
+        database_url.to_string(),
+    ))
+}
+
 /// Create storage node configurations for the testbed.
 #[tracing::instrument(err, skip_all)]
 #[allow(clippy::too_many_arguments)]
@@ -587,7 +602,7 @@ pub async fn create_storage_node_configs(
             event_polling_interval: defaults::polling_interval(),
             wallet_config: wallet_path,
             backoff_config: ExponentialBackoffConfig::default(),
-            gas_budget: defaults::gas_budget(),
+            gas_budget: None,
         });
 
         let storage_path = set_db_path
@@ -632,11 +647,7 @@ pub async fn create_storage_node_configs(
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
         testbed_config
             .system_ctx
-            .new_contract_client(
-                wallet,
-                ExponentialBackoffConfig::default(),
-                DEFAULT_GAS_BUDGET,
-            )
+            .new_contract_client(wallet, ExponentialBackoffConfig::default(), None)
             .await
             .expect("should not fail")
     }))

@@ -16,7 +16,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::common::utils::{self, LoadConfig};
+use crate::common::utils;
 
 /// Sui-specific configuration for Walrus
 #[serde_with::serde_as]
@@ -43,8 +43,8 @@ pub struct SuiConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
     /// Gas budget for transactions.
-    #[serde(default = "defaults::gas_budget")]
-    pub gas_budget: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gas_budget: Option<u64>,
 }
 
 impl SuiConfig {
@@ -69,8 +69,6 @@ impl SuiConfig {
         .await
     }
 }
-
-impl LoadConfig for SuiConfig {}
 
 impl From<&SuiConfig> for SuiReaderConfig {
     fn from(config: &SuiConfig) -> Self {
@@ -118,8 +116,6 @@ impl SuiReaderConfig {
     }
 }
 
-impl LoadConfig for SuiReaderConfig {}
-
 /// Shared configuration defaults.
 pub mod defaults {
     use super::*;
@@ -137,10 +133,5 @@ pub mod defaults {
         // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
         // to generate the example configuration files.
         !cfg!(test) && t == &T::default()
-    }
-
-    /// Returns the default gas budget.
-    pub fn gas_budget() -> u64 {
-        500_000_000
     }
 }

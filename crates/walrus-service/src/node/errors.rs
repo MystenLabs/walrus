@@ -193,6 +193,12 @@ pub enum RetrieveSymbolError {
     #[rest_api_error(delegate)]
     RecoverySymbolOutOfRange(#[from] IndexOutOfRange),
 
+    #[error("the requested recovery symbol is not the responsibility of this node's shards")]
+    #[rest_api_error(
+        reason = "SYMBOL_NOT_PRESENT_AT_SHARDS", status = ApiStatusCode::FailedPrecondition,
+    )]
+    SymbolNotPresentAtShards,
+
     /// The sliver from which the recovery symbol is extracted could not be retrieved.
     #[error("the sliver from which to extract the recovery symbol could not be retrieved: {0}")]
     #[rest_api_error(delegate)]

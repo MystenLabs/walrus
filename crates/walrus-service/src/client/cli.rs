@@ -88,7 +88,7 @@ pub async fn get_read_client(
 pub async fn get_contract_client(
     config: Config,
     wallet: Result<WalletContext>,
-    gas_budget: u64,
+    gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiContractClient>> {
     let sui_client = config.new_contract_client(wallet?, gas_budget).await?;

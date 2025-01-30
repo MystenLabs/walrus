@@ -39,10 +39,7 @@ use walrus_sui::types::{
 
 use super::storage::DatabaseConfig;
 use crate::{
-    common::{
-        config::SuiConfig,
-        utils::{self, LoadConfig},
-    },
+    common::{config::SuiConfig, utils},
     node::events::EventProcessorConfig,
 };
 
@@ -343,8 +340,8 @@ pub struct MetricsPushConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(
         rename = "push_interval_secs",
-        default = "push_interval_default",
-        skip_serializing_if = "defaults::is_default"
+        default = "defaults::push_interval",
+        skip_serializing_if = "defaults::is_push_interval_default"
     )]
     pub push_interval: Duration,
     /// The URL that we will push metrics to.
@@ -354,37 +351,36 @@ pub struct MetricsPushConfig {
     pub labels: Option<HashMap<String, String>>,
 }
 
-/// MetricsPushConfig impls to set name and host labels
-/// we accept a name to use from node config and will attempt to fetch the hostname
-/// if that fetch fails, we will default to the node name from the config.
-/// these manifest as labels in metric data.
 impl MetricsPushConfig {
-    /// set metric label name = foo
-    pub fn set_name(&mut self, name: &str) {
+    /// Creates a new `MetricsPushConfig` with the provided URL and otherwise default values.
+    pub fn new_for_url(url: String) -> Self {
+        Self {
+            push_interval: defaults::push_interval(),
+            push_url: url,
+            labels: None,
+        }
+    }
+
+    /// Sets the 'name' label to `name` and the 'host' label to the machine's hostname; if the
+    /// hostname cannot be determined, `name` is used as a fallback.
+    pub fn set_name_and_host_label(&mut self, name: &str) {
         self.labels
             .get_or_insert_with(HashMap::new)
             .entry("name".into())
             .or_insert_with(|| name.into());
 
-        // also set the host label and try to get the hostname to do it.  if we cannot
-        // use name as a fallback.
         let host =
             hostname::get().map_or_else(|_| name.into(), |v| v.to_string_lossy().to_string());
         self.set_host(host);
     }
 
-    /// set metric label host = bar
+    /// Sets the 'host' label to `host`.
     fn set_host(&mut self, host: String) {
         self.labels
             .get_or_insert_with(HashMap::new)
             .entry("host".into())
             .or_insert_with(|| host);
     }
-}
-
-/// Configure the default push interval for metrics.
-fn push_interval_default() -> Duration {
-    Duration::from_secs(60)
 }
 
 /// Configuration for TLS of the rest API.
@@ -407,8 +403,6 @@ pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded PKCS8 certificate private key.
     pub key_path: PathBuf,
 }
-
-impl LoadConfig for StorageNodeConfig {}
 
 /// Configuration of a Walrus storage node.
 #[serde_as]
@@ -529,7 +523,7 @@ pub mod defaults {
     use walrus_sui::utils::SuiNetwork;
 
     use super::*;
-    pub use crate::common::config::defaults::{gas_budget, is_default, polling_interval};
+    pub use crate::common::config::defaults::{is_default, polling_interval};
 
     /// Default metrics port.
     pub const METRICS_PORT: u16 = 9184;
@@ -577,6 +571,16 @@ pub mod defaults {
     /// The default vote for the write price.
     pub fn write_price() -> u64 {
         2000
+    }
+
+    /// Configure the default push interval for metrics.
+    pub fn push_interval() -> Duration {
+        Duration::from_secs(60)
+    }
+
+    /// Returns true if the `duration` is equal to the default push interval for metrics.
+    pub fn is_push_interval_default(duration: &Duration) -> bool {
+        duration == &push_interval()
     }
 
     /// Returns true iff the value is `None` and we don't run in test mode.
@@ -731,8 +735,6 @@ pub struct NodeRegistrationParamsForThirdPartyRegistration {
     pub wallet_address: SuiAddress,
 }
 
-impl LoadConfig for NodeRegistrationParamsForThirdPartyRegistration {}
-
 /// Configuration for the REST server.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -804,7 +806,7 @@ mod tests {
                 event_polling_interval: defaults::polling_interval(),
                 wallet_config: PathBuf::from("/opt/walrus/config/sui_config.yaml"),
                 backoff_config: Default::default(),
-                gas_budget: defaults::gas_budget(),
+                gas_budget: None,
             }),
             config_synchronizer_interval: Duration::from_secs(
                 defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS,
@@ -813,13 +815,10 @@ mod tests {
             ..Default::default()
         };
 
-        let serialized = serde_yaml::to_string(&config).unwrap();
-        let configs_are_in_sync = std::fs::read_to_string(EXAMPLE_CONFIG_PATH)? == serialized;
-        std::fs::write(EXAMPLE_CONFIG_PATH, serialized.clone()).unwrap();
-        assert!(
-            configs_are_in_sync,
-            "example configuration was out of sync; was updated automatically"
-        );
+        walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            EXAMPLE_CONFIG_PATH,
+            serde_yaml::to_string(&config)?,
+        )?;
 
         Ok(())
     }

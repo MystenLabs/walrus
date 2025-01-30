@@ -24,10 +24,14 @@ use super::{
     WrongSymbolSizeError,
 };
 use crate::{
-    merkle::{MerkleAuth, Node},
+    ensure,
+    merkle::{MerkleAuth, MerkleProof, Node},
     metadata::{BlobMetadata, BlobMetadataApi as _},
     utils,
+    RecoverySymbol as EitherRecoverySymbol,
     SliverIndex,
+    SliverType,
+    SymbolId,
 };
 
 /// A set of encoded symbols.
@@ -341,6 +345,227 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
     }
 }
 
+/// Either a primary or secondary decoding symbol.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+pub enum EitherDecodingSymbol {
+    /// A decoding symbol that can be used to decode a primary sliver.
+    Primary(DecodingSymbol<Primary>),
+    /// A decoding symbol that can be used to decode a secondary sliver.
+    Secondary(DecodingSymbol<Secondary>),
+}
+
+impl EitherDecodingSymbol {
+    /// The type of the sliver that was used to create the decoding symbol.
+    fn source_type(&self) -> SliverType {
+        match self {
+            EitherDecodingSymbol::Primary(_) => SliverType::Secondary,
+            EitherDecodingSymbol::Secondary(_) => SliverType::Primary,
+        }
+    }
+
+    /// The index of the sliver that was used to create the decoding symbol.
+    ///
+    /// Equivalent to `SliverIndex::new(self.index())`.
+    fn source_index(&self) -> SliverIndex {
+        SliverIndex(self.index())
+    }
+
+    /// The index of the sliver that was used to create the decoding symbol.
+    fn index(&self) -> u16 {
+        match self {
+            EitherDecodingSymbol::Primary(symbol) => symbol.index,
+            EitherDecodingSymbol::Secondary(symbol) => symbol.index,
+        }
+    }
+
+    /// The raw symbol data.
+    fn data(&self) -> &[u8] {
+        match self {
+            EitherDecodingSymbol::Primary(symbol) => &symbol.data,
+            EitherDecodingSymbol::Secondary(symbol) => &symbol.data,
+        }
+    }
+
+    /// The number of bytes in the symbol.
+    fn len(&self) -> usize {
+        match self {
+            EitherDecodingSymbol::Primary(symbol) => symbol.len(),
+            EitherDecodingSymbol::Secondary(symbol) => symbol.len(),
+        }
+    }
+}
+
+impl From<DecodingSymbol<Primary>> for EitherDecodingSymbol {
+    fn from(value: DecodingSymbol<Primary>) -> Self {
+        Self::Primary(value)
+    }
+}
+
+impl From<DecodingSymbol<Secondary>> for EitherDecodingSymbol {
+    fn from(value: DecodingSymbol<Secondary>) -> Self {
+        Self::Secondary(value)
+    }
+}
+
+/// A recovery symbol taken from a blob.
+///
+/// As the symbol is taken from the intersection of two slivers, a primary and a secondary,
+/// it can be used in the recovery of either sliver, irrespective of its source.
+///
+/// Can be converted into a [`DecodingSymbol<Primary>`] or [`DecodingSymbol<Secondary>`].
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+pub struct GeneralRecoverySymbol<U = MerkleProof> {
+    symbol: EitherDecodingSymbol,
+    target_index: SliverIndex,
+    proof: U,
+}
+
+impl<U> GeneralRecoverySymbol<U> {
+    /// Returns the ID of the recovery symbol, identifying it within the blob.
+    pub fn id(&self) -> SymbolId {
+        // A primary decoding symbol implies that the target is a primary sliver,
+        // likewise for a secondary decoding symbol.
+        match &self.symbol {
+            EitherDecodingSymbol::Primary(symbol) => {
+                SymbolId::new(self.target_index, symbol.index.into())
+            }
+            EitherDecodingSymbol::Secondary(symbol) => {
+                SymbolId::new(symbol.index.into(), self.target_index)
+            }
+        }
+    }
+}
+
+impl GeneralRecoverySymbol {
+    /// Creates a new general recovery symbol from an axis-specific variant.
+    pub fn from_recovery_symbol<T, U>(
+        symbol: RecoverySymbol<T, U>,
+        target_index: SliverIndex,
+    ) -> GeneralRecoverySymbol<U>
+    where
+        T: EncodingAxis,
+        DecodingSymbol<T>: Into<EitherDecodingSymbol>,
+    {
+        GeneralRecoverySymbol {
+            symbol: symbol.symbol.into(),
+            target_index,
+            proof: symbol.proof,
+        }
+    }
+}
+
+impl<U: MerkleAuth> GeneralRecoverySymbol<U> {
+    /// Verifies that the decoding symbol belongs to a committed sliver by checking the Merkle proof
+    /// against the root hash in the provided [`BlobMetadata`].
+    ///
+    /// The tuple (target_index, target_type) identifies the sliver that is intended to be
+    /// recovered.
+    ///
+    /// Returns `Ok(())` if the verification succeeds, or [`SymbolVerificationError`] if this symbol
+    /// cannot be used to recover the target sliver; if the symbol is invalid for the provided
+    /// encoding config; or if any other check fails.
+    pub fn verify(
+        &self,
+        metadata: &BlobMetadata,
+        encoding_config: &EncodingConfig,
+        target_index: SliverIndex,
+        target_type: SliverType,
+    ) -> Result<(), SymbolVerificationError> {
+        let n_shards = encoding_config.n_shards();
+
+        ensure!(
+            self.symbol.index() < n_shards.get(),
+            SymbolVerificationError::IndexTooLarge
+        );
+        ensure!(
+            self.target_index.get() < n_shards.get(),
+            SymbolVerificationError::IndexTooLarge
+        );
+        ensure!(
+            metadata
+                .symbol_size(encoding_config)
+                .is_ok_and(|s| self.symbol.len() == usize::from(s.get())),
+            SymbolVerificationError::SymbolSizeMismatch
+        );
+        ensure!(
+            (self.symbol.source_type() != target_type && self.target_index == target_index)
+                || self.symbol.source_index() == target_index,
+            SymbolVerificationError::SymbolNotUsable
+        );
+
+        let expected_root = self
+            .get_expected_root(metadata, n_shards)
+            .ok_or(SymbolVerificationError::InvalidMetadata)?;
+
+        if !self.proof.verify_proof(
+            expected_root,
+            self.symbol.data(),
+            self.target_index.as_usize(),
+        ) {
+            return Err(SymbolVerificationError::InvalidProof);
+        }
+
+        Ok(())
+    }
+
+    fn get_expected_root<'a>(
+        &self,
+        metadata: &'a BlobMetadata,
+        n_shards: NonZeroU16,
+    ) -> Option<&'a crate::merkle::Node> {
+        let source_index = SliverIndex(self.symbol.index());
+
+        let source_sliver_type = self.symbol.source_type();
+        let source_index = match source_sliver_type {
+            SliverType::Primary => source_index.to_pair_index::<Primary>(n_shards),
+            SliverType::Secondary => source_index.to_pair_index::<Secondary>(n_shards),
+        };
+
+        metadata.get_sliver_hash(source_index, source_sliver_type)
+    }
+}
+
+impl<U> From<GeneralRecoverySymbol<U>> for DecodingSymbol<Primary> {
+    fn from(value: GeneralRecoverySymbol<U>) -> Self {
+        match value.symbol {
+            EitherDecodingSymbol::Primary(symbol) => symbol,
+            EitherDecodingSymbol::Secondary(symbol) => {
+                DecodingSymbol::<Primary>::new(value.target_index.get(), symbol.data)
+            }
+        }
+    }
+}
+
+impl<U> From<GeneralRecoverySymbol<U>> for DecodingSymbol<Secondary> {
+    fn from(value: GeneralRecoverySymbol<U>) -> Self {
+        match value.symbol {
+            EitherDecodingSymbol::Secondary(symbol) => symbol,
+            EitherDecodingSymbol::Primary(symbol) => {
+                DecodingSymbol::<Secondary>::new(value.target_index.get(), symbol.data)
+            }
+        }
+    }
+}
+
+impl<U: MerkleAuth> From<GeneralRecoverySymbol<U>> for EitherRecoverySymbol<U> {
+    fn from(value: GeneralRecoverySymbol<U>) -> Self {
+        match value.symbol {
+            EitherDecodingSymbol::Primary(symbol) => {
+                EitherRecoverySymbol::Primary(RecoverySymbol {
+                    symbol,
+                    proof: value.proof,
+                })
+            }
+            EitherDecodingSymbol::Secondary(symbol) => {
+                EitherRecoverySymbol::Secondary(RecoverySymbol {
+                    symbol,
+                    proof: value.proof,
+                })
+            }
+        }
+    }
+}
+
 /// A symbol for sliver recovery.
 ///
 /// This wraps a [`DecodingSymbol`] with a Merkle proof for verification.
@@ -376,7 +601,7 @@ impl<T: EncodingAxis, U: MerkleAuth> RecoverySymbol<T, U> {
     /// against the root hash in the provided [`BlobMetadata`].
     ///
     /// The symbol's index is the index of the *source* sliver from which is was created. If the
-    /// index is out of range or any other check fails, this returns `false`.
+    /// index is out of range or any other check fails, this returns an error.
     ///
     /// Returns `Ok(())` if the verification succeeds, a [`SymbolVerificationError`] otherwise.
     pub fn verify(
@@ -485,10 +710,10 @@ pub fn min_symbols_for_recovery<T: EncodingAxis>(n_shards: NonZeroU16) -> u16 {
 mod tests {
     use alloc::format;
 
-    use walrus_test_utils::param_test;
+    use walrus_test_utils::{param_test, Result as TestResult};
 
     use super::*;
-    use crate::test_utils;
+    use crate::{test_utils, SliverPairIndex, SliverType};
 
     param_test! {
         get_correct_symbol: [
@@ -581,5 +806,44 @@ mod tests {
             format!("{}", symbol.with_proof(test_utils::merkle_proof()),),
             expected_display_string
         );
+    }
+
+    #[test]
+    fn test_recovery_symbol_proof() -> TestResult {
+        let f = 2;
+        let n_shards = 3 * f + 1;
+        let config = EncodingConfig::new_for_test(f, 2 * f, n_shards);
+        let blob = walrus_test_utils::random_data(257);
+        let (sliver_pairs, metadata) = config.get_blob_encoder(&blob)?.encode_with_metadata();
+
+        let sliver = sliver_pairs[0].secondary.clone();
+        let source_index = SliverPairIndex(0).to_sliver_index::<Secondary>(config.n_shards());
+
+        for index in 0..n_shards {
+            let target_index = SliverIndex(index);
+            let shard_pair_index = SliverPairIndex(index);
+            let symbol = sliver.recovery_symbol_for_sliver(shard_pair_index, &config)?;
+            let general_symbol = GeneralRecoverySymbol::from_recovery_symbol(symbol, target_index);
+
+            general_symbol
+                .verify(
+                    metadata.metadata(),
+                    &config,
+                    target_index,
+                    SliverType::Primary,
+                )
+                .expect("should successfully verify for the recovery axis");
+
+            general_symbol
+                .verify(
+                    metadata.metadata(),
+                    &config,
+                    source_index,
+                    SliverType::Secondary,
+                )
+                .expect("should successfully verify for the source axis");
+        }
+
+        Ok(())
     }
 }

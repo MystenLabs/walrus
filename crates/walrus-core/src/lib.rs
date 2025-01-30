@@ -45,6 +45,7 @@ use inconsistency::{
 use merkle::{MerkleAuth, MerkleProof, Node};
 use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
+use serde_with::{DeserializeAs, DisplayFromStr, SerializeAs};
 #[cfg(feature = "sui-types")]
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
@@ -293,7 +294,7 @@ macro_rules! index_type {
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}-{}", $display_prefix, self.0)
+                fmt::Display::fmt(&self.0, f)
             }
         }
     };
@@ -301,6 +302,8 @@ macro_rules! index_type {
 
 index_type!(
     /// Represents the index of a (primary or secondary) sliver.
+    #[derive(Ord, PartialOrd)]
+    #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
     SliverIndex("sliver")
 );
 
@@ -323,6 +326,18 @@ impl From<SliverIndex> for SliverPairIndex {
 impl From<SliverPairIndex> for SliverIndex {
     fn from(value: SliverPairIndex) -> Self {
         Self(value.0)
+    }
+}
+
+impl PartialOrd<NonZeroU16> for SliverIndex {
+    fn partial_cmp(&self, other: &NonZeroU16) -> Option<core::cmp::Ordering> {
+        self.0.partial_cmp(&other.get())
+    }
+}
+
+impl PartialEq<NonZeroU16> for SliverIndex {
+    fn eq(&self, other: &NonZeroU16) -> bool {
+        self.0.eq(&other.get())
     }
 }
 
@@ -595,6 +610,96 @@ impl Display for SliverType {
 
 // Symbols.
 
+/// Identifier of a decoding symbol within the set of decoding symbols of a blob.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SymbolId {
+    primary: SliverIndex,
+    secondary: SliverIndex,
+}
+
+impl SymbolId {
+    /// Create a new id from a primary [`SliverIndex`], secondary [`SliverIndex`].
+    pub fn new(primary: SliverIndex, secondary: SliverIndex) -> Self {
+        Self { primary, secondary }
+    }
+
+    /// The index of the primary sliver containing the symbol.
+    pub fn primary_sliver_index(&self) -> SliverIndex {
+        self.primary
+    }
+
+    /// The index of the secondary sliver containing the symbol.
+    pub fn secondary_sliver_index(&self) -> SliverIndex {
+        self.secondary
+    }
+}
+
+impl Display for SymbolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}-{}", self.primary, self.secondary)
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for SymbolId {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        alloc::string::String::schema()
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for SymbolId {
+    fn name() -> alloc::borrow::Cow<'static, str> {
+        "SymbolId".into()
+    }
+}
+
+/// Error returned when failing to parse a [`SymbolId`].
+///
+/// The string must be a pair of u16's separated by a hyphen, e.g., 73-241.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("failed to parse a symbol ID from the string")]
+pub struct ParseSymbolIdError;
+
+impl FromStr for SymbolId {
+    type Err = ParseSymbolIdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (primary_str, secondary_str) = s.split_once('-').ok_or(ParseSymbolIdError)?;
+        Ok(Self {
+            primary: SliverIndex(primary_str.parse().or(Err(ParseSymbolIdError))?),
+            secondary: SliverIndex(secondary_str.parse().or(Err(ParseSymbolIdError))?),
+        })
+    }
+}
+
+impl Serialize for SymbolId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if serializer.is_human_readable() {
+            <DisplayFromStr as SerializeAs<SymbolId>>::serialize_as(self, serializer)
+        } else {
+            (self.primary, self.secondary).serialize(serializer)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SymbolId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            <DisplayFromStr as DeserializeAs<SymbolId>>::deserialize_as(deserializer)
+        } else {
+            let (primary, secondary) = <(SliverIndex, SliverIndex)>::deserialize(deserializer)?;
+            Ok(Self { primary, secondary })
+        }
+    }
+}
+
 /// A decoding symbol for recovering a sliver
 ///
 /// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
@@ -814,4 +919,31 @@ macro_rules! ensure {
             return Err(anyhow::anyhow!($fmt, $($arg)*).into());
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_test::{Configure as _, Token};
+
+    use super::*;
+
+    #[test]
+    fn symbol_id_serde_compact() {
+        let symbol_id = SymbolId::new(17.into(), 21.into());
+        serde_test::assert_tokens(
+            &symbol_id.compact(),
+            &[
+                Token::Tuple { len: 2 },
+                Token::U16(17),
+                Token::U16(21),
+                Token::TupleEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn symbol_id_serde_human_readable() {
+        let symbol_id = SymbolId::new(17.into(), 21.into());
+        serde_test::assert_tokens(&symbol_id.readable(), &[Token::String("17-21")]);
+    }
 }

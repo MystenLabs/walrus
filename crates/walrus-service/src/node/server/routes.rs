@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{num::NonZeroU16, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
@@ -26,6 +26,7 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    SymbolId,
 };
 use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
 use walrus_sui::ObjectIdSchema;
@@ -38,6 +39,7 @@ use super::{
 use crate::{
     common::api::{ApiSuccess, BlobIdString},
     node::{
+        errors::IndexOutOfRange,
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -70,6 +72,8 @@ pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
 /// The path to get recovery symbols.
 pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}";
+/// The path to get recovery symbols.
+pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
@@ -386,6 +390,7 @@ pub async fn get_deletable_blob_confirmation<S: SyncServiceState>(
     ),
     tag = openapi::GROUP_RECOVERY
 )]
+#[deprecated = "use `get_recovery_symbol_by_id` instead"]
 pub async fn get_recovery_symbol<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Path((blob_id, sliver_pair_index, sliver_type, target_pair_index)): Path<(
@@ -396,17 +401,72 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
     )>,
 ) -> Result<Response, RetrieveSymbolError> {
     let blob_id = blob_id.0;
-    let symbol = state.retrieve_recovery_symbol(
-        &blob_id,
-        sliver_pair_index,
-        sliver_type,
-        target_pair_index,
-    )?;
+    let n_shards = state.n_shards();
+
+    check_index(sliver_pair_index, n_shards)?;
+    check_index(target_pair_index, n_shards)?;
+
+    // The sliver type of the local sliver is orthogonal to the identified sliver type.
+    let (primary_index, secondary_index) = match sliver_type {
+        SliverType::Primary => {
+            // The target_pair_index is the primary sliver.
+            (
+                target_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
+                sliver_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
+            )
+        }
+        SliverType::Secondary => {
+            // The target_pair_index is the secodary sliver.
+            (
+                sliver_pair_index.to_sliver_index::<PrimaryEncoding>(n_shards),
+                target_pair_index.to_sliver_index::<SecondaryEncoding>(n_shards),
+            )
+        }
+    };
+    let symbol_id = SymbolId::new(primary_index, secondary_index);
+    let symbol = state
+        .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))?
+        .into();
 
     match symbol {
         RecoverySymbol::Primary(inner) => Ok(Bcs(inner).into_response()),
         RecoverySymbol::Secondary(inner) => Ok(Bcs(inner).into_response()),
     }
+}
+
+fn check_index(index: SliverPairIndex, n_shards: NonZeroU16) -> Result<(), IndexOutOfRange> {
+    if index.get() < n_shards.get() {
+        Ok(())
+    } else {
+        Err(IndexOutOfRange {
+            index: index.get(),
+            max: n_shards.get(),
+        })
+    }
+}
+
+/// Get a recovery symbol by its ID.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(
+    walrus.blob_id = %blob_id.0,
+    walrus.recovery.symbol_id = %symbol_id
+))]
+#[utoipa::path(
+    get,
+    path = RECOVERY_SYMBOL_ENDPOINT,
+    params(("blob_id" = BlobId,), ("symbol_id" = SymbolId, ),),
+    responses(
+        (status = 200, description = "BCS-encoded primary/secondary recovery symbol", body = [u8]),
+        RetrieveSymbolError,
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Path((blob_id, symbol_id)): Path<(BlobIdString, SymbolId)>,
+) -> Result<Response, RetrieveSymbolError> {
+    let symbol = state.retrieve_recovery_symbol(&blob_id.0, symbol_id, None)?;
+
+    Ok(Bcs(symbol).into_response())
 }
 
 /// Verify blob inconsistency.

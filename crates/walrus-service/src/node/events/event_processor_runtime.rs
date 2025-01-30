@@ -118,6 +118,32 @@ impl EventProcessorRuntime {
         ))
     }
 
+    /// Starts the event processor within the context of a pre-existing async runtime.
+    pub async fn start_async(
+        sui_config: SuiReaderConfig,
+        event_processor_config: EventProcessorConfig,
+        db_path: &Path,
+        metrics_registry: &Registry,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<Arc<EventProcessor>> {
+        tracing::error!(?db_path, "[start_async] running");
+        let event_processor = Self::build_event_processor(
+            &sui_config,
+            &event_processor_config,
+            db_path,
+            metrics_registry,
+        )
+        .await?;
+        let event_processor_clone = event_processor.clone();
+        tokio::spawn(async move {
+            let result = event_processor_clone.start(cancel_token).await;
+            if let Err(ref error) = result {
+                panic!("event manager exited with an error: {:?}", error);
+            }
+        });
+        Ok(event_processor)
+    }
+
     /// Waits for the event processor to shutdown.
     pub fn join(&mut self) -> Result<(), anyhow::Error> {
         tracing::debug!("waiting for the event processor to shutdown...");

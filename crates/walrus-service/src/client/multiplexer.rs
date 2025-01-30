@@ -52,7 +52,7 @@ impl ClientMultiplexer {
     pub async fn new(
         wallet: WalletContext,
         config: &Config,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
         prometheus_registry: &Registry,
         args: &PublisherArgs,
     ) -> anyhow::Result<Self> {
@@ -61,7 +61,7 @@ impl ClientMultiplexer {
         let main_address = contract_client.address();
 
         let sui_client = contract_client.sui_client().clone();
-        let sui_read_client = contract_client.read_client.clone();
+        let sui_read_client = (*contract_client.read_client).clone();
         let read_client = Client::new_read_client(config.clone(), sui_read_client).await?;
 
         let refiller = Refiller::new(
@@ -169,7 +169,7 @@ impl WriteClientPool {
         n_clients: usize,
         config: &Config,
         sui_env: SuiEnv,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
         sub_wallets_dir: &Path,
         refiller: &Refiller,
         min_balance: u64,
@@ -219,7 +219,7 @@ struct SubClientLoader<'a> {
     config: &'a Config,
     sub_wallets_dir: &'a Path,
     sui_env: SuiEnv,
-    gas_budget: u64,
+    gas_budget: Option<u64>,
     refiller: &'a Refiller,
     /// The minimum balance the sub-wallets should have, below which they are refilled at startup.
     min_balance: u64,
@@ -230,7 +230,7 @@ impl<'a> SubClientLoader<'a> {
         config: &'a Config,
         sub_wallets_dir: &'a Path,
         sui_env: SuiEnv,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
         refiller: &'a Refiller,
         min_balance: u64,
     ) -> Self {

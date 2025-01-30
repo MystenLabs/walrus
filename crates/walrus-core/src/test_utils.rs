@@ -9,7 +9,7 @@ use fastcrypto::traits::{KeyPair, Signer as _};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
-    encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver},
+    encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver, SecondarySliver},
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
     messages::SignedMessage,
@@ -70,6 +70,17 @@ pub fn primary_sliver() -> PrimarySliver {
     )
 }
 
+/// Returns an arbitrary secondary sliver with 4 symbols (compatible with 10 shards) for testing.
+pub fn secondary_sliver() -> SecondarySliver {
+    encoding::SliverData::new(
+        [
+            21, 22, 23, 24, 25, 26, 27, 28, 29, 210, 211, 212, 213, 214, 215, 216,
+        ],
+        4.try_into().unwrap(),
+        SliverIndex(1),
+    )
+}
+
 /// Returns a BFT-compatible encoding configuration with 10 shards.
 pub fn encoding_config() -> EncodingConfig {
     EncodingConfig::new(NonZeroU16::new(10).unwrap())
@@ -80,6 +91,14 @@ pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
     primary_sliver()
         .recovery_symbol_for_sliver(SliverPairIndex(1), &encoding_config())
         .map(RecoverySymbol::Secondary)
+        .unwrap()
+}
+
+/// Returns an arbitrary secondary recovery symbol for testing.
+pub fn primary_recovery_symbol() -> RecoverySymbol<MerkleProof> {
+    secondary_sliver()
+        .recovery_symbol_for_sliver(SliverPairIndex(2), &encoding_config())
+        .map(RecoverySymbol::Primary)
         .unwrap()
 }
 

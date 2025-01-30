@@ -1,8 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
+use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
@@ -33,7 +37,7 @@ impl WriteClient {
     pub async fn new(
         config: &Config,
         network: &SuiNetwork,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
         min_size_log2: u8,
         max_size_log2: u8,
         refiller: Refiller,
@@ -167,6 +171,7 @@ impl WriteClient {
                 &metadata,
                 &pairs,
                 &blob_sui_object.blob_persistence_type(),
+                &MultiProgress::new(),
             )
             .await?;
 
@@ -182,7 +187,7 @@ impl WriteClient {
 async fn new_client(
     config: &Config,
     network: &SuiNetwork,
-    gas_budget: u64,
+    gas_budget: Option<u64>,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
@@ -191,7 +196,7 @@ async fn new_client(
         RetriableSuiClient::new_from_wallet(wallet.as_ref(), Default::default()).await?;
     let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
-        SuiContractClient::new_with_read_client(wallet, gas_budget, sui_read_client)
+        SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
     })?;
 
     let client = sui_contract_client

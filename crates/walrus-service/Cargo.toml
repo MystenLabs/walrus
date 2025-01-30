@@ -28,23 +28,19 @@ required-features = ["backup"]
 
 [features]
 backup = [
-  "dep:async-trait",
-  "dep:enum_dispatch",
-  "dep:mime",
-  "dep:mysten-metrics",
-  "dep:rocksdb",
-  "dep:tokio-stream",
-  "dep:tokio-util",
-  "dep:typed-store",
+  "dep:async-channel",
+  "dep:diesel",
+  "dep:diesel-async",
 ]
 client = [
   "dep:colored",
   "dep:prettytable",
 ]
-default = ["backup", "client", "deploy", "node"]
+default = ["client", "deploy", "node"]
 deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
+  "dep:bincode",
   "dep:enum_dispatch",
   "dep:mime",
   "dep:mysten-metrics",
@@ -64,6 +60,7 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
+async-channel = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 axum = { workspace = true, features = [
   "http1",
@@ -78,10 +75,13 @@ axum = { workspace = true, features = [
 axum-extra = { workspace = true, features = ["typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
+bincode = { workspace = true, optional = true }
 byteorder.workspace = true
 chrono.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
+diesel = { workspace = true, optional = true }
+diesel-async = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true

@@ -2,7 +2,7 @@
 #
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
-FROM rust:1.83-bookworm AS builder
+FROM rust:1.84-bookworm AS base
 ARG PROFILE=release
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
@@ -11,10 +11,12 @@ RUN apt-get update && apt-get install -y cmake clang
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
+COPY contracts ./contracts
+COPY contracts /contracts
 
+FROM base AS builder
 RUN cargo build --profile $PROFILE \
     --bin walrus \
-    --bin walrus-backup \
     --bin walrus-node \
     --bin walrus-deploy
 
@@ -25,9 +27,9 @@ ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
 COPY --from=builder /walrus/target/release/walrus /opt/walrus/bin/walrus
-COPY --from=builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
 COPY --from=builder /walrus/target/release/walrus-node /opt/walrus/bin/walrus-node
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
+COPY --from=builder /contracts /opt/walrus/contracts
 
 ARG BUILD_DATE
 ARG GIT_REVISION
@@ -67,19 +69,28 @@ ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
+COPY --from=builder /contracts /opt/walrus/contracts
 
 ARG BUILD_DATE
 ARG GIT_REVISION
 LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
 
+FROM base AS backup-builder
+RUN cargo build --features walrus-service/backup \
+    --profile $PROFILE \
+    --bin walrus \
+    --bin walrus-backup \
+    --bin walrus-node \
+    --bin walrus-deploy
+
 # Production Image for walrus backup CLI
 FROM debian:bookworm-slim AS walrus-backup
-RUN apt-get update && apt-get install -y ca-certificates curl
+RUN apt-get update && apt-get install -y ca-certificates curl libpg-dev
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
-COPY --from=builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
+COPY --from=backup-builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
 
 ARG BUILD_DATE
 ARG GIT_REVISION

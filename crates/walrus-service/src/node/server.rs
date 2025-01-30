@@ -335,7 +335,17 @@ where
                 routes::DELETABLE_BLOB_CONFIRMATION_ENDPOINT,
                 get(routes::get_deletable_blob_confirmation),
             )
-            .route(routes::RECOVERY_ENDPOINT, get(routes::get_recovery_symbol))
+            .route(
+                routes::RECOVERY_ENDPOINT,
+                get(
+                    #[allow(deprecated)]
+                    routes::get_recovery_symbol,
+                ),
+            )
+            .route(
+                routes::RECOVERY_SYMBOL_ENDPOINT,
+                get(routes::get_recovery_symbol_by_id),
+            )
             .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
                 post(routes::inconsistency_proof),
@@ -388,7 +398,7 @@ mod tests {
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
-        encoding::{EncodingAxis, Primary},
+        encoding::{EncodingAxis, GeneralRecoverySymbol, Primary, Secondary},
         inconsistency::{
             InconsistencyProof as InconsistencyProofInner,
             InconsistencyVerificationError,
@@ -409,8 +419,10 @@ mod tests {
         PublicKey,
         RecoverySymbol,
         Sliver,
+        SliverIndex,
         SliverPairIndex,
         SliverType,
+        SymbolId,
     };
     use walrus_sdk::{
         api::{
@@ -495,12 +507,31 @@ mod tests {
         fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
-            sliver_pair_index: SliverPairIndex,
-            _sliver_type: SliverType,
-            _target_pair_index: SliverPairIndex,
-        ) -> Result<RecoverySymbol<MerkleProof>, RetrieveSymbolError> {
-            if sliver_pair_index == SliverPairIndex(0) {
-                Ok(walrus_core::test_utils::recovery_symbol())
+            symbol_id: SymbolId,
+            _sliver_type: Option<SliverType>,
+        ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
+            if symbol_id == SymbolId::new(0.into(), 0.into()) {
+                if let Some(SliverType::Secondary) = _sliver_type {
+                    let RecoverySymbol::Secondary(symbol) =
+                        walrus_core::test_utils::recovery_symbol()
+                    else {
+                        panic!("util method must return secondary recovery symbol");
+                    };
+                    Ok(GeneralRecoverySymbol::from_recovery_symbol(
+                        symbol,
+                        SliverIndex(0),
+                    ))
+                } else {
+                    let RecoverySymbol::Primary(symbol) =
+                        walrus_core::test_utils::primary_recovery_symbol()
+                    else {
+                        panic!("util method must return primary recovery symbol");
+                    };
+                    Ok(GeneralRecoverySymbol::from_recovery_symbol(
+                        symbol,
+                        SliverIndex(0),
+                    ))
+                }
             } else {
                 Err(RetrieveSliverError::Unavailable.into())
             }
@@ -971,9 +1002,11 @@ mod tests {
     async fn get_decoding_symbol() {
         let (config, _handle) = start_rest_api_with_test_config().await;
         let client = storage_node_client(config.as_ref());
+        let n_shards = walrus_core::test_utils::encoding_config().n_shards();
 
         let blob_id = walrus_core::test_utils::random_blob_id();
-        let sliver_pair_at_remote = SliverPairIndex(0); // Triggers an valid response
+        // Triggers an valid response
+        let sliver_pair_at_remote = SliverIndex::new(0).to_pair_index::<Secondary>(n_shards);
         let intersecting_pair_index = SliverPairIndex(0);
 
         let _symbol = client

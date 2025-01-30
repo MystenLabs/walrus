@@ -13,6 +13,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use indicatif::MultiProgress;
 use itertools::Itertools as _;
 use prometheus::Registry;
 use rand::seq::SliceRandom;
@@ -111,7 +112,7 @@ pub struct ClientCommandRunner {
     /// Whether to output JSON.
     json: bool,
     /// The gas budget for the client commands.
-    gas_budget: u64,
+    gas_budget: Option<u64>,
 }
 
 impl ClientCommandRunner {
@@ -119,7 +120,7 @@ impl ClientCommandRunner {
     pub fn new(
         config: &Option<PathBuf>,
         wallet: &Option<PathBuf>,
-        gas_budget: u64,
+        gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
         let config = load_configuration(config);
@@ -521,7 +522,9 @@ impl ClientCommandRunner {
 
         for file in files {
             let blob = read_blob_from_file(&file)?;
-            let (_, metadata) = client.encode_pairs_and_metadata(&blob).await?;
+            let (_, metadata) = client
+                .encode_pairs_and_metadata(&blob, &MultiProgress::new())
+                .await?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size =
                 encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
@@ -646,6 +649,7 @@ impl ClientCommandRunner {
         node_selection: NodeSelection,
         detail: bool,
     ) -> Result<()> {
+        node_selection.exactly_one_is_set()?;
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -654,9 +658,13 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        ServiceHealthInfoOutput::get_health_info(&sui_read_client, node_selection, detail)
-            .await?
-            .print_output(self.json)
+
+        ServiceHealthInfoOutput::new_for_nodes(
+            node_selection.get_nodes(&sui_read_client).await?,
+            detail,
+        )
+        .await?
+        .print_output(self.json)
     }
 
     pub(crate) async fn blob_id(

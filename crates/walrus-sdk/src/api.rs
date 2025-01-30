@@ -323,5 +323,5 @@ pub struct EventProgress {
     /// The number of events that are pending in memory.
     pub pending: u64,
     /// The highest event index that has been finished.
-    pub highest_finished_event_index: u64,
+    pub highest_finished_event_index: Option<u64>,
 }

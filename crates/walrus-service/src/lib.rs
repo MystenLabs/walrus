@@ -3,7 +3,7 @@
 
 //! Walrus client, server, and associated utilities.
 
-#[cfg(feature = "client")]
+#[cfg(any(feature = "client", feature = "backup"))]
 pub mod client;
 
 #[cfg(feature = "node")]
@@ -13,7 +13,6 @@ pub use node::errors::StorageNodeError;
 #[cfg(feature = "deploy")]
 pub mod testbed;
 
-#[cfg(feature = "backup")]
 pub mod backup;
 
 #[cfg(any(feature = "client", feature = "node"))]

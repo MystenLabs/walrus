@@ -15,6 +15,7 @@ use std::{
     time::Duration,
 };
 
+use indicatif::MultiProgress;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
@@ -241,7 +242,12 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     // Certify blob.
     let certificate = client
         .as_ref()
-        .send_blob_data_and_get_certificate(&metadata, &pairs, &BlobPersistenceType::Permanent)
+        .send_blob_data_and_get_certificate(
+            &metadata,
+            &pairs,
+            &BlobPersistenceType::Permanent,
+            &MultiProgress::new(),
+        )
         .await?;
 
     // Stop the nodes in the failure set.

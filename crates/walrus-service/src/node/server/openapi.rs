@@ -67,10 +67,15 @@ mod tests {
         const NODE_OPENAPI_SPEC_PATH: &str = "storage_openapi.yaml";
         const NODE_OPENAPI_HTML_PATH: &str = "storage_openapi.html";
 
-        let spec = RestApiDoc::openapi();
+        let mut spec = RestApiDoc::openapi();
+        spec.info.version = "<VERSION>".to_string();
 
         std::fs::write(NODE_OPENAPI_HTML_PATH, Redoc::new(spec.clone()).to_html())?;
-        std::fs::write(NODE_OPENAPI_SPEC_PATH, spec.clone().to_yaml()?)?;
+
+        walrus_test_utils::overwrite_file_and_fail_if_not_equal(
+            NODE_OPENAPI_SPEC_PATH,
+            spec.to_yaml()?,
+        )?;
 
         Ok(())
     }

@@ -22,7 +22,12 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::{move_structs::EpochState, UpdateNextPublicKeyAction, UpdatePublicKeyParams},
+    types::{
+        move_errors::{MoveExecutionError, SystemStateInnerError},
+        move_structs::EpochState,
+        UpdateNextPublicKeyAction,
+        UpdatePublicKeyParams,
+    },
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
@@ -128,7 +133,7 @@ impl SystemContractService for SuiSystemContractService {
     /// rotation is required.
     async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), anyhow::Error> {
         let contract_client = self.contract_client.lock().await;
-        let address = contract_client.wallet().await.active_address()?;
+        let address = contract_client.address();
 
         let node_cap = contract_client
             .read_client
@@ -336,18 +341,64 @@ impl SystemContractService for SuiSystemContractService {
                             "Storage node capability object not set");
                         Some(())
                     }
-                    Err(SuiClientError::TransactionExecutionError(e)) => {
+                    Err(
+                        e @ SuiClientError::TransactionExecutionError(
+                            MoveExecutionError::SystemStateInner(
+                                SystemStateInnerError::EInvalidIdEpoch(_),
+                            ),
+                        ),
+                    ) => {
                         tracing::debug!(
                             walrus.epoch = epoch,
                             error = ?e,
                             blob_id = ?blob_id,
-                            "Transaction execution error while attesting event blob"
+                            "Non-retriable event blob certification error while \
+                            attesting event blob"
                         );
                         Some(())
                     }
+                    Err(
+                        e @ SuiClientError::TransactionExecutionError(
+                            MoveExecutionError::SystemStateInner(
+                                SystemStateInnerError::EIncorrectAttestation(_)
+                                | SystemStateInnerError::ERepeatedAttestation(_)
+                                | SystemStateInnerError::ENotCommitteeMember(_),
+                            ),
+                        ),
+                    ) => {
+                        tracing::warn!(
+                            walrus.epoch = epoch,
+                            error = ?e,
+                            blob_id = ?blob_id,
+                            "Unexpected non-retriable event blob certification error \
+                            while attesting event blob"
+                        );
+                        Some(())
+                    }
+                    Err(SuiClientError::TransactionExecutionError(
+                        MoveExecutionError::NotParsable(_),
+                    )) => {
+                        tracing::error!(blob_id = ?blob_id,
+                            "Unexpected unknown transaction execution error while \
+                            attesting event blob, retrying");
+                        None
+                    }
+                    Err(SuiClientError::TransactionExecutionError(e)) => {
+                        tracing::warn!(error = ?e, blob_id = ?blob_id,
+                            "Unexpected move execution error while attesting event blob");
+                        Some(())
+                    }
+                    Err(SuiClientError::SharedObjectCongestion(object_ids)) => {
+                        tracing::debug!(blob_id = ?blob_id,
+                            object_ids = ?object_ids,
+                            "Shared object congestion error while attesting event blob, retrying");
+                        None
+                    }
                     Err(error) => {
-                        tracing::warn!(?error, blob_id = ?blob_id,
-                            "Submitting certify event blob to contract failed, retrying");
+                        tracing::error!(?error, blob_id = ?blob_id,
+                            "Unexpected unknown sui client error while attesting event blob, \
+                            retrying"
+                        );
                         None
                     }
                 }
