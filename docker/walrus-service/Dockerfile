@@ -14,18 +14,9 @@ COPY crates crates
 COPY contracts ./contracts
 COPY contracts /contracts
 
-FROM base AS backup-builder
-RUN cargo build --features walrus-service/backup \
-    --profile $PROFILE \
-    --bin walrus \
-    --bin walrus-backup \
-    --bin walrus-node \
-    --bin walrus-deploy
-
 FROM base AS builder
 RUN cargo build --profile $PROFILE \
     --bin walrus \
-    --bin walrus-backup \
     --bin walrus-node \
     --bin walrus-deploy
 
@@ -36,7 +27,6 @@ ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
 COPY --from=builder /walrus/target/release/walrus /opt/walrus/bin/walrus
-COPY --from=builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
 COPY --from=builder /walrus/target/release/walrus-node /opt/walrus/bin/walrus-node
 COPY --from=builder /walrus/target/release/walrus-deploy /opt/walrus/bin/walrus-deploy
 COPY --from=builder /contracts /opt/walrus/contracts
@@ -85,6 +75,14 @@ ARG BUILD_DATE
 ARG GIT_REVISION
 LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
+
+FROM base AS backup-builder
+RUN cargo build --features walrus-service/backup \
+    --profile $PROFILE \
+    --bin walrus \
+    --bin walrus-backup \
+    --bin walrus-node \
+    --bin walrus-deploy
 
 # Production Image for walrus backup CLI
 FROM debian:bookworm-slim AS walrus-backup
