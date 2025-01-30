@@ -645,6 +645,7 @@ where
             .map_err(BeginCommitteeChangeError::LookupError)?;
 
         let mut service_factory = self.inner.service_factory.lock().await;
+
         self.inner
             .services
             .lock()

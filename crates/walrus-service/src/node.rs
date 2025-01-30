@@ -509,6 +509,9 @@ impl StorageNode {
                 Some(StorageNodeError::ProtocolKeyPairRotationRequired)
             ) {
                 Err(e)
+            } else if matches!(e.downcast_ref(), Some(StorageNodeError::NodeNeedsReboot)) {
+                tracing::info!("Ignore the error since we are booting");
+                Ok(())
             } else {
                 node_params
                     .ignore_sync_failures

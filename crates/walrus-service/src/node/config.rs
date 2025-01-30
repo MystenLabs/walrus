@@ -188,13 +188,19 @@ impl StorageNodeConfig {
     /// This happens when the on-chain protocol key pair has been rotated.
     /// The protocol_key_pair is set to the new key pair, and the
     /// next_protocol_key_pair is cleared.
-    pub fn rotate_protocol_key_pair_persist(path: PathBuf) -> anyhow::Result<()> {
+    pub fn rotate_protocol_key_pair_persist(path: impl AsRef<Path>) -> anyhow::Result<()> {
         // Load config from path
-        let config_content = std::fs::read_to_string(&path).map_err(|e| {
-            anyhow::anyhow!("failed to read config file at '{}': {e}", path.display())
+        let config_content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to read config file at '{}': {e}",
+                path.as_ref().display()
+            )
         })?;
         let mut config: StorageNodeConfig = serde_yaml::from_str(&config_content).map_err(|e| {
-            anyhow::anyhow!("failed to parse config file at '{}': {e}", path.display())
+            anyhow::anyhow!(
+                "failed to parse config file at '{}': {e}",
+                path.as_ref().display()
+            )
         })?;
 
         if config.next_protocol_key_pair.is_none() {
@@ -211,22 +217,22 @@ impl StorageNodeConfig {
         config.rotate_protocol_key_pair();
 
         // Write to temporary file first
-        let temp_path = path.with_extension("tmp");
+        let temp_path = path.as_ref().with_extension("tmp");
         let config_str = serde_yaml::to_string(&config)
             .map_err(|e| anyhow::anyhow!("failed to serialize config: {e}"))?;
         std::fs::write(&temp_path, config_str)
             .map_err(|e| anyhow::anyhow!("failed to write temporary config file: {e}"))?;
 
         // Remove old file if it exists
-        if path.exists() {
-            std::fs::remove_file(&path)?;
+        if path.as_ref().exists() {
+            std::fs::remove_file(path.as_ref())?;
         }
 
         // Rename temporary file to actual config file
         // If crash happens before rename happens, the old config will be lost,but the new config
         // has already been written to disk.
         // This is a trade-off in case rename() is not atomic on some platforms.
-        std::fs::rename(&temp_path, &path)?;
+        std::fs::rename(&temp_path, path.as_ref())?;
 
         Ok(())
     }
@@ -1096,7 +1102,7 @@ mod tests {
         std::fs::write(&config_path, config_str)?;
 
         // Call rotate_protocol_key_pair_persist
-        StorageNodeConfig::rotate_protocol_key_pair_persist(config_path.clone())?;
+        StorageNodeConfig::rotate_protocol_key_pair_persist(&config_path)?;
 
         // Read back the config and verify the rotation
         let config_content = std::fs::read_to_string(&config_path)?;

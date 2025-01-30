@@ -334,7 +334,7 @@ fn main() -> anyhow::Result<()> {
                         ) =>
                     {
                         tracing::info!("Protocol key pair rotation required, rotating key pair...");
-                        StorageNodeConfig::rotate_protocol_key_pair_persist(config_path.clone())?;
+                        StorageNodeConfig::rotate_protocol_key_pair_persist(&config_path)?;
                         continue;
                     }
                     Err(e)

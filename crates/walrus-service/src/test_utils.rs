@@ -969,12 +969,11 @@ impl StorageNodeHandleBuilder {
         };
 
         let cancel_token = CancellationToken::new();
-        let config = Arc::new(RwLock::new(storage_node_config.clone()));
 
         let node_id = if start_node {
             Some(
                 SimStorageNodeHandle::spawn_node(
-                    config.clone(),
+                    Arc::new(RwLock::new(storage_node_config.clone())),
                     num_checkpoints_per_blob,
                     cancel_token.clone(),
                 )

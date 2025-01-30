@@ -40,21 +40,13 @@ impl NodeRecoveryHandler {
                 for (blob_id, blob_info) in node
                     .storage
                     .certified_blob_info_iter_before_epoch(epoch)
-                    .filter_map(
-                        |blob_result: Result<
-                            (
-                                walrus_core::BlobId,
-                                crate::node::storage::blob_info::BlobInfo,
-                            ),
-                            TypedStoreError,
-                        >| {
-                            blob_result
-                                .inspect_err(|error| {
-                                    tracing::error!(?error, "failed to read certified blob")
-                                })
-                                .ok()
-                        },
-                    )
+                    .filter_map(|blob_result| {
+                        blob_result
+                            .inspect_err(|error| {
+                                tracing::error!(?error, "failed to read certified blob")
+                            })
+                            .ok()
+                    })
                 {
                     if !blob_info.is_certified(epoch) {
                         // Skip blobs that are not certified in the given epoch. This

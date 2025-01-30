@@ -93,11 +93,6 @@ impl ConfigSynchronizer {
     }
 
     /// Syncs node parameters with on-chain values.
-    ///
-    /// This checks if the node parameters are in sync with the on-chain parameters.
-    /// If not, it updates the node parameters on-chain.
-    /// If the current node is not registered yet, it errors out.
-    /// If the wallet is not present in the config, it does nothing.
     #[instrument(skip(self))]
     pub async fn sync_node_params(&self) -> anyhow::Result<()> {
         if !self.enabled.load(Ordering::Relaxed) {
@@ -123,9 +118,9 @@ impl ConfigSynchronizer {
 impl std::fmt::Debug for ConfigSynchronizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConfigSynchronizer")
-            .field("config", &self.config)
+            .field("enabled", &self.enabled)
             .field("check_interval", &self.check_interval)
-            // Skip contract_service since it's a trait object
+            .field("current_config", &self.config)
             .finish_non_exhaustive()
     }
 }

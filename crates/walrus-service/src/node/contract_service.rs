@@ -122,9 +122,11 @@ impl SuiSystemContractService {
 
 #[async_trait]
 impl SystemContractService for SuiSystemContractService {
+    /// Syncs the node parameters with the on-chain values.
+    /// If the node parameters are not in sync, it updates the node parameters on-chain.
+    /// Note this could return error if the node needs reboot, e.g., when protocol key pair
+    /// rotation is required.
     async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), anyhow::Error> {
-        tracing::info!("Syncing node params");
-
         let contract_client = self.contract_client.lock().await;
         let address = contract_client.wallet().await.active_address()?;
 
@@ -362,6 +364,7 @@ impl SystemContractService for SuiSystemContractService {
     }
 }
 
+/// Calculates the protocol key action based on the local and remote public keys.
 fn calculate_protocol_key_action(
     local_public_key: PublicKey,
     local_next_public_key: Option<PublicKey>,
