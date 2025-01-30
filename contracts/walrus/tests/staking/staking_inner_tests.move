@@ -119,7 +119,7 @@ fun test_staking_active_set_early_withdraw() {
     assert!(active_ids.contains(&pool_two));
     assert!(active_ids.contains(&pool_three));
 
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty());
 
     let cmt = staking.committee();
