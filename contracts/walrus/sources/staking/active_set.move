@@ -59,6 +59,7 @@ public(package) fun new(max_size: u16, threshold_stake: u64): ActiveSet {
 /// Inserts the node if it is not already in the active set, otherwise updates its stake.
 /// Returns true if the node is in the set after the operation, false otherwise.
 public(package) fun insert_or_update(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
+    // Currently, the `threshold_stake` is set to `0`, so we need to account for that.
     if (staked_amount == 0 || staked_amount < set.threshold_stake) {
         set.remove(node_id);
         return false
