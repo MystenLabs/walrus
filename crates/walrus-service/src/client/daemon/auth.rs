@@ -3,7 +3,12 @@
 
 use axum::{body::Body, extract::Query, http::Response};
 use axum_extra::headers::{authorization::Bearer, Authorization};
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{
+    decode,
+    errors::{Error as JwtError, ErrorKind as JwtErrorKind},
+    DecodingKey,
+    Validation,
+};
 use serde::Deserialize;
 use sui_types::base_types::SuiAddress;
 use tracing::error;
@@ -47,25 +52,27 @@ impl Claim {
                     "failed to convert token to claim"
                 );
                 match err.kind() {
-                    jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                        PublisherAuthError::ExpiredSignature
+                    JwtErrorKind::ExpiredSignature => PublisherAuthError::ExpiredSignature(err),
+
+                    JwtErrorKind::InvalidSignature
+                    | JwtErrorKind::InvalidAlgorithmName
+                    | JwtErrorKind::ImmatureSignature => PublisherAuthError::InvalidSignature(err),
+
+                    JwtErrorKind::InvalidToken
+                    | JwtErrorKind::InvalidAlgorithm
+                    | JwtErrorKind::InvalidIssuer
+                    | JwtErrorKind::InvalidAudience
+                    | JwtErrorKind::InvalidSubject
+                    | JwtErrorKind::Base64(_)
+                    | JwtErrorKind::Json(_)
+                    | JwtErrorKind::Utf8(_) => PublisherAuthError::InvalidToken(err),
+
+                    JwtErrorKind::RsaFailedSigning => {
+                        unreachable!("we are not signing")
                     }
-                    jsonwebtoken::errors::ErrorKind::InvalidSignature
-                    | jsonwebtoken::errors::ErrorKind::InvalidAlgorithmName
-                    | jsonwebtoken::errors::ErrorKind::InvalidIssuer
-                    | jsonwebtoken::errors::ErrorKind::ImmatureSignature => {
-                        PublisherAuthError::InvalidSignature
-                    }
-                    jsonwebtoken::errors::ErrorKind::InvalidToken
-                    | jsonwebtoken::errors::ErrorKind::InvalidAlgorithm
-                    | jsonwebtoken::errors::ErrorKind::Base64(_)
-                    | jsonwebtoken::errors::ErrorKind::Json(_)
-                    | jsonwebtoken::errors::ErrorKind::Utf8(_) => PublisherAuthError::InvalidToken,
-                    jsonwebtoken::errors::ErrorKind::MissingAlgorithm => {
-                        PublisherAuthError::Internal
-                    }
-                    jsonwebtoken::errors::ErrorKind::Crypto(_) => PublisherAuthError::Internal,
-                    _ => PublisherAuthError::Internal,
+
+                    // The error kind is non-exhaustive, so we need to handle the `_` case.
+                    _ => PublisherAuthError::Internal(err.into()),
                 }
             })?
             .claims;
@@ -178,24 +185,24 @@ enum PublisherAuthError {
     MissingSendObjectTo,
 
     /// The signature on the token has expired.
-    #[error("the signature on the token has expired")]
+    #[error("the signature on the token has expired: {0}")]
     #[rest_api_error(reason = "EXPIRED_SIGNATURE", status = ApiStatusCode::DeadlineExceeded)]
-    ExpiredSignature,
+    ExpiredSignature(JwtError),
 
     /// The signature on the token is invalid.
-    #[error("the signature on the token is invalid")]
+    #[error("the signature on the token is invalid: {0}")]
     #[rest_api_error(reason = "INVALID_SIGNATURE", status = ApiStatusCode::Unauthenticated)]
-    InvalidSignature,
+    InvalidSignature(JwtError),
 
     /// The JWT token is invalid.
-    #[error("the JWT token is invalid")]
+    #[error("the JWT token is invalid: {0}")]
     #[rest_api_error(reason = "INVALID_TOKEN", status = ApiStatusCode::FailedPrecondition)]
-    InvalidToken,
+    InvalidToken(JwtError),
 
     /// Other errors that are not covered by the other variants.
     #[error("an internal error occurred")]
-    #[rest_api_error(reason = "INTERNAL_SERVER_ERROR", status = ApiStatusCode::Internal)]
-    Internal,
+    #[rest_api_error(delegate)]
+    Internal(anyhow::Error),
 }
 
 #[cfg(test)]
