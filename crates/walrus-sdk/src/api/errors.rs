@@ -358,7 +358,7 @@ status_codes![
     (DeadlineExceeded, "DEADLINE_EXCEEDED", HttpStatusCode::GATEWAY_TIMEOUT),
 
     /// The request does not have valid authentication credentials for the
-    // operation.
+    /// operation.
     (Unauthenticated, "UNAUTHENTICATED", HttpStatusCode::UNAUTHORIZED),
 ];
 

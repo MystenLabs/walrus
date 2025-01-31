@@ -132,9 +132,7 @@ impl Claim {
             return Err(error);
         }
 
-        if let Err(error) = self.check_send_object_to(query.send_object_to) {
-            return Err(error);
-        }
+        self.check_send_object_to(query.send_object_to)?;
 
         Ok(())
     }
@@ -253,7 +251,7 @@ pub(crate) fn verify_jwt_claim(
     match Claim::from_token(bearer.token().trim(), decode_key, &validation) {
         Ok(claim) => {
             if let Err(error) = claim.check_valid_upload(&query.0, auth_config, body_size_hint) {
-                return Err(error.to_response());
+                Err(error.to_response())
             } else {
                 Ok(())
             }
