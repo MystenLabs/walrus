@@ -363,7 +363,7 @@ impl SimStorageNodeHandle {
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
-        tokio::task::JoinHandle<Result<(), std::io::Error>>,
+        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
     )> {
