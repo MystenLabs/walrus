@@ -81,10 +81,12 @@ pub struct StorageNodeConfig {
     pub db_config: DatabaseConfig,
     /// Key pair used in Walrus protocol messages.
     #[serde_as(as = "PathOrInPlace<Base64>")]
+    #[serde(rename = "protocol_key_pair")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// The next protocol key pair to use for the storage node.
     #[serde_as(as = "Option<PathOrInPlace<Base64>>")]
     #[serde(default, skip_serializing_if = "defaults::is_none")]
+    #[serde(rename = "next_protocol_key_pair")]
     pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -203,8 +205,10 @@ impl StorageNodeConfig {
     /// The protocol_key_pair is set to the new key pair, and the
     /// next_protocol_key_pair is cleared.
     pub fn rotate_protocol_key_pair_persist(path: impl AsRef<Path>) -> anyhow::Result<()> {
-        // Load config from path
-        let mut config: StorageNodeConfig = crate::common::utils::load_from_yaml(path.as_ref())?;
+        // Load config from path, preserving the raw Value to maintain all fields
+        let config_str = std::fs::read_to_string(path.as_ref())?;
+        let mut original_value: serde_yaml::Value = serde_yaml::from_str(&config_str)?;
+        let mut config: StorageNodeConfig = serde_yaml::from_str(&config_str)?;
 
         assert!(config.protocol_key_pair.is_path());
         if let Some(ref next_protocol_key_pair) = config.next_protocol_key_pair {
@@ -216,9 +220,24 @@ impl StorageNodeConfig {
         // Rotate the protocol key pair
         config.rotate_protocol_key_pair();
 
+        // Update only the relevant fields in the original Value
+        if let serde_yaml::Value::Mapping(ref mut map) = original_value {
+            // Update protocol_key_pair
+            if let Ok(protocol_key_pair) = serde_yaml::to_value(&config.protocol_key_pair) {
+                map.insert(
+                    serde_yaml::Value::String("protocol_key_pair".to_string()),
+                    protocol_key_pair,
+                );
+            }
+            // Clear next_protocol_key_pair
+            map.remove(serde_yaml::Value::String(
+                "next_protocol_key_pair".to_string(),
+            ));
+        }
+
         // Write to temporary file first
         let temp_path = path.as_ref().with_extension("tmp");
-        let config_str = serde_yaml::to_string(&config)
+        let config_str = serde_yaml::to_string(&original_value)
             .map_err(|e| anyhow::anyhow!("failed to serialize config: {e}"))?;
         std::fs::write(&temp_path, config_str)
             .map_err(|e| anyhow::anyhow!("failed to write temporary config file: {e}"))?;
@@ -229,9 +248,6 @@ impl StorageNodeConfig {
         }
 
         // Rename temporary file to actual config file
-        // If crash happens before rename happens, the old config will be lost,but the new config
-        // has already been written to disk.
-        // This is a trade-off in case rename() is not atomic on some platforms.
         std::fs::rename(&temp_path, path.as_ref())?;
 
         Ok(())
