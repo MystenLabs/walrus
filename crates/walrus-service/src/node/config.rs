@@ -12,7 +12,8 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
@@ -25,7 +26,7 @@ use serde_with::{
 };
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
     messages::ProofOfPossession,
     NetworkPublicKey,
 };
@@ -568,11 +569,11 @@ impl<T> From<T> for PathOrInPlace<T> {
     }
 }
 
-impl<T: SupportedKeyPair> PathOrInPlace<TaggedKeyPair<T>> {
+impl PathOrInPlace<ProtocolKeyPair> {
     /// Loads and returns a key pair from the path on disk.
     ///
     /// If the value was already loaded, it is returned instead.
-    pub fn load(&mut self) -> Result<&TaggedKeyPair<T>, anyhow::Error> {
+    pub fn load(&mut self) -> Result<&ProtocolKeyPair, anyhow::Error> {
         if let PathOrInPlace::Path {
             path,
             value: value @ None,
@@ -580,11 +581,54 @@ impl<T: SupportedKeyPair> PathOrInPlace<TaggedKeyPair<T>> {
         {
             let base64_string = std::fs::read_to_string(path.as_path())
                 .context(format!("unable to read key from '{}'", path.display()))?;
-            let decoded: TaggedKeyPair<T> = base64_string
+            let decoded: ProtocolKeyPair = base64_string
                 .parse()
-                .map_err(|err: KeyPairParseError| anyhow::anyhow!(err.to_string()))?;
+                .map_err(|err: KeyPairParseError| anyhow!(err.to_string()))?;
             *value = Some(decoded)
         };
+        Ok(self
+            .get()
+            .expect("we just made sure that the value is some"))
+    }
+}
+
+impl PathOrInPlace<NetworkKeyPair> {
+    /// Loads and returns a key pair from the path on disk.
+    ///
+    /// If the value was already loaded, it is returned instead.
+    pub fn load(&mut self) -> Result<&NetworkKeyPair, anyhow::Error> {
+        if let PathOrInPlace::Path {
+            path,
+            value: value @ None,
+        } = self
+        {
+            let _span = tracing::info_span!("load", path = %path.display()).entered();
+
+            let file_contents = std::fs::read_to_string(path.as_path())
+                .context(format!("unable to read key from '{}'", path.display()))?;
+
+            let private_key = NetworkKeyPair::from_pkcs8_pem(&file_contents)
+                .inspect(|_| tracing::info!("loaded network private key in PKCS#8 format"))
+                .or_else(|error| {
+                    tracing::debug!(
+                        ?error,
+                        "failed to load network key in PKCS#8 format, trying base64-serde"
+                    );
+                    NetworkKeyPair::from_str(&file_contents)
+                        .inspect(|_| {
+                            tracing::info!("loaded network private key in serde-base64 format");
+                        })
+                        .map_err(|error2| {
+                            anyhow!(
+                                "unsupported network private key format: neither PKCS#8 {error}, \
+                                nor base64-serde {error2}"
+                            )
+                        })
+                })?;
+
+            *value = Some(private_key)
+        };
+
         Ok(self
             .get()
             .expect("we just made sure that the value is some"))
@@ -684,6 +728,7 @@ mod tests {
     use std::{io::Write as _, str::FromStr};
 
     use indoc::indoc;
+    use p256::{pkcs8, pkcs8::EncodePrivateKey};
     use rand::{rngs::StdRng, SeedableRng as _};
     use sui_types::base_types::ObjectID;
     use tempfile::NamedTempFile;
@@ -785,6 +830,24 @@ mod tests {
         let mut path = PathOrInPlace::<ProtocolKeyPair>::from_path(key_file.path());
 
         assert_eq!(*path.load()?, key);
+
+        Ok(())
+    }
+
+    #[test]
+    fn loads_pem_network_keypair() -> TestResult {
+        let key = test_utils::network_key_pair();
+        let pem_string = key
+            .to_pkcs8_pem(pkcs8::LineEnding::default())
+            .expect("key can be serialized as pem");
+
+        let key_file = NamedTempFile::new()?;
+        key_file.as_file().write_all(pem_string.as_ref())?;
+
+        let mut path = PathOrInPlace::<NetworkKeyPair>::from_path(key_file.path());
+        let loaded_key = path.load().expect("key should load successfully");
+
+        assert_eq!(*loaded_key, key);
 
         Ok(())
     }

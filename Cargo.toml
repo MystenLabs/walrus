@@ -61,7 +61,7 @@ mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.
 num-bigint = { version = "0.4.5", default-features = false }
 object_store = { version = "0.11.2", features = ["gcp"] }
 opentelemetry = { version = "=0.27.1", default-features = false, features = ["trace"] }
-p256 = "0.13.2"
+p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.7"
 prettytable = "0.10.0"
 prometheus = "0.13.4"

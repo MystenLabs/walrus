@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Keys used with Walrus.
-
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use core::{fmt, str::FromStr};
 
@@ -12,6 +11,7 @@ use fastcrypto::{
     secp256r1::Secp256r1KeyPair,
     traits::{AllowedRng, KeyPair, Signer, SigningKey, ToFromBytes},
 };
+use p256::pkcs8::{self, DecodePrivateKey, EncodePrivateKey};
 use serde::{
     de::{Error, SeqAccess, Unexpected, Visitor},
     ser::SerializeTuple,
@@ -133,6 +133,22 @@ impl<T: SupportedKeyPair> From<&TaggedKeyPair<T>> for Vec<u8> {
 impl<T: SupportedKeyPair> AsRef<T> for TaggedKeyPair<T> {
     fn as_ref(&self) -> &T {
         &self.0
+    }
+}
+
+impl EncodePrivateKey for TaggedKeyPair<Secp256r1KeyPair> {
+    fn to_pkcs8_der(&self) -> Result<pkcs8::SecretDocument, pkcs8::Error> {
+        self.as_ref().secret.privkey.to_pkcs8_der()
+    }
+}
+
+impl DecodePrivateKey for TaggedKeyPair<Secp256r1KeyPair> {
+    fn from_pkcs8_der(bytes: &[u8]) -> Result<Self, pkcs8::Error> {
+        let privkey = p256::ecdsa::SigningKey::from_pkcs8_der(bytes)?;
+        let bytes = privkey.to_bytes();
+        let private_key =
+            Secp256r1KeyPair::from_bytes(&bytes).expect("key serialized above is always valid");
+        Ok(TaggedKeyPair::new(private_key))
     }
 }
 

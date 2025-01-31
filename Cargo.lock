@@ -11595,6 +11595,7 @@ dependencies = [
  "criterion",
  "enum_dispatch",
  "fastcrypto",
+ "p256",
  "rand 0.8.5",
  "raptorq",
  "serde",
