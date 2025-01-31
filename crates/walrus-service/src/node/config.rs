@@ -613,18 +613,19 @@ impl LoadsFromPath for NetworkKeyPair {
             .or_else(|error| {
                 tracing::debug!(
                     ?error,
-                    "failed to load network key in PKCS#8 format, trying base64-serde"
+                    "failed to load network key in PKCS#8 format, trying tagged"
                 );
 
-                NetworkKeyPair::from_str(&file_contents).map_err(|error2| {
-                    anyhow!(
-                        "unsupported network private key format: neither PKCS#8 {error}, \
-                                nor base64-serde {error2}"
-                    )
-                })
-            })
-            .inspect(|_| {
-                tracing::info!("loaded network private key in serde-base64 format");
+                NetworkKeyPair::from_str(&file_contents)
+                    .inspect(|_| {
+                        tracing::info!("loaded network private key in tagged format");
+                    })
+                    .map_err(|error2| {
+                        anyhow!(
+                            "unsupported network private key format: neither PKCS#8 {error}, nor \
+                            tagged {error2}"
+                        )
+                    })
             })
     }
 }

@@ -9,12 +9,11 @@ use std::{
     io::{self, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    str::FromStr,
     sync::Arc,
 };
 
 use anyhow::{bail, Context};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum as _};
 use config::PathOrInPlace;
 use fs::File;
 use humantime::Duration;
@@ -98,20 +97,27 @@ enum Commands {
 
     /// Generate a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
-        /// Path to the file at which the key will be created. If the file already exists, it is
-        /// not overwritten and the operation will fail unless the `--force` option is provided.
-        /// [default: ./<KEY_TYPE>.key]
+        /// Path to the file at which the key will be created [default: ./<KEY_TYPE>.key].
+        ///
+        /// If the file already exists, it is not overwritten and the operation will fail unless
+        /// the `--force` option is provided.
         #[clap(long)]
         out: Option<PathBuf>,
-        /// Which type of key to generate. Valid options are 'protocol' and 'network'.
-        ///
-        /// The protocol key is used to sign Walrus protocol messages.
-        /// The network key is used to authenticate nodes in network communication.
-        #[clap(long)]
+        /// Which type of key to generate.
+        #[clap(long, value_enum)]
         key_type: KeyType,
+        /// Output the key in the specified format.
+        #[clap(long, value_enum, default_value_t = KeyFormat::Tagged)]
+        format: KeyFormat,
         /// Overwrite existing files.
         #[clap(long)]
         force: bool,
+        /// Convert an existing key instead of generating a new key.
+        ///
+        /// Provide a path to an existing key in a supported format. The key is converted to the
+        /// format specified by `--format` before being written.
+        #[clap(long, value_name = "INPUT_KEY_PATH")]
+        convert: Option<PathBuf>,
     },
 
     /// Generate a new node configuration.
@@ -134,34 +140,20 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, clap::Parser)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 enum KeyType {
+    /// A protocol key used to sign Walrus protocol messages.
     Protocol,
+    /// A network key used to authenticate nodes in network communication.
     Network,
-}
-
-impl FromStr for KeyType {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_ascii_lowercase().as_str() {
-            "protocol" => Self::Protocol,
-            "network" => Self::Network,
-            _ => bail!("invalid key type provided"),
-        })
-    }
 }
 
 impl Display for KeyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                KeyType::Protocol => "protocol",
-                KeyType::Network => "network",
-            }
-        )
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
     }
 }
 
@@ -171,6 +163,24 @@ impl KeyType {
             KeyType::Protocol => "protocol.key",
             KeyType::Network => "network.key",
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum KeyFormat {
+    /// Format the key as a base64 value comprised of (tag || private-key-bytes).
+    Tagged,
+    /// Format the key as a PKCS#8 PEM-encoded private-key (only supported for the network key
+    /// type).
+    Pkcs8,
+}
+
+impl Display for KeyFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
     }
 }
 
@@ -332,12 +342,28 @@ fn main() -> anyhow::Result<()> {
             out,
             key_type,
             force,
-        } => commands::keygen(
-            out.as_deref()
-                .unwrap_or_else(|| Path::new(key_type.default_filename())),
-            key_type,
-            force,
-        )?,
+            format,
+            convert,
+        } => {
+            if let Some(input_key_path) = convert {
+                commands::convert(
+                    &input_key_path,
+                    out.as_deref()
+                        .unwrap_or_else(|| Path::new(key_type.default_filename())),
+                    key_type,
+                    force,
+                    format,
+                )?
+            } else {
+                commands::keygen(
+                    out.as_deref()
+                        .unwrap_or_else(|| Path::new(key_type.default_filename())),
+                    key_type,
+                    force,
+                    format,
+                )?
+            }
+        }
 
         Commands::GenerateConfig {
             path_args,
@@ -353,7 +379,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use config::{MetricsPushConfig, NodeRegistrationParamsForThirdPartyRegistration};
+    use config::{
+        LoadsFromPath as _,
+        MetricsPushConfig,
+        NodeRegistrationParamsForThirdPartyRegistration,
+    };
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
     use walrus_core::ensure;
@@ -544,21 +574,79 @@ mod commands {
         Ok(())
     }
 
-    pub(super) fn keygen(path: &Path, key_type: KeyType, force: bool) -> anyhow::Result<()> {
+    pub(super) fn keygen(
+        path: &Path,
+        key_type: KeyType,
+        force: bool,
+        format: KeyFormat,
+    ) -> anyhow::Result<()> {
+        walrus_core::ensure!(
+            format != KeyFormat::Pkcs8 || key_type == KeyType::Network,
+            "`--format=pkcs8` is only supported with `--key-type=network`"
+        );
+
         println!(
             "Generating {key_type} key pair and writing it to '{}'",
             path.display()
         );
-        let mut file = create_file(path, force)
-            .with_context(|| format!("Cannot create the keyfile '{}'", path.display()))?;
 
-        file.write_all(
-            match key_type {
-                KeyType::Protocol => ProtocolKeyPair::generate().to_base64(),
-                KeyType::Network => NetworkKeyPair::generate().to_base64(),
-            }
-            .as_bytes(),
-        )?;
+        let key_string = match (key_type, format) {
+            (KeyType::Network, KeyFormat::Pkcs8) => NetworkKeyPair::generate().to_pem(),
+            (KeyType::Network, KeyFormat::Tagged) => NetworkKeyPair::generate().to_base64().into(),
+            (KeyType::Protocol, _) => ProtocolKeyPair::generate().to_base64().into(),
+        };
+
+        write_key_to_file(path, force, &key_string)
+    }
+
+    pub(crate) fn convert(
+        input_file: &Path,
+        output_file: &Path,
+        key_type: KeyType,
+        force: bool,
+        output_format: KeyFormat,
+    ) -> anyhow::Result<()> {
+        walrus_core::ensure!(
+            output_format != KeyFormat::Pkcs8 || key_type == KeyType::Network,
+            "`--format=pkcs8` is only supported with `--key-type=network`"
+        );
+
+        println!(
+            "Converting {key_type} key pair form '{}' and writing it to '{}'",
+            input_file.display(),
+            output_file.display()
+        );
+
+        let load_context = || {
+            format!(
+                "unable to load the input keyfile at '{}' as type '{}'",
+                input_file.display(),
+                key_type
+            )
+        };
+
+        let key_string = match key_type {
+            KeyType::Network => NetworkKeyPair::load(input_file)
+                .with_context(load_context)
+                .map(|keypair| match output_format {
+                    KeyFormat::Pkcs8 => keypair.to_pem(),
+                    KeyFormat::Tagged => keypair.to_base64().into(),
+                })?,
+
+            KeyType::Protocol => ProtocolKeyPair::load(input_file)
+                .with_context(load_context)?
+                .to_base64()
+                .into(),
+        };
+
+        write_key_to_file(output_file, force, &key_string)
+    }
+
+    fn write_key_to_file(output_file: &Path, force: bool, contents: &str) -> anyhow::Result<()> {
+        let mut file = create_file(output_file, force)
+            .with_context(|| format!("Cannot create the keyfile '{}'", output_file.display()))?;
+
+        file.write_all(contents.as_bytes())?;
 
         Ok(())
     }
@@ -756,8 +844,13 @@ mod commands {
             config_directory.display()
         );
 
-        keygen(&protocol_key_path, KeyType::Protocol, true)?;
-        keygen(&network_key_path, KeyType::Network, true)?;
+        keygen(
+            &protocol_key_path,
+            KeyType::Protocol,
+            true,
+            KeyFormat::Tagged,
+        )?;
+        keygen(&network_key_path, KeyType::Network, true, KeyFormat::Pkcs8)?;
 
         let wallet_address = utils::generate_sui_wallet(
             sui_network,
@@ -953,8 +1046,9 @@ impl StorageNodeRuntime {
 
 #[cfg(test)]
 mod tests {
+    use config::LoadsFromPath;
     use tempfile::TempDir;
-    use walrus_test_utils::Result;
+    use walrus_test_utils::{param_test, Result};
 
     use super::*;
 
@@ -963,7 +1057,7 @@ mod tests {
         let dir = TempDir::new()?;
         let filename = dir.path().join("keyfile.key");
 
-        commands::keygen(&filename, KeyType::Protocol, false)?;
+        commands::keygen(&filename, KeyType::Protocol, false, KeyFormat::Tagged)?;
 
         let file_content = std::fs::read_to_string(filename)
             .expect("a file should have been created with the key");
@@ -988,7 +1082,7 @@ mod tests {
 
         std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
 
-        commands::keygen(&filename, KeyType::Protocol, false)
+        commands::keygen(&filename, KeyType::Protocol, false, KeyFormat::Tagged)
             .expect_err("must fail as the file already exists");
 
         let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
@@ -1004,7 +1098,7 @@ mod tests {
 
         std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
 
-        commands::keygen(&filename, KeyType::Protocol, true)?;
+        commands::keygen(&filename, KeyType::Protocol, true, KeyFormat::Tagged)?;
 
         let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
 
@@ -1013,5 +1107,85 @@ mod tests {
             .expect("a protocol keypair must be parseable from the the file's contents");
 
         Ok(())
+    }
+
+    #[test]
+    fn generate_key_pair_errs_for_unsupported_format() -> Result<()> {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("keyfile.key");
+
+        commands::keygen(&filename, KeyType::Protocol, false, KeyFormat::Pkcs8)
+            .expect_err("pkcs8 should be unsupported for protocol keys");
+
+        Ok(())
+    }
+
+    #[test]
+    fn generate_key_pair_saves_pkcs8_to_file() -> Result<()> {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("keyfile.pem");
+
+        commands::keygen(&filename, KeyType::Network, false, KeyFormat::Pkcs8)?;
+
+        let file_content = std::fs::read_to_string(&filename)
+            .expect("a file should have been created with the key");
+
+        assert!(file_content.starts_with("-----BEGIN PRIVATE KEY-----"));
+
+        NetworkKeyPair::load(&filename)
+            .expect("network keypair must be parseable from the the file's contents");
+
+        Ok(())
+    }
+
+    param_test! {
+        converts_key_type -> Result<()>: [
+            network_tagged_to_tagged: (KeyType::Network, KeyFormat::Tagged, KeyFormat::Tagged),
+            network_tagged_to_pkcs8: (KeyType::Network, KeyFormat::Tagged, KeyFormat::Pkcs8),
+            network_pkcs8_to_tagged: (KeyType::Network, KeyFormat::Pkcs8, KeyFormat::Tagged),
+            protocol_tagged_to_tagged: (KeyType::Protocol, KeyFormat::Tagged, KeyFormat::Tagged)
+        ]
+    }
+    fn converts_key_type(
+        key_type: KeyType,
+        input_format: KeyFormat,
+        output_format: KeyFormat,
+    ) -> Result<()> {
+        let dir = TempDir::new()?;
+        let input_file = dir.path().join("input.key");
+        let output_file = dir.path().join("output.key");
+
+        // Create the input keyfile.
+        commands::keygen(&input_file, key_type, false, input_format)?;
+
+        // Convert the file to the new format.
+        commands::convert(&input_file, &output_file, key_type, false, output_format)?;
+
+        assert_key_format(&output_file, output_format);
+        assert_valid_key_of_type(&output_file, key_type);
+
+        Ok(())
+    }
+
+    fn assert_key_format(path: &Path, format: KeyFormat) {
+        let pkcs8_header = "-----BEGIN PRIVATE KEY-----";
+        let file_content =
+            std::fs::read_to_string(path).expect("a file should have been created with the key");
+
+        match format {
+            KeyFormat::Tagged => assert!(!file_content.starts_with(pkcs8_header)),
+            KeyFormat::Pkcs8 => assert!(file_content.starts_with(pkcs8_header)),
+        }
+    }
+
+    fn assert_valid_key_of_type(path: &Path, key_type: KeyType) {
+        match key_type {
+            KeyType::Protocol => {
+                ProtocolKeyPair::load(path).expect("file contents should be a valid protoocl key");
+            }
+            KeyType::Network => {
+                NetworkKeyPair::load(path).expect("file contents should be a valid netwrk key");
+            }
+        }
     }
 }
