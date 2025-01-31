@@ -15,7 +15,7 @@ use super::{
     committee::CommitteeService,
     config::StorageNodeConfig,
     contract_service::SystemContractService,
-    StorageNodeError,
+    SyncNodeConfigError,
 };
 
 /// Monitors and syncs node configuration with on-chain parameters.
@@ -63,7 +63,7 @@ impl ConfigSynchronizer {
 
     /// Runs the config synchronization loop
     /// Errors are ignored except for NodeNeedsReboot and RotationRequired
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run(&self) -> Result<(), SyncNodeConfigError> {
         if !self.enabled.load(Ordering::Relaxed) {
             tracing::warn!("Config monitor is disabled, skipping background run");
             // If disabled, wait forever instead of returning
@@ -75,16 +75,15 @@ impl ConfigSynchronizer {
             tokio::time::sleep(self.check_interval).await;
 
             if let Err(e) = self.sync_node_params().await {
-                match e.downcast_ref() {
-                    Some(StorageNodeError::NodeNeedsReboot)
-                    | Some(StorageNodeError::ProtocolKeyPairRotationRequired) => {
-                        tracing::info!("Going to reboot node due to {}", e);
-                        return Err(e);
-                    }
-                    _ => {
-                        tracing::error!("Failed to sync node params: {}", e);
-                    }
+                if matches!(
+                    e,
+                    SyncNodeConfigError::NodeNeedsReboot
+                        | SyncNodeConfigError::ProtocolKeyPairRotationRequired
+                ) {
+                    tracing::info!("Going to reboot node due to {}", e);
+                    return Err(e);
                 }
+                tracing::error!("Failed to sync node params: {}", e);
             }
             if let Err(e) = self.sync_committee().await {
                 tracing::error!("Failed to sync committee: {}", e);
@@ -94,7 +93,7 @@ impl ConfigSynchronizer {
 
     /// Syncs node parameters with on-chain values.
     #[instrument(skip(self))]
-    pub async fn sync_node_params(&self) -> anyhow::Result<()> {
+    pub async fn sync_node_params(&self) -> Result<(), SyncNodeConfigError> {
         if !self.enabled.load(Ordering::Relaxed) {
             tracing::warn!("Config monitor is disabled, skipping sync");
             return Ok(());

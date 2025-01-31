@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use opentelemetry::trace::TraceContextExt as _;
 use serde::Serialize;
 use sui_types::event::EventID;
+use thiserror::Error;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use typed_store::TypedStoreError;
@@ -28,6 +29,7 @@ use walrus_sdk::{
     },
     error::NodeError,
 };
+use walrus_sui::client::SuiClientError;
 
 use super::storage::ShardStatus;
 use crate::common::api::RestApiError;
@@ -346,13 +348,22 @@ pub enum SyncShardClientError {
     RequestError(#[from] NodeError),
 }
 
-/// Errors returned by the storage node.
-#[derive(Debug, PartialEq, thiserror::Error)]
-pub enum StorageNodeError {
+/// Errors returned by the config synchronizer.
+#[derive(Debug, Error)]
+pub enum SyncNodeConfigError {
     /// The protocol key pair rotation is required.
     #[error("Node protocol key pair rotation is required")]
     ProtocolKeyPairRotationRequired,
     /// The node configuration has changed.
     #[error("Node needs reboot")]
     NodeNeedsReboot,
+    /// A SuiClientError occurred.
+    #[error(transparent)]
+    SuiClientError(#[from] SuiClientError),
+    /// The node configuration is inconsistent with the on-chain configuration.
+    #[error("Node config inconsistent")]
+    NodeConfigInconsistent(String),
+    /// An unexpected error occurred.
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }

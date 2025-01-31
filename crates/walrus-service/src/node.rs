@@ -111,9 +111,9 @@ use self::{
         RetrieveSliverError,
         RetrieveSymbolError,
         ShardNotAssigned,
-        StorageNodeError,
         StoreMetadataError,
         StoreSliverError,
+        SyncNodeConfigError,
         SyncShardServiceError,
     },
     events::{
@@ -506,24 +506,24 @@ impl StorageNode {
             ))
         };
 
-        config_synchronizer.sync_node_params().await.or_else(|e| {
-            if matches!(
-                e.downcast_ref(),
-                Some(StorageNodeError::ProtocolKeyPairRotationRequired)
-            ) {
-                Err(e)
-            } else if matches!(e.downcast_ref(), Some(StorageNodeError::NodeNeedsReboot)) {
-                tracing::info!("Ignore the error since we are booting");
-                Ok(())
-            } else {
-                node_params
-                    .ignore_sync_failures
-                    .then(|| {
+        config_synchronizer
+            .sync_node_params()
+            .await
+            .or_else(|e| match e {
+                SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
+                SyncNodeConfigError::NodeNeedsReboot => {
+                    tracing::info!("Ignore the error since we are booting");
+                    Ok(())
+                }
+                _ => {
+                    if node_params.ignore_sync_failures {
                         tracing::warn!("Failed to sync node params: {}", e);
-                    })
-                    .ok_or(e)
-            }
-        })?;
+                        Ok(())
+                    } else {
+                        Err(e)
+                    }
+                }
+            })?;
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -647,7 +647,7 @@ impl StorageNode {
                 tracing::info!("config monitor task ended");
                 match config_synchronizer_result {
                     Ok(()) => unreachable!("config monitor never returns"),
-                    Err(e) => return Err(e),
+                    Err(e) => return Err(e.into()),
                 }
             }
         }
