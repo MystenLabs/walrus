@@ -11,6 +11,11 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use axum_extra::{
+    headers::{authorization::Bearer, Authorization},
+    TypedHeader,
+};
+use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::header::{
     ACCESS_CONTROL_ALLOW_HEADERS,
     ACCESS_CONTROL_ALLOW_METHODS,
@@ -32,7 +37,16 @@ use walrus_sui::{client::BlobPersistence, SuiAddressSchema};
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::{daemon::PostStoreAction, BlobStoreResult, ClientError, ClientErrorKind, StoreWhen},
+    client::{
+        daemon::{
+            auth::{Claim, PublisherAuthError},
+            PostStoreAction,
+        },
+        BlobStoreResult,
+        ClientError,
+        ClientErrorKind,
+        StoreWhen,
+    },
     common::api::{Binary, BlobIdString, RestApiError},
 };
 
@@ -169,8 +183,16 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         deletable,
         send_object_to,
     }): Query<PublisherQuery>,
+    bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
 ) -> Response {
+    // Check if there is an authorization claim, and use it to check the size.
+    if let Some(TypedHeader(header)) = bearer_header {
+        if let Err(error) = check_blob_size(header, blob.len()) {
+            return error.into_response();
+        }
+    }
+
     let post_store_action = if let Some(address) = send_object_to {
         PostStoreAction::TransferTo(address)
     } else {
@@ -208,6 +230,38 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         .headers_mut()
         .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
     response
+}
+
+/// Checks if the JWT claim has a maximum size and if the blob exceeds it.
+///
+/// IMPORTANT: This function does _not_ check the validity of the claim (i.e., does not
+/// authenticate the signature). The assumption is that a previous middleware has already done
+/// so.
+///
+/// The function just decodes the token and checks that the size in the claim is not exceeded.
+fn check_blob_size(
+    bearer_header: Authorization<Bearer>,
+    blob_size: usize,
+) -> Result<(), PublisherAuthError> {
+    // Note: We disable validation and use a default key because, if the authorization
+    // header is present, it must have been checked by a previous middleware.
+    let mut validation = Validation::default();
+    validation.insecure_disable_signature_validation();
+    let default_key = DecodingKey::from_secret(&[]);
+
+    match Claim::from_token(bearer_header.token().trim(), &default_key, &validation) {
+        Ok(claim) if claim.max_size.is_some() => {
+            if blob_size as u64 > claim.max_size.expect("just checked") {
+                Err(PublisherAuthError::MaxSizeExceeded)
+            } else {
+                Ok(())
+            }
+        }
+        // We return an internal error here, because the claim should have been checked by a
+        // previous middleware, and therefore we should be able to decode it.
+        Err(error) => Err(PublisherAuthError::Internal(error.into())),
+        Ok(_) => Ok(()), // No need to check the size.
+    }
 }
 
 #[derive(Debug, thiserror::Error, RestApiError)]

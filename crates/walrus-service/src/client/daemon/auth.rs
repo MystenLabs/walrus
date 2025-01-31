@@ -23,7 +23,7 @@ pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 /// Claim follow RFC7519 with extra storage parameters: send_object_to, epochs.
 #[derive(Clone, Deserialize, Debug, Default)]
 #[cfg_attr(test, derive(serde::Serialize))]
-struct Claim {
+pub(crate) struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp).
     pub iat: Option<u64>,
@@ -263,7 +263,7 @@ pub(crate) fn verify_jwt_claim(
 /// Type representing the possible errors that can occur during the authentication process.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = PUBLISHER_AUTH_DOMAIN)]
-enum PublisherAuthError {
+pub(crate) enum PublisherAuthError {
     /// The expiration in the query does not match the token.
     #[error("the expiration in the query does not match the token")]
     #[rest_api_error(reason = "INVALID_EXPIRATION", status = ApiStatusCode::FailedPrecondition)]
