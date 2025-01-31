@@ -487,22 +487,22 @@ impl StorageNode {
         let start_time = Instant::now();
         tracing::info!(
             "Creating StorageNode with config monitor enabled: {}, interval: {:?}",
-            config.enable_config_synchronizer,
-            config.config_synchronizer_interval
+            config.config_synchronizer.enabled,
+            config.config_synchronizer.interval
         );
-        let config_synchronizer = if config.enable_config_synchronizer {
+        let config_synchronizer = if config.config_synchronizer.enabled {
             Arc::new(ConfigSynchronizer::new(
                 config.clone(),
                 contract_service.clone(),
                 committee_service.clone(),
-                config.config_synchronizer_interval,
+                config.config_synchronizer.interval,
             ))
         } else {
             Arc::new(ConfigSynchronizer::disabled(
                 config.clone(),
                 contract_service.clone(),
                 committee_service.clone(),
-                config.config_synchronizer_interval,
+                config.config_synchronizer.interval,
             ))
         };
 

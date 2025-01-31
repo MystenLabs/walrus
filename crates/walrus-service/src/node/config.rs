@@ -43,6 +43,27 @@ use crate::{
     node::events::EventProcessorConfig,
 };
 
+/// Configuration for the config synchronizer.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigSynchronizerConfig {
+    /// Interval between config monitoring checks.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "interval_secs")]
+    pub interval: Duration,
+    /// Enable the config monitor.
+    pub enabled: bool,
+}
+
+impl Default for ConfigSynchronizerConfig {
+    fn default() -> Self {
+        Self {
+            interval: defaults::config_synchronizer_interval(),
+            enabled: defaults::config_synchronizer_enabled(),
+        }
+    }
+}
+
 /// Configuration of a Walrus storage node.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -127,12 +148,9 @@ pub struct StorageNodeConfig {
     /// Metric push configuration.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub metrics_push: Option<MetricsPushConfig>,
-    /// Interval between config monitoring checks
-    #[serde(default = "defaults::config_synchronizer_interval")]
-    pub config_synchronizer_interval: Duration,
-    /// Enable the config monitor
-    #[serde(default = "defaults::config_synchronizer_enabled")]
-    pub enable_config_synchronizer: bool,
+    /// Configuration for the config synchronizer.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub config_synchronizer: ConfigSynchronizerConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -166,8 +184,7 @@ impl Default for StorageNodeConfig {
             name: Default::default(),
             metrics_push: None,
             metadata: Default::default(),
-            config_synchronizer_interval: Default::default(),
-            enable_config_synchronizer: Default::default(),
+            config_synchronizer: Default::default(),
         }
     }
 }
@@ -187,22 +204,8 @@ impl StorageNodeConfig {
     /// next_protocol_key_pair is cleared.
     pub fn rotate_protocol_key_pair_persist(path: impl AsRef<Path>) -> anyhow::Result<()> {
         // Load config from path
-        let config_content = std::fs::read_to_string(path.as_ref()).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to read config file at '{}': {e}",
-                path.as_ref().display()
-            )
-        })?;
-        let mut config: StorageNodeConfig = serde_yaml::from_str(&config_content).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse config file at '{}': {e}",
-                path.as_ref().display()
-            )
-        })?;
+        let mut config: StorageNodeConfig = crate::common::utils::load_from_yaml(path.as_ref())?;
 
-        if config.next_protocol_key_pair.is_none() {
-            return Err(anyhow::anyhow!("next_protocol_key_pair is not set"));
-        }
         assert!(config.protocol_key_pair.is_path());
         if let Some(ref next_protocol_key_pair) = config.next_protocol_key_pair {
             assert!(next_protocol_key_pair.is_path());
@@ -808,10 +811,10 @@ mod tests {
                 backoff_config: Default::default(),
                 gas_budget: None,
             }),
-            config_synchronizer_interval: Duration::from_secs(
-                defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS,
-            ),
-            enable_config_synchronizer: true,
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),
+                enabled: true,
+            },
             ..Default::default()
         };
 

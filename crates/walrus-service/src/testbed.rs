@@ -615,6 +615,7 @@ pub async fn create_storage_node_configs(
             storage_path,
             blocklist_path: None,
             protocol_key_pair: node.keypair.into(),
+            next_protocol_key_pair: None,
             network_key_pair: node.network_keypair.into(),
             public_host: node.network_address.get_host().to_owned(),
             public_port: node.network_address.try_get_port()?.context(format!(
@@ -640,7 +641,8 @@ pub async fn create_storage_node_configs(
                 node_capacity: node.node_capacity,
             },
             metrics_push: None,
-            ..Default::default()
+            metadata: NodeMetadata::default(),
+            config_synchronizer: Default::default(),
         });
     }
 

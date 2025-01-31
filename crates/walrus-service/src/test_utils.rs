@@ -83,7 +83,7 @@ use crate::{
             NodeCommitteeService,
         },
         config,
-        config::{ShardSyncConfig, StorageNodeConfig},
+        config::{ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
         contract_service::SystemContractService,
         errors::{SyncNodeConfigError, SyncShardClientError},
         events::{
@@ -802,8 +802,10 @@ impl StorageNodeHandleBuilder {
             blocklist_path: self.blocklist_path,
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
-            config_synchronizer_interval: Duration::from_secs(5),
-            enable_config_synchronizer: self.enable_node_config_synchronizer,
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(5),
+                enabled: self.enable_node_config_synchronizer,
+            },
             ..storage_node_config().inner
         };
 
@@ -954,8 +956,10 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
             }),
-            enable_config_synchronizer: self.enable_node_config_synchronizer,
-            config_synchronizer_interval: Duration::from_secs(5),
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(5),
+                enabled: self.enable_node_config_synchronizer,
+            },
             ..storage_node_config().inner
         };
 
