@@ -46,11 +46,10 @@ const EIncorrectDenyListNode: u64 = 10;
 public struct SystemStateInnerV1 has store {
     /// The current committee, with the current epoch.
     committee: BlsCommittee,
-    // Some accounting
+    /// Maximum capacity size for the current and future epochs.
+    /// Changed by voting on the epoch parameters.
     total_capacity_size: u64,
-    /// [DEPRECATED]
-    /// This field is deprecated in favor of the accounting ring buffer which
-    /// stores the used capacity for each future epoch.
+    /// Contains the used capacity size for the current epoch.
     used_capacity_size: u64,
     /// The price per unit size of storage.
     storage_price_per_unit_size: u64,
@@ -205,6 +204,11 @@ fun reserve_space_without_payment(
             .future_accounting
             .ring_lookup_mut(i)
             .increase_used_capacity(storage_amount);
+
+        // for the current epoch, update the used capacity size
+        if (i == 0) {
+            self.used_capacity_size = used_capacity;
+        };
 
         assert!(!check_capacity || used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
