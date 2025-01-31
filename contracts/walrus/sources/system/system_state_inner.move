@@ -704,6 +704,6 @@ public(package) fun future_accounting_mut(
 }
 
 #[test_only]
-public (package) fun destroy_for_testing(s: SystemStateInnerV1) {
+public(package) fun destroy_for_testing(s: SystemStateInnerV1) {
     sui::test_utils::destroy(s)
 }
