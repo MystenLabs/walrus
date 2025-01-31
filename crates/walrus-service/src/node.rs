@@ -440,7 +440,6 @@ pub struct StorageNode {
 /// The internal state of a Walrus storage node.
 #[derive(Debug)]
 pub struct StorageNodeInner {
-    config: StorageNodeConfig,
     protocol_key_pair: ProtocolKeyPair,
     storage: Storage,
     encoding_config: Arc<EncodingConfig>,
@@ -452,6 +451,7 @@ pub struct StorageNodeInner {
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
+    node_capability: Option<ObjectID>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -567,7 +567,6 @@ impl StorageNode {
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
 
         let inner = Arc::new(StorageNodeInner {
-            config: config.clone(),
             protocol_key_pair: key_pair,
             storage,
             event_manager,
@@ -579,6 +578,7 @@ impl StorageNode {
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
+            node_capability: config.storage_node_cap,
         });
 
         blocklist.start_refresh_task();
@@ -1473,7 +1473,7 @@ impl StorageNodeInner {
 
     /// Returns the node capability object ID.
     pub fn node_capability(&self) -> Option<ObjectID> {
-        self.config.storage_node_cap
+        self.node_capability
     }
 
     pub(crate) fn owned_shards(&self) -> Vec<ShardIndex> {

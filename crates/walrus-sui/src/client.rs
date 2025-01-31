@@ -998,16 +998,9 @@ impl SuiContractClientInner {
         epoch: u32,
         storage_node_cap: Option<ObjectID>,
     ) -> SuiClientResult<()> {
-        let node_capability = if let Some(node_cap) = storage_node_cap {
-            node_cap
-        } else {
-            let node_capability = self
-                .read_client
-                .get_address_capability_object(self.wallet.active_address()?)
-                .await?
-                .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-            node_capability.id
-        };
+        let node_capability = self
+            .get_storage_node_capability_object_id(storage_node_cap)
+            .await?;
 
         tracing::debug!(
             %node_capability,
@@ -1165,20 +1158,17 @@ impl SuiContractClientInner {
         storage_node_cap: Option<ObjectID>,
     ) -> SuiClientResult<()> {
         let node_capability = if let Some(node_cap) = storage_node_cap {
-            node_cap
+            self.sui_client().get_sui_object(node_cap).await?
         } else {
-            let node_capability = self
-                .read_client
+            self.read_client
                 .get_address_capability_object(self.wallet.active_address()?)
                 .await?
-                .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
-            if node_capability.last_epoch_sync_done >= epoch {
-                return Err(SuiClientError::LatestAttestedIsMoreRecent);
-            }
-
-            node_capability.id
+                .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
         };
+
+        if node_capability.last_epoch_sync_done >= epoch {
+            return Err(SuiClientError::LatestAttestedIsMoreRecent);
+        }
 
         tracing::debug!(
             %node_capability,
@@ -1187,7 +1177,7 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .epoch_sync_done(node_capability.into(), epoch)
+            .epoch_sync_done(node_capability.id.into(), epoch)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -1604,15 +1594,9 @@ impl SuiContractClientInner {
         node_capability: Option<ObjectID>,
     ) -> SuiClientResult<()> {
         let wallet_address = self.wallet.active_address()?;
-        let node_capability = if let Some(node_cap) = node_capability {
-            node_cap
-        } else {
-            self.read_client
-                .get_address_capability_object(wallet_address)
-                .await?
-                .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
-                .id
-        };
+        let node_capability = self
+            .get_storage_node_capability_object_id(node_capability)
+            .await?;
 
         tracing::debug!(
             ?wallet_address,
@@ -1627,6 +1611,28 @@ impl SuiContractClientInner {
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
+    }
+
+    /// Returns the storage node capability object ID. If provided, uses the provided object ID,
+    /// otherwise fetches the capability object from the wallet's address.
+    ///
+    /// When fetching from the wallet, the wallet cannot contain more than one capability
+    /// object.
+    async fn get_storage_node_capability_object_id(
+        &mut self,
+        provided_cap_object_id: Option<ObjectID>,
+    ) -> SuiClientResult<ObjectID> {
+        if let Some(cap_object_id) = provided_cap_object_id {
+            return Ok(cap_object_id);
+        }
+
+        let wallet_address = self.wallet.active_address()?;
+        Ok(self
+            .read_client
+            .get_address_capability_object(wallet_address)
+            .await?
+            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
+            .id)
     }
 
     #[cfg(any(test, feature = "test-utils"))]

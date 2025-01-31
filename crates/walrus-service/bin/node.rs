@@ -355,6 +355,7 @@ fn main() -> anyhow::Result<()> {
 
 mod commands {
     use config::{MetricsPushConfig, NodeRegistrationParamsForThirdPartyRegistration};
+    use fs::OpenOptions;
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
     use walrus_core::ensure;
@@ -603,7 +604,21 @@ mod commands {
 
         // Update the config in `config_path` with the new storage node capability object ID.
         config.storage_node_cap = Some(node_capability.id);
-        write_config_to_file(&config, &config_path, true)?;
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&config_path)
+            .with_context(|| {
+                format!(
+                    "failed to open the config file '{}' for appending",
+                    config_path.display()
+                )
+            })?;
+        // Add a newline before appending
+        writeln!(file)?;
+        // Write just the storage_node_cap field in YAML format
+        writeln!(file, "storage_node_cap: {}", node_capability.id)
+            .context("failed to append storage_node_cap to configuration file")?;
 
         Ok(())
     }
