@@ -622,8 +622,8 @@ impl LoadsFromPath for NetworkKeyPair {
                     })
                     .map_err(|error2| {
                         anyhow!(
-                            "unsupported network private key format: neither PKCS#8 {error}, nor \
-                            tagged {error2}"
+                            "unsupported network private key format: key is neither in PKCS#8 \
+                            format ({error}), nor in \"tagged\" format ({error2})"
                         )
                     })
             })
