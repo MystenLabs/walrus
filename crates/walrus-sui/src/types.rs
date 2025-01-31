@@ -137,8 +137,6 @@ pub struct UpdatePublicKeyParams {
 pub enum UpdateNextPublicKeyAction {
     /// Update the next public key of the storage node.
     Update(UpdatePublicKeyParams),
-    /// Reset the next public key of the storage node.
-    Reset,
 }
 
 /// Parameters for updating a node's configuration.

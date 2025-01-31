@@ -512,11 +512,6 @@ public(package) fun set_next_public_key(
     self.node_info.set_next_public_key(public_key);
 }
 
-/// Resets the next public key of the storage node.
-public(package) fun reset_next_public_key(self: &mut StakingPool) {
-    self.node_info.reset_next_public_key();
-}
-
 /// Sets the name of the storage node.
 public(package) fun set_name(self: &mut StakingPool, name: String) {
     self.node_info.set_name(name);

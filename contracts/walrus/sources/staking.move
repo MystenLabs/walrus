@@ -213,11 +213,6 @@ public fun set_next_public_key(
     self.inner_mut().set_next_public_key(cap, public_key, proof_of_possession, ctx);
 }
 
-/// Resets the next public key of the storage node.
-public fun reset_next_public_key(self: &mut Staking, cap: &StorageNodeCap) {
-    self.inner_mut().reset_next_public_key(cap);
-}
-
 /// Sets the name of a storage node.
 public fun set_name(self: &mut Staking, cap: &StorageNodeCap, name: String) {
     self.inner_mut().set_name(cap, name);

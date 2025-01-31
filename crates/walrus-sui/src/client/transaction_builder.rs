@@ -853,9 +853,6 @@ impl WalrusPtbBuilder {
                     self.update_next_public_key(&storage_node_cap, params)
                         .await?;
                 }
-                UpdateNextPublicKeyAction::Reset => {
-                    self.reset_next_public_key(&storage_node_cap).await?;
-                }
             }
         }
 
@@ -916,19 +913,6 @@ impl WalrusPtbBuilder {
                 .pure(params.proof_of_possession.signature.as_bytes())?,
         ];
         self.walrus_move_call(contracts::staking::set_next_public_key, args)?;
-        Ok(())
-    }
-
-    /// Resets the next public key of the node.
-    pub async fn reset_next_public_key(
-        &mut self,
-        storage_node_cap: &ArgumentOrOwnedObject,
-    ) -> SuiClientResult<()> {
-        let args = vec![
-            self.staking_arg(Mutability::Mutable).await?,
-            self.argument_from_arg_or_obj(*storage_node_cap).await?,
-        ];
-        self.walrus_move_call(contracts::staking::reset_next_public_key, args)?;
         Ok(())
     }
 
