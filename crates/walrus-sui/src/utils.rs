@@ -453,27 +453,15 @@ pub fn generate_proof_of_possession_for_address(
 }
 
 /// Resolve Move.lock file path in package directory (where Move.toml is).
-/// Taken from `sui_move::manage_package::resolve_lock_file_path` to avoid adding a dependency.
+/// Taken with small modifications (no rerooting/changing current directory) from
+/// `sui_move::manage_package::resolve_lock_file_path` to avoid adding a dependency.
 pub(crate) fn resolve_lock_file_path(
     mut build_config: MoveBuildConfig,
-    package_path: Option<&Path>,
+    package_path: &Path,
 ) -> Result<MoveBuildConfig, anyhow::Error> {
     if build_config.lock_file.is_none() {
-        let package_root = reroot_path(package_path)?;
-        let lock_file_path = package_root.join(SourcePackageLayout::Lock.path());
+        let lock_file_path = package_path.join(SourcePackageLayout::Lock.path());
         build_config.lock_file = Some(lock_file_path);
     }
     Ok(build_config)
-}
-
-/// Taken from `move_cli::base::reroot_path` to avoid adding a dependency.
-fn reroot_path(path: Option<&Path>) -> anyhow::Result<PathBuf> {
-    let path = path
-        .map(Path::canonicalize)
-        .unwrap_or_else(|| PathBuf::from(".").canonicalize())?;
-    // Always root ourselves to the package root, and then compile relative to that.
-    let rooted_path = SourcePackageLayout::try_find_root(&path)?;
-    std::env::set_current_dir(rooted_path).unwrap();
-
-    Ok(PathBuf::from("."))
 }
