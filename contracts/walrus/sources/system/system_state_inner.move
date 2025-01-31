@@ -179,9 +179,6 @@ public(package) fun reserve_space(
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
     assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
-    // Check capacity is available.
-    assert!(self.used_capacity_size + storage_amount <= self.total_capacity_size, EStorageExceeded);
-
     // Pay rewards for each future epoch into the future accounting.
     self.process_storage_payments(storage_amount, 0, epochs_ahead, payment);
 
@@ -203,10 +200,12 @@ fun reserve_space_without_payment(
 
     // Account the space to reclaim in the future.
     epochs_ahead.do!(|i| {
-        self
+        let used_capacity = self
             .future_accounting
             .ring_lookup_mut(i)
-            .increase_used_capacity(storage_amount)
+            .increase_used_capacity(storage_amount);
+
+        assert!(used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
 
     let self_epoch = self.epoch();
@@ -348,10 +347,12 @@ public(package) fun extend_blob(
     // Account the used space: increase the used capacity for each epoch in the future
     // Iterates: [start, end)
     (start_offset - 1).range_do!(end_offset, |i| {
-        self
+        let used_capacity = self
             .future_accounting
             .ring_lookup_mut(i)
             .increase_used_capacity(storage_size);
+
+        assert!(used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
 
     blob.storage_mut().extend_end_epoch(epochs_ahead);
@@ -657,7 +658,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
     let ctx = &mut tx_context::dummy();
     SystemStateInnerV1 {
         committee,
-        total_capacity_size: 1_000_000_000,
+        total_capacity_size: 10_000_000_000,
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
@@ -672,7 +673,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
     let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(0, ctx);
     SystemStateInnerV1 {
         committee,
-        total_capacity_size: 1_000_000_000,
+        total_capacity_size: 10_000_000_000,
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,

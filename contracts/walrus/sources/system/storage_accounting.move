@@ -46,8 +46,9 @@ public(package) fun storage_to_reclaim(accounting: &FutureAccounting): u64 {
 }
 
 /// Increase `used_capacity` by `amount`.
-public(package) fun increase_used_capacity(accounting: &mut FutureAccounting, amount: u64) {
+public(package) fun increase_used_capacity(accounting: &mut FutureAccounting, amount: u64): u64 {
     accounting.storage_to_reclaim = accounting.storage_to_reclaim + amount;
+    accounting.storage_to_reclaim
 }
 
 #[deprecated(note = b"Use `increase_used_capacity` instead.")]
