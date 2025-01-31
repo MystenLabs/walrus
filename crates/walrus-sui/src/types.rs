@@ -396,7 +396,7 @@ impl Committee {
         // Compare epoch
         if self.epoch != other.epoch {
             error_msgs.push(format!(
-                "Epoch mismatch: left {}, right {}",
+                "Epoch mismatch: existing {}, new {}",
                 self.epoch, other.epoch
             ));
         }
@@ -404,7 +404,7 @@ impl Committee {
         // Compare n_shards
         if self.n_shards != other.n_shards {
             error_msgs.push(format!(
-                "Number of shards mismatch: left {}, right {}",
+                "Number of shards mismatch: existing {}, new {}",
                 self.n_shards, other.n_shards
             ));
         }
@@ -425,7 +425,7 @@ impl Committee {
         // Check each node in left committee exists in right with matching shards
         for (node_id, left_shards) in self_nodes.iter() {
             if let Some(right_shards) = other_nodes.get(node_id) {
-                if *left_shards != *right_shards {
+                if left_shards != right_shards {
                     error_msgs.push(format!(
                         "Shard assignment mismatch for node {:?}: left {:?}, right {:?}",
                         node_id, left_shards, right_shards
