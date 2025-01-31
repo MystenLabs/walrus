@@ -14,7 +14,8 @@ const ETooFarInFuture: u64 = 0;
 /// storage needs to be reclaimed and the rewards to be distributed.
 public struct FutureAccounting has store {
     epoch: u32,
-    /// Actual value is `used_capacity`.
+    /// This field stores `used_capacity` for the epoch. Currently, impossible
+    /// to rename due to package upgrade limitations.
     storage_to_reclaim: u64,
     rewards_to_distribute: Balance<WAL>,
 }
