@@ -182,7 +182,7 @@ public(package) fun reserve_space(
     // Pay rewards for each future epoch into the future accounting.
     self.process_storage_payments(storage_amount, 0, epochs_ahead, payment);
 
-    self.reserve_space_without_payment(storage_amount, epochs_ahead, ctx)
+    self.reserve_space_without_payment(storage_amount, epochs_ahead, true, ctx)
 }
 
 /// Allow buying a storage reservation for a given period of epochs without
@@ -192,6 +192,7 @@ fun reserve_space_without_payment(
     self: &mut SystemStateInnerV1,
     storage_amount: u64,
     epochs_ahead: u32,
+    check_capacity: bool,
     ctx: &mut TxContext,
 ): Storage {
     // Check the period is within the allowed range.
@@ -205,7 +206,7 @@ fun reserve_space_without_payment(
             .ring_lookup_mut(i)
             .increase_used_capacity(storage_amount);
 
-        assert!(used_capacity <= self.total_capacity_size, EStorageExceeded);
+        assert!(!check_capacity || used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
 
     let self_epoch = self.epoch();
@@ -444,6 +445,7 @@ public(package) fun certify_event_blob(
     let storage = self.reserve_space_without_payment(
         encoded_blob_length(size, encoding_type, num_shards),
         epochs_ahead,
+        false, // do not check total capacity
         ctx,
     );
     let mut blob = blob::new(
@@ -658,7 +660,7 @@ public(package) fun new_for_testing(): SystemStateInnerV1 {
     let ctx = &mut tx_context::dummy();
     SystemStateInnerV1 {
         committee,
-        total_capacity_size: 10_000_000_000,
+        total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
@@ -673,7 +675,7 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
     let committee = test_utils::new_bls_committee_with_multiple_members_for_testing(0, ctx);
     SystemStateInnerV1 {
         committee,
-        total_capacity_size: 10_000_000_000,
+        total_capacity_size: 1_000_000_000,
         used_capacity_size: 0,
         storage_price_per_unit_size: 5,
         write_price_per_unit_size: 1,
