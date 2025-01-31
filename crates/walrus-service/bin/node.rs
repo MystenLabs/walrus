@@ -857,7 +857,7 @@ async fn get_contract_client_from_node_config(
 
 struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
-    rest_api_handle: JoinHandle<Result<(), io::Error>>,
+    rest_api_handle: JoinHandle<Result<(), anyhow::Error>>,
     // Preserve the metrics runtime to keep the runtime alive
     metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last

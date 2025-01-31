@@ -11,7 +11,7 @@ use fastcrypto::{
     secp256r1::Secp256r1KeyPair,
     traits::{AllowedRng, KeyPair, Signer, SigningKey, ToFromBytes},
 };
-use p256::pkcs8::{self, DecodePrivateKey, EncodePrivateKey};
+use p256::pkcs8::{self, der::zeroize::Zeroizing, DecodePrivateKey, EncodePrivateKey};
 use serde::{
     de::{Error, SeqAccess, Unexpected, Visitor},
     ser::SerializeTuple,
@@ -101,6 +101,18 @@ impl<T: SupportedKeyPair> TaggedKeyPair<T> {
 
     fn encode_to_buffer(&self, mut buffer: &mut [u8]) {
         bcs::serialize_into(&mut buffer, self).expect("should never fail");
+    }
+}
+
+impl<T> TaggedKeyPair<T>
+where
+    T: SupportedKeyPair,
+    TaggedKeyPair<T>: EncodePrivateKey,
+{
+    /// Serializes the key-pair as a PKCS#8 PEM string.
+    pub fn to_pem(&self) -> Zeroizing<String> {
+        self.to_pkcs8_pem(pkcs8::LineEnding::default())
+            .expect("supported keys that implement `EncodePrivateKey` must encode without failure")
     }
 }
 

@@ -3,8 +3,9 @@
 
 //! Server for the Walrus service.
 
-use std::{net::SocketAddr, ops::Deref, path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
+use anyhow::{anyhow, Context};
 use axum::{
     extract::DefaultBodyLimit,
     middleware,
@@ -27,7 +28,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
-use super::config::{defaults, Http2Config, StorageNodeConfig};
+use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig};
 use crate::{
     common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
     node::ServiceState,
@@ -72,9 +73,27 @@ impl From<&StorageNodeConfig> for RestApiConfig {
         let tls_certificate = if config.tls.disable_tls {
             None
         } else if let Some(paths) = config.tls.pem_files.clone() {
-            Some(TlsCertificateSource::PemFiles {
-                certificate_path: paths.certificate_path,
-                key_path: paths.key_path,
+            Some(TlsCertificateSource::Pem {
+                certificate: PathOrInPlace::from_path(paths.certificate_path),
+                key: paths.key_path.map_or_else(
+                    || {
+                        PathOrInPlace::InPlace(
+                            config.network_key_pair().to_pem().as_bytes().to_vec(),
+                        )
+                    },
+                    |key_path| {
+                        if let Some(config_network_key_pair_path) = config.network_key_pair.path() {
+                            assert_eq!(
+                                key_path,
+                                config_network_key_pair_path,
+                                "when tls.pem_files.key_path is specified, `network_key_pair` must \
+                                be set to the same path"
+                            );
+                        };
+
+                        PathOrInPlace::from_path(key_path)
+                    },
+                ),
             })
         } else {
             Some(TlsCertificateSource::GenerateSelfSigned {
@@ -105,15 +124,15 @@ pub enum TlsCertificateSource {
     /// These ideally should be certificates issued to by a public CA such as Let's Encrypt,
     /// but can also be self-signed certificates.
     // TODO(jsmith): Reload the certificate on change (#709)
-    PemFiles {
+    Pem {
         /// Path to the x509 PEM encoded certificate.
-        certificate_path: PathBuf,
+        certificate: PathOrInPlace<Vec<u8>>,
         /// Path to the PEM encoded private key in PKCS8
         ///
         /// The private key should correspond to the
         /// [`NetworkPublicKey`][walrus_core::NetworkPublicKey] published on chain in the
         /// committee.
-        key_path: PathBuf,
+        key: PathOrInPlace<Vec<u8>>,
     },
 
     /// Generate a self-signed certificate from the provided network key pair.
@@ -160,7 +179,7 @@ where
     }
 
     /// Runs the server, may only be called once for a given instance.
-    pub async fn run(&self) -> Result<(), std::io::Error> {
+    pub async fn run(&self) -> Result<(), anyhow::Error> {
         {
             let handle = self.handle.lock().await;
             assert!(handle.is_none(), "run can only be called once");
@@ -206,6 +225,7 @@ where
         server
             .inspect(|_| tracing::info!("server run has completed"))
             .await
+            .map_err(|error| anyhow!(error))
     }
 
     fn configure_server<A>(&self, mut server: axum_server::Server<A>) -> axum_server::Server<A> {
@@ -251,18 +271,28 @@ where
         new_handle
     }
 
-    async fn configure_tls(&self) -> Result<Option<RustlsConfig>, std::io::Error> {
+    async fn configure_tls(&self) -> Result<Option<RustlsConfig>, anyhow::Error> {
         let Some(ref tls_certificate) = self.config.tls_certificate else {
             return Ok(None);
         };
 
         match tls_certificate {
-            TlsCertificateSource::PemFiles {
-                certificate_path,
-                key_path,
-            } => RustlsConfig::from_pem_file(certificate_path, key_path)
-                .await
-                .map(Some),
+            TlsCertificateSource::Pem { certificate, key } => {
+                if let Some((certificate_path, key_path)) = certificate.path().zip(key.path()) {
+                    RustlsConfig::from_pem_file(certificate_path, key_path)
+                        .await
+                        .context("failed to load certificate and key from provided paths")
+                } else {
+                    RustlsConfig::from_pem(
+                        certificate.load_transient()?.clone(),
+                        key.load_transient()?.clone(),
+                    )
+                    .await
+                    .context("failed to load certificate and key from in-memory contents")
+                }
+                .map(Some)
+            }
+
             TlsCertificateSource::GenerateSelfSigned {
                 server_name,
                 network_key_pair,
@@ -663,7 +693,7 @@ mod tests {
 
     async fn start_rest_api_with_config(
         config: &StorageNodeConfig,
-    ) -> JoinHandle<Result<(), std::io::Error>> {
+    ) -> JoinHandle<Result<(), anyhow::Error>> {
         let rest_api_config = RestApiConfig::from(config);
 
         let server = RestApiServer::new(
@@ -682,7 +712,7 @@ mod tests {
 
     async fn start_rest_api_with_test_config() -> (
         WithTempDir<StorageNodeConfig>,
-        JoinHandle<Result<(), std::io::Error>>,
+        JoinHandle<Result<(), anyhow::Error>>,
     ) {
         let config = test_utils::storage_node_config();
         let handle = start_rest_api_with_config(config.as_ref()).await;
@@ -1081,9 +1111,11 @@ mod tests {
             std::fs::write(&key_path, certified_key.key_pair.serialize_pem().as_bytes())?;
 
             config.tls.disable_tls = false;
+            config.network_key_pair = PathOrInPlace::from_path(key_path);
+            config.network_key_pair.load()?;
             config.tls.pem_files = Some(TlsCertificateAndKey {
                 certificate_path,
-                key_path,
+                key_path: None,
             });
 
             Ok(())

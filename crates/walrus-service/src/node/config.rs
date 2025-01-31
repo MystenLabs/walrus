@@ -301,6 +301,7 @@ impl MetricsPushConfig {
 
 /// Configuration for TLS of the rest API.
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
 pub struct TlsConfig {
     /// Do not use TLS on the REST API.
     ///
@@ -316,8 +317,14 @@ pub struct TlsConfig {
 pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded x509 certificate.
     pub certificate_path: PathBuf,
-    /// Path to the PEM-encoded PKCS8 certificate private key.
-    pub key_path: PathBuf,
+    /// Path to the PEM-encoded PKCS#8 certificate private key.
+    ///
+    /// Prefer using the `network_key_pair` option instead, as it also accepts a path to a
+    /// PKCS#8 PEM-encoded private key and is required.
+    ///
+    /// If this option is set, then `network_key_pair` must be set to the same path.
+    #[serde(default)]
+    pub key_path: Option<PathBuf>,
 }
 
 /// Configuration of a Walrus storage node.
@@ -561,6 +568,15 @@ impl<T> PathOrInPlace<T> {
     pub const fn is_path(&self) -> bool {
         matches!(self, PathOrInPlace::Path { .. })
     }
+
+    /// Returns the path, if any.
+    pub fn path(&self) -> Option<&Path> {
+        if let PathOrInPlace::Path { path, .. } = self {
+            Some(path)
+        } else {
+            None
+        }
+    }
 }
 
 impl<T> From<T> for PathOrInPlace<T> {
@@ -569,69 +585,86 @@ impl<T> From<T> for PathOrInPlace<T> {
     }
 }
 
-impl PathOrInPlace<ProtocolKeyPair> {
-    /// Loads and returns a key pair from the path on disk.
+/// Trait for simplifying the loading of different representations from the file.
+pub trait LoadsFromPath: Sized {
+    /// Loads the value from the specified filesystem path.
+    fn load(path: &Path) -> Result<Self, anyhow::Error>;
+}
+
+impl LoadsFromPath for ProtocolKeyPair {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        let base64_string = std::fs::read_to_string(path)
+            .context(format!("unable to read key from '{}'", path.display()))?;
+        base64_string
+            .parse()
+            .map_err(|err: KeyPairParseError| anyhow!(err.to_string()))
+    }
+}
+
+impl LoadsFromPath for NetworkKeyPair {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        let _span = tracing::info_span!("load", path = %path.display()).entered();
+
+        let file_contents = std::fs::read_to_string(path)
+            .context(format!("unable to read key from '{}'", path.display()))?;
+
+        NetworkKeyPair::from_pkcs8_pem(&file_contents)
+            .inspect(|_| tracing::info!("loaded network private key in PKCS#8 format"))
+            .or_else(|error| {
+                tracing::debug!(
+                    ?error,
+                    "failed to load network key in PKCS#8 format, trying base64-serde"
+                );
+
+                NetworkKeyPair::from_str(&file_contents).map_err(|error2| {
+                    anyhow!(
+                        "unsupported network private key format: neither PKCS#8 {error}, \
+                                nor base64-serde {error2}"
+                    )
+                })
+            })
+            .inspect(|_| {
+                tracing::info!("loaded network private key in serde-base64 format");
+            })
+    }
+}
+
+impl LoadsFromPath for Vec<u8> {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        std::fs::read(path).map_err(|error| anyhow!(error))
+    }
+}
+
+impl<T: LoadsFromPath> PathOrInPlace<T> {
+    /// Loads and returns the value from the filesystem path.
     ///
     /// If the value was already loaded, it is returned instead.
-    pub fn load(&mut self) -> Result<&ProtocolKeyPair, anyhow::Error> {
+    pub fn load(&mut self) -> Result<&T, anyhow::Error> {
         if let PathOrInPlace::Path {
             path,
             value: value @ None,
         } = self
         {
-            let base64_string = std::fs::read_to_string(path.as_path())
-                .context(format!("unable to read key from '{}'", path.display()))?;
-            let decoded: ProtocolKeyPair = base64_string
-                .parse()
-                .map_err(|err: KeyPairParseError| anyhow!(err.to_string()))?;
-            *value = Some(decoded)
+            *value = Some(T::load(path)?)
         };
+
         Ok(self
             .get()
             .expect("we just made sure that the value is some"))
     }
-}
 
-impl PathOrInPlace<NetworkKeyPair> {
-    /// Loads and returns a key pair from the path on disk.
+    /// Loads and returns the value from the filesystem path, or returns the value if it is already
+    /// loaded.
     ///
-    /// If the value was already loaded, it is returned instead.
-    pub fn load(&mut self) -> Result<&NetworkKeyPair, anyhow::Error> {
-        if let PathOrInPlace::Path {
-            path,
-            value: value @ None,
-        } = self
-        {
-            let _span = tracing::info_span!("load", path = %path.display()).entered();
-
-            let file_contents = std::fs::read_to_string(path.as_path())
-                .context(format!("unable to read key from '{}'", path.display()))?;
-
-            let private_key = NetworkKeyPair::from_pkcs8_pem(&file_contents)
-                .inspect(|_| tracing::info!("loaded network private key in PKCS#8 format"))
-                .or_else(|error| {
-                    tracing::debug!(
-                        ?error,
-                        "failed to load network key in PKCS#8 format, trying base64-serde"
-                    );
-                    NetworkKeyPair::from_str(&file_contents)
-                        .inspect(|_| {
-                            tracing::info!("loaded network private key in serde-base64 format");
-                        })
-                        .map_err(|error2| {
-                            anyhow!(
-                                "unsupported network private key format: neither PKCS#8 {error}, \
-                                nor base64-serde {error2}"
-                            )
-                        })
-                })?;
-
-            *value = Some(private_key)
-        };
-
-        Ok(self
-            .get()
-            .expect("we just made sure that the value is some"))
+    /// This does not update the stored value, and so can be called with only a shared reference.
+    pub fn load_transient(&self) -> Result<T, anyhow::Error>
+    where
+        T: Clone,
+    {
+        match self {
+            PathOrInPlace::InPlace(value) => Ok(value.clone()),
+            PathOrInPlace::Path { path, .. } => T::load(path),
+        }
     }
 }
 
