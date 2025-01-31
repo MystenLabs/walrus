@@ -342,11 +342,14 @@ fun extend_blob_created_from_split_storage() {
     let mut system = system::new_for_testing(ctx);
     let mut payment = test_utils::mint(N_COINS, ctx);
     let mut storage = get_storage_resource(&mut system, SIZE, 3, ctx);
-    let new_storage = storage.split_by_epoch(1, ctx);
-    storage.destroy();
+    let new_storage = storage.split_by_epoch(2, ctx);
 
-    assert_eq!(new_storage.start_epoch(), 1);
+    assert_eq!(new_storage.start_epoch(), 2);
     assert_eq!(new_storage.end_epoch(), 3);
+    new_storage.destroy();
+
+    assert_eq!(storage.start_epoch(), 0);
+    assert_eq!(storage.end_epoch(), 2);
 
     // advance_epoch to epoch 1 when the new storage is valid
     let cmt = test_utils::new_bls_committee_for_testing(1);
@@ -357,17 +360,11 @@ fun extend_blob_created_from_split_storage() {
     balances.do!(|b| _ = b.destroy_for_testing());
 
     // register a blob with a split storage
-    let mut blob = register_default_blob(&mut system, new_storage, false, ctx);
+    let mut blob = register_default_blob(&mut system, storage, false, ctx);
 
     // certify the blob
     let certify_message = messages::certified_permanent_blob_message_for_testing(blob.blob_id());
     blob.certify_with_certified_msg(system.epoch(), certify_message);
-
-    let cmt = test_utils::new_bls_committee_for_testing(2);
-    let (_, balances) = system
-        .advance_epoch(cmt, &epoch_parameters::new(1_000_000_000, 5, 1))
-        .into_keys_values();
-    balances.do!(|b| _ = b.destroy_for_testing());
 
     system.extend_blob(&mut blob, 3, &mut payment);
     system.destroy_for_testing();

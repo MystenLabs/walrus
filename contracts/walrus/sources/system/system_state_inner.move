@@ -48,6 +48,9 @@ public struct SystemStateInnerV1 has store {
     committee: BlsCommittee,
     // Some accounting
     total_capacity_size: u64,
+    /// [DEPRECATED]
+    /// This field is deprecated in favor of the accounting ring buffer which
+    /// stores the used capacity for each future epoch.
     used_capacity_size: u64,
     /// The price per unit size of storage.
     storage_price_per_unit_size: u64,
@@ -121,7 +124,10 @@ public(package) fun advance_epoch(
     self.event_blob_certification_state.reset();
 
     // Update storage based on the accounts data.
-    self.used_capacity_size = self.used_capacity_size - accounts_old_epoch.storage_to_reclaim();
+    let old_epoch_used_capacity = accounts_old_epoch.used_capacity();
+
+    // Update used capacity size to the new epoch without popping the ring buffer.
+    self.used_capacity_size = self.future_accounting.ring_lookup_mut(0).used_capacity();
 
     // === Rewards distribution ===
 
@@ -144,7 +150,7 @@ public(package) fun advance_epoch(
 
     node_ids.zip_do!(weights, |node_id, weight| {
         let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
-        let stored = (weight as u128) * ((self.used_capacity_size - deny_list_size) as u128);
+        let stored = (weight as u128) * ((old_epoch_used_capacity - deny_list_size) as u128);
 
         total_stored = total_stored + stored;
         stored_vec.push_back(stored);
@@ -195,14 +201,13 @@ fun reserve_space_without_payment(
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
     assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
-    // Update the storage accounting.
-    self.used_capacity_size = self.used_capacity_size + storage_amount;
-
     // Account the space to reclaim in the future.
-    self
-        .future_accounting
-        .ring_lookup_mut(epochs_ahead - 1)
-        .increase_storage_to_reclaim(storage_amount);
+    epochs_ahead.do!(|i| {
+        self
+            .future_accounting
+            .ring_lookup_mut(i)
+            .increase_used_capacity(storage_amount)
+    });
 
     let self_epoch = self.epoch();
 
@@ -340,19 +345,14 @@ public(package) fun extend_blob(
         payment,
     );
 
-    // Account the space to reclaim in the future.
-
-    // First account for the space not being freed in the original end epoch.
-    self
-        .future_accounting
-        .ring_lookup_mut(start_offset - 1)
-        .decrease_storage_to_reclaim(storage_size);
-
-    // Then account for the space being freed in the new end epoch.
-    self
-        .future_accounting
-        .ring_lookup_mut(end_offset - 1)
-        .increase_storage_to_reclaim(storage_size);
+    // Account the used space: increase the used capacity for each epoch in the future
+    // Iterates: [start, end)
+    (start_offset - 1).range_do!(end_offset, |i| {
+        self
+            .future_accounting
+            .ring_lookup_mut(i)
+            .increase_used_capacity(storage_size);
+    });
 
     blob.storage_mut().extend_end_epoch(epochs_ahead);
 

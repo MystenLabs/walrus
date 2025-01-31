@@ -14,6 +14,7 @@ const ETooFarInFuture: u64 = 0;
 /// storage needs to be reclaimed and the rewards to be distributed.
 public struct FutureAccounting has store {
     epoch: u32,
+    /// Actual value is `used_capacity`.
     storage_to_reclaim: u64,
     rewards_to_distribute: Balance<WAL>,
 }
@@ -32,16 +33,29 @@ public(package) fun epoch(accounting: &FutureAccounting): u32 {
     *&accounting.epoch
 }
 
+/// Accessor for used_capacity, read-only.
+public fun used_capacity(accounting: &FutureAccounting): u64 {
+    accounting.storage_to_reclaim
+}
+
+#[deprecated(note = b"Use `used_capacity` instead.")]
 /// Accessor for storage_to_reclaim, mutable.
 public(package) fun storage_to_reclaim(accounting: &FutureAccounting): u64 {
     accounting.storage_to_reclaim
 }
 
+/// Increase `used_capacity` by `amount`.
+public(package) fun increase_used_capacity(accounting: &mut FutureAccounting, amount: u64) {
+    accounting.storage_to_reclaim = accounting.storage_to_reclaim + amount;
+}
+
+#[deprecated(note = b"Use `increase_used_capacity` instead.")]
 /// Increase storage to reclaim
 public(package) fun increase_storage_to_reclaim(accounting: &mut FutureAccounting, amount: u64) {
     accounting.storage_to_reclaim = accounting.storage_to_reclaim + amount;
 }
 
+#[deprecated(note = b"Capacity is no longer decreased")]
 /// Decrease storage to reclaim
 public(package) fun decrease_storage_to_reclaim(accounting: &mut FutureAccounting, amount: u64) {
     accounting.storage_to_reclaim = accounting.storage_to_reclaim - amount;
