@@ -68,8 +68,6 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
-use super::SyncNodeConfigError;
-#[cfg(msim)]
 use crate::common::config::SuiConfig;
 use crate::{
     common::active_committees::ActiveCommittees,
@@ -370,30 +368,39 @@ impl SimStorageNodeHandle {
                     .await;
 
                     match result {
-                        Err(SyncNodeConfigError::ProtocolKeyPairRotationRequired) => {
-                            let mut config_guard = config.write().await;
-                            tracing::info!(
-                                protocol_key = ?config_guard.protocol_key_pair().public(),
-                                next_protocol_key = ?config_guard
-                                    .next_protocol_key_pair()
-                                    .map(|kp| kp.public()),
-                                "Rotating protocol key pair"
-                            );
-                            config_guard.rotate_protocol_key_pair();
-                            sui_simulator::task::kill_current_node(Some(Duration::from_secs(10)));
-                        }
-                        Err(SyncNodeConfigError::NodeNeedsReboot) => {
-                            tracing::info!("Node needs reboot, killing current node");
-                            sui_simulator::task::kill_current_node(Some(Duration::from_secs(10)));
-                        }
                         Err(e) => {
-                            tracing::info!("node stopped with error: {e}");
+                            if matches!(
+                                e.downcast_ref::<SyncNodeConfigError>(),
+                                Some(SyncNodeConfigError::ProtocolKeyPairRotationRequired)
+                            ) {
+                                let mut config_guard = config.write().await;
+                                tracing::info!(
+                                    protocol_key = ?config_guard.protocol_key_pair().public(),
+                                    next_protocol_key = ?config_guard
+                                        .next_protocol_key_pair()
+                                        .map(|kp| kp.public()),
+                                    "Rotating protocol key pair"
+                                );
+                                config_guard.rotate_protocol_key_pair();
+                                sui_simulator::task::kill_current_node(Some(Duration::from_secs(
+                                    10,
+                                )));
+                            } else if matches!(
+                                e.downcast_ref::<SyncNodeConfigError>(),
+                                Some(SyncNodeConfigError::NodeNeedsReboot)
+                            ) {
+                                tracing::info!("Node needs reboot, killing current node");
+                                sui_simulator::task::kill_current_node(Some(Duration::from_secs(
+                                    10,
+                                )));
+                            } else {
+                                tracing::info!("node stopped with error: {e}");
+                            }
                         }
                         Ok(()) => {
                             tracing::info!("node stopped");
                         }
                     }
-                    tracing::info!("node stopped");
                 }
             })
             .build();
