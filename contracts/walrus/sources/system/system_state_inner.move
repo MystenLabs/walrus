@@ -347,7 +347,7 @@ public(package) fun extend_blob(
 
     // Account the used space: increase the used capacity for each epoch in the future
     // Iterates: [start, end)
-    (start_offset - 1).range_do!(end_offset, |i| {
+    start_offset.range_do!(end_offset, |i| {
         let used_capacity = self
             .future_accounting
             .ring_lookup_mut(i)
