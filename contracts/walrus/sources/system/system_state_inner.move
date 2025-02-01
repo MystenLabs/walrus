@@ -449,7 +449,7 @@ public(package) fun certify_event_blob(
     let storage = self.reserve_space_without_payment(
         encoded_blob_length(size, encoding_type, num_shards),
         epochs_ahead,
-        false, // do not check total capacity
+        false, // Do not check total capacity, event blobs are certified already at this point.
         ctx,
     );
     let mut blob = blob::new(
