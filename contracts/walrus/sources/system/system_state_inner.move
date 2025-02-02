@@ -560,7 +560,10 @@ public(package) fun deny_list_sizes_mut(self: &mut SystemStateInnerV1): &mut Vec
 }
 
 #[test_only]
-public(package) fun used_capacity_size_at_future_epoch(self: &SystemStateInnerV1, epochs_ahead: u32): u64 {
+public(package) fun used_capacity_size_at_future_epoch(
+    self: &SystemStateInnerV1,
+    epochs_ahead: u32,
+): u64 {
     self.future_accounting.ring_lookup(epochs_ahead).used_capacity()
 }
 
