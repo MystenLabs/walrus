@@ -28,6 +28,9 @@ public fun end_epoch(self: &Storage): u32 {
     self.end_epoch
 }
 
+// alias for easier access
+public use fun storage_size as Storage.size;
+
 public fun storage_size(self: &Storage): u64 {
     self.storage_size
 }
