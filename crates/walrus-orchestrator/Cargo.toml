@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 aws-config = "1.5.10"
 aws-runtime = "1.5.4"
-aws-sdk-ec2 = "1.97.0"
+aws-sdk-ec2 = "1.107.0"
 clap.workspace = true
 color-eyre = "0.6.3"
 crossterm = "0.28.1"
@@ -23,7 +23,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
-ssh2 = "0.9.4"
+ssh2 = "0.9.5"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 walrus-core.workspace = true

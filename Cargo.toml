@@ -24,7 +24,7 @@ version = "1.12.0"
 [workspace.dependencies]
 anyhow = "1.0.95"
 async-channel = "2.3.1"
-async-trait = "0.1.84"
+async-trait = "0.1.86"
 axum = { version = "0.8", default-features = false, features = ["http2", "tokio"] }
 axum-extra = { version = "0.10" }
 axum-server = { version = "0.7.1", default-features = false }
@@ -49,7 +49,7 @@ home = "0.5.11"
 hostname = "0.4.0"
 humantime = "2.1.0"
 hyper = "1"
-indicatif = "0.17.9"
+indicatif = "0.17.11"
 indoc = "2.0.5"
 integer-encoding = "4.0.2"
 itertools = "0.13.0"
@@ -71,10 +71,10 @@ rcgen = "0.13.2"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.21", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.22", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.137"
+serde_json = "1.0.138"
 serde_test = "1.0.177"
 serde_with = { version = "3.12", features = ["base64"] }
 serde_yaml = "0.9"
@@ -94,7 +94,7 @@ sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
-tempfile = "3.15.0"
+tempfile = "3.16.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.41.0" }
 thiserror = "2.0.11"
 tokio = { version = "=1.38.1", features = ["macros", "rt-multi-thread", "signal"] }
