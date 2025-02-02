@@ -37,6 +37,7 @@ use crate::client::{
         ExchangeOutput,
         ExtendBlobOutput,
         FundSharedBlobOutput,
+        GetBlobMetadataOutput,
         InfoBftOutput,
         InfoCommitteeOutput,
         InfoEpochOutput,
@@ -999,6 +1000,49 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
                 r->"N/A",
                 Fr->truncated_error,
             ]);
+        }
+    }
+}
+
+impl CliOutput for GetBlobMetadataOutput {
+    fn print_cli_output(&self) {
+        if let Some(blob_with_metadata) = &self.metadata {
+            let cert_epoch_str = blob_with_metadata
+                .blob
+                .certified_epoch
+                .map_or("".to_string(), |epoch| {
+                    format!("\nCertified in epoch: {}", epoch)
+                });
+
+            printdoc!(
+                "
+
+                {heading}
+                Blob ID: {blob_id}
+                Object ID: {object_id}
+                Size: {size}
+                Registered in epoch: {reg_epoch}
+                Deletable: {deletable}{cert_epoch}
+                Storage expiry epoch: {end_epoch}
+                ",
+                heading = "Blob Information".bold().walrus_purple(),
+                blob_id = blob_with_metadata.blob.blob_id,
+                object_id = blob_with_metadata.blob.id,
+                size = HumanReadableBytes(blob_with_metadata.blob.size),
+                reg_epoch = blob_with_metadata.blob.registered_epoch,
+                deletable = blob_with_metadata.blob.deletable,
+                cert_epoch = cert_epoch_str,
+                end_epoch = blob_with_metadata.blob.storage.end_epoch,
+            );
+
+            if let Some(metadata) = &blob_with_metadata.metadata {
+                println!("\n{}", "Metadata".bold().walrus_purple());
+                for (key, value) in metadata.iter() {
+                    println!("{}: {}", key, value);
+                }
+            }
+        } else {
+            println!("No metadata found");
         }
     }
 }

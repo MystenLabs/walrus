@@ -1142,7 +1142,9 @@ async fn test_blob_metadata() -> TestResult {
 
     assert!(matches!(
         duplicate_result,
-        Err(e) if e.to_string().contains("EDuplicateMetadata")
+        Err(SuiClientError::TransactionExecutionError(
+            MoveExecutionError::Blob(BlobError::EDuplicateMetadata(..))
+        ))
     ));
 
     // Test adding individual metadata key-value pairs

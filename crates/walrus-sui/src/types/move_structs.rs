@@ -131,13 +131,42 @@ impl Metadata {
         }
     }
 
-    /// Get a value from the metadata by key.
-    pub fn get<K: AsRef<str>>(&self, key: K) -> Option<&String> {
+    /// Get a cloned copy of the value associated with a key. Returns `None` if
+    /// the key doesn't exist. Accepts any type that implements `AsRef<str>`.
+    pub fn get<Q: AsRef<str>>(&self, key: &Q) -> Option<String> {
         self.metadata
             .contents
             .iter()
-            .find(|e| e.key == key.as_ref())
-            .map(|e| &e.value)
+            .find(|entry| entry.key == key.as_ref())
+            .map(|entry| entry.value.clone())
+    }
+
+    /// Returns an iterator over the key-value pairs in the metadata.
+    pub fn iter(&self) -> MetadataIter<'_> {
+        MetadataIter {
+            inner: self.metadata.contents.iter(),
+        }
+    }
+}
+
+/// Iterator struct for Metadata key-value pairs
+#[derive(Debug)]
+pub struct MetadataIter<'a> {
+    /// The inner iterator.
+    inner: std::slice::Iter<'a, Entry<String, String>>,
+}
+
+impl<'a> Iterator for MetadataIter<'a> {
+    type Item = (&'a str, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|entry| (entry.key.as_str(), entry.value.as_str()))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 

@@ -188,7 +188,7 @@ pub(super) async fn get_blob_with_metadata<T: WalrusReadClient>(
                     ];
 
                     for (key, header) in &standard_headers {
-                        if let Some(value) = metadata.get(key) {
+                        if let Some(value) = &metadata.get(key) {
                             if let Ok(header_value) = HeaderValue::from_str(value) {
                                 headers.insert(header, header_value);
                             }

@@ -44,7 +44,14 @@ use walrus_sdk::{
 };
 use walrus_sui::{
     client::ReadClient,
-    types::{Blob, Committee, NetworkAddress, StakedWal, StorageNode},
+    types::{
+        move_structs::BlobWithMetadata,
+        Blob,
+        Committee,
+        NetworkAddress,
+        StakedWal,
+        StorageNode,
+    },
     utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
     EventIdSchema,
     ObjectIdSchema,
@@ -631,6 +638,14 @@ pub struct ShareBlobOutput {
     pub shared_blob_object_id: ObjectID,
     /// The amount of FROST if funded.
     pub amount: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus get-blob-metadata` command.
+pub struct GetBlobMetadataOutput {
+    /// The metadata of the blob.
+    pub metadata: Option<BlobWithMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize)]
