@@ -43,7 +43,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::{Blob, BlobEvent, StakedWal},
+    types::{move_structs::BlobWithMetadata, Blob, BlobEvent, StakedWal},
 };
 
 use self::{
@@ -350,6 +350,16 @@ impl<T: ReadClient> Client<T> {
         *committee_guard = new_committees;
 
         Ok(())
+    }
+
+    async fn get_blob_with_metadata(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithMetadata> {
+        self.sui_client
+            .get_blob_with_metadata(blob_object_id.to_owned())
+            .await
+            .map_err(ClientError::other)
     }
 }
 

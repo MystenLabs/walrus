@@ -17,6 +17,7 @@ use sui_sdk::{
     types::base_types::SuiAddress,
     wallet_context::WalletContext,
 };
+use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{
@@ -26,6 +27,7 @@ use walrus_sui::{
         SuiContractClient,
         SuiReadClient,
     },
+    types::move_structs::BlobWithMetadata,
     utils::create_wallet,
 };
 
@@ -136,6 +138,13 @@ impl WalrusReadClient for ClientMultiplexer {
 
     fn set_metric_registry(&mut self, registry: &Registry) {
         self.read_client.set_metric_registry(registry);
+    }
+
+    async fn get_blob_with_metadata(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithMetadata> {
+        WalrusReadClient::get_blob_with_metadata(&self.read_client, blob_object_id).await
     }
 }
 

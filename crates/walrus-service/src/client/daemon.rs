@@ -18,7 +18,13 @@ use axum::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};
 use reqwest::StatusCode;
-use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
+use routes::{
+    BLOB_GET_ENDPOINT,
+    BLOB_PUT_ENDPOINT,
+    BLOB_WITH_METADATA_GET_ENDPOINT,
+    STATUS_ENDPOINT,
+};
+use sui_types::base_types::ObjectID;
 use tower::{
     buffer::BufferLayer,
     limit::ConcurrencyLimitLayer,
@@ -29,7 +35,10 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{encoding::Primary, BlobId, EpochCount};
-use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
+use walrus_sui::{
+    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    types::move_structs::BlobWithMetadata,
+};
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
@@ -47,6 +56,11 @@ pub trait WalrusReadClient {
         blob_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
     fn set_metric_registry(&mut self, registry: &Registry);
+
+    fn get_blob_with_metadata(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> impl std::future::Future<Output = ClientResult<BlobWithMetadata>> + Send;
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -72,6 +86,13 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
 
     fn set_metric_registry(&mut self, registry: &Registry) {
         self.set_metric_registry(registry);
+    }
+
+    async fn get_blob_with_metadata(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithMetadata> {
+        self.get_blob_with_metadata(blob_object_id).await
     }
 }
 
@@ -143,6 +164,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
     fn with_aggregator(mut self) -> Self {
         self.router = self.router.route(BLOB_GET_ENDPOINT, get(routes::get_blob));
+        self.router = self.router.route(
+            BLOB_WITH_METADATA_GET_ENDPOINT,
+            get(routes::get_blob_with_metadata),
+        );
         self
     }
 

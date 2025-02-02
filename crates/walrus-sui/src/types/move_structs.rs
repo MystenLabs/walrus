@@ -130,6 +130,15 @@ impl Metadata {
             self.metadata.contents.push(Entry { key, value });
         }
     }
+
+    /// Get a value from the metadata by key.
+    pub fn get<K: AsRef<str>>(&self, key: K) -> Option<&String> {
+        self.metadata
+            .contents
+            .iter()
+            .find(|e| e.key == key.as_ref())
+            .map(|e| &e.value)
+    }
 }
 
 impl AssociatedContractStruct for Metadata {

@@ -17,18 +17,27 @@ use reqwest::header::{
     ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_MAX_AGE,
     CACHE_CONTROL,
+    CONTENT_DISPOSITION,
+    CONTENT_ENCODING,
+    CONTENT_LANGUAGE,
+    CONTENT_LOCATION,
     CONTENT_TYPE,
     ETAG,
+    LINK,
     X_CONTENT_TYPE_OPTIONS,
 };
 use serde::Deserialize;
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{BlobId, EpochCount};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
-use walrus_sui::{client::BlobPersistence, SuiAddressSchema};
+use walrus_sui::{
+    client::BlobPersistence,
+    types::move_structs::BlobWithMetadata,
+    SuiAddressSchema,
+};
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
@@ -42,6 +51,8 @@ pub const STATUS_ENDPOINT: &str = "/status";
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
+/// The path to get the metadata with the given blob ID.
+pub const BLOB_WITH_METADATA_GET_ENDPOINT: &str = "/v1/blobs/{blob_object_id}/with-metadata";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 
@@ -104,6 +115,103 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
                     tracing::debug!(?blob_id, "the requested blob ID does not exist")
                 }
                 GetBlobError::Internal(error) => tracing::error!(?error, "error retrieving blob"),
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
+}
+
+/// Retrieve a Walrus blob with its associated metadata.
+///
+/// Reconstructs the blob identified by the provided blob object ID from Sui and then reconstructs
+/// the blob from Walrus by the blob_id in the object and returns its binary data along with
+/// metadata information in the response headers.
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
+#[utoipa::path(
+    get,
+    path = BLOB_WITH_METADATA_GET_ENDPOINT,
+    params(("blob_object_id" = BlobId,)),
+    responses(
+        (
+            status = 200,
+            description = "The blob was reconstructed successfully with metadata headers",
+            body = [u8],
+            headers(
+                ("content-disposition" = String,
+                    description = "Content disposition header if provided in metadata"),
+                ("content-encoding" = String,
+                    description = "Content encoding header if provided in metadata"),
+                ("content-language" = String,
+                    description = "Content language header if provided in metadata"),
+                ("content-location" = String,
+                    description = "Content location header if provided in metadata"),
+                ("content-type" = String,
+                    description = "Content type header if provided in metadata"),
+                ("link" = String,
+                    description = "Link header if provided in metadata")
+            )
+        ),
+        GetBlobError,
+    ),
+)]
+pub(super) async fn get_blob_with_metadata<T: WalrusReadClient>(
+    request_headers: HeaderMap,
+    State(client): State<Arc<T>>,
+    Path(blob_object_id): Path<ObjectID>,
+) -> Response {
+    tracing::debug!("starting to read blob with metadata");
+    match client.get_blob_with_metadata(&blob_object_id).await {
+        Ok(BlobWithMetadata { blob, metadata }) => {
+            // Get the blob data using the existing get_blob function
+            let mut response = get_blob(
+                request_headers.clone(),
+                State(client),
+                Path(BlobIdString(blob.blob_id)),
+            )
+            .await;
+
+            // If the response was successful, add our additional metadata headers
+            if response.status() == StatusCode::OK {
+                let headers = response.headers_mut();
+
+                // Add metadata headers if available
+                if let Some(metadata) = metadata {
+                    let standard_headers = [
+                        (String::from("content-disposition"), CONTENT_DISPOSITION),
+                        (String::from("content-encoding"), CONTENT_ENCODING),
+                        (String::from("content-language"), CONTENT_LANGUAGE),
+                        (String::from("content-location"), CONTENT_LOCATION),
+                        (String::from("content-type"), CONTENT_TYPE),
+                        (String::from("link"), LINK),
+                    ];
+
+                    for (key, header) in &standard_headers {
+                        if let Some(value) = metadata.get(key) {
+                            if let Ok(header_value) = HeaderValue::from_str(value) {
+                                headers.insert(header, header_value);
+                            }
+                        }
+                    }
+                }
+            }
+
+            response
+        }
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::debug!(
+                        ?blob_object_id,
+                        "the requested blob object ID does not exist"
+                    )
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::error!(?error, "error retrieving blob metadata")
+                }
                 _ => (),
             }
 
