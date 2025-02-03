@@ -88,7 +88,11 @@ pub struct RawMoveError {
 
 impl Display for RawMoveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "foo")
+        write!(
+            f,
+            "contract execution failed in {}::{}::{} with error code {}: {}",
+            self.package, self.module, self.function, self.error_code, self.unparsed,
+        )
     }
 }
 
