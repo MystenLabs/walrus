@@ -81,7 +81,7 @@ use walrus_sdk::api::{
     StoredOnNodeStatus,
 };
 use walrus_sui::{
-    client::{SuiClientError, SuiReadClient},
+    client::SuiReadClient,
     types::{
         BlobCertified,
         BlobDeleted,
@@ -92,6 +92,7 @@ use walrus_sui::{
         EpochChangeStart,
         InvalidBlobId,
         PackageEvent,
+        StorageNodeCap,
         GENESIS_EPOCH,
     },
 };
@@ -451,7 +452,7 @@ pub struct StorageNodeInner {
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
-    node_capability: Option<ObjectID>,
+    node_capability: ObjectID,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -473,7 +474,10 @@ pub struct NodeParameters {
 /// If not, update the node parameters on-chain.
 /// If the current node is not registered yet, error out.
 /// If the wallet is not present in the config, do nothing.
-async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
+async fn sync_node_params(
+    config: &StorageNodeConfig,
+    node_capability_object: &StorageNodeCap,
+) -> anyhow::Result<()> {
     let Some(ref node_wallet_config) = config.sui else {
         // Not failing here, since the wallet may be absent in tests.
         // In production, an absence of the wallet will fail the node eventually.
@@ -482,24 +486,9 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
     };
 
     let contract_client = node_wallet_config.new_contract_client().await?;
-    let address = contract_client.address();
-
-    let node_capability = if let Some(node_cap) = config.storage_node_cap {
-        contract_client
-            .sui_client()
-            .get_sui_object(node_cap)
-            .await?
-    } else {
-        contract_client
-            .read_client
-            .get_address_capability_object(address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
-    };
-
     let pool = contract_client
         .read_client
-        .get_staking_pool(node_capability.node_id)
+        .get_staking_pool(node_capability_object.node_id)
         .await?;
 
     let node_info = &pool.node_info;
@@ -519,7 +508,7 @@ async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
             "update node params"
         );
         contract_client
-            .update_node_params(update_params, Some(node_capability.id))
+            .update_node_params(update_params, node_capability_object.id)
             .await?;
     } else {
         tracing::info!(
@@ -543,14 +532,19 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        sync_node_params(config).await.or_else(|e| {
-            node_params
-                .ignore_sync_failures
-                .then(|| {
-                    tracing::warn!("Failed to sync node params: {}", e);
-                })
-                .ok_or(e)
-        })?;
+        let node_capability = contract_service
+            .get_node_capability_object(config.storage_node_cap)
+            .await?;
+        sync_node_params(config, &node_capability)
+            .await
+            .or_else(|e| {
+                node_params
+                    .ignore_sync_failures
+                    .then(|| {
+                        tracing::warn!("Failed to sync node params: {}", e);
+                    })
+                    .ok_or(e)
+            })?;
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -578,7 +572,7 @@ impl StorageNode {
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
-            node_capability: config.storage_node_cap,
+            node_capability: node_capability.id,
         });
 
         blocklist.start_refresh_task();
@@ -1472,7 +1466,7 @@ impl StorageNodeInner {
     }
 
     /// Returns the node capability object ID.
-    pub fn node_capability(&self) -> Option<ObjectID> {
+    pub fn node_capability(&self) -> ObjectID {
         self.node_capability
     }
 
@@ -4984,6 +4978,14 @@ mod tests {
                     max_epochs_ahead: 200,
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                })
+            });
+        contract_service
+            .expect_get_node_capability_object()
+            .returning(|capability_object_id| {
+                Ok(StorageNodeCap {
+                    id: capability_object_id.unwrap_or(ObjectID::random()),
+                    ..StorageNodeCap::new_for_testing()
                 })
             });
         contract_service

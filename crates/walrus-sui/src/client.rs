@@ -444,7 +444,7 @@ impl SuiContractClient {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
-        node_capability: Option<ObjectID>,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
@@ -453,7 +453,7 @@ impl SuiContractClient {
                 blob_metadata,
                 ending_checkpoint_seq_num,
                 epoch,
-                node_capability,
+                node_capability_object_id,
             )
             .await
     }
@@ -533,12 +533,12 @@ impl SuiContractClient {
     pub async fn epoch_sync_done(
         &self,
         epoch: Epoch,
-        node_capability: Option<ObjectID>,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .epoch_sync_done(epoch, node_capability)
+            .epoch_sync_done(epoch, node_capability_object_id)
             .await
     }
 
@@ -746,12 +746,12 @@ impl SuiContractClient {
     pub async fn update_node_params(
         &self,
         node_parameters: NodeUpdateParams,
-        node_capability: Option<ObjectID>,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .update_node_params(node_parameters, node_capability)
+            .update_node_params(node_parameters, node_capability_object_id)
             .await
     }
 
@@ -996,14 +996,10 @@ impl SuiContractClientInner {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
-        storage_node_cap: Option<ObjectID>,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        let node_capability = self
-            .get_storage_node_capability_object_id(storage_node_cap)
-            .await?;
-
         tracing::debug!(
-            %node_capability,
+            %node_capability_object_id,
             "calling certify_event_blob"
         );
 
@@ -1011,7 +1007,7 @@ impl SuiContractClientInner {
         pt_builder
             .certify_event_blob(
                 blob_metadata,
-                node_capability.into(),
+                node_capability_object_id.into(),
                 ending_checkpoint_seq_num,
                 epoch,
             )
@@ -1155,16 +1151,12 @@ impl SuiContractClientInner {
     pub async fn epoch_sync_done(
         &mut self,
         epoch: Epoch,
-        storage_node_cap: Option<ObjectID>,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        let node_capability = if let Some(node_cap) = storage_node_cap {
-            self.sui_client().get_sui_object(node_cap).await?
-        } else {
-            self.read_client
-                .get_address_capability_object(self.wallet.active_address()?)
-                .await?
-                .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
-        };
+        let node_capability: StorageNodeCap = self
+            .sui_client()
+            .get_sui_object(node_capability_object_id)
+            .await?;
 
         if node_capability.last_epoch_sync_done >= epoch {
             return Err(SuiClientError::LatestAttestedIsMoreRecent);
@@ -1591,12 +1583,9 @@ impl SuiContractClientInner {
     pub async fn update_node_params(
         &mut self,
         node_parameters: NodeUpdateParams,
-        node_capability: Option<ObjectID>,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         let wallet_address = self.wallet.active_address()?;
-        let node_capability = self
-            .get_storage_node_capability_object_id(node_capability)
-            .await?;
 
         tracing::debug!(
             ?wallet_address,
@@ -1606,33 +1595,11 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .update_node_params(node_capability.into(), node_parameters)
+            .update_node_params(node_capability_object_id.into(), node_parameters)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
-    }
-
-    /// Returns the storage node capability object ID. If provided, uses the provided object ID,
-    /// otherwise fetches the capability object from the wallet's address.
-    ///
-    /// When fetching from the wallet, the wallet cannot contain more than one capability
-    /// object.
-    async fn get_storage_node_capability_object_id(
-        &mut self,
-        provided_cap_object_id: Option<ObjectID>,
-    ) -> SuiClientResult<ObjectID> {
-        if let Some(cap_object_id) = provided_cap_object_id {
-            return Ok(cap_object_id);
-        }
-
-        let wallet_address = self.wallet.active_address()?;
-        Ok(self
-            .read_client
-            .get_address_capability_object(wallet_address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
-            .id)
     }
 
     #[cfg(any(test, feature = "test-utils"))]

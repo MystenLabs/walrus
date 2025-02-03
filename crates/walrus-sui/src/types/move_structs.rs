@@ -184,6 +184,21 @@ pub struct StorageNodeCap {
     pub deny_list_size: u64,
 }
 
+impl StorageNodeCap {
+    /// Creates a new `StorageNodeCap` for testing.
+    pub fn new_for_testing() -> Self {
+        Self {
+            id: ObjectID::random(),
+            node_id: ObjectID::random(),
+            last_epoch_sync_done: 1,
+            last_event_blob_attestation: None,
+            deny_list_root: [0; 32],
+            deny_list_sequence_number: 0,
+            deny_list_size: 0,
+        }
+    }
+}
+
 impl AssociatedContractStruct for StorageNodeCap {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_node::StorageNodeCap;
 }
