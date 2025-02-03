@@ -145,7 +145,8 @@ jobs:
     runs-on: ubuntu-ghcloud
     env:
       MSIM_TEST_NUM: 5
-      RUST_LOG: error
+      # Turn off Sui logging since it can be very distractive in CI
+      RUST_LOG: error,sui_=off
     steps:
       - uses: taiki-e/install-action@v2.47.18
         with:
