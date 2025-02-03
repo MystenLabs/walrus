@@ -114,14 +114,15 @@ pub struct Metadata {
     pub metadata: VecMap<String, String>,
 }
 
-impl Metadata {
-    /// Create a new metadata object with no key-value pairs.
-    pub fn new() -> Self {
+impl Default for Metadata {
+    fn default() -> Self {
         Self {
             metadata: VecMap { contents: vec![] },
         }
     }
+}
 
+impl Metadata {
     /// Insert a key-value pair into the metadata.
     pub fn insert(&mut self, key: String, value: String) {
         if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
@@ -166,12 +167,6 @@ impl<'a> IntoIterator for &'a Metadata {
 
 impl AssociatedContractStruct for Metadata {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::metadata::Metadata;
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// A blob with its metadata.
