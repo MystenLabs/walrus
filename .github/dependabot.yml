@@ -19,7 +19,7 @@ updates:
           - "patch"
     ignore:
       - dependency-name: futures-timer
-      - dependency-name: move-core-types
+      - dependency-name: move-*
       - dependency-name: mysten-metrics
       - dependency-name: protobuf # TODO: remove after fixing WAL-458
       - dependency-name: sui
