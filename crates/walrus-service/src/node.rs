@@ -1921,7 +1921,7 @@ impl ServiceState for StorageNodeInner {
         ensure!(!self.is_blocked(blob_id), RetrieveMetadataError::Forbidden);
 
         ensure!(
-            self.is_blob_registered(blob_id)?,
+            self.is_blob_certified(blob_id)?,
             RetrieveMetadataError::Unavailable,
         );
 
