@@ -24,11 +24,7 @@ public fun test_split_epoch() {
         new_storage.end_epoch() == 10,
         0,
     );
-    assert!(
-        storage.size() == storage_amount &&
-        new_storage.size() == storage_amount,
-        0,
-    );
+    assert!(storage.size() == storage_amount && new_storage.size() == storage_amount, 0);
     storage.destroy();
     new_storage.destroy();
 }
