@@ -49,13 +49,13 @@ impl ConfigSynchronizer {
                     SyncNodeConfigError::NodeNeedsReboot
                         | SyncNodeConfigError::ProtocolKeyPairRotationRequired
                 ) {
-                    tracing::info!("Going to reboot node due to {}", e);
+                    tracing::info!("going to reboot node due to {}", e);
                     return Err(e);
                 }
-                tracing::error!("Failed to sync node params: {}", e);
+                tracing::error!("failed to sync node params: {}", e);
             }
             if let Err(e) = self.committee_service.sync_committee_members().await {
-                tracing::error!("Failed to sync committee: {}", e);
+                tracing::error!("failed to sync committee: {}", e);
             }
         }
     }

@@ -169,7 +169,7 @@ impl SystemContractService for SuiSystemContractService {
         match action {
             ProtocolKeyAction::UpdateRemoteNextPublicKey(next_public_key) => {
                 tracing::info!(
-                    "Going to update remote next public key to {:?}",
+                    "going to update remote next public key to {:?}",
                     next_public_key
                 );
 
@@ -184,7 +184,7 @@ impl SystemContractService for SuiSystemContractService {
                 });
             }
             ProtocolKeyAction::RotateLocalKeyPair => {
-                tracing::info!("Going to rotate local key pair");
+                tracing::info!("going to rotate local key pair");
                 return Err(SyncNodeConfigError::ProtocolKeyPairRotationRequired);
             }
             ProtocolKeyAction::DoNothing => {}
@@ -201,7 +201,7 @@ impl SystemContractService for SuiSystemContractService {
                 .update_node_params(update_params.clone())
                 .await?;
             if update_params.needs_reboot() {
-                tracing::info!("Node needs reboot");
+                tracing::info!("node needs reboot");
                 return Err(SyncNodeConfigError::NodeNeedsReboot);
             }
         } else {

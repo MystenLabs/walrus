@@ -484,7 +484,7 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        tracing::info!("Creating StorageNode with config:\n{:?}", config);
+        tracing::info!("creating StorageNode with config:\n{:?}", config);
         let config_synchronizer =
             config
                 .config_synchronizer
@@ -503,7 +503,7 @@ impl StorageNode {
                 .or_else(|e| match e {
                     SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
                     SyncNodeConfigError::NodeNeedsReboot => {
-                        tracing::info!("Ignore the error since we are booting");
+                        tracing::info!("ignore the error since we are booting");
                         Ok(())
                     }
                     _ => {

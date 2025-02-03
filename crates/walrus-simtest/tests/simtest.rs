@@ -381,10 +381,10 @@ mod tests {
                     return Ok(info);
                 }
                 Ok(info) => {
-                    tracing::debug!("Node status: {}, waiting...", info.node_status);
+                    tracing::debug!("node status: {}, waiting...", info.node_status);
                 }
                 Err(e) => {
-                    tracing::debug!("Failed to get node health info: {}, retrying...", e);
+                    tracing::debug!("failed to get node health info: {}, retrying...", e);
                 }
             }
 
@@ -1157,7 +1157,7 @@ mod tests {
         ));
         // Trace the protocol key and next protocol key before spawning the node
         tracing::info!(
-            "Current protocol key: {:?}, Next protocol key: {:?}",
+            "current protocol key: {:?}, next protocol key: {:?}",
             config.read().await.protocol_key_pair().public(),
             config
                 .read()

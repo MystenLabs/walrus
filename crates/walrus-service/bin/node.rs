@@ -335,7 +335,7 @@ fn main() -> anyhow::Result<()> {
                         Some(SyncNodeConfigError::ProtocolKeyPairRotationRequired)
                     ) =>
                 {
-                    tracing::info!("Protocol key pair rotation required, rotating key pair...");
+                    tracing::info!("protocol key pair rotation required, rotating key pair...");
                     StorageNodeConfig::rotate_protocol_key_pair_persist(&config_path)?;
                     continue;
                 }
@@ -345,7 +345,7 @@ fn main() -> anyhow::Result<()> {
                         Some(SyncNodeConfigError::NodeNeedsReboot)
                     ) =>
                 {
-                    tracing::info!("Node needs reboot, restarting...");
+                    tracing::info!("node needs reboot, restarting...");
                     continue;
                 }
                 Err(e) => return Err(e),
