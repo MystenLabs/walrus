@@ -186,7 +186,6 @@ public(package) fun reserve_space(
 
 /// Allow buying a storage reservation for a given period of epochs without
 /// payment.
-/// Only to be used for event blobs.
 fun reserve_space_without_payment(
     self: &mut SystemStateInnerV1,
     storage_amount: u64,
@@ -224,8 +223,7 @@ fun reserve_space_without_payment(
 }
 
 /// Processes invalid blob id message. Checks the certificate in the current
-/// committee and ensures
-/// that the epoch is correct before emitting an event.
+/// committee and ensures that the epoch is correct before emitting an event.
 public(package) fun invalidate_blob_id(
     self: &SystemStateInnerV1,
     signature: vector<u8>,
@@ -252,9 +250,8 @@ public(package) fun invalidate_blob_id(
 }
 
 /// Registers a new blob in the system.
-/// `size` is the size of the unencoded blob. The reserved space in `storage`
-/// must be at
-/// least the size of the encoded blob.
+/// - `size` is the size of the unencoded blob.
+/// - The reserved space in `storage` must be at least the size of the encoded blob.
 public(package) fun register_blob(
     self: &mut SystemStateInnerV1,
     storage: Storage,
@@ -341,7 +338,7 @@ public(package) fun extend_blob(
     assert!(end_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Pay rewards for each future epoch into the future accounting.
-    let storage_size = blob.storage().storage_size();
+    let storage_size = blob.storage().size();
     self.process_storage_payments(
         storage_size,
         start_offset,
@@ -349,8 +346,8 @@ public(package) fun extend_blob(
         payment,
     );
 
-    // Account the used space: increase the used capacity for each epoch in the future
-    // Iterates: [start, end)
+    // Account the used space: increase the used capacity for each epoch in the
+    // future. Iterates: [start, end)
     start_offset.range_do!(end_offset, |i| {
         let used_capacity = self
             .future_accounting
@@ -560,6 +557,14 @@ public(package) fun deny_list_sizes(self: &SystemStateInnerV1): &VecMap<ID, u64>
 #[test_only]
 public(package) fun deny_list_sizes_mut(self: &mut SystemStateInnerV1): &mut VecMap<ID, u64> {
     self.deny_list_sizes.borrow_mut()
+}
+
+#[test_only]
+public(package) fun used_capacity_size_at_future_epoch(
+    self: &SystemStateInnerV1,
+    epochs_ahead: u32,
+): u64 {
+    self.future_accounting.ring_lookup(epochs_ahead).used_capacity()
 }
 
 macro fun storage_units_from_size($size: u64): u64 {

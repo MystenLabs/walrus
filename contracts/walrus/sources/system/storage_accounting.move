@@ -86,6 +86,18 @@ public(package) fun ring_new(length: u32): FutureAccountingRingBuffer {
     FutureAccountingRingBuffer { current_index: 0, length, ring_buffer }
 }
 
+#[test_only]
+public(package) fun ring_lookup(
+    self: &FutureAccountingRingBuffer,
+    epochs_in_future: u32,
+): &FutureAccounting {
+    // Check for out-of-bounds access.
+    assert!(epochs_in_future < self.length, ETooFarInFuture);
+
+    let actual_index = (epochs_in_future + self.current_index) % self.length;
+    &self.ring_buffer[actual_index as u64]
+}
+
 /// Lookup an entry a number of epochs in the future.
 public(package) fun ring_lookup_mut(
     self: &mut FutureAccountingRingBuffer,
