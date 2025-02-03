@@ -130,6 +130,38 @@ impl Metadata {
             self.metadata.contents.push(Entry { key, value });
         }
     }
+
+    /// Returns an iterator over the key-value pairs in the metadata.
+    pub fn iter(&self) -> MetadataIter {
+        MetadataIter {
+            inner: self.metadata.contents.iter(),
+        }
+    }
+}
+
+/// Iterator for Metadata key-value pairs.
+#[derive(Debug)]
+pub struct MetadataIter<'a> {
+    inner: std::slice::Iter<'a, Entry<String, String>>,
+}
+
+impl Iterator for MetadataIter<'_> {
+    type Item = (String, String);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner
+            .next()
+            .map(|entry| (entry.key.clone(), entry.value.clone()))
+    }
+}
+
+impl<'a> IntoIterator for &'a Metadata {
+    type Item = (String, String);
+    type IntoIter = MetadataIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl AssociatedContractStruct for Metadata {

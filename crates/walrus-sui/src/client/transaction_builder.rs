@@ -404,7 +404,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to add metadata to a blob.
-    pub async fn add_metadata(
+    pub async fn add_blob_metadata(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
         metadata: Metadata,
@@ -423,7 +423,7 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Adds a call to take metadata from a blob and returns the result [`Argument`].
+    /// Adds a call to remove metadata from a blob and returns the result [`Argument`].
     pub async fn take_metadata(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
@@ -433,36 +433,48 @@ impl WalrusPtbBuilder {
         Ok(result_arg)
     }
 
-    /// Adds a call to insert or update a metadata key-value pair in a blob.
-    pub async fn insert_or_update_metadata_pair(
+    /// Adds calls to insert or update multiple metadata key-value pairs in a blob.
+    pub async fn insert_or_update_blob_metadata_pairs<I>(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
-        key: String,
-        value: String,
-    ) -> SuiClientResult<()> {
+        pairs: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
-        let key_arg = self.pt_builder.pure(key)?;
-        let value_arg = self.pt_builder.pure(value)?;
-        self.walrus_move_call(
-            contracts::blob::insert_or_update_metadata_pair,
-            vec![blob_arg, key_arg, value_arg],
-        )?;
+
+        for (key, value) in pairs {
+            let key_arg = self.pt_builder.pure(key)?;
+            let value_arg = self.pt_builder.pure(value)?;
+            self.walrus_move_call(
+                contracts::blob::insert_or_update_metadata_pair,
+                vec![blob_arg, key_arg, value_arg],
+            )?;
+        }
         Ok(())
     }
 
-    /// Adds a call to remove a metadata key-value pair from a blob.
-    pub async fn remove_metadata_pair(
+    /// Adds calls to remove multiple metadata key-value pairs from a blob.
+    pub async fn remove_metadata_pairs<I, K>(
         &mut self,
-        blob_id: ObjectID,
-        key: String,
-    ) -> SuiClientResult<Argument> {
-        let blob_arg = self.argument_from_arg_or_obj(blob_id.into()).await?;
-        let key_arg = self.pt_builder.pure(key)?;
-        let result_arg = self.walrus_move_call(
-            contracts::blob::remove_metadata_pair,
-            vec![blob_arg, key_arg],
-        )?;
-        Ok(result_arg)
+        blob_object: ArgumentOrOwnedObject,
+        keys: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = K>,
+        K: AsRef<str>,
+    {
+        let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
+
+        for key in keys {
+            let key_arg = self.pt_builder.pure(key.as_ref().to_string())?;
+            self.walrus_move_call(
+                contracts::blob::remove_metadata_pair,
+                vec![blob_arg, key_arg],
+            )?;
+        }
+        Ok(())
     }
 
     /// Adds a call to create a new shared blob from the blob.

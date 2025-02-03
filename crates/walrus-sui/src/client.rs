@@ -44,7 +44,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 use crate::{
     contracts,
     types::{
-        move_errors::MoveExecutionError,
+        move_errors::{BlobError, MoveExecutionError},
         move_structs::{
             Authorized,
             Blob,
@@ -751,12 +751,20 @@ impl SuiContractClient {
         &mut self,
         blob_id: ObjectID,
         metadata: Metadata,
+        force: bool,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .add_blob_metadata(blob_id, metadata)
-            .await
+        let mut inner = self.inner.lock().await;
+        match inner.add_blob_metadata(blob_id, &metadata).await {
+            Ok(()) => Ok(()),
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EDuplicateMetadata(_),
+            ))) if force => {
+                inner
+                    .insert_or_update_blob_metadata_pairs(blob_id, &metadata)
+                    .await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Removes the metadata from a blob object.
@@ -770,31 +778,37 @@ impl SuiContractClient {
     ///
     /// If the key already exists, its value is updated.
     /// If metadata does not exist, an error is returned.
-    pub async fn insert_or_update_blob_metadata_pair(
+    pub async fn insert_or_update_blob_metadata_pairs<I>(
         &mut self,
         blob_id: ObjectID,
-        key: String,
-        value: String,
-    ) -> SuiClientResult<()> {
+        pairs: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
         self.inner
             .lock()
             .await
-            .insert_or_update_blob_metadata_pair(blob_id, key, value)
+            .insert_or_update_blob_metadata_pairs(blob_id, pairs)
             .await
     }
 
-    /// Removes a key-value pair from the blob's metadata.
+    /// Removes key-value pairs from the blob's metadata.
     ///
-    /// If the key does not exist, an error is returned.
-    pub async fn remove_blob_metadata_pair(
+    /// If any key does not exist, an error is returned.
+    pub async fn remove_blob_metadata_pairs<I, T>(
         &mut self,
         blob_id: ObjectID,
-        key: String,
-    ) -> SuiClientResult<()> {
+        keys: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<str>,
+    {
         self.inner
             .lock()
             .await
-            .remove_blob_metadata_pair(blob_id, key)
+            .remove_blob_metadata_pairs(blob_id, keys)
             .await
     }
 
@@ -839,14 +853,16 @@ impl SuiContractClientInner {
     }
 
     /// Adds metadata to a blob object.
+    ///
+    /// If metadata already exists, an error is returned.
     pub async fn add_blob_metadata(
         &mut self,
         blob_id: ObjectID,
-        metadata: Metadata,
+        metadata: &Metadata,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .add_metadata(blob_id.into(), metadata.clone())
+            .add_blob_metadata(blob_id.into(), metadata.clone())
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -863,15 +879,17 @@ impl SuiContractClientInner {
     }
 
     /// Inserts or updates a key-value pair in the blob's metadata.
-    pub async fn insert_or_update_blob_metadata_pair(
+    pub async fn insert_or_update_blob_metadata_pairs<I>(
         &mut self,
         blob_id: ObjectID,
-        key: String,
-        value: String,
-    ) -> SuiClientResult<()> {
+        pairs: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = (String, String)>,
+    {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .insert_or_update_metadata_pair(blob_id.into(), key, value)
+            .insert_or_update_blob_metadata_pairs(blob_id.into(), pairs)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -879,13 +897,19 @@ impl SuiContractClientInner {
     }
 
     /// Removes and returns a key-value pair from the blob's metadata.
-    pub async fn remove_blob_metadata_pair(
+    pub async fn remove_blob_metadata_pairs<I, T>(
         &mut self,
         blob_id: ObjectID,
-        key: String,
-    ) -> SuiClientResult<()> {
+        keys: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<str>,
+    {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.remove_metadata_pair(blob_id, key).await?;
+        pt_builder
+            .remove_metadata_pairs(blob_id.into(), keys)
+            .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
