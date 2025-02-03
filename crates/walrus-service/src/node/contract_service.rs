@@ -467,7 +467,7 @@ fn calculate_protocol_key_action(
                         remote_public_key = ?remote_public_key.clone(),
                         local_next_public_key = ?local_next_public_key.clone(),
                         remote_next_public_key = ?remote_next_public_key.clone(),
-                        "Remote node has next public key set while local node is rotating"
+                        "remote node has next public key set while local node is rotating"
                     );
                 }
                 return Ok(ProtocolKeyAction::RotateLocalKeyPair);
@@ -479,7 +479,7 @@ fn calculate_protocol_key_action(
                     local_next_public_key = ?local_next_public_key.clone(),
                     remote_next_public_key = ?remote_next_public_key.clone(),
                     error = error_msg,
-                    "Local and remote protocol key pairs do not match, updating remote's next \
+                    "local and remote protocol key pairs do not match, updating remote's next \
                     public key, it will take effect in the next epoch, consider restoring the \
                     local protocol key pair to match the remote protocol public key"
                 );
@@ -495,7 +495,7 @@ fn calculate_protocol_key_action(
             local_next_public_key = ?local_next_public_key,
             remote_next_public_key = ?remote_next_public_key,
             error = error_msg,
-            "Protocol key mismatch"
+            "protocol key mismatch"
         );
 
         Err(SyncNodeConfigError::NodeConfigInconsistent(

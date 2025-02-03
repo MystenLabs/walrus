@@ -379,7 +379,7 @@ impl SimStorageNodeHandle {
                                     next_protocol_key = ?config_guard
                                         .next_protocol_key_pair()
                                         .map(|kp| kp.public()),
-                                    "Rotating protocol key pair"
+                                    "rotating protocol key pair"
                                 );
                                 config_guard.rotate_protocol_key_pair();
                                 sui_simulator::task::kill_current_node(Some(Duration::from_secs(
@@ -389,7 +389,7 @@ impl SimStorageNodeHandle {
                                 e.downcast_ref::<SyncNodeConfigError>(),
                                 Some(SyncNodeConfigError::NodeNeedsReboot)
                             ) {
-                                tracing::info!("Node needs reboot, killing current node");
+                                tracing::info!("node needs reboot, killing current node");
                                 sui_simulator::task::kill_current_node(Some(Duration::from_secs(
                                     10,
                                 )));
@@ -1782,7 +1782,7 @@ impl TestClusterBuilder {
                 .with_disabled_event_blob_writer(disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer);
             tracing::info!(
-                "Test cluster builder build enable_node_config_synchronizer: {}",
+                "test cluster builder build enable_node_config_synchronizer: {}",
                 self.enable_node_config_synchronizer
             );
 
