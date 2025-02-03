@@ -56,7 +56,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Submits a notification to the contract that this storage node epoch sync is done.
     ///
     /// If `node_capability` is provided, it will be used to set the node capability object ID.
-    async fn epoch_sync_done(&self, epoch: Epoch, node_capability: ObjectID);
+    async fn epoch_sync_done(&self, epoch: Epoch, node_capability_object_id: ObjectID);
 
     /// Ends voting for the parameters of the next epoch.
     async fn end_voting(&self) -> Result<(), anyhow::Error>;
