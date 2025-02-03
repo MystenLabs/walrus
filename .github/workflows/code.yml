@@ -109,7 +109,7 @@ jobs:
     env:
       RUST_LOG: warn
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.48.1
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -148,7 +148,7 @@ jobs:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: error,sui_=off
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.48.1
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -162,7 +162,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.48.1
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4

@@ -48,7 +48,7 @@ jobs:
     env:
       MSIM_TEST_NUM: 30
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.48.1
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
