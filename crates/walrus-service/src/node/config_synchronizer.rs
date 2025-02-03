@@ -15,7 +15,7 @@ use super::{
     committee::CommitteeService,
     config::StorageNodeConfig,
     contract_service::SystemContractService,
-    SyncNodeConfigError,
+    StorageNodeError,
 };
 
 /// Monitors and syncs node configuration with on-chain parameters.
@@ -63,7 +63,7 @@ impl ConfigSynchronizer {
 
     /// Runs the config synchronization loop
     /// Errors are ignored except for NodeNeedsReboot and RotationRequired
-    pub async fn run(&self) -> Result<(), SyncNodeConfigError> {
+    pub async fn run(&self) -> Result<(), StorageNodeError> {
         if !self.enabled.load(Ordering::Relaxed) {
             tracing::warn!("Config monitor is disabled, skipping background run");
             // If disabled, wait forever instead of returning
@@ -77,8 +77,8 @@ impl ConfigSynchronizer {
             if let Err(e) = self.sync_node_params().await {
                 if matches!(
                     e,
-                    SyncNodeConfigError::NodeNeedsReboot
-                        | SyncNodeConfigError::ProtocolKeyPairRotationRequired
+                    StorageNodeError::NodeNeedsReboot
+                        | StorageNodeError::ProtocolKeyPairRotationRequired
                 ) {
                     tracing::info!("Going to reboot node due to {}", e);
                     return Err(e);
@@ -93,7 +93,7 @@ impl ConfigSynchronizer {
 
     /// Syncs node parameters with on-chain values.
     #[instrument(skip(self))]
-    pub async fn sync_node_params(&self) -> Result<(), SyncNodeConfigError> {
+    pub async fn sync_node_params(&self) -> Result<(), StorageNodeError> {
         if !self.enabled.load(Ordering::Relaxed) {
             tracing::warn!("Config monitor is disabled, skipping sync");
             return Ok(());

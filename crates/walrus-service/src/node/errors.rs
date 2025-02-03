@@ -348,9 +348,9 @@ pub enum SyncShardClientError {
     RequestError(#[from] NodeError),
 }
 
-/// Errors returned by the config synchronizer.
+/// Errors returned by the storage node.
 #[derive(Debug, Error)]
-pub enum SyncNodeConfigError {
+pub enum StorageNodeError {
     /// The protocol key pair rotation is required.
     #[error("Node protocol key pair rotation is required")]
     ProtocolKeyPairRotationRequired,
@@ -361,7 +361,7 @@ pub enum SyncNodeConfigError {
     #[error(transparent)]
     SuiClientError(#[from] SuiClientError),
     /// The node configuration is inconsistent with the on-chain configuration.
-    #[error("Node config inconsistent")]
+    #[error("Node config is inconsistent: {0}")]
     NodeConfigInconsistent(String),
     /// An unexpected error occurred.
     #[error(transparent)]

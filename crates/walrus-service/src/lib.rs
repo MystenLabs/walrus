@@ -9,7 +9,7 @@ pub mod client;
 #[cfg(feature = "node")]
 pub mod node;
 #[cfg(feature = "node")]
-pub use node::errors::SyncNodeConfigError;
+pub use node::errors::StorageNodeError;
 
 #[cfg(feature = "deploy")]
 pub mod testbed;

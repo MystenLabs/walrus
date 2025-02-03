@@ -31,7 +31,7 @@ use walrus_sui::{
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::{committee::CommitteeService, config::StorageNodeConfig, errors::SyncNodeConfigError};
+use super::{committee::CommitteeService, config::StorageNodeConfig, errors::StorageNodeError};
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
@@ -49,8 +49,7 @@ enum ProtocolKeyAction {
 #[async_trait]
 pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Syncs the node parameters with the on-chain values.
-    async fn sync_node_params(&self, config: &StorageNodeConfig)
-        -> Result<(), SyncNodeConfigError>;
+    async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), StorageNodeError>;
 
     /// Returns the current epoch and the state that the committee's state.
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
@@ -132,10 +131,7 @@ impl SystemContractService for SuiSystemContractService {
     /// If the node parameters are not in sync, it updates the node parameters on-chain.
     /// Note this could return error if the node needs reboot, e.g., when protocol key pair
     /// rotation is required.
-    async fn sync_node_params(
-        &self,
-        config: &StorageNodeConfig,
-    ) -> Result<(), SyncNodeConfigError> {
+    async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), StorageNodeError> {
         let contract_client = self.contract_client.lock().await;
         let address = contract_client.address();
 
@@ -144,7 +140,7 @@ impl SystemContractService for SuiSystemContractService {
             .get_address_capability_object(address)
             .await?
             .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)
-            .map_err(SyncNodeConfigError::from)?;
+            .map_err(StorageNodeError::from)?;
 
         let pool = contract_client
             .read_client
@@ -201,7 +197,7 @@ impl SystemContractService for SuiSystemContractService {
             }
             ProtocolKeyAction::RotateLocalKeyPair => {
                 tracing::info!("Going to rotate local key pair");
-                return Err(SyncNodeConfigError::ProtocolKeyPairRotationRequired);
+                return Err(StorageNodeError::ProtocolKeyPairRotationRequired);
             }
             ProtocolKeyAction::DoNothing => {}
         }
@@ -218,7 +214,7 @@ impl SystemContractService for SuiSystemContractService {
                 .await?;
             if update_params.needs_reboot() {
                 tracing::info!("Node needs reboot");
-                return Err(SyncNodeConfigError::NodeNeedsReboot);
+                return Err(StorageNodeError::NodeNeedsReboot);
             }
         } else {
             tracing::info!(
@@ -435,7 +431,7 @@ fn calculate_protocol_key_action(
     local_next_public_key: Option<PublicKey>,
     remote_public_key: PublicKey,
     remote_next_public_key: Option<PublicKey>,
-) -> Result<ProtocolKeyAction, SyncNodeConfigError> {
+) -> Result<ProtocolKeyAction, StorageNodeError> {
     // Case 1: Local public key matches remote public key
     if local_public_key == remote_public_key {
         match (local_next_public_key, remote_next_public_key) {
@@ -511,7 +507,7 @@ fn calculate_protocol_key_action(
             "Protocol key mismatch"
         );
 
-        Err(SyncNodeConfigError::NodeConfigInconsistent(
+        Err(StorageNodeError::NodeConfigInconsistent(
             error_msg.to_owned(),
         ))
     }

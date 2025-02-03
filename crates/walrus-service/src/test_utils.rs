@@ -83,7 +83,7 @@ use crate::{
         config,
         config::{ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
         contract_service::SystemContractService,
-        errors::{SyncNodeConfigError, SyncShardClientError},
+        errors::{StorageNodeError, SyncShardClientError},
         events::{
             event_processor::EventProcessor,
             CheckpointEventPosition,
@@ -370,8 +370,8 @@ impl SimStorageNodeHandle {
                     match result {
                         Err(e) => {
                             if matches!(
-                                e.downcast_ref::<SyncNodeConfigError>(),
-                                Some(SyncNodeConfigError::ProtocolKeyPairRotationRequired)
+                                e.downcast_ref::<StorageNodeError>(),
+                                Some(StorageNodeError::ProtocolKeyPairRotationRequired)
                             ) {
                                 let mut config_guard = config.write().await;
                                 tracing::info!(
@@ -386,8 +386,8 @@ impl SimStorageNodeHandle {
                                     10,
                                 )));
                             } else if matches!(
-                                e.downcast_ref::<SyncNodeConfigError>(),
-                                Some(SyncNodeConfigError::NodeNeedsReboot)
+                                e.downcast_ref::<StorageNodeError>(),
+                                Some(StorageNodeError::NodeNeedsReboot)
                             ) {
                                 tracing::info!("Node needs reboot, killing current node");
                                 sui_simulator::task::kill_current_node(Some(Duration::from_secs(
@@ -1337,11 +1337,8 @@ pub struct StubContractService {
 
 #[async_trait]
 impl SystemContractService for StubContractService {
-    async fn sync_node_params(
-        &self,
-        _config: &StorageNodeConfig,
-    ) -> Result<(), SyncNodeConfigError> {
-        Err(SyncNodeConfigError::Other(anyhow::anyhow!(
+    async fn sync_node_params(&self, _config: &StorageNodeConfig) -> Result<(), StorageNodeError> {
+        Err(StorageNodeError::Other(anyhow::anyhow!(
             "stub service does not sync node params"
         )))
     }
@@ -1963,10 +1960,7 @@ impl<T> SystemContractService for Arc<WithTempDir<T>>
 where
     T: SystemContractService,
 {
-    async fn sync_node_params(
-        &self,
-        config: &StorageNodeConfig,
-    ) -> Result<(), SyncNodeConfigError> {
+    async fn sync_node_params(&self, config: &StorageNodeConfig) -> Result<(), StorageNodeError> {
         self.as_ref().inner.sync_node_params(config).await
     }
 

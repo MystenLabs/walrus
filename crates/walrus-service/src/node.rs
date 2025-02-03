@@ -111,9 +111,9 @@ use self::{
         RetrieveSliverError,
         RetrieveSymbolError,
         ShardNotAssigned,
+        StorageNodeError,
         StoreMetadataError,
         StoreSliverError,
-        SyncNodeConfigError,
         SyncShardServiceError,
     },
     events::{
@@ -510,8 +510,8 @@ impl StorageNode {
             .sync_node_params()
             .await
             .or_else(|e| match e {
-                SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
-                SyncNodeConfigError::NodeNeedsReboot => {
+                StorageNodeError::ProtocolKeyPairRotationRequired => Err(e),
+                StorageNodeError::NodeNeedsReboot => {
                     tracing::info!("Ignore the error since we are booting");
                     Ok(())
                 }
