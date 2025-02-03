@@ -156,7 +156,6 @@ mod start_epoch_change_finisher;
 pub(crate) mod errors;
 mod storage;
 
-// Add new module
 mod config_synchronizer;
 use config_synchronizer::ConfigSynchronizer;
 
@@ -440,7 +439,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
-    config_synchronizer: Arc<ConfigSynchronizer>,
+    config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
 
 /// The internal state of a Walrus storage node.
@@ -485,45 +484,38 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        tracing::info!(
-            "Creating StorageNode with config monitor enabled: {}, interval: {:?}",
-            config.config_synchronizer.enabled,
-            config.config_synchronizer.interval
-        );
-        let config_synchronizer = if config.config_synchronizer.enabled {
-            Arc::new(ConfigSynchronizer::new(
-                config.clone(),
-                contract_service.clone(),
-                committee_service.clone(),
-                config.config_synchronizer.interval,
-            ))
-        } else {
-            Arc::new(ConfigSynchronizer::disabled(
-                config.clone(),
-                contract_service.clone(),
-                committee_service.clone(),
-                config.config_synchronizer.interval,
-            ))
-        };
+        tracing::info!("Creating StorageNode with config:\n{:?}", config);
+        let config_synchronizer =
+            config
+                .config_synchronizer
+                .enabled
+                .then_some(Arc::new(ConfigSynchronizer::new(
+                    config.clone(),
+                    contract_service.clone(),
+                    committee_service.clone(),
+                    config.config_synchronizer.interval,
+                )));
 
-        config_synchronizer
-            .sync_node_params()
-            .await
-            .or_else(|e| match e {
-                StorageNodeError::ProtocolKeyPairRotationRequired => Err(e),
-                StorageNodeError::NodeNeedsReboot => {
-                    tracing::info!("Ignore the error since we are booting");
-                    Ok(())
-                }
-                _ => {
-                    if node_params.ignore_sync_failures {
-                        tracing::warn!("Failed to sync node params: {}", e);
+        if let Some(config_synchronizer) = config_synchronizer.as_ref() {
+            config_synchronizer
+                .sync_node_params()
+                .await
+                .or_else(|e| match e {
+                    StorageNodeError::ProtocolKeyPairRotationRequired => Err(e),
+                    StorageNodeError::NodeNeedsReboot => {
+                        tracing::info!("Ignore the error since we are booting");
                         Ok(())
-                    } else {
-                        Err(e)
                     }
-                }
-            })?;
+                    _ => {
+                        if node_params.ignore_sync_failures {
+                            tracing::warn!(error = ?e, "failed to sync node params");
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    }
+                })?;
+        }
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -643,7 +635,14 @@ impl StorageNode {
                     },
                 }
             },
-            config_synchronizer_result = self.config_synchronizer.run() => {
+            config_synchronizer_result = async {
+                if let Some(c) = self.config_synchronizer.as_ref() {
+                    c.run().await
+                } else {
+                    // Never complete if no config synchronizer
+                    std::future::pending().await
+                }
+            } => {
                 tracing::info!("config monitor task ended");
                 match config_synchronizer_result {
                     Ok(()) => unreachable!("config monitor never returns"),
@@ -1100,7 +1099,9 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        self.config_synchronizer.sync_node_params().await?;
+        if let Some(c) = self.config_synchronizer.as_ref() {
+            c.sync_node_params().await?;
+        }
         // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change

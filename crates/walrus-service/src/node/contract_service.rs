@@ -25,7 +25,6 @@ use walrus_sui::{
     types::{
         move_errors::{MoveExecutionError, SystemStateInnerError},
         move_structs::EpochState,
-        UpdateNextPublicKeyAction,
         UpdatePublicKeyParams,
     },
 };
@@ -39,7 +38,6 @@ const MAX_BACKOFF: Duration = Duration::from_secs(3600);
 
 enum ProtocolKeyAction {
     UpdateRemoteNextPublicKey(PublicKey),
-    ResetRemoteNextPublicKey,
     RotateLocalKeyPair,
     DoNothing,
 }
@@ -171,29 +169,15 @@ impl SystemContractService for SuiSystemContractService {
                     next_public_key
                 );
 
-                update_params.next_public_key_action =
-                    Some(UpdateNextPublicKeyAction::Update(UpdatePublicKeyParams {
-                        next_public_key,
-                        proof_of_possession:
-                            walrus_sui::utils::generate_proof_of_possession_for_address(
-                                config.next_protocol_key_pair().unwrap(),
-                                address,
-                                contract_client.read_client.current_epoch().await?,
-                            ),
-                    }));
-            }
-            ProtocolKeyAction::ResetRemoteNextPublicKey => {
-                tracing::info!("Going to reset remote next public key");
-                update_params.next_public_key_action =
-                    Some(UpdateNextPublicKeyAction::Update(UpdatePublicKeyParams {
-                        next_public_key: config.protocol_key_pair().public().to_owned(),
-                        proof_of_possession:
-                            walrus_sui::utils::generate_proof_of_possession_for_address(
-                                config.next_protocol_key_pair().unwrap(),
-                                address,
-                                contract_client.read_client.current_epoch().await?,
-                            ),
-                    }));
+                update_params.update_public_key = Some(UpdatePublicKeyParams {
+                    next_public_key,
+                    proof_of_possession:
+                        walrus_sui::utils::generate_proof_of_possession_for_address(
+                            config.next_protocol_key_pair().unwrap(),
+                            address,
+                            contract_client.read_client.current_epoch().await?,
+                        ),
+                });
             }
             ProtocolKeyAction::RotateLocalKeyPair => {
                 tracing::info!("Going to rotate local key pair");
@@ -441,8 +425,11 @@ fn calculate_protocol_key_action(
                 Ok(ProtocolKeyAction::DoNothing)
             }
 
-            // If local has no next key but remote does, reset remote's next key
-            (None, Some(_)) => Ok(ProtocolKeyAction::ResetRemoteNextPublicKey),
+            // If local has no next key but remote does, update remote's next key to
+            // local's current key
+            (None, Some(_)) => Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(
+                local_public_key,
+            )),
 
             // If local has next key and it differs from remote's next key (or remote has none),
             // update remote's next key
@@ -546,12 +533,12 @@ mod tests {
                 Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
             ));
 
-            // Case 1c: Local doesn't have next key, remote does - should reset remote
+            // Case 1c: Local doesn't have next key, remote does - should update remote
             let result =
                 calculate_protocol_key_action(key1.clone(), None, key1.clone(), Some(key2.clone()));
             assert!(matches!(
                 result,
-                Ok(ProtocolKeyAction::ResetRemoteNextPublicKey)
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key1
             ));
 
             // Case 1d: Next public keys match - should do nothing

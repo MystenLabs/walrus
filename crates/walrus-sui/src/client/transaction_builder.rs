@@ -48,7 +48,6 @@ use crate::{
         NodeRegistrationParams,
         NodeUpdateParams,
         SystemObject,
-        UpdateNextPublicKeyAction,
         UpdatePublicKeyParams,
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
@@ -847,13 +846,9 @@ impl WalrusPtbBuilder {
             self.update_node_name(&storage_node_cap, name).await?;
         }
 
-        if let Some(next_public_key_action) = params.next_public_key_action {
-            match next_public_key_action {
-                UpdateNextPublicKeyAction::Update(params) => {
-                    self.update_next_public_key(&storage_node_cap, params)
-                        .await?;
-                }
-            }
+        if let Some(update_public_key) = params.update_public_key {
+            self.update_next_public_key(&storage_node_cap, update_public_key)
+                .await?;
         }
 
         if let Some(network_public_key) = params.network_public_key {
