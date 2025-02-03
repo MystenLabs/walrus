@@ -25,8 +25,8 @@ public fun test_split_epoch() {
         0,
     );
     assert!(
-        storage.storage_size() == storage_amount &&
-        new_storage.storage_size() == storage_amount,
+        storage.size() == storage_amount &&
+        new_storage.size() == storage_amount,
         0,
     );
     storage.destroy();
@@ -44,7 +44,7 @@ public fun test_split_size() {
         new_storage.end_epoch() == 10,
         0,
     );
-    assert!(storage.storage_size() == 1_000_000 && new_storage.storage_size() == 4_000_000, 0);
+    assert!(storage.size() == 1_000_000 && new_storage.size() == 4_000_000, 0);
     storage.destroy();
     new_storage.destroy();
 }
@@ -72,7 +72,7 @@ public fun test_fuse_size() {
     let second = create_for_test(0, 10, 2_000_000, ctx);
     first.fuse(second);
     assert!(first.start_epoch() == 0 && first.end_epoch() == 10, 0);
-    assert!(first.storage_size() == 3_000_000, 0);
+    assert!(first.size() == 3_000_000, 0);
     first.destroy();
 }
 
@@ -84,13 +84,13 @@ public fun test_fuse_epochs() {
     // list the `earlier` resource first
     first.fuse(second);
     assert!(first.start_epoch() == 0 && first.end_epoch() == 10, 0);
-    assert!(first.storage_size() == 1_000_000, 0);
+    assert!(first.size() == 1_000_000, 0);
 
     let mut second = create_for_test(10, 15, 1_000_000, ctx);
     // list the `latter` resource first
     second.fuse(first);
     assert!(second.start_epoch() == 0 && second.end_epoch() == 15, 0);
-    assert!(second.storage_size() == 1_000_000, 0);
+    assert!(second.size() == 1_000_000, 0);
     second.destroy();
 }
 
@@ -126,7 +126,7 @@ fun storage_capacity_at_epochs() {
     let storage = system.reserve_space(500_000_000, 2, &mut payment, ctx);
 
     assert_eq!(storage.end_epoch(), 2);
-    assert_eq!(storage.storage_size(), 500_000_000);
+    assert_eq!(storage.size(), 500_000_000);
     assert_eq!(system.used_capacity_size(), 500_000_000);
     assert_eq!(system.inner().used_capacity_size_at_future_epoch(1), 500_000_000);
     assert_eq!(system.inner().used_capacity_size_at_future_epoch(2), 0);
@@ -136,7 +136,7 @@ fun storage_capacity_at_epochs() {
     let storage = system.reserve_space(500_000_000, 1, &mut payment, ctx);
 
     assert_eq!(storage.end_epoch(), 1);
-    assert_eq!(storage.storage_size(), 500_000_000);
+    assert_eq!(storage.size(), 500_000_000);
     assert_eq!(system.used_capacity_size(), 1_000_000_000);
     assert_eq!(system.inner().used_capacity_size_at_future_epoch(1), 500_000_000); // E1
     assert_eq!(system.inner().used_capacity_size_at_future_epoch(2), 0);

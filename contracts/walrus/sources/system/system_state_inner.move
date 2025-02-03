@@ -338,7 +338,7 @@ public(package) fun extend_blob(
     assert!(end_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Pay rewards for each future epoch into the future accounting.
-    let storage_size = blob.storage().storage_size();
+    let storage_size = blob.storage().size();
     self.process_storage_payments(
         storage_size,
         start_offset,

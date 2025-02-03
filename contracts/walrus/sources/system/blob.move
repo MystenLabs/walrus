@@ -150,7 +150,7 @@ public(package) fun new(
         encoding_type,
         n_shards,
     );
-    assert!(encoded_size <= storage.storage_size(), EResourceSize);
+    assert!(encoded_size <= storage.size(), EResourceSize);
 
     // Cryptographically verify that the Blob ID authenticates
     // both the size and encoding_type (sanity check).
