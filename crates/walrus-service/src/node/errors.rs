@@ -348,9 +348,9 @@ pub enum SyncShardClientError {
     RequestError(#[from] NodeError),
 }
 
-/// Errors returned by the storage node.
+/// Errors returned by the storage node config synchronizer.
 #[derive(Debug, Error)]
-pub enum StorageNodeError {
+pub enum SyncNodeConfigError {
     /// The protocol key pair rotation is required.
     #[error("Node protocol key pair rotation is required")]
     ProtocolKeyPairRotationRequired,

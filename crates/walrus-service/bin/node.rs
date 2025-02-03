@@ -51,7 +51,7 @@ use walrus_service::{
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
     },
-    StorageNodeError,
+    SyncNodeConfigError,
 };
 use walrus_sui::{client::SuiContractClient, types::move_structs::VotingParams, utils::SuiNetwork};
 
@@ -329,18 +329,27 @@ fn main() -> anyhow::Result<()> {
             );
 
             match result {
-                Err(StorageNodeError::ProtocolKeyPairRotationRequired) => {
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<SyncNodeConfigError>(),
+                        Some(SyncNodeConfigError::ProtocolKeyPairRotationRequired)
+                    ) =>
+                {
                     tracing::info!("Protocol key pair rotation required, rotating key pair...");
                     StorageNodeConfig::rotate_protocol_key_pair_persist(&config_path)?;
                     continue;
                 }
-                // TODO(WAL-573): Restarts only the related components.
-                Err(StorageNodeError::NodeNeedsReboot) => {
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<SyncNodeConfigError>(),
+                        Some(SyncNodeConfigError::NodeNeedsReboot)
+                    ) =>
+                {
                     tracing::info!("Node needs reboot, restarting...");
                     continue;
                 }
-                Err(e) => return Err(e.into()),
-                Ok(()) => (),
+                Err(e) => return Err(e),
+                Ok(()) => return Ok(()),
             }
         },
 
@@ -386,15 +395,16 @@ mod commands {
         mut config: StorageNodeConfig,
         cleanup_storage: bool,
         ignore_sync_failures: bool,
-    ) -> Result<(), StorageNodeError> {
+    ) -> anyhow::Result<()> {
         if cleanup_storage {
             let storage_path = &config.storage_path;
 
             match fs::remove_dir_all(storage_path) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    return Err(StorageNodeError::Other(anyhow::Error::new(e).context(
-                        format!("Failed to remove directory '{}'", storage_path.display()),
-                    )));
+                    return Err(e).context(format!(
+                        "Failed to remove directory '{}'",
+                        storage_path.display()
+                    ))
                 }
                 _ => (),
             }
