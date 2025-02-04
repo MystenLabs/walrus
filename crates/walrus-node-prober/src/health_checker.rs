@@ -1,18 +1,33 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use tokio::{fs, io::AsyncWriteExt, sync::Mutex, task::JoinHandle, time};
-use walrus_sdk::client::Client;
+use walrus_sdk::{api::ServiceHealthInfo, client::Client};
 use walrus_sui::types::StorageNode;
+
+const HEALTH_LOG_FILENAME: &str = "health.log";
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct HealthLogEntry {
+    timestamp: String,
+    node_id: ObjectID,
+    health_info: Option<ServiceHealthInfo>,
+    error: Option<String>,
+}
+
+impl HealthLogEntry {
+    fn as_bytes(&self) -> Result<Vec<u8>> {
+        Ok(serde_json::to_string(self)
+            .map(|s| format!("{}\n", s))
+            .map(String::into_bytes)?)
+    }
+}
 
 pub struct HealthChecker {
     log_dir: PathBuf,
@@ -35,7 +50,7 @@ impl HealthChecker {
 
     pub async fn add_node(&mut self, node: StorageNode) -> Result<()> {
         let mut node_probers = self.node_probers.lock().await;
-        let prober = NodeProber::new(node, &self.log_dir).await?;
+        let prober = NodeProber::new(node).await?;
         node_probers.insert(prober.node_id(), Arc::new(Mutex::new(prober)));
         Ok(())
     }
@@ -48,11 +63,22 @@ impl HealthChecker {
     }
 
     pub async fn start_health_check(&mut self) -> Result<()> {
+        let mut log_file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.log_dir.join(HEALTH_LOG_FILENAME))
+            .await?;
+        println!(
+            "Health log file: {}",
+            self.log_dir.join(HEALTH_LOG_FILENAME).display()
+        );
+
         if let Some(handle) = self.health_check_handle.take() {
             handle.abort();
         }
 
         let node_probers = self.node_probers.clone();
+        let start = time::Instant::now();
         let interval = time::Duration::from_secs(self.interval_secs);
 
         let handle = tokio::spawn(async move {
@@ -63,10 +89,13 @@ impl HealthChecker {
 
                 for prober in prober_refs {
                     let mut prober = prober.lock().await;
-                    prober.check_health().await;
+                    let log_entry = prober.check_health().await;
+                    if let Ok(bytes) = log_entry.as_bytes() {
+                        let _ = log_file.write_all(&bytes).await;
+                    }
                 }
 
-                time::sleep(interval).await;
+                time::sleep_until(start + interval).await;
             }
         });
 
@@ -83,24 +112,15 @@ impl HealthChecker {
 
 struct NodeProber {
     inner: StorageNode,
-    log_file: fs::File,
     client: Client,
 }
 
 impl NodeProber {
-    async fn new(node: StorageNode, log_dir: &Path) -> Result<Self> {
-        let log_path = log_dir.join(format!("{}.log", node.node_id));
-        let log_file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .await?;
-
+    async fn new(node: StorageNode) -> Result<Self> {
         Ok(Self {
             client: Client::for_storage_node(&node.network_address.0, &node.network_public_key)
                 .expect("Failed to create client"),
             inner: node,
-            log_file,
         })
     }
 
@@ -108,7 +128,7 @@ impl NodeProber {
         self.inner.node_id
     }
 
-    pub(crate) async fn check_health(&mut self) {
+    pub(crate) async fn check_health(&mut self) -> HealthLogEntry {
         let timestamp = Utc::now().to_rfc3339();
 
         let health_result = self
@@ -117,11 +137,20 @@ impl NodeProber {
             .await
             .map_err(|_| "Health check failed".to_string());
 
-        let log_entry = match health_result {
-            Ok(health_info) => format!("[{}] HEALTHY - {:?}\n", timestamp, health_info),
-            Err(err) => format!("[{}] UNHEALTHY - {}\n", timestamp, err),
-        };
-
-        let _ = self.log_file.write_all(log_entry.as_bytes()).await;
+        if let Ok(health_info) = health_result {
+            HealthLogEntry {
+                timestamp,
+                node_id: self.inner.node_id,
+                health_info: Some(health_info),
+                error: None,
+            }
+        } else {
+            HealthLogEntry {
+                timestamp,
+                node_id: self.inner.node_id,
+                health_info: None,
+                error: Some(health_result.unwrap_err()),
+            }
+        }
     }
 }

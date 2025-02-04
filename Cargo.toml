@@ -2,6 +2,7 @@
 default-members = [
   "crates/walrus-core",
   "crates/walrus-e2e-tests",
+  "crates/walrus-node-prober",
   "crates/walrus-proc-macros",
   "crates/walrus-proxy",
   "crates/walrus-sdk",
@@ -10,7 +11,6 @@ default-members = [
   "crates/walrus-stress",
   "crates/walrus-sui",
   "crates/walrus-test-utils",
-  "crates/walrus-test-validator",
   "crates/walrus-utils",
 ]
 members = ["crates/*"]

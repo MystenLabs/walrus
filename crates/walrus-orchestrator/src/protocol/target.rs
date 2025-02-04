@@ -266,7 +266,7 @@ impl ProtocolCommands for TargetProtocol {
                 let client_config_path = working_dir.clone().join("client_config.yaml");
 
                 let run_command = [
-                    format!("./{BINARY_PATH}/walrus-test-validator"),
+                    format!("./{BINARY_PATH}/walrus-node-prober"),
                     format!("./{BINARY_PATH}/walrus-stress"),
                     format!("--write-load {load_per_client}"),
                     format!("--read-load {load_per_client}"),

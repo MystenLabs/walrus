@@ -11656,6 +11656,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-node-prober"
+version = "1.13.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "futures",
+ "indicatif",
+ "mysten-metrics",
+ "prometheus",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "sui-sdk",
+ "sui-types",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "walrus-core",
+ "walrus-sdk",
+ "walrus-service",
+ "walrus-sui",
+ "walrus-test-utils",
+ "walrus-utils",
+]
+
+[[package]]
 name = "walrus-orchestrator"
 version = "1.13.0"
 dependencies = [
@@ -11948,31 +11975,6 @@ dependencies = [
  "rand 0.8.5",
  "tempfile",
  "tokio",
-]
-
-[[package]]
-name = "walrus-test-validator"
-version = "1.13.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "futures",
- "indicatif",
- "mysten-metrics",
- "prometheus",
- "rand 0.8.5",
- "sui-sdk",
- "sui-types",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "walrus-core",
- "walrus-sdk",
- "walrus-service",
- "walrus-sui",
- "walrus-test-utils",
- "walrus-utils",
 ]
 
 [[package]]
