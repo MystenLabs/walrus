@@ -25,6 +25,7 @@ exclude-files = [
   "crates/walrus-simtest/**/*",
   "crates/walrus-stress/**/*",
   "crates/walrus-test-utils/**/*",
+  "crates/walrus-test-validator/**/*",
 ]
 # Include all tests, even longer integration tests.
 args = ["--include-ignored"]

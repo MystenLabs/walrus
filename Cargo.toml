@@ -10,6 +10,7 @@ default-members = [
   "crates/walrus-stress",
   "crates/walrus-sui",
   "crates/walrus-test-utils",
+  "crates/walrus-test-validator",
   "crates/walrus-utils",
 ]
 members = ["crates/*"]
