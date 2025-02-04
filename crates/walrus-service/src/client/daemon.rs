@@ -70,7 +70,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
 
 impl<T: ReadClient> WalrusReadClient for Client<T> {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
-        self.read_blob_retry_epoch::<Primary>(blob_id).await
+        self.read_blob_retry_committees::<Primary>(blob_id).await
     }
 
     fn set_metric_registry(&mut self, registry: &Registry) {
@@ -88,7 +88,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let result = self
-            .reserve_and_store_blobs_retry_epoch(
+            .reserve_and_store_blobs_retry_committees(
                 &[blob],
                 epochs_ahead,
                 store_when,

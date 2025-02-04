@@ -27,6 +27,7 @@ pub const WRITE_WORKLOAD: &str = "write";
 /// The name of the read workload.
 pub const READ_WORKLOAD: &str = "read";
 
+// TODO(giac): I realized this was not used except at startup?
 telemetry::define_metric_set! {
     /// Metrics exported by the client daemon.
     struct ClientMetricSet {

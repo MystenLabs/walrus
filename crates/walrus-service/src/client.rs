@@ -17,7 +17,7 @@ use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
 use responses::BlobStoreResultWithPath;
 use sui_types::base_types::ObjectID;
 use tokio::{
-    sync::{RwLock, Semaphore},
+    sync::{mpsc, oneshot, Notify, Semaphore},
     time::Duration,
 };
 use tracing::{Instrument as _, Level};
@@ -70,6 +70,8 @@ pub use daemon::{ClientDaemon, WalrusWriteClient};
 mod error;
 pub use error::{ClientError, ClientErrorKind};
 
+mod refresh;
+pub use refresh::RefreshKind;
 mod resource;
 
 mod utils;
@@ -80,6 +82,10 @@ pub mod metrics;
 mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
+
+/// The maximum number of retries for an operation that is stopped because of a committee change.
+// TODO: make this configurable.
+const MAX_COMMITTEE_CHANGE_RETRIES: u32 = 3;
 
 type ClientResult<T> = Result<T, ClientError>;
 
@@ -134,9 +140,11 @@ impl StoreWhen {
 pub struct Client<T> {
     config: Config,
     sui_client: T,
-    committees: Arc<RwLock<ActiveCommittees>>,
-    price_computation: PriceComputation,
     communication_limits: CommunicationLimits,
+    change_notification: Arc<Notify>,
+    /// The sender to request the latest committees and price computation from the
+    /// `CommitteeRefresher` cache.
+    req_tx: mpsc::Sender<RefreshKind>,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
     // introducing lifetimes.
     encoding_config: Arc<EncodingConfig>,
@@ -147,24 +155,22 @@ pub struct Client<T> {
 
 impl Client<()> {
     /// Creates a new Walrus client without a Sui client.
-    pub async fn new(config: Config, sui_read_client: &impl ReadClient) -> ClientResult<Self> {
+    pub async fn new(
+        config: Config,
+        req_tx: mpsc::Sender<RefreshKind>,
+        change_notification: Arc<Notify>,
+    ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
-        let committees = ActiveCommittees::from_committees_and_state(
-            sui_read_client
-                .get_committees_and_state()
-                .await
-                .map_err(ClientError::other)?,
-        );
-
-        let (storage_price, write_price) = sui_read_client
-            .storage_and_write_price_per_unit_size()
-            .await?;
-        let price_computation = PriceComputation::new(storage_price, write_price);
+        // Request the committees and price computation from the cache.
+        let (tx, rx) = oneshot::channel();
+        req_tx
+            .send(RefreshKind::Soft(tx))
+            .await
+            .map_err(ClientError::other)?;
+        let (committees, _) = rx.await.map_err(ClientError::other)?;
 
         let encoding_config = EncodingConfig::new(committees.n_shards());
-
-        let committees = Arc::new(RwLock::new(committees));
         let communication_limits =
             CommunicationLimits::new(&config.communication_config, encoding_config.n_shards());
 
@@ -172,10 +178,10 @@ impl Client<()> {
 
         Ok(Self {
             sui_client: (),
-            committees: committees.clone(),
-            price_computation,
             encoding_config: encoding_config.clone(),
             communication_limits,
+            change_notification,
+            req_tx,
             blocklist: None,
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
@@ -191,8 +197,8 @@ impl Client<()> {
         let Self {
             config,
             sui_client: _,
-            committees,
-            price_computation,
+            change_notification,
+            req_tx,
             encoding_config,
             communication_limits,
             blocklist,
@@ -202,8 +208,8 @@ impl Client<()> {
         Client::<C> {
             config,
             sui_client,
-            committees,
-            price_computation,
+            change_notification,
+            req_tx,
             encoding_config,
             communication_limits,
             blocklist,
@@ -215,8 +221,13 @@ impl Client<()> {
 
 impl<T: ReadClient> Client<T> {
     /// Creates a new read client starting from a config file.
-    pub async fn new_read_client(config: Config, sui_read_client: T) -> ClientResult<Self> {
-        Ok(Client::new(config, &sui_read_client)
+    pub async fn new_read_client(
+        config: Config,
+        req_tx: mpsc::Sender<RefreshKind>,
+        change_notification: Arc<Notify>,
+        sui_read_client: T,
+    ) -> ClientResult<Self> {
+        Ok(Client::new(config, req_tx, change_notification)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -225,12 +236,12 @@ impl<T: ReadClient> Client<T> {
     /// Reconstructs the blob by reading slivers from Walrus shards.
     ///
     /// The operation is retried if epoch it fails due to epoch change.
-    pub async fn read_blob_retry_epoch<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
+    pub async fn read_blob_retry_committees<U>(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>>
     where
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        retry_if_epoch_change(self, || self.read_blob::<U>(blob_id)).await
+        retry_if_committees_change(self, || self.read_blob::<U>(blob_id)).await
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -269,8 +280,9 @@ impl<T: ReadClient> Client<T> {
     {
         tracing::debug!("starting to read blob");
         self.check_blob_id(blob_id)?;
+        let committees = self.get_committees().await?;
 
-        let certified_epoch = if self.committees.read().await.is_change_in_progress() {
+        let certified_epoch = if committees.is_change_in_progress() {
             tracing::info!("epoch change in progress, reading from initial certified epoch");
             let blob_status = match blob_status {
                 Some(status) => status,
@@ -284,11 +296,11 @@ impl<T: ReadClient> Client<T> {
                 .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
         } else {
             // We are not during epoch change, we can read from the current epoch directly.
-            self.committees.read().await.epoch()
+            committees.epoch()
         };
 
         // Return early if the committee is behind.
-        let current_epoch = self.committees.read().await.epoch();
+        let current_epoch = committees.epoch();
         if certified_epoch > current_epoch {
             return Err(ClientError::from(ClientErrorKind::BehindCurrentEpoch {
                 client_epoch: current_epoch,
@@ -313,53 +325,18 @@ impl<T: ReadClient> Client<T> {
         self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
             .await
     }
-
-    /// Fetches again the current committees from chain.
-    ///
-    /// The provided `refresh_epoch` is the epoch at which the committee was when the function was
-    /// called. Since may concurrent calls to this function may be made, we fist check if
-    /// `self.committees` was already updated.
-    ///
-    /// This works because the `tokio::sync::RwLock` is write preferring, and all read locks are
-    /// delayed as soon as the first write lock is scheduled.
-    pub async fn refresh_committees(&self, refresh_epoch: Epoch) -> ClientResult<()> {
-        if self.committees.read().await.epoch() > refresh_epoch {
-            // Another thread has already updated the committees, no need call the chain and get
-            // the write lock.
-            return Ok(());
-        }
-
-        let new_committees = ActiveCommittees::from_committees_and_state(
-            self.sui_client
-                .get_committees_and_state()
-                .await
-                .map_err(ClientError::other)?,
-        );
-
-        // Acquire the guard across updating the metric.
-        let mut committee_guard = self.committees.write().await;
-
-        // Update the metrics to reflect the new committee.
-        if let Some(metrics) = self.metrics.as_ref() {
-            metrics.current_epoch.set(new_committees.epoch());
-            metrics
-                .current_epoch_state
-                .set_from_committees(&new_committees);
-        }
-
-        *committee_guard = new_committees;
-
-        Ok(())
-    }
 }
 
 impl Client<SuiContractClient> {
     /// Creates a new client starting from a config file.
     pub async fn new_contract_client(
         config: Config,
+
+        req_tx: mpsc::Sender<RefreshKind>,
+        change_notification: Arc<Notify>,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, sui_client.read_client())
+        Ok(Client::new(config, req_tx, change_notification)
             .await?
             .with_client(sui_client)
             .await)
@@ -367,7 +344,7 @@ impl Client<SuiContractClient> {
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blobs_retry_epoch(
+    pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
         epochs_ahead: EpochCount,
@@ -377,7 +354,7 @@ impl Client<SuiContractClient> {
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
 
-        retry_if_epoch_change(self, || {
+        retry_if_committees_change(self, || {
             self.reserve_and_store_encoded_blobs(
                 &pairs_and_metadata,
                 epochs_ahead,
@@ -390,10 +367,10 @@ impl Client<SuiContractClient> {
     }
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
-    /// Similar to `[Client::reserve_and_store_blobs_retry_epoch]`, except the result
+    /// Similar to `[Client::reserve_and_store_blobs_retry_committees]`, except the result
     /// includes the corresponding path for blob.
     #[tracing::instrument(skip_all, fields(blob_id))]
-    pub async fn reserve_and_store_blobs_retry_epoch_with_path(
+    pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
         epochs_ahead: EpochCount,
@@ -408,7 +385,7 @@ impl Client<SuiContractClient> {
             .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
             .await?;
 
-        let store_results = retry_if_epoch_change(self, || {
+        let store_results = retry_if_committees_change(self, || {
             self.reserve_and_store_encoded_blobs(
                 &pairs_and_metadata,
                 epochs_ahead,
@@ -595,6 +572,7 @@ impl Client<SuiContractClient> {
             pairs_and_metadata.len()
         );
         let status_start_timer = Instant::now();
+        let committees = self.get_committees().await?;
 
         let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
         tracing::info!(
@@ -605,7 +583,7 @@ impl Client<SuiContractClient> {
 
         let store_op_timer = Instant::now();
         let store_operations = self
-            .resource_manager()
+            .resource_manager(&committees)
             .await
             .store_operation_for_blobs(
                 &blob_id_to_metadata_with_status
@@ -641,13 +619,8 @@ impl Client<SuiContractClient> {
         }
 
         // Get certificates for all new blobs.
-        let committees = self.committees.read().await;
         let blobs_with_certificates = self
-            .get_all_blob_certificates(
-                &new_blobs_and_ops,
-                &blob_id_to_metadata_with_status,
-                &committees,
-            )
+            .get_all_blob_certificates(&new_blobs_and_ops, &blob_id_to_metadata_with_status)
             .await?;
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
@@ -667,10 +640,12 @@ impl Client<SuiContractClient> {
 
         // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
         let write_committee_epoch = committees.write_committee().epoch;
+        let price_computation = self.get_price_computation().await?;
+
         let newly_created_results: Vec<_> = new_blobs_and_ops
             .into_iter()
             .map(|(blob, resource_operation)| {
-                let cost = self.price_computation.operation_cost(&resource_operation);
+                let cost = price_computation.operation_cost(&resource_operation);
                 BlobStoreResult::NewlyCreated {
                     blob_object: Blob {
                         certified_epoch: Some(write_committee_epoch),
@@ -751,7 +726,6 @@ impl Client<SuiContractClient> {
                 BlobStatus,
             ),
         >,
-        committees: &'a ActiveCommittees,
     ) -> ClientResult<Vec<(&'a Blob, ConfirmationCertificate)>> {
         let get_cert_timer = Instant::now();
         let mut failed_indices = Vec::with_capacity(new_blobs_and_ops.len());
@@ -762,7 +736,6 @@ impl Client<SuiContractClient> {
         futures::future::join_all(new_blobs_and_ops.iter().map(
             |(blob_object, resource_operation)| {
                 let multi_pb_arc = Arc::clone(&multi_pb);
-                let committees = committees.clone();
                 async move {
                     let (pairs, metadata, blob_status) =
                         blob_id_to_metadata_with_status[&blob_object.blob_id];
@@ -773,7 +746,6 @@ impl Client<SuiContractClient> {
                             pairs,
                             metadata,
                             &blob_status,
-                            &committees,
                             multi_pb_arc.as_ref(),
                         )
                         .await
@@ -820,9 +792,10 @@ impl Client<SuiContractClient> {
         pairs: &[SliverPair],
         metadata: &VerifiedBlobMetadataWithId,
         blob_status: &BlobStatus,
-        committees: &ActiveCommittees,
         multi_pb: &MultiProgress,
     ) -> ClientResult<ConfirmationCertificate> {
+        let committees = self.get_committees().await?;
+
         match blob_status.initial_certified_epoch() {
             Some(certified_epoch) if !committees.is_change_in_progress() => {
                 // If the blob is already certified on chain and there is no committee change in
@@ -868,11 +841,8 @@ impl Client<SuiContractClient> {
     }
 
     /// Creates a resource manager for the client.
-    pub async fn resource_manager(&self) -> ResourceManager {
-        ResourceManager::new(
-            &self.sui_client,
-            self.committees.read().await.write_committee().epoch,
-        )
+    pub async fn resource_manager(&self, committees: &ActiveCommittees) -> ResourceManager {
+        ResourceManager::new(&self.sui_client, committees.write_committee().epoch)
     }
 
     // Blob deletion
@@ -956,17 +926,6 @@ impl<T> Client<T> {
     /// Sets the metric registry used by the client.
     pub fn set_metric_registry(&mut self, registry: &Registry) {
         let metrics = ClientMetricSet::new(registry);
-
-        // Since the metrics have just been set, update them with the stored committee if possible.
-        // We use try_read as this is called during the 'construction' phase and it's unlikely that
-        // there is a write-lock necessitating the `.await`. Even if this fails, the daemon will
-        // eventually refresh the committee and log the state.
-        if let Ok(committees_guard) = self.committees.try_read() {
-            metrics.current_epoch.set(committees_guard.epoch());
-            metrics
-                .current_epoch_state
-                .set_from_committees(&committees_guard);
-        }
         self.metrics = Some(metrics);
     }
 
@@ -991,7 +950,10 @@ impl<T> Client<T> {
         multi_pb: &MultiProgress,
     ) -> ClientResult<ConfirmationCertificate> {
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
-        let mut pairs_per_node = self.pairs_per_node(metadata.blob_id(), pairs).await;
+        let committees = self.get_committees().await?;
+        let mut pairs_per_node = self
+            .pairs_per_node(metadata.blob_id(), pairs, &committees)
+            .await;
         let sliver_write_limit = self
             .communication_limits
             .max_concurrent_sliver_writes_for_blob_size(
@@ -1004,7 +966,6 @@ impl<T> Client<T> {
             "establishing node communications"
         );
 
-        let committees = self.committees.read().await;
         let comms = self
             .communication_factory
             .node_write_communications(&committees, Arc::new(Semaphore::new(sliver_write_limit)))?;
@@ -1117,7 +1078,7 @@ impl<T> Client<T> {
         certified_epoch: Epoch,
         blob_persistence_type: &BlobPersistenceType,
     ) -> ClientResult<ConfirmationCertificate> {
-        let committees = self.committees.read().await;
+        let committees = self.get_committees().await?;
         let comms = self
             .communication_factory
             .node_read_communications(&committees, certified_epoch)?;
@@ -1203,8 +1164,7 @@ impl<T> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        let committees = self.committees.read().await;
-
+        let committees = self.get_committees().await?;
         // Create a progress bar to track the progress of the sliver retrieval.
         let progress_bar =
             styled_progress_bar(self.encoding_config.n_source_symbols::<U>().get().into());
@@ -1342,9 +1302,8 @@ impl<T> Client<T> {
                         n_forbidden += 1;
                     }
                     if self
-                        .committees
-                        .read()
-                        .await
+                        .get_committees()
+                        .await?
                         .is_quorum(n_not_found + n_forbidden)
                     {
                         return if n_not_found > n_forbidden {
@@ -1394,7 +1353,7 @@ impl<T> Client<T> {
         certified_epoch: Epoch,
         blob_id: &BlobId,
     ) -> ClientResult<VerifiedBlobMetadataWithId> {
-        let committees = self.committees.read().await;
+        let committees = self.get_committees().await?;
         let comms = self
             .communication_factory
             .node_read_communications_quorum(&committees, certified_epoch)?;
@@ -1507,7 +1466,7 @@ impl<T> Client<T> {
         timeout: Duration,
     ) -> ClientResult<BlobStatus> {
         tracing::debug!(?timeout, "trying to get blob status");
-        let committees = self.committees.read().await;
+        let committees = self.get_committees().await?;
 
         let comms = self
             .communication_factory
@@ -1571,8 +1530,11 @@ impl<T> Client<T> {
 
     /// Returns the shards of the given node in the write committee.
     #[cfg(any(test, feature = "test-utils"))]
-    pub async fn shards_of(&self, node_names: &[String]) -> Vec<ShardIndex> {
-        let committees = self.committees.read().await;
+    pub async fn shards_of(
+        &self,
+        node_names: &[String],
+        committees: &ActiveCommittees,
+    ) -> Vec<ShardIndex> {
         committees
             .write_committee()
             .members()
@@ -1587,8 +1549,8 @@ impl<T> Client<T> {
         &'a self,
         blob_id: &'a BlobId,
         pairs: &'a [SliverPair],
+        committees: &ActiveCommittees,
     ) -> HashMap<usize, Vec<&'a SliverPair>> {
-        let committees = self.committees.read().await;
         committees
             .write_committee()
             .members()
@@ -1624,6 +1586,47 @@ impl<T> Client<T> {
     /// Returns the config used by the client.
     pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// Gets the current active committees and price computation from the cache.
+    ///
+    /// This function always uses the [`Soft`][RefreshKind::Soft] refresh kind.
+    /// To force a refresh, use [`Client::force_refresh_committees`].
+    pub(crate) async fn get_committees_and_price(
+        &self,
+    ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
+        let (tx, rx) = oneshot::channel();
+        self.req_tx
+            .send(RefreshKind::Soft(tx))
+            .await
+            .map_err(ClientError::other)?;
+        let (committees, price_computation) = rx.await.map_err(ClientError::other)?;
+        Ok((committees, price_computation))
+    }
+
+    /// Forces a refresh of the committees and price computation.
+    pub(crate) async fn force_refresh_committees(
+        &self,
+    ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
+        let (tx, rx) = oneshot::channel();
+        self.req_tx
+            .send(RefreshKind::Hard(tx))
+            .await
+            .map_err(ClientError::other)?;
+        let (committees, price_computation) = rx.await.map_err(ClientError::other)?;
+        Ok((committees, price_computation))
+    }
+
+    /// Gets the current active committees from the cache.
+    pub async fn get_committees(&self) -> ClientResult<Arc<ActiveCommittees>> {
+        let (committees, _) = self.get_committees_and_price().await?;
+        Ok(committees)
+    }
+
+    /// Gets the current price computation from the cache.
+    pub async fn get_price_computation(&self) -> ClientResult<PriceComputation> {
+        let (_, price_computation) = self.get_committees_and_price().await?;
+        Ok(price_computation)
     }
 }
 
@@ -1677,26 +1680,50 @@ async fn verify_blob_status_event(
     Ok(())
 }
 
-/// Retries the given function if the error may be caused by an epoch change, after refreshing the
-/// set of active committees.
-async fn retry_if_epoch_change<T, F, R, Fut>(client: &Client<T>, func: F) -> ClientResult<R>
+/// Retries the given function if the client gets notified that the committees have changed.
+async fn retry_if_committees_change<T, F, R, Fut>(client: &Client<T>, func: F) -> ClientResult<R>
 where
     T: ReadClient,
     F: Fn() -> Fut,
     Fut: Future<Output = ClientResult<R>>,
 {
-    let current_epoch = client.committees.read().await.epoch();
-    let result = func().await;
-    match result {
-        Err(error) if error.may_be_caused_by_epoch_change() => {
-            tracing::warn!(
-                %error,
-                "an error occurred during the current operation, \
-                which may be caused by epoch change; refreshing the committees and retrying"
-            );
-            client.refresh_committees(current_epoch).await?;
-            func().await
-        }
-        result => result,
+    let mut attempts = 0;
+
+    // Retry the given function if the client gets notified that the committees have changed for N-1
+    // times; if it does not succeed after N-1 times, then the last try is made outside the loop.
+    while attempts < MAX_COMMITTEE_CHANGE_RETRIES - 1 {
+        tokio::select! {
+            _ = client.change_notification.notified() => {
+                tracing::warn!(
+                    "notified that committees have changed; \
+                    stopping the current operation and retrying"
+                );
+                attempts += 1;
+                continue;
+            }
+            result = func() => {
+                match result {
+                    Ok(result) => return Ok(result),
+                    Err(error) => {
+                        if error.may_be_caused_by_epoch_change() {
+                            tracing::warn!(
+                                %error,
+                                "operation failed; maybe because of epoch change; \
+                                forcing committee refresh and retrying"
+                            );
+                            client.force_refresh_committees().await?;
+                            attempts += 1;
+                            continue;
+                        } else {
+                            tracing::warn!(%error, "operation failed; not retrying");
+                            return Err(error);
+                        }
+                    },
+                };
+            },
+        };
     }
+
+    // The last try.
+    func().await
 }

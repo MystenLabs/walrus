@@ -17,6 +17,7 @@ use tokio::{
 };
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_service::client::{
+    cli::create_and_run_refresher,
     metrics::{self, ClientMetrics},
     Client,
     ClientError,
@@ -74,10 +75,16 @@ impl LoadGenerator {
         .await?;
 
         let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;
-        for read_client in try_join_all(
-            (0..n_clients)
-                .map(|_| Client::new_read_client(client_config.clone(), sui_read_client.clone())),
-        )
+
+        let (req_tx, notify) = create_and_run_refresher(sui_read_client.clone()).await?;
+        for read_client in try_join_all((0..n_clients).map(|_| {
+            Client::new_read_client(
+                client_config.clone(),
+                req_tx.clone(),
+                notify.clone(),
+                sui_read_client.clone(),
+            )
+        }))
         .await?
         {
             read_client_pool_tx.send(read_client).await?;
@@ -95,6 +102,8 @@ impl LoadGenerator {
                     None,
                     min_size_log2,
                     max_size_log2,
+                    req_tx.clone(),
+                    notify.clone(),
                     refiller.clone(),
                 )
                 .await?,

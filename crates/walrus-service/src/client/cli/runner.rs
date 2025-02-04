@@ -57,6 +57,7 @@ use super::args::{
 use crate::{
     client::{
         cli::{
+            create_and_run_refresher,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -480,7 +481,7 @@ impl ClientCommandRunner {
             .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
             .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
         let results = client
-            .reserve_and_store_blobs_retry_epoch_with_path(
+            .reserve_and_store_blobs_retry_committees_with_path(
                 &blobs,
                 epochs_ahead,
                 store_when,
@@ -529,7 +530,7 @@ impl ClientCommandRunner {
             let encoded_size =
                 encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
                     .expect("must be valid as the encoding succeeded");
-            let storage_cost = client.price_computation.operation_cost(
+            let storage_cost = client.get_price_computation().await?.operation_cost(
                 &crate::client::resource::RegisterBlobOp::RegisterFromScratch {
                     encoded_length: encoded_size,
                     epochs_ahead,
@@ -562,7 +563,10 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        let client = Client::new(config, &sui_read_client).await?;
+
+        let (req_tx, notify) = create_and_run_refresher(sui_read_client.clone()).await?;
+        let client = Client::new(config, req_tx, notify).await?;
+
         let file = file_or_blob_id.file.clone();
         let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;
 

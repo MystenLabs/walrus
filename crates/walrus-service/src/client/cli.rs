@@ -8,6 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
     time::Duration,
 };
 
@@ -18,10 +19,22 @@ use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::event::EventID;
+use tokio::sync::{mpsc, Notify};
 use walrus_core::BlobId;
-use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient};
+use walrus_sui::client::{
+    retry_client::RetriableSuiClient,
+    ReadClient,
+    SuiContractClient,
+    SuiReadClient,
+};
 
-use super::{default_configuration_paths, Blocklist, Client, Config};
+use super::{
+    default_configuration_paths,
+    refresh::{CommitteeRefresher, RefreshKind, DEFAULT_CACHE_VALIDITY},
+    Blocklist,
+    Client,
+    Config,
+};
 
 mod args;
 mod cli_output;
@@ -34,6 +47,8 @@ pub use runner::ClientCommandRunner;
 pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
 pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
+/// The size of the refresher channel.
+pub const REFRESHER_CHANNEL_SIZE: usize = 100;
 
 /// Loads the Walrus configuration from the given path.
 ///
@@ -56,6 +71,29 @@ pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
     ))
 }
 
+/// Crates a committees refresher actor, and spawns it on a separate task.
+pub async fn create_and_run_refresher<T: ReadClient + 'static>(
+    sui_read_client: T,
+) -> Result<(mpsc::Sender<RefreshKind>, Arc<Notify>)> {
+    let notify = Arc::new(Notify::new());
+    let (req_tx, req_rx) = mpsc::channel(REFRESHER_CHANNEL_SIZE);
+    let mut refresher = CommitteeRefresher::new(
+        DEFAULT_CACHE_VALIDITY,
+        sui_read_client,
+        req_rx,
+        notify.clone(),
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = refresher.run().await {
+            tracing::error!("failed to run the committee refresher: {:?}", e);
+        }
+    });
+
+    Ok((req_tx, notify))
+}
+
 /// Creates a [`Client`] based on the provided [`Config`] with read-only access to Sui.
 ///
 /// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
@@ -74,7 +112,9 @@ pub async fn get_read_client(
         allow_fallback_to_default,
     )
     .await?;
-    let client = Client::new_read_client(config, sui_read_client).await?;
+
+    let (req_tx, notify) = create_and_run_refresher(sui_read_client.clone()).await?;
+    let client = Client::new_read_client(config, req_tx, notify, sui_read_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -92,7 +132,9 @@ pub async fn get_contract_client(
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiContractClient>> {
     let sui_client = config.new_contract_client(wallet?, gas_budget).await?;
-    let client = Client::new_contract_client(config, sui_client).await?;
+
+    let (req_tx, notify) = create_and_run_refresher(sui_client.read_client().clone()).await?;
+    let client = Client::new_contract_client(config, req_tx, notify, sui_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))

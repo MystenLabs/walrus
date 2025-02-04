@@ -2001,7 +2001,7 @@ pub mod test_cluster {
 
     use super::*;
     use crate::{
-        client::{self, ClientCommunicationConfig, Config},
+        client::{self, cli::create_and_run_refresher, ClientCommunicationConfig, Config},
         node::{
             committee::DefaultNodeServiceFactory,
             contract_service::SuiSystemContractService,
@@ -2265,9 +2265,12 @@ pub mod test_cluster {
             communication_config,
         };
 
+        let (req_tx, notify) =
+            create_and_run_refresher(sui_contract_client.as_ref().read_client().clone()).await?;
+
         let client = sui_contract_client
             .and_then_async(|contract_client| {
-                client::Client::new_contract_client(config, contract_client)
+                client::Client::new_contract_client(config, req_tx, notify, contract_client)
             })
             .await?;
 

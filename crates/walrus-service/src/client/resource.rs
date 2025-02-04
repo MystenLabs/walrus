@@ -25,7 +25,7 @@ use crate::client::responses::EventOrObjectId;
 
 /// Struct to compute the cost of operations with blob and storage resources.
 #[derive(Debug, Clone)]
-pub(crate) struct PriceComputation {
+pub struct PriceComputation {
     storage_price_per_unit_size: u64,
     write_price_per_unit_size: u64,
 }
