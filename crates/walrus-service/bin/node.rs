@@ -14,6 +14,7 @@ use std::{
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand, ValueEnum as _};
+use commands::generate_or_convert_key;
 use config::PathOrInPlace;
 use fs::File;
 use humantime::Duration;
@@ -344,26 +345,14 @@ fn main() -> anyhow::Result<()> {
             force,
             format,
             convert,
-        } => {
-            if let Some(input_key_path) = convert {
-                commands::convert(
-                    &input_key_path,
-                    out.as_deref()
-                        .unwrap_or_else(|| Path::new(key_type.default_filename())),
-                    key_type,
-                    force,
-                    format,
-                )?
-            } else {
-                commands::keygen(
-                    out.as_deref()
-                        .unwrap_or_else(|| Path::new(key_type.default_filename())),
-                    key_type,
-                    force,
-                    format,
-                )?
-            }
-        }
+        } => generate_or_convert_key(
+            out.as_deref()
+                .unwrap_or_else(|| Path::new(key_type.default_filename())),
+            key_type,
+            force,
+            format,
+            convert.as_deref(),
+        )?,
 
         Commands::GenerateConfig {
             path_args,
@@ -380,13 +369,16 @@ fn main() -> anyhow::Result<()> {
 
 mod commands {
     use config::{
-        LoadsFromPath as _,
+        LoadsFromPath,
         MetricsPushConfig,
         NodeRegistrationParamsForThirdPartyRegistration,
     };
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
-    use walrus_core::ensure;
+    use walrus_core::{
+        ensure,
+        keys::{SupportedKeyPair, TaggedKeyPair},
+    };
     use walrus_service::utils;
     use walrus_sui::{
         client::{contract_config::ContractConfig, ReadClient as _},
@@ -574,72 +566,69 @@ mod commands {
         Ok(())
     }
 
-    pub(super) fn keygen(
-        path: &Path,
+    pub(super) fn generate_or_convert_key(
+        output_path: &Path,
         key_type: KeyType,
         force: bool,
         format: KeyFormat,
+        key_source: Option<&Path>,
     ) -> anyhow::Result<()> {
         walrus_core::ensure!(
             format != KeyFormat::Pkcs8 || key_type == KeyType::Network,
             "`--format=pkcs8` is only supported with `--key-type=network`"
         );
 
-        println!(
-            "Generating {key_type} key pair and writing it to '{}'",
-            path.display()
-        );
+        if let Some(path) = key_source {
+            print!("Converting {key_type} key pair from '{}'", path.display());
+        } else {
+            print!("Generating {key_type} key pair")
+        }
+        println!(" and writing it to '{}'", output_path.display());
 
         let key_string = match (key_type, format) {
-            (KeyType::Network, KeyFormat::Pkcs8) => NetworkKeyPair::generate().to_pem(),
-            (KeyType::Network, KeyFormat::Tagged) => NetworkKeyPair::generate().to_base64().into(),
-            (KeyType::Protocol, _) => ProtocolKeyPair::generate().to_base64().into(),
+            (KeyType::Network, KeyFormat::Pkcs8) => {
+                NetworkKeyPair::to_pem(&load_or_generate_key(key_source, key_type)?)
+            }
+
+            (KeyType::Network, KeyFormat::Tagged) => {
+                NetworkKeyPair::to_base64(&load_or_generate_key(key_source, key_type)?).into()
+            }
+            (KeyType::Protocol, _) => {
+                ProtocolKeyPair::to_base64(&load_or_generate_key(key_source, key_type)?).into()
+            }
         };
 
-        write_key_to_file(path, force, &key_string)
+        write_key_to_file(output_path, force, &key_string)
     }
 
-    pub(crate) fn convert(
-        input_file: &Path,
-        output_file: &Path,
+    fn load_or_generate_key<T>(
+        key_source: Option<&Path>,
+        key_type: KeyType,
+    ) -> Result<TaggedKeyPair<T>, anyhow::Error>
+    where
+        TaggedKeyPair<T>: LoadsFromPath,
+        T: SupportedKeyPair,
+    {
+        if let Some(path) = key_source {
+            TaggedKeyPair::<T>::load(path).with_context(|| {
+                format!(
+                    "unable to load the input keyfile at '{}' as type '{}'",
+                    path.display(),
+                    key_type
+                )
+            })
+        } else {
+            Ok(TaggedKeyPair::<T>::generate())
+        }
+    }
+
+    pub(super) fn keygen(
+        path: &Path,
         key_type: KeyType,
         force: bool,
-        output_format: KeyFormat,
+        format: KeyFormat,
     ) -> anyhow::Result<()> {
-        walrus_core::ensure!(
-            output_format != KeyFormat::Pkcs8 || key_type == KeyType::Network,
-            "`--format=pkcs8` is only supported with `--key-type=network`"
-        );
-
-        println!(
-            "Converting {key_type} key pair form '{}' and writing it to '{}'",
-            input_file.display(),
-            output_file.display()
-        );
-
-        let load_context = || {
-            format!(
-                "unable to load the input keyfile at '{}' as type '{}'",
-                input_file.display(),
-                key_type
-            )
-        };
-
-        let key_string = match key_type {
-            KeyType::Network => NetworkKeyPair::load(input_file)
-                .with_context(load_context)
-                .map(|keypair| match output_format {
-                    KeyFormat::Pkcs8 => keypair.to_pem(),
-                    KeyFormat::Tagged => keypair.to_base64().into(),
-                })?,
-
-            KeyType::Protocol => ProtocolKeyPair::load(input_file)
-                .with_context(load_context)?
-                .to_base64()
-                .into(),
-        };
-
-        write_key_to_file(output_file, force, &key_string)
+        generate_or_convert_key(path, key_type, force, format, None)
     }
 
     fn write_key_to_file(output_file: &Path, force: bool, contents: &str) -> anyhow::Result<()> {
@@ -1159,7 +1148,13 @@ mod tests {
         commands::keygen(&input_file, key_type, false, input_format)?;
 
         // Convert the file to the new format.
-        commands::convert(&input_file, &output_file, key_type, false, output_format)?;
+        commands::generate_or_convert_key(
+            &output_file,
+            key_type,
+            false,
+            output_format,
+            Some(&input_file),
+        )?;
 
         assert_key_format(&output_file, output_format);
         assert_valid_key_of_type(&output_file, key_type);

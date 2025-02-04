@@ -74,7 +74,7 @@ blob_recovery:
   experimental_batch_symbol_recovery: false
 tls:
   disable_tls: false
-  pem_files: null
+  certificate_path: null
 shard_sync_config:
   sliver_count_per_sync_request: 10
   shard_sync_retry_min_backoff_secs: 60

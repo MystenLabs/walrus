@@ -308,23 +308,8 @@ pub struct TlsConfig {
     /// Should only be disabled if TLS encryption is being offloaded to another
     /// service in the network.
     pub disable_tls: bool,
-    /// Paths to the certificate and key used to secure the REST API.
-    pub pem_files: Option<TlsCertificateAndKey>,
-}
-
-/// Paths to a TLS certificate and key.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded x509 certificate.
-    pub certificate_path: PathBuf,
-    /// Path to the PEM-encoded PKCS#8 certificate private key.
-    ///
-    /// Prefer using the `network_key_pair` option instead, as it also accepts a path to a
-    /// PKCS#8 PEM-encoded private key and is required.
-    ///
-    /// If this option is set, then `network_key_pair` must be set to the same path.
-    #[serde(default)]
-    pub key_path: Option<PathBuf>,
+    pub certificate_path: Option<PathBuf>,
 }
 
 /// Configuration of a Walrus storage node.

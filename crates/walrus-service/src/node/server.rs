@@ -28,7 +28,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
-use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig};
+use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
 use crate::{
     common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
     node::ServiceState,
@@ -70,36 +70,28 @@ pub struct RestApiConfig {
 
 impl From<&StorageNodeConfig> for RestApiConfig {
     fn from(config: &StorageNodeConfig) -> Self {
-        let tls_certificate = if config.tls.disable_tls {
-            None
-        } else if let Some(paths) = config.tls.pem_files.clone() {
-            Some(TlsCertificateSource::Pem {
-                certificate: PathOrInPlace::from_path(paths.certificate_path),
-                key: paths.key_path.map_or_else(
-                    || {
-                        PathOrInPlace::InPlace(
-                            config.network_key_pair().to_pem().as_bytes().to_vec(),
-                        )
-                    },
-                    |key_path| {
-                        if let Some(config_network_key_pair_path) = config.network_key_pair.path() {
-                            assert_eq!(
-                                key_path,
-                                config_network_key_pair_path,
-                                "when tls.pem_files.key_path is specified, `network_key_pair` must \
-                                be set to the same path"
-                            );
-                        };
+        let tls_certificate = match config.tls {
+            TlsConfig {
+                disable_tls: true, ..
+            } => None,
 
-                        PathOrInPlace::from_path(key_path)
-                    },
-                ),
-            })
-        } else {
-            Some(TlsCertificateSource::GenerateSelfSigned {
+            TlsConfig {
+                certificate_path: Some(ref path),
+                ..
+            } => Some(TlsCertificateSource::Pem {
+                certificate: PathOrInPlace::from_path(path),
+                key: match config.network_key_pair {
+                    PathOrInPlace::InPlace(ref value) => {
+                        PathOrInPlace::InPlace(value.to_pem().as_bytes().to_vec())
+                    }
+                    PathOrInPlace::Path { ref path, .. } => PathOrInPlace::from_path(path),
+                },
+            }),
+
+            _ => Some(TlsCertificateSource::GenerateSelfSigned {
                 server_name: config.public_host.clone(),
                 network_key_pair: config.network_key_pair().clone(),
-            })
+            }),
         };
 
         let graceful_shutdown_period = config
@@ -475,7 +467,7 @@ mod tests {
     use super::*;
     use crate::{
         node::{
-            config::{StorageNodeConfig, TlsCertificateAndKey},
+            config::StorageNodeConfig,
             errors::ListSymbolsError,
             BlobStatusError,
             ComputeStorageConfirmationError,
@@ -1095,7 +1087,7 @@ mod tests {
         /// Enable self-signed certificates by enabling TLS but removing any certificate.
         fn use_self_signed_certificates(config: &mut StorageNodeConfig) {
             config.tls.disable_tls = false;
-            config.tls.pem_files = None;
+            config.tls.certificate_path = None;
         }
 
         fn configure_certificates_from_disk(
@@ -1113,10 +1105,7 @@ mod tests {
             config.tls.disable_tls = false;
             config.network_key_pair = PathOrInPlace::from_path(key_path);
             config.network_key_pair.load()?;
-            config.tls.pem_files = Some(TlsCertificateAndKey {
-                certificate_path,
-                key_path: None,
-            });
+            config.tls.certificate_path = Some(certificate_path);
 
             Ok(())
         }
