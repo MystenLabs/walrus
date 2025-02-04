@@ -18,7 +18,6 @@ use clap::{Parser, Subcommand};
 use config::PathOrInPlace;
 use fs::File;
 use humantime::Duration;
-use prometheus::Registry;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tokio::{
@@ -390,6 +389,7 @@ mod commands {
         let registry_clone = metrics_runtime.registry.clone();
         metrics_runtime
             .runtime
+            .as_ref()
             .expect("Storage node requires metrics to have their own runtime")
             .spawn(async move {
                 registry_clone
@@ -464,7 +464,7 @@ mod commands {
 
         let node_runtime = StorageNodeRuntime::start(
             &config,
-            metrics_runtime.registry.clone(),
+            metrics_runtime,
             exit_notifier,
             event_manager,
             cancel_token.child_token(),
@@ -858,6 +858,8 @@ async fn get_contract_client_from_node_config(
 struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
     rest_api_handle: JoinHandle<Result<(), io::Error>>,
+    // Preserve the metrics runtime to keep the runtime alive
+    metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
 }
@@ -865,7 +867,7 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         node_config: &StorageNodeConfig,
-        metrics_registry: Registry,
+        metrics_runtime: MetricsAndLoggingRuntime,
         exit_notifier: oneshot::Sender<()>,
         event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
@@ -883,7 +885,7 @@ impl StorageNodeRuntime {
                 StorageNode::builder()
                     .with_system_event_manager(event_manager)
                     .with_ignore_sync_failures(ignore_sync_failures)
-                    .build(node_config, metrics_registry.clone()),
+                    .build(node_config, metrics_runtime.registry.clone()),
             )?,
         );
 
@@ -909,7 +911,7 @@ impl StorageNodeRuntime {
             walrus_node,
             cancel_token.child_token(),
             RestApiConfig::from(node_config),
-            &metrics_registry,
+            &metrics_runtime.registry,
         );
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
@@ -929,9 +931,10 @@ impl StorageNodeRuntime {
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
         Ok(Self {
-            runtime,
             walrus_node_handle,
             rest_api_handle,
+            metrics_runtime,
+            runtime,
         })
     }
 
@@ -939,7 +942,12 @@ impl StorageNodeRuntime {
         tracing::debug!("waiting for the REST API to shutdown...");
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
-        self.runtime.block_on(&mut self.walrus_node_handle)?
+        let _ = self.runtime.block_on(&mut self.walrus_node_handle)?;
+        // Shutdown the metrics runtime
+        if let Some(runtime) = self.metrics_runtime.runtime.take() {
+            runtime.shutdown_background();
+        }
+        Ok(())
     }
 }
 
