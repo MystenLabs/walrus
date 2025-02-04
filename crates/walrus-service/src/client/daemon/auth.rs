@@ -9,7 +9,7 @@ use jsonwebtoken::{
     DecodingKey,
     Validation,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use tracing::error;
 use walrus_proc_macros::RestApiError;
@@ -20,9 +20,8 @@ use crate::{client::config::AuthConfig, common::api::RestApiError};
 pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 
 /// Claim follows RFC7519 with extra storage parameters: send_object_to, epochs.
-#[derive(Clone, Deserialize, Debug)]
-#[cfg_attr(test, derive(serde::Serialize))]
-struct Claim {
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp).
     pub iat: Option<u64>,
@@ -40,6 +39,7 @@ struct Claim {
 }
 
 impl Claim {
+    /// Parse JWT token in HTTP header into Claim
     pub fn from_token(
         token: &str,
         decoding_key: &DecodingKey,
@@ -163,7 +163,7 @@ pub(crate) fn verify_jwt_claim(
 /// Type representing the possible errors that can occur during the authentication process.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = PUBLISHER_AUTH_DOMAIN)]
-enum PublisherAuthError {
+pub enum PublisherAuthError {
     /// The expiration in the query does not match the token.
     #[error("the expiration in the query does not match the token")]
     #[rest_api_error(reason = "INVALID_EXPIRATION", status = ApiStatusCode::FailedPrecondition)]

@@ -40,7 +40,7 @@ use crate::{
     common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
 };
 
-mod auth;
+pub mod auth;
 mod openapi;
 mod routes;
 
