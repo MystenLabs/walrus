@@ -80,13 +80,13 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
     /// Key pair used in Walrus protocol messages.
+    /// Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
-    #[serde(rename = "protocol_key_pair")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// The next protocol key pair to use for the storage node.
+    /// Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "Option<PathOrInPlace<Base64>>")]
     #[serde(default, skip_serializing_if = "defaults::is_none")]
-    #[serde(rename = "next_protocol_key_pair")]
     pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -209,12 +209,15 @@ impl StorageNodeConfig {
         let config_str = std::fs::read_to_string(path.as_ref())?;
         let mut original_value: serde_yaml::Value = serde_yaml::from_str(&config_str)?;
         let mut config: StorageNodeConfig = serde_yaml::from_str(&config_str)?;
+        // Constants for config key strings
+        const PROTOCOL_KEY_PAIR_KEY: &str = "protocol_key_pair";
+        const NEXT_PROTOCOL_KEY_PAIR_KEY: &str = "next_protocol_key_pair";
 
         assert!(config.protocol_key_pair.is_path());
         if let Some(ref next_protocol_key_pair) = config.next_protocol_key_pair {
             assert!(next_protocol_key_pair.is_path());
         } else {
-            return Err(anyhow::anyhow!("next_protocol_key_pair is not set"));
+            return Err(anyhow::anyhow!("{} is not set", NEXT_PROTOCOL_KEY_PAIR_KEY));
         }
 
         // Rotate the protocol key pair
@@ -225,13 +228,13 @@ impl StorageNodeConfig {
             // Update protocol_key_pair
             if let Ok(protocol_key_pair) = serde_yaml::to_value(&config.protocol_key_pair) {
                 map.insert(
-                    serde_yaml::Value::String("protocol_key_pair".to_string()),
+                    serde_yaml::Value::String(PROTOCOL_KEY_PAIR_KEY.to_string()),
                     protocol_key_pair,
                 );
             }
             // Clear next_protocol_key_pair
             map.remove(serde_yaml::Value::String(
-                "next_protocol_key_pair".to_string(),
+                NEXT_PROTOCOL_KEY_PAIR_KEY.to_string(),
             ));
         }
 

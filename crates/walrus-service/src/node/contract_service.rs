@@ -414,6 +414,7 @@ impl SystemContractService for SuiSystemContractService {
 }
 
 /// Calculates the protocol key action based on the local and remote public keys.
+#[tracing::instrument]
 fn calculate_protocol_key_action(
     local_public_key: PublicKey,
     local_next_public_key: Option<PublicKey>,
@@ -437,12 +438,8 @@ fn calculate_protocol_key_action(
 
             // If local has next key and it differs from remote's next key (or remote has none),
             // update remote's next key
-            (Some(local_next), remote_next) => {
-                if Some(local_next.clone()) != remote_next {
-                    Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(local_next))
-                } else {
-                    Ok(ProtocolKeyAction::DoNothing)
-                }
+            (Some(local_next), remote_next) if Some(local_next.clone()) != remote_next => {
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(local_next))
             }
 
             // Keys match or both have no next key - do nothing
@@ -457,50 +454,39 @@ fn calculate_protocol_key_action(
             local public key: {}, remote public key: {}",
             local_public_key, remote_public_key
         );
-        // Check if local next key matches remote current key
-        if let Some(local_next) = local_next_public_key.clone() {
-            if local_next == remote_public_key {
-                // Warn if remote has a next key set
-                if remote_next_public_key.is_some() {
-                    tracing::warn!(
-                        local_public_key = ?local_public_key.clone(),
-                        remote_public_key = ?remote_public_key.clone(),
-                        local_next_public_key = ?local_next_public_key.clone(),
-                        remote_next_public_key = ?remote_next_public_key.clone(),
-                        "remote node has next public key set while local node is rotating"
-                    );
-                }
-                return Ok(ProtocolKeyAction::RotateLocalKeyPair);
-            } else {
-                // Update remote's next key only if it differs from local next or is not set
-                tracing::error!(
-                    local_public_key = ?local_public_key.clone(),
-                    remote_public_key = ?remote_public_key.clone(),
-                    local_next_public_key = ?local_next_public_key.clone(),
-                    remote_next_public_key = ?remote_next_public_key.clone(),
-                    error = error_msg,
-                    "local and remote protocol key pairs do not match, updating remote's next \
-                    public key, it will take effect in the next epoch, consider restoring the \
-                    local protocol key pair to match the remote protocol public key"
-                );
-                if Some(local_next.clone()) != remote_next_public_key {
-                    return Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(local_next));
-                }
+
+        if local_next_public_key.is_none() {
+            return Err(SyncNodeConfigError::NodeConfigInconsistent(error_msg));
+        }
+
+        // Check if local next key matches remote current key, this indicates that
+        // the on-chain protocol public key is updated, so we need to rotate the local key pair.
+        let local_next = local_next_public_key
+            .as_ref()
+            .expect("local next public key is not set");
+        if local_next == &remote_public_key {
+            // Warn if remote has a next key set
+            if remote_next_public_key.is_some() {
+                tracing::warn!("remote node has next public key set while local node is rotating");
+            }
+            return Ok(ProtocolKeyAction::RotateLocalKeyPair);
+        } else {
+            // Update remote's next key only if it differs from local next or is not set
+            tracing::error!(
+                "local and remote protocol key pairs do not match, updating remote's next \
+                public key, it will take effect in the next epoch, consider restoring the \
+                local protocol key pair to match the remote protocol public key"
+            );
+            if local_next_public_key != remote_next_public_key {
+                return Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(
+                    local_next.clone(),
+                ));
             }
         }
 
-        tracing::error!(
-            local_public_key = ?local_public_key,
-            remote_public_key = ?remote_public_key,
-            local_next_public_key = ?local_next_public_key,
-            remote_next_public_key = ?remote_next_public_key,
-            error = error_msg,
-            "protocol key mismatch"
-        );
+        tracing::error!(error = error_msg.as_str(), "protocol key mismatch");
 
-        Err(SyncNodeConfigError::NodeConfigInconsistent(
-            error_msg.to_owned(),
-        ))
+        Err(SyncNodeConfigError::NodeConfigInconsistent(error_msg))
     }
 }
 

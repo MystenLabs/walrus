@@ -179,7 +179,7 @@ pub trait StorageNodeHandleTrait {
 }
 
 /// Configuration for test node setup
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TestNodesConfig {
     /// The weights of the nodes in the cluster.
     pub node_weights: Vec<u16>,

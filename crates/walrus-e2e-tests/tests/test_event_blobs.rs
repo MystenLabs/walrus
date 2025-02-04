@@ -23,10 +23,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             Duration::from_secs(60 * 60),
             TestNodesConfig {
                 node_weights: vec![1, 1],
-                use_legacy_event_processor: false,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
+                ..Default::default()
             },
             Some(10),
             ClientCommunicationConfig::default_for_test(),

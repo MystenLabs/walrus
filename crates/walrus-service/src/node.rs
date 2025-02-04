@@ -484,7 +484,6 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        tracing::info!("creating StorageNode with config:\n{:?}", config);
         let config_synchronizer =
             config
                 .config_synchronizer
