@@ -29,6 +29,9 @@ impl HealthLogEntry {
     }
 }
 
+/// HealthChecker is a struct that checks the health of the nodes in the network.
+/// It periodically checks the health of the nodes and logs the results to a file.
+/// TODO(WAL-524): Add a validator to generate a health report for the nodes.
 pub struct HealthChecker {
     log_dir: PathBuf,
     node_probers: Arc<Mutex<HashMap<ObjectID, Arc<Mutex<NodeProber>>>>>,
@@ -62,6 +65,7 @@ impl HealthChecker {
         Ok(())
     }
 
+    /// Kick off the health check loop.
     pub async fn start_health_check(&mut self) -> Result<()> {
         let mut log_file = fs::OpenOptions::new()
             .create(true)
@@ -90,6 +94,7 @@ impl HealthChecker {
                 for prober in prober_refs {
                     let mut prober = prober.lock().await;
                     let log_entry = prober.check_health().await;
+                    // TODO(WAL-524): consider batching log entries
                     if let Ok(bytes) = log_entry.as_bytes() {
                         let _ = log_file.write_all(&bytes).await;
                     }
@@ -110,6 +115,8 @@ impl HealthChecker {
     }
 }
 
+/// NodeProber is responsible for checking the health of a single node.
+/// TODO(WAL-574): Add function to sample read/write latency.
 struct NodeProber {
     inner: StorageNode,
     client: Client,
@@ -128,6 +135,7 @@ impl NodeProber {
         self.inner.node_id
     }
 
+    /// Collect the health info of the node.
     pub(crate) async fn check_health(&mut self) -> HealthLogEntry {
         let timestamp = Utc::now().to_rfc3339();
 
