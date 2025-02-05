@@ -355,7 +355,7 @@ mod tests {
         claim: Claim,
     ) -> (Router, String, EncodingKey) {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let secret_to_use = use_secret.then(|| secret.as_str());
+        let secret_to_use = use_secret.then_some(secret.as_str());
         let auth_config = auth_config_for_tests(secret_to_use, None, expiring_sec, verify_upload);
 
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
