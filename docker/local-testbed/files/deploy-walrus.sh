@@ -15,6 +15,8 @@ rm -rf /opt/walrus/outputs/*
 
 /opt/walrus/bin/walrus-deploy deploy-system-contract \
   --working-dir /opt/walrus/outputs \
+  --contract-dir /opt/walrus/contracts \
+  --do-not-copy-contracts \
   --sui-network 'http://sui-localnet:9000;http://sui-localnet:9123/gas' \
   --n-shards 100 \
   --host-addresses 10.0.0.10 10.0.0.11 10.0.0.12 10.0.0.13 \
