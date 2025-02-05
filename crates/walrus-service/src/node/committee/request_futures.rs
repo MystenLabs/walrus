@@ -441,6 +441,9 @@ where
                 .to_sliver_index::<A>(self.metadata.n_shards()),
             (*self.metadata).as_ref(),
             &self.shared.encoding_config,
+            // Continue to verify the symbols in the called function, to ensure that
+            // this change does not introduce any bugs in the legacy implementation.
+            true,
         );
         tracing::debug!("completing decoding, parsing result");
 
@@ -578,7 +581,7 @@ where
                                 %n_symbols,
                                 "successfully collected the desired number of recovery symbols"
                             );
-                            return self.decode_sliver(symbol_tracker);
+                            return self.decode_sliver(symbol_tracker).await;
                         },
                         Err(n_symbols_remaining) => {
                             tracing::trace!(
@@ -613,33 +616,44 @@ where
     }
 
     #[tracing::instrument(skip_all)]
-    fn decode_sliver(
+    async fn decode_sliver(
         &mut self,
         tracker: SymbolTracker,
     ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
         if self.target_sliver_type == SliverType::Primary {
             self.decode_sliver_by_axis::<Primary, _>(tracker.into_symbols())
+                .await
         } else {
             self.decode_sliver_by_axis::<Secondary, _>(tracker.into_symbols())
+                .await
         }
     }
 
-    fn decode_sliver_by_axis<A: EncodingAxis, I>(
+    async fn decode_sliver_by_axis<A, I>(
         &self,
         recovery_symbols: I,
     ) -> Option<Result<Sliver, InconsistencyProofEnum>>
     where
-        I: IntoIterator<Item = RecoverySymbolData<A, MerkleProof>>,
+        A: EncodingAxis + Send + 'static,
+        I: IntoIterator<Item = RecoverySymbolData<A, MerkleProof>> + Send + 'static,
         SliverData<A>: Into<Sliver>,
         InconsistencyProof<A, MerkleProof>: Into<InconsistencyProofEnum>,
     {
         tracing::debug!("beginning to decode recovered sliver");
-        let result = SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
-            recovery_symbols,
-            self.target_index,
-            (*self.metadata).as_ref(),
-            &self.shared.encoding_config,
-        );
+        let index = self.target_index;
+        let metadata = self.metadata.clone();
+        let encoding_config = self.shared.encoding_config.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
+                recovery_symbols,
+                index,
+                metadata.metadata(),
+                &encoding_config,
+                false,
+            )
+        })
+        .await
+        .expect("sliver recovery must not panic");
         tracing::debug!("completing decoding, parsing result");
 
         match result {

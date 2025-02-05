@@ -313,12 +313,15 @@ impl<T: EncodingAxis> SliverData<T> {
     /// [`InconsistencyProof`] is generated and returned. If recovery fails or another error occurs,
     /// a [`SliverRecoveryError`] is returned.
     ///
-    /// Symbols that fail verification are logged and dropped.
+    /// If `verify_symbols` is set to true, symbols that fail verification are logged and
+    /// dropped. Otherwise, it is the caller's responsibility to ensure that the recovery symbols
+    /// have been verified to be useable to recover the identified symbol.
     pub fn recover_sliver_or_generate_inconsistency_proof<I, U>(
         recovery_symbols: I,
         target_index: SliverIndex,
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
+        verify_symbols: bool,
     ) -> Result<SliverOrInconsistencyProof<T, U>, SliverRecoveryOrVerificationError>
     where
         I: IntoIterator,
@@ -326,13 +329,17 @@ impl<T: EncodingAxis> SliverData<T> {
         U: MerkleAuth,
     {
         let symbol_size = metadata.symbol_size(encoding_config)?;
-        let filtered_recovery_symbols: Vec<_> = symbols::filter_recovery_symbols_and_log_invalid(
-            recovery_symbols,
-            metadata,
-            encoding_config,
-            target_index,
-        )
-        .collect();
+        let filtered_recovery_symbols: Vec<_> = if verify_symbols {
+            symbols::filter_recovery_symbols_and_log_invalid(
+                recovery_symbols,
+                metadata,
+                encoding_config,
+                target_index,
+            )
+            .collect()
+        } else {
+            recovery_symbols.into_iter().collect()
+        };
 
         let sliver = Self::recover_sliver_without_verification(
             filtered_recovery_symbols.clone(),
