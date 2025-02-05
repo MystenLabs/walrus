@@ -174,6 +174,7 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     ) -> Result<(), BeginCommitteeChangeError>;
 
     /// Update information about committee members from the latest committee on chain.
+    ///
     /// This does not change the committee, but updates the configurations of the nodes.
     /// This is used to update the committee members address, public key, etc, when the
     /// node changes its config
