@@ -212,7 +212,7 @@ mod commands {
             DeployTestbedContractParameters,
             TestbedConfig,
         },
-        utils::load_from_yaml,
+        utils::{self, load_from_yaml},
     };
     use walrus_sui::utils::load_wallet;
 
@@ -303,7 +303,7 @@ mod commands {
             with_wal_exchange,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
-        tracing_subscriber::fmt::init();
+        utils::init_tracing_subscriber()?;
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
@@ -360,7 +360,7 @@ mod commands {
             admin_wallet_path,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
-        tracing_subscriber::fmt::init();
+        utils::init_tracing_subscriber()?;
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;

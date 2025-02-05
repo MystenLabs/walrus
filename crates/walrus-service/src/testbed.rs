@@ -273,6 +273,9 @@ pub async fn deploy_walrus_contract(
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
     let collocated = hosts_set.len() != hosts.len();
 
+    tracing::debug!("Storage nodes collocated on same machine: {}", collocated);
+    tracing::debug!("Deploying contract to Sui network: {}", sui_network);
+
     // Build one Sui storage node config for each storage node.
     let committee_size = hosts.len() as u16;
     let keypairs = if deterministic_keys {
@@ -280,6 +283,11 @@ pub async fn deploy_walrus_contract(
     } else {
         random_keypairs(committee_size as usize)
     };
+
+    tracing::debug!(
+        "Finished generating keypairs for {} storage nodes",
+        committee_size
+    );
 
     let mut node_configs = Vec::new();
 
@@ -294,6 +302,14 @@ pub async fn deploy_walrus_contract(
             public_rest_api_address(host, rest_api_port, None, None)
         };
 
+        tracing::debug!(
+            "Generating configuration for storage node {}/{}: name={}, network_address={}",
+            i + 1,
+            committee_size,
+            name,
+            network_address
+        );
+
         node_configs.push(TestbedNodeConfig {
             name,
             network_address: network_address.clone(),
@@ -306,13 +322,25 @@ pub async fn deploy_walrus_contract(
         });
     }
 
+    tracing::debug!(
+        "Finished generating configurations for {} storage nodes",
+        committee_size
+    );
+
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
 
+    tracing::debug!("Creating working directory at {}", working_dir.display());
+
     // Load or create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
+        tracing::debug!(
+            "Loading existing admin wallet from path: {}",
+            admin_wallet_path.display()
+        );
         WalletContext::new(&admin_wallet_path, None, None)?
     } else {
+        tracing::debug!("Creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
@@ -352,6 +380,11 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
+    tracing::debug!(
+        "Successfully created and initialized system context with {} shards",
+        n_shards
+    );
+
     let admin_address = admin_wallet.active_address()?;
     // Mint WAL to the admin wallet.
     mint_wal_to_addresses(
@@ -363,7 +396,15 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
+    tracing::debug!(
+        "Successfully minted {} WAL to admin wallet address {}",
+        WAL_MINT_AMOUNT,
+        admin_address
+    );
+
     let contract_config = system_ctx.contract_config();
+
+    tracing::debug!("Retrieved contract configuration from system context");
 
     let exchange_object = if let Some(wal_exchange_pkg_id) = system_ctx.wal_exchange_pkg_id {
         // Create WAL exchange.
@@ -384,6 +425,13 @@ pub async fn deploy_walrus_contract(
     } else {
         None
     };
+
+    tracing::debug!(
+        "Successfully created WAL exchange object: {}",
+        exchange_object
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "None".to_string())
+    );
 
     println!(
         "Walrus contract created:\n\
