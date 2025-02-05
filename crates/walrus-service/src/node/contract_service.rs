@@ -455,15 +455,12 @@ fn calculate_protocol_key_action(
             local_public_key, remote_public_key
         );
 
-        if local_next_public_key.is_none() {
+        let Some(local_next) = local_next_public_key else {
             return Err(SyncNodeConfigError::NodeConfigInconsistent(error_msg));
-        }
+        };
 
         // Check if local next key matches remote current key, this indicates that
         // the on-chain protocol public key is updated, so we need to rotate the local key pair.
-        let local_next = local_next_public_key
-            .as_ref()
-            .expect("local next public key is not set");
         if local_next == &remote_public_key {
             // Warn if remote has a next key set
             if remote_next_public_key.is_some() {
