@@ -159,11 +159,14 @@ impl SystemContractService for SuiSystemContractService {
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
     ) -> Result<(), SyncNodeConfigError> {
-        let contract_client = self.contract_client.lock().await;
-
+        let node_capability = self
+            .get_node_capability_object(Some(node_capability_object_id))
+            .await?;
+        let contract_client: tokio::sync::MutexGuard<'_, SuiContractClient> =
+            self.contract_client.lock().await;
         let pool = contract_client
             .read_client
-            .get_staking_pool(node_capability_object_id)
+            .get_staking_pool(node_capability.node_id)
             .await?;
 
         let node_info = &pool.node_info;
@@ -174,7 +177,6 @@ impl SystemContractService for SuiSystemContractService {
             &node_info.network_public_key,
             &pool.voting_params,
         );
-
         let action = calculate_protocol_key_action(
             config.protocol_key_pair().public().clone(),
             config
