@@ -9,7 +9,7 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
-    rev: "3.0.3"
+    rev: "3.2.0"
     hooks:
       - id: editorconfig-checker
         alias: ec
@@ -24,12 +24,12 @@ repos:
         args: []
         pass_filenames: false
   - repo: https://github.com/crate-ci/typos
-    rev: v1.26.8
+    rev: v1.29.5
     hooks:
       - id: typos
         pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.16.1
+    rev: 0.16.4
     hooks:
       - id: cargo-deny
   - repo: local

@@ -198,7 +198,7 @@ impl LoadGenerator {
                     metrics.observe_latency(metrics::READ_WORKLOAD, elapsed);
                 }
                 Err(error) => {
-                    tracing::error!(?error, "failed to read blob");
+                    tracing::error!(?error, ?blob_id, "failed to read blob");
                     metrics.observe_error("failed to read blob");
                 }
             }
@@ -262,10 +262,17 @@ impl LoadGenerator {
         let (reads_per_burst, read_interval) = burst_load(read_load);
         let read_blob_id = if reads_per_burst != 0 {
             tracing::info!("submitting initial write...");
+            // Here we store read blob for 7 epochs ahead, which is longer than a walrus release,
+            // so that the read workload shouldn't encounter blob not found errors.
+            let epochs_to_store = 7;
             let read_blob_id = self
-                .single_write()
+                .single_write(epochs_to_store)
                 .await
                 .inspect_err(|error| tracing::error!(?error, "initial write failed"))?;
+            tracing::info!(
+                "initial write finished, created blob id: {read_blob_id} \
+                with {epochs_to_store} epochs ahead"
+            );
             tracing::info!(
                 "submitting {reads_per_burst} reads every {} ms",
                 read_interval.period().as_millis()
@@ -309,13 +316,16 @@ impl LoadGenerator {
         Ok(())
     }
 
-    async fn single_write(&mut self) -> Result<BlobId, ClientError> {
+    async fn single_write(&mut self, epochs_to_store: u32) -> Result<BlobId, ClientError> {
         let mut client = self
             .write_client_pool
             .recv()
             .await
             .expect("write client should be available");
-        let result = client.write_fresh_blob().await.map(|(blob_id, _)| blob_id);
+        let result = client
+            .write_fresh_blob_with_epochs(epochs_to_store)
+            .await
+            .map(|(blob_id, _)| blob_id);
         self.write_client_pool_tx
             .send(client)
             .await

@@ -26,7 +26,7 @@ use std::{
 use futures::{future::BoxFuture, FutureExt};
 use tower::Service;
 use walrus_core::{
-    encoding::{EncodingConfig, Primary, Secondary},
+    encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
     keys::ProtocolKeyPair,
     messages::InvalidBlobIdAttestation,
     metadata::VerifiedBlobMetadataWithId,
@@ -36,11 +36,12 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
 };
 use walrus_sdk::{
-    client::Client,
+    client::{Client, RecoverySymbolsFilter},
     error::{ClientBuildError, NodeError},
 };
 use walrus_sui::types::StorageNode as SuiStorageNode;
@@ -71,6 +72,12 @@ pub(crate) enum Request {
         current_epoch: Epoch,
         key_pair: ProtocolKeyPair,
     },
+    ListVerifiedRecoverySymbols {
+        filter: RecoverySymbolsFilter,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        target_index: SliverIndex,
+        target_type: SliverType,
+    },
 }
 
 /// Responses to [`Request`]s sent to a node service.
@@ -83,6 +90,7 @@ pub(crate) enum Response {
     VerifiedRecoverySymbol(DefaultRecoverySymbol),
     InvalidBlobAttestation(InvalidBlobIdAttestation),
     ShardSlivers(Vec<(BlobId, Sliver)>),
+    VerifiedRecoverySymbols(Vec<GeneralRecoverySymbol>),
 }
 
 impl Response {
@@ -128,6 +136,10 @@ macro_rules! impl_response_conversion {
 
 impl_response_conversion!(VerifiedBlobMetadataWithId, Response::VerifiedMetadata);
 impl_response_conversion!(DefaultRecoverySymbol, Response::VerifiedRecoverySymbol);
+impl_response_conversion!(
+    Vec<GeneralRecoverySymbol>,
+    Response::VerifiedRecoverySymbols
+);
 impl_response_conversion!(InvalidBlobIdAttestation, Response::InvalidBlobAttestation);
 impl_response_conversion!(Vec<(BlobId, Sliver)>, Response::ShardSlivers);
 
@@ -258,6 +270,22 @@ impl Service<Request> for RemoteStorageNode {
                     };
                     result.map(|value| Response::ShardSlivers(value.into()))?
                 }
+
+                Request::ListVerifiedRecoverySymbols {
+                    filter,
+                    metadata,
+                    target_index,
+                    target_type,
+                } => client
+                    .list_and_verify_recovery_symbols(
+                        &filter,
+                        &metadata,
+                        &encoding_config,
+                        target_index,
+                        target_type,
+                    )
+                    .await
+                    .map(Response::VerifiedRecoverySymbols)?,
             };
             Ok(response)
         }

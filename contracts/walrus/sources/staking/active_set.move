@@ -59,10 +59,14 @@ public(package) fun new(max_size: u16, threshold_stake: u64): ActiveSet {
 /// Inserts the node if it is not already in the active set, otherwise updates its stake.
 /// Returns true if the node is in the set after the operation, false otherwise.
 public(package) fun insert_or_update(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
-    if (set.update(node_id, staked_amount)) {
-        return true
+    // Currently, the `threshold_stake` is set to `0`, so we need to account for that.
+    if (staked_amount == 0 || staked_amount < set.threshold_stake) {
+        set.remove(node_id);
+        return false
     };
-    set.insert(node_id, staked_amount)
+
+    if (set.update(node_id, staked_amount)) true
+    else set.insert(node_id, staked_amount)
 }
 
 /// Updates the staked amount of the storage node with the given `node_id` in
@@ -84,11 +88,8 @@ public(package) fun update(set: &mut ActiveSet, node_id: ID, staked_amount: u64)
 /// in the active set. If the active set is full, the node with the smallest
 /// staked WAL is removed to make space for the new node.
 /// Returns true if the node was inserted, false otherwise.
-public(package) fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
+fun insert(set: &mut ActiveSet, node_id: ID, staked_amount: u64): bool {
     assert!(set.nodes.find_index!(|entry| entry.node_id == node_id).is_none(), EDuplicateInsertion);
-
-    // Check if the staked amount is enough to be included in the active set.
-    if (staked_amount < set.threshold_stake) return false;
 
     // If the nodes are less than the max size, insert the node.
     if (set.nodes.length() as u16 < set.max_size) {

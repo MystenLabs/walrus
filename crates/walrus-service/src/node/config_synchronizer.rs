@@ -3,6 +3,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use sui_types::base_types::ObjectID;
 use tracing::{self, instrument};
 
 use super::{
@@ -19,6 +20,7 @@ pub struct ConfigSynchronizer {
     contract_service: Arc<dyn SystemContractService>,
     committee_service: Arc<dyn CommitteeService>,
     check_interval: Duration,
+    node_capability_object_id: ObjectID,
 }
 
 impl ConfigSynchronizer {
@@ -28,12 +30,14 @@ impl ConfigSynchronizer {
         contract_service: Arc<dyn SystemContractService>,
         committee_service: Arc<dyn CommitteeService>,
         check_interval: Duration,
+        node_capability_object_id: ObjectID,
     ) -> Self {
         Self {
             config,
             contract_service,
             committee_service,
             check_interval,
+            node_capability_object_id,
         }
     }
 
@@ -63,7 +67,9 @@ impl ConfigSynchronizer {
     /// Syncs node parameters with on-chain values.
     #[instrument(skip(self))]
     pub async fn sync_node_params(&self) -> Result<(), SyncNodeConfigError> {
-        self.contract_service.sync_node_params(&self.config).await
+        self.contract_service
+            .sync_node_params(&self.config, self.node_capability_object_id)
+            .await
     }
 }
 

@@ -30,7 +30,7 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.41.0
+  SUI_TAG: testnet-v1.42.1
 
 jobs:
   diff:
@@ -109,7 +109,7 @@ jobs:
     env:
       RUST_LOG: warn
     steps:
-      - uses: taiki-e/install-action@v2.47.18
+      - uses: taiki-e/install-action@v2.48.0
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -145,9 +145,10 @@ jobs:
     runs-on: ubuntu-ghcloud
     env:
       MSIM_TEST_NUM: 5
-      RUST_LOG: error
+      # Turn off Sui logging since it can be very distractive in CI
+      RUST_LOG: error,sui_=off
     steps:
-      - uses: taiki-e/install-action@v2.47.18
+      - uses: taiki-e/install-action@v2.48.0
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -161,7 +162,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.47.18
+      - uses: taiki-e/install-action@v2.48.0
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4

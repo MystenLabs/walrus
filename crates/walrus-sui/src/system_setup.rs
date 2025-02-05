@@ -86,7 +86,7 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-#[tracing::instrument(err, skip(wallet))]
+#[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
     package_path: PathBuf,
@@ -97,9 +97,7 @@ pub(crate) async fn publish_package(
     let client = wallet.get_client().await?;
     let chain_id = client.read_api().get_chain_identifier().await.ok();
 
-    let package_path = package_path.canonicalize()?;
-
-    let build_config = resolve_lock_file_path(build_config, Some(&package_path))?;
+    let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
     let previous_id = if let Some(ref chain_id) = chain_id {
@@ -117,6 +115,7 @@ pub(crate) async fn publish_package(
         compile_package(client.read_api(), build_config.clone(), &package_path).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
+
     // Restore original ID.
     if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
         let _ = sui_package_management::set_package_id(
@@ -192,7 +191,7 @@ pub(crate) async fn compile_package(
     build_config: MoveBuildConfig,
     package_path: &Path,
 ) -> Result<(PackageDependencies, CompiledPackage), anyhow::Error> {
-    let config = resolve_lock_file_path(build_config, Some(package_path))?;
+    let config = resolve_lock_file_path(build_config, package_path)?;
     let run_bytecode_verifier = true;
     let print_diags_to_stderr = false;
     let chain_id = read_api.get_chain_identifier().await.ok();

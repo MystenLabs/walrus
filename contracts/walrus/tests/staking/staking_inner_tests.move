@@ -64,7 +64,7 @@ fun test_staking_active_set() {
     assert!(staking.active_set().cur_min_stake() == 0);
 
     // trigger `advance_epoch` to update the committee
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     // we expect:
@@ -77,6 +77,59 @@ fun test_staking_active_set() {
     destroy(wal_bob);
     destroy(wal_carl);
     clock.destroy_for_testing();
+}
+
+#[test]
+// Scenario:
+// 1. Alice stakes for pool_one enough for it to be in the active set.
+// 2. Bob and Carl stake for pool_two and pool_three, respectively.
+// 3. Alice unstakes from pool_one.
+// 4. Advance epoch.
+// 5. Expecting pool_one to NOT be in the active set.
+fun test_staking_active_set_early_withdraw() {
+    let ctx = &mut tx_context::dummy();
+    let mut staking = {
+        let clock = clock::create_for_testing(ctx);
+        let staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
+        clock.destroy_for_testing();
+        staking
+    };
+
+    // register pools in the `StakingInnerV1`.
+    let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
+    let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
+    let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
+
+    // Alice stakes for pool_one
+    let wal_alice = staking.stake_with_pool(test::mint(100_000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint(100_000, ctx), pool_two, ctx);
+    let wal_carl = staking.stake_with_pool(test::mint(100_000, ctx), pool_three, ctx);
+
+    let active_ids = staking.active_set().active_ids();
+    assert!(active_ids.contains(&pool_one));
+    assert!(active_ids.contains(&pool_two));
+    assert!(active_ids.contains(&pool_three));
+
+    // Alice performs an early withdraw
+    assert_eq!(staking.withdraw_stake(wal_alice, ctx).burn_for_testing(), 100_000);
+
+    // make sure the node is removed from active set
+    let active_ids = staking.active_set().active_ids();
+    assert!(!active_ids.contains(&pool_one));
+    assert!(active_ids.contains(&pool_two));
+    assert!(active_ids.contains(&pool_three));
+
+    staking.select_committee_and_calculate_votes();
+    staking.advance_epoch(vec_map::empty());
+
+    let cmt = staking.committee();
+
+    assert!(!cmt.contains(&pool_one)); // should not be in the set
+    assert!(cmt.contains(&pool_two));
+    assert!(cmt.contains(&pool_three));
+
+    destroy(vector[wal_bob, wal_carl]);
+    destroy(staking);
 }
 
 #[test]
@@ -131,7 +184,7 @@ fun test_epoch_sync_done() {
     let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(EPOCH_DURATION);
@@ -172,7 +225,7 @@ fun test_epoch_sync_done_duplicate() {
     let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);
@@ -206,7 +259,7 @@ fun test_epoch_sync_wrong_epoch() {
     let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
-    staking.select_committee();
+    staking.select_committee_and_calculate_votes();
     staking.advance_epoch(vec_map::empty()); // no rewards for E0
 
     clock.increment_for_testing(7 * 24 * 60 * 60 * 1000);

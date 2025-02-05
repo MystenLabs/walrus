@@ -22,9 +22,9 @@ pub enum StoreError {
     Confirmation(NodeError),
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("the content of `{0}` could not be decoded")]
-pub struct DecodeError(pub &'static str);
+#[derive(Debug, thiserror::Error, PartialEq)]
+#[error("the JWT secret could not be decoded from the provided string")]
+pub struct JwtDecodeError;
 
 /// The sliver could not be stored on the node.
 #[derive(Debug, thiserror::Error)]

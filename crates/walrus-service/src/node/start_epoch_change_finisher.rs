@@ -105,7 +105,7 @@ impl StartEpochChangeFinisher {
             tracing::info!("no shards gained, so signalling that epoch sync is done");
             self.node
                 .contract_service
-                .epoch_sync_done(event.epoch)
+                .epoch_sync_done(event.epoch, self.node.node_capability())
                 .await;
         } else {
             // Since we just refreshed the committee after receiving the event, the committees'

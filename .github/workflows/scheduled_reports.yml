@@ -30,7 +30,7 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.41.0
+  SUI_TAG: testnet-v1.42.1
 
 jobs:
   test-coverage:
@@ -48,7 +48,7 @@ jobs:
     env:
       MSIM_TEST_NUM: 30
     steps:
-      - uses: taiki-e/install-action@v2.47.18
+      - uses: taiki-e/install-action@v2.48.0
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4

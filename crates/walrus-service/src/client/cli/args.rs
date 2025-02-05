@@ -376,12 +376,13 @@ pub enum CliCommands {
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
-    /// Exchange SUI for WAL through the configured exchange.
+    /// Exchange SUI for WAL through the configured exchange. This command is only available on
+    /// Testnet.
     GetWal {
         #[clap(long)]
         /// The object ID of the exchange to use.
         ///
-        /// This takes precedence over the value in the config file.
+        /// This takes precedence over any values set in the configuration file.
         exchange_id: Option<ObjectID>,
         #[clap(long, default_value_t = default::exchange_amount_mist())]
         #[serde(default = "default::exchange_amount_mist")]
@@ -546,7 +547,7 @@ pub struct PublisherArgs {
     pub max_concurrent_requests: usize,
     /// The number of clients to use for the publisher.
     ///
-    /// The publisher uses this number of clients to publish blobs concurrenty.
+    /// The publisher uses this number of clients to publish blobs concurrently.
     #[clap(long, default_value_t = default::n_publisher_clients())]
     #[serde(default = "default::n_publisher_clients")]
     pub n_clients: usize,
@@ -556,6 +557,7 @@ pub struct PublisherArgs {
     pub refill_interval: Duration,
     /// The directory where the publisher will store the sub-wallets used for client multiplexing.
     #[clap(long)]
+    #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
     pub sub_wallets_dir: PathBuf,
     /// The amount of MIST transferred at every refill.
     #[clap(long, default_value_t = default::gas_refill_amount())]
@@ -639,18 +641,21 @@ impl PublisherArgs {
 
     pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
         if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
-            let mut config = self
-                .jwt_decode_secret
-                .take()
-                .map(AuthConfig::new)
-                .unwrap_or(Ok(AuthConfig::default()))?;
-            config.expiring_sec = self.jwt_expiring_sec;
-            config.verify_upload = self.jwt_verify_upload;
-            config.algorithm = self.jwt_algorithm;
-            tracing::info!("Auth config applied: {config:?}");
-            Ok(Some(config))
+            let mut auth_config = AuthConfig {
+                expiring_sec: self.jwt_expiring_sec,
+                verify_upload: self.jwt_verify_upload,
+                algorithm: self.jwt_algorithm,
+                ..Default::default()
+            };
+
+            if let Some(secret) = self.jwt_decode_secret.as_ref() {
+                auth_config.with_key_from_str(secret)?;
+            }
+
+            tracing::info!(config=?auth_config, "authentication config applied");
+            Ok(Some(auth_config))
         } else {
-            tracing::info!("Auth disabled");
+            tracing::info!("auth disabled");
             Ok(None)
         }
     }

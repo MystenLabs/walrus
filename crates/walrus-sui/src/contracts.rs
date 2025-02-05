@@ -22,13 +22,13 @@ use walrus_core::ensure;
 #[derive(Debug, Error)]
 pub enum MoveConversionError {
     #[error("object data does not contain bcs")]
-    /// Error if the object data we are trying to convert does not contain bcs.
+    /// Error if the object data we are trying to convert does not contain BCS.
     NoBcs,
-    #[error("not a move object")]
-    /// Error if the object data is not a move object.
+    #[error("not a Move object")]
+    /// Error if the object data is not a Move object.
     NotMoveObject,
     /// Error resulting if the object or event does not have the expected type.
-    #[error("the move struct {actual} does not match the expected type {expected}")]
+    #[error("the Move struct {actual} does not match the expected type {expected}")]
     TypeMismatch {
         /// Expected type of the struct.
         expected: String,
@@ -49,11 +49,11 @@ pub trait AssociatedContractStruct: DeserializeOwned {
     const CONTRACT_STRUCT: StructTag<'static>;
 
     /// Converts a [`SuiObjectData`] to [`Self`].
-    #[tracing::instrument(err, skip_all)]
+    #[tracing::instrument(err(Debug), skip_all, fields(object_id = %sui_object_data.object_id))]
     fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, MoveConversionError> {
         tracing::debug!(
-            "converting move object to rust struct {:?}",
-            Self::CONTRACT_STRUCT,
+            target_struct = %Self::CONTRACT_STRUCT,
+            "converting Move object to Rust struct",
         );
         let raw = sui_object_data
             .bcs

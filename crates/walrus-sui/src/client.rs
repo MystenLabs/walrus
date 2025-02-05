@@ -124,7 +124,10 @@ pub enum SuiClientError {
     #[error("the storage node has already attested to that or a later epoch being synced")]
     LatestAttestedIsMoreRecent,
     /// The address has multiple storage node capability objects, which is unexpected.
-    #[error("there are multiple storage node capability objects in the address")]
+    #[error(
+        "there are multiple storage node capability objects in the address, but the config \
+        does not specify which one to use"
+    )]
     MultipleStorageNodeCapabilities,
     /// The storage capability object already exists in the account and cannot register another.
     #[error(
@@ -441,11 +444,17 @@ impl SuiContractClient {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
+            .certify_event_blob(
+                blob_metadata,
+                ending_checkpoint_seq_num,
+                epoch,
+                node_capability_object_id,
+            )
             .await
     }
 
@@ -521,8 +530,16 @@ impl SuiContractClient {
     }
 
     /// Call to notify the contract that this node is done syncing the specified epoch.
-    pub async fn epoch_sync_done(&self, epoch: Epoch) -> SuiClientResult<()> {
-        self.inner.lock().await.epoch_sync_done(epoch).await
+    pub async fn epoch_sync_done(
+        &self,
+        epoch: Epoch,
+        node_capability_object_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .epoch_sync_done(epoch, node_capability_object_id)
+            .await
     }
 
     /// Sets the commission receiver for the node.
@@ -729,11 +746,12 @@ impl SuiContractClient {
     pub async fn update_node_params(
         &self,
         node_parameters: NodeUpdateParams,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .update_node_params(node_parameters)
+            .update_node_params(node_parameters, node_capability_object_id)
             .await
     }
 
@@ -978,15 +996,10 @@ impl SuiContractClientInner {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        let node_capability = self
-            .read_client
-            .get_address_capability_object(self.wallet.active_address()?)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
         tracing::debug!(
-            storage_node_cap = %node_capability.node_id,
+            %node_capability_object_id,
             "calling certify_event_blob"
         );
 
@@ -994,7 +1007,7 @@ impl SuiContractClientInner {
         pt_builder
             .certify_event_blob(
                 blob_metadata,
-                node_capability.id.into(),
+                node_capability_object_id.into(),
                 ending_checkpoint_seq_num,
                 epoch,
             )
@@ -1023,30 +1036,6 @@ impl SuiContractClientInner {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
-        // Ensure that a storage capability object does not already exist for the given address.
-        // This is enforced to guarantee that there is only one capability object associated with
-        // each address. With this invariant, we don't need to persist the node ID or capability
-        // object ID separately in the storage node. If needed, we can simply query the capability
-        // object linked to the address.
-        //
-        // However, the test-and-set operation in this function is susceptible to a race condition.
-        // If two instances of this function run concurrently (may not be in the same process), both
-        // could potentially pass the capability object check  and attempt to register as a
-        // candidate. Ideally, this enforcement should be handled within the contract itself.
-        // However, in practice, this race condition is unlikely to occur, as each node registers
-        // only once during its lifetime, typically under human supervision by the node operator.
-        //
-        // TODO(#928): revisit this choice after mainnet to see if this causes inconvenience for
-        // node operators.
-        let existing_capability_object = self
-            .read_client
-            .get_address_capability_object(self.wallet.active_address()?)
-            .await?;
-
-        if let Some(cap) = existing_capability_object {
-            return Err(SuiClientError::CapabilityObjectAlreadyExists(cap.id));
-        }
-
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
             .register_candidate(node_parameters, proof_of_possession)
@@ -1159,19 +1148,22 @@ impl SuiContractClientInner {
     }
 
     /// Call to notify the contract that this node is done syncing the specified epoch.
-    pub async fn epoch_sync_done(&mut self, epoch: Epoch) -> SuiClientResult<()> {
-        let node_capability = self
-            .read_client
-            .get_address_capability_object(self.wallet.active_address()?)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
+    pub async fn epoch_sync_done(
+        &mut self,
+        epoch: Epoch,
+        node_capability_object_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        let node_capability: StorageNodeCap = self
+            .sui_client()
+            .get_sui_object(node_capability_object_id)
+            .await?;
 
         if node_capability.last_epoch_sync_done >= epoch {
             return Err(SuiClientError::LatestAttestedIsMoreRecent);
         }
 
         tracing::debug!(
-            storage_node_cap = %node_capability.node_id,
+            %node_capability,
             "calling epoch_sync_done"
         );
 
@@ -1591,13 +1583,9 @@ impl SuiContractClientInner {
     pub async fn update_node_params(
         &mut self,
         node_parameters: NodeUpdateParams,
+        node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         let wallet_address = self.wallet.active_address()?;
-        let node_capability = self
-            .read_client
-            .get_address_capability_object(wallet_address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
 
         tracing::debug!(
             ?wallet_address,
@@ -1607,7 +1595,7 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .update_node_params(node_capability.id.into(), node_parameters)
+            .update_node_params(node_capability_object_id.into(), node_parameters)
             .await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;

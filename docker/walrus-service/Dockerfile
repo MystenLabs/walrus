@@ -75,24 +75,3 @@ ARG BUILD_DATE
 ARG GIT_REVISION
 LABEL build-date=$BUILD_DATE
 LABEL git-revision=$GIT_REVISION
-
-FROM base AS backup-builder
-RUN cargo build --features walrus-service/backup \
-    --profile $PROFILE \
-    --bin walrus \
-    --bin walrus-backup \
-    --bin walrus-node \
-    --bin walrus-deploy
-
-# Production Image for walrus backup CLI
-FROM debian:bookworm-slim AS walrus-backup
-RUN apt-get update && apt-get install -y ca-certificates curl libpg-dev
-ARG PROFILE=release
-WORKDIR "$WORKDIR/walrus"
-# Both bench and release profiles copy from release dir
-COPY --from=backup-builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
-
-ARG BUILD_DATE
-ARG GIT_REVISION
-LABEL build-date=$BUILD_DATE
-LABEL git-revision=$GIT_REVISION

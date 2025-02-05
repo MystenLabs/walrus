@@ -70,7 +70,9 @@ pub async fn get_backup_node_cursor(
         ));
     }
 
-    tracing::warn!("no db connection! starting from the beginning");
+    tracing::warn!(
+        "no db connection or no prior stream cursor. attempting to start from the beginning"
+    );
     Ok(EventStreamCursor::new(None, 0))
 }
 

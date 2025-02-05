@@ -41,7 +41,7 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    backup::BackupNodeConfig,
+    backup::BackupConfig,
     client::{self, ClientCommunicationConfig},
     common::config::SuiConfig,
     node::config::{
@@ -473,8 +473,8 @@ pub async fn create_backup_config(
     working_dir: &Path,
     database_url: &str,
     rpc: String,
-) -> anyhow::Result<BackupNodeConfig> {
-    Ok(BackupNodeConfig::new_with_defaults(
+) -> anyhow::Result<BackupConfig> {
+    Ok(BackupConfig::new_with_defaults(
         working_dir.join("backup"),
         crate::common::config::SuiReaderConfig {
             rpc,
@@ -643,6 +643,7 @@ pub async fn create_storage_node_configs(
             metrics_push: None,
             metadata: Default::default(),
             config_synchronizer: Default::default(),
+            storage_node_cap: None,
         });
     }
 
@@ -658,7 +659,7 @@ pub async fn create_storage_node_configs(
 
     let amounts_to_stake = vec![1_000 * 1_000_000_000; node_params.len()];
 
-    register_committee_and_stake(
+    let storage_node_caps = register_committee_and_stake(
         admin_wallet,
         &testbed_config.system_ctx,
         &node_params,
@@ -668,6 +669,13 @@ pub async fn create_storage_node_configs(
         &amounts_to_stake,
     )
     .await?;
+
+    for (config, node_cap) in storage_node_configs
+        .iter_mut()
+        .zip(storage_node_caps.iter())
+    {
+        config.storage_node_cap = Some(node_cap.id);
+    }
 
     end_epoch_zero(
         contract_clients

@@ -5,20 +5,23 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
-use auth::JwtLayer;
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::DefaultBodyLimit,
-    middleware,
+    extract::{DefaultBodyLimit, Query, Request, State},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, put},
     BoxError,
     Router,
 };
+use axum_extra::{
+    headers::{authorization::Bearer, Authorization},
+    TypedHeader,
+};
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::{HistogramVec, Registry};
 use reqwest::StatusCode;
-use routes::{BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
+use routes::{PublisherQuery, BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
 use tower::{
     buffer::BufferLayer,
     limit::ConcurrencyLimitLayer,
@@ -33,7 +36,7 @@ use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContra
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
-    client::config::AuthConfig,
+    client::{config::AuthConfig, daemon::auth::verify_jwt_claim},
     common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
 };
 
@@ -240,7 +243,10 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 put(routes::put_blob)
                     .route_layer(
                         ServiceBuilder::new()
-                            .layer(JwtLayer::new(auth_config))
+                            .layer(axum::middleware::from_fn_with_state(
+                                Arc::new(auth_config),
+                                auth_layer,
+                            ))
                             .layer(base_layers),
                     )
                     .options(routes::store_blob_options),
@@ -254,6 +260,20 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             );
         }
         self
+    }
+}
+
+pub(crate) async fn auth_layer(
+    State(auth_config): State<Arc<AuthConfig>>,
+    query: Query<PublisherQuery>,
+    TypedHeader(bearer_header): TypedHeader<Authorization<Bearer>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if let Err(resp) = verify_jwt_claim(query, bearer_header, &auth_config) {
+        resp
+    } else {
+        next.run(request).await
     }
 }
 

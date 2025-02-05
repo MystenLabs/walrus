@@ -9,10 +9,10 @@
 extern crate alloc;
 extern crate std;
 
+use alloc::vec::Vec;
 #[allow(unused)]
 #[cfg(feature = "utoipa")]
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{format, string::String};
 use core::{
     fmt::{self, Debug, Display},
     num::NonZeroU16,
@@ -341,6 +341,14 @@ impl PartialEq<NonZeroU16> for SliverIndex {
     }
 }
 
+impl FromStr for SliverIndex {
+    type Err = <u16 as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(SliverIndex(s.parse()?))
+    }
+}
+
 impl SliverPairIndex {
     /// Computes the index of the [`Sliver`] of the corresponding axis starting from the index of
     /// the [`SliverPair`][encoding::SliverPair].
@@ -611,7 +619,7 @@ impl Display for SliverType {
 // Symbols.
 
 /// Identifier of a decoding symbol within the set of decoding symbols of a blob.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolId {
     primary: SliverIndex,
     secondary: SliverIndex,
@@ -632,6 +640,17 @@ impl SymbolId {
     pub fn secondary_sliver_index(&self) -> SliverIndex {
         self.secondary
     }
+
+    /// Returns the corresponding primary or secondary index, as identified by the sliver type.
+    ///
+    /// That is, returns [`Self::primary_sliver_index()`] when `sliver_type == SliverType::Primary`,
+    /// and otherwise [`Self::secondary_sliver_index()`].
+    pub fn sliver_index(&self, sliver_type: SliverType) -> SliverIndex {
+        match sliver_type {
+            SliverType::Primary => self.primary,
+            SliverType::Secondary => self.secondary,
+        }
+    }
 }
 
 impl Display for SymbolId {
@@ -643,7 +662,20 @@ impl Display for SymbolId {
 #[cfg(feature = "utoipa")]
 impl utoipa::PartialSchema for SymbolId {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
-        alloc::string::String::schema()
+        use alloc::borrow::ToOwned;
+
+        use utoipa::openapi::{ObjectBuilder, RefOr, Schema, Type};
+
+        let object = ObjectBuilder::new()
+            .schema_type(Type::String)
+            .description(Some(
+                "An ID of primary and secondary sliver indices that identifies a recovery symbol"
+                    .to_owned(),
+            ))
+            .examples(["0-0", "999-32"])
+            .pattern(Some(r"[0-9]+-[0-9]+"))
+            .build();
+        RefOr::T(Schema::Object(object))
     }
 }
 

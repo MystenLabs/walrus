@@ -1,0 +1,37 @@
+# Build walrus-backup image.
+#
+# Copy in all crates, Cargo.toml and Cargo.lock unmodified,
+# and build the application.
+FROM rust:1.84-bookworm AS base
+ARG PROFILE=release
+ARG RUST_LOG=info,walrus_service::common::event_blob_downloader=warn
+ARG GIT_REVISION
+ENV GIT_REVISION=$GIT_REVISION
+WORKDIR "$WORKDIR/walrus"
+RUN apt-get update && apt-get install -y cmake clang
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates crates
+COPY contracts ./contracts
+COPY contracts /contracts
+
+FROM base AS backup-builder
+RUN cargo build \
+    --features walrus-service/backup \
+    --profile $PROFILE \
+    --bin walrus-backup
+
+# Production Image for walrus backup CLI
+FROM debian:bookworm-slim AS walrus-backup
+RUN apt-get update && apt-get install -y ca-certificates curl libpq-dev
+ARG PROFILE=release
+
+ENV RUST_LOG=$RUST_LOG
+WORKDIR "$WORKDIR/walrus"
+# Both bench and release profiles copy from release dir
+COPY --from=backup-builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
+
+ARG BUILD_DATE
+ARG GIT_REVISION
+LABEL build-date=$BUILD_DATE
+LABEL git-revision=$GIT_REVISION

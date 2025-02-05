@@ -24,7 +24,6 @@ use walrus_sui::{
         CoinType,
         PostStoreAction,
         ReadClient,
-        SuiClientError,
         SuiContractClient,
     },
     test_utils::{
@@ -337,43 +336,6 @@ async fn test_get_committee() -> anyhow::Result<()> {
             126, 156, 47, 12, 114, 4, 51, 112, 92, 240
         ]
     );
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore = "ignore integration tests by default"]
-async fn test_register_candidate() -> anyhow::Result<()> {
-    _ = tracing_subscriber::fmt::try_init();
-    let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
-    let protocol_key_pair = ProtocolKeyPair::generate();
-    let network_key_pair = NetworkKeyPair::generate();
-
-    let registration_params =
-        NodeRegistrationParams::new_for_test(protocol_key_pair.public(), network_key_pair.public());
-
-    let proof_of_possession = utils::generate_proof_of_possession(
-        &protocol_key_pair,
-        &walrus_client.inner,
-        walrus_client.inner.current_epoch().await?,
-    );
-
-    let _cap = walrus_client
-        .inner
-        .register_candidate(&registration_params, proof_of_possession.clone())
-        .await?;
-
-    // Second registration should fail since there is already a capability object exist in the
-    // address.
-    let second_registration_result = walrus_client
-        .inner
-        .register_candidate(&registration_params, proof_of_possession)
-        .await;
-
-    assert!(matches!(
-        second_registration_result,
-        Err(SuiClientError::CapabilityObjectAlreadyExists(_))
-    ));
-
     Ok(())
 }
 

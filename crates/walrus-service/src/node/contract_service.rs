@@ -12,6 +12,7 @@ use std::{
 use anyhow::{Context as _, Error};
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
+use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey};
 use walrus_sui::{
@@ -25,6 +26,7 @@ use walrus_sui::{
     types::{
         move_errors::{MoveExecutionError, SystemStateInnerError},
         move_structs::EpochState,
+        StorageNodeCap,
         UpdatePublicKeyParams,
     },
 };
@@ -47,8 +49,11 @@ enum ProtocolKeyAction {
 #[async_trait]
 pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Syncs the node parameters with the on-chain values.
-    async fn sync_node_params(&self, config: &StorageNodeConfig)
-        -> Result<(), SyncNodeConfigError>;
+    async fn sync_node_params(
+        &self,
+        config: &StorageNodeConfig,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SyncNodeConfigError>;
 
     /// Returns the current epoch and the state that the committee's state.
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
@@ -63,7 +68,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn invalidate_blob_id(&self, certificate: &InvalidBlobCertificate);
 
     /// Submits a notification to the contract that this storage node epoch sync is done.
-    async fn epoch_sync_done(&self, epoch: Epoch);
+    ///
+    /// If `node_capability` is provided, it will be used to set the node capability object ID.
+    async fn epoch_sync_done(&self, epoch: Epoch, node_capability_object_id: ObjectID);
 
     /// Ends voting for the parameters of the next epoch.
     async fn end_voting(&self) -> Result<(), anyhow::Error>;
@@ -72,15 +79,32 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error>;
 
     /// Certify an event blob to the contract.
+    ///
+    /// If `node_capability` is provided, it will be used to set the node capability object ID.
     async fn certify_event_blob(
         &self,
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability_object_id: ObjectID,
     ) -> Result<(), Error>;
 
     /// Refreshes the contract package that the service is using.
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error>;
+
+    /// Returns the node capability object.
+    ///
+    /// If `node_capability_object_id` is provided, it will be used to set the node capability
+    /// object ID.
+    ///
+    /// If `node_capability_object_id` is not provided, it will be retrieved from the contract.
+    /// Note that if the wallet address owns multiple node capability objects, an error will be
+    /// returned. Storage node must use the `storage_node_cap` configuration in the node config
+    /// file to specify which node capability object to use.
+    async fn get_node_capability_object(
+        &self,
+        node_capability_object_id: Option<ObjectID>,
+    ) -> Result<StorageNodeCap, anyhow::Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -133,20 +157,13 @@ impl SystemContractService for SuiSystemContractService {
     async fn sync_node_params(
         &self,
         config: &StorageNodeConfig,
+        node_capability_object_id: ObjectID,
     ) -> Result<(), SyncNodeConfigError> {
         let contract_client = self.contract_client.lock().await;
-        let address = contract_client.address();
-
-        let node_cap = contract_client
-            .read_client
-            .get_address_capability_object(address)
-            .await?
-            .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)
-            .map_err(SyncNodeConfigError::from)?;
 
         let pool = contract_client
             .read_client
-            .get_staking_pool(node_cap.node_id)
+            .get_staking_pool(node_capability_object_id)
             .await?;
 
         let node_info = &pool.node_info;
@@ -178,7 +195,7 @@ impl SystemContractService for SuiSystemContractService {
                     proof_of_possession:
                         walrus_sui::utils::generate_proof_of_possession_for_address(
                             config.next_protocol_key_pair().unwrap(),
-                            address,
+                            contract_client.address(),
                             contract_client.read_client.current_epoch().await?,
                         ),
                 });
@@ -198,7 +215,7 @@ impl SystemContractService for SuiSystemContractService {
                 "update node params"
             );
             contract_client
-                .update_node_params(update_params.clone())
+                .update_node_params(update_params.clone(), node_capability_object_id)
                 .await?;
             if update_params.needs_reboot() {
                 tracing::info!("node needs reboot");
@@ -265,7 +282,7 @@ impl SystemContractService for SuiSystemContractService {
         .await;
     }
 
-    async fn epoch_sync_done(&self, epoch: Epoch) {
+    async fn epoch_sync_done(&self, epoch: Epoch, node_capability_object_id: ObjectID) {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
@@ -287,7 +304,7 @@ impl SystemContractService for SuiSystemContractService {
                 .contract_client
                 .lock()
                 .await
-                .epoch_sync_done(epoch)
+                .epoch_sync_done(epoch, node_capability_object_id)
                 .await
             {
                 Ok(()) => Some(()),
@@ -315,6 +332,7 @@ impl SystemContractService for SuiSystemContractService {
         blob_metadata: BlobObjectMetadata,
         ending_checkpoint_seq_num: u64,
         epoch: u32,
+        node_capability_object_id: ObjectID,
     ) -> Result<(), Error> {
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
@@ -330,7 +348,12 @@ impl SystemContractService for SuiSystemContractService {
                     .contract_client
                     .lock()
                     .await
-                    .certify_event_blob(blob_metadata, ending_checkpoint_seq_num, epoch)
+                    .certify_event_blob(
+                        blob_metadata,
+                        ending_checkpoint_seq_num,
+                        epoch,
+                        node_capability_object_id,
+                    )
                     .await
                 {
                     Ok(()) => Some(()),
@@ -410,6 +433,30 @@ impl SystemContractService for SuiSystemContractService {
         let client = self.contract_client.lock().await;
         client.refresh_package_id().await?;
         Ok(())
+    }
+
+    async fn get_node_capability_object(
+        &self,
+        node_capability_object_id: Option<ObjectID>,
+    ) -> Result<StorageNodeCap, anyhow::Error> {
+        let node_capability = if let Some(node_cap) = node_capability_object_id {
+            self.contract_client
+                .lock()
+                .await
+                .sui_client()
+                .get_sui_object(node_cap)
+                .await?
+        } else {
+            let contract_client = self.contract_client.lock().await;
+            let address = contract_client.address();
+            contract_client
+                .read_client
+                .get_address_capability_object(address)
+                .await?
+                .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
+        };
+
+        Ok(node_capability)
     }
 }
 

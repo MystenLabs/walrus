@@ -16,9 +16,11 @@ use std::{
 use anyhow::{anyhow, bail, Context};
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
+use errors::ListSymbolsError;
 use events::event_blob_writer::EventBlobWriter;
 use fastcrypto::traits::KeyPair;
 use futures::{stream, Stream, StreamExt, TryFutureExt as _};
+use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -27,7 +29,7 @@ use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
-use sui_types::event::EventID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -71,14 +73,17 @@ use walrus_core::{
     SliverType,
     SymbolId,
 };
-use walrus_sdk::api::{
-    BlobStatus,
-    ServiceHealthInfo,
-    ShardHealthInfo,
-    ShardStatus as ApiShardStatus,
-    ShardStatusDetail,
-    ShardStatusSummary,
-    StoredOnNodeStatus,
+use walrus_sdk::{
+    api::{
+        BlobStatus,
+        ServiceHealthInfo,
+        ShardHealthInfo,
+        ShardStatus as ApiShardStatus,
+        ShardStatusDetail,
+        ShardStatusSummary,
+        StoredOnNodeStatus,
+    },
+    client::{RecoverySymbolsFilter, SymbolIdFilter},
 };
 use walrus_sui::{
     client::SuiReadClient,
@@ -222,6 +227,16 @@ pub trait ServiceState {
         symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError>;
+
+    /// Retrieves multiple recovery symbols.
+    ///
+    /// Attempts to retrieve multiple recovery symbols, skipping any failures that occur. Returns an
+    /// error if none of the requested symbols can be retrieved.
+    fn retrieve_multiple_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>;
 
     /// Retrieves the blob status for the given `blob_id`.
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
@@ -456,6 +471,7 @@ pub struct StorageNodeInner {
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
+    node_capability: ObjectID,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -484,6 +500,9 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
+        let node_capability = contract_service
+            .get_node_capability_object(config.storage_node_cap)
+            .await?;
         let config_synchronizer =
             config
                 .config_synchronizer
@@ -493,6 +512,7 @@ impl StorageNode {
                     contract_service.clone(),
                     committee_service.clone(),
                     config.config_synchronizer.interval,
+                    node_capability.id,
                 )));
 
         if let Some(config_synchronizer) = config_synchronizer.as_ref() {
@@ -542,6 +562,7 @@ impl StorageNode {
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
+            node_capability: node_capability.id,
         });
 
         blocklist.start_refresh_task();
@@ -1452,6 +1473,11 @@ impl StorageNodeInner {
         &self.encoding_config
     }
 
+    /// Returns the node capability object ID.
+    pub fn node_capability(&self) -> ObjectID {
+        self.node_capability
+    }
+
     pub(crate) fn owned_shards(&self) -> Vec<ShardIndex> {
         self.committee_service
             .active_committees()
@@ -1842,6 +1868,15 @@ impl ServiceState for StorageNode {
             .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
     }
 
+    fn retrieve_multiple_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+        self.inner
+            .retrieve_multiple_recovery_symbols(blob_id, filter)
+    }
+
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
         self.inner.blob_status(blob_id)
     }
@@ -2039,7 +2074,7 @@ impl ServiceState for StorageNodeInner {
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
@@ -2097,6 +2132,60 @@ impl ServiceState for StorageNodeInner {
         }
 
         Err(final_error)
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn retrieve_multiple_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+        let n_shards = self.n_shards();
+
+        let symbol_id_iter = match filter.id_filter() {
+            SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
+
+            SymbolIdFilter::Recovers {
+                target_sliver: target,
+                target_type,
+            } => Either::Right(self.owned_shards().into_iter().map(|shard_id| {
+                let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
+                match *target_type {
+                    SliverType::Primary => {
+                        SymbolId::new(*target, pair_stored.to_sliver_index::<Secondary>(n_shards))
+                    }
+                    SliverType::Secondary => {
+                        SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
+                    }
+                }
+            })),
+        };
+
+        let mut output = vec![];
+        let mut last_error = ListSymbolsError::NoSymbolsSpecified;
+
+        // If a specific proof axis is requested, then specify the target-type to the retrieve
+        // function, otherwise, specify only the symbol IDs.
+        let target_type_from_proof = filter.proof_axis().map(|axis| axis.orthogonal());
+
+        for symbol_id in symbol_id_iter {
+            match self.retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof) {
+                Ok(symbol) => output.push(symbol),
+
+                // Callers may request symbols that are not stored with this shard, or
+                // completely invalid symbols. These are ignored unless there are no successes.
+                Err(error) => {
+                    tracing::debug!(%error, %symbol_id, "failed to get requested symbol");
+                    last_error = error.into();
+                }
+            }
+        }
+
+        if output.is_empty() {
+            Err(last_error)
+        } else {
+            Ok(output)
+        }
     }
 
     fn n_shards(&self) -> NonZeroU16 {
@@ -2190,7 +2279,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use std::{sync::OnceLock, time::Duration};
 
     use chrono::Utc;
@@ -2217,7 +2305,7 @@ mod tests {
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{event_id_for_testing, EventForTesting},
-        types::{move_structs::EpochState, BlobRegistered},
+        types::{move_structs::EpochState, BlobRegistered, StorageNodeCap},
     };
     use walrus_test_utils::{
         async_param_test,
@@ -4960,6 +5048,14 @@ mod tests {
                     max_epochs_ahead: 200,
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                })
+            });
+        contract_service
+            .expect_get_node_capability_object()
+            .returning(|capability_object_id| {
+                Ok(StorageNodeCap {
+                    id: capability_object_id.unwrap_or(ObjectID::random()),
+                    ..StorageNodeCap::new_for_testing()
                 })
             });
         contract_service

@@ -7,96 +7,111 @@ set -euo pipefail
 trap ctrl_c INT
 
 function kill_tmux_sessions() {
-    { tmux ls || true; } | { grep -o "dryrun-node-\d*" || true; } | xargs -n1 tmux kill-session -t
+  { tmux ls || true; } | { grep -o "dryrun-node-\d*" || true; } | xargs -n1 tmux kill-session -t
 }
 
 function ctrl_c() {
-    kill_tmux_sessions
-    exit 0
+  kill_tmux_sessions
+  exit 0
 }
 
 kill_tmux_sessions
 
 function usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo "OPTIONS:"
-    echo "  -f                    Tail the logs of the nodes (default: false)"
-    echo "  -c <committee_size>   Number of storage nodes (default: 4)"
-    echo "  -s <n_shards>         Number of shards (default: 10)"
-    echo "  -n <network>          Sui network to generate configs for (default: devnet)"
-    echo "  -d <duration>         Set the length of the epoch (in human readable format, e.g., '60s', default: 1h)"
-    echo "  -t                    Use testnet contracts"
-    echo "  -e                    Use existing config"
-    echo "  -h                    Print this usage message"
+  echo "Usage: $0 [OPTIONS]"
+  echo "OPTIONS:"
+  echo "  -b <database_url>     Specify a backup database url (ie: postgresql://postgres:postgres@localhost/postgres, default: none)"
+  echo "  -c <committee_size>   Number of storage nodes (default: 4)"
+  echo "  -d <duration>         Set the length of the epoch (in human readable format, e.g., '60s', default: 1h)"
+  echo "  -e                    Use existing config"
+  echo "  -f                    Tail the logs of the nodes (default: false)"
+  echo "  -h                    Print this usage message"
+  echo "  -n <network>          Sui network to generate configs for (default: devnet)"
+  echo "  -s <n_shards>         Number of shards (default: 10)"
+  echo "  -t                    Use testnet contracts"
 }
 
 function run_node() {
-    cmd="./target/release/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
-        |& tee $working_dir/$1.log"
-    echo "Running within tmux: '$cmd'..."
-    tmux new -d -s "$1" "$cmd"
+  cmd="./target/release/walrus-node run --config-path $working_dir/$1.yaml ${2:-} \
+    |& tee $working_dir/$1.log"
+  echo "Running within tmux: '$cmd'..."
+  tmux new -d -s "$1" "$cmd"
 }
 
 
-existing=false
-committee_size=4 # Default value of 4 if no argument is provided
-shards=10 # Default value of 4 if no argument is provided
-network=devnet
-epoch_duration=1h
-tail_logs=false
 backup_database_url=
+committee_size=4 # Default value of 4 if no argument is provided
+epoch_duration=1h
+network=devnet
+shards=10 # Default value of 4 if no argument is provided
+tail_logs=false
+use_existing_config=false
 
-while getopts "n:c:s:d:b:thef" arg; do
-    case "${arg}" in
-        f)
-            tail_logs=true
-            ;;
-        n)
-            network=${OPTARG}
-            ;;
-        c)
-            committee_size=${OPTARG}
-            ;;
-        s)
-            shards=${OPTARG}
-            ;;
-        d)
-            epoch_duration=${OPTARG}
-            ;;
-        e)
-            existing=true
-            ;;
-        b)
-            backup_database_url=${OPTARG}
-            ;;
-        h)
-            usage
-            exit 0
-            ;;
-        *)
-            usage
-            exit 1
-    esac
+while getopts "b:c:d:efhn:s:t" arg; do
+  case "${arg}" in
+    f)
+      tail_logs=true
+      ;;
+    n)
+      network=${OPTARG}
+      ;;
+    c)
+      committee_size=${OPTARG}
+      ;;
+    s)
+      shards=${OPTARG}
+      ;;
+    d)
+      epoch_duration=${OPTARG}
+      ;;
+    e)
+      use_existing_config=true
+      ;;
+    b)
+      backup_database_url=${OPTARG}
+      ;;
+    h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 1
+  esac
 done
 
 if ! [ "$committee_size" -gt 0 ] 2>/dev/null; then
-    echo "Invalid argument: $committee_size is not a valid positive integer."
-    usage
-    exit 1
+  echo "Invalid argument: $committee_size is not a valid positive integer."
+  usage
+  exit 1
 fi
 
 if ! [ "$shards" -ge "$committee_size" ] 2>/dev/null; then
-    echo "Invalid argument: $shards is not an integer greater than or equal to 'committee_size'."
-    usage
-    exit 1
+  echo "Invalid argument: $shards is not an integer greater than or equal to 'committee_size'."
+  usage
+  exit 1
 fi
 
-echo "[local-testbed.sh] Using network: $network"
-echo "[local-testbed.sh] Using committee_size: $committee_size"
-echo "[local-testbed.sh] Using shards: $shards"
-echo "[local-testbed.sh] Using epoch_duration: $epoch_duration"
-echo "[local-testbed.sh] Using backup_database_url: $backup_database_url"
+echo "$0: Using network: $network"
+echo "$0: Using committee_size: $committee_size"
+echo "$0: Using shards: $shards"
+echo "$0: Using epoch_duration: $epoch_duration"
+echo "$0: Using backup_database_url: $backup_database_url"
 
+
+if ! $use_existing_config; then
+  if [[ -n "$backup_database_url" ]]; then
+    echo "Migrating database to ensure it's starting fresh... [backup_database_url=$backup_database_url]"
+    diesel migration --database-url "$backup_database_url" redo
+
+    # shellcheck disable=SC2207
+    schema_files=( $(git ls-files '**/schema.rs') )
+
+    # Cleanup the output of the diesel migration. (Annoying by-product of limited diesel support for licenses and formatting.)
+    pre-commit run licensesnip --files "${schema_files[@]}" 1>/dev/null 2>&1 ||:
+    pre-commit run cargo-fmt --files "${schema_files[@]}" 1>/dev/null 2>&1 ||:
+  fi
+fi
 
 echo Building walrus, walrus-node, and walrus-deploy binaries...
 
@@ -115,32 +130,32 @@ done
 # Initialize cleanup to be empty
 cleanup=
 
-if ! $existing; then
-    # Cleanup
-    rm -f $working_dir/dryrun-node-*.yaml
-    cleanup="--cleanup-storage"
+if ! $use_existing_config; then
+  # Cleanup
+  rm -f $working_dir/dryrun-node-*.yaml
+  cleanup="--cleanup-storage"
 
-    # Deploy system contract
-    echo Deploying system contract...
-    ./target/release/walrus-deploy deploy-system-contract \
-      --working-dir $working_dir \
-      --sui-network "$network" \
-      --n-shards "$shards" \
-      --host-addresses "${ips[@]}" \
-      --storage-price 5 \
-      --write-price 1 \
-      --epoch-duration "$epoch_duration" \
-      --with-wal-exchange
+  # Deploy system contract
+  echo Deploying system contract...
+  ./target/release/walrus-deploy deploy-system-contract \
+    --working-dir $working_dir \
+    --sui-network "$network" \
+    --n-shards "$shards" \
+    --host-addresses "${ips[@]}" \
+    --storage-price 5 \
+    --write-price 1 \
+    --epoch-duration "$epoch_duration" \
+    --with-wal-exchange
 
-    # Generate configs
-    generate_dry_run_args=( --working-dir "$working_dir" )
-    if [[ -n "$backup_database_url" ]]; then
-      generate_dry_run_args+=( --backup-database-url "$backup_database_url" )
-    fi
-    echo "Generating configuration [${generate_dry_run_args[*]}]..."
-    ./target/release/walrus-deploy generate-dry-run-configs "${generate_dry_run_args[@]}"
+  # Generate configs
+  generate_dry_run_args=( --working-dir "$working_dir" )
+  if [[ -n "$backup_database_url" ]]; then
+    generate_dry_run_args+=( --backup-database-url "$backup_database_url" )
+  fi
+  echo "Generating configuration [${generate_dry_run_args[*]}]..."
+  ./target/release/walrus-deploy generate-dry-run-configs "${generate_dry_run_args[@]}"
 
-    echo "
+  echo "
 event_processor_config:
   adaptive_downloader_config:
   max_workers: 2
@@ -152,10 +167,10 @@ node_count=0
 #
 # shellcheck disable=SC2045
 for config in $( ls $working_dir/dryrun-node-*[0-9].yaml ); do
-    node_name=$(basename -- "$config")
-    node_name="${node_name%.*}"
-    run_node "$node_name" "$cleanup"
-    ((node_count++))
+  node_name=$(basename -- "$config")
+  node_name="${node_name%.*}"
+  run_node "$node_name" "$cleanup"
+  ((node_count++))
 done
 
 echo "

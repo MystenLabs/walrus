@@ -3,8 +3,9 @@
 
 //! Server for the Walrus service.
 
-use std::{net::SocketAddr, ops::Deref, path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
+use anyhow::{anyhow, Context};
 use axum::{
     extract::DefaultBodyLimit,
     middleware,
@@ -27,7 +28,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
 
-use super::config::{defaults, Http2Config, StorageNodeConfig};
+use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
 use crate::{
     common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
     node::ServiceState,
@@ -69,18 +70,28 @@ pub struct RestApiConfig {
 
 impl From<&StorageNodeConfig> for RestApiConfig {
     fn from(config: &StorageNodeConfig) -> Self {
-        let tls_certificate = if config.tls.disable_tls {
-            None
-        } else if let Some(paths) = config.tls.pem_files.clone() {
-            Some(TlsCertificateSource::PemFiles {
-                certificate_path: paths.certificate_path,
-                key_path: paths.key_path,
-            })
-        } else {
-            Some(TlsCertificateSource::GenerateSelfSigned {
+        let tls_certificate = match config.tls {
+            TlsConfig {
+                disable_tls: true, ..
+            } => None,
+
+            TlsConfig {
+                certificate_path: Some(ref path),
+                ..
+            } => Some(TlsCertificateSource::Pem {
+                certificate: PathOrInPlace::from_path(path),
+                key: match config.network_key_pair {
+                    PathOrInPlace::InPlace(ref value) => {
+                        PathOrInPlace::InPlace(value.to_pem().as_bytes().to_vec())
+                    }
+                    PathOrInPlace::Path { ref path, .. } => PathOrInPlace::from_path(path),
+                },
+            }),
+
+            _ => Some(TlsCertificateSource::GenerateSelfSigned {
                 server_name: config.public_host.clone(),
                 network_key_pair: config.network_key_pair().clone(),
-            })
+            }),
         };
 
         let graceful_shutdown_period = config
@@ -105,15 +116,15 @@ pub enum TlsCertificateSource {
     /// These ideally should be certificates issued to by a public CA such as Let's Encrypt,
     /// but can also be self-signed certificates.
     // TODO(jsmith): Reload the certificate on change (#709)
-    PemFiles {
+    Pem {
         /// Path to the x509 PEM encoded certificate.
-        certificate_path: PathBuf,
+        certificate: PathOrInPlace<Vec<u8>>,
         /// Path to the PEM encoded private key in PKCS8
         ///
         /// The private key should correspond to the
         /// [`NetworkPublicKey`][walrus_core::NetworkPublicKey] published on chain in the
         /// committee.
-        key_path: PathBuf,
+        key: PathOrInPlace<Vec<u8>>,
     },
 
     /// Generate a self-signed certificate from the provided network key pair.
@@ -160,7 +171,7 @@ where
     }
 
     /// Runs the server, may only be called once for a given instance.
-    pub async fn run(&self) -> Result<(), std::io::Error> {
+    pub async fn run(&self) -> Result<(), anyhow::Error> {
         {
             let handle = self.handle.lock().await;
             assert!(handle.is_none(), "run can only be called once");
@@ -206,6 +217,7 @@ where
         server
             .inspect(|_| tracing::info!("server run has completed"))
             .await
+            .map_err(|error| anyhow!(error))
     }
 
     fn configure_server<A>(&self, mut server: axum_server::Server<A>) -> axum_server::Server<A> {
@@ -251,18 +263,28 @@ where
         new_handle
     }
 
-    async fn configure_tls(&self) -> Result<Option<RustlsConfig>, std::io::Error> {
+    async fn configure_tls(&self) -> Result<Option<RustlsConfig>, anyhow::Error> {
         let Some(ref tls_certificate) = self.config.tls_certificate else {
             return Ok(None);
         };
 
         match tls_certificate {
-            TlsCertificateSource::PemFiles {
-                certificate_path,
-                key_path,
-            } => RustlsConfig::from_pem_file(certificate_path, key_path)
-                .await
-                .map(Some),
+            TlsCertificateSource::Pem { certificate, key } => {
+                if let Some((certificate_path, key_path)) = certificate.path().zip(key.path()) {
+                    RustlsConfig::from_pem_file(certificate_path, key_path)
+                        .await
+                        .context("failed to load certificate and key from provided paths")
+                } else {
+                    RustlsConfig::from_pem(
+                        certificate.load_transient()?.clone(),
+                        key.load_transient()?.clone(),
+                    )
+                    .await
+                    .context("failed to load certificate and key from in-memory contents")
+                }
+                .map(Some)
+            }
+
             TlsCertificateSource::GenerateSelfSigned {
                 server_name,
                 network_key_pair,
@@ -347,6 +369,10 @@ where
                 get(routes::get_recovery_symbol_by_id),
             )
             .route(
+                routes::RECOVERY_SYMBOL_LIST_ENDPOINT,
+                get(routes::list_recovery_symbols),
+            )
+            .route(
                 routes::INCONSISTENCY_PROOF_ENDPOINT,
                 post(routes::inconsistency_proof),
             )
@@ -394,6 +420,7 @@ mod tests {
     use anyhow::anyhow;
     use axum::http::StatusCode;
     use fastcrypto::traits::KeyPair;
+    use p256::pkcs8::LineEnding;
     use rcgen::{BasicConstraints, Certificate as RcGenCertificate, CertifiedKey, IsCa};
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
@@ -432,7 +459,7 @@ mod tests {
             ShardStatusSummary,
             StoredOnNodeStatus,
         },
-        client::{Client, ClientBuilder},
+        client::{Client, ClientBuilder, RecoverySymbolsFilter},
     };
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
@@ -440,7 +467,8 @@ mod tests {
     use super::*;
     use crate::{
         node::{
-            config::{StorageNodeConfig, TlsCertificateAndKey},
+            config::StorageNodeConfig,
+            errors::ListSymbolsError,
             BlobStatusError,
             ComputeStorageConfirmationError,
             InconsistencyProofError,
@@ -535,6 +563,17 @@ mod tests {
             } else {
                 Err(RetrieveSliverError::Unavailable.into())
             }
+        }
+
+        fn retrieve_multiple_recovery_symbols(
+            &self,
+            blob_id: &BlobId,
+            _filter: RecoverySymbolsFilter,
+        ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+            let symbol = self
+                .retrieve_recovery_symbol(blob_id, SymbolId::new(0.into(), 0.into()), None)
+                .unwrap();
+            Ok(vec![symbol.clone(), symbol])
         }
 
         /// Successful only for the pair index 0, otherwise, returns an internal error.
@@ -646,7 +685,7 @@ mod tests {
 
     async fn start_rest_api_with_config(
         config: &StorageNodeConfig,
-    ) -> JoinHandle<Result<(), std::io::Error>> {
+    ) -> JoinHandle<Result<(), anyhow::Error>> {
         let rest_api_config = RestApiConfig::from(config);
 
         let server = RestApiServer::new(
@@ -665,7 +704,7 @@ mod tests {
 
     async fn start_rest_api_with_test_config() -> (
         WithTempDir<StorageNodeConfig>,
-        JoinHandle<Result<(), std::io::Error>>,
+        JoinHandle<Result<(), anyhow::Error>>,
     ) {
         let config = test_utils::storage_node_config();
         let handle = start_rest_api_with_config(config.as_ref()).await;
@@ -1010,7 +1049,7 @@ mod tests {
         let intersecting_pair_index = SliverPairIndex(0);
 
         let _symbol = client
-            .get_recovery_symbol::<Primary>(
+            .get_recovery_symbol_legacy::<Primary>(
                 &blob_id,
                 sliver_pair_at_remote,
                 intersecting_pair_index,
@@ -1027,7 +1066,7 @@ mod tests {
         let sliver_pair_id = SliverPairIndex(1); // Triggers a not found response
         let blob_id = walrus_core::test_utils::random_blob_id();
         let Err(err) = client
-            .get_recovery_symbol::<Primary>(&blob_id, sliver_pair_id, SliverPairIndex(0))
+            .get_recovery_symbol_legacy::<Primary>(&blob_id, sliver_pair_id, SliverPairIndex(0))
             .await
         else {
             panic!("must return an error for pair-id 1");
@@ -1048,7 +1087,7 @@ mod tests {
         /// Enable self-signed certificates by enabling TLS but removing any certificate.
         fn use_self_signed_certificates(config: &mut StorageNodeConfig) {
             config.tls.disable_tls = false;
-            config.tls.pem_files = None;
+            config.tls.certificate_path = None;
         }
 
         fn configure_certificates_from_disk(
@@ -1064,10 +1103,9 @@ mod tests {
             std::fs::write(&key_path, certified_key.key_pair.serialize_pem().as_bytes())?;
 
             config.tls.disable_tls = false;
-            config.tls.pem_files = Some(TlsCertificateAndKey {
-                certificate_path,
-                key_path,
-            });
+            config.network_key_pair = PathOrInPlace::from_path(key_path);
+            config.network_key_pair.load()?;
+            config.tls.certificate_path = Some(certificate_path);
 
             Ok(())
         }
@@ -1197,5 +1235,74 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    async_param_test! {
+        list_recovery_symbols: [
+            one_id: (
+                RecoverySymbolsFilter::ids(vec![SymbolId::new(1.into(), 2.into())]).unwrap()
+            ),
+            multiple_ids: (
+                RecoverySymbolsFilter::ids(vec![
+                    SymbolId::new(1.into(), 2.into()),
+                    SymbolId::new(3.into(), 4.into())
+                ]).unwrap()
+            ),
+            ids_with_proof_type: (
+                RecoverySymbolsFilter::ids(vec![
+                    SymbolId::new(1.into(), 2.into()),
+                    SymbolId::new(3.into(), 4.into())
+                ])
+                .unwrap()
+                .require_proof_from_axis(SliverType::Primary)
+            ),
+            for_sliver: (RecoverySymbolsFilter::recovers(17.into(), SliverType::Primary)),
+            for_sliver_with_proof_type: (
+                RecoverySymbolsFilter::recovers(17.into(), SliverType::Primary)
+                    .require_proof_from_axis(SliverType::Secondary)
+            )
+        ]
+    }
+    async fn list_recovery_symbols(filter: RecoverySymbolsFilter) {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+        let client = storage_node_client(config.as_ref());
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        let symbols = client
+            .list_recovery_symbols(&blob_id, &filter)
+            .await
+            .expect("request should succeed");
+        assert!(symbols.len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn rustls_reads_serialized_pem_network_keypair() -> TestResult {
+        let mut config_with_dir = test_utils::storage_node_config();
+        let certified_key = create_self_signed_certificate(
+            config_with_dir.as_ref().network_key_pair(),
+            config_with_dir.as_ref().rest_api_address.ip().to_string(),
+        );
+
+        let directory = config_with_dir.temp_dir.path().to_path_buf();
+        let config = config_with_dir.as_mut();
+
+        let certificate_path = directory.join("certificate.pem");
+        std::fs::write(&certificate_path, certified_key.cert.pem().as_bytes())?;
+
+        // Use the PEM generated by serializing the key-pair as the data written to the file,
+        // as we are testing its serialization.
+        let key_path = directory.join("private_key.pem");
+        std::fs::write(
+            &key_path,
+            config
+                .network_key_pair()
+                .to_pkcs8_pem(LineEnding::default())?,
+        )?;
+
+        RustlsConfig::from_pem_file(certificate_path, key_path)
+            .await
+            .expect("Rustls must recognise key as valid");
+
+        Ok(())
     }
 }

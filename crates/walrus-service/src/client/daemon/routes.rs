@@ -264,20 +264,20 @@ pub(super) async fn status() -> Response {
 }
 
 #[derive(Debug, Deserialize, IntoParams)]
-pub(super) struct PublisherQuery {
+pub(crate) struct PublisherQuery {
     /// The number of epochs, ahead of the current one, for which to store the blob.
     ///
     /// The default is 1 epoch.
     #[serde(default = "default_epochs")]
-    epochs: EpochCount,
+    pub epochs: EpochCount,
     /// If true, the publisher creates a deletable blob instead of a permanent one.
     #[serde(default)]
-    deletable: bool,
+    pub deletable: bool,
     #[serde(default)]
     /// If specified, the publisher will send the Blob object resulting from the store operation to
     /// this Sui address.
     #[param(value_type = Option<SuiAddressSchema>)]
-    send_object_to: Option<SuiAddress>,
+    pub send_object_to: Option<SuiAddress>,
 }
 
 pub(super) fn default_epochs() -> EpochCount {

@@ -12,7 +12,8 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
@@ -23,9 +24,9 @@ use serde_with::{
     DurationSeconds,
     SerializeAs,
 };
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
     messages::ProofOfPossession,
     NetworkPublicKey,
 };
@@ -153,6 +154,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the config synchronizer.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub config_synchronizer: ConfigSynchronizerConfig,
+    /// The capability object ID of the storage node.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub storage_node_cap: Option<ObjectID>,
 }
 
 impl Default for StorageNodeConfig {
@@ -187,6 +191,7 @@ impl Default for StorageNodeConfig {
             metrics_push: None,
             metadata: Default::default(),
             config_synchronizer: Default::default(),
+            storage_node_cap: None,
         }
     }
 }
@@ -404,23 +409,15 @@ impl MetricsPushConfig {
 
 /// Configuration for TLS of the rest API.
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
 pub struct TlsConfig {
     /// Do not use TLS on the REST API.
     ///
     /// Should only be disabled if TLS encryption is being offloaded to another
     /// service in the network.
     pub disable_tls: bool,
-    /// Paths to the certificate and key used to secure the REST API.
-    pub pem_files: Option<TlsCertificateAndKey>,
-}
-
-/// Paths to a TLS certificate and key.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded x509 certificate.
-    pub certificate_path: PathBuf,
-    /// Path to the PEM-encoded PKCS8 certificate private key.
-    pub key_path: PathBuf,
+    pub certificate_path: Option<PathBuf>,
 }
 
 /// Configuration of a Walrus storage node.
@@ -478,6 +475,9 @@ pub struct CommitteeServiceConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
+    /// Use the experimental batch recovery service endpoint.
+    #[serde(skip_serializing_if = "defaults::is_default")]
+    pub experimental_batch_symbol_recovery: bool,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -490,6 +490,7 @@ impl Default for CommitteeServiceConfig {
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
+            experimental_batch_symbol_recovery: false,
         }
     }
 }
@@ -672,6 +673,15 @@ impl<T> PathOrInPlace<T> {
     pub const fn is_path(&self) -> bool {
         matches!(self, PathOrInPlace::Path { .. })
     }
+
+    /// Returns the path, if any.
+    pub fn path(&self) -> Option<&Path> {
+        if let PathOrInPlace::Path { path, .. } = self {
+            Some(path)
+        } else {
+            None
+        }
+    }
 }
 
 impl<T> From<T> for PathOrInPlace<T> {
@@ -680,26 +690,87 @@ impl<T> From<T> for PathOrInPlace<T> {
     }
 }
 
-impl<T: SupportedKeyPair> PathOrInPlace<TaggedKeyPair<T>> {
-    /// Loads and returns a key pair from the path on disk.
+/// Trait for simplifying the loading of different representations from the file.
+pub trait LoadsFromPath: Sized {
+    /// Loads the value from the specified filesystem path.
+    fn load(path: &Path) -> Result<Self, anyhow::Error>;
+}
+
+impl LoadsFromPath for ProtocolKeyPair {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        let base64_string = std::fs::read_to_string(path)
+            .context(format!("unable to read key from '{}'", path.display()))?;
+        base64_string
+            .parse()
+            .map_err(|err: KeyPairParseError| anyhow!(err.to_string()))
+    }
+}
+
+impl LoadsFromPath for NetworkKeyPair {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        let _span = tracing::info_span!("load", path = %path.display()).entered();
+
+        let file_contents = std::fs::read_to_string(path)
+            .context(format!("unable to read key from '{}'", path.display()))?;
+
+        NetworkKeyPair::from_pkcs8_pem(&file_contents)
+            .inspect(|_| tracing::info!("loaded network private key in PKCS#8 format"))
+            .or_else(|error| {
+                tracing::debug!(
+                    ?error,
+                    "failed to load network key in PKCS#8 format, trying tagged"
+                );
+
+                NetworkKeyPair::from_str(&file_contents)
+                    .inspect(|_| {
+                        tracing::info!("loaded network private key in tagged format");
+                    })
+                    .map_err(|error2| {
+                        anyhow!(
+                            "unsupported network private key format: key is neither in PKCS#8 \
+                            format ({error}), nor in \"tagged\" format ({error2})"
+                        )
+                    })
+            })
+    }
+}
+
+impl LoadsFromPath for Vec<u8> {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        std::fs::read(path).map_err(|error| anyhow!(error))
+    }
+}
+
+impl<T: LoadsFromPath> PathOrInPlace<T> {
+    /// Loads and returns the value from the filesystem path.
     ///
     /// If the value was already loaded, it is returned instead.
-    pub fn load(&mut self) -> Result<&TaggedKeyPair<T>, anyhow::Error> {
+    pub fn load(&mut self) -> Result<&T, anyhow::Error> {
         if let PathOrInPlace::Path {
             path,
             value: value @ None,
         } = self
         {
-            let base64_string = std::fs::read_to_string(path.as_path())
-                .context(format!("unable to read key from '{}'", path.display()))?;
-            let decoded: TaggedKeyPair<T> = base64_string
-                .parse()
-                .map_err(|err: KeyPairParseError| anyhow::anyhow!(err.to_string()))?;
-            *value = Some(decoded)
+            *value = Some(T::load(path)?)
         };
+
         Ok(self
             .get()
             .expect("we just made sure that the value is some"))
+    }
+
+    /// Loads and returns the value from the filesystem path, or returns the value if it is already
+    /// loaded.
+    ///
+    /// This does not update the stored value, and so can be called with only a shared reference.
+    pub fn load_transient(&self) -> Result<T, anyhow::Error>
+    where
+        T: Clone,
+    {
+        match self {
+            PathOrInPlace::InPlace(value) => Ok(value.clone()),
+            PathOrInPlace::Path { path, .. } => T::load(path),
+        }
     }
 }
 
@@ -796,6 +867,7 @@ mod tests {
     use std::{io::Write as _, str::FromStr};
 
     use indoc::indoc;
+    use p256::{pkcs8, pkcs8::EncodePrivateKey};
     use rand::{rngs::StdRng, SeedableRng as _};
     use sui_types::base_types::ObjectID;
     use tempfile::{NamedTempFile, TempDir};
@@ -901,6 +973,24 @@ mod tests {
         let mut path = PathOrInPlace::<ProtocolKeyPair>::from_path(key_file.path());
 
         assert_eq!(*path.load()?, key);
+
+        Ok(())
+    }
+
+    #[test]
+    fn loads_pem_network_keypair() -> TestResult {
+        let key = test_utils::network_key_pair();
+        let pem_string = key
+            .to_pkcs8_pem(pkcs8::LineEnding::default())
+            .expect("key can be serialized as pem");
+
+        let key_file = NamedTempFile::new()?;
+        key_file.as_file().write_all(pem_string.as_ref())?;
+
+        let mut path = PathOrInPlace::<NetworkKeyPair>::from_path(key_file.path());
+        let loaded_key = path.load().expect("key should load successfully");
+
+        assert_eq!(*loaded_key, key);
 
         Ok(())
     }

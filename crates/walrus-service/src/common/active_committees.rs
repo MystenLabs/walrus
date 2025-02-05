@@ -311,10 +311,15 @@ impl TryFrom<CommitteesAndState> for ActiveCommittees {
     }
 }
 
-/// Errors returned when setting the next committee.
+/// Errors returned when the next committee is inconsistent with the provided committee.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("the next committee has already been set")]
-pub(crate) struct NextCommitteeAlreadySet(pub Committee);
+pub(crate) struct NextCommitteeInconsistent(String);
+
+impl std::fmt::Display for NextCommitteeInconsistent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// Errors returned when starting a committee change.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -350,27 +355,27 @@ impl CommitteeTracker {
         self.0.epoch() + 1
     }
 
-    /// Sets the committee for the next epoch if it has not already been set.
-    ///
-    /// Returns an error if the next committee is already set.
+    /// Sets the committee for the next epoch, always update the next committee with the
+    /// provided committee.
     ///
     /// # Panics
     ///
     /// Panics if the committees have a different number of shards, or if the epoch of the provided
-    /// committee does not match [`Self::next_epoch()`].
+    /// committee does not match [`Self::next_epoch()`], or the shard assignment is different.
     pub fn set_committee_for_next_epoch(
         &mut self,
         committee: Committee,
-    ) -> Result<(), NextCommitteeAlreadySet> {
+    ) -> Result<(), NextCommitteeInconsistent> {
         assert_eq!(
             committee.epoch,
             self.next_epoch(),
             "committee's epoch must match the next epoch"
         );
-        ensure!(
-            self.0.next_committee.is_none(),
-            NextCommitteeAlreadySet(committee)
-        );
+        if let Some(next_committee) = self.0.next_committee.as_ref() {
+            next_committee
+                .compare_essential(&committee)
+                .map_err(|e| NextCommitteeInconsistent(e.to_string()))?;
+        }
 
         self.0.next_committee = Some(Arc::new(committee));
         self.0.check_invariants();

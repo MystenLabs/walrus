@@ -181,6 +181,10 @@ struct GenerateDryRunConfigsArgs {
     /// Configure the Postgres database URL for the Backup service.
     #[clap(long)]
     backup_database_url: Option<String>,
+    /// The path to the admin wallet. If not provided, the default wallet path in the
+    /// working directory is used.
+    #[clap(long)]
+    admin_wallet_path: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -353,6 +357,7 @@ mod commands {
             use_legacy_event_provider,
             disable_event_blob_writer,
             backup_database_url,
+            admin_wallet_path,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         tracing_subscriber::fmt::init();
@@ -372,10 +377,11 @@ mod commands {
             tokio::time::sleep(cooldown.into()).await;
         }
 
-        let mut admin_wallet = load_wallet(Some(
+        let admin_wallet_path = admin_wallet_path.or(Some(
             working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
-        ))
-        .expect("Should be able to load admin wallet");
+        ));
+        let mut admin_wallet =
+            load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
 
         let client_config = create_client_config(
             &testbed_config.system_ctx,

@@ -702,19 +702,17 @@ pub fn export_contract_info(
         .set(1);
 }
 
-type PrepareResult = Result<
-    Layered<
-        Filtered<
-            Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>,
-            EnvFilter,
-            tracing_subscriber::Registry,
-        >,
+type TracingSubscriberConfiguration = Layered<
+    Filtered<
+        Box<dyn Layer<tracing_subscriber::Registry> + Send + Sync>,
+        EnvFilter,
         tracing_subscriber::Registry,
     >,
+    tracing_subscriber::Registry,
 >;
 
 /// Prepare the tracing subscriber based on the environment variables.
-fn prepare_subscriber() -> PrepareResult {
+fn prepare_subscriber(default_log_format: Option<&str>) -> Result<TracingSubscriberConfiguration> {
     // Use INFO level by default.
     let directive = format!(
         "info,{}",
@@ -723,7 +721,9 @@ fn prepare_subscriber() -> PrepareResult {
     let layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
 
     // Control output format based on `LOG_FORMAT` env variable.
-    let format = env::var("LOG_FORMAT").ok();
+    let format = env::var("LOG_FORMAT")
+        .ok()
+        .or_else(|| default_log_format.map(|fmt| fmt.to_string()));
     let layer = if let Some(format) = &format {
         match format.to_lowercase().as_str() {
             "default" => layer.boxed(),
@@ -739,16 +739,25 @@ fn prepare_subscriber() -> PrepareResult {
     Ok(tracing_subscriber::registry().with(layer.with_filter(EnvFilter::new(directive.clone()))))
 }
 
-/// Initializes the logger and tracing subscriber as the global subscriber.
+/// Initializes the logger and tracing subscriber as the global subscriber, requiring a preference
+/// for the log format.
+pub fn init_tracing_subscriber_with(default_log_format: &str) -> Result<()> {
+    prepare_subscriber(Some(default_log_format))?.init();
+    tracing::debug!("initialized global tracing subscriber");
+    Ok(())
+}
+
+/// Initializes the logger and tracing subscriber as the global subscriber. This routine expresses
+/// no preference for the log format.
 pub fn init_tracing_subscriber() -> Result<()> {
-    prepare_subscriber()?.init();
+    prepare_subscriber(None)?.init();
     tracing::debug!("initialized global tracing subscriber");
     Ok(())
 }
 
 /// Initializes the logger and tracing subscriber as the subscriber for the current scope.
 pub fn init_scoped_tracing_subscriber() -> Result<DefaultGuard> {
-    let guard = prepare_subscriber()?.set_default();
+    let guard = prepare_subscriber(None)?.set_default();
     tracing::debug!("initialized scoped tracing subscriber");
     Ok(guard)
 }
