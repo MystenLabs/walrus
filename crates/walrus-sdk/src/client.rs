@@ -61,7 +61,7 @@ use walrus_core::{
 
 use crate::{
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
-    error::{BuildErrorKind, ClientBuildError, NodeError},
+    error::{BuildErrorKind, ClientBuildError, ListAndVerifyRecoverySymbolsError, NodeError},
     node_response::NodeResponse,
     tls::TlsCertificateVerifier,
 };
@@ -796,56 +796,58 @@ impl Client {
     )]
     pub async fn list_and_verify_recovery_symbols(
         &self,
-        filter: &RecoverySymbolsFilter,
-        metadata: &VerifiedBlobMetadataWithId,
-        encoding_config: &EncodingConfig,
+        filter: RecoverySymbolsFilter,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        encoding_config: Arc<EncodingConfig>,
         target_index: SliverIndex,
         target_type: SliverType,
     ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
-        #[derive(Debug, thiserror::Error)]
-        #[error("the server returned an empty list of symbols")]
-        struct EmptyResponse;
-
         let mut symbols = self
-            .list_recovery_symbols(metadata.blob_id(), filter)
+            .list_recovery_symbols(metadata.blob_id(), &filter)
             .await?;
         tracing::trace!(
             n_symbols = symbols.len(),
             "the server returned recovery symbols"
         );
-        let mut final_error = NodeError::other(EmptyResponse);
 
-        symbols.retain(|symbol| {
-            let _guard = tracing::info_span!(
-                "list_and_verify_recovery_symbols__retain",
-                walrus.symbol.id = %symbol.id()
-            )
-            .entered();
+        tokio::task::spawn_blocking(move || {
+            let mut final_error =
+                NodeError::other(ListAndVerifyRecoverySymbolsError::EmptyResponse);
 
-            if !filter.accepts(symbol) {
-                tracing::warn!("server returned a symbol with an unrequested proof axis");
-                return false;
+            symbols.retain(|symbol| {
+                let _guard = tracing::info_span!(
+                    "list_and_verify_recovery_symbols__retain",
+                    walrus.symbol.id = %symbol.id()
+                )
+                .entered();
+
+                if !filter.accepts(symbol) {
+                    tracing::warn!("server returned a symbol with an unrequested proof axis");
+                    return false;
+                }
+
+                if let Err(error) = symbol.verify(
+                    metadata.metadata(),
+                    &encoding_config,
+                    target_index,
+                    target_type,
+                ) {
+                    tracing::warn!(?error, "recovery symbol verification failed");
+                    final_error = NodeError::other(error);
+                    return false;
+                }
+
+                true
+            });
+
+            if symbols.is_empty() {
+                Err(final_error)
+            } else {
+                Ok(symbols)
             }
-
-            if let Err(error) = symbol.verify(
-                metadata.metadata(),
-                encoding_config,
-                target_index,
-                target_type,
-            ) {
-                tracing::warn!(?error, "recovery symbol verification failed");
-                final_error = NodeError::other(error);
-                return false;
-            }
-
-            true
-        });
-
-        if symbols.is_empty() {
-            Err(final_error)
-        } else {
-            Ok(symbols)
-        }
+        })
+        .await
+        .map_err(|_| NodeError::other(ListAndVerifyRecoverySymbolsError::BackgroundWorkerFailed))?
     }
 
     /// Gets the recovery symbol for a primary or secondary sliver.
