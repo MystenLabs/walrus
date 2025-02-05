@@ -142,6 +142,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     RegisterBlobOp::ReuseRegistration { .. } => {
                         "(an existing registration was reused)"
                     }
+                    RegisterBlobOp::ExtendLifetime { .. } => "(the blob was extended in lifetime)",
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
@@ -178,6 +179,15 @@ impl CliOutput for BlobStoreResultWithPath {
                     self.path.display(),
                     blob_id,
                     format_event_id(event),
+                )
+            }
+            BlobStoreResult::LifetimeExtended { blob_id, end_epoch } => {
+                println!(
+                    "{} Blob lifetime extended by {} epochs.\nPath: {}\nBlob ID: {}",
+                    success(),
+                    end_epoch,
+                    self.path.display(),
+                    blob_id,
                 )
             }
         }

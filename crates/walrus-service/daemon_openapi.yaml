@@ -240,6 +240,26 @@ components:
                 - $ref: '#/components/schemas/ObjectID'
                   description: The shared blob object ID if created.
       - type: object
+        description: The blob was extended in lifetime.
+        required:
+        - lifetimeExtended
+        properties:
+          lifetimeExtended:
+            type: object
+            description: The blob was extended in lifetime.
+            required:
+            - blob_id
+            - end_epoch
+            properties:
+              blob_id:
+                $ref: '#/components/schemas/BlobId'
+                description: The blob ID.
+              end_epoch:
+                type: integer
+                format: int64
+                description: The number of epochs ahead.
+                minimum: 0
+      - type: object
         description: |-
           The blob is known to Walrus but was marked as invalid.
 
@@ -371,6 +391,26 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                minimum: 0
+      - type: object
+        description: The blob was already certified, but its lifetime is too short.
+        required:
+        - extendLifetime
+        properties:
+          extendLifetime:
+            type: object
+            description: The blob was already certified, but its lifetime is too short.
+            required:
+            - encoded_length
+            - end_epoch
+            properties:
+              encoded_length:
+                type: integer
+                format: int64
+                minimum: 0
+              end_epoch:
+                type: integer
+                format: int32
                 minimum: 0
       description: The operation performed on blob and storage resources to register a blob.
     Status:

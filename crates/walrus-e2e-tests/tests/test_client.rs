@@ -382,6 +382,56 @@ async fn test_store_with_existing_blob_resource(
     Ok(())
 }
 
+/// Tests that the client can store multiple blobs with different epochs-ahead.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_with_existing_blobs() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    let blob_data = walrus_test_utils::random_data_list(31415, 4);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+
+    // Now ask the client to store again.
+    let _ = client
+        .inner
+        .reserve_and_store_blobs(
+            &blobs,
+            30,
+            StoreWhen::NotStored,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?
+        .into_iter()
+        .map(|blob_store_result| match blob_store_result {
+            BlobStoreResult::NewlyCreated { blob_object, .. } => (blob_object.blob_id, blob_object),
+            _ => panic!("the client should be able to store the blob"),
+        })
+        .collect::<HashMap<_, _>>();
+
+    // Now ask the client to store again.
+    let _extended_blobs = client
+        .inner
+        .reserve_and_store_blobs(
+            &blobs,
+            50,
+            StoreWhen::NotStored,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?
+        .into_iter()
+        .map(|blob_store_result| match blob_store_result {
+            BlobStoreResult::LifetimeExtended { blob_id, end_epoch } => (blob_id, end_epoch),
+            other => panic!("the client should be able to store the blob: {:?}", other),
+        })
+        .collect::<HashMap<_, _>>();
+
+    Ok(())
+}
+
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]

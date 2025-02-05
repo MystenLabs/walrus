@@ -596,6 +596,7 @@ impl Client<SuiContractClient> {
         );
         let status_start_timer = Instant::now();
 
+        // Get blob status from storage nodes.
         let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
@@ -604,7 +605,7 @@ impl Client<SuiContractClient> {
         );
 
         let store_op_timer = Instant::now();
-        let store_operations = self
+        let store_operations: Vec<StoreOp> = self
             .resource_manager()
             .await
             .store_operation_for_blobs(
@@ -626,6 +627,7 @@ impl Client<SuiContractClient> {
         // Collect store ops for noops and new blobs.
         let mut noop_results: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
+        let mut extended_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         store_operations
             .into_iter()
             .for_each(|store_op| match store_op {
@@ -633,11 +635,26 @@ impl Client<SuiContractClient> {
                 StoreOp::RegisterNew { blob, operation } => {
                     new_blobs_and_ops.push((blob, operation))
                 }
+                StoreOp::ExtendLifetime { blob, end_epoch } => {
+                    extended_blobs_and_ops.push((blob, end_epoch))
+                }
             });
+
+        let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
+        for (blob, end_epoch) in extended_blobs_and_ops {
+            self.sui_client.extend_blob(blob.id, epochs_ahead).await?;
+            extended_results.push(BlobStoreResult::LifetimeExtended {
+                blob_id: blob.blob_id,
+                end_epoch,
+            });
+        }
 
         // Return early if all operations are noops.
         if new_blobs_and_ops.is_empty() {
-            return Ok(noop_results);
+            return Ok(noop_results
+                .into_iter()
+                .chain(extended_results.into_iter())
+                .collect());
         }
 
         // Get certificates for all new blobs.
