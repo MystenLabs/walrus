@@ -213,10 +213,7 @@ impl StorageNodeConfig {
         const PROTOCOL_KEY_PAIR_KEY: &str = "protocol_key_pair";
         const NEXT_PROTOCOL_KEY_PAIR_KEY: &str = "next_protocol_key_pair";
 
-        assert!(config.protocol_key_pair.is_path());
-        if let Some(ref next_protocol_key_pair) = config.next_protocol_key_pair {
-            assert!(next_protocol_key_pair.is_path());
-        } else {
+        if config.next_protocol_key_pair.is_none() {
             return Err(anyhow::anyhow!("{} is not set", NEXT_PROTOCOL_KEY_PAIR_KEY));
         }
 

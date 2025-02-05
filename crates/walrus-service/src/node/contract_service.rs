@@ -455,7 +455,7 @@ fn calculate_protocol_key_action(
             local_public_key, remote_public_key
         );
 
-        let Some(local_next) = local_next_public_key else {
+        let Some(local_next) = &local_next_public_key else {
             return Err(SyncNodeConfigError::NodeConfigInconsistent(error_msg));
         };
 
