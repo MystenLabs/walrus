@@ -31,7 +31,6 @@ use walrus_sui::{
     test_utils::system_setup::{
         create_and_init_system,
         end_epoch_zero,
-        mint_wal_to_addresses,
         register_committee_and_stake,
         SystemContext,
     },
@@ -265,7 +264,6 @@ pub async fn deploy_walrus_contract(
         with_wal_exchange,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
-    const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
 
     // Check whether the testbed collocates the storage nodes on the same machine
@@ -385,23 +383,6 @@ pub async fn deploy_walrus_contract(
         n_shards
     );
 
-    let admin_address = admin_wallet.active_address()?;
-    // Mint WAL to the admin wallet.
-    mint_wal_to_addresses(
-        &mut admin_wallet,
-        system_ctx.wal_pkg_id,
-        system_ctx.treasury_cap,
-        &[admin_address],
-        WAL_MINT_AMOUNT,
-    )
-    .await?;
-
-    tracing::debug!(
-        "Successfully minted {} WAL to admin wallet address {}",
-        WAL_MINT_AMOUNT,
-        admin_address
-    );
-
     let contract_config = system_ctx.contract_config();
 
     tracing::debug!("Retrieved contract configuration from system context");
@@ -454,13 +435,13 @@ pub async fn deploy_walrus_contract(
     })
 }
 
-/// Create client configurations for the testbed.
+/// Create client configurations for the testbed and fund the client wallet with SUI and WAL.
 pub async fn create_client_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
     sui_network: SuiNetwork,
     set_config_dir: Option<&Path>,
-    admin_wallet: &mut WalletContext,
+    admin_contract_client: &mut SuiContractClient,
     exchange_objects: Vec<ObjectID>,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
@@ -476,8 +457,19 @@ pub async fn create_client_config(
 
     let client_address = client_wallet.active_address()?;
 
-    // Get coins from faucet for the wallets.
-    get_sui_from_wallet_or_faucet(client_wallet.active_address()?, admin_wallet, &sui_network)
+    // Get Sui coins from faucet or the admin wallet.
+    get_sui_from_wallet_or_faucet(
+        client_address,
+        admin_contract_client.wallet_mut(),
+        &sui_network,
+    )
+    .await?;
+    // Fund the client wallet with WAL.
+    admin_contract_client
+        .send_wal(
+            1_000_000 * 1_000_000_000, // 1 million WAL
+            client_address,
+        )
         .await?;
 
     let wallet_path = if let Some(final_directory) = set_config_dir {
@@ -491,16 +483,6 @@ pub async fn create_client_config(
     } else {
         client_wallet_path
     };
-
-    // Mint WAL to the client address.
-    mint_wal_to_addresses(
-        admin_wallet,
-        system_ctx.wal_pkg_id,
-        system_ctx.treasury_cap,
-        &[client_address],
-        1_000_000 * 1_000_000_000, // 1 million WAL
-    )
-    .await?;
 
     let contract_config = system_ctx.contract_config();
 
@@ -545,7 +527,7 @@ pub async fn create_storage_node_configs(
     set_config_dir: Option<&Path>,
     set_db_path: Option<&Path>,
     faucet_cooldown: Option<Duration>,
-    admin_wallet: &mut WalletContext,
+    admin_contract_client: &mut SuiContractClient,
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
@@ -608,7 +590,7 @@ pub async fn create_storage_node_configs(
         NonZeroU16::new(committee_size).expect("committee size must be > 0"),
         testbed_config.sui_network,
         faucet_cooldown,
-        admin_wallet,
+        admin_contract_client.wallet_mut(),
     )
     .await?;
 
@@ -708,12 +690,10 @@ pub async fn create_storage_node_configs(
     let amounts_to_stake = vec![1_000 * 1_000_000_000; node_params.len()];
 
     let storage_node_caps = register_committee_and_stake(
-        admin_wallet,
-        &testbed_config.system_ctx,
+        admin_contract_client,
         &node_params,
         &protocol_keypairs,
         &contract_clients.iter().collect::<Vec<_>>(),
-        1_000_000_000_000,
         &amounts_to_stake,
     )
     .await?;

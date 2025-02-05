@@ -46,8 +46,11 @@ use walrus_core::{ensure, EpochCount};
 use crate::{
     client::retry_client::RetriableSuiClient,
     contracts::{self, StructTag},
+    test_utils::system_setup::mint_wal_to_addresses,
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
+
+const WAL_MINT_AMOUNT: u64 = 5_000_000_000 * 1_000_000_000; // 5 billion WAL
 
 const INIT_MODULE: &str = "init";
 
@@ -230,7 +233,6 @@ pub(crate) struct PublishSystemPackageResult {
     pub wal_exchange_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
-    pub treasury_cap_id: ObjectID,
 }
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
@@ -252,8 +254,7 @@ fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> 
 
 /// Publishes the `wal`, `wal_exchange`, and `walrus` packages.
 ///
-/// Returns the IDs of the walrus package and the `InitCap` as well as the `TreasuryCap`
-/// of the `WAL` coin.
+/// Returns the IDs of the packages, the `InitCap`, and.
 ///
 /// If `deploy_directory` is provided, the contracts will be copied to this directory and published
 /// from there to keep the `Move.toml` in the original directory unchanged.
@@ -285,11 +286,31 @@ pub async fn publish_coin_and_system_package(
     let treasury_cap_struct_tag = TREASURY_CAP_TAG
         .to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
 
-    let [treasury_cap_id] =
-        get_created_sui_object_ids_by_type(&transaction_response, &treasury_cap_struct_tag)?[..]
-    else {
-        bail!("unexpected number of TreasuryCap objects created");
-    };
+    // Check if a treasury cap was created in the transaction.
+    // If this is the case and the treasury cap is owned by the publisher, we are using the
+    // testnet V2 contracts. In that case, mint WAL to the publisher.
+    // In the new mainnet contracts, all WAL has already been minted.
+    // TODO(WAL-518): cleanup once the testnet WAL contracts are replaced.
+    if let Some(treasury_cap_id) =
+        get_created_sui_object_ids_by_type(&transaction_response, &treasury_cap_struct_tag)?.first()
+    {
+        let sender = wallet.active_address()?;
+        if wallet
+            .get_object_owner(treasury_cap_id)
+            .await
+            .is_ok_and(|owner| owner == sender)
+        {
+            // Mint WAL to the publisher.
+            mint_wal_to_addresses(
+                wallet,
+                wal_pkg_id,
+                *treasury_cap_id,
+                &[sender],
+                WAL_MINT_AMOUNT,
+            )
+            .await?;
+        }
+    }
 
     let wal_exchange_pkg_id = if with_wal_exchange {
         // Publish `wal_exchange` package.
@@ -333,7 +354,6 @@ pub async fn publish_coin_and_system_package(
         wal_exchange_pkg_id,
         init_cap_id,
         upgrade_cap_id,
-        treasury_cap_id,
     })
 }
 

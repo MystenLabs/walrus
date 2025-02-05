@@ -2100,12 +2100,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{
-            contract_config::ContractConfig,
-            retry_client::RetriableSuiClient,
-            SuiContractClient,
-            SuiReadClient,
-        },
+        client::{contract_config::ContractConfig, SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -2207,7 +2202,8 @@ pub mod test_cluster {
         let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
 
         // Get a wallet on the global sui test cluster
-        let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+        let mut admin_wallet =
+            test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
         // Specify an empty assignment to ensure that storage nodes are not created with invalid
         // shard assignments.
@@ -2230,7 +2226,7 @@ pub mod test_cluster {
             .unzip();
 
         let system_ctx = create_and_init_system_for_test(
-            &mut wallet.inner,
+            &mut admin_wallet.inner,
             n_shards,
             Duration::from_secs(0),
             epoch_duration,
@@ -2265,37 +2261,38 @@ pub mod test_cluster {
             .map(|client| &client.inner)
             .collect::<Vec<_>>();
 
+        let contract_config =
+            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
+
+        let admin_contract_client = admin_wallet
+            .and_then_async(|wallet| {
+                SuiContractClient::new(
+                    wallet,
+                    &contract_config,
+                    ExponentialBackoffConfig::default(),
+                    None,
+                )
+            })
+            .await?;
+
         let amounts_to_stake = test_nodes_config
             .node_weights
             .iter()
             .map(|&weight| FROST_PER_NODE_WEIGHT * weight as u64)
             .collect::<Vec<_>>();
         let storage_capabilities = register_committee_and_stake(
-            &mut wallet.inner,
-            &system_ctx,
+            admin_contract_client.as_ref(),
             &members,
             &protocol_keypairs,
             &contract_clients_refs,
-            1_000_000_000_000,
             &amounts_to_stake,
         )
         .await?;
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let contract_config =
-            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
-
         // Build the walrus cluster
-        let sui_read_client = SuiReadClient::new(
-            RetriableSuiClient::new_from_wallet(
-                wallet.as_ref(),
-                ExponentialBackoffConfig::default(),
-            )
-            .await?,
-            &contract_config,
-        )
-        .await?;
+        let sui_read_client = admin_contract_client.as_ref().read_client().clone();
 
         let committee_services = future::join_all(contract_clients.iter().map(|_| async {
             let service: Arc<dyn CommitteeService> = Arc::new(
@@ -2372,9 +2369,6 @@ pub mod test_cluster {
         };
 
         // Create the client with the admin wallet to ensure that we have some WAL.
-        let sui_contract_client = wallet.and_then(|wallet| {
-            SuiContractClient::new_with_read_client(wallet, None, Arc::new(sui_read_client))
-        })?;
         let config = Config {
             contract_config,
             exchange_objects: vec![],
@@ -2382,7 +2376,7 @@ pub mod test_cluster {
             communication_config,
         };
 
-        let client = sui_contract_client
+        let client = admin_contract_client
             .and_then_async(|contract_client| {
                 client::Client::new_contract_client(config, contract_client)
             })

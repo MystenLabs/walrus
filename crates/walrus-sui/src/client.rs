@@ -755,6 +755,15 @@ impl SuiContractClient {
             .await
     }
 
+    /// Returns a mutable reference to the wallet.
+    ///
+    /// This is mainly useful for deployment code where a wallet is used to provide
+    /// gas coins to the storage nodes and client, while also being used for staking
+    /// operations.
+    pub fn wallet_mut(&mut self) -> &mut WalletContext {
+        &mut self.inner.get_mut().wallet
+    }
+
     /// Sends `n` WAL coins of `amount` to the specified `address`.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn multiple_pay_wal(

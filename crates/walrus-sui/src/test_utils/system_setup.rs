@@ -52,14 +52,14 @@ pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
 /// returns the IDs of the system and staking objects. The default test setup currently uses a
 /// single storage node with sk = 117.
 pub async fn publish_with_default_system(
-    admin_wallet: &mut WalletContext,
+    mut admin_wallet: WalletContext,
     node_wallet: WalletContext,
-) -> Result<SystemContext> {
+) -> Result<(SystemContext, SuiContractClient)> {
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_context = create_and_init_system_for_test(
-        admin_wallet,
+        &mut admin_wallet,
         NonZeroU16::new(100).expect("100 is not 0"),
         Duration::from_secs(0),
         Duration::from_secs(3600),
@@ -75,18 +75,21 @@ pub async fn publish_with_default_system(
     let storage_node_params =
         NodeRegistrationParams::new_for_test(protocol_keypair.public(), network_key_pair.public());
 
-    // Initialize client
+    // Create admin contract client
+    let admin_contract_client = system_context
+        .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
+        .await?;
+
+    // Initialize node contract client
     let contract_client = system_context
         .new_contract_client(node_wallet, ExponentialBackoffConfig::default(), None)
         .await?;
 
     register_committee_and_stake(
-        admin_wallet,
-        &system_context,
+        &admin_contract_client,
         &[storage_node_params],
         &[protocol_keypair],
         &[&contract_client],
-        1_000_000_000_000,
         &[1_000_000_000],
     )
     .await?;
@@ -94,7 +97,7 @@ pub async fn publish_with_default_system(
     // call vote end
     end_epoch_zero(&contract_client).await?;
 
-    Ok(system_context)
+    Ok((system_context, admin_contract_client))
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -108,8 +111,6 @@ pub struct SystemContext {
     pub staking_object: ObjectID,
     /// The ID of the WAL package.
     pub wal_pkg_id: ObjectID,
-    /// The ID of the WAL treasury Cap.
-    pub treasury_cap: ObjectID,
     /// The ID of the WAL exchange package.
     pub wal_exchange_pkg_id: Option<ObjectID>,
 }
@@ -179,7 +180,6 @@ pub async fn create_and_init_system(
         walrus_pkg_id,
         init_cap_id,
         upgrade_cap_id,
-        treasury_cap_id,
         wal_exchange_pkg_id,
         wal_pkg_id,
     } = system_setup::publish_coin_and_system_package(
@@ -206,7 +206,6 @@ pub async fn create_and_init_system(
         system_object,
         staking_object,
         wal_pkg_id,
-        treasury_cap: treasury_cap_id,
         wal_exchange_pkg_id,
     })
 }
@@ -217,51 +216,30 @@ pub async fn create_and_init_system(
 #[tracing::instrument(
     err,
     skip(
-        admin_wallet,
-        system_context,
+        admin_contract_client,
         node_params,
         node_bls_keys,
-        contract_clients
+        node_contract_clients,
+        amounts_to_stake
     )
 )]
 pub async fn register_committee_and_stake(
-    admin_wallet: &mut WalletContext,
-    system_context: &SystemContext,
+    admin_contract_client: &SuiContractClient,
     node_params: &[NodeRegistrationParams],
     node_bls_keys: &[ProtocolKeyPair],
-    contract_clients: &[&SuiContractClient],
-    wal_to_mint: u64,
+    node_contract_clients: &[&SuiContractClient],
     amounts_to_stake: &[u64],
 ) -> Result<Vec<StorageNodeCap>> {
-    let receiver_addrs: Vec<_> = contract_clients
-        .iter()
-        .map(|client| client.address())
-        .collect();
-
-    mint_wal_to_addresses(
-        admin_wallet,
-        system_context.wal_pkg_id,
-        system_context.treasury_cap,
-        &receiver_addrs,
-        wal_to_mint.max(
-            *amounts_to_stake
-                .iter()
-                .max()
-                .expect("stake amount must be set"),
-        ),
-    )
-    .await?;
-    let current_epoch = contract_clients[0].current_epoch().await?;
+    let current_epoch = admin_contract_client.current_epoch().await?;
 
     // Initialize client.
     // Note that it is important to return the node capabilities in the same order as the nodes
     // were registered, so that the node capabilities match the nodes in the node config.
     let mut node_capabilities = Vec::new();
-    for (((storage_node_params, bls_sk), contract_client), amount_to_stake) in node_params
+    for ((storage_node_params, bls_sk), contract_client) in node_params
         .iter()
         .zip(node_bls_keys)
-        .zip(contract_clients)
-        .zip(amounts_to_stake)
+        .zip(node_contract_clients)
     {
         let proof_of_possession =
             crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
@@ -282,14 +260,18 @@ pub async fn register_committee_and_stake(
         let node_cap = contract_client
             .register_candidate(storage_node_params, proof_of_possession)
             .await?;
-        // stake with storage nodes
-        if *amount_to_stake > 0 {
-            let _staked_wal = contract_client
-                .stake_with_pools(&[(node_cap.node_id, *amount_to_stake)])
-                .await?;
-        }
         node_capabilities.push(node_cap);
     }
+    // Use admin wallet to stake with storage nodes
+    let amounts_to_stake: Vec<_> = node_capabilities
+        .iter()
+        .zip(amounts_to_stake.iter())
+        .filter(|(_, amount)| **amount > 0)
+        .map(|(cap, amount)| (cap.node_id, *amount))
+        .collect();
+    let _staked_wal = admin_contract_client
+        .stake_with_pools(&amounts_to_stake)
+        .await?;
     Ok(node_capabilities)
 }
 
