@@ -272,9 +272,9 @@ pub(crate) async fn auth_layer(
     next: Next,
 ) -> Response {
     // Get a hint on the body size if possible.
-    // Note: this is a preliminary check. It is fine if the body is actually larger than this,
-    // because we will check again the size when storing to Walrus. Hence, we can use `0` as the
-    // body size safely, if the hint is not available.
+    // Note: Try to get a body hint to reject a oversize payload as fast as possible.
+    // It is fine to use this imprecise hint, because we will check again the size when storing to
+    // Walrus.
     let body_size_hint = request.body().size_hint().upper().unwrap_or(0);
     tracing::debug!(%body_size_hint, query = ?query.0, "authenticating a request to store a blob");
 

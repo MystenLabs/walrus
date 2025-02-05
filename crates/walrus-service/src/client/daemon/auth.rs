@@ -23,7 +23,7 @@ pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 /// Claim follow RFC7519 with extra storage parameters: send_object_to, epochs.
 #[derive(Clone, Deserialize, Debug, Default)]
 #[cfg_attr(test, derive(serde::Serialize))]
-pub(crate) struct Claim {
+pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp).
     pub iat: Option<u64>,
@@ -38,13 +38,15 @@ pub(crate) struct Claim {
     /// The number of epochs the blob should be stored for.
     ///
     /// This is an exact number of epochs the blob should be stored for, no more, no less.
+    /// If both `epochs` and `max_epochs` are present, this is considered a configuration mistake
+    /// and the claim is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epochs: Option<u32>,
 
     /// The maximum number of epochs the blob can be stored for (inclusive).
     ///
-    /// If both `epochs` and `max_epochs` are present, `max_epochs` must be greater than or equal
-    /// to `epochs`. In this case, `max_epochs` is disregarded, and `epochs` is used.
+    /// If both `epochs` and `max_epochs` are present, this is considered a configuration mistake
+    /// and the claim is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_epochs: Option<u32>,
 
@@ -95,14 +97,14 @@ impl Claim {
     }
 
     /// Checks that the query matches the claim.
-    pub(crate) fn check_valid_upload(
+    pub fn check_valid_upload(
         &self,
         query: &PublisherQuery,
         auth_config: &AuthConfig,
         body_size_hint: u64,
     ) -> Result<(), PublisherAuthError> {
         // The expiration check is always performed.
-        if self.is_expired(auth_config) {
+        if self.check_expiring_sec(auth_config) {
             return Err(PublisherAuthError::InvalidExpiration);
         }
 
@@ -137,14 +139,13 @@ impl Claim {
         Ok(())
     }
 
-    /// Checks if the claim has expired yet.
-    fn is_expired(&self, auth_config: &AuthConfig) -> bool {
+    /// Checks if the claim has the correct `exp` and `iat` fields.
+    fn check_expiring_sec(&self, auth_config: &AuthConfig) -> bool {
         if auth_config.expiring_sec == 0 {
             return false;
         }
 
         // Check that the difference between `exp` and `iat` is equal to the configured
-        // TODO(giac): should we allow <= instead of == ?
         if (self.exp - self.iat.unwrap_or_default()) != auth_config.expiring_sec {
             tracing::error!(
                 exp = self.exp,
@@ -160,11 +161,8 @@ impl Claim {
 
     /// Checks if the number of epochs requested in the query is allowed by the claim.
     ///
-    /// - If only `epochs` is present, then `query_epochs` must be equal to `epochs`.
-    /// - If only `max_epochs` is present, then `query_epochs` must be less than or equal to
-    ///   `max_epochs`.
-    /// - If both `epochs` and `max_epochs` are present, then `epochs <= max_epochs` query_epochs`
-    ///   must be equal to `epochs`.
+    /// If both `epochs` and `max_epochs` are present, this is considered a configuration mistake
+    /// and the claim is rejected.
     fn check_epochs(&self, query_epochs: EpochCount) -> Result<(), PublisherAuthError> {
         match (self.epochs, self.max_epochs) {
             (Some(epochs), None) => {
@@ -181,16 +179,7 @@ impl Claim {
                     Err(PublisherAuthError::EpochsAboveMax)
                 }
             }
-            (Some(epochs), Some(max_epochs)) => {
-                if epochs > max_epochs {
-                    return Err(PublisherAuthError::InvalidMaxEpochs);
-                }
-                if query_epochs == epochs {
-                    Ok(())
-                } else {
-                    Err(PublisherAuthError::InvalidEpochs)
-                }
-            }
+            (Some(_), Some(_)) => Err(PublisherAuthError::InvalidEpochs),
             (None, None) => Ok(()),
         }
     }
@@ -198,6 +187,7 @@ impl Claim {
     /// Checks if the `send_object_to` field is valid.
     fn check_send_object_to(
         &self,
+
         query_send_object_to: Option<SuiAddress>,
     ) -> Result<(), PublisherAuthError> {
         match (self.send_object_to, query_send_object_to) {
@@ -222,7 +212,7 @@ impl Claim {
     }
 }
 
-pub(crate) fn verify_jwt_claim(
+pub fn verify_jwt_claim(
     query: Query<PublisherQuery>,
     bearer: Authorization<Bearer>,
     auth_config: &AuthConfig,
@@ -263,7 +253,7 @@ pub(crate) fn verify_jwt_claim(
 /// Type representing the possible errors that can occur during the authentication process.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = PUBLISHER_AUTH_DOMAIN)]
-pub(crate) enum PublisherAuthError {
+pub enum PublisherAuthError {
     /// The expiration in the query does not match the token.
     #[error("the expiration in the query does not match the token")]
     #[rest_api_error(reason = "INVALID_EXPIRATION", status = ApiStatusCode::FailedPrecondition)]
@@ -278,11 +268,6 @@ pub(crate) enum PublisherAuthError {
     #[error("the epochs field in the query is above the maximum allowed")]
     #[rest_api_error(reason = "EPOCHS_ABOVE_MAX", status = ApiStatusCode::FailedPrecondition)]
     EpochsAboveMax,
-
-    /// The epochs field is larger than the max_epochs field in the token.
-    #[error("the epochs field is larger than the max_epochs field in the token")]
-    #[rest_api_error(reason = "INVALID_MAX_EPOCHS", status = ApiStatusCode::FailedPrecondition)]
-    InvalidMaxEpochs,
 
     /// The send_object_to field in the query does not match the token, or is missing.
     #[error("the send_object_to field in the query does not match the token, or is missing")]
