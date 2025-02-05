@@ -395,9 +395,9 @@ components:
       - type: object
         description: The blob was already certified, but its lifetime is too short.
         required:
-        - extendLifetime
+        - reuseAndExtendLifetime
         properties:
-          extendLifetime:
+          reuseAndExtendLifetime:
             type: object
             description: The blob was already certified, but its lifetime is too short.
             required:

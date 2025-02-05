@@ -82,7 +82,7 @@ pub enum RegisterBlobOp {
     /// A registration was already present.
     ReuseRegistration { encoded_length: u64 },
     /// The blob was already certified, but its lifetime is too short.
-    ExtendLifetime {
+    ReuseAndExtendLifetime {
         encoded_length: u64,
         #[schema(value_type = u32)]
         end_epoch: Epoch,
@@ -96,7 +96,7 @@ impl RegisterBlobOp {
             RegisterBlobOp::RegisterFromScratch { encoded_length, .. }
             | RegisterBlobOp::ReuseStorage { encoded_length }
             | RegisterBlobOp::ReuseRegistration { encoded_length }
-            | RegisterBlobOp::ExtendLifetime { encoded_length, .. } => *encoded_length,
+            | RegisterBlobOp::ReuseAndExtendLifetime { encoded_length, .. } => *encoded_length,
         }
     }
 
@@ -109,7 +109,7 @@ impl RegisterBlobOp {
 
     /// Returns if the operation involved extending the lifetime of a registered blob.
     pub fn is_lifetime_extension(&self) -> bool {
-        matches!(self, RegisterBlobOp::ExtendLifetime { .. })
+        matches!(self, RegisterBlobOp::ReuseAndExtendLifetime { .. })
     }
 }
 
@@ -168,6 +168,7 @@ impl<'a> ResourceManager<'a> {
             .filter(|(metadata, blob_status)| {
                 if !store_when.is_store_always() && !persistence.is_deletable() {
                     // Change this logic to extend necessary cases.
+                    // TODO: also collect known certified blobs and extend their lifetime if needed.
                     if let Some(result) = self.blob_status_to_store_result(
                         *metadata.blob_id(),
                         epochs_ahead,
@@ -195,7 +196,7 @@ impl<'a> ResourceManager<'a> {
         for (blob, op) in blobs_with_ops {
             tracing::debug!(blob_id=%blob.blob_id, "blob and operation: {:?}", (&blob, &op));
             // If the blob is deletable and already certified, add it results as noop.
-            let store_op = if let RegisterBlobOp::ExtendLifetime {
+            let store_op = if let RegisterBlobOp::ReuseAndExtendLifetime {
                 encoded_length: _,
                 end_epoch,
             } = op
@@ -317,6 +318,7 @@ impl<'a> ResourceManager<'a> {
             if let Some(blob) = self
                 .is_blob_registered_in_wallet(
                     metadata.blob_id(),
+                    epochs_ahead,
                     persistence,
                     !store_when.is_store_always(),
                 )
@@ -331,7 +333,7 @@ impl<'a> ResourceManager<'a> {
                 if blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead {
                     extended_blobs.push((
                         blob,
-                        RegisterBlobOp::ExtendLifetime {
+                        RegisterBlobOp::ReuseAndExtendLifetime {
                             encoded_length: *encoded_length,
                             end_epoch: self.write_committee_epoch + epochs_ahead,
                         },
@@ -460,6 +462,7 @@ impl<'a> ResourceManager<'a> {
     async fn is_blob_registered_in_wallet(
         &self,
         blob_id: &BlobId,
+        epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         include_certified: bool,
     ) -> ClientResult<Option<Blob>> {
@@ -469,9 +472,16 @@ impl<'a> ResourceManager<'a> {
             .await?
             .into_iter()
             .find(|blob| {
-                blob.blob_id == *blob_id
+                // Case 1: Uncertified blob with sufficient lifetime
+                (blob.blob_id == *blob_id
+                    && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
                     && blob.deletable == persistence.is_deletable()
-                    && (include_certified || blob.certified_epoch.is_none())
+                    && (include_certified || blob.certified_epoch.is_none()))
+                // Case 2: Certified blob that needs lifetime extension
+                || (blob.blob_id == *blob_id
+                    && blob.certified_epoch.is_some()
+                    && !blob.deletable
+                    && blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead)
             }))
     }
 

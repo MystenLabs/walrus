@@ -412,7 +412,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
         .collect::<HashMap<_, _>>();
 
     // Now ask the client to store again.
-    let _extended_blobs = client
+    let extended_blobs = client
         .inner
         .reserve_and_store_blobs(
             &blobs,
@@ -428,6 +428,8 @@ async fn test_store_with_existing_blobs() -> TestResult {
             other => panic!("the client should be able to store the blob: {:?}", other),
         })
         .collect::<HashMap<_, _>>();
+
+    assert_eq!(extended_blobs.len(), blobs.len());
 
     Ok(())
 }

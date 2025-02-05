@@ -278,7 +278,8 @@ impl ClientCommandRunner {
                 let spinner = styled_spinner();
                 spinner.set_message("extending blob...");
 
-                let fixed_parames = sui_client.fixed_system_parameters().await?;
+                let fixed_parames: walrus_sui::client::FixedSystemParameters =
+                    sui_client.fixed_system_parameters().await?;
                 let epochs_ahead =
                     epochs_ahead.try_into_epoch_count(fixed_parames.max_epochs_ahead)?;
 
