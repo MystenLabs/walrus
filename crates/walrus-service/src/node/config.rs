@@ -80,7 +80,7 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
     /// Key pair used in Walrus protocol messages.
-    /// Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
+    // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// The next protocol key pair to use for the storage node.
