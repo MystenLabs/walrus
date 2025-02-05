@@ -84,7 +84,7 @@ pub struct StorageNodeConfig {
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
     /// The next protocol key pair to use for the storage node.
-    /// Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
+    // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "Option<PathOrInPlace<Base64>>")]
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
