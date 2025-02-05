@@ -122,6 +122,18 @@ impl Metadata {
         }
     }
 
+    /// Create a new metadata object from an iterator of key-value pairs.
+    pub fn from<I: IntoIterator<Item = (String, String)>>(iter: I) -> Self {
+        Self {
+            metadata: VecMap {
+                contents: iter
+                    .into_iter()
+                    .map(|(k, v)| Entry { key: k, value: v })
+                    .collect(),
+            },
+        }
+    }
+
     /// Insert a key-value pair into the metadata.
     pub fn insert(&mut self, key: String, value: String) {
         if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {

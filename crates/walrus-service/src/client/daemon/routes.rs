@@ -35,7 +35,10 @@ use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
     client::BlobPersistence,
-    types::move_structs::BlobWithMetadata,
+    types::{
+        move_errors::{BlobError, MoveExecutionError},
+        move_structs::{BlobWithMetadata, Metadata},
+    },
     SuiAddressSchema,
 };
 
@@ -55,6 +58,8 @@ pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 pub const BLOB_WITH_METADATA_GET_ENDPOINT: &str = "/v1/blobs/{blob_object_id}/with-metadata";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
+/// The path to update the metadata for a blob.
+pub const BLOB_METADATA_PUT_ENDPOINT: &str = "/v1/blobs/{blob_object_id}/metadata";
 
 /// Retrieve a Walrus blob.
 ///
@@ -390,4 +395,124 @@ pub(super) struct PublisherQuery {
 
 pub(super) fn default_epochs() -> EpochCount {
     1
+}
+
+/// Update metadata for a Walrus blob.
+///
+/// Updates the metadata associated with a blob object identified by the provided object ID.
+/// If metadata already exists, it will be updated.
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
+#[utoipa::path(
+    put,
+    path = BLOB_METADATA_PUT_ENDPOINT,
+    request_body(
+        content = HashMap<String, String>,
+        description = "Metadata key-value pairs to be stored with the blob."),
+    params(("blob_object_id" = ObjectID,)),
+    responses(
+        (status = 200, description = "The metadata was added/updated successfully"),
+        (status = 400, description = "The request is malformed"),
+        UpdateBlobMetadataError,
+    ),
+)]
+pub(super) async fn put_blob_metadata<T: WalrusWriteClient>(
+    State(client): State<Arc<T>>,
+    Path(blob_object_id): Path<ObjectID>,
+    Json(metadata_map): Json<std::collections::HashMap<String, String>>,
+) -> Response {
+    tracing::debug!(?blob_object_id, "starting to update blob metadata");
+
+    let mut metadata = Metadata::new();
+    for (key, value) in metadata_map {
+        metadata.insert(key, value);
+    }
+
+    let mut response = match client
+        .add_blob_metadata(&blob_object_id, metadata.clone())
+        .await
+    {
+        Ok(_) => {
+            tracing::info!(?blob_object_id, "successfully added metadata");
+            StatusCode::OK.into_response()
+        }
+        Err(error) => {
+            // Handle duplicate metadata case
+            if let ClientError {
+                kind:
+                    ClientErrorKind::SuiClient(SuiClientError::TransactionExecutionError(
+                        MoveExecutionError::Blob(BlobError::EDuplicateMetadata(_)),
+                    )),
+                ..
+            } = &error
+            {
+                // Try to update existing metadata
+                match client
+                    .update_blob_metadata_pairs(&blob_object_id, metadata)
+                    .await
+                {
+                    Ok(_) => {
+                        tracing::info!(?blob_object_id, "successfully updated existing metadata");
+                        StatusCode::OK.into_response()
+                    }
+                    Err(update_error) => {
+                        tracing::error!(?update_error, "error updating existing metadata");
+                        UpdateBlobMetadataError::from(update_error).into_response()
+                    }
+                }
+            } else {
+                let error = UpdateBlobMetadataError::from(error);
+                match &error {
+                    UpdateBlobMetadataError::BlobNotFound => {
+                        tracing::debug!(?blob_object_id, "blob object ID not found")
+                    }
+                    UpdateBlobMetadataError::Internal(error) => {
+                        tracing::error!(?error, "error adding blob metadata")
+                    }
+                    _ => (),
+                }
+                error.into_response()
+            }
+        }
+    };
+
+    response
+        .headers_mut()
+        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+    response
+}
+
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
+pub(crate) enum UpdateBlobMetadataError {
+    /// The requested blob object does not exist.
+    #[error("the requested blob object ID does not exist")]
+    #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
+    BlobNotFound,
+
+    /// The blob cannot be updated as it has been blocked.
+    #[error("the requested blob is blocked")]
+    #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
+    Blocked,
+
+    /// The metadata operation failed.
+    #[error("failed to update metadata: {0}")]
+    #[rest_api_error(reason = "METADATA_ERROR", status = ApiStatusCode::BadRequest)]
+    MetadataError(String),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl From<ClientError> for UpdateBlobMetadataError {
+    fn from(error: ClientError) -> Self {
+        match error.kind() {
+            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+            ClientErrorKind::SuiClient(SuiClientError::TransactionExecutionError(
+                MoveExecutionError::Blob(blob_error),
+            )) => Self::MetadataError(blob_error.to_string()),
+            _ => anyhow::anyhow!(error).into(),
+        }
+    }
 }
