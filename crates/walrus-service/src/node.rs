@@ -1050,9 +1050,9 @@ impl StorageNode {
         let start = tokio::time::Instant::now();
         let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
 
-        if self.inner.is_stored_at_all_shards(&event.blob_id)?
-            || !self.inner.is_blob_certified(&event.blob_id)?
+        if !self.inner.is_blob_certified(&event.blob_id)?
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
+            || self.inner.is_stored_at_all_shards(&event.blob_id)?
         {
             event_handle.mark_as_complete();
 
