@@ -951,8 +951,8 @@ impl WalrusPtbBuilder {
             self.update_node_name(&storage_node_cap, name).await?;
         }
 
-        if let Some(next_public_key_params) = params.next_public_key_params {
-            self.update_next_public_key(&storage_node_cap, next_public_key_params)
+        if let Some(update_public_key) = params.update_public_key {
+            self.update_next_public_key(&storage_node_cap, update_public_key)
                 .await?;
         }
 

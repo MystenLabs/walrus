@@ -15,13 +15,13 @@ mod tests {
     use sui_macros::{register_fail_point_async, register_fail_points};
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
-    use tokio::{task::JoinHandle, time::Instant};
+    use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
     use walrus_core::encoding::{Primary, Secondary};
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
-        test_utils::{test_cluster, SimStorageNodeHandle},
+        test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
     };
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
@@ -197,11 +197,12 @@ mod tests {
         let (_sui_cluster, _cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
-                &[1, 2, 3, 3, 4],
-                false,
-                ClientCommunicationConfig::default_for_test(),
-                None,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    ..Default::default()
+                },
                 Some(10),
+                ClientCommunicationConfig::default_for_test(),
             )
             .await
             .unwrap();
@@ -239,11 +240,12 @@ mod tests {
         let (sui_cluster, _walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
-                &[1, 2, 3, 3, 4],
-                false,
-                ClientCommunicationConfig::default_for_test(),
-                None,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    ..Default::default()
+                },
                 Some(10),
+                ClientCommunicationConfig::default_for_test(),
             )
             .await
             .unwrap();
@@ -345,6 +347,45 @@ mod tests {
         }
     }
 
+    /// Helper function to get health info for a single node.
+    async fn wait_until_node_is_active(
+        node: &SimStorageNodeHandle,
+        timeout: Duration,
+    ) -> anyhow::Result<ServiceHealthInfo> {
+        let client = walrus_sdk::client::Client::builder()
+            .authenticate_with_public_key(node.network_public_key.clone())
+            // Disable proxy and root certs from the OS for tests.
+            .no_proxy()
+            .tls_built_in_root_certs(false)
+            .build_for_remote_ip(node.rest_api_address)
+            .context("failed to create node client")?;
+
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timed out waiting for node to become active after {:?}",
+                    timeout
+                );
+            }
+
+            match client.get_server_health_info(true).await {
+                Ok(info) if info.node_status == "Active" => {
+                    return Ok(info);
+                }
+                Ok(info) => {
+                    tracing::debug!("node status: {}, waiting...", info.node_status);
+                }
+                Err(e) => {
+                    tracing::debug!("failed to get node health info: {}, retrying...", e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
     /// Helper function to get health info for a list of nodes.
     async fn get_nodes_health_info(nodes: &[&SimStorageNodeHandle]) -> Vec<ServiceHealthInfo> {
         futures::future::join_all(
@@ -396,13 +437,17 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4],
-                true,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: false,
+                },
+                None,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                None,
             )
             .await
             .unwrap();
@@ -539,13 +584,17 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(10),
-                &[1, 2, 3, 3, 4],
-                true,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: false,
+                },
+                None,
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
-                None,
-                None,
             )
             .await
             .unwrap();
@@ -669,13 +718,17 @@ mod tests {
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4],
-                true,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: false,
+                },
+                Some(100),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(100),
             )
             .await
             .unwrap();
@@ -734,13 +787,14 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4, 0],
-                false,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    ..Default::default()
+                },
+                Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(10),
             )
             .await
             .unwrap();
@@ -758,7 +812,9 @@ mod tests {
 
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
-                walrus_cluster.nodes[5].storage_node_config.clone(),
+                Arc::new(RwLock::new(
+                    walrus_cluster.nodes[5].storage_node_config.clone(),
+                )),
                 None,
                 walrus_cluster.nodes[5].cancel_token.clone(),
             )
@@ -870,13 +926,17 @@ mod tests {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
-                &[1, 2, 3, 3, 4, 0],
-                false,
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: true,
+                },
+                Some(10),
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                None,
-                Some(10),
             )
             .await
             .unwrap();
@@ -939,7 +999,9 @@ mod tests {
 
         walrus_cluster.nodes[5].node_id = Some(
             SimStorageNodeHandle::spawn_node(
-                walrus_cluster.nodes[5].storage_node_config.clone(),
+                Arc::new(RwLock::new(
+                    walrus_cluster.nodes[5].storage_node_config.clone(),
+                )),
                 None,
                 walrus_cluster.nodes[5].cancel_token.clone(),
             )
@@ -972,7 +1034,7 @@ mod tests {
 
         assert!(committees
             .current_committee()
-            .find(&walrus_cluster.nodes[5].public_key)
+            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
             .is_some());
 
         // Check that the new params are updated on-chain.
@@ -1014,5 +1076,137 @@ mod tests {
                 .node_status,
             "Active"
         );
+    }
+
+    #[walrus_simtest]
+    #[ignore = "ignore simtests by default"]
+    async fn test_registered_node_update_protocol_key() {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: true,
+                },
+                Some(10),
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .await
+            .unwrap();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+        let client_arc = Arc::new(client);
+
+        // Get current committee and verify node[5] is in it
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .expect("Should get committees");
+
+        assert!(committees
+            .current_committee()
+            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
+            .is_none());
+
+        // Check the current protocol key in the staking pool
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+
+        // Generate new protocol key pair
+        let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
+
+        // Make sure the new protocol key is different from the current one
+        assert_ne!(&pool.node_info.public_key, new_protocol_key_pair.public());
+
+        // Update the next protocol key pair in the node's config
+        walrus_cluster.nodes[5]
+            .storage_node_config
+            .next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
+        // Update the node's public key to match the new protocol key pair
+        walrus_cluster.nodes[5].public_key = new_protocol_key_pair.public().clone();
+
+        let config = Arc::new(RwLock::new(
+            walrus_cluster.nodes[5].storage_node_config.clone(),
+        ));
+        // Trace the protocol key and next protocol key before spawning the node
+        tracing::info!(
+            "current protocol key: {:?}, next protocol key: {:?}",
+            config.read().await.protocol_key_pair().public(),
+            config
+                .read()
+                .await
+                .next_protocol_key_pair()
+                .as_ref()
+                .map(|kp| kp.public())
+        );
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                config.clone(),
+                None,
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+
+        // Adding stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        // Wait for a bit to let the node start up
+        tokio::time::sleep(Duration::from_secs(100)).await;
+
+        // Check that the protocol key in StakePool is updated to the new one
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+
+        assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
+        let public_key = config.read().await.protocol_key_pair().public().clone();
+        assert_eq!(&public_key, new_protocol_key_pair.public());
+
+        wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
+            .await
+            .expect("Node should be active");
     }
 }

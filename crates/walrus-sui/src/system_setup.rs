@@ -24,7 +24,14 @@ use sui_move_build::{
 };
 use sui_sdk::{
     apis::ReadApi,
-    rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
+    rpc_types::{
+        SuiExecutionStatus,
+        SuiObjectDataFilter,
+        SuiObjectDataOptions,
+        SuiObjectResponseQuery,
+        SuiTransactionBlockEffectsAPI,
+        SuiTransactionBlockResponse,
+    },
     types::{
         base_types::ObjectID,
         programmable_transaction_builder::ProgrammableTransactionBuilder,
@@ -39,6 +46,7 @@ use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
+    SUI_FRAMEWORK_PACKAGE_ID,
 };
 use walkdir::WalkDir;
 use walrus_core::{ensure, EpochCount};
@@ -48,6 +56,8 @@ use crate::{
     contracts::{self, StructTag},
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
+
+const WAL_MINT_AMOUNT: u64 = 5_000_000_000 * 1_000_000_000; // 5 billion WAL
 
 const INIT_MODULE: &str = "init";
 
@@ -86,7 +96,7 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-#[tracing::instrument(err, skip(wallet))]
+#[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
     package_path: PathBuf,
@@ -97,9 +107,7 @@ pub(crate) async fn publish_package(
     let client = wallet.get_client().await?;
     let chain_id = client.read_api().get_chain_identifier().await.ok();
 
-    let package_path = package_path.canonicalize()?;
-
-    let build_config = resolve_lock_file_path(build_config, Some(&package_path))?;
+    let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
     let previous_id = if let Some(ref chain_id) = chain_id {
@@ -117,6 +125,7 @@ pub(crate) async fn publish_package(
         compile_package(client.read_api(), build_config.clone(), &package_path).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
+
     // Restore original ID.
     if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
         let _ = sui_package_management::set_package_id(
@@ -192,7 +201,7 @@ pub(crate) async fn compile_package(
     build_config: MoveBuildConfig,
     package_path: &Path,
 ) -> Result<(PackageDependencies, CompiledPackage), anyhow::Error> {
-    let config = resolve_lock_file_path(build_config, Some(package_path))?;
+    let config = resolve_lock_file_path(build_config, package_path)?;
     let run_bytecode_verifier = true;
     let print_diags_to_stderr = false;
     let chain_id = read_api.get_chain_identifier().await.ok();
@@ -231,7 +240,6 @@ pub(crate) struct PublishSystemPackageResult {
     pub wal_exchange_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
-    pub treasury_cap_id: ObjectID,
 }
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
@@ -253,8 +261,7 @@ fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> 
 
 /// Publishes the `wal`, `wal_exchange`, and `walrus` packages.
 ///
-/// Returns the IDs of the walrus package and the `InitCap` as well as the `TreasuryCap`
-/// of the `WAL` coin.
+/// Returns the IDs of the packages, the `InitCap`, and the `UpgradeCap`.
 ///
 /// If `deploy_directory` is provided, the contracts will be copied to this directory and published
 /// from there to keep the `Move.toml` in the original directory unchanged.
@@ -281,16 +288,12 @@ pub async fn publish_coin_and_system_package(
     )
     .await?;
     let wal_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
-    let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
 
-    let treasury_cap_struct_tag = TREASURY_CAP_TAG
-        .to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
-
-    let [treasury_cap_id] =
-        get_created_sui_object_ids_by_type(&transaction_response, &treasury_cap_struct_tag)?[..]
-    else {
-        bail!("unexpected number of TreasuryCap objects created");
-    };
+    // Check if the admin wallet owns the treasury cap. for the `WAL` coin.
+    // If this is the case, we are using the testnet V2 contracts. In that case, mint WAL to the the
+    // wallet address. In the new mainnet contracts, all WAL has already been minted.
+    // TODO(WAL-518): cleanup once the testnet WAL contracts are replaced.
+    mint_wal_if_treasury_cap_exists(wallet, wal_pkg_id).await?;
 
     let wal_exchange_pkg_id = if with_wal_exchange {
         // Publish `wal_exchange` package.
@@ -334,7 +337,6 @@ pub async fn publish_coin_and_system_package(
         wal_exchange_pkg_id,
         init_cap_id,
         upgrade_cap_id,
-        treasury_cap_id,
     })
 }
 
@@ -467,4 +469,98 @@ pub async fn create_system_and_staking_objects(
         bail!("unexpected number of system objects created");
     };
     Ok((system_object_id, staking_object_id))
+}
+
+/// Checks if a treasury cap exists and mints [`WAL_MINT_AMOUNT`] FROST to the `admin_wallet`
+/// address if that is the case.
+///
+/// If no `TreasuryCap` object is found, the function assumes that the mainnet contracts are used
+/// and thus the [`WAL_MINT_AMOUNT`] has already been minted. The function still returns `Ok` in
+/// this case.
+async fn mint_wal_if_treasury_cap_exists(
+    admin_wallet: &mut WalletContext,
+    wal_pkg_id: ObjectID,
+) -> Result<()> {
+    let sender = admin_wallet.active_address()?;
+
+    let retry_client =
+        RetriableSuiClient::new(admin_wallet.get_client().await?, Default::default());
+
+    // Get the treasury cap object ref. There should be exactly one if the testnet V2 contracts are
+    // used.
+    let wal_type_tag = TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?;
+    let treasury_cap_struct_tag = TREASURY_CAP_TAG
+        .to_move_struct_tag_with_package(SUI_FRAMEWORK_ADDRESS.into(), &[wal_type_tag])?;
+    let treasury_cap_obj_responses = retry_client
+        .get_owned_objects(
+            sender,
+            Some(SuiObjectResponseQuery {
+                filter: Some(SuiObjectDataFilter::StructType(treasury_cap_struct_tag)),
+                options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
+            }),
+            None,
+            None,
+        )
+        .await?
+        .data;
+    let treasury_cap_ref = match treasury_cap_obj_responses.first() {
+        Some(obj_response) => obj_response.object()?.object_ref(),
+        None => {
+            tracing::trace!(
+                "no treasury cap found, assuming mainnet contracts are used and no mint is needed"
+            );
+            return Ok(());
+        }
+    };
+
+    tracing::trace!("minting WAL to admin wallet");
+
+    // Create the mint transaction.
+    let mut pt_builder = ProgrammableTransactionBuilder::new();
+    let treasury_cap_arg = pt_builder.input(treasury_cap_ref.into())?;
+
+    let amount_arg = pt_builder.pure(WAL_MINT_AMOUNT)?;
+
+    let result = pt_builder.programmable_move_call(
+        SUI_FRAMEWORK_PACKAGE_ID,
+        Identifier::new("coin").expect("should be able to convert to Identifier"),
+        Identifier::new("mint").expect("should be able to convert to Identifier"),
+        vec![TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?],
+        vec![treasury_cap_arg, amount_arg],
+    );
+    pt_builder.transfer_arg(sender, result);
+    let ptb = pt_builder.finish();
+
+    // Estimate the gas budget.
+    let transaction_kind = TransactionKind::ProgrammableTransaction(ptb.clone());
+    let gas_price = retry_client.get_reference_gas_price().await?;
+    let gas_budget = retry_client
+        .estimate_gas_budget(sender, transaction_kind, gas_price)
+        .await?;
+
+    let gas_coin = admin_wallet
+        .gas_for_owner_budget(sender, gas_budget, Default::default())
+        .await?
+        .1
+        .object_ref();
+
+    // Finalize and execute the transaction.
+    let transaction =
+        TransactionData::new_programmable(sender, vec![gas_coin], ptb, gas_budget, gas_price);
+    let transaction = admin_wallet.sign_transaction(&transaction);
+    let tx_response = admin_wallet
+        .execute_transaction_may_fail(transaction)
+        .await?;
+
+    match tx_response
+        .effects
+        .as_ref()
+        .ok_or_else(|| anyhow!("No transaction effects in response"))?
+        .status()
+    {
+        SuiExecutionStatus::Success => Ok(()),
+        SuiExecutionStatus::Failure { error } => {
+            Err(anyhow!("Error when executing mint transaction: {}", error))
+        }
+    }
 }

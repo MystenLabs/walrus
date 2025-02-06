@@ -416,7 +416,10 @@ impl ShardSyncHandler {
                 shard_sync_handler_clone
                     .node
                     .contract_service
-                    .epoch_sync_done(current_epoch)
+                    .epoch_sync_done(
+                        current_epoch,
+                        shard_sync_handler_clone.node.node_capability(),
+                    )
                     .await;
             }
         });

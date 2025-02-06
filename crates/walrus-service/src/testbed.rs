@@ -31,7 +31,6 @@ use walrus_sui::{
     test_utils::system_setup::{
         create_and_init_system,
         end_epoch_zero,
-        mint_wal_to_addresses,
         register_committee_and_stake,
         SystemContext,
     },
@@ -41,7 +40,7 @@ use walrus_sui::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    backup::BackupNodeConfig,
+    backup::BackupConfig,
     client::{self, ClientCommunicationConfig},
     common::config::SuiConfig,
     node::config::{
@@ -265,13 +264,15 @@ pub async fn deploy_walrus_contract(
         with_wal_exchange,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
-    const WAL_MINT_AMOUNT: u64 = 100_000_000 * 1_000_000_000;
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
 
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
     let collocated = hosts_set.len() != hosts.len();
+
+    tracing::debug!("Storage nodes collocated on same machine: {}", collocated);
+    tracing::debug!("Deploying contract to Sui network: {}", sui_network);
 
     // Build one Sui storage node config for each storage node.
     let committee_size = hosts.len() as u16;
@@ -280,6 +281,11 @@ pub async fn deploy_walrus_contract(
     } else {
         random_keypairs(committee_size as usize)
     };
+
+    tracing::debug!(
+        "Finished generating keypairs for {} storage nodes",
+        committee_size
+    );
 
     let mut node_configs = Vec::new();
 
@@ -294,6 +300,14 @@ pub async fn deploy_walrus_contract(
             public_rest_api_address(host, rest_api_port, None, None)
         };
 
+        tracing::debug!(
+            "Generating configuration for storage node {}/{}: name={}, network_address={}",
+            i + 1,
+            committee_size,
+            name,
+            network_address
+        );
+
         node_configs.push(TestbedNodeConfig {
             name,
             network_address: network_address.clone(),
@@ -306,13 +320,25 @@ pub async fn deploy_walrus_contract(
         });
     }
 
+    tracing::debug!(
+        "Finished generating configurations for {} storage nodes",
+        committee_size
+    );
+
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
 
+    tracing::debug!("Creating working directory at {}", working_dir.display());
+
     // Load or create wallet for publishing contracts on sui and setting up system object
     let mut admin_wallet = if let Some(admin_wallet_path) = admin_wallet_path {
+        tracing::debug!(
+            "Loading existing admin wallet from path: {}",
+            admin_wallet_path.display()
+        );
         WalletContext::new(&admin_wallet_path, None, None)?
     } else {
+        tracing::debug!("Creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
@@ -352,18 +378,14 @@ pub async fn deploy_walrus_contract(
     )
     .await?;
 
-    let admin_address = admin_wallet.active_address()?;
-    // Mint WAL to the admin wallet.
-    mint_wal_to_addresses(
-        &mut admin_wallet,
-        system_ctx.wal_pkg_id,
-        system_ctx.treasury_cap,
-        &[admin_address],
-        WAL_MINT_AMOUNT,
-    )
-    .await?;
+    tracing::debug!(
+        "Successfully created and initialized system context with {} shards",
+        n_shards
+    );
 
     let contract_config = system_ctx.contract_config();
+
+    tracing::debug!("Retrieved contract configuration from system context");
 
     let exchange_object = if let Some(wal_exchange_pkg_id) = system_ctx.wal_exchange_pkg_id {
         // Create WAL exchange.
@@ -384,6 +406,13 @@ pub async fn deploy_walrus_contract(
     } else {
         None
     };
+
+    tracing::debug!(
+        "Successfully created WAL exchange object: {}",
+        exchange_object
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "None".to_string())
+    );
 
     println!(
         "Walrus contract created:\n\
@@ -406,13 +435,13 @@ pub async fn deploy_walrus_contract(
     })
 }
 
-/// Create client configurations for the testbed.
+/// Create client configurations for the testbed and fund the client wallet with SUI and WAL.
 pub async fn create_client_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
     sui_network: SuiNetwork,
     set_config_dir: Option<&Path>,
-    admin_wallet: &mut WalletContext,
+    admin_contract_client: &mut SuiContractClient,
     exchange_objects: Vec<ObjectID>,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
@@ -428,8 +457,19 @@ pub async fn create_client_config(
 
     let client_address = client_wallet.active_address()?;
 
-    // Get coins from faucet for the wallets.
-    get_sui_from_wallet_or_faucet(client_wallet.active_address()?, admin_wallet, &sui_network)
+    // Get Sui coins from faucet or the admin wallet.
+    get_sui_from_wallet_or_faucet(
+        client_address,
+        admin_contract_client.wallet_mut(),
+        &sui_network,
+    )
+    .await?;
+    // Fund the client wallet with WAL.
+    admin_contract_client
+        .send_wal(
+            1_000_000 * 1_000_000_000, // 1 million WAL
+            client_address,
+        )
         .await?;
 
     let wallet_path = if let Some(final_directory) = set_config_dir {
@@ -443,16 +483,6 @@ pub async fn create_client_config(
     } else {
         client_wallet_path
     };
-
-    // Mint WAL to the client address.
-    mint_wal_to_addresses(
-        admin_wallet,
-        system_ctx.wal_pkg_id,
-        system_ctx.treasury_cap,
-        &[client_address],
-        1_000_000 * 1_000_000_000, // 1 million WAL
-    )
-    .await?;
 
     let contract_config = system_ctx.contract_config();
 
@@ -473,8 +503,8 @@ pub async fn create_backup_config(
     working_dir: &Path,
     database_url: &str,
     rpc: String,
-) -> anyhow::Result<BackupNodeConfig> {
-    Ok(BackupNodeConfig::new_with_defaults(
+) -> anyhow::Result<BackupConfig> {
+    Ok(BackupConfig::new_with_defaults(
         working_dir.join("backup"),
         crate::common::config::SuiReaderConfig {
             rpc,
@@ -497,7 +527,7 @@ pub async fn create_storage_node_configs(
     set_config_dir: Option<&Path>,
     set_db_path: Option<&Path>,
     faucet_cooldown: Option<Duration>,
-    admin_wallet: &mut WalletContext,
+    admin_contract_client: &mut SuiContractClient,
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
@@ -560,7 +590,7 @@ pub async fn create_storage_node_configs(
         NonZeroU16::new(committee_size).expect("committee size must be > 0"),
         testbed_config.sui_network,
         faucet_cooldown,
-        admin_wallet,
+        admin_contract_client.wallet_mut(),
     )
     .await?;
 
@@ -615,6 +645,7 @@ pub async fn create_storage_node_configs(
             storage_path,
             blocklist_path: None,
             protocol_key_pair: node.keypair.into(),
+            next_protocol_key_pair: None,
             network_key_pair: node.network_keypair.into(),
             public_host: node.network_address.get_host().to_owned(),
             public_port: node.network_address.try_get_port()?.context(format!(
@@ -641,6 +672,8 @@ pub async fn create_storage_node_configs(
             },
             metrics_push: None,
             metadata: Default::default(),
+            config_synchronizer: Default::default(),
+            storage_node_cap: None,
         });
     }
 
@@ -656,16 +689,21 @@ pub async fn create_storage_node_configs(
 
     let amounts_to_stake = vec![1_000 * 1_000_000_000; node_params.len()];
 
-    register_committee_and_stake(
-        admin_wallet,
-        &testbed_config.system_ctx,
+    let storage_node_caps = register_committee_and_stake(
+        admin_contract_client,
         &node_params,
         &protocol_keypairs,
         &contract_clients.iter().collect::<Vec<_>>(),
-        1_000_000_000_000,
         &amounts_to_stake,
     )
     .await?;
+
+    for (config, node_cap) in storage_node_configs
+        .iter_mut()
+        .zip(storage_node_caps.iter())
+    {
+        config.storage_node_cap = Some(node_cap.id);
+    }
 
     end_epoch_zero(
         contract_clients

@@ -395,7 +395,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
 /// Creates and returns a Sui test cluster.
 pub async fn sui_test_cluster() -> TestCluster {
     TestClusterBuilder::new()
-        .with_num_validators(2)
+        .with_num_validators(1)
         .disable_fullnode_pruning()
         .build()
         .await

@@ -240,6 +240,7 @@ pub mod staking {
     contract_ident!(fn staking::set_network_address);
     contract_ident!(fn staking::set_network_public_key);
     contract_ident!(fn staking::set_next_public_key);
+    contract_ident!(fn staking::reset_next_public_key);
     contract_ident!(fn staking::set_commission_receiver);
     contract_ident!(fn staking::set_governance_authorized);
     contract_ident!(fn staking::set_storage_price_vote);

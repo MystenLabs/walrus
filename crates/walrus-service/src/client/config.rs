@@ -3,14 +3,16 @@
 
 use std::{
     env,
+    fmt,
     num::{NonZeroU16, NonZeroUsize},
     path::PathBuf,
     time::Duration,
 };
 
 use anyhow::bail;
+use fastcrypto::encoding::{Encoding as _, Hex};
 use itertools::Itertools;
-use jsonwebtoken::Algorithm;
+use jsonwebtoken::{Algorithm, DecodingKey};
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
@@ -26,7 +28,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::{client::error::DecodeError, common::utils};
+use crate::{client::error::JwtDecodeError, common::utils};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -104,40 +106,70 @@ pub enum ExchangeObjectConfig {
 }
 
 /// Configuration for the JWT authentication on the publisher.
-#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Default, Clone)]
 pub struct AuthConfig {
     /// The secret with which to authenticate the JWT.
-    pub(crate) secret: Option<Vec<u8>>,
+    pub(crate) decoding_key: Option<DecodingKey>,
     /// The authentication algorithm for the JWT.
     pub(crate) algorithm: Option<Algorithm>,
     /// The duration, in seconds, after which the publisher will consider the JWT as expired.
+    ///
+    /// If set to `0`, the publisher will not check that the expiration is correctly set based in
+    /// the issued-at time (iat) and expiration time (exp) in the JWT. I.e., if `expiring_sec > 0`,
+    /// the publisher will check that `exp - iat == expiring_sec`.
     pub(crate) expiring_sec: u64,
-    /// verify upload epochs and address for `send_object_to`
+    /// Verify the upload epochs and address for `send_object_to` in the request.
+    ///
+    /// The token expiration is still checked, even if `verify_upload == true`.
     pub(crate) verify_upload: bool,
 }
 
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthConfig")
+            .field("algorithm", &self.algorithm)
+            .field("expiring_sec", &self.expiring_sec)
+            .field("verify_upload", &self.verify_upload)
+            .finish()
+    }
+}
+
 impl AuthConfig {
-    pub fn new(secret: String) -> Result<Self, DecodeError> {
+    /// Adds the decoding key to the configuration, parsing it form the given string.
+    ///
+    /// Uses `self.algorithm` to determine the decoding key type.
+    pub fn with_key_from_str(&mut self, secret: &str) -> Result<(), JwtDecodeError> {
+        let secret_bytes = Self::secret_to_bytes(secret)?;
+        let decoding_key = self.decoding_key_from_secret(&secret_bytes);
+        self.decoding_key = Some(decoding_key);
+        Ok(())
+    }
+
+    fn decoding_key_from_secret(&self, secret: &[u8]) -> DecodingKey {
+        match self.algorithm {
+            None | Some(Algorithm::HS256) | Some(Algorithm::HS384) | Some(Algorithm::HS512) => {
+                DecodingKey::from_secret(secret)
+            }
+            Some(Algorithm::EdDSA) => DecodingKey::from_ed_der(secret),
+            Some(Algorithm::ES256) | Some(Algorithm::ES384) => DecodingKey::from_ec_der(secret),
+            Some(Algorithm::RS256)
+            | Some(Algorithm::RS384)
+            | Some(Algorithm::RS512)
+            | Some(Algorithm::PS256)
+            | Some(Algorithm::PS384)
+            | Some(Algorithm::PS512) => DecodingKey::from_rsa_der(secret),
+        }
+    }
+
+    fn secret_to_bytes(secret: &str) -> Result<Vec<u8>, JwtDecodeError> {
         if secret.starts_with("0x") {
             if secret.len() % 2 != 0 {
-                Err(DecodeError("jwt-decode-secret"))
+                Err(JwtDecodeError)
             } else {
-                let mut s = Vec::new();
-                for i in (2..secret.len()).step_by(2) {
-                    let int = u8::from_str_radix(&secret[i..i + 2], 16)
-                        .map_err(|_| DecodeError("jwt-decode-secret"))?;
-                    s.push(int);
-                }
-                Ok(Self {
-                    secret: Some(s),
-                    ..Default::default()
-                })
+                Hex::decode(secret).map_err(|_| JwtDecodeError)
             }
         } else {
-            Ok(Self {
-                secret: Some(secret.into_bytes()),
-                ..Default::default()
-            })
+            Ok(secret.as_bytes().to_vec())
         }
     }
 }
@@ -518,7 +550,7 @@ impl Default for SliverWriteExtraTime {
 mod tests {
     use indoc::indoc;
     use rand::{rngs::StdRng, SeedableRng as _};
-    use walrus_test_utils::Result as TestResult;
+    use walrus_test_utils::{param_test, Result as TestResult};
 
     use super::*;
 
@@ -639,14 +671,16 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_new_auth_config() -> TestResult {
-        let c = AuthConfig::new("0xff".into())?;
-        assert_eq!(c.secret, Some(vec![255]));
-
-        assert!(AuthConfig::new("0xf".into()).is_err());
-        assert!(AuthConfig::new("0xfg".into()).is_err());
-
+    param_test! {
+        test_secret_to_bytes -> TestResult: [
+            correct: ("0xff", Ok(vec![255])),
+            invalid_hex: ("0xf", Err(JwtDecodeError)),
+            invalid_hex_2: ("0xfg", Err(JwtDecodeError)),
+        ]
+    }
+    fn test_secret_to_bytes(secret: &str, output: Result<Vec<u8>, JwtDecodeError>) -> TestResult {
+        let bytes = AuthConfig::secret_to_bytes(secret);
+        assert_eq!(bytes, output);
         Ok(())
     }
 }

@@ -15,7 +15,7 @@ fastcrypto.workspace = true
 futures.workspace = true
 mime.workspace = true
 opentelemetry.workspace = true
-p256.workspace = true
+p256 = { workspace = true, features = ["ecdsa"] }
 rand.workspace = true
 reqwest.workspace = true
 rustls.workspace = true

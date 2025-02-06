@@ -26,6 +26,7 @@ use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
 
+/// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
     client: WithTempDir<Client<SuiContractClient>>,
@@ -33,6 +34,7 @@ pub(crate) struct WriteClient {
 }
 
 impl WriteClient {
+    /// Creates a new WriteClient with the given configuration
     #[tracing::instrument(err, skip_all)]
     pub async fn new(
         config: &Config,
@@ -59,15 +61,24 @@ impl WriteClient {
 
     /// Stores a fresh consistent blob and returns the blob id and elapsed time.
     pub async fn write_fresh_blob(&mut self) -> Result<(BlobId, Duration), ClientError> {
+        self.write_fresh_blob_with_epochs(1).await
+    }
+
+    /// Stores a fresh blob with the given number of epochs ahead, and returns the blob id and
+    /// elapsed time.
+    pub async fn write_fresh_blob_with_epochs(
+        &mut self,
+        epochs_to_store: u32,
+    ) -> Result<(BlobId, Duration), ClientError> {
         let blob = self.blob.refresh_and_get_random_slice();
         let now = Instant::now();
         let blob_id = self
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs(
+            .reserve_and_store_blobs_retry_epoch(
                 &[blob],
-                1,
+                epochs_to_store,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
@@ -77,8 +88,7 @@ impl WriteClient {
             .expect("should have one blob store result")
             .blob_id()
             .to_owned();
-        let elapsed = now.elapsed();
-        Ok((blob_id, elapsed))
+        Ok((blob_id, now.elapsed()))
     }
 
     /// Stores a fresh blob that is inconsistent in primary sliver 0 and returns
@@ -90,8 +100,7 @@ impl WriteClient {
         let blob = self.blob.random_size_slice();
         let now = Instant::now();
         let blob_id = self.reserve_and_store_inconsistent_blob(blob).await?;
-        let elapsed = now.elapsed();
-        Ok((blob_id, elapsed))
+        Ok((blob_id, now.elapsed()))
     }
 
     /// Stores an inconsistent blob.
@@ -103,7 +112,7 @@ impl WriteClient {
         &self,
         blob: &[u8],
     ) -> Result<BlobId, ClientError> {
-        let epochs = 1;
+        let epochs_to_store = 1;
         // Encode the blob with false metadata for one shard.
         let (pairs, metadata) = self
             .client
@@ -112,6 +121,7 @@ impl WriteClient {
             .get_blob_encoder(blob)
             .map_err(ClientError::other)?
             .encode_with_metadata();
+
         let mut metadata = metadata.metadata().to_owned();
         let n_members = self
             .client
@@ -125,7 +135,8 @@ impl WriteClient {
 
         // Make primary sliver 0 inconsistent.
         metadata.mut_inner().hashes[0].primary_hash = Node::Digest([0; 32]);
-        // If the committee has 7 members, make a second sliver inconsistent.
+
+        // Make second sliver inconsistent if enough committee members
         if n_members >= 7 {
             // Sliver `n_shards/2` will be held by a different node if the shards are assigned
             // sequentially.
@@ -151,7 +162,7 @@ impl WriteClient {
             .await
             .get_existing_or_register(
                 &[&metadata],
-                epochs,
+                epochs_to_store,
                 BlobPersistence::Permanent,
                 StoreWhen::NotStored,
             )
@@ -163,7 +174,6 @@ impl WriteClient {
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        // Certify blob.
         let certificate = self
             .client
             .as_ref()
@@ -180,10 +190,12 @@ impl WriteClient {
             .sui_client()
             .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
             .await?;
+
         Ok(blob_id)
     }
 }
 
+/// Creates a new client with a separate wallet.
 async fn new_client(
     config: &Config,
     network: &SuiNetwork,
@@ -207,6 +219,7 @@ async fn new_client(
     Ok(client)
 }
 
+/// Creates a new wallet for testing and fills it with gas and WAL tokens
 pub async fn wallet_for_testing_from_refill(
     network: &SuiNetwork,
     refiller: Refiller,

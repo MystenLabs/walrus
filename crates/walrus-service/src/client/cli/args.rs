@@ -641,18 +641,21 @@ impl PublisherArgs {
 
     pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
         if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
-            let mut config = self
-                .jwt_decode_secret
-                .take()
-                .map(AuthConfig::new)
-                .unwrap_or(Ok(AuthConfig::default()))?;
-            config.expiring_sec = self.jwt_expiring_sec;
-            config.verify_upload = self.jwt_verify_upload;
-            config.algorithm = self.jwt_algorithm;
-            tracing::info!("Auth config applied: {config:?}");
-            Ok(Some(config))
+            let mut auth_config = AuthConfig {
+                expiring_sec: self.jwt_expiring_sec,
+                verify_upload: self.jwt_verify_upload,
+                algorithm: self.jwt_algorithm,
+                ..Default::default()
+            };
+
+            if let Some(secret) = self.jwt_decode_secret.as_ref() {
+                auth_config.with_key_from_str(secret)?;
+            }
+
+            tracing::info!(config=?auth_config, "authentication config applied");
+            Ok(Some(auth_config))
         } else {
-            tracing::info!("Auth disabled");
+            tracing::info!("auth disabled");
             Ok(None)
         }
     }

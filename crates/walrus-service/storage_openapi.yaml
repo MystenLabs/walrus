@@ -229,6 +229,90 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/blobs/{blob_id}/recoverySymbols:
+    get:
+      tags:
+      - Recovery
+      summary: Get multiple recovery symbols.
+      operationId: list_recovery_symbols
+      parameters:
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+      - name: proofAxis
+        in: query
+        description: |-
+          The sliver axis from which the proof should be constructed.
+
+          Only necessary if you intend to construct inconsistency proofs with the returned symbols.
+        required: false
+        schema:
+          $ref: '#/components/schemas/SliverType'
+        style: form
+      - name: ids
+        in: query
+        required: true
+        schema:
+          oneOf:
+          - type: object
+            description: Limit the results to the specified symbols.
+            required:
+            - id
+            properties:
+              id:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SymbolId'
+          - type: object
+            description: Return all available symbols that can be used to recover the specified sliver.
+            required:
+            - targetSliver
+            - targetType
+            properties:
+              targetSliver:
+                $ref: '#/components/schemas/SliverIndex'
+                description: The ID of the target sliver being recovered.
+              targetType:
+                $ref: '#/components/schemas/SliverType'
+                description: The type of the sliver being recovered.
+        style: form
+      responses:
+        '200':
+          description: List of BCS-encoded recovery symbols
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: May be returned when (1)  The index identifying the resource is out-of-range for the system. (2)  The shard associated with the operation is not assigned to this storage node.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: ' The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: ' The sliver cannot be returned, as the associated blob has been blocked on this storage node.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}:
     get:
       tags:
@@ -1174,6 +1258,13 @@ components:
             $ref: '#/components/schemas/SignedMessage_u8'
             description: Confirmation based on the storage node's signature.
       description: Confirmation from a storage node that it has stored the sliver pairs for a given blob.
+    SymbolId:
+      type: string
+      description: An ID of primary and secondary sliver indices that identifies a recovery symbol
+      examples:
+      - 0-0
+      - 999-32
+      pattern: '[0-9]+-[0-9]+'
     u32:
       type: integer
       format: int32

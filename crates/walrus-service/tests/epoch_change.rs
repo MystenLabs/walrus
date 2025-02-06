@@ -10,7 +10,7 @@ use walrus_core::Epoch;
 use walrus_proc_macros::walrus_simtest;
 use walrus_service::{
     client::ClientCommunicationConfig,
-    test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait},
+    test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait, TestNodesConfig},
 };
 use walrus_test_utils::Result as TestResult;
 
@@ -22,11 +22,15 @@ async fn nodes_drive_epoch_change() -> TestResult {
     let (_sui, storage_nodes, _) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
-            &[1, 1],
-            true,
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            },
+            None,
             ClientCommunicationConfig::default_for_test(),
-            None,
-            None,
         )
         .await?;
 

@@ -28,7 +28,7 @@ public fun end_epoch(self: &Storage): u32 {
     self.end_epoch
 }
 
-public fun storage_size(self: &Storage): u64 {
+public fun size(self: &Storage): u64 {
     self.storage_size
 }
 
@@ -141,9 +141,6 @@ public fun create_for_test(
 
 /// Destructor for [Storage] objects
 public fun destroy(storage: Storage) {
-    let Storage {
-        id,
-        ..,
-    } = storage;
+    let Storage { id, .. } = storage;
     id.delete();
 }

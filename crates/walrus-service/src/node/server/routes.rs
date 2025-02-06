@@ -8,10 +8,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use axum_extra::extract::Query as ExtraQuery;
+use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr, OneOrMany};
 use sui_types::base_types::ObjectID;
 use tracing::Level;
 use walrus_core::{
-    encoding::{Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
+    encoding::{GeneralRecoverySymbol, Primary as PrimaryEncoding, Secondary as SecondaryEncoding},
     messages::{
         BlobPersistenceType,
         InvalidBlobIdAttestation,
@@ -24,11 +27,15 @@ use walrus_core::{
     InconsistencyProof,
     RecoverySymbol,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
     SliverType,
     SymbolId,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus};
+use walrus_sdk::{
+    api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
+    client::RecoverySymbolsFilter,
+};
 use walrus_sui::ObjectIdSchema;
 
 use super::{
@@ -39,7 +46,7 @@ use super::{
 use crate::{
     common::api::{ApiSuccess, BlobIdString},
     node::{
-        errors::IndexOutOfRange,
+        errors::{IndexOutOfRange, ListSymbolsError},
         BlobStatusError,
         ComputeStorageConfirmationError,
         InconsistencyProofError,
@@ -74,6 +81,8 @@ pub const RECOVERY_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}/{target_pair_index}";
 /// The path to get recovery symbols.
 pub const RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/{symbol_id}";
+/// The path to get multiple recovery symbols.
+pub const RECOVERY_SYMBOL_LIST_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
 /// The path to push inconsistency proofs.
 pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/inconsistencyProof/{sliver_type}";
@@ -467,6 +476,91 @@ pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
     let symbol = state.retrieve_recovery_symbol(&blob_id.0, symbol_id, None)?;
 
     Ok(Bcs(symbol).into_response())
+}
+
+/// Specifies the set of recovery symbols to be returned.
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(style = Form, parameter_in = Query)]
+pub struct ListRecoverySymbolsQuery {
+    /// The sliver axis from which the proof should be constructed.
+    ///
+    /// Only necessary if you intend to construct inconsistency proofs with the returned symbols.
+    proof_axis: Option<SliverType>,
+
+    #[serde(flatten)]
+    #[param(inline)]
+    ids: ListRecoverySymbolIdsFilter,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+#[serde(untagged, rename_all = "camelCase")]
+pub(crate) enum ListRecoverySymbolIdsFilter {
+    /// Limit the results to the specified symbols.
+    Id {
+        #[serde_as(as = "OneOrMany<_>")]
+        id: Vec<SymbolId>,
+    },
+
+    /// Return all available symbols that can be used to recover the specified sliver.
+    #[serde(rename_all = "camelCase")]
+    ForSliver {
+        /// The ID of the target sliver being recovered.
+        #[serde_as(as = "DisplayFromStr")]
+        target_sliver: SliverIndex,
+        /// The type of the sliver being recovered.
+        target_type: SliverType,
+    },
+}
+
+impl TryFrom<ListRecoverySymbolsQuery> for RecoverySymbolsFilter {
+    type Error = ListSymbolsError;
+
+    fn try_from(query: ListRecoverySymbolsQuery) -> Result<Self, Self::Error> {
+        let filter = match query.ids {
+            ListRecoverySymbolIdsFilter::Id { id: mut symbol_ids } => {
+                symbol_ids.sort_unstable();
+                symbol_ids.dedup();
+
+                RecoverySymbolsFilter::ids(symbol_ids)
+                    .ok_or(ListSymbolsError::NoSymbolsSpecified)?
+            }
+            ListRecoverySymbolIdsFilter::ForSliver {
+                target_sliver,
+                target_type,
+            } => RecoverySymbolsFilter::recovers(target_sliver, target_type),
+        };
+
+        if let Some(proof_axis) = query.proof_axis {
+            Ok(filter.require_proof_from_axis(proof_axis))
+        } else {
+            Ok(filter)
+        }
+    }
+}
+
+/// Get multiple recovery symbols.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
+#[utoipa::path(
+    get,
+    path = RECOVERY_SYMBOL_LIST_ENDPOINT,
+    params(("blob_id" = BlobId,), ListRecoverySymbolsQuery),
+    responses(
+        (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
+        ListSymbolsError,
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn list_recovery_symbols<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
+) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
+    let filter = query.try_into()?;
+    let symbols = state.retrieve_multiple_recovery_symbols(&blob_id, filter)?;
+
+    Ok(Bcs(symbols))
 }
 
 /// Verify blob inconsistency.

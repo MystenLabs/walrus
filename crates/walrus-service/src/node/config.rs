@@ -12,7 +12,8 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use p256::pkcs8::DecodePrivateKey;
 use serde::{Deserialize, Serialize};
 use serde_with::{
     base64::Base64,
@@ -23,9 +24,9 @@ use serde_with::{
     DurationSeconds,
     SerializeAs,
 };
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair, SupportedKeyPair, TaggedKeyPair},
+    keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
     messages::ProofOfPossession,
     NetworkPublicKey,
 };
@@ -43,6 +44,27 @@ use crate::{
     node::events::EventProcessorConfig,
 };
 
+/// Configuration for the config synchronizer.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigSynchronizerConfig {
+    /// Interval between config monitoring checks.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "interval_secs")]
+    pub interval: Duration,
+    /// Enable the config monitor.
+    pub enabled: bool,
+}
+
+impl Default for ConfigSynchronizerConfig {
+    fn default() -> Self {
+        Self {
+            interval: defaults::config_synchronizer_interval(),
+            enabled: defaults::config_synchronizer_enabled(),
+        }
+    }
+}
+
 /// Configuration of a Walrus storage node.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -59,8 +81,14 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
     /// Key pair used in Walrus protocol messages.
+    // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub protocol_key_pair: PathOrInPlace<ProtocolKeyPair>,
+    /// The next protocol key pair to use for the storage node.
+    // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
+    #[serde_as(as = "Option<PathOrInPlace<Base64>>")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
     /// Key pair used to authenticate nodes in network communication.
     #[serde_as(as = "PathOrInPlace<Base64>")]
     pub network_key_pair: PathOrInPlace<NetworkKeyPair>,
@@ -123,6 +151,12 @@ pub struct StorageNodeConfig {
     /// Metric push configuration.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub metrics_push: Option<MetricsPushConfig>,
+    /// Configuration for the config synchronizer.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub config_synchronizer: ConfigSynchronizerConfig,
+    /// The capability object ID of the storage node.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub storage_node_cap: Option<ObjectID>,
 }
 
 impl Default for StorageNodeConfig {
@@ -132,6 +166,7 @@ impl Default for StorageNodeConfig {
             blocklist_path: Default::default(),
             db_config: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
+            next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
             public_host: defaults::rest_api_address().ip().to_string(),
             public_port: defaults::rest_api_port(),
@@ -155,14 +190,80 @@ impl Default for StorageNodeConfig {
             name: Default::default(),
             metrics_push: None,
             metadata: Default::default(),
+            config_synchronizer: Default::default(),
+            storage_node_cap: None,
         }
     }
 }
 
 impl StorageNodeConfig {
+    /// Rotates the protocol key pair.
+    pub fn rotate_protocol_key_pair(&mut self) {
+        if let Some(next_key_pair) = self.next_protocol_key_pair.clone() {
+            self.protocol_key_pair = next_key_pair;
+            self.next_protocol_key_pair = None;
+        }
+    }
+
+    /// Rotates the protocol key pair and persists the config to disk.
+    /// This happens when the on-chain protocol key pair has been rotated.
+    /// The protocol_key_pair is set to the new key pair, and the
+    /// next_protocol_key_pair is cleared.
+    pub fn rotate_protocol_key_pair_persist(path: impl AsRef<Path>) -> anyhow::Result<()> {
+        // Load config from path, preserving the raw Value to maintain all fields
+        let config_str = std::fs::read_to_string(path.as_ref())?;
+        let mut original_value: serde_yaml::Value = serde_yaml::from_str(&config_str)?;
+        let mut config: StorageNodeConfig = serde_yaml::from_str(&config_str)?;
+        // Constants for config key strings
+        const PROTOCOL_KEY_PAIR_KEY: &str = "protocol_key_pair";
+        const NEXT_PROTOCOL_KEY_PAIR_KEY: &str = "next_protocol_key_pair";
+
+        if config.next_protocol_key_pair.is_none() {
+            return Err(anyhow::anyhow!("{} is not set", NEXT_PROTOCOL_KEY_PAIR_KEY));
+        }
+
+        // Rotate the protocol key pair
+        config.rotate_protocol_key_pair();
+
+        // Update only the relevant fields in the original Value
+        if let serde_yaml::Value::Mapping(ref mut map) = original_value {
+            // Update protocol_key_pair
+            if let Ok(protocol_key_pair) = serde_yaml::to_value(&config.protocol_key_pair) {
+                map.insert(
+                    serde_yaml::Value::String(PROTOCOL_KEY_PAIR_KEY.to_string()),
+                    protocol_key_pair,
+                );
+            }
+            // Clear next_protocol_key_pair
+            map.remove(serde_yaml::Value::String(
+                NEXT_PROTOCOL_KEY_PAIR_KEY.to_string(),
+            ));
+        }
+
+        // Write to temporary file first
+        let temp_path = path.as_ref().with_extension("tmp");
+        let config_str = serde_yaml::to_string(&original_value)
+            .map_err(|e| anyhow::anyhow!("failed to serialize config: {e}"))?;
+        std::fs::write(&temp_path, config_str)
+            .map_err(|e| anyhow::anyhow!("failed to write temporary config file: {e}"))?;
+
+        // Remove old file if it exists
+        if path.as_ref().exists() {
+            std::fs::remove_file(path.as_ref())?;
+        }
+
+        // Rename temporary file to actual config file
+        std::fs::rename(&temp_path, path.as_ref())?;
+
+        Ok(())
+    }
+
     /// Loads the keys from disk into memory.
     pub fn load_keys(&mut self) -> Result<(), anyhow::Error> {
         self.protocol_key_pair.load()?;
+        if let Some(next_protocol_key_pair) = self.next_protocol_key_pair.as_mut() {
+            next_protocol_key_pair.load()?;
+        }
         self.network_key_pair.load()?;
         Ok(())
     }
@@ -187,6 +288,18 @@ impl StorageNodeConfig {
         self.protocol_key_pair
             .get()
             .expect("key pair should already be loaded into memory")
+    }
+
+    /// Returns the next protocol key pair, if it exists.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the next protocol key pair exists but hasn't been loaded into memory yet.
+    pub fn next_protocol_key_pair(&self) -> Option<&ProtocolKeyPair> {
+        self.next_protocol_key_pair.as_ref().map(|k| {
+            k.get()
+                .expect("next protocol key pair should already be loaded into memory")
+        })
     }
 
     /// Converts the configuration into registration parameters used for node registration.
@@ -232,7 +345,7 @@ impl StorageNodeConfig {
                 .then_some(local_public_address),
             network_public_key: (network_public_key != local_network_public_key)
                 .then_some(local_network_public_key.clone()),
-            next_public_key_params: None,
+            update_public_key: None,
             storage_price: (voting_params.storage_price != self.voting_params.storage_price)
                 .then_some(self.voting_params.storage_price),
             write_price: (voting_params.write_price != self.voting_params.write_price)
@@ -296,23 +409,15 @@ impl MetricsPushConfig {
 
 /// Configuration for TLS of the rest API.
 #[derive(Debug, Default, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
 pub struct TlsConfig {
     /// Do not use TLS on the REST API.
     ///
     /// Should only be disabled if TLS encryption is being offloaded to another
     /// service in the network.
     pub disable_tls: bool,
-    /// Paths to the certificate and key used to secure the REST API.
-    pub pem_files: Option<TlsCertificateAndKey>,
-}
-
-/// Paths to a TLS certificate and key.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-pub struct TlsCertificateAndKey {
     /// Path to the PEM-encoded x509 certificate.
-    pub certificate_path: PathBuf,
-    /// Path to the PEM-encoded PKCS8 certificate private key.
-    pub key_path: PathBuf,
+    pub certificate_path: Option<PathBuf>,
 }
 
 /// Configuration of a Walrus storage node.
@@ -370,6 +475,9 @@ pub struct CommitteeServiceConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
+    /// Use the experimental batch recovery service endpoint.
+    #[serde(skip_serializing_if = "defaults::is_default")]
+    pub experimental_batch_symbol_recovery: bool,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -382,6 +490,7 @@ impl Default for CommitteeServiceConfig {
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
+            experimental_batch_symbol_recovery: false,
         }
     }
 }
@@ -442,6 +551,8 @@ pub mod defaults {
     pub const REST_API_PORT: u16 = 9185;
     /// Default number of seconds to wait for graceful shutdown.
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
+    /// Default interval between config monitoring checks in seconds.
+    pub const CONFIG_SYNCHRONIZER_INTERVAL_SECS: u64 = 900;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -498,6 +609,16 @@ pub mod defaults {
         // to generate the example configuration files.
         !cfg!(test) && t.is_none()
     }
+
+    /// The default interval between config monitoring checks
+    pub fn config_synchronizer_interval() -> Duration {
+        Duration::from_secs(CONFIG_SYNCHRONIZER_INTERVAL_SECS)
+    }
+
+    /// Returns false in test mode.
+    pub fn config_synchronizer_enabled() -> bool {
+        !cfg!(test)
+    }
 }
 
 /// Enum that represents a configuration value being preset or at a path.
@@ -552,6 +673,15 @@ impl<T> PathOrInPlace<T> {
     pub const fn is_path(&self) -> bool {
         matches!(self, PathOrInPlace::Path { .. })
     }
+
+    /// Returns the path, if any.
+    pub fn path(&self) -> Option<&Path> {
+        if let PathOrInPlace::Path { path, .. } = self {
+            Some(path)
+        } else {
+            None
+        }
+    }
 }
 
 impl<T> From<T> for PathOrInPlace<T> {
@@ -560,26 +690,87 @@ impl<T> From<T> for PathOrInPlace<T> {
     }
 }
 
-impl<T: SupportedKeyPair> PathOrInPlace<TaggedKeyPair<T>> {
-    /// Loads and returns a key pair from the path on disk.
+/// Trait for simplifying the loading of different representations from the file.
+pub trait LoadsFromPath: Sized {
+    /// Loads the value from the specified filesystem path.
+    fn load(path: &Path) -> Result<Self, anyhow::Error>;
+}
+
+impl LoadsFromPath for ProtocolKeyPair {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        let base64_string = std::fs::read_to_string(path)
+            .context(format!("unable to read key from '{}'", path.display()))?;
+        base64_string
+            .parse()
+            .map_err(|err: KeyPairParseError| anyhow!(err.to_string()))
+    }
+}
+
+impl LoadsFromPath for NetworkKeyPair {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        let _span = tracing::info_span!("load", path = %path.display()).entered();
+
+        let file_contents = std::fs::read_to_string(path)
+            .context(format!("unable to read key from '{}'", path.display()))?;
+
+        NetworkKeyPair::from_pkcs8_pem(&file_contents)
+            .inspect(|_| tracing::info!("loaded network private key in PKCS#8 format"))
+            .or_else(|error| {
+                tracing::debug!(
+                    ?error,
+                    "failed to load network key in PKCS#8 format, trying tagged"
+                );
+
+                NetworkKeyPair::from_str(&file_contents)
+                    .inspect(|_| {
+                        tracing::info!("loaded network private key in tagged format");
+                    })
+                    .map_err(|error2| {
+                        anyhow!(
+                            "unsupported network private key format: key is neither in PKCS#8 \
+                            format ({error}), nor in \"tagged\" format ({error2})"
+                        )
+                    })
+            })
+    }
+}
+
+impl LoadsFromPath for Vec<u8> {
+    fn load(path: &Path) -> Result<Self, anyhow::Error> {
+        std::fs::read(path).map_err(|error| anyhow!(error))
+    }
+}
+
+impl<T: LoadsFromPath> PathOrInPlace<T> {
+    /// Loads and returns the value from the filesystem path.
     ///
     /// If the value was already loaded, it is returned instead.
-    pub fn load(&mut self) -> Result<&TaggedKeyPair<T>, anyhow::Error> {
+    pub fn load(&mut self) -> Result<&T, anyhow::Error> {
         if let PathOrInPlace::Path {
             path,
             value: value @ None,
         } = self
         {
-            let base64_string = std::fs::read_to_string(path.as_path())
-                .context(format!("unable to read key from '{}'", path.display()))?;
-            let decoded: TaggedKeyPair<T> = base64_string
-                .parse()
-                .map_err(|err: KeyPairParseError| anyhow::anyhow!(err.to_string()))?;
-            *value = Some(decoded)
+            *value = Some(T::load(path)?)
         };
+
         Ok(self
             .get()
             .expect("we just made sure that the value is some"))
+    }
+
+    /// Loads and returns the value from the filesystem path, or returns the value if it is already
+    /// loaded.
+    ///
+    /// This does not update the stored value, and so can be called with only a shared reference.
+    pub fn load_transient(&self) -> Result<T, anyhow::Error>
+    where
+        T: Clone,
+    {
+        match self {
+            PathOrInPlace::InPlace(value) => Ok(value.clone()),
+            PathOrInPlace::Path { path, .. } => T::load(path),
+        }
     }
 }
 
@@ -676,9 +867,10 @@ mod tests {
     use std::{io::Write as _, str::FromStr};
 
     use indoc::indoc;
+    use p256::{pkcs8, pkcs8::EncodePrivateKey};
     use rand::{rngs::StdRng, SeedableRng as _};
     use sui_types::base_types::ObjectID;
-    use tempfile::NamedTempFile;
+    use tempfile::{NamedTempFile, TempDir};
     use walrus_core::test_utils;
     use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;
@@ -707,6 +899,10 @@ mod tests {
                 backoff_config: Default::default(),
                 gas_budget: None,
             }),
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),
+                enabled: true,
+            },
             ..Default::default()
         };
 
@@ -777,6 +973,24 @@ mod tests {
         let mut path = PathOrInPlace::<ProtocolKeyPair>::from_path(key_file.path());
 
         assert_eq!(*path.load()?, key);
+
+        Ok(())
+    }
+
+    #[test]
+    fn loads_pem_network_keypair() -> TestResult {
+        let key = test_utils::network_key_pair();
+        let pem_string = key
+            .to_pkcs8_pem(pkcs8::LineEnding::default())
+            .expect("key can be serialized as pem");
+
+        let key_file = NamedTempFile::new()?;
+        key_file.as_file().write_all(pem_string.as_ref())?;
+
+        let mut path = PathOrInPlace::<NetworkKeyPair>::from_path(key_file.path());
+        let loaded_key = path.load().expect("key should load successfully");
+
+        assert_eq!(*loaded_key, key);
 
         Ok(())
     }
@@ -922,7 +1136,7 @@ mod tests {
                 config.public_host, config.public_port
             ))),
             network_public_key: Some(config.network_key_pair().public().clone()),
-            next_public_key_params: None,
+            update_public_key: None,
             storage_price: Some(config.voting_params.storage_price),
             write_price: Some(config.voting_params.write_price),
             node_capacity: Some(config.voting_params.node_capacity),
@@ -941,7 +1155,7 @@ mod tests {
             name: None,
             network_address: None,
             network_public_key: None,
-            next_public_key_params: None,
+            update_public_key: None,
             storage_price: Some(config.voting_params.storage_price),
             write_price: Some(config.voting_params.write_price),
             node_capacity: Some(config.voting_params.node_capacity),
@@ -961,6 +1175,66 @@ mod tests {
             result.network_address.map(|addr| addr.0),
             Some(format!("{}:{}", config.public_host, config.public_port))
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rotate_protocol_key_pair_persist() -> TestResult {
+        // Create temporary directory for test
+        let temp_dir = TempDir::new()?;
+        let config_path = temp_dir.path().join("config.yaml");
+        let key_path = temp_dir.path().join("protocol_key.key");
+        let next_key_path = temp_dir.path().join("next_protocol_key.key");
+        create_protocol_key_file(&key_path)?;
+        create_protocol_key_file(&next_key_path)?;
+
+        let config = StorageNodeConfig {
+            protocol_key_pair: PathOrInPlace::from_path(key_path),
+            next_protocol_key_pair: Some(PathOrInPlace::from_path(next_key_path.clone())),
+            name: "test-node".to_string(),
+            storage_path: temp_dir.path().to_path_buf(),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
+            public_host: "localhost".to_string(),
+            public_port: 9185,
+            voting_params: VotingParams {
+                storage_price: 100,
+                write_price: 2000,
+                node_capacity: 250_000_000,
+            },
+            ..Default::default()
+        };
+
+        // Write config to file
+        let config_str = serde_yaml::to_string(&config)?;
+        std::fs::write(&config_path, config_str)?;
+
+        // Call rotate_protocol_key_pair_persist
+        StorageNodeConfig::rotate_protocol_key_pair_persist(&config_path)?;
+
+        // Read back the config and verify the rotation
+        let config_content = std::fs::read_to_string(&config_path)?;
+        let loaded_config: StorageNodeConfig = serde_yaml::from_str(&config_content)?;
+
+        // Verify that the protocol key pair was rotated
+        assert_eq!(
+            loaded_config.protocol_key_pair,
+            PathOrInPlace::from_path(next_key_path.clone()),
+            "Protocol key pair should be rotated to next key pair"
+        );
+        assert_eq!(
+            loaded_config.next_protocol_key_pair, None,
+            "Next protocol key pair should be cleared after rotation"
+        );
+
+        Ok(())
+    }
+
+    fn create_protocol_key_file(path: &Path) -> Result<(), anyhow::Error> {
+        let mut file = std::fs::File::create(path)
+            .with_context(|| format!("Cannot create the keyfile '{}'", path.display()))?;
+
+        file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
 
         Ok(())
     }

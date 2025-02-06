@@ -16,9 +16,11 @@ use std::{
 use anyhow::{anyhow, bail, Context};
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
+use errors::ListSymbolsError;
 use events::event_blob_writer::EventBlobWriter;
 use fastcrypto::traits::KeyPair;
 use futures::{stream, Stream, StreamExt, TryFutureExt as _};
+use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -27,7 +29,7 @@ use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::{fail_point_arg, fail_point_async};
-use sui_types::event::EventID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -71,17 +73,20 @@ use walrus_core::{
     SliverType,
     SymbolId,
 };
-use walrus_sdk::api::{
-    BlobStatus,
-    ServiceHealthInfo,
-    ShardHealthInfo,
-    ShardStatus as ApiShardStatus,
-    ShardStatusDetail,
-    ShardStatusSummary,
-    StoredOnNodeStatus,
+use walrus_sdk::{
+    api::{
+        BlobStatus,
+        ServiceHealthInfo,
+        ShardHealthInfo,
+        ShardStatus as ApiShardStatus,
+        ShardStatusDetail,
+        ShardStatusSummary,
+        StoredOnNodeStatus,
+    },
+    client::{RecoverySymbolsFilter, SymbolIdFilter},
 };
 use walrus_sui::{
-    client::{SuiClientError, SuiReadClient},
+    client::SuiReadClient,
     types::{
         BlobCertified,
         BlobDeleted,
@@ -113,6 +118,7 @@ use self::{
         ShardNotAssigned,
         StoreMetadataError,
         StoreSliverError,
+        SyncNodeConfigError,
         SyncShardServiceError,
     },
     events::{
@@ -154,6 +160,9 @@ mod start_epoch_change_finisher;
 
 pub(crate) mod errors;
 mod storage;
+
+mod config_synchronizer;
+use config_synchronizer::ConfigSynchronizer;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -219,6 +228,16 @@ pub trait ServiceState {
         sliver_type: Option<SliverType>,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError>;
 
+    /// Retrieves multiple recovery symbols.
+    ///
+    /// Attempts to retrieve multiple recovery symbols, skipping any failures that occur. Returns an
+    /// error if none of the requested symbols can be retrieved.
+    fn retrieve_multiple_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>;
+
     /// Retrieves the blob status for the given `blob_id`.
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
 
@@ -251,7 +270,7 @@ pub struct StorageNodeBuilder {
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
-    ignore_sync_failures: bool, // This will default to false due to bool's default implementation.
+    ignore_sync_failures: bool,
 }
 
 impl StorageNodeBuilder {
@@ -435,6 +454,7 @@ pub struct StorageNode {
     start_epoch_change_finisher: StartEpochChangeFinisher,
     node_recovery_handler: NodeRecoveryHandler,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
+    config_synchronizer: Option<Arc<ConfigSynchronizer>>,
 }
 
 /// The internal state of a Walrus storage node.
@@ -451,6 +471,7 @@ pub struct StorageNodeInner {
     current_epoch: watch::Sender<Epoch>,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
+    node_capability: ObjectID,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -468,60 +489,6 @@ pub struct NodeParameters {
     ignore_sync_failures: bool,
 }
 
-/// Check if the node parameters are in sync with the on-chain parameters.
-/// If not, update the node parameters on-chain.
-/// If the current node is not registered yet, error out.
-/// If the wallet is not present in the config, do nothing.
-async fn sync_node_params(config: &StorageNodeConfig) -> anyhow::Result<()> {
-    let Some(ref node_wallet_config) = config.sui else {
-        // Not failing here, since the wallet may be absent in tests.
-        // In production, an absence of the wallet will fail the node eventually.
-        tracing::error!("storage config does not contain Sui wallet configuration");
-        return Ok(());
-    };
-
-    let contract_client = node_wallet_config.new_contract_client().await?;
-    let address = contract_client.address();
-
-    let node_cap = contract_client
-        .read_client
-        .get_address_capability_object(address)
-        .await?
-        .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?;
-
-    let pool = contract_client
-        .read_client
-        .get_staking_pool(node_cap.node_id)
-        .await?;
-
-    let node_info = &pool.node_info;
-
-    let update_params = config.generate_update_params(
-        node_info.name.as_str(),
-        node_info.network_address.0.as_str(),
-        &node_info.network_public_key,
-        &pool.voting_params,
-    );
-
-    if update_params.needs_update() {
-        tracing::info!(
-            node_name = config.name,
-            node_id = ?node_info.node_id,
-            update_params = ?update_params,
-            "update node params"
-        );
-        contract_client.update_node_params(update_params).await?;
-    } else {
-        tracing::info!(
-            node_name = config.name,
-            node_id = ?node_info.node_id,
-            "node parameters are in sync with on-chain values"
-        );
-    }
-
-    Ok(())
-}
-
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
@@ -533,14 +500,41 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
-        sync_node_params(config).await.or_else(|e| {
-            node_params
-                .ignore_sync_failures
-                .then(|| {
-                    tracing::warn!("Failed to sync node params: {}", e);
-                })
-                .ok_or(e)
-        })?;
+        let node_capability = contract_service
+            .get_node_capability_object(config.storage_node_cap)
+            .await?;
+        let config_synchronizer =
+            config
+                .config_synchronizer
+                .enabled
+                .then_some(Arc::new(ConfigSynchronizer::new(
+                    config.clone(),
+                    contract_service.clone(),
+                    committee_service.clone(),
+                    config.config_synchronizer.interval,
+                    node_capability.id,
+                )));
+
+        if let Some(config_synchronizer) = config_synchronizer.as_ref() {
+            config_synchronizer
+                .sync_node_params()
+                .await
+                .or_else(|e| match e {
+                    SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
+                    SyncNodeConfigError::NodeNeedsReboot => {
+                        tracing::info!("ignore the error since we are booting");
+                        Ok(())
+                    }
+                    _ => {
+                        if node_params.ignore_sync_failures {
+                            tracing::warn!(error = ?e, "failed to sync node params");
+                            Ok(())
+                        } else {
+                            Err(e)
+                        }
+                    }
+                })?;
+        }
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -568,6 +562,7 @@ impl StorageNode {
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
+            node_capability: node_capability.id,
         });
 
         blocklist.start_refresh_task();
@@ -617,6 +612,7 @@ impl StorageNode {
             start_epoch_change_finisher,
             node_recovery_handler,
             event_blob_writer_factory,
+            config_synchronizer,
         })
     }
 
@@ -657,6 +653,20 @@ impl StorageNode {
                         }
                         return Err(e.into());
                     },
+                }
+            },
+            config_synchronizer_result = async {
+                if let Some(c) = self.config_synchronizer.as_ref() {
+                    c.run().await
+                } else {
+                    // Never complete if no config synchronizer
+                    std::future::pending().await
+                }
+            } => {
+                tracing::info!("config monitor task ended");
+                match config_synchronizer_result {
+                    Ok(()) => unreachable!("config monitor never returns"),
+                    Err(e) => return Err(e.into()),
                 }
             }
         }
@@ -1030,9 +1040,9 @@ impl StorageNode {
         let start = tokio::time::Instant::now();
         let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
 
-        if self.inner.is_stored_at_all_shards(&event.blob_id)?
-            || !self.inner.is_blob_certified(&event.blob_id)?
+        if !self.inner.is_blob_certified(&event.blob_id)?
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
+            || self.inner.is_stored_at_all_shards(&event.blob_id)?
         {
             event_handle.mark_as_complete();
 
@@ -1109,6 +1119,9 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        if let Some(c) = self.config_synchronizer.as_ref() {
+            c.sync_node_params().await?;
+        }
         // TODO(WAL-479): need to check if the node is lagging or not.
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
@@ -1458,6 +1471,11 @@ impl StorageNode {
 impl StorageNodeInner {
     pub(crate) fn encoding_config(&self) -> &EncodingConfig {
         &self.encoding_config
+    }
+
+    /// Returns the node capability object ID.
+    pub fn node_capability(&self) -> ObjectID {
+        self.node_capability
     }
 
     pub(crate) fn owned_shards(&self) -> Vec<ShardIndex> {
@@ -1850,6 +1868,15 @@ impl ServiceState for StorageNode {
             .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
     }
 
+    fn retrieve_multiple_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+        self.inner
+            .retrieve_multiple_recovery_symbols(blob_id, filter)
+    }
+
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
         self.inner.blob_status(blob_id)
     }
@@ -2047,7 +2074,7 @@ impl ServiceState for StorageNodeInner {
         Ok(sign_message(message, self.protocol_key_pair.clone()).await?)
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip(self))]
     fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
@@ -2105,6 +2132,60 @@ impl ServiceState for StorageNodeInner {
         }
 
         Err(final_error)
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn retrieve_multiple_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: RecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+        let n_shards = self.n_shards();
+
+        let symbol_id_iter = match filter.id_filter() {
+            SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
+
+            SymbolIdFilter::Recovers {
+                target_sliver: target,
+                target_type,
+            } => Either::Right(self.owned_shards().into_iter().map(|shard_id| {
+                let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
+                match *target_type {
+                    SliverType::Primary => {
+                        SymbolId::new(*target, pair_stored.to_sliver_index::<Secondary>(n_shards))
+                    }
+                    SliverType::Secondary => {
+                        SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
+                    }
+                }
+            })),
+        };
+
+        let mut output = vec![];
+        let mut last_error = ListSymbolsError::NoSymbolsSpecified;
+
+        // If a specific proof axis is requested, then specify the target-type to the retrieve
+        // function, otherwise, specify only the symbol IDs.
+        let target_type_from_proof = filter.proof_axis().map(|axis| axis.orthogonal());
+
+        for symbol_id in symbol_id_iter {
+            match self.retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof) {
+                Ok(symbol) => output.push(symbol),
+
+                // Callers may request symbols that are not stored with this shard, or
+                // completely invalid symbols. These are ignored unless there are no successes.
+                Err(error) => {
+                    tracing::debug!(%error, %symbol_id, "failed to get requested symbol");
+                    last_error = error.into();
+                }
+            }
+        }
+
+        if output.is_empty() {
+            Err(last_error)
+        } else {
+            Ok(output)
+        }
     }
 
     fn n_shards(&self) -> NonZeroU16 {
@@ -2198,7 +2279,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
     use std::{sync::OnceLock, time::Duration};
 
     use chrono::Utc;
@@ -2225,7 +2305,7 @@ mod tests {
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{event_id_for_testing, EventForTesting},
-        types::{move_structs::EpochState, BlobRegistered},
+        types::{move_structs::EpochState, BlobRegistered, StorageNodeCap},
     };
     use walrus_test_utils::{
         async_param_test,
@@ -4968,6 +5048,14 @@ mod tests {
                     max_epochs_ahead: 200,
                     epoch_duration: Duration::from_secs(600),
                     epoch_zero_end: Utc::now() + Duration::from_secs(60),
+                })
+            });
+        contract_service
+            .expect_get_node_capability_object()
+            .returning(|capability_object_id| {
+                Ok(StorageNodeCap {
+                    id: capability_object_id.unwrap_or(ObjectID::random()),
+                    ..StorageNodeCap::new_for_testing()
                 })
             });
         contract_service

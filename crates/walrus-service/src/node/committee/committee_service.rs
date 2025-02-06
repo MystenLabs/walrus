@@ -35,7 +35,12 @@ use walrus_sui::types::Committee;
 
 use super::{
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
-    request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
+    request_futures::{
+        GetAndVerifyMetadata,
+        GetInvalidBlobCertificate,
+        LegacyRecoverSliver,
+        RecoverSliver,
+    },
     BeginCommitteeChangeError,
     CommitteeLookupService,
     CommitteeService,
@@ -48,7 +53,6 @@ use crate::{
         ActiveCommittees,
         ChangeNotInProgress,
         CommitteeTracker,
-        NextCommitteeAlreadySet,
         StartChangeError,
     },
     node::{
@@ -265,18 +269,14 @@ where
         let modify_tracker = |tracker: &mut CommitteeTracker| {
             // Guaranteed by the caller.
             assert_eq!(tracker.next_epoch(), next_committee.epoch);
-            if let Err(NextCommitteeAlreadySet(next_committee)) =
-                tracker.set_committee_for_next_epoch(next_committee)
-            {
-                let stored_next_committee = tracker
-                    .committees()
-                    .next_committee()
-                    .expect("committee is already set");
-                assert_eq!(
-                    next_committee, **stored_next_committee,
-                    "committee for the next epoch cannot change after being fetched"
-                );
-            }
+            tracker
+                .set_committee_for_next_epoch(next_committee)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "committee for the next epoch cannot change after being fetched: {}",
+                        error
+                    );
+                });
 
             modify_result = tracker.start_change().map_err(|error| match error {
                 StartChangeError::UnknownNextCommittee => unreachable!("committee set above"),
@@ -501,7 +501,16 @@ where
             .await
     }
 
-    #[tracing::instrument(name = "recover_sliver committee", skip_all)]
+    #[tracing::instrument(
+        name = "recover_sliver__committee",
+        skip_all,
+        fields(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.pair_index = %sliver_id,
+            walrus.sliver.type = %sliver_type,
+            walrus.blob.certified_epoch = certified_epoch,
+        )
+    )]
     async fn recover_sliver(
         &self,
         metadata: Arc<VerifiedBlobMetadataWithId>,
@@ -509,15 +518,27 @@ where
         sliver_type: SliverType,
         certified_epoch: Epoch,
     ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
-        RecoverSliver::new(
-            metadata,
-            sliver_id,
-            sliver_type,
-            certified_epoch,
-            &self.inner,
-        )
-        .run()
-        .await
+        if self.inner.config.experimental_batch_symbol_recovery {
+            RecoverSliver::new(
+                metadata,
+                sliver_id,
+                sliver_type,
+                certified_epoch,
+                &self.inner,
+            )
+            .run()
+            .await
+        } else {
+            LegacyRecoverSliver::new(
+                metadata,
+                sliver_id,
+                sliver_type,
+                certified_epoch,
+                &self.inner,
+            )
+            .run()
+            .await
+        }
     }
 
     #[tracing::instrument(name = "get_invalid_blob_certificate committee", skip_all)]
@@ -613,6 +634,26 @@ where
 
     fn end_committee_change(&self, epoch: Epoch) -> Result<(), EndCommitteeChangeError> {
         self.end_committee_change_to(epoch)
+    }
+
+    async fn sync_committee_members(&self) -> Result<(), anyhow::Error> {
+        let latest = self
+            .committee_lookup
+            .get_active_committees()
+            .await
+            .map_err(BeginCommitteeChangeError::LookupError)?;
+
+        let mut service_factory = self.inner.service_factory.lock().await;
+
+        if let Some(previous_committee) = latest.previous_committee() {
+            self.extend_services_from_committee(previous_committee, &mut service_factory)
+                .await?;
+        }
+
+        self.extend_services_from_committee(latest.current_committee(), &mut service_factory)
+            .await?;
+
+        Ok(())
     }
 
     async fn begin_committee_change_to_latest_committee(

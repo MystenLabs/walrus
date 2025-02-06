@@ -28,9 +28,10 @@ required-features = ["backup"]
 
 [features]
 backup = [
-  "dep:async-channel",
+  "dep:bytes",
   "dep:diesel",
   "dep:diesel-async",
+  "dep:object_store",
 ]
 client = [
   "dep:colored",
@@ -60,7 +61,6 @@ test-utils = [
 
 [dependencies]
 anyhow.workspace = true
-async-channel = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 axum = { workspace = true, features = [
   "http1",
@@ -72,11 +72,12 @@ axum = { workspace = true, features = [
   "tower-log",
   "tracing",
 ] }
-axum-extra = { workspace = true, features = ["typed-header"] }
+axum-extra = { workspace = true, features = ["query", "typed-header"] }
 axum-server = { workspace = true, features = ["tls-rustls-no-provider"] }
 bcs.workspace = true
 bincode = { workspace = true, optional = true }
 byteorder.workspace = true
+bytes = { workspace = true, optional = true }
 chrono.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
@@ -99,12 +100,12 @@ mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
+object_store = { workspace = true, optional = true }
 opentelemetry.workspace = true
 p256.workspace = true
 pin-project.workspace = true
 prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
-querystr = "1.1.1"
 rand.workspace = true
 rcgen.workspace = true
 regex.workspace = true

@@ -216,18 +216,6 @@ public fun n_shards(self: &System): u16 {
     self.inner().n_shards()
 }
 
-// === Restricted to Package ===
-
-/// Accessor for the current committee.
-public(package) fun committee(self: &System): &BlsCommittee {
-    self.inner().committee()
-}
-
-#[test_only]
-public(package) fun committee_mut(self: &mut System): &mut BlsCommittee {
-    self.inner_mut().committee_mut()
-}
-
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
 /// Called by the epoch change function that connects `Staking` and `System`. Returns
@@ -293,8 +281,18 @@ public(package) fun inner(system: &System): &SystemStateInnerV1 {
 // === Testing ===
 
 #[test_only]
-public fun new_for_testing(): System {
-    let ctx = &mut tx_context::dummy();
+/// Accessor for the current committee.
+public(package) fun committee(self: &System): &BlsCommittee {
+    self.inner().committee()
+}
+
+#[test_only]
+public(package) fun committee_mut(self: &mut System): &mut BlsCommittee {
+    self.inner_mut().committee_mut()
+}
+
+#[test_only]
+public fun new_for_testing(ctx: &mut TxContext): System {
     let mut system = System {
         id: object::new(ctx),
         version: VERSION,

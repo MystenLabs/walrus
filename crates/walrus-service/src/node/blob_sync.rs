@@ -589,7 +589,7 @@ impl BlobSynchronizer {
             let shard_storage = self
                 .storage()
                 .shard_storage(shard)
-                .expect("shard is managed by this node");
+                .unwrap_or_else(|| panic!("shard {} is managed by this node", shard));
             let sliver_id = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));

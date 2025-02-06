@@ -600,6 +600,16 @@ impl EventProcessor {
             .unwrap_or(0);
 
         let latest_checkpoint = retry_client.get_latest_checkpoint().await?;
+        if current_checkpoint > latest_checkpoint.sequence_number {
+            tracing::error!(
+                current_checkpoint,
+                ?latest_checkpoint,
+                "Current store has a checkpoint that is greater than latest network checkpoint! \
+                    This is especially likely when a node is restarted running against a newer \
+                    localnet, testnet or devnet network."
+            );
+            return Err(anyhow!("Invalid checkpoint state"));
+        }
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
         let url = runtime_config.rpc_address.clone();

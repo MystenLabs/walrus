@@ -356,6 +356,10 @@ status_codes![
 
     /// The deadline expired before the operation could complete.
     (DeadlineExceeded, "DEADLINE_EXCEEDED", HttpStatusCode::GATEWAY_TIMEOUT),
+
+    /// The request does not have valid authentication credentials for the
+    /// operation.
+    (Unauthenticated, "UNAUTHENTICATED", HttpStatusCode::UNAUTHORIZED),
 ];
 
 #[serde_as]

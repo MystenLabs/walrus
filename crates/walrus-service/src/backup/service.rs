@@ -3,7 +3,7 @@
 
 //! Backup service implementation.
 
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use diesel_async::{
@@ -13,8 +13,10 @@ use diesel_async::{
     RunQueryDsl as _,
 };
 use futures::{stream, StreamExt};
+use object_store::{gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, ObjectStore};
 use prometheus::Registry;
 use sui_types::event::EventID;
+use tokio_util::sync::CancellationToken;
 use walrus_core::{encoding::Primary, BlobId};
 use walrus_sui::{
     client::{retry_client::RetriableSuiClient, SuiReadClient},
@@ -22,20 +24,21 @@ use walrus_sui::{
 };
 
 use super::{
-    config::WORKER_COUNT,
-    models::{self, StreamEvent},
+    config::BackupConfig,
+    models::{self, BlobIdRow, StreamEvent},
     schema,
-    BackupNodeConfig,
+    BACKUP_BLOB_ARCHIVE_SUBDIR,
 };
 use crate::{
-    backup::models::BlobIdRow,
     client::{
         config::{ClientCommunicationConfig, Config as ClientConfig},
         Client,
     },
+    common::utils::{self, version, MetricsAndLoggingRuntime},
     node::{
         events::{
             event_processor::EventProcessor,
+            event_processor_runtime::EventProcessorRuntime,
             CheckpointEventPosition,
             EventStreamElement,
             PositionedStreamEvent,
@@ -43,6 +46,10 @@ use crate::{
         system_events::SystemEventProvider as _,
     },
 };
+
+/// The version of the Walrus backup service.
+pub const VERSION: &str = version!();
+const FETCHER_ERROR_BACKOFF: Duration = Duration::from_secs(1);
 
 async fn stream_events(
     event_processor: Arc<EventProcessor>,
@@ -121,11 +128,20 @@ async fn dispatch_contract_event(
     conn: &mut AsyncPgConnection,
 ) -> Result<()> {
     match contract_event {
+        // Note that certifying the same blob twice might result in resetting the retry_count. This
+        // automatically gives the re-certified blob another chance to be backed up without human
+        // intervention.
         ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) => {
             diesel::dsl::sql_query(
                 "
-                INSERT INTO blob_state (blob_id, state, end_epoch, fetch_attempts)
-                VALUES ($1, 'waiting', $2, 0)
+                INSERT INTO blob_state (
+                    blob_id,
+                    state,
+                    end_epoch,
+                    orchestrator_version,
+                    retry_count
+                )
+                VALUES ($1, 'waiting', $2, $3, 1)
                 ON CONFLICT (blob_id)
                 DO UPDATE SET
                     end_epoch = GREATEST(EXCLUDED.end_epoch, blob_state.end_epoch),
@@ -135,15 +151,17 @@ async fn dispatch_contract_event(
                         ELSE
                             'waiting'
                         END,
-                    fetch_attempts = CASE WHEN
+                    retry_count = CASE WHEN
                         blob_state.state = 'waiting' THEN
-                            0
+                            1
                         ELSE
                             NULL
-                        END",
+                        END,
+                    orchestrator_version = $3",
             )
             .bind::<diesel::sql_types::Bytea, _>(blob_certified.blob_id.0.to_vec())
             .bind::<diesel::sql_types::Int8, _>(i64::from(blob_certified.end_epoch))
+            .bind::<diesel::sql_types::Text, _>(VERSION)
             .execute(conn)
             .await?;
         }
@@ -165,154 +183,182 @@ async fn dispatch_contract_event(
     Ok(())
 }
 
-async fn establish_connection(database_url: &str) -> Result<AsyncPgConnection> {
-    AsyncPgConnection::establish(database_url)
-        .await
-        .with_context(|| format!("connecting to the database [database_url={database_url}]"))
-}
-
-/// Work item for the backup fetcher.
-struct BackupWorkItem {
-    /// The blob to be fetched and archived.
-    blob_id: BlobId,
+async fn establish_connection(database_url: &str, context: &str) -> Result<AsyncPgConnection> {
+    tracing::info!(database_url, context, "attempting to connect to postgres");
+    match AsyncPgConnection::establish(database_url).await {
+        Err(e) => {
+            tracing::error!(?e, context, "failed to connect to postgres");
+            Err(e.into())
+        }
+        Ok(conn) => {
+            tracing::info!(context, "connected to postgres");
+            Ok(conn)
+        }
+    }
 }
 
 /// Starts a new backup node runtime.
-pub async fn start_backup_node(
-    metrics_registry: Registry,
-    event_processor: Arc<EventProcessor>,
-    config: BackupNodeConfig,
-) -> Result<()> {
+pub async fn start_backup_orchestrator(config: BackupConfig) -> Result<()> {
+    let metrics_runtime = MetricsAndLoggingRuntime::new(config.metrics_address, None)?;
+    tracing::info!(?config, "starting backup node");
+
+    let registry_clone = metrics_runtime.registry.clone();
+    tokio::spawn(async move {
+        registry_clone
+            .register(mysten_metrics::uptime_metric(
+                "walrus_backup_orchestrator",
+                VERSION,
+                "walrus",
+            ))
+            .unwrap();
+    });
+
+    tracing::info!(version = VERSION, "Walrus backup binary version");
+    tracing::info!(
+        metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
+    );
+
+    utils::export_build_info(&metrics_runtime.registry, VERSION);
+
+    let cancel_token = CancellationToken::new();
+
+    let event_processor = EventProcessorRuntime::start_async(
+        config.sui.clone(),
+        config.event_processor_config.clone(),
+        &config.backup_storage_path,
+        &metrics_runtime.registry,
+        cancel_token.child_token(),
+    )
+    .await?;
+
+    let metrics_registry = metrics_runtime.registry.clone();
+
     // Connect to the database.
-    let pg_connection = establish_connection(&config.database_url).await?;
-
-    let (tx, rx) =
-        async_channel::bounded::<BackupWorkItem>(usize::try_from(config.message_queue_size)?);
-
-    // TODO: In the future we can run these workers on distinct machines and perhaps even in
-    // different regions, assuming we have a cross-region queue (0-1 guaranteed delivery). Google
-    // Cloud Pub/Sub is a viable choice here. (See WAL-533.)
-    for worker_id in 0..WORKER_COUNT {
-        let rx = rx.clone();
-        let config = config.clone();
-        tokio::spawn(async move {
-            backup_fetcher(worker_id, config, rx)
-                .await
-                .with_context(|| format!("backup fetcher thread {worker_id} failed"))
-        });
-    }
-
-    tokio::spawn(backup_delegator(config.clone(), tx));
+    let pg_connection = establish_connection(&config.database_url, "start_backup_node").await?;
 
     // Stream events from Sui and pull them into our main business logic workflow.
-    stream_events(event_processor, metrics_registry, pg_connection)
-        .await
-        .map_err(|error| {
-            tracing::error!(?error, "backup node exited with an error");
-            error
-        })
+    stream_events(event_processor, metrics_registry, pg_connection).await
 }
 
-/// Backup delegator's job is to batch read un-fetched blob states from the database and
-/// push them into the work queue. It should be a singleton.
-async fn backup_delegator(
-    backup_config: BackupNodeConfig,
-    tx: async_channel::Sender<BackupWorkItem>,
-) -> Result<()> {
-    tracing::info!("[backup_delegator] Starting worker with config: {backup_config:?}");
-    let mut conn = establish_connection(&backup_config.database_url).await?;
-    let max_fetch_attempts_per_blob = i32::try_from(backup_config.max_fetch_attempts_per_blob)
-        .expect("max_fetch_attempts_per_blob config overflow");
-    let message_queue_size = i32::try_from(backup_config.message_queue_size)
-        .expect("message_queue_size config overflow");
-    loop {
-        // Poll the db for new work items. Use the message_queue_size as an upper bound.
-        let blob_id_rows: Vec<BlobIdRow> = conn
-            .build_transaction()
-            .serializable()
-            .run::<_, anyhow::Error, _>(|conn| {
-                async move {
-                    // This query will fetch the next `message_queue_size` blobs that are in the
-                    // waiting state and are ready to be fetched. It will also update their
-                    // initiate_fetch_after timestamp to give a backup_fetcher worker time to
-                    // conduct the fetch, and the push to GCS.
-                    //
-                    // Explanation of the 45 minute interval:
-                    //    15 GB at 15 MBps = ~16.7 minutes. Double that to add time to send to GCS.
-                    //    Add some extra buffer time to make it 45 minutes.
-                    // TODO: Make this configurable. (See WAL-550.)
-                    Ok(diesel::sql_query(
-                        "WITH ready_blob_states AS (
-                            SELECT blob_id FROM blob_state
-                            WHERE
-                                state = 'waiting'
-                                AND blob_state.initiate_fetch_after < NOW()
-                                AND blob_state.fetch_attempts < $1
-                            LIMIT $2
-                        ),
-                        _updated_count AS (
-                            UPDATE blob_state
-                            SET
-                                initiate_fetch_after = NOW() + INTERVAL '45 minute',
-                                fetch_attempts = fetch_attempts + 1
-                            WHERE blob_id IN (SELECT blob_id FROM ready_blob_states)
-                        )
-                        SELECT blob_id FROM ready_blob_states",
-                    )
-                    .bind::<diesel::sql_types::Int4, _>(max_fetch_attempts_per_blob)
-                    // TODO: incorporate the current queue length when deciding how full to make
-                    // the queue. (See WAL-560.)
-                    .bind::<diesel::sql_types::Int4, _>(message_queue_size)
-                    .get_results(conn)
-                    .await?)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        tracing::info!(
-            "[backup_delegator] found {count} blobs in waiting state",
-            count = blob_id_rows.len()
-        );
-        for BlobIdRow { blob_id } in blob_id_rows {
-            tx.send(BackupWorkItem {
-                blob_id: BlobId::try_from(blob_id.as_slice())?,
-            })
-            .await?;
+/// Starts a new backup node runtime.
+pub async fn start_backup_fetcher(config: BackupConfig) -> Result<()> {
+    let metrics_runtime = MetricsAndLoggingRuntime::new(config.metrics_address, None)?;
+    tracing::info!(?config, "starting backup node");
+    if config.backup_bucket.is_none() {
+        // If the backup bucket is not set, we need to create the backup archive storage dir.
+        let backup_path_dir = config.backup_storage_path.join(BACKUP_BLOB_ARCHIVE_SUBDIR);
+        if tokio::fs::metadata(&backup_path_dir).await.is_err() {
+            tracing::info!(?backup_path_dir, "creating backup storage directory");
+            tokio::fs::create_dir_all(&backup_path_dir).await?;
+        } else {
+            tracing::info!(?backup_path_dir, "backup storage directory already exists");
         }
-        // Give the system a break.
-        // TODO: Make this configurable. (See WAL-550.)
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
+    let registry_clone = metrics_runtime.registry.clone();
+    tokio::spawn(async move {
+        registry_clone
+            .register(mysten_metrics::uptime_metric(
+                "walrus_backup_fetcher",
+                VERSION,
+                "walrus",
+            ))
+            .unwrap();
+    });
+
+    tracing::info!(version = VERSION, "Walrus backup binary version");
+    tracing::info!(
+        metrics_address = %config.metrics_address, "started Prometheus HTTP endpoint",
+    );
+
+    utils::export_build_info(&metrics_runtime.registry, VERSION);
+
+    backup_fetcher(config).await
 }
 
-async fn backup_fetcher(
-    worker_id: usize,
-    backup_config: BackupNodeConfig,
-    rx: async_channel::Receiver<BackupWorkItem>,
-) -> Result<()> {
-    let result = backup_fetcher_core(worker_id, backup_config, rx).await;
-    panic!("[backup_fetcher:{worker_id}] exited prematurely {result:?}")
+/// Read the oldest un-fetched blob state from the database and return its BlobId.
+///
+/// Note that this function mutates the database when it "takes" a blob_state job from the database
+/// by pushing the `initiate_fetch_after` timestamp forward into the future by some configured
+/// amount (to prevent other workers from also claiming this task.)
+async fn backup_take_task(
+    conn: &mut AsyncPgConnection,
+    retry_fetch_after_interval: Duration,
+    max_retries_per_blob: u32,
+) -> Option<BlobId> {
+    let max_retries_per_blob =
+        i32::try_from(max_retries_per_blob).expect("max_retries_per_blob config overflow");
+    let retry_fetch_after_interval_seconds = i32::try_from(retry_fetch_after_interval.as_secs())
+        .expect("retry_fetch_after_interval_seconds config overflow");
+    // Poll the db for a new work item.
+    let blob_id_rows: Vec<BlobIdRow> = conn
+        .build_transaction()
+        .serializable()
+        .run::<_, anyhow::Error, _>(|conn| {
+            async move {
+                // This query will fetch the next blob that is in the waiting state and is ready to
+                // be fetched. It will also update its initiate_fetch_after timestamp to give this
+                // backup_fetcher worker time to conduct the fetch, and the push to GCS.
+                Ok(diesel::sql_query(
+                    "WITH ready_blob_ids AS (
+                        SELECT blob_id FROM blob_state
+                        WHERE
+                            state = 'waiting'
+                            AND blob_state.initiate_fetch_after < NOW()
+                            AND blob_state.retry_count < $1
+                            AND LENGTH(blob_state.blob_id) = 32
+                        ORDER BY blob_state.initiate_fetch_after ASC
+                        LIMIT 1
+                    ),
+                    _updated_count AS (
+                        UPDATE blob_state
+                        SET
+                            initiate_fetch_after = NOW() + $2 * INTERVAL '1 second',
+                            retry_count = retry_count + 1
+                        WHERE blob_id IN (SELECT blob_id FROM ready_blob_ids)
+                    )
+                    SELECT blob_id FROM ready_blob_ids",
+                )
+                .bind::<diesel::sql_types::Int4, _>(max_retries_per_blob)
+                .bind::<diesel::sql_types::Int4, _>(retry_fetch_after_interval_seconds)
+                .get_results(conn)
+                .await?)
+            }
+            .scope_boxed()
+        })
+        .await
+        .inspect_err(|error| {
+            tracing::error!(?error, "encountered an error querying for ready blob_ids");
+        })
+        .ok()?;
+
+    tracing::debug!(
+        count = blob_id_rows.len(),
+        "[backup_delegator] found blobs in waiting state",
+    );
+    blob_id_rows.into_iter().next().map(|row| {
+        row.blob_id
+            .as_slice()
+            .try_into()
+            .expect("bad blob_id found in db!")
+    })
 }
 
-async fn backup_fetcher_core(
-    worker_id: usize,
-    backup_config: BackupNodeConfig,
-    rx: async_channel::Receiver<BackupWorkItem>,
-) -> Result<()> {
-    tracing::info!("[backup_fetcher:{worker_id}] starting worker");
-    let mut conn = establish_connection(&backup_config.database_url).await?;
-    let rpc_url = backup_config.sui.rpc;
+async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
+    tracing::info!("[backup_fetcher] starting worker");
+    let mut conn = establish_connection(&backup_config.database_url, "backup_fetcher")
+        .await
+        .context("[backup_fetcher] connecting to postgres")?;
     let sui_read_client = SuiReadClient::new(
-        RetriableSuiClient::new_for_rpc(&rpc_url, backup_config.sui.backoff_config.clone())
-            .await
-            .with_context(|| {
-                format!("[backup_fetcher:{worker_id}] cannot create RetriableSuiClient")
-            })?,
+        RetriableSuiClient::new_for_rpc(
+            &backup_config.sui.rpc,
+            backup_config.sui.backoff_config.clone(),
+        )
+        .await
+        .context("[backup_fetcher] cannot create RetriableSuiClient")?,
         &backup_config.sui.contract_config,
     )
     .await
-    .with_context(|| format!("[backup_fetcher:{worker_id}] cannot create SuiReadClient"))?;
+    .context("[backup_fetcher] cannot create SuiReadClient")?;
 
     let walrus_client_config = ClientConfig {
         contract_config: backup_config.sui.contract_config.clone(),
@@ -324,56 +370,146 @@ async fn backup_fetcher_core(
     let read_client =
         Client::new_read_client(walrus_client_config, sui_read_client.clone()).await?;
 
+    let mut consecutive_fetch_errors = 0;
     loop {
-        // Pull a work item from the queue.
-        let item = rx.recv().await.expect("channel closed!");
-        tracing::info!(
-            "[backup_fetcher:{worker_id}] processing blob {blob_id:?}",
-            blob_id = item.blob_id
-        );
-        // Fetch the blob from Walrus network.
-        let _blob: Vec<u8> = read_client
-            .read_blob::<Primary>(&item.blob_id)
-            .await
-            .context(format!(
-                "[backup_fetcher:{worker_id}] error reading blob {blob_id:?}",
-                blob_id = item.blob_id
-            ))?;
-        tracing::info!(
-            "[blob_fetcher:{worker_id}] fetched blob {blob_id:?}",
-            blob_id = item.blob_id
-        );
-        // TODO: store the blob in the backup storage (Google Cloud Storage). (See WAL-550.)
-        let affected_rows = conn
-            .build_transaction()
-            .serializable()
-            .run::<_, anyhow::Error, _>(|conn| {
-                async move {
-                    Ok(diesel::sql_query(
-                        "
-                        UPDATE blob_state
-                        SET state = 'archived',
-                            backup_url = $1,
-                            initiate_fetch_after = NULL,
-                            fetch_attempts = NULL
-                        WHERE
-                            blob_id = $2
-                            AND backup_url IS NULL
-                            AND state = 'waiting'
-                        ",
-                    )
-                    // TODO: use the real GCS URL. (See WAL-550.)
-                    .bind::<diesel::sql_types::Text, _>(format!(
-                        "gs://backup/{blob_id}",
-                        blob_id = item.blob_id
-                    ))
-                    .bind::<diesel::sql_types::Bytea, _>(item.blob_id.as_ref().to_vec())
-                    .execute(conn)
-                    .await?)
+        if let Some(blob_id) = backup_take_task(
+            &mut conn,
+            backup_config.retry_fetch_after_interval,
+            backup_config.max_retries_per_blob,
+        )
+        .await
+        {
+            match backup_fetch_inner_core(&mut conn, &backup_config, &read_client, blob_id).await {
+                Ok(()) => {
+                    consecutive_fetch_errors = 0;
                 }
-                .scope_boxed()
-            })
-            .await?;
-        tracing::info!("[backup_fetcher:{worker_id}] updated {affected_rows} rows");
+                Err(error) => {
+                    // Handle the error, report it, and continue polling for work to do.
+                    consecutive_fetch_errors += 1;
+                    tracing::error!(consecutive_fetch_errors, ?error, "[backup_fetcher] error");
+                    tokio::time::sleep(FETCHER_ERROR_BACKOFF).await;
+                }
+            }
+        } else {
+            // Nothing to fetch. We are idle. Let's rest a bit.
+            tokio::time::sleep(backup_config.idle_fetcher_sleep_time).await;
+        }
     }
+}
+
+#[tracing::instrument(skip_all)]
+async fn backup_fetch_inner_core(
+    conn: &mut AsyncPgConnection,
+    backup_config: &BackupConfig,
+    read_client: &Client<SuiReadClient>,
+    blob_id: BlobId,
+) -> Result<()> {
+    tracing::info!(blob_id = %blob_id, "[backup_fetcher] received work item");
+    // Fetch the blob from Walrus network.
+    let blob: Vec<u8> = read_client
+        .read_blob::<Primary>(&blob_id)
+        .await
+        .inspect_err(|error| {
+            tracing::error!(?error, %blob_id, "[backup_fetcher] error reading blob");
+        })?;
+    tracing::info!(blob_id = %blob_id, "[blob_fetcher] fetched blob from network");
+    // Store the blob in the backup storage (Google Cloud Storage or fallback to filesystem).
+    match upload_blob_to_storage(blob_id, blob, backup_config).await {
+        Ok(backup_url) => {
+            let affected_rows = conn
+                .build_transaction()
+                .serializable()
+                .run::<_, anyhow::Error, _>(|conn| {
+                    async move {
+                        Ok(diesel::sql_query(
+                            "UPDATE blob_state
+                                SET state = 'archived',
+                                    backup_url = $1,
+                                    initiate_fetch_after = NULL,
+                                    retry_count = NULL,
+                                    last_error = NULL,
+                                    fetcher_version = $2
+                                WHERE
+                                    blob_id = $3
+                                    AND backup_url IS NULL
+                                    AND state = 'waiting'",
+                        )
+                        .bind::<diesel::sql_types::Text, _>(backup_url)
+                        .bind::<diesel::sql_types::Text, _>(VERSION)
+                        .bind::<diesel::sql_types::Bytea, _>(blob_id.as_ref().to_vec())
+                        .execute(conn)
+                        .await?)
+                    }
+                    .scope_boxed()
+                })
+                .await?;
+            tracing::info!(
+                affected_rows,
+                blob_id = %blob_id,
+                "[backup_fetcher] attempted update to blob_state"
+            );
+            Ok(())
+        }
+        Err(error) => {
+            tracing::error!(?error, %blob_id, "error uploading blob to storage");
+
+            // Update the database to indicate what went wrong and enable faster debugging. Ignore
+            // errors here as this is just a nice-to-have.
+            let _ = diesel::sql_query(
+                "UPDATE blob_state
+                    SET last_error = $1,
+                        fetcher_version = $2
+                    WHERE blob_id = $3",
+            )
+            .bind::<diesel::sql_types::Text, _>(error.to_string())
+            .bind::<diesel::sql_types::Text, _>(VERSION)
+            .bind::<diesel::sql_types::Bytea, _>(blob_id.as_ref().to_vec())
+            .execute(conn)
+            .await;
+            return Err(error);
+        }
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn upload_blob_to_storage(
+    blob_id: BlobId,
+    blob: Vec<u8>,
+    backup_config: &BackupConfig,
+) -> Result<String> {
+    let (store, blob_url): (Box<dyn ObjectStore>, String) =
+        if let Some(backup_bucket) = backup_config.backup_bucket.as_deref() {
+            (
+                Box::new(
+                    GoogleCloudStorageBuilder::from_env()
+                        .with_bucket_name(backup_bucket.to_string())
+                        .build()?,
+                ),
+                format!("gs://{}/{}", backup_bucket, blob_id),
+            )
+        } else {
+            (
+                Box::new(LocalFileSystem::new_with_prefix(
+                    backup_config
+                        .backup_storage_path
+                        .join(BACKUP_BLOB_ARCHIVE_SUBDIR),
+                )?),
+                format!(
+                    "file://{}",
+                    backup_config
+                        .backup_storage_path
+                        .join(BACKUP_BLOB_ARCHIVE_SUBDIR)
+                        .join(blob_id.to_string())
+                        .display()
+                ),
+            )
+        };
+    let put_result: object_store::PutResult =
+        store.put(&blob_id.to_string().into(), blob.into()).await?;
+    tracing::info!(
+        blob_id = %blob_id,
+        ?put_result,
+        "[upload_blob_to_storage] uploaded blob",
+    );
+    Ok(blob_url)
 }

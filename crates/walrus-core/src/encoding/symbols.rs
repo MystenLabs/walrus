@@ -434,6 +434,14 @@ impl<U> GeneralRecoverySymbol<U> {
             }
         }
     }
+
+    /// Returns the axis from which the proof was constructed.
+    pub fn proof_axis(&self) -> SliverType {
+        match self.symbol {
+            EitherDecodingSymbol::Primary(_) => SliverType::Secondary,
+            EitherDecodingSymbol::Secondary(_) => SliverType::Primary,
+        }
+    }
 }
 
 impl GeneralRecoverySymbol {

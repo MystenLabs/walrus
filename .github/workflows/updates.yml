@@ -15,10 +15,10 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      SUI_TAG: testnet-v1.41.0
+      SUI_TAG: testnet-v1.42.1
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5.3.0
+      - uses: actions/setup-python@v5.4.0
         with:
           python-version: "3.12"
       - run: rustup update stable
@@ -40,7 +40,7 @@ jobs:
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
-      - uses: taiki-e/install-action@v2.47.18
+      - uses: taiki-e/install-action@v2.48.0
         with:
           tool: cargo-nextest
 

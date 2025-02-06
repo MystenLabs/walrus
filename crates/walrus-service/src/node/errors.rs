@@ -7,6 +7,7 @@ use anyhow::anyhow;
 use opentelemetry::trace::TraceContextExt as _;
 use serde::Serialize;
 use sui_types::event::EventID;
+use thiserror::Error;
 use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 use typed_store::TypedStoreError;
@@ -28,6 +29,7 @@ use walrus_sdk::{
     },
     error::NodeError,
 };
+use walrus_sui::client::SuiClientError;
 
 use super::storage::ShardStatus;
 use crate::common::api::RestApiError;
@@ -211,6 +213,20 @@ pub enum RetrieveSymbolError {
 
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
+pub enum ListSymbolsError {
+    #[error("at least one symbol ID must be specified")]
+    #[rest_api_error(
+        reason = "NO_SYMBOLS_SPECIFIED", status = ApiStatusCode::FailedPrecondition,
+    )]
+    NoSymbolsSpecified,
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Last(#[from] RetrieveSymbolError),
+}
+
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[rest_api_error(domain = ERROR_DOMAIN)]
 pub enum StoreSliverError {
     /// The index of the identified sliver is out of range for the system.
     #[error("the requested sliver index is out of range: {0}")]
@@ -344,4 +360,24 @@ pub enum SyncShardClientError {
     Internal(#[from] InternalError),
     #[error(transparent)]
     RequestError(#[from] NodeError),
+}
+
+/// Errors returned by the storage node config synchronizer.
+#[derive(Debug, Error)]
+pub enum SyncNodeConfigError {
+    /// The protocol key pair rotation is required.
+    #[error("Node protocol key pair rotation is required")]
+    ProtocolKeyPairRotationRequired,
+    /// The node configuration has changed.
+    #[error("Node needs reboot")]
+    NodeNeedsReboot,
+    /// A SuiClientError occurred.
+    #[error(transparent)]
+    SuiClientError(#[from] SuiClientError),
+    /// The node configuration is inconsistent with the on-chain configuration.
+    #[error("Node config is inconsistent: {0}")]
+    NodeConfigInconsistent(String),
+    /// An unexpected error occurred.
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
 }

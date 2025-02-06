@@ -18,7 +18,7 @@ use tokio::time;
 use tower::{util::BoxCloneService, ServiceExt as _};
 use walrus_core::{
     bft,
-    encoding::{self, EncodingConfig, Primary, PrimaryRecoverySymbol},
+    encoding::{self, EncodingConfig, GeneralRecoverySymbol, Primary, PrimaryRecoverySymbol},
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -498,18 +498,27 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
             "test service function requires at most 1 shard per node"
         );
 
-        service_map.insert_ready(node.public_key.clone(), move |request| {
-            if let Request::GetVerifiedRecoverySymbol {
+        service_map.insert_ready(node.public_key.clone(), move |request| match request {
+            Request::GetVerifiedRecoverySymbol {
                 sliver_pair_at_remote,
                 ..
-            } = request
-            {
+            } => {
                 assert_eq!(sliver_pair_at_remote, remote_pair_index);
-                return Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
+                Ok(Response::VerifiedRecoverySymbol(RecoverySymbol::Primary(
                     symbol.clone(),
-                )));
+                )))
             }
-            panic!("unexpected request: {request:?}");
+            Request::ListVerifiedRecoverySymbols {
+                filter,
+                target_index,
+                ..
+            } => {
+                let symbol =
+                    GeneralRecoverySymbol::from_recovery_symbol(symbol.clone(), target_index);
+                assert!(filter.accepts(&symbol));
+                Ok(Response::VerifiedRecoverySymbols(vec![symbol]))
+            }
+            request => panic!("unexpected request: {request:?}"),
         });
     }
 

@@ -39,6 +39,7 @@ db_config:
   pending_recover_slivers: null
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
+next_protocol_key_pair: null
 network_key_pair:
   path: /opt/walrus/config/network.key
 public_host: 0.0.0.0
@@ -71,9 +72,10 @@ blob_recovery:
   sliver_request_timeout_secs: 300
   invalidity_sync_timeout_secs: 300
   node_connect_timeout_secs: 1
+  experimental_batch_symbol_recovery: false
 tls:
   disable_tls: false
-  pem_files: null
+  certificate_path: null
 shard_sync_config:
   sliver_count_per_sync_request: 10
   shard_sync_retry_min_backoff_secs: 60
@@ -112,3 +114,7 @@ metadata:
   description: ''
   extra_fields: []
 metrics_push: null
+config_synchronizer:
+  interval_secs: 900
+  enabled: true
+storage_node_cap: null

@@ -25,32 +25,40 @@ CREATE TABLE blob_state (
     state                TEXT      NOT NULL,
     -- Storage location (ie: gs://some-bucket/blobs/blob_id)
     backup_url           TEXT          NULL,
+    -- The version of the backup-orchestrator that last touched this record.
+    orchestrator_version TEXT      NOT NULL,
+    -- The version of the backup-fetcher that last performed a backup operation.
+    fetcher_version      TEXT          NULL,
     -- When was the blob created?
     created_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- When should a worker pick up this blob fetch task?
     initiate_fetch_after TIMESTAMP WITH TIME ZONE     NULL DEFAULT CURRENT_TIMESTAMP,
     -- How many times have we tried to fetch this blob?
-    fetch_attempts       INT            NULL,
+    retry_count          INT            NULL,
+    -- If the last upload attempt failed, what was the error?
+    last_error           TEXT           NULL,
     PRIMARY KEY (blob_id),
     CONSTRAINT valid_blob_state
     CHECK (
         (state = 'archived'
             AND initiate_fetch_after IS NULL
             AND backup_url IS NOT NULL
-            AND fetch_attempts IS NULL)
+            AND retry_count IS NULL)
         OR (state = 'waiting'
             AND initiate_fetch_after IS NOT NULL
             AND backup_url IS NULL
-            AND fetch_attempts IS NOT NULL)
+            AND retry_count IS NOT NULL)
         OR (state = 'deleted'
             AND initiate_fetch_after IS NULL
             AND backup_url IS NULL
-            AND fetch_attempts IS NULL))
+            AND retry_count IS NULL)),
+    CONSTRAINT valid_blob_id
+    CHECK (LENGTH(blob_id) = 32)
 );
 
 CREATE INDEX blob_state_delegate_after
     ON blob_state (initiate_fetch_after)
-    INCLUDE (fetch_attempts)
+    INCLUDE (retry_count)
     WHERE state = 'waiting';
 
 CREATE INDEX blob_state_garbage_collection

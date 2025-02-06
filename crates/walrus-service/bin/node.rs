@@ -9,16 +9,15 @@ use std::{
     io::{self, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    str::FromStr,
     sync::Arc,
 };
 
 use anyhow::{bail, Context};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum as _};
+use commands::generate_or_convert_key;
 use config::PathOrInPlace;
 use fs::File;
 use humantime::Duration;
-use prometheus::Registry;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tokio::{
@@ -51,6 +50,7 @@ use walrus_service::{
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
     },
+    SyncNodeConfigError,
 };
 use walrus_sui::{client::SuiContractClient, types::move_structs::VotingParams, utils::SuiNetwork};
 
@@ -79,6 +79,9 @@ enum Commands {
         /// The path to the node's configuration file.
         #[clap(long)]
         config_path: PathBuf,
+        /// Overwrite existing storage node capability object if the input config already has one.
+        #[clap(long)]
+        force: bool,
     },
 
     /// Run a storage node with the provided configuration.
@@ -96,20 +99,27 @@ enum Commands {
 
     /// Generate a new key for use with the Walrus protocol, and writes it to a file.
     KeyGen {
-        /// Path to the file at which the key will be created. If the file already exists, it is
-        /// not overwritten and the operation will fail unless the `--force` option is provided.
-        /// [default: ./<KEY_TYPE>.key]
+        /// Path to the file at which the key will be created [default: ./<KEY_TYPE>.key].
+        ///
+        /// If the file already exists, it is not overwritten and the operation will fail unless
+        /// the `--force` option is provided.
         #[clap(long)]
         out: Option<PathBuf>,
-        /// Which type of key to generate. Valid options are 'protocol' and 'network'.
-        ///
-        /// The protocol key is used to sign Walrus protocol messages.
-        /// The network key is used to authenticate nodes in network communication.
-        #[clap(long)]
+        /// Which type of key to generate.
+        #[clap(long, value_enum)]
         key_type: KeyType,
+        /// Output the key in the specified format.
+        #[clap(long, value_enum, default_value_t = KeyFormat::Tagged)]
+        format: KeyFormat,
         /// Overwrite existing files.
         #[clap(long)]
         force: bool,
+        /// Convert an existing key instead of generating a new key.
+        ///
+        /// Provide a path to an existing key in a supported format. The key is converted to the
+        /// format specified by `--format` before being written.
+        #[clap(long, value_name = "INPUT_KEY_PATH")]
+        convert: Option<PathBuf>,
     },
 
     /// Generate a new node configuration.
@@ -132,34 +142,20 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, clap::Parser)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 enum KeyType {
+    /// A protocol key used to sign Walrus protocol messages.
     Protocol,
+    /// A network key used to authenticate nodes in network communication.
     Network,
-}
-
-impl FromStr for KeyType {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s.to_ascii_lowercase().as_str() {
-            "protocol" => Self::Protocol,
-            "network" => Self::Network,
-            _ => bail!("invalid key type provided"),
-        })
-    }
 }
 
 impl Display for KeyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                KeyType::Protocol => "protocol",
-                KeyType::Network => "network",
-            }
-        )
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
     }
 }
 
@@ -169,6 +165,24 @@ impl KeyType {
             KeyType::Protocol => "protocol.key",
             KeyType::Network => "network.key",
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum KeyFormat {
+    /// Format the key as a base64 value comprised of (tag || private-key-bytes).
+    Tagged,
+    /// Format the key as a PKCS#8 PEM-encoded private-key (only supported for the network key
+    /// type).
+    Pkcs8,
+}
+
+impl Display for KeyFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
     }
 }
 
@@ -314,27 +328,57 @@ fn main() -> anyhow::Result<()> {
     match args.command {
         Commands::Setup(setup_args) => commands::setup(setup_args)?,
 
-        Commands::Register { config_path } => commands::register_node(config_path)?,
+        Commands::Register { config_path, force } => commands::register_node(config_path, force)?,
 
         Commands::Run {
             config_path,
             cleanup_storage,
             ignore_sync_failures,
-        } => commands::run(
-            load_from_yaml(config_path)?,
-            cleanup_storage,
-            ignore_sync_failures,
-        )?,
+        } => loop {
+            let result = commands::run(
+                load_from_yaml(&config_path)?,
+                cleanup_storage,
+                ignore_sync_failures,
+            );
+
+            match result {
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<SyncNodeConfigError>(),
+                        Some(SyncNodeConfigError::ProtocolKeyPairRotationRequired)
+                    ) =>
+                {
+                    tracing::info!("protocol key pair rotation required, rotating key pair...");
+                    StorageNodeConfig::rotate_protocol_key_pair_persist(&config_path)?;
+                    continue;
+                }
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<SyncNodeConfigError>(),
+                        Some(SyncNodeConfigError::NodeNeedsReboot)
+                    ) =>
+                {
+                    tracing::info!("node needs reboot, restarting...");
+                    continue;
+                }
+                Err(e) => return Err(e),
+                Ok(()) => return Ok(()),
+            }
+        },
 
         Commands::KeyGen {
             out,
             key_type,
             force,
-        } => commands::keygen(
+            format,
+            convert,
+        } => generate_or_convert_key(
             out.as_deref()
                 .unwrap_or_else(|| Path::new(key_type.default_filename())),
             key_type,
             force,
+            format,
+            convert.as_deref(),
         )?,
 
         Commands::GenerateConfig {
@@ -351,10 +395,17 @@ fn main() -> anyhow::Result<()> {
 }
 
 mod commands {
-    use config::{MetricsPushConfig, NodeRegistrationParamsForThirdPartyRegistration};
+    use config::{
+        LoadsFromPath,
+        MetricsPushConfig,
+        NodeRegistrationParamsForThirdPartyRegistration,
+    };
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
-    use walrus_core::ensure;
+    use walrus_core::{
+        ensure,
+        keys::{SupportedKeyPair, TaggedKeyPair},
+    };
     use walrus_service::utils;
     use walrus_sui::{
         client::{contract_config::ContractConfig, ReadClient as _},
@@ -387,6 +438,7 @@ mod commands {
         let registry_clone = metrics_runtime.registry.clone();
         metrics_runtime
             .runtime
+            .as_ref()
             .expect("Storage node requires metrics to have their own runtime")
             .spawn(async move {
                 registry_clone
@@ -461,7 +513,7 @@ mod commands {
 
         let node_runtime = StorageNodeRuntime::start(
             &config,
-            metrics_runtime.registry.clone(),
+            metrics_runtime,
             exit_notifier,
             event_manager,
             cancel_token.child_token(),
@@ -541,28 +593,105 @@ mod commands {
         Ok(())
     }
 
-    pub(super) fn keygen(path: &Path, key_type: KeyType, force: bool) -> anyhow::Result<()> {
-        println!(
-            "Generating {key_type} key pair and writing it to '{}'",
-            path.display()
+    pub(super) fn generate_or_convert_key(
+        output_path: &Path,
+        key_type: KeyType,
+        force: bool,
+        format: KeyFormat,
+        key_source: Option<&Path>,
+    ) -> anyhow::Result<()> {
+        walrus_core::ensure!(
+            format != KeyFormat::Pkcs8 || key_type == KeyType::Network,
+            "`--format=pkcs8` is only supported with `--key-type=network`"
         );
-        let mut file = create_file(path, force)
-            .with_context(|| format!("Cannot create the keyfile '{}'", path.display()))?;
 
-        file.write_all(
-            match key_type {
-                KeyType::Protocol => ProtocolKeyPair::generate().to_base64(),
-                KeyType::Network => NetworkKeyPair::generate().to_base64(),
+        if let Some(path) = key_source {
+            print!("Converting {key_type} key pair from '{}'", path.display());
+        } else {
+            print!("Generating {key_type} key pair")
+        }
+        println!(" and writing it to '{}'", output_path.display());
+
+        let key_string = match (key_type, format) {
+            (KeyType::Network, KeyFormat::Pkcs8) => {
+                NetworkKeyPair::to_pem(&load_or_generate_key(key_source, key_type)?)
             }
-            .as_bytes(),
-        )?;
+
+            (KeyType::Network, KeyFormat::Tagged) => {
+                NetworkKeyPair::to_base64(&load_or_generate_key(key_source, key_type)?).into()
+            }
+            (KeyType::Protocol, _) => {
+                ProtocolKeyPair::to_base64(&load_or_generate_key(key_source, key_type)?).into()
+            }
+        };
+
+        write_key_to_file(output_path, force, &key_string)
+    }
+
+    fn load_or_generate_key<T>(
+        key_source: Option<&Path>,
+        key_type: KeyType,
+    ) -> Result<TaggedKeyPair<T>, anyhow::Error>
+    where
+        TaggedKeyPair<T>: LoadsFromPath,
+        T: SupportedKeyPair,
+    {
+        if let Some(path) = key_source {
+            TaggedKeyPair::<T>::load(path).with_context(|| {
+                format!(
+                    "unable to load the input keyfile at '{}' as type '{}'",
+                    path.display(),
+                    key_type
+                )
+            })
+        } else {
+            Ok(TaggedKeyPair::<T>::generate())
+        }
+    }
+
+    pub(super) fn keygen(
+        path: &Path,
+        key_type: KeyType,
+        force: bool,
+        format: KeyFormat,
+    ) -> anyhow::Result<()> {
+        generate_or_convert_key(path, key_type, force, format, None)
+    }
+
+    fn write_key_to_file(output_file: &Path, force: bool, contents: &str) -> anyhow::Result<()> {
+        let mut file = create_file(output_file, force)
+            .with_context(|| format!("Cannot create the keyfile '{}'", output_file.display()))?;
+
+        file.write_all(contents.as_bytes())?;
 
         Ok(())
     }
 
+    /// Register the node to the Sui contract.
+    ///
+    /// This function will update the config file with the new storage node capability object ID.
+    /// Note that if the config file contains any configuration that matches the default values,
+    /// the new config file may not contain it after adding the storage node capability object ID.
     #[tokio::main]
-    pub(crate) async fn register_node(config_path: PathBuf) -> anyhow::Result<()> {
+    pub(crate) async fn register_node(config_path: PathBuf, force: bool) -> anyhow::Result<()> {
         let mut config: StorageNodeConfig = load_from_yaml(&config_path)?;
+        let contract_client = get_contract_client_from_node_config(&config).await?;
+
+        if !force
+            && (config.storage_node_cap.is_some()
+                || !matches!(
+                    contract_client
+                        .read_client()
+                        .get_address_capability_object(contract_client.address())
+                        .await,
+                    Ok(None)
+                ))
+        {
+            bail!(
+                "storage node capability object already exists, \
+                use the '--force' option to overwrite it"
+            );
+        }
 
         config.load_keys()?;
 
@@ -576,7 +705,6 @@ mod commands {
         let registration_params = config.to_registration_params();
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
-        let contract_client = get_contract_client_from_node_config(&config).await?;
         let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
             config.protocol_key_pair(),
             &contract_client,
@@ -590,6 +718,11 @@ mod commands {
         println!("Successfully registered storage node:",);
         println!("      Capability object ID: {}", node_capability.id);
         println!("      Node ID: {}", node_capability.node_id);
+
+        // Update the config in `config_path` with the new storage node capability object ID.
+        config.storage_node_cap = Some(node_capability.id);
+        write_config_to_file(&config, &config_path, true)?;
+
         Ok(())
     }
 
@@ -696,23 +829,7 @@ mod commands {
             ..Default::default()
         };
 
-        // Generate and write config file.
-        let yaml_config =
-            serde_yaml::to_string(&config).context("failed to serialize configuration to YAML")?;
-        let mut file = create_file(&config_path, force).with_context(|| {
-            format!(
-                "failed to create the config file '{}'",
-                config_path.display()
-            )
-        })?;
-        file.write_all(yaml_config.as_bytes()).context(format!(
-            "failed to write the generated configuration to '{}'",
-            config_path.display()
-        ))?;
-        println!(
-            "storage node configuration written to '{}'",
-            config_path.display()
-        );
+        write_config_to_file(&config, &config_path, force)?;
 
         Ok(config)
     }
@@ -752,8 +869,13 @@ mod commands {
             config_directory.display()
         );
 
-        keygen(&protocol_key_path, KeyType::Protocol, true)?;
-        keygen(&network_key_path, KeyType::Network, true)?;
+        keygen(
+            &protocol_key_path,
+            KeyType::Protocol,
+            true,
+            KeyFormat::Tagged,
+        )?;
+        keygen(&network_key_path, KeyType::Network, true, KeyFormat::Pkcs8)?;
 
         let wallet_address = utils::generate_sui_wallet(
             sui_network,
@@ -818,6 +940,27 @@ mod commands {
             File::create_new(path)
         }
     }
+
+    /// Writes the given storage node config to the specified file.
+    fn write_config_to_file(
+        config: &StorageNodeConfig,
+        config_path: &Path,
+        force: bool,
+    ) -> anyhow::Result<()> {
+        let yaml_config =
+            serde_yaml::to_string(&config).context("failed to serialize configuration to YAML")?;
+        let mut file = create_file(config_path, force).with_context(|| {
+            format!(
+                "failed to create the config file '{}'",
+                config_path.display()
+            )
+        })?;
+        file.write_all(yaml_config.as_bytes()).context(format!(
+            "failed to write the generated configuration to '{}'",
+            config_path.display()
+        ))?;
+        Ok(())
+    }
 }
 
 /// Creates a [`SuiContractClient`] from the Sui config in the provided storage node config.
@@ -832,7 +975,9 @@ async fn get_contract_client_from_node_config(
 
 struct StorageNodeRuntime {
     walrus_node_handle: JoinHandle<anyhow::Result<()>>,
-    rest_api_handle: JoinHandle<Result<(), io::Error>>,
+    rest_api_handle: JoinHandle<Result<(), anyhow::Error>>,
+    // Preserve the metrics runtime to keep the runtime alive
+    metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
 }
@@ -840,7 +985,7 @@ struct StorageNodeRuntime {
 impl StorageNodeRuntime {
     fn start(
         node_config: &StorageNodeConfig,
-        metrics_registry: Registry,
+        metrics_runtime: MetricsAndLoggingRuntime,
         exit_notifier: oneshot::Sender<()>,
         event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
@@ -858,7 +1003,7 @@ impl StorageNodeRuntime {
                 StorageNode::builder()
                     .with_system_event_manager(event_manager)
                     .with_ignore_sync_failures(ignore_sync_failures)
-                    .build(node_config, metrics_registry.clone()),
+                    .build(node_config, metrics_runtime.registry.clone()),
             )?,
         );
 
@@ -884,7 +1029,7 @@ impl StorageNodeRuntime {
             walrus_node,
             cancel_token.child_token(),
             RestApiConfig::from(node_config),
-            &metrics_registry,
+            &metrics_runtime.registry,
         );
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
@@ -904,9 +1049,10 @@ impl StorageNodeRuntime {
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
         Ok(Self {
-            runtime,
             walrus_node_handle,
             rest_api_handle,
+            metrics_runtime,
+            runtime,
         })
     }
 
@@ -914,14 +1060,20 @@ impl StorageNodeRuntime {
         tracing::debug!("waiting for the REST API to shutdown...");
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
-        self.runtime.block_on(&mut self.walrus_node_handle)?
+        let _ = self.runtime.block_on(&mut self.walrus_node_handle)?;
+        // Shutdown the metrics runtime
+        if let Some(runtime) = self.metrics_runtime.runtime.take() {
+            runtime.shutdown_background();
+        }
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use config::LoadsFromPath;
     use tempfile::TempDir;
-    use walrus_test_utils::Result;
+    use walrus_test_utils::{param_test, Result};
 
     use super::*;
 
@@ -930,7 +1082,7 @@ mod tests {
         let dir = TempDir::new()?;
         let filename = dir.path().join("keyfile.key");
 
-        commands::keygen(&filename, KeyType::Protocol, false)?;
+        commands::keygen(&filename, KeyType::Protocol, false, KeyFormat::Tagged)?;
 
         let file_content = std::fs::read_to_string(filename)
             .expect("a file should have been created with the key");
@@ -955,7 +1107,7 @@ mod tests {
 
         std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
 
-        commands::keygen(&filename, KeyType::Protocol, false)
+        commands::keygen(&filename, KeyType::Protocol, false, KeyFormat::Tagged)
             .expect_err("must fail as the file already exists");
 
         let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
@@ -971,7 +1123,7 @@ mod tests {
 
         std::fs::write(filename.as_path(), "original-file-contents".as_bytes())?;
 
-        commands::keygen(&filename, KeyType::Protocol, true)?;
+        commands::keygen(&filename, KeyType::Protocol, true, KeyFormat::Tagged)?;
 
         let file_content = std::fs::read_to_string(filename).expect("the file should still exist");
 
@@ -980,5 +1132,91 @@ mod tests {
             .expect("a protocol keypair must be parseable from the the file's contents");
 
         Ok(())
+    }
+
+    #[test]
+    fn generate_key_pair_errs_for_unsupported_format() -> Result<()> {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("keyfile.key");
+
+        commands::keygen(&filename, KeyType::Protocol, false, KeyFormat::Pkcs8)
+            .expect_err("pkcs8 should be unsupported for protocol keys");
+
+        Ok(())
+    }
+
+    #[test]
+    fn generate_key_pair_saves_pkcs8_to_file() -> Result<()> {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("keyfile.pem");
+
+        commands::keygen(&filename, KeyType::Network, false, KeyFormat::Pkcs8)?;
+
+        let file_content = std::fs::read_to_string(&filename)
+            .expect("a file should have been created with the key");
+
+        assert!(file_content.starts_with("-----BEGIN PRIVATE KEY-----"));
+
+        NetworkKeyPair::load(&filename)
+            .expect("network keypair must be parseable from the the file's contents");
+
+        Ok(())
+    }
+
+    param_test! {
+        converts_key_type -> Result<()>: [
+            network_tagged_to_tagged: (KeyType::Network, KeyFormat::Tagged, KeyFormat::Tagged),
+            network_tagged_to_pkcs8: (KeyType::Network, KeyFormat::Tagged, KeyFormat::Pkcs8),
+            network_pkcs8_to_tagged: (KeyType::Network, KeyFormat::Pkcs8, KeyFormat::Tagged),
+            protocol_tagged_to_tagged: (KeyType::Protocol, KeyFormat::Tagged, KeyFormat::Tagged)
+        ]
+    }
+    fn converts_key_type(
+        key_type: KeyType,
+        input_format: KeyFormat,
+        output_format: KeyFormat,
+    ) -> Result<()> {
+        let dir = TempDir::new()?;
+        let input_file = dir.path().join("input.key");
+        let output_file = dir.path().join("output.key");
+
+        // Create the input keyfile.
+        commands::keygen(&input_file, key_type, false, input_format)?;
+
+        // Convert the file to the new format.
+        commands::generate_or_convert_key(
+            &output_file,
+            key_type,
+            false,
+            output_format,
+            Some(&input_file),
+        )?;
+
+        assert_key_format(&output_file, output_format);
+        assert_valid_key_of_type(&output_file, key_type);
+
+        Ok(())
+    }
+
+    fn assert_key_format(path: &Path, format: KeyFormat) {
+        let pkcs8_header = "-----BEGIN PRIVATE KEY-----";
+        let file_content =
+            std::fs::read_to_string(path).expect("a file should have been created with the key");
+
+        match format {
+            KeyFormat::Tagged => assert!(!file_content.starts_with(pkcs8_header)),
+            KeyFormat::Pkcs8 => assert!(file_content.starts_with(pkcs8_header)),
+        }
+    }
+
+    fn assert_valid_key_of_type(path: &Path, key_type: KeyType) {
+        match key_type {
+            KeyType::Protocol => {
+                ProtocolKeyPair::load(path).expect("file contents should be a valid protoocl key");
+            }
+            KeyType::Network => {
+                NetworkKeyPair::load(path).expect("file contents should be a valid netwrk key");
+            }
+        }
     }
 }
