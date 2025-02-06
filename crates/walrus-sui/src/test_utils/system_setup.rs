@@ -3,31 +3,19 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{iter, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
+use std::{num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use rand::{rngs::StdRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
-use sui_sdk::{
-    rpc_types::{SuiExecutionStatus, SuiObjectDataOptions, SuiTransactionBlockEffectsAPI},
-    types::base_types::ObjectID,
-    wallet_context::WalletContext,
-};
-use sui_types::{
-    base_types::SuiAddress,
-    programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::TransactionData,
-    Identifier,
-    TypeTag,
-    SUI_FRAMEWORK_PACKAGE_ID,
-};
+use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
+use super::default_protocol_keypair;
 use crate::{
     client::{contract_config::ContractConfig, ReadClient, SuiClientError, SuiContractClient},
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
@@ -263,14 +251,14 @@ pub async fn register_committee_and_stake(
         node_capabilities.push(node_cap);
     }
     // Use admin wallet to stake with storage nodes
-    let amounts_to_stake: Vec<_> = node_capabilities
+    let node_ids_with_stake_amounts: Vec<_> = node_capabilities
         .iter()
         .zip(amounts_to_stake.iter())
         .filter(|(_, amount)| **amount > 0)
         .map(|(cap, amount)| (cap.node_id, *amount))
         .collect();
     let _staked_wal = admin_contract_client
-        .stake_with_pools(&amounts_to_stake)
+        .stake_with_pools(&node_ids_with_stake_amounts)
         .await?;
     Ok(node_capabilities)
 }
@@ -293,72 +281,4 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     );
 
     Ok(())
-}
-
-/// Mints WAL to the provided addresses.
-pub async fn mint_wal_to_addresses(
-    admin_wallet: &mut WalletContext,
-    wal_pkg_id: ObjectID,
-    treasury_cap: ObjectID,
-    receiver_addrs: &[SuiAddress],
-    value: u64,
-) -> Result<()> {
-    // Mint WAL to stake with storage nodes.
-    let sender = admin_wallet.active_address()?;
-    let mut pt_builder = ProgrammableTransactionBuilder::new();
-    let treasury_cap_arg = pt_builder.input(
-        admin_wallet
-            .get_client()
-            .await?
-            .read_api()
-            .get_object_with_options(treasury_cap, SuiObjectDataOptions::new())
-            .await?
-            .into_object()?
-            .object_ref()
-            .into(),
-    )?;
-
-    let amount_arg = pt_builder.pure(value)?;
-    for addr in receiver_addrs.iter().chain(iter::once(&sender)) {
-        let result = pt_builder.programmable_move_call(
-            SUI_FRAMEWORK_PACKAGE_ID,
-            Identifier::new("coin").expect("should be able to convert to Identifier"),
-            Identifier::new("mint").expect("should be able to convert to Identifier"),
-            vec![TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?],
-            vec![treasury_cap_arg, amount_arg],
-        );
-        pt_builder.transfer_arg(*addr, result);
-    }
-
-    let gas_price = admin_wallet.get_reference_gas_price().await?;
-    let gas_coin = admin_wallet
-        .gas_for_owner_budget(sender, DEFAULT_GAS_BUDGET, Default::default())
-        .await?
-        .1
-        .object_ref();
-    let transaction = TransactionData::new_programmable(
-        sender,
-        vec![gas_coin],
-        pt_builder.finish(),
-        DEFAULT_GAS_BUDGET,
-        gas_price,
-    );
-
-    let transaction = admin_wallet.sign_transaction(&transaction);
-
-    let tx_response = admin_wallet
-        .execute_transaction_may_fail(transaction)
-        .await?;
-
-    match tx_response
-        .effects
-        .as_ref()
-        .ok_or_else(|| anyhow!("No transaction effects in response"))?
-        .status()
-    {
-        SuiExecutionStatus::Success => Ok(()),
-        SuiExecutionStatus::Failure { error } => {
-            Err(anyhow!("Error when executing mint transaction: {}", error))
-        }
-    }
 }
