@@ -50,7 +50,12 @@ use walrus_core::{
 };
 use walrus_sdk::client::Client;
 use walrus_sui::{
-    client::{retry_client::RetriableRpcClient, BlobObjectMetadata, FixedSystemParameters},
+    client::{
+        retry_client::RetriableRpcClient,
+        BlobObjectMetadata,
+        FixedSystemParameters,
+        SuiClientError,
+    },
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
         move_structs::{EpochState, VotingParams},
@@ -1398,7 +1403,7 @@ impl SystemContractService for StubContractService {
     async fn get_node_capability_object(
         &self,
         _node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error> {
+    ) -> Result<StorageNodeCap, SuiClientError> {
         Ok(self.node_capability_object.clone())
     }
 }
@@ -2049,7 +2054,7 @@ where
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error> {
+    ) -> Result<StorageNodeCap, SuiClientError> {
         self.as_ref()
             .inner
             .get_node_capability_object(node_capability_object_id)

@@ -675,8 +675,18 @@ mod commands {
     #[tokio::main]
     pub(crate) async fn register_node(config_path: PathBuf, force: bool) -> anyhow::Result<()> {
         let mut config: StorageNodeConfig = load_from_yaml(&config_path)?;
+        let contract_client = get_contract_client_from_node_config(&config).await?;
 
-        if !force && config.storage_node_cap.is_some() {
+        if !force
+            && (config.storage_node_cap.is_some()
+                || !matches!(
+                    contract_client
+                        .read_client()
+                        .get_address_capability_object(contract_client.address())
+                        .await,
+                    Ok(None)
+                ))
+        {
             bail!(
                 "storage node capability object already exists, \
                 use the '--force' option to overwrite it"
@@ -695,7 +705,6 @@ mod commands {
         let registration_params = config.to_registration_params();
 
         // Uses the Sui wallet configuration in the storage node config to register the node.
-        let contract_client = get_contract_client_from_node_config(&config).await?;
         let proof_of_possession = walrus_sui::utils::generate_proof_of_possession(
             config.protocol_key_pair(),
             &contract_client,

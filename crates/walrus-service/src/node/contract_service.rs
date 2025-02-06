@@ -104,7 +104,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error>;
+    ) -> Result<StorageNodeCap, SuiClientError>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -440,7 +440,7 @@ impl SystemContractService for SuiSystemContractService {
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error> {
+    ) -> Result<StorageNodeCap, SuiClientError> {
         let node_capability = if let Some(node_cap) = node_capability_object_id {
             self.contract_client
                 .lock()
