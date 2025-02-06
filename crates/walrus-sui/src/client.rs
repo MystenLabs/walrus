@@ -48,9 +48,9 @@ use crate::{
         move_structs::{
             Authorized,
             Blob,
-            BlobWithMetadata,
+            BlobAttribute,
+            BlobWithAttribute,
             EpochState,
-            Metadata,
             SharedBlob,
             StorageNode,
         },
@@ -744,25 +744,25 @@ impl SuiContractClient {
             .await
     }
 
-    /// Adds metadata to a blob object.
+    /// Adds attribute to a blob object.
     ///
-    /// If metadata does not exist, it is created with the given key-value pairs.
-    /// If metadata already exists, an error is returned unless `force` is true.
-    /// If `force` is true, the metadata is updated with the given key-value pairs.
-    pub async fn add_blob_metadata(
+    /// If attribute does not exist, it is created with the given key-value pairs.
+    /// If attribute already exists, an error is returned unless `force` is true.
+    /// If `force` is true, the attribute is updated with the given key-value pairs.
+    pub async fn add_blob_attribute(
         &mut self,
         blob_id: ObjectID,
-        metadata: Metadata,
+        blob_attribute: BlobAttribute,
         force: bool,
     ) -> SuiClientResult<()> {
         let mut inner = self.inner.lock().await;
-        match inner.add_blob_metadata(blob_id, &metadata).await {
+        match inner.add_blob_attribute(blob_id, &blob_attribute).await {
             Ok(()) => Ok(()),
             Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
                 BlobError::EDuplicateMetadata(_),
             ))) if force => {
                 inner
-                    .insert_or_update_blob_metadata_pairs(blob_id, &metadata)
+                    .insert_or_update_blob_attribute_pairs(blob_id, blob_attribute.iter())
                     .await
             }
             Err(e) => Err(e),
@@ -772,33 +772,34 @@ impl SuiContractClient {
     /// Removes the metadata from a blob object.
     ///
     /// If metadata does not exist, an error is returned.
-    pub async fn remove_blob_metadata(&mut self, blob_id: ObjectID) -> SuiClientResult<()> {
-        self.inner.lock().await.remove_blob_metadata(blob_id).await
+    pub async fn remove_blob_attribute(&mut self, blob_id: ObjectID) -> SuiClientResult<()> {
+        self.inner.lock().await.remove_blob_attribute(blob_id).await
     }
 
     /// Inserts or updates a key-value pairs in the blob's metadata.
     ///
     /// If the key already exists, its value is updated.
     /// If metadata does not exist, an error is returned.
-    pub async fn insert_or_update_blob_metadata_pairs<I>(
+    pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_id: ObjectID,
         pairs: I,
     ) -> SuiClientResult<()>
     where
-        I: IntoIterator<Item = (String, String)>,
+        I: IntoIterator<Item = (T, T)>,
+        T: Into<String>,
     {
         self.inner
             .lock()
             .await
-            .insert_or_update_blob_metadata_pairs(blob_id, pairs)
+            .insert_or_update_blob_attribute_pairs(blob_id, pairs)
             .await
     }
 
     /// Removes key-value pairs from the blob's metadata.
     ///
     /// If any key does not exist, an error is returned.
-    pub async fn remove_blob_metadata_pairs<I, T>(
+    pub async fn remove_blob_attribute_pairs<I, T>(
         &mut self,
         blob_id: ObjectID,
         keys: I,
@@ -810,7 +811,7 @@ impl SuiContractClient {
         self.inner
             .lock()
             .await
-            .remove_blob_metadata_pairs(blob_id, keys)
+            .remove_blob_attribute_pairs(blob_id, keys)
             .await
     }
 
@@ -854,15 +855,15 @@ impl SuiContractClientInner {
         })
     }
 
-    /// Adds metadata to a blob object.
-    pub async fn add_blob_metadata(
+    /// Adds attribute to a blob object.
+    pub async fn add_blob_attribute(
         &mut self,
         blob_id: ObjectID,
-        metadata: &Metadata,
+        blob_attribute: &BlobAttribute,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .add_blob_metadata(blob_id.into(), metadata.clone())
+            .add_blob_attribute(blob_id.into(), blob_attribute.clone())
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -870,26 +871,27 @@ impl SuiContractClientInner {
     }
 
     /// Removes the metadata from a blob object.
-    pub async fn remove_blob_metadata(&mut self, blob_id: ObjectID) -> SuiClientResult<()> {
+    pub async fn remove_blob_attribute(&mut self, blob_id: ObjectID) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        pt_builder.take_metadata(blob_id.into()).await?;
+        pt_builder.remove_blob_attribute(blob_id.into()).await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
     }
 
     /// Inserts or updates a key-value pair in the blob's metadata.
-    pub async fn insert_or_update_blob_metadata_pairs<I>(
+    pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_id: ObjectID,
         pairs: I,
     ) -> SuiClientResult<()>
     where
-        I: IntoIterator<Item = (String, String)>,
+        I: IntoIterator<Item = (T, T)>,
+        T: Into<String>,
     {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .insert_or_update_blob_metadata_pairs(blob_id.into(), pairs)
+            .insert_or_update_blob_attribute_pairs(blob_id.into(), pairs)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -897,7 +899,7 @@ impl SuiContractClientInner {
     }
 
     /// Removes key-value pairs from the blob's metadata.
-    pub async fn remove_blob_metadata_pairs<I, T>(
+    pub async fn remove_blob_attribute_pairs<I, T>(
         &mut self,
         blob_id: ObjectID,
         keys: I,
@@ -908,7 +910,7 @@ impl SuiContractClientInner {
     {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .remove_metadata_pairs(blob_id.into(), keys)
+            .remove_blob_attribute_pairs(blob_id.into(), keys)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -1822,12 +1824,18 @@ impl ReadClient for SuiContractClient {
         self.read_client.get_storage_nodes_by_ids(node_ids).await
     }
 
-    async fn get_blob_metadata(&self, blob_id: ObjectID) -> SuiClientResult<Option<Metadata>> {
-        self.read_client.get_blob_metadata(blob_id).await
+    async fn get_blob_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<Option<BlobAttribute>> {
+        self.read_client.get_blob_attribute(blob_id).await
     }
 
-    async fn get_blob_with_metadata(&self, blob_id: ObjectID) -> SuiClientResult<BlobWithMetadata> {
-        self.read_client.get_blob_with_metadata(blob_id).await
+    async fn get_blob_with_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<BlobWithAttribute> {
+        self.read_client.get_blob_with_attribute(blob_id).await
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

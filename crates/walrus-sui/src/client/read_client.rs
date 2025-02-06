@@ -53,10 +53,10 @@ use crate::{
     types::{
         move_structs::{
             Blob,
-            BlobWithMetadata,
+            BlobAttribute,
+            BlobWithAttribute,
             EpochState,
             EventBlob,
-            Metadata,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
@@ -177,16 +177,16 @@ pub trait ReadClient: Send + Sync {
     ) -> impl Future<Output = Result<Vec<StorageNode>>> + Send;
 
     /// Returns the metadata associated with a blob object.
-    fn get_blob_metadata(
+    fn get_blob_attribute(
         &self,
         blob_id: ObjectID,
-    ) -> impl Future<Output = SuiClientResult<Option<Metadata>>> + Send;
+    ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
 
     /// Returns the blob object and its associated metadata.
-    fn get_blob_with_metadata(
+    fn get_blob_with_attribute(
         &self,
         blob_id: ObjectID,
-    ) -> impl Future<Output = SuiClientResult<BlobWithMetadata>> + Send;
+    ) -> impl Future<Output = SuiClientResult<BlobWithAttribute>> + Send;
 
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
@@ -842,9 +842,12 @@ impl ReadClient for SuiReadClient {
             .collect())
     }
 
-    async fn get_blob_metadata(&self, blob_id: ObjectID) -> SuiClientResult<Option<Metadata>> {
+    async fn get_blob_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<Option<BlobAttribute>> {
         self.sui_client
-            .get_dynamic_field::<Vec<u8>, Metadata>(
+            .get_dynamic_field::<Vec<u8>, BlobAttribute>(
                 blob_id,
                 TypeTag::Vector(Box::new(TypeTag::U8)),
                 b"metadata".to_vec(),
@@ -854,10 +857,13 @@ impl ReadClient for SuiReadClient {
             .or_else(|_| Ok(None))
     }
 
-    async fn get_blob_with_metadata(&self, blob_id: ObjectID) -> SuiClientResult<BlobWithMetadata> {
-        Ok(BlobWithMetadata {
+    async fn get_blob_with_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<BlobWithAttribute> {
+        Ok(BlobWithAttribute {
             blob: self.sui_client.get_sui_object::<Blob>(blob_id).await?,
-            metadata: self.get_blob_metadata(blob_id).await?,
+            attribute: self.get_blob_attribute(blob_id).await?,
         })
     }
 

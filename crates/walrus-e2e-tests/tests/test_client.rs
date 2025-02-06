@@ -19,7 +19,7 @@ use indicatif::MultiProgress;
 use rand::random;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
-use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
+use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::Primary,
@@ -36,6 +36,7 @@ use walrus_service::{
     client::{
         responses::BlobStoreResult,
         Blocklist,
+        Client,
         ClientCommunicationConfig,
         ClientError,
         ClientErrorKind::{
@@ -50,16 +51,23 @@ use walrus_service::{
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
-    client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient, SuiClientError},
+    client::{
+        BlobPersistence,
+        ExpirySelectionPolicy,
+        PostStoreAction,
+        ReadClient,
+        SuiClientError,
+        SuiContractClient,
+    },
     types::{
         move_errors::{BlobError, MoveExecutionError, RawMoveError},
-        move_structs::{Metadata, SharedBlob},
+        move_structs::{BlobAttribute, SharedBlob},
         Blob,
         BlobEvent,
         ContractEvent,
     },
 };
-use walrus_test_utils::{async_param_test, Result as TestResult};
+use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -1051,26 +1059,116 @@ async fn test_post_store_action(
     Ok(())
 }
 
-#[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
-/// Tests blob metadata operations.
-async fn test_blob_metadata() -> TestResult {
-    telemetry_subscribers::init_for_testing();
+/// A test cluster for blob attribute tests.
+struct BlobAttributeTestCluster<'a> {
+    pub client: &'a mut WithTempDir<Client<SuiContractClient>>,
+    pub blob: Blob,
+    pub key_value_pairs: HashMap<String, String>,
+    pub expected_pairs: Option<HashMap<String, String>>,
+}
 
-    // Test data - key-value pairs to use as metadata
-    let key_value_pairs = HashMap::from([
-        ("name".to_string(), "test_blob".to_string()),
-        (
-            "description".to_string(),
-            "A test blob for metadata".to_string(),
-        ),
-        ("version".to_string(), "1.0.0".to_string()),
-        ("author".to_string(), "walrus_test".to_string()),
-        ("timestamp".to_string(), "2024-01-01".to_string()),
-        ("addr".to_string(), "Mars".to_string()),
-    ]);
+impl BlobAttributeTestCluster<'_> {
+    pub async fn verify_blob_attribute(&self) -> TestResult {
+        let client = self.client.as_ref().sui_client();
+        let blob = self.blob.clone();
+
+        let res = client.get_blob_with_attribute(blob.id).await?;
+        if res.attribute.is_none() {
+            assert!(self.expected_pairs.is_none());
+        }
+        if let Some(expected_pairs) = &self.expected_pairs {
+            assert_eq!(
+                res.attribute
+                    .as_ref()
+                    .expect("attribute should exist")
+                    .len(),
+                expected_pairs.len()
+            );
+            for (key, value) in expected_pairs.iter() {
+                assert_eq!(
+                    res.attribute
+                        .as_ref()
+                        .expect("attribute should exist")
+                        .get(key)
+                        .expect("key should exist"),
+                    value
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn add_attribute(&mut self, attribute: BlobAttribute, force: bool) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client
+            .add_blob_attribute(self.blob.id, attribute.clone(), force)
+            .await?;
+        if self.expected_pairs.is_none() {
+            self.expected_pairs = Some(HashMap::new());
+        }
+        let expected_pairs = self
+            .expected_pairs
+            .as_mut()
+            .expect("expected_pairs should be Some at this point");
+        for (key, value) in attribute.iter() {
+            expected_pairs.insert(key.clone(), value.clone());
+        }
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    pub async fn remove_attribute(&mut self) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client.remove_blob_attribute(self.blob.id).await?;
+        self.expected_pairs = None;
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    pub async fn insert_or_update_attribute_pairs(
+        &mut self,
+        kvs: &HashMap<String, String>,
+    ) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client
+            .insert_or_update_blob_attribute_pairs(
+                self.blob.id,
+                kvs.iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect::<Vec<(String, String)>>(),
+            )
+            .await?;
+        if let Some(expected_pairs) = &mut self.expected_pairs {
+            expected_pairs.extend(kvs.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        } else {
+            panic!("expected_pairs should be Some at this point");
+        }
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    pub async fn remove_blob_attribute_pairs(&mut self, keys: &[&String]) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client
+            .remove_blob_attribute_pairs(self.blob.id, keys)
+            .await?;
+        if let Some(expected_pairs) = &mut self.expected_pairs {
+            for key in keys.iter() {
+                expected_pairs.remove(*key);
+            }
+        } else {
+            panic!("expected_pairs should be Some at this point");
+        }
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+}
+
+/// Setup a test cluster with multiple copies of the same blob.
+async fn set_up_blob_attribute_test(
+    client: &mut WithTempDir<Client<SuiContractClient>>,
+) -> TestResult<BlobAttributeTestCluster> {
     let blobs_to_create = 2;
-    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
 
@@ -1102,298 +1200,173 @@ async fn test_blob_metadata() -> TestResult {
         let res = client
             .as_ref()
             .sui_client()
-            .get_blob_with_metadata(blob.id)
+            .get_blob_with_attribute(blob.id)
             .await
-            .expect("get_blob_with_metadata should succeed");
-        assert!(res.metadata.is_none());
+            .expect("get_blob_with_attribute should succeed");
+        assert!(res.attribute.is_none());
     }
+    Ok(BlobAttributeTestCluster {
+        client,
+        blob: blobs[0].clone(),
+        key_value_pairs: HashMap::from([
+            ("name".to_string(), "test_blob".to_string()),
+            (
+                "description".to_string(),
+                "A test blob for metadata".to_string(),
+            ),
+            ("version".to_string(), "1.0.0".to_string()),
+            ("author".to_string(), "walrus_test".to_string()),
+            ("timestamp".to_string(), "2024-01-01".to_string()),
+            ("addr".to_string(), "Mars".to_string()),
+        ]),
+        expected_pairs: Some(HashMap::new()),
+    })
+}
 
-    // Test adding initial metadata
-    let mut metadata = Metadata::default();
-    let mut count = 0;
-    for (key, value) in key_value_pairs.iter() {
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_attribute_add_and_remove() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
+    let mut cluster = set_up_blob_attribute_test(&mut client).await?;
+
+    let mut attribute = BlobAttribute::default();
+    for (key, value) in cluster.key_value_pairs.iter() {
         if random::<bool>() {
-            metadata.insert(key.clone(), value.clone());
-            count += 1;
+            attribute.insert(key.clone(), value.clone());
         }
     }
+    tracing::info!("adding attribute: {:?}", attribute);
+    cluster.add_attribute(attribute.clone(), false).await?;
 
-    client
-        .as_mut()
-        .sui_client_mut()
-        .add_blob_metadata(blobs[0].id, metadata.clone(), false)
-        .await
-        .expect("add_blob_metadata should succeed");
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
-    assert_eq!(
-        res.metadata
-            .as_ref()
-            .expect("metadata should exist")
-            .metadata
-            .contents
-            .len(),
-        count
-    );
-
+    tracing::info!("adding duplicate attribute: {:?}", attribute);
     // Test duplicate metadata error (should fail when force=false)
-    let duplicate_result = client
-        .as_mut()
-        .sui_client_mut()
-        .add_blob_metadata(blobs[0].id, metadata.clone(), false)
-        .await;
-
+    let duplicate_result = cluster.add_attribute(attribute.clone(), false).await;
     assert!(matches!(
-        duplicate_result,
-        Err(SuiClientError::TransactionExecutionError(
-            MoveExecutionError::Blob(BlobError::EDuplicateMetadata(..))
+        duplicate_result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+            BlobError::EDuplicateMetadata(..)
         ))
     ));
 
+    tracing::info!("adding force attribute: {:?}", attribute);
     // Test force adding duplicate metadata (should succeed)
-    let mut updated_metadata = Metadata::default();
-    let new_key = "new_test_key".to_string();
-    let new_value = "new_test_value".to_string();
-    updated_metadata.insert(new_key.clone(), new_value.clone());
+    let mut updated_attribute = BlobAttribute::default();
+    updated_attribute.insert("new_key".to_string(), "new_value".to_string());
+    cluster.add_attribute(updated_attribute, true).await?;
 
-    client
-        .as_mut()
-        .sui_client_mut()
-        .add_blob_metadata(blobs[0].id, updated_metadata, true)
-        .await
-        .expect("force add_blob_metadata should succeed");
+    tracing::info!("removing attribute");
+    // Test removing metadata from the blob
+    cluster.remove_attribute().await?;
 
-    // Verify the metadata was merged correctly
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
+    tracing::info!("removing missing attribute");
+    // Removing metadata from a blob that does not have any should fail.
+    let result = cluster.remove_attribute().await;
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+            BlobError::EMissingMetadata(..)
+        ))
+    ));
 
-    let merged_metadata = res.metadata.as_ref().expect("metadata should exist");
-    // Check total count increased by 1
-    assert_eq!(merged_metadata.metadata.contents.len(), count + 1);
-    // Check new value is correct
-    assert_eq!(
-        merged_metadata
-            .metadata
-            .get(&new_key)
-            .expect("key should exist"),
-        &new_value
-    );
+    Ok(())
+}
 
-    // Test adding individual metadata key-value pairs
-    for (key, value) in &key_value_pairs {
-        client
-            .as_mut()
-            .sui_client_mut()
-            .insert_or_update_blob_metadata_pairs(blobs[0].id, vec![(key.clone(), value.clone())])
-            .await
-            .expect("insert_or_update_blob_metadata_pair should succeed");
-        let res = client
-            .as_ref()
-            .sui_client()
-            .get_blob_with_metadata(blobs[0].id)
-            .await
-            .expect("get_blob_with_metadata should succeed");
-        tracing::info!("added_metadata_key: {}, {:?}", key, res);
-    }
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_attribute_insert_or_update_and_remove() -> TestResult {
+    telemetry_subscribers::init_for_testing();
 
-    // Verify all metadata was added correctly
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
-    tracing::info!("blob_with_metadata: {:?}", res);
+    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
+    let mut cluster = set_up_blob_attribute_test(&mut client).await?;
 
-    let metadata = res.metadata.as_ref().expect("metadata should exist");
-    assert_eq!(metadata.metadata.contents.len(), key_value_pairs.len() + 1);
-    for (key, value) in &key_value_pairs {
-        assert_eq!(metadata.metadata.get(key).expect("key should exist"), value);
-    }
+    // Test adding a pair without attribute should fail
+    let result = cluster
+        .insert_or_update_attribute_pairs(&HashMap::from([(
+            "key".to_string(),
+            "value".to_string(),
+        )]))
+        .await;
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+            BlobError::EMissingMetadata(..)
+        ))
+    ));
 
-    // Test removing random metadata keys
-    let mut deleted = HashSet::new();
-    for key in key_value_pairs.keys() {
+    // Test removing a pair without an existing attribute should fail
+    let result = cluster
+        .remove_blob_attribute_pairs(&[&"key".to_string()])
+        .await;
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+            BlobError::EMissingMetadata(..)
+        ))
+    ));
+
+    // Initialize empty attribute
+    cluster
+        .add_attribute(BlobAttribute::default(), false)
+        .await?;
+
+    let kvs = cluster.key_value_pairs.clone();
+    // Test adding individual pairs
+    cluster.insert_or_update_attribute_pairs(&kvs).await?;
+
+    // Test removing random pairs
+    for key in kvs.keys() {
         if random::<bool>() {
             continue;
         }
-
-        deleted.insert(key.clone());
-        client
-            .as_mut()
-            .sui_client_mut()
-            .remove_blob_metadata_pairs(blobs[0].id, vec![key.clone()])
-            .await
-            .expect("remove blob metadata keys should succeed");
+        cluster.remove_blob_attribute_pairs(&[key]).await?;
     }
 
-    // Verify deleted keys are gone and others remain
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
-    let remaining_metadata = res.metadata.as_ref().expect("metadata should exist");
-    for (key, value) in &key_value_pairs {
-        if deleted.contains(key) {
-            assert!(remaining_metadata.metadata.get(key).is_none());
-        } else {
-            assert_eq!(
-                remaining_metadata
-                    .metadata
-                    .get(key)
-                    .expect("key should exist"),
-                value
-            );
-        }
-    }
-
-    // Test updating existing metadata value
+    // Test updating existing pairs
     let key = "test_key".to_string();
     let initial_value = "initial_value".to_string();
     let updated_value = "updated_value".to_string();
 
-    client
-        .as_mut()
-        .sui_client_mut()
-        .insert_or_update_blob_metadata_pairs(
-            blobs[0].id,
-            vec![(key.clone(), initial_value.clone())],
-        )
-        .await
-        .expect("insert_or_update_blob_metadata_pair should succeed");
+    cluster
+        .insert_or_update_attribute_pairs(&HashMap::from([(key.clone(), initial_value.clone())]))
+        .await?;
+    cluster
+        .insert_or_update_attribute_pairs(&HashMap::from([(key.clone(), updated_value.clone())]))
+        .await?;
 
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
-    let metadata = res.metadata.as_ref().expect("metadata should exist");
-    assert_eq!(
-        metadata.metadata.get(&key).expect("key should exist"),
-        &initial_value
-    );
-
-    client
-        .as_mut()
-        .sui_client_mut()
-        .insert_or_update_blob_metadata_pairs(
-            blobs[0].id,
-            vec![(key.clone(), updated_value.clone())],
-        )
-        .await
-        .expect("insert_or_update_blob_metadata_pair should succeed");
-
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
-    let metadata = res.metadata.as_ref().expect("metadata should exist");
-    assert_eq!(
-        metadata.metadata.get(&key).expect("key should exist"),
-        &updated_value
-    );
-
-    // Test removing non-existent metadata key
+    // Test removing non-existent pairs
     let non_existing_key = "non_existing_key".to_string();
-    let result = client
-        .as_mut()
-        .sui_client_mut()
-        .remove_blob_metadata_pairs(blobs[0].id, vec![non_existing_key])
+    let result = cluster
+        .remove_blob_attribute_pairs(&[&non_existing_key])
         .await;
-
     assert!(matches!(
-        result,
-        Err(SuiClientError::TransactionExecutionError(
+        result.unwrap_err().downcast::<SuiClientError>().unwrap().as_ref(),
+        SuiClientError::TransactionExecutionError(
             MoveExecutionError::OtherMoveModule(RawMoveError {
                 function,
                 module,
                 error_code,
                 ..
             })
-        )) if function == *"get_idx" && module == *"vec_map" && error_code == 1
+        ) if function.as_str() == "get_idx" && module.as_str() == "vec_map" && *error_code == 1
     ));
-
-    // Test metadata operations on second blob
-    let second_blob_id = blobs[1].id;
-    let second_blob_key = "second_blob_key".to_string();
-    let second_blob_value = "second_blob_value".to_string();
-
-    // Inserting key-value pair without adding metadata to the blob should fail.
-    let result = client
-        .as_mut()
-        .sui_client_mut()
-        .insert_or_update_blob_metadata_pairs(
-            second_blob_id,
-            vec![(second_blob_key.clone(), second_blob_value.clone())],
-        )
-        .await;
-
-    assert!(matches!(
-        result,
-        Err(SuiClientError::TransactionExecutionError(
-            MoveExecutionError::Blob(BlobError::EMissingMetadata(..))
-        ))
-    ));
-
-    // Removing metadata from a blob that does not have any should fail.
-    let result = client
-        .as_mut()
-        .sui_client_mut()
-        .remove_blob_metadata(second_blob_id)
-        .await;
-
-    assert!(matches!(
-        result,
-        Err(SuiClientError::TransactionExecutionError(
-            MoveExecutionError::Blob(BlobError::EMissingMetadata(..))
-        ))
-    ));
-
-    // Add metadata to second blob and retry insert
-    client
-        .as_mut()
-        .sui_client_mut()
-        .add_blob_metadata(second_blob_id, Metadata::default(), false)
-        .await
-        .expect("add_blob_metadata should succeed");
-
-    client
-        .as_mut()
-        .sui_client_mut()
-        .insert_or_update_blob_metadata_pairs(
-            second_blob_id,
-            vec![(second_blob_key.clone(), second_blob_value.clone())],
-        )
-        .await
-        .expect("insert_or_update_blob_metadata_pair should succeed");
-
-    // Test removing metadata from the blob
-    client
-        .as_mut()
-        .sui_client_mut()
-        .remove_blob_metadata(blobs[0].id)
-        .await
-        .expect("remove_blob_metadata should succeed");
-    let res = client
-        .as_ref()
-        .sui_client()
-        .get_blob_with_metadata(blobs[0].id)
-        .await
-        .expect("get_blob_with_metadata should succeed");
-    assert!(res.metadata.is_none(), "metadata should be removed");
 
     Ok(())
 }

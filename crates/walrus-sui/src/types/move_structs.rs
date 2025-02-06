@@ -107,14 +107,14 @@ impl AssociatedContractStruct for Blob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
 }
 
-/// The metadata struct for Blob objects.
+/// The attribute struct for Blob objects.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct Metadata {
+pub struct BlobAttribute {
     /// The metadata key-value pairs.
     pub metadata: VecMap<String, String>,
 }
 
-impl Default for Metadata {
+impl Default for BlobAttribute {
     fn default() -> Self {
         Self {
             metadata: VecMap { contents: vec![] },
@@ -122,7 +122,27 @@ impl Default for Metadata {
     }
 }
 
-impl Metadata {
+impl BlobAttribute {
+    /// Creates a new BlobAttribute from any collection of key-value pairs.
+    pub fn from<I, K, V>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        let contents = iter
+            .into_iter()
+            .map(|(key, value)| Entry {
+                key: key.into(),
+                value: value.into(),
+            })
+            .collect();
+
+        Self {
+            metadata: VecMap { contents },
+        }
+    }
+
     /// Insert a key-value pair into the metadata.
     pub fn insert(&mut self, key: String, value: String) {
         if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
@@ -132,32 +152,49 @@ impl Metadata {
         }
     }
 
+    /// Get a value from the metadata.
+    pub fn get<T: AsRef<str>>(&self, key: T) -> Option<&str> {
+        self.metadata
+            .contents
+            .iter()
+            .find(|e| e.key == key.as_ref())
+            .map(|e| e.value.as_str())
+    }
+
     /// Returns an iterator over the key-value pairs in the metadata.
     pub fn iter(&self) -> MetadataIter {
         MetadataIter {
             inner: self.metadata.contents.iter(),
         }
     }
+
+    /// Returns the number of key-value pairs in the attribute.
+    pub fn len(&self) -> usize {
+        self.metadata.contents.len()
+    }
+
+    /// Returns `true` if the attribute is empty.
+    pub fn is_empty(&self) -> bool {
+        self.metadata.contents.is_empty()
+    }
 }
 
-/// Iterator for Metadata key-value pairs.
+/// Iterator for BlobAttributes key-value pairs.
 #[derive(Debug)]
 pub struct MetadataIter<'a> {
     inner: std::slice::Iter<'a, Entry<String, String>>,
 }
 
-impl Iterator for MetadataIter<'_> {
-    type Item = (String, String);
+impl<'a> Iterator for MetadataIter<'a> {
+    type Item = (&'a String, &'a String);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next()
-            .map(|entry| (entry.key.clone(), entry.value.clone()))
+        self.inner.next().map(|entry| (&entry.key, &entry.value))
     }
 }
 
-impl<'a> IntoIterator for &'a Metadata {
-    type Item = (String, String);
+impl<'a> IntoIterator for &'a BlobAttribute {
+    type Item = (&'a String, &'a String);
     type IntoIter = MetadataIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -165,17 +202,17 @@ impl<'a> IntoIterator for &'a Metadata {
     }
 }
 
-impl AssociatedContractStruct for Metadata {
+impl AssociatedContractStruct for BlobAttribute {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::metadata::Metadata;
 }
 
 /// A blob with its metadata.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BlobWithMetadata {
+pub struct BlobWithAttribute {
     /// The blob.
     pub blob: Blob,
-    /// The metadata associated with the blob.
-    pub metadata: Option<Metadata>,
+    /// The attribute associated with the blob.
+    pub attribute: Option<BlobAttribute>,
 }
 
 /// Event blob attestation.

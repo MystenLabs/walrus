@@ -14,7 +14,6 @@ use fastcrypto::traits::ToFromBytes;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
     base_types::{ObjectID, ObjectType, SuiAddress},
-    collection_types::Entry,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
     Identifier,
@@ -43,7 +42,7 @@ use super::{
 use crate::{
     contracts::{self, FunctionTag},
     types::{
-        move_structs::{Authorized, Metadata, WalExchange},
+        move_structs::{Authorized, BlobAttribute, WalExchange},
         NetworkAddress,
         NodeMetadata,
         NodeRegistrationParams,
@@ -387,13 +386,13 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to insert or update a key-value pair in a Metadata object.
-    pub async fn insert_or_update_metadata(
+    pub async fn insert_or_update_blob_attribute(
         &mut self,
-        metadata: ArgumentOrOwnedObject,
+        blob_attribute: ArgumentOrOwnedObject,
         key: String,
         value: String,
     ) -> SuiClientResult<()> {
-        let metadata_arg = self.argument_from_arg_or_obj(metadata).await?;
+        let metadata_arg = self.argument_from_arg_or_obj(blob_attribute).await?;
         let key_arg = self.pt_builder.pure(key)?;
         let value_arg = self.pt_builder.pure(value)?;
         self.walrus_move_call(
@@ -404,17 +403,17 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to add metadata to a blob.
-    pub async fn add_blob_metadata(
+    pub async fn add_blob_attribute(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
-        metadata: Metadata,
+        blob_attribute: BlobAttribute,
     ) -> SuiClientResult<()> {
         // Create a new metadata object
         let metadata_arg = self.new_metadata().await?;
 
         // Iterate through the passed-in metadata and populate the move metadata
-        for Entry { key, value } in metadata.metadata.contents {
-            self.insert_or_update_metadata(metadata_arg.into(), key.clone(), value.clone())
+        for (key, value) in blob_attribute.iter() {
+            self.insert_or_update_blob_attribute(metadata_arg.into(), key.clone(), value.clone())
                 .await?;
         }
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
@@ -424,7 +423,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to remove metadata from a blob and returns the result [`Argument`].
-    pub async fn take_metadata(
+    pub async fn remove_blob_attribute(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
     ) -> SuiClientResult<Argument> {
@@ -434,19 +433,20 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds calls to insert or update multiple metadata key-value pairs in a blob.
-    pub async fn insert_or_update_blob_metadata_pairs<I>(
+    pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
         pairs: I,
     ) -> SuiClientResult<()>
     where
-        I: IntoIterator<Item = (String, String)>,
+        I: IntoIterator<Item = (T, T)>,
+        T: Into<String>,
     {
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
 
         for (key, value) in pairs {
-            let key_arg = self.pt_builder.pure(key)?;
-            let value_arg = self.pt_builder.pure(value)?;
+            let key_arg = self.pt_builder.pure(key.into())?;
+            let value_arg = self.pt_builder.pure(value.into())?;
             self.walrus_move_call(
                 contracts::blob::insert_or_update_metadata_pair,
                 vec![blob_arg, key_arg, value_arg],
@@ -456,7 +456,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds calls to remove multiple metadata key-value pairs from a blob.
-    pub async fn remove_metadata_pairs<I, K>(
+    pub async fn remove_blob_attribute_pairs<I, K>(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
         keys: I,
