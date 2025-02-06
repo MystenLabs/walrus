@@ -422,7 +422,10 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Adds a call to remove metadata from a blob and returns the result [`Argument`].
+    /// Adds a call to remove metadata dynamic field from a blob and returns the
+    /// result [`Argument`].
+    ///
+    /// Note the [`BlobAttribute`] corresponds to the `metadata::Metadata` in the contract.
     pub async fn remove_blob_attribute(
         &mut self,
         blob_object: ArgumentOrOwnedObject,

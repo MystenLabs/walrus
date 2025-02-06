@@ -179,7 +179,7 @@ impl BlobAttribute {
     }
 }
 
-/// Iterator for BlobAttributes key-value pairs.
+/// Iterator for BlobAttribute key-value pairs.
 #[derive(Debug)]
 pub struct MetadataIter<'a> {
     inner: std::slice::Iter<'a, Entry<String, String>>,

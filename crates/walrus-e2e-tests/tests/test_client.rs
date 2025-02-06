@@ -1060,15 +1060,16 @@ async fn test_post_store_action(
 }
 
 /// A test cluster for blob attribute tests.
-struct BlobAttributeTestCluster<'a> {
+struct BlobAttributeTestContext<'a> {
     pub client: &'a mut WithTempDir<Client<SuiContractClient>>,
     pub blob: Blob,
     pub key_value_pairs: HashMap<String, String>,
     pub expected_pairs: Option<HashMap<String, String>>,
 }
 
-impl BlobAttributeTestCluster<'_> {
-    pub async fn verify_blob_attribute(&self) -> TestResult {
+impl<'a> BlobAttributeTestContext<'a> {
+    /// Verify the blob attribute are the same the expected pairs.
+    async fn verify_blob_attribute(&self) -> TestResult {
         let client = self.client.as_ref().sui_client();
         let blob = self.blob.clone();
 
@@ -1098,7 +1099,12 @@ impl BlobAttributeTestCluster<'_> {
         Ok(())
     }
 
-    pub async fn add_attribute(&mut self, attribute: BlobAttribute, force: bool) -> TestResult {
+    /// Add the blob attribute.
+    pub async fn add_attribute_and_verify(
+        &mut self,
+        attribute: BlobAttribute,
+        force: bool,
+    ) -> TestResult {
         let client = self.client.as_mut().sui_client_mut();
         client
             .add_blob_attribute(self.blob.id, attribute.clone(), force)
@@ -1117,7 +1123,7 @@ impl BlobAttributeTestCluster<'_> {
         Ok(())
     }
 
-    pub async fn remove_attribute(&mut self) -> TestResult {
+    pub async fn remove_attribute_and_verify(&mut self) -> TestResult {
         let client = self.client.as_mut().sui_client_mut();
         client.remove_blob_attribute(self.blob.id).await?;
         self.expected_pairs = None;
@@ -1125,7 +1131,7 @@ impl BlobAttributeTestCluster<'_> {
         Ok(())
     }
 
-    pub async fn insert_or_update_attribute_pairs(
+    pub async fn insert_or_update_attribute_pairs_and_verify(
         &mut self,
         kvs: &HashMap<String, String>,
     ) -> TestResult {
@@ -1147,7 +1153,7 @@ impl BlobAttributeTestCluster<'_> {
         Ok(())
     }
 
-    pub async fn remove_blob_attribute_pairs(&mut self, keys: &[&String]) -> TestResult {
+    pub async fn remove_blob_attribute_pairs_and_verify(&mut self, keys: &[&String]) -> TestResult {
         let client = self.client.as_mut().sui_client_mut();
         client
             .remove_blob_attribute_pairs(self.blob.id, keys)
@@ -1162,65 +1168,64 @@ impl BlobAttributeTestCluster<'_> {
         self.verify_blob_attribute().await?;
         Ok(())
     }
-}
 
-/// Setup a test cluster with multiple copies of the same blob.
-async fn set_up_blob_attribute_test(
-    client: &mut WithTempDir<Client<SuiContractClient>>,
-) -> TestResult<BlobAttributeTestCluster> {
-    let blobs_to_create = 2;
-    let blob = walrus_test_utils::random_data(314);
-    let blobs = vec![blob.as_slice()];
+    /// Create a new test context with multiple copies of the same blob.
+    pub async fn new(client: &'a mut WithTempDir<Client<SuiContractClient>>) -> TestResult<Self> {
+        let blobs_to_create = 2;
+        let blob = walrus_test_utils::random_data(314);
+        let blobs = vec![blob.as_slice()];
 
-    // Store multiple copies of the same blob with different end times
-    for idx in 1..blobs_to_create + 1 {
-        client
+        // Store multiple copies of the same blob with different end times.
+        for idx in 1..blobs_to_create + 1 {
+            client
+                .as_mut()
+                .reserve_and_store_blobs(
+                    &blobs,
+                    idx,
+                    StoreWhen::Always,
+                    BlobPersistence::Permanent,
+                    PostStoreAction::Keep,
+                )
+                .await
+                .expect("reserve_and_store_blobs should succeed.");
+        }
+
+        // Verify initial blob count and no metadata.
+        let blobs = client
             .as_mut()
-            .reserve_and_store_blobs(
-                &blobs,
-                idx,
-                StoreWhen::Always,
-                BlobPersistence::Permanent,
-                PostStoreAction::Keep,
-            )
-            .await
-            .expect("reserve_and_store_blobs should succeed");
-    }
-
-    // Verify initial blob count and no metadata
-    let blobs = client
-        .as_mut()
-        .sui_client()
-        .owned_blobs(None, ExpirySelectionPolicy::Valid)
-        .await
-        .expect("owned_blobs should succeed");
-    assert_eq!(blobs.len(), blobs_to_create as usize);
-
-    for blob in blobs.iter() {
-        let res = client
-            .as_ref()
             .sui_client()
-            .get_blob_with_attribute(blob.id)
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
             .await
-            .expect("get_blob_with_attribute should succeed");
-        assert!(res.attribute.is_none());
+            .expect("owned_blobs should succeed.");
+        assert_eq!(blobs.len(), blobs_to_create as usize);
+
+        for blob in blobs.iter() {
+            let res = client
+                .as_ref()
+                .sui_client()
+                .get_blob_with_attribute(blob.id)
+                .await
+                .expect("get_blob_with_attribute should succeed.");
+            assert!(res.attribute.is_none());
+        }
+
+        Ok(Self {
+            client,
+            blob: blobs[0].clone(),
+            key_value_pairs: HashMap::from([
+                ("name".to_string(), "test_blob".to_string()),
+                (
+                    "description".to_string(),
+                    "A test blob for metadata".to_string(),
+                ),
+                ("version".to_string(), "1.0.0".to_string()),
+                ("author".to_string(), "walrus_test".to_string()),
+                ("timestamp".to_string(), "2024-01-01".to_string()),
+                ("addr".to_string(), "Mars".to_string()),
+            ]),
+            expected_pairs: Some(HashMap::new()),
+        })
     }
-    Ok(BlobAttributeTestCluster {
-        client,
-        blob: blobs[0].clone(),
-        key_value_pairs: HashMap::from([
-            ("name".to_string(), "test_blob".to_string()),
-            (
-                "description".to_string(),
-                "A test blob for metadata".to_string(),
-            ),
-            ("version".to_string(), "1.0.0".to_string()),
-            ("author".to_string(), "walrus_test".to_string()),
-            ("timestamp".to_string(), "2024-01-01".to_string()),
-            ("addr".to_string(), "Mars".to_string()),
-        ]),
-        expected_pairs: Some(HashMap::new()),
-    })
 }
 
 #[ignore = "ignore E2E tests by default"]
@@ -1229,20 +1234,22 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
-    let mut cluster = set_up_blob_attribute_test(&mut client).await?;
+    let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
 
     let mut attribute = BlobAttribute::default();
-    for (key, value) in cluster.key_value_pairs.iter() {
+    for (key, value) in test_context.key_value_pairs.iter() {
         if random::<bool>() {
             attribute.insert(key.clone(), value.clone());
         }
     }
-    tracing::info!("adding attribute: {:?}", attribute);
-    cluster.add_attribute(attribute.clone(), false).await?;
+    test_context
+        .add_attribute_and_verify(attribute.clone(), false)
+        .await?;
 
-    tracing::info!("adding duplicate attribute: {:?}", attribute);
-    // Test duplicate metadata error (should fail when force=false)
-    let duplicate_result = cluster.add_attribute(attribute.clone(), false).await;
+    // Test duplicate metadata error (should fail when force=false).
+    let duplicate_result = test_context
+        .add_attribute_and_verify(attribute.clone(), false)
+        .await;
     assert!(matches!(
         duplicate_result
             .unwrap_err()
@@ -1254,19 +1261,18 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
         ))
     ));
 
-    tracing::info!("adding force attribute: {:?}", attribute);
-    // Test force adding duplicate metadata (should succeed)
+    // Test force adding duplicate metadata (should succeed).
     let mut updated_attribute = BlobAttribute::default();
     updated_attribute.insert("new_key".to_string(), "new_value".to_string());
-    cluster.add_attribute(updated_attribute, true).await?;
+    test_context
+        .add_attribute_and_verify(updated_attribute, true)
+        .await?;
 
-    tracing::info!("removing attribute");
-    // Test removing metadata from the blob
-    cluster.remove_attribute().await?;
+    // Test removing metadata from the blob.
+    test_context.remove_attribute_and_verify().await?;
 
-    tracing::info!("removing missing attribute");
     // Removing metadata from a blob that does not have any should fail.
-    let result = cluster.remove_attribute().await;
+    let result = test_context.remove_attribute_and_verify().await;
     assert!(matches!(
         result
             .unwrap_err()
@@ -1287,11 +1293,11 @@ async fn test_blob_attribute_insert_or_update_and_remove() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
-    let mut cluster = set_up_blob_attribute_test(&mut client).await?;
+    let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
 
-    // Test adding a pair without attribute should fail
-    let result = cluster
-        .insert_or_update_attribute_pairs(&HashMap::from([(
+    // Test adding a pair without attribute should fail.
+    let result = test_context
+        .insert_or_update_attribute_pairs_and_verify(&HashMap::from([(
             "key".to_string(),
             "value".to_string(),
         )]))
@@ -1307,9 +1313,9 @@ async fn test_blob_attribute_insert_or_update_and_remove() -> TestResult {
         ))
     ));
 
-    // Test removing a pair without an existing attribute should fail
-    let result = cluster
-        .remove_blob_attribute_pairs(&[&"key".to_string()])
+    // Test removing a pair without an existing attribute should fail.
+    let result = test_context
+        .remove_blob_attribute_pairs_and_verify(&[&"key".to_string()])
         .await;
     assert!(matches!(
         result
@@ -1322,39 +1328,49 @@ async fn test_blob_attribute_insert_or_update_and_remove() -> TestResult {
         ))
     ));
 
-    // Initialize empty attribute
-    cluster
-        .add_attribute(BlobAttribute::default(), false)
+    // Initialize empty attribute.
+    test_context
+        .add_attribute_and_verify(BlobAttribute::default(), false)
         .await?;
 
-    let kvs = cluster.key_value_pairs.clone();
-    // Test adding individual pairs
-    cluster.insert_or_update_attribute_pairs(&kvs).await?;
+    let kvs = test_context.key_value_pairs.clone();
+    // Test adding individual pairs.
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(&kvs)
+        .await?;
 
-    // Test removing random pairs
+    // Test removing random pairs.
     for key in kvs.keys() {
         if random::<bool>() {
             continue;
         }
-        cluster.remove_blob_attribute_pairs(&[key]).await?;
+        test_context
+            .remove_blob_attribute_pairs_and_verify(&[key])
+            .await?;
     }
 
-    // Test updating existing pairs
+    // Test updating existing pairs.
     let key = "test_key".to_string();
     let initial_value = "initial_value".to_string();
     let updated_value = "updated_value".to_string();
 
-    cluster
-        .insert_or_update_attribute_pairs(&HashMap::from([(key.clone(), initial_value.clone())]))
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(&HashMap::from([(
+            key.clone(),
+            initial_value.clone(),
+        )]))
         .await?;
-    cluster
-        .insert_or_update_attribute_pairs(&HashMap::from([(key.clone(), updated_value.clone())]))
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(&HashMap::from([(
+            key.clone(),
+            updated_value.clone(),
+        )]))
         .await?;
 
-    // Test removing non-existent pairs
+    // Test removing non-existent pairs.
     let non_existing_key = "non_existing_key".to_string();
-    let result = cluster
-        .remove_blob_attribute_pairs(&[&non_existing_key])
+    let result = test_context
+        .remove_blob_attribute_pairs_and_verify(&[&non_existing_key])
         .await;
     assert!(matches!(
         result.unwrap_err().downcast::<SuiClientError>().unwrap().as_ref(),
