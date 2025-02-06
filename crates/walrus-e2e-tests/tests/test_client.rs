@@ -1059,7 +1059,7 @@ async fn test_post_store_action(
     Ok(())
 }
 
-/// A test cluster for blob attribute tests.
+/// A toolkit for blob attribute tests.
 struct BlobAttributeTestContext<'a> {
     pub client: &'a mut WithTempDir<Client<SuiContractClient>>,
     pub blob: Blob,
@@ -1123,6 +1123,7 @@ impl<'a> BlobAttributeTestContext<'a> {
         Ok(())
     }
 
+    /// Remove the blob attribute and verify the result.
     pub async fn remove_attribute_and_verify(&mut self) -> TestResult {
         let client = self.client.as_mut().sui_client_mut();
         client.remove_blob_attribute(self.blob.id).await?;
@@ -1131,6 +1132,7 @@ impl<'a> BlobAttributeTestContext<'a> {
         Ok(())
     }
 
+    /// Insert or update the blob attribute and verify the result.
     pub async fn insert_or_update_attribute_pairs_and_verify(
         &mut self,
         kvs: &HashMap<String, String>,
@@ -1153,6 +1155,7 @@ impl<'a> BlobAttributeTestContext<'a> {
         Ok(())
     }
 
+    /// Remove the blob attribute pairs and verify the result.
     pub async fn remove_blob_attribute_pairs_and_verify(&mut self, keys: &[&String]) -> TestResult {
         let client = self.client.as_mut().sui_client_mut();
         client
@@ -1289,7 +1292,7 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
 
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
-async fn test_blob_attribute_insert_or_update_and_remove() -> TestResult {
+async fn test_blob_attribute_fields_operations() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
     let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;

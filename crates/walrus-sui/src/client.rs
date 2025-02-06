@@ -780,10 +780,10 @@ impl SuiContractClient {
             .await
     }
 
-    /// Inserts or updates a key-value pairs in the blob's metadata.
+    /// Inserts or updates a key-value pairs in the blob's attribute.
     ///
     /// If the key already exists, its value is updated.
-    /// If metadata does not exist, an error is returned.
+    /// If attribute does not exist, an error is returned.
     pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_obj_id: ObjectID,
@@ -800,7 +800,7 @@ impl SuiContractClient {
             .await
     }
 
-    /// Removes key-value pairs from the blob's metadata.
+    /// Removes key-value pairs from the blob's attribute.
     ///
     /// If any key does not exist, an error is returned.
     pub async fn remove_blob_attribute_pairs<I, T>(
@@ -883,7 +883,7 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Inserts or updates a key-value pair in the blob's metadata.
+    /// Inserts or updates a key-value pair in the blob's attribute.
     pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_obj_id: ObjectID,
@@ -902,7 +902,7 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Removes key-value pairs from the blob's metadata.
+    /// Removes key-value pairs from the blob's attribute.
     pub async fn remove_blob_attribute_pairs<I, T>(
         &mut self,
         blob_obj_id: ObjectID,
@@ -1830,16 +1830,16 @@ impl ReadClient for SuiContractClient {
 
     async fn get_blob_attribute(
         &self,
-        blob_id: ObjectID,
+        blob_obj_id: ObjectID,
     ) -> SuiClientResult<Option<BlobAttribute>> {
-        self.read_client.get_blob_attribute(blob_id).await
+        self.read_client.get_blob_attribute(blob_obj_id).await
     }
 
     async fn get_blob_with_attribute(
         &self,
-        blob_id: ObjectID,
+        blob_obj_id: ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
-        self.read_client.get_blob_with_attribute(blob_id).await
+        self.read_client.get_blob_with_attribute(blob_obj_id).await
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {
