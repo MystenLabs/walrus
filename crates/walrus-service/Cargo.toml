@@ -31,6 +31,7 @@ backup = [
   "dep:bytes",
   "dep:diesel",
   "dep:diesel-async",
+  "dep:diesel_migrations",
   "dep:object_store",
 ]
 client = [
@@ -83,6 +84,7 @@ clap.workspace = true
 colored = { workspace = true, optional = true }
 diesel = { workspace = true, optional = true }
 diesel-async = { workspace = true, optional = true }
+diesel_migrations = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true

@@ -6,12 +6,14 @@
 use std::{pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
+use diesel::Connection as _;
 use diesel_async::{
     scoped_futures::ScopedFutureExt,
     AsyncConnection as _,
     AsyncPgConnection,
     RunQueryDsl as _,
 };
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use futures::{stream, StreamExt};
 use object_store::{gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, ObjectStore};
 use prometheus::Registry;
@@ -50,6 +52,8 @@ use crate::{
 /// The version of the Walrus backup service.
 pub const VERSION: &str = version!();
 const FETCHER_ERROR_BACKOFF: Duration = Duration::from_secs(1);
+
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 async fn stream_events(
     event_processor: Arc<EventProcessor>,
@@ -164,6 +168,11 @@ async fn dispatch_contract_event(
             .bind::<diesel::sql_types::Text, _>(VERSION)
             .execute(conn)
             .await?;
+            tracing::info!(
+                blob_id = %blob_certified.blob_id,
+                incoming_end_epoch = blob_certified.end_epoch,
+                "upserted blob into blob_state table"
+            );
         }
         ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(EpochChangeStart {
             epoch,
@@ -177,14 +186,31 @@ async fn dispatch_contract_event(
             .bind::<diesel::sql_types::Int8, _>(i64::from(*epoch))
             .execute(conn)
             .await?;
+            tracing::info!(epoch, "a new walrus epoch has begun");
         }
         _ => {}
     }
     Ok(())
 }
 
-async fn establish_connection(database_url: &str, context: &str) -> Result<AsyncPgConnection> {
-    tracing::info!(database_url, context, "attempting to connect to postgres");
+fn establish_connection(database_url: &str, context: &str) -> Result<diesel::PgConnection> {
+    tracing::info!(context, "attempting to connect to postgres");
+    match diesel::PgConnection::establish(database_url) {
+        Err(e) => {
+            tracing::error!(?e, context, "failed to connect to postgres");
+            Err(e.into())
+        }
+        Ok(conn) => {
+            tracing::info!(context, "connected to postgres");
+            Ok(conn)
+        }
+    }
+}
+async fn establish_connection_async(
+    database_url: &str,
+    context: &str,
+) -> Result<AsyncPgConnection> {
+    tracing::info!(context, "attempting to connect to postgres");
     match AsyncPgConnection::establish(database_url).await {
         Err(e) => {
             tracing::error!(?e, context, "failed to connect to postgres");
@@ -197,9 +223,34 @@ async fn establish_connection(database_url: &str, context: &str) -> Result<Async
     }
 }
 
+/// Run the database migrations for the backup node.
+pub fn run_backup_database_migrations(config: &BackupConfig) {
+    let mut connection =
+        establish_connection(&config.database_url, "run_backup_database_migrations")
+            .inspect_err(|error| {
+                tracing::error!(
+                    ?error,
+                    "failed to connect to postgres for database migration"
+                );
+                std::process::exit(1);
+            })
+            .unwrap();
+    tracing::info!("running pending migrations");
+    let versions = connection
+        .run_pending_migrations(MIGRATIONS)
+        .inspect_err(|error| {
+            tracing::error!(?error, "failed to run pending migrations");
+            std::process::exit(1);
+        })
+        .unwrap();
+    tracing::info!(?versions, "migrations ran successfully");
+}
+
 /// Starts a new backup node runtime.
-pub async fn start_backup_orchestrator(config: BackupConfig) -> Result<()> {
-    let metrics_runtime = MetricsAndLoggingRuntime::new(config.metrics_address, None)?;
+pub async fn start_backup_orchestrator(
+    config: BackupConfig,
+    metrics_runtime: &MetricsAndLoggingRuntime,
+) -> Result<()> {
     tracing::info!(?config, "starting backup node");
 
     let registry_clone = metrics_runtime.registry.clone();
@@ -234,15 +285,18 @@ pub async fn start_backup_orchestrator(config: BackupConfig) -> Result<()> {
     let metrics_registry = metrics_runtime.registry.clone();
 
     // Connect to the database.
-    let pg_connection = establish_connection(&config.database_url, "start_backup_node").await?;
+    let pg_connection =
+        establish_connection_async(&config.database_url, "start_backup_node").await?;
 
     // Stream events from Sui and pull them into our main business logic workflow.
     stream_events(event_processor, metrics_registry, pg_connection).await
 }
 
 /// Starts a new backup node runtime.
-pub async fn start_backup_fetcher(config: BackupConfig) -> Result<()> {
-    let metrics_runtime = MetricsAndLoggingRuntime::new(config.metrics_address, None)?;
+pub async fn start_backup_fetcher(
+    config: BackupConfig,
+    metrics_runtime: &MetricsAndLoggingRuntime,
+) -> Result<()> {
     tracing::info!(?config, "starting backup node");
     if config.backup_bucket.is_none() {
         // If the backup bucket is not set, we need to create the backup archive storage dir.
@@ -345,7 +399,7 @@ async fn backup_take_task(
 
 async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
     tracing::info!("[backup_fetcher] starting worker");
-    let mut conn = establish_connection(&backup_config.database_url, "backup_fetcher")
+    let mut conn = establish_connection_async(&backup_config.database_url, "backup_fetcher")
         .await
         .context("[backup_fetcher] connecting to postgres")?;
     let sui_read_client = SuiReadClient::new(

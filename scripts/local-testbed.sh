@@ -101,8 +101,9 @@ echo "$0: Using backup_database_url: $backup_database_url"
 
 if ! $use_existing_config; then
   if [[ -n "$backup_database_url" ]]; then
-    echo "Migrating database to ensure it's starting fresh... [backup_database_url=$backup_database_url]"
-    diesel migration --database-url "$backup_database_url" redo
+    echo "Reverting database migrations to ensure walrus-backup is starting fresh... [backup_database_url=$backup_database_url]"
+    diesel migration --database-url "$backup_database_url" revert --all ||:
+    diesel migration --database-url "$backup_database_url" run
 
     # shellcheck disable=SC2207
     schema_files=( $(git ls-files '**/schema.rs') )
