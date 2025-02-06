@@ -724,19 +724,26 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     let configurations = vec![
         (1, StoreWhen::NotStored, BlobPersistence::Deletable, false),
         (1, StoreWhen::Always, BlobPersistence::Deletable, false),
-        (2, StoreWhen::NotStored, BlobPersistence::Deletable, false),
+        (2, StoreWhen::NotStored, BlobPersistence::Deletable, true), // Extend lifetime
         (3, StoreWhen::Always, BlobPersistence::Deletable, false),
         (1, StoreWhen::NotStored, BlobPersistence::Permanent, false),
         (1, StoreWhen::NotStored, BlobPersistence::Permanent, true),
         (1, StoreWhen::Always, BlobPersistence::Permanent, false),
-        (4, StoreWhen::NotStored, BlobPersistence::Permanent, false),
+        (4, StoreWhen::NotStored, BlobPersistence::Permanent, true), // Extend lifetime
         (2, StoreWhen::NotStored, BlobPersistence::Permanent, true),
         (2, StoreWhen::Always, BlobPersistence::Permanent, false),
         (1, StoreWhen::NotStored, BlobPersistence::Deletable, true),
-        (5, StoreWhen::NotStored, BlobPersistence::Deletable, false),
+        (5, StoreWhen::NotStored, BlobPersistence::Deletable, true), // Extend lifetime
     ];
 
     for (epochs, store_when, persistence, is_already_certified) in configurations {
+        tracing::debug!(
+            "testing: epochs={:?}, store_when={:?}, persistence={:?}, is_already_certified={:?}",
+            epochs,
+            store_when,
+            persistence,
+            is_already_certified
+        );
         let results = client
             .reserve_and_store_blobs(
                 &blobs,
@@ -755,7 +762,13 @@ async fn test_multiple_stores_same_blob() -> TestResult {
             BlobStoreResult::AlreadyCertified { .. } => {
                 assert!(is_already_certified, "the blob should be already stored");
             }
-            _ => panic!("we either store the blob, or find it's already created"),
+            BlobStoreResult::LifetimeExtended { .. } => {
+                assert!(is_already_certified, "the blob should be already stored");
+            }
+            other => panic!(
+                "we either store the blob, or find it's already created:\n{:?}",
+                other
+            ),
         }
     }
 
@@ -765,7 +778,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
         .sui_client()
         .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;
-    assert_eq!(blobs.len(), 9);
+    assert_eq!(blobs.len(), 6);
 
     Ok(())
 }

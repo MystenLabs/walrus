@@ -596,7 +596,6 @@ impl Client<SuiContractClient> {
         );
         let status_start_timer = Instant::now();
 
-        // Get blob status from storage nodes.
         let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
@@ -605,7 +604,7 @@ impl Client<SuiContractClient> {
         );
 
         let store_op_timer = Instant::now();
-        let store_operations: Vec<StoreOp> = self
+        let store_operations = self
             .resource_manager()
             .await
             .store_operation_for_blobs(
@@ -642,6 +641,7 @@ impl Client<SuiContractClient> {
 
         let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
         for (blob, end_epoch) in extended_blobs_and_ops {
+            assert!(blob.certified_epoch.is_some());
             self.sui_client.extend_blob(blob.id, epochs_ahead).await?;
             extended_results.push(BlobStoreResult::LifetimeExtended {
                 blob_id: blob.blob_id,

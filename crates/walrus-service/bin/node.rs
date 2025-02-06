@@ -445,7 +445,7 @@ mod commands {
         )?;
 
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
-        let metrics_push_runtime: Option<MetricPushRuntime> = match config.metrics_push.take() {
+        let metrics_push_runtime = match config.metrics_push.take() {
             Some(mut mc) => {
                 mc.set_name_and_host_label(&config.name);
                 let network_key_pair = network_key_pair.0.clone();

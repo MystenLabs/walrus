@@ -167,7 +167,6 @@ impl<'a> ResourceManager<'a> {
             .iter()
             .filter(|(metadata, blob_status)| {
                 if !store_when.is_store_always() && !persistence.is_deletable() {
-                    // Change this logic to extend necessary cases.
                     // TODO: also collect known certified blobs and extend their lifetime if needed.
                     if let Some(result) = self.blob_status_to_store_result(
                         *metadata.blob_id(),
@@ -194,7 +193,6 @@ impl<'a> ResourceManager<'a> {
             .await?;
 
         for (blob, op) in blobs_with_ops {
-            tracing::debug!(blob_id=%blob.blob_id, "blob and operation: {:?}", (&blob, &op));
             // If the blob is deletable and already certified, add it results as noop.
             let store_op = if let RegisterBlobOp::ReuseAndExtendLifetime {
                 encoded_length: _,
@@ -309,8 +307,7 @@ impl<'a> ResourceManager<'a> {
         // This keeps tracks of selected storage objects and exclude them from selecting again.
         let mut excluded = Vec::with_capacity(max_len);
 
-        // For all the metadata, if the blob is registered in wallet, add it directly to results (
-        // might need to extend this case).
+        // For all the metadata, if the blob is registered in wallet, add it directly to results.
         // Otherwise, check if there is existing storage resource selected for the encoded length,
         // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
         // Otherwise, add it to new_metadata_list and its length to new_encoded_lengths.
@@ -323,7 +320,6 @@ impl<'a> ResourceManager<'a> {
                     !store_when.is_store_always(),
                 )
                 .await?
-            // This has excluded the ones with a shorter lifetime than the epochs-ahead.
             {
                 tracing::debug!(
                     end_epoch=%blob.storage.end_epoch,
@@ -479,8 +475,9 @@ impl<'a> ResourceManager<'a> {
                     && (include_certified || blob.certified_epoch.is_none()))
                 // Case 2: Certified blob that needs lifetime extension
                 || (blob.blob_id == *blob_id
+                    && include_certified
+                    && blob.deletable == persistence.is_deletable()
                     && blob.certified_epoch.is_some()
-                    && !blob.deletable
                     && blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead)
             }))
     }
@@ -511,7 +508,6 @@ impl<'a> ResourceManager<'a> {
                         end_epoch, blob_id=%blob_id,
                         "blob is already certified but its lifetime is too short"
                     );
-                    // Might need to extend this case.
                     None
                 }
             }
