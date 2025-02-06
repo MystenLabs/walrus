@@ -424,7 +424,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
         .await?
         .into_iter()
         .map(|blob_store_result| match blob_store_result {
-            BlobStoreResult::LifetimeExtended { blob_id, end_epoch } => (blob_id, end_epoch),
+            BlobStoreResult::Extended { blob_id, end_epoch } => (blob_id, end_epoch),
             other => panic!("the client should be able to store the blob: {:?}", other),
         })
         .collect::<HashMap<_, _>>();
@@ -762,7 +762,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
             BlobStoreResult::AlreadyCertified { .. } => {
                 assert!(is_already_certified, "the blob should be already stored");
             }
-            BlobStoreResult::LifetimeExtended { .. } => {
+            BlobStoreResult::Extended { .. } => {
                 assert!(is_already_certified, "the blob should be already stored");
             }
             other => panic!(

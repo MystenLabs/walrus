@@ -242,9 +242,9 @@ components:
       - type: object
         description: The blob was extended in lifetime.
         required:
-        - lifetimeExtended
+        - extended
         properties:
-          lifetimeExtended:
+          extended:
             type: object
             description: The blob was extended in lifetime.
             required:
@@ -395,9 +395,9 @@ components:
       - type: object
         description: The blob was already certified, but its lifetime is too short.
         required:
-        - reuseAndExtendLifetime
+        - reuseAndExtend
         properties:
-          reuseAndExtendLifetime:
+          reuseAndExtend:
             type: object
             description: The blob was already certified, but its lifetime is too short.
             required:

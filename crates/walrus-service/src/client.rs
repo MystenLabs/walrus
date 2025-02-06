@@ -634,16 +634,20 @@ impl Client<SuiContractClient> {
                 StoreOp::RegisterNew { blob, operation } => {
                     new_blobs_and_ops.push((blob, operation))
                 }
-                StoreOp::ExtendLifetime { blob, end_epoch } => {
+                StoreOp::Extend { blob, end_epoch } => {
                     extended_blobs_and_ops.push((blob, end_epoch))
                 }
             });
 
         let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
         for (blob, end_epoch) in extended_blobs_and_ops {
-            assert!(blob.certified_epoch.is_some());
+            if blob.certified_epoch.is_none() {
+                return Err(ClientError::from(ClientErrorKind::Other(
+                    "attempting to extend lifetime of an uncertified blob".into(),
+                )));
+            }
             self.sui_client.extend_blob(blob.id, epochs_ahead).await?;
-            extended_results.push(BlobStoreResult::LifetimeExtended {
+            extended_results.push(BlobStoreResult::Extended {
                 blob_id: blob.blob_id,
                 end_epoch,
             });

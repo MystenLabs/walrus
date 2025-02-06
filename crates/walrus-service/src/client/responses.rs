@@ -128,7 +128,7 @@ pub enum BlobStoreResult {
         shared_blob_object: Option<ObjectID>,
     },
     /// The blob was extended in lifetime.
-    LifetimeExtended {
+    Extended {
         /// The blob ID.
         #[serde_as(as = "DisplayFromStr")]
         blob_id: BlobId,
@@ -160,7 +160,7 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => blob_id,
-            Self::LifetimeExtended { blob_id, .. } => blob_id,
+            Self::Extended { blob_id, .. } => blob_id,
         }
     }
 }

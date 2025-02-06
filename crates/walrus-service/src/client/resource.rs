@@ -82,7 +82,7 @@ pub enum RegisterBlobOp {
     /// A registration was already present.
     ReuseRegistration { encoded_length: u64 },
     /// The blob was already certified, but its lifetime is too short.
-    ReuseAndExtendLifetime {
+    ReuseAndExtend {
         encoded_length: u64,
         #[schema(value_type = u32)]
         end_epoch: Epoch,
@@ -96,7 +96,7 @@ impl RegisterBlobOp {
             RegisterBlobOp::RegisterFromScratch { encoded_length, .. }
             | RegisterBlobOp::ReuseStorage { encoded_length }
             | RegisterBlobOp::ReuseRegistration { encoded_length }
-            | RegisterBlobOp::ReuseAndExtendLifetime { encoded_length, .. } => *encoded_length,
+            | RegisterBlobOp::ReuseAndExtend { encoded_length, .. } => *encoded_length,
         }
     }
 
@@ -108,8 +108,8 @@ impl RegisterBlobOp {
     }
 
     /// Returns if the operation involved extending the lifetime of a registered blob.
-    pub fn is_lifetime_extension(&self) -> bool {
-        matches!(self, RegisterBlobOp::ReuseAndExtendLifetime { .. })
+    pub fn is_extend(&self) -> bool {
+        matches!(self, RegisterBlobOp::ReuseAndExtend { .. })
     }
 }
 
@@ -125,7 +125,7 @@ pub enum StoreOp {
     },
     // Extend the lifetime of a registered blob.
     // We only need to make sure it has enough resource, but not the exact amount.
-    ExtendLifetime {
+    Extend {
         blob: Blob,
         end_epoch: Epoch,
     },
@@ -194,12 +194,12 @@ impl<'a> ResourceManager<'a> {
 
         for (blob, op) in blobs_with_ops {
             // If the blob is deletable and already certified, add it results as noop.
-            let store_op = if let RegisterBlobOp::ReuseAndExtendLifetime {
+            let store_op = if let RegisterBlobOp::ReuseAndExtend {
                 encoded_length: _,
                 end_epoch,
             } = op
             {
-                StoreOp::ExtendLifetime { blob, end_epoch }
+                StoreOp::Extend { blob, end_epoch }
             } else if blob.certified_epoch.is_some() {
                 debug_assert!(
                     blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead,
@@ -329,7 +329,7 @@ impl<'a> ResourceManager<'a> {
                 if blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead {
                     extended_blobs.push((
                         blob,
-                        RegisterBlobOp::ReuseAndExtendLifetime {
+                        RegisterBlobOp::ReuseAndExtend {
                             encoded_length: *encoded_length,
                             end_epoch: self.write_committee_epoch + epochs_ahead,
                         },
@@ -342,8 +342,6 @@ impl<'a> ResourceManager<'a> {
                         },
                     ));
                 }
-                // For those that are registered with a shorter lifetime than the epochs-ahead,
-                // extend the lifetime as the following.
             } else if let Some(storage_resource) = self
                 .sui_client
                 .owned_storage_for_size_and_epoch(
@@ -384,7 +382,6 @@ impl<'a> ResourceManager<'a> {
             .sui_client
             .register_blobs(reused_metadata_with_storage, persistence)
             .await?;
-        // Do we need to get certificate for existing blobs?
         results.extend(blobs.into_iter().zip(reused_encoded_lengths.iter()).map(
             |(blob, &encoded_length)| (blob, RegisterBlobOp::ReuseStorage { encoded_length }),
         ));
