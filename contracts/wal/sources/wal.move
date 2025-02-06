@@ -4,7 +4,7 @@
 /// The WAL token is the native token for the Walrus Protocol.
 module wal::wal;
 
-use sui::{coin::{Self, TreasuryCap}, dynamic_object_field as dof, url};
+use sui::{coin::{Self, TreasuryCap, Coin}, dynamic_object_field as dof, url};
 
 const TOTAL_WAL_SUPPLY_TO_MINT: u64 = 5_000_000_000; // 5B WAL
 const DECIMALS: u8 = 9;
@@ -65,10 +65,24 @@ public fun total_supply(treasury: &ProtectedTreasury): u64 {
     treasury.borrow_cap().total_supply()
 }
 
+/// Burns a `Coin<WAL>` from the sender.
+public fun burn(treasury: &mut ProtectedTreasury, coin: Coin<WAL>) {
+    treasury.borrow_cap_mut().burn(coin);
+}
+
+// ===== Private Accessors =====
+
 /// Borrows the `TreasuryCap` from the `ProtectedTreasury`.
 fun borrow_cap(treasury: &ProtectedTreasury): &TreasuryCap<WAL> {
     dof::borrow(&treasury.id, TreasuryCapKey {})
 }
+
+/// Borrows the `TreasuryCap` from the `ProtectedTreasury` as mutable.
+fun borrow_cap_mut(treasury: &mut ProtectedTreasury): &mut TreasuryCap<WAL> {
+    dof::borrow_mut(&mut treasury.id, TreasuryCapKey {})
+}
+
+// ===== Tests =====
 
 #[test_only]
 use sui::test_scenario as test;
@@ -102,5 +116,27 @@ fun test_init() {
     );
 
     test::return_immutable(coin_metadata);
+    test.end();
+}
+
+#[test]
+fun test_burn() {
+    let user = @0xa11ce;
+    let mut test = test::begin(user);
+    init(WAL {}, test.ctx());
+    test.next_tx(user);
+
+    let mut protected_treasury = test.take_shared<ProtectedTreasury>();
+    let frost_per_wal = 10u64.pow(DECIMALS);
+    let wal_supply = 5_000_000_000;
+    assert!(protected_treasury.total_supply() == wal_supply * frost_per_wal);
+
+    let mut coin = test.take_from_sender<Coin<WAL>>();
+    let new_coin = coin.split(1000 * frost_per_wal, test.ctx());
+    protected_treasury.burn(new_coin);
+    assert!(protected_treasury.total_supply() == (wal_supply - 1000) * frost_per_wal);
+
+    test.return_to_sender(coin);
+    test::return_shared(protected_treasury);
     test.end();
 }
