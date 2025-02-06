@@ -9,7 +9,7 @@ use jsonwebtoken::{
     DecodingKey,
     Validation,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
 use tracing::error;
 use walrus_core::EpochCount;
@@ -21,8 +21,7 @@ use crate::{client::config::AuthConfig, common::api::RestApiError};
 pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 
 /// Claim follow RFC7519 with extra storage parameters: send_object_to, epochs.
-#[derive(Clone, Deserialize, Debug, Default)]
-#[cfg_attr(test, derive(serde::Serialize))]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp).
