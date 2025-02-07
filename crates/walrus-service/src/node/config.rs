@@ -74,7 +74,7 @@ pub struct StorageNodeConfig {
     #[serde(deserialize_with = "utils::deserialize_node_name")]
     pub name: String,
     /// Directory in which to persist the database.
-    #[serde(deserialize_with = "utils::resolve_home_dir")]
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
     pub storage_path: PathBuf,
     /// File path to the blocklist.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
@@ -663,7 +663,10 @@ pub enum PathOrInPlace<T> {
     /// A value that is not present in the config, but at a path on the filesystem.
     Path {
         /// The path from which the value can be loaded.
-        #[serde(rename = "path", deserialize_with = "utils::resolve_home_dir")]
+        #[serde(
+            rename = "path",
+            deserialize_with = "walrus_utils::config::resolve_home_dir"
+        )]
         path: PathBuf,
         /// The value loaded from the specified path.
         #[serde(skip, default = "Option::default")]
@@ -904,7 +907,7 @@ mod tests {
     use sui_types::base_types::ObjectID;
     use tempfile::{NamedTempFile, TempDir};
     use walrus_core::test_utils;
-    use walrus_sui::client::contract_config::ContractConfig;
+    use walrus_sui::{client::contract_config::ContractConfig, config::WalletConfig};
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
@@ -928,7 +931,9 @@ mod tests {
                 rpc: "https://fullnode.testnet.sui.io:443".to_string(),
                 contract_config,
                 event_polling_interval: defaults::polling_interval(),
-                wallet_config: PathBuf::from("/opt/walrus/config/sui_config.yaml"),
+                wallet_config: WalletConfig::from_path(PathBuf::from(
+                    "/opt/walrus/config/sui_config.yaml",
+                )),
                 backoff_config: Default::default(),
                 gas_budget: None,
             }),

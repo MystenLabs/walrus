@@ -11720,6 +11720,7 @@ dependencies = [
  "walrus-core",
  "walrus-service",
  "walrus-sui",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -11949,6 +11950,7 @@ dependencies = [
  "chrono",
  "fastcrypto",
  "futures",
+ "home",
  "inflections",
  "jsonrpsee",
  "move-core-types",
@@ -11999,6 +12001,7 @@ version = "1.16.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "home",
  "prometheus",
  "rand 0.8.5",
  "reqwest",

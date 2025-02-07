@@ -43,6 +43,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
+    config::WalletConfig,
     types::move_structs::{Authorized, BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
@@ -135,16 +136,20 @@ impl ClientCommandRunner {
     /// Creates a new client runner, loading the configuration and wallet context.
     pub fn new(
         config: &Option<PathBuf>,
-        wallet: &Option<PathBuf>,
+        context: Option<&str>,
+        wallet_override: &Option<PathBuf>,
         gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
-        let config = load_configuration(config);
-        let wallet_path = wallet.clone().or(config
+        let config = load_configuration(config.as_ref(), context);
+        let wallet_config: Option<WalletConfig> = config
             .as_ref()
             .ok()
-            .and_then(|conf| conf.wallet_config.clone()));
-        let wallet = crate::utils::load_wallet_context(&wallet_path);
+            .and_then(|config: &Config| config.wallet_config.clone());
+        let wallet_path: Option<PathBuf> = wallet_override
+            .clone()
+            .or_else(|| wallet_config.as_ref().map(|wc| wc.path().to_path_buf()));
+        let wallet = WalletConfig::load_wallet_context(wallet_config.as_ref());
 
         Self {
             wallet_path,
@@ -425,7 +430,7 @@ impl ClientCommandRunner {
     /// Consumes `self`.
     #[tokio::main]
     pub async fn run_daemon_app(
-        self,
+        mut self,
         command: DaemonCommands,
         metrics_runtime: MetricsAndLoggingRuntime,
     ) -> Result<()> {
@@ -460,7 +465,7 @@ impl ClientCommandRunner {
         }
     }
 
-    fn maybe_export_contract_info(&self, registry: &Registry) {
+    fn maybe_export_contract_info(&mut self, registry: &Registry) {
         let Ok(config) = self.config.as_ref() else {
             return;
         };
@@ -468,9 +473,10 @@ impl ClientCommandRunner {
             registry,
             &config.contract_config.system_object,
             &config.contract_config.staking_object,
-            utils::load_wallet_context(&self.wallet_path)
-                .and_then(|mut wallet| wallet.active_address())
-                .ok(),
+            match &mut self.wallet {
+                Ok(wallet_context) => wallet_context.active_address().ok(),
+                Err(_) => None,
+            },
         );
     }
 

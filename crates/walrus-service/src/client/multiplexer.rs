@@ -27,6 +27,7 @@ use walrus_sui::{
         SuiContractClient,
         SuiReadClient,
     },
+    config::load_wallet_context_from_path,
     types::move_structs::BlobWithAttribute,
     utils::create_wallet,
 };
@@ -358,7 +359,7 @@ impl<'a> SubClientLoader<'a> {
 
         if wallet_config_path.exists() {
             tracing::debug!(?wallet_config_path, "loading sub-wallet from file");
-            WalletContext::new(&wallet_config_path, None, None)
+            load_wallet_context_from_path(Some(&wallet_config_path))
         } else {
             tracing::debug!(?wallet_config_path, "creating new sub-wallet");
             create_wallet(

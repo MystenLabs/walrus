@@ -9,7 +9,7 @@ use std::{
     fmt::Debug,
     future::Future,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::Path,
     pin::Pin,
     str::FromStr,
     sync::Arc,
@@ -33,7 +33,6 @@ use serde::{
     Serialize,
 };
 use serde_json;
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
@@ -243,54 +242,6 @@ where
         )));
     }
     Ok(name)
-}
-
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
-pub fn resolve_home_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let path: PathBuf = Deserialize::deserialize(deserializer)?;
-    path_with_resolved_home_dir(path).map_err(D::Error::custom)
-}
-
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
-pub fn resolve_home_dir_vec<'de, D>(deserializer: D) -> Result<Vec<PathBuf>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let paths: Vec<PathBuf> = Deserialize::deserialize(deserializer)?;
-    paths
-        .into_iter()
-        .map(|p| path_with_resolved_home_dir(p).map_err(D::Error::custom))
-        .collect()
-}
-
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
-pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let path: Option<PathBuf> = Deserialize::deserialize(deserializer)?;
-    let Some(path) = path else { return Ok(None) };
-    Ok(Some(
-        path_with_resolved_home_dir(path).map_err(D::Error::custom)?,
-    ))
-}
-
-fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
-    if path.starts_with("~/") {
-        let home = home::home_dir().context("unable to resolve home directory")?;
-        Ok(home.join(
-            path.strip_prefix("~")
-                .expect("we just checked for this prefix"),
-        ))
-    } else {
-        Ok(path)
-    }
 }
 
 /// A runtime for metrics and logging.
@@ -589,36 +540,6 @@ impl ShardDiffCalculator {
     pub fn shards_to_lock(&self) -> &[ShardIndex] {
         &self.shards_to_lock
     }
-}
-
-/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
-pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
-    tracing::debug!(?path, ?defaults, "looking for configuration file");
-    let mut path = path.clone();
-    for default in defaults {
-        if path.is_some() {
-            break;
-        }
-        path = default.exists().then_some(default.clone());
-    }
-    path
-}
-
-/// Loads the wallet context from the given path.
-///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Sui configuration directory.
-// NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
-pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
-    let mut default_paths = vec!["./sui_config.yaml".into()];
-    if let Some(home_dir) = home::home_dir() {
-        default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
-    }
-    let path = path_or_defaults_if_exist(path, &default_paths)
-        .ok_or(anyhow!("could not find a valid wallet config file"))?;
-    tracing::info!("using Sui wallet configuration from '{}'", path.display());
-    WalletContext::new(&path, None, None)
 }
 
 /// Generates a new Sui wallet for the specified network at the specified path and attempts to fund

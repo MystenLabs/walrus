@@ -20,6 +20,7 @@ use sui_sdk::wallet_context::WalletContext;
 use sui_types::event::EventID;
 use walrus_core::BlobId;
 use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient};
+use walrus_utils::config::path_or_defaults_if_exist;
 
 use super::{default_configuration_paths, Blocklist, Client, Config};
 
@@ -47,25 +48,23 @@ pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
 pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 
-/// Loads the Walrus configuration from the given path.
+/// Loads the Walrus configuration from the given path and context.
 ///
 /// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Walrus configuration directory.
+/// from the standard Walrus configuration directory. If the context is not provided, the default
+/// context is used.
 // NB: When making changes to the logic, make sure to update the argument docs in
 // `crates/walrus-service/bin/client.rs`.
-pub fn load_configuration(path: &Option<PathBuf>) -> Result<Config> {
-    let path = crate::utils::path_or_defaults_if_exist(path, &default_configuration_paths())
+pub fn load_configuration(path: Option<impl AsRef<Path>>, context: Option<&str>) -> Result<Config> {
+    let path = path_or_defaults_if_exist(path, &default_configuration_paths())
         .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
-    tracing::info!("using Walrus configuration from '{}'", path.display());
-
-    serde_yaml::from_str(&std::fs::read_to_string(&path).context(format!(
-        "unable to read Walrus configuration from '{}'",
-        path.display()
-    ))?)
-    .context(format!(
-        "parsing Walrus configuration from '{}' failed",
-        path.display()
-    ))
+    let (config, context) = Config::load_from_multi_config(&path, context)?;
+    tracing::info!(
+        "using Walrus configuration from '{}' with {} context",
+        path.display(),
+        context.map_or("default".to_string(), |c| format!("'{}'", c))
+    );
+    Ok(config)
 }
 
 /// Creates a [`Client`] based on the provided [`Config`] with read-only access to Sui.

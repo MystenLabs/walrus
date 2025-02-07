@@ -7,7 +7,7 @@ use std::{
     collections::HashSet,
     future::Future,
     num::NonZeroU16,
-    path::{Path, PathBuf},
+    path::Path,
     str::FromStr,
     time::Duration,
 };
@@ -16,7 +16,7 @@ use anyhow::{anyhow, Result};
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use move_package::{source_package::layout::SourcePackageLayout, BuildConfig as MoveBuildConfig};
 use serde::{Deserialize, Serialize};
-use sui_config::{sui_config_dir, Config, SUI_CLIENT_CONFIG, SUI_KEYSTORE_FILENAME};
+use sui_config::{sui_config_dir, Config, SUI_KEYSTORE_FILENAME};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
@@ -42,6 +42,7 @@ use walrus_core::{
 
 use crate::{
     client::{SuiClientResult, SuiContractClient},
+    config::load_wallet_context_from_path,
     contracts::AssociatedContractStruct,
 };
 
@@ -279,13 +280,6 @@ impl std::fmt::Display for SuiNetwork {
     }
 }
 
-/// Loads a sui wallet from `config_path`.
-pub fn load_wallet(config_path: Option<PathBuf>) -> Result<WalletContext> {
-    let config_path =
-        config_path.map_or_else(|| anyhow::Ok(sui_config_dir()?.join(SUI_CLIENT_CONFIG)), Ok)?;
-    WalletContext::new(&config_path, None, None)
-}
-
 /// Creates a wallet on `network` and stores its config at `config_path`.
 ///
 /// The keystore will be stored in the same directory as the wallet config and named
@@ -315,7 +309,7 @@ pub fn create_wallet(
     }
     .persisted(config_path)
     .save()?;
-    load_wallet(Some(config_path.to_owned()))
+    load_wallet_context_from_path(Some(config_path))
 }
 
 /// Sends a request to the faucet to request coins for `address`.

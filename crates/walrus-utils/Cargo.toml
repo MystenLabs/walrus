@@ -12,6 +12,7 @@ test-utils = ["dep:tempfile"]
 [dependencies]
 anyhow.workspace = true
 async-channel.workspace = true
+home.workspace = true
 prometheus.workspace = true
 rand.workspace = true
 reqwest.workspace = true

@@ -251,7 +251,7 @@ mod commands {
     };
     use walrus_sui::{
         client::{contract_config::ContractConfig, SuiContractClient, UpgradeType},
-        utils::load_wallet,
+        config::load_wallet_context_from_path,
     };
     use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -423,7 +423,8 @@ mod commands {
         let admin_wallet_path = admin_wallet_path.or(Some(
             working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
         ));
-        let admin_wallet = load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
+        let admin_wallet = load_wallet_context_from_path(admin_wallet_path)
+            .context("unable to load admin wallet")?;
         let mut admin_contract_client = testbed_config
             .system_ctx
             .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
@@ -503,7 +504,7 @@ mod commands {
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
 
-        let wallet = load_wallet(wallet_path).context("unable to load wallet")?;
+        let wallet = load_wallet_context_from_path(wallet_path).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
         let contract_client =

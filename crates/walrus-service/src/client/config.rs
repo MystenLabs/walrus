@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    collections::HashMap,
     env,
     fmt,
     num::{NonZeroU16, NonZeroUsize},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
-use anyhow::bail;
+use anyhow::{bail, Context as _};
 use fastcrypto::encoding::{Encoding as _, Hex};
 use itertools::Itertools;
 use jsonwebtoken::{Algorithm, DecodingKey};
@@ -22,12 +23,15 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
     EncodingType,
 };
-use walrus_sui::client::{
-    contract_config::ContractConfig,
-    retry_client::RetriableSuiClient,
-    SuiClientError,
-    SuiContractClient,
-    SuiReadClient,
+use walrus_sui::{
+    client::{
+        contract_config::ContractConfig,
+        retry_client::RetriableSuiClient,
+        SuiClientError,
+        SuiContractClient,
+        SuiReadClient,
+    },
+    config::WalletConfig,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -36,6 +40,18 @@ use crate::{
     client::{error::JwtDecodeError, refresh::CommitteesRefreshConfig},
     common::utils,
 };
+
+/// Multi config for the client.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
+pub enum MultiConfig {
+    SingletonConfig(Config),
+    MultiConfig {
+        contexts: HashMap<String, Config>,
+        default_context: String,
+    },
+}
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -47,8 +63,8 @@ pub struct Config {
     #[serde(default)]
     pub exchange_objects: Vec<ObjectID>,
     /// Path to the wallet configuration.
-    #[serde(default, deserialize_with = "utils::resolve_home_dir_option")]
-    pub wallet_config: Option<PathBuf>,
+    #[serde(default)]
+    pub wallet_config: Option<WalletConfig>,
     /// Configuration for the client's network communication.
     #[serde(default)]
     pub communication_config: ClientCommunicationConfig,
@@ -58,6 +74,46 @@ pub struct Config {
 }
 
 impl Config {
+    /// Loads the Walrus client configuration from the given path along with a context. If the file
+    /// is a multi-config file, the context argument can be used to override the default context.
+    pub fn load_from_multi_config(
+        path: impl AsRef<Path>,
+        context: Option<&str>,
+    ) -> anyhow::Result<(Self, Option<String>)> {
+        let path = path.as_ref();
+        match utils::load_from_yaml(path)? {
+            MultiConfig::SingletonConfig(config) => {
+                if let Some(context) = context {
+                    bail!(
+                        "cannot specify context when using a single-context configuration file \
+                    [config_filename='{}', specified_context='{}']",
+                        path.display(),
+                        context,
+                    )
+                }
+                Ok((config, None))
+            }
+            MultiConfig::MultiConfig {
+                contexts,
+                default_context,
+            } => {
+                let target_context = context.unwrap_or(&default_context);
+                Ok((
+                    contexts.get(target_context).cloned().ok_or_else(|| {
+                        anyhow::anyhow!(
+                        "context '{}' not found in multi-config file '{}'. available context(s): \
+                        [{}]",
+                        target_context,
+                        path.display(),
+                        contexts.keys().map(|x| format!("'{x}'")).join(", ")
+                    )
+                    })?,
+                    Some(target_context.to_string()),
+                ))
+            }
+        }
+    }
+
     /// Creates a [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(
         &self,
@@ -69,11 +125,11 @@ impl Config {
     /// Creates a [`SuiContractClient`] based on the configuration.
     pub async fn new_contract_client(
         &self,
-        wallet: WalletContext,
+        wallet_context: WalletContext,
         gas_budget: Option<u64>,
     ) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
-            wallet,
+            wallet_context,
             &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,
@@ -89,13 +145,8 @@ impl Config {
         &self,
         gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
-        let Some(wallet_config) = self.wallet_config.as_ref() else {
-            bail!(
-                "path to Sui wallet must be specified in client config through the 'wallet_config' \
-                field"
-            );
-        };
-        let wallet = WalletContext::new(wallet_config, None, None)?;
+        let wallet = WalletConfig::load_wallet_context(self.wallet_config.as_ref())
+            .context("new_contract_client_with_wallet_in_config")?;
         Ok(self.new_contract_client(wallet, gas_budget).await?)
     }
 
@@ -573,6 +624,7 @@ impl Default for SliverWriteExtraTime {
 mod tests {
     use indoc::indoc;
     use rand::{rngs::StdRng, SeedableRng as _};
+    use tempfile::TempDir;
     use walrus_test_utils::{param_test, Result as TestResult};
 
     use super::*;
@@ -725,6 +777,141 @@ mod tests {
     fn test_secret_to_bytes(secret: &str, output: Result<Vec<u8>, JwtDecodeError>) -> TestResult {
         let bytes = AuthConfig::secret_to_bytes(secret);
         assert_eq!(bytes, output);
+        Ok(())
+    }
+
+    #[test]
+    fn parses_singleton_config_specified_erroneous_context() -> TestResult {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects:
+                - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+        "};
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let result = Config::load_from_multi_config(filename, Some("does-not-exist"));
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn parses_multi_config_default_context_with_one() -> TestResult {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        // editorconfig-checker-disable
+        let yaml = indoc! {"
+            contexts:
+                banana:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+            default_context: banana
+        "};
+        // editorconfig-checker-enable
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let (config, context) = Config::load_from_multi_config(filename, None)?;
+        assert_eq!(config.exchange_objects.len(), 1);
+        assert_eq!(context.as_deref(), Some("banana"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_multi_config_default_context_with_two() -> TestResult {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        // editorconfig-checker-disable
+        let yaml = indoc! {"
+            contexts:
+                banana:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                apple:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                        - 0xb9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+            default_context: apple
+        "};
+        // editorconfig-checker-enable
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let (config, context) = Config::load_from_multi_config(filename, None)?;
+        assert_eq!(config.exchange_objects.len(), 2);
+        assert_eq!(context.as_deref(), Some("apple"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_multi_config_specified_context_with_two() -> TestResult {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        // editorconfig-checker-disable
+        let yaml = indoc! {"
+            contexts:
+                banana:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                apple:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                        - 0xb9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+            default_context: apple
+        "};
+        // editorconfig-checker-enable
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let (config, context) = Config::load_from_multi_config(filename, Some("banana"))?;
+        assert_eq!(config.exchange_objects.len(), 1);
+        assert_eq!(context.as_deref(), Some("banana"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn parses_multi_config_specified_erroneous_context() -> TestResult {
+        let dir = TempDir::new()?;
+        let filename = dir.path().join("client_config.yaml");
+
+        // editorconfig-checker-disable
+        let yaml = indoc! {"
+            contexts:
+                banana:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                apple:
+                    system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+                    staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+                    exchange_objects:
+                        - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+                        - 0xb9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+            default_context: apple
+        "};
+        // editorconfig-checker-enable
+        std::fs::write(filename.as_path(), yaml.as_bytes())?;
+
+        let result = Config::load_from_multi_config(filename, Some("grape"));
+        assert!(result.is_err());
+
         Ok(())
     }
 }

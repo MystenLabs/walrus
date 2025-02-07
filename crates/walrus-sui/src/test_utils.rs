@@ -41,6 +41,7 @@ use walrus_test_utils::WithTempDir;
 
 use crate::{
     client::SuiContractClient,
+    config::load_wallet_context_from_path,
     types::{
         BlobCertified,
         BlobDeleted,
@@ -345,7 +346,7 @@ pub async fn create_and_fund_wallets_on_cluster(
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
-    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let mut cluster_wallet = load_wallet_context_from_path(Some(path_guard.as_path()))?;
 
     let mut wallets = vec![];
     let mut addresses = vec![];
@@ -374,7 +375,7 @@ pub async fn new_wallet_on_sui_test_cluster(
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
-    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let mut cluster_wallet = load_wallet_context_from_path(Some(path_guard.as_path()))?;
     let wallet = wallet_for_testing(&mut cluster_wallet, true).await?;
     drop(path_guard);
     Ok(wallet)

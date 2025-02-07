@@ -52,8 +52,15 @@ pub struct App {
     /// 4. In `~/.walrus/`.
     // NB: Keep this in sync with `crate::cli`.
     #[clap(long, verbatim_doc_comment, global = true)]
-    #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
+    #[serde(
+        default,
+        deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+    )]
     pub config: Option<PathBuf>,
+    /// The configuration context to use for the client, if omitted the default_context is used.
+    #[clap(long, global = true)]
+    #[serde(default)]
+    pub context: Option<String>,
     /// The path to the Sui wallet configuration file.
     ///
     /// The wallet configuration is taken from the following locations:
@@ -67,7 +74,10 @@ pub struct App {
     /// is returned.
     // NB: Keep this in sync with `crate::cli`.
     #[clap(long, verbatim_doc_comment, global = true)]
-    #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
+    #[serde(
+        default,
+        deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+    )]
     pub wallet: Option<PathBuf>,
     /// The gas budget for transactions.
     ///
@@ -186,7 +196,7 @@ pub enum CliCommands {
     Store {
         /// The files containing the blob to be published to Walrus.
         #[clap(required = true, value_name = "FILES")]
-        #[serde(deserialize_with = "crate::utils::resolve_home_dir_vec")]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_vec")]
         files: Vec<PathBuf>,
         /// The epoch argument to specify either the number of epochs to store the blob, or the
         /// end epoch, or the earliest expiry time in rfc3339 format.
@@ -239,7 +249,10 @@ pub enum CliCommands {
         ///
         /// If unset, prints the blob to stdout.
         #[clap(long)]
-        #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
+        #[serde(
+            default,
+            deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+        )]
         out: Option<PathBuf>,
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
@@ -318,7 +331,7 @@ pub enum CliCommands {
     /// Encode the specified file to obtain its blob ID.
     BlobId {
         /// The file containing the blob for which to compute the blob ID.
-        #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+        #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
         file: PathBuf,
         /// The number of shards for which to compute the blob ID.
         ///
@@ -737,7 +750,7 @@ pub struct PublisherArgs {
     pub refill_interval: Duration,
     /// The directory where the publisher will store the sub-wallets used for client multiplexing.
     #[clap(long)]
-    #[serde(deserialize_with = "crate::utils::resolve_home_dir")]
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
     pub sub_wallets_dir: PathBuf,
     /// The amount of MIST transferred at every refill.
     #[clap(long, default_value_t = default::gas_refill_amount())]
@@ -889,7 +902,10 @@ pub struct DaemonArgs {
     pub(crate) metrics_address: SocketAddr,
     /// Path to a blocklist file containing a list (in YAML syntax) of blocked blob IDs.
     #[clap(long)]
-    #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
+    #[serde(
+        default,
+        deserialize_with = "walrus_utils::config::resolve_home_dir_option"
+    )]
     pub(crate) blocklist: Option<PathBuf>,
 }
 
@@ -1457,6 +1473,7 @@ mod tests {
     fn test_json_string_extraction(json: &str, command: Commands) -> TestResult {
         let mut app = App {
             config: None,
+            context: None,
             wallet: None,
             gas_budget: None,
             json: false,

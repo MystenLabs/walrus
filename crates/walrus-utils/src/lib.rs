@@ -3,6 +3,7 @@
 
 pub mod backoff;
 pub mod checkpoint_downloader;
+pub mod config;
 pub mod metrics;
 
 pub mod tests {

@@ -1011,7 +1011,9 @@ impl StorageNodeHandleBuilder {
                     system_context.system_object,
                     system_context.staking_object,
                 ),
-                wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
+                wallet_config: walrus_sui::config::WalletConfig::from_path(
+                    self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
+                ),
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
