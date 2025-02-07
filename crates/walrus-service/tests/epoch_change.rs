@@ -3,20 +3,19 @@
 
 //! Contains end-to-end tests for the epoch change mechanism.
 
-use std::time::Duration;
-
-use tokio::time;
-use walrus_core::Epoch;
-use walrus_proc_macros::walrus_simtest;
-use walrus_service::{
-    client::ClientCommunicationConfig,
-    test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait, TestNodesConfig},
-};
-use walrus_test_utils::Result as TestResult;
-
 #[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
-async fn nodes_drive_epoch_change() -> TestResult {
+#[cfg(msim)]
+#[walrus_proc_macros::walrus_simtest]
+async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
+    use std::time::Duration;
+
+    use tokio::time;
+    use walrus_core::Epoch;
+    use walrus_service::{
+        client::ClientCommunicationConfig,
+        test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait, TestNodesConfig},
+    };
+
     telemetry_subscribers::init_for_testing();
     let epoch_duration = Duration::from_secs(5);
     let (_sui, storage_nodes, _) =
