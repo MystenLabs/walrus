@@ -125,15 +125,6 @@ impl StoreWhen {
         matches!(self, Self::NotStoredIgnoreResources)
     }
 
-    /// Returns [`Self`] based on the value of a `force` flag.
-    pub fn always(force: bool) -> Self {
-        if force {
-            Self::Always
-        } else {
-            Self::NotStored
-        }
-    }
-
     /// Returns [`Self`] based on the value of the `force` and `ignore-resources` flags.
     pub fn from_flags(force: bool, ignore_resources: bool) -> anyhow::Result<Self> {
         match (force, ignore_resources) {
