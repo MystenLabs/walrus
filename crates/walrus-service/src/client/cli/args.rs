@@ -176,7 +176,7 @@ pub enum CliCommands {
     /// resources on chain. Using this flag could speed up the store operation in case there are
     /// thousands of resources or blobs owned by the wallet.
     ///
-    /// At this moment, only one between `--force` and `--
+    /// At this moment, only one between `--force` and `--ignore-resources` can be used at once.
     #[clap(alias("write"))]
     Store {
         /// The files containing the blob to be published to Walrus.
