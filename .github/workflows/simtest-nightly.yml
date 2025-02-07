@@ -4,8 +4,6 @@ concurrency:
   group: ${{ github.workflow }}
 
 on:
-  schedule:
-    - cron: "0 21 * * *" # equivalent to 1pm PST
   workflow_dispatch:
     inputs:
       walrus_ref:
