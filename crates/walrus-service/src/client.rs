@@ -117,12 +117,15 @@ pub enum StoreWhen {
 }
 
 impl StoreWhen {
-    /// Returns `true` if the operation is [`Self::Always`].
+    /// Returns `true` if the operation ignore the blob status.
+    ///
+    /// If `true`, the client should store the blob, even if the blob is already stored on Walrus
+    /// for a sufficient number of epochs.
     pub fn is_ignore_status(&self) -> bool {
         matches!(self, Self::Always | Self::AlwaysIgnoreResources)
     }
 
-    /// Returns `true` if the operation is [`Self::NotStoredIgnoreResources`].
+    /// Returns `true` if the operation should ignore the resources in the wallet.
     pub fn is_ignore_resources(&self) -> bool {
         matches!(
             self,
