@@ -118,13 +118,16 @@ pub enum StoreWhen {
 
 impl StoreWhen {
     /// Returns `true` if the operation is [`Self::Always`].
-    pub fn is_store_always(&self) -> bool {
-        matches!(self, Self::Always)
+    pub fn is_ignore_status(&self) -> bool {
+        matches!(self, Self::Always | Self::AlwaysIgnoreResources)
     }
 
     /// Returns `true` if the operation is [`Self::NotStoredIgnoreResources`].
     pub fn is_ignore_resources(&self) -> bool {
-        matches!(self, Self::NotStoredIgnoreResources)
+        matches!(
+            self,
+            Self::NotStoredIgnoreResources | Self::AlwaysIgnoreResources
+        )
     }
 
     /// Returns [`Self`] based on the value of the `force` and `ignore-resources` flags.

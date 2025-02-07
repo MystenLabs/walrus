@@ -148,7 +148,7 @@ impl<'a> ResourceManager<'a> {
         let to_be_processed = metadata_with_status
             .iter()
             .filter(|(metadata, blob_status)| {
-                if !store_when.is_store_always() && !persistence.is_deletable() {
+                if !store_when.is_ignore_status() && !persistence.is_deletable() {
                     if let Some(result) = self.blob_status_to_store_result(
                         *metadata.blob_id(),
                         epochs_ahead,
@@ -177,7 +177,7 @@ impl<'a> ResourceManager<'a> {
             // If the blob is deletable and already certified, add it results as noop.
             let store_op = if blob.certified_epoch.is_some() {
                 debug_assert!(
-                    blob.deletable && !store_when.is_store_always(),
+                    blob.deletable && !store_when.is_ignore_status(),
                     "get_existing_registration with StoreWhen::Always filters certified blobs"
                 );
                 tracing::debug!(
@@ -297,7 +297,7 @@ impl<'a> ResourceManager<'a> {
                     metadata.blob_id(),
                     epochs_ahead,
                     persistence,
-                    !store_when.is_store_always(),
+                    !store_when.is_ignore_status(),
                     &owned_blobs,
                 )
                 .await?
