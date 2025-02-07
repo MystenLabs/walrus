@@ -162,7 +162,7 @@ pub(crate) mod errors;
 mod storage;
 
 mod config_synchronizer;
-use config_synchronizer::ConfigSynchronizer;
+pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -271,12 +271,19 @@ pub struct StorageNodeBuilder {
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
     ignore_sync_failures: bool,
+    config_loader: Option<Arc<dyn ConfigLoader>>,
 }
 
 impl StorageNodeBuilder {
     /// Creates a new builder.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets the config loader for the node.
+    pub fn with_config_loader(mut self, config_loader: Option<Arc<dyn ConfigLoader>>) -> Self {
+        self.config_loader = config_loader;
+        self
     }
 
     /// Sets the underlying storage for the node, instead of constructing one from the config.
@@ -427,11 +434,11 @@ impl StorageNodeBuilder {
 
         StorageNode::new(
             config,
-            protocol_key_pair,
             event_manager,
             committee_service,
             contract_service,
             &metrics_registry,
+            self.config_loader,
             node_params,
         )
         .await
@@ -492,11 +499,11 @@ pub struct NodeParameters {
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
-        key_pair: ProtocolKeyPair,
         event_manager: Box<dyn EventManager>,
         committee_service: Arc<dyn CommitteeService>,
         contract_service: Arc<dyn SystemContractService>,
         registry: &Registry,
+        config_loader: Option<Arc<dyn ConfigLoader>>,
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
@@ -508,33 +515,31 @@ impl StorageNode {
                 .config_synchronizer
                 .enabled
                 .then_some(Arc::new(ConfigSynchronizer::new(
-                    config.clone(),
                     contract_service.clone(),
                     committee_service.clone(),
                     config.config_synchronizer.interval,
                     node_capability.id,
+                    config_loader,
                 )));
 
-        if let Some(config_synchronizer) = config_synchronizer.as_ref() {
-            config_synchronizer
-                .sync_node_params()
-                .await
-                .or_else(|e| match e {
-                    SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
-                    SyncNodeConfigError::NodeNeedsReboot => {
-                        tracing::info!("ignore the error since we are booting");
+        contract_service
+            .sync_node_params(config, node_capability.id)
+            .await
+            .or_else(|e| match e {
+                SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
+                SyncNodeConfigError::NodeNeedsReboot => {
+                    tracing::info!("ignore the error since we are booting");
+                    Ok(())
+                }
+                _ => {
+                    if node_params.ignore_sync_failures {
+                        tracing::warn!(error = ?e, "failed to sync node params");
                         Ok(())
+                    } else {
+                        Err(e)
                     }
-                    _ => {
-                        if node_params.ignore_sync_failures {
-                            tracing::warn!(error = ?e, "failed to sync node params");
-                            Ok(())
-                        } else {
-                            Err(e)
-                        }
-                    }
-                })?;
-        }
+                }
+            })?;
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -551,7 +556,11 @@ impl StorageNode {
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
 
         let inner = Arc::new(StorageNodeInner {
-            protocol_key_pair: key_pair,
+            protocol_key_pair: config
+                .protocol_key_pair
+                .get()
+                .expect("protocol key pair must already be loaded")
+                .clone(),
             storage,
             event_manager,
             encoding_config,
@@ -1119,6 +1128,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        #[cfg(not(test))]
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }
@@ -5039,6 +5049,9 @@ mod tests {
         shard_assignment: &[ShardIndex],
     ) -> TestResult {
         let mut contract_service = MockSystemContractService::new();
+        contract_service
+            .expect_sync_node_params()
+            .returning(|_config, _node_cap_id| Ok(()));
         contract_service.expect_epoch_sync_done().never();
         contract_service
             .expect_fixed_system_parameters()

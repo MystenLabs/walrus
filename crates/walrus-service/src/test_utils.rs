@@ -74,6 +74,8 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
+#[cfg(msim)]
+use crate::node::config_synchronizer::ConfigLoader;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
@@ -273,6 +275,27 @@ impl AsRef<StorageNode> for StorageNodeHandle {
     }
 }
 
+#[cfg(msim)]
+#[derive(Debug)]
+struct SimStorageNodeConfigLoader {
+    config: Arc<RwLock<StorageNodeConfig>>,
+}
+
+#[cfg(msim)]
+impl SimStorageNodeConfigLoader {
+    pub fn new(config: Arc<RwLock<StorageNodeConfig>>) -> Self {
+        Self { config }
+    }
+}
+
+#[cfg(msim)]
+#[async_trait]
+impl ConfigLoader for SimStorageNodeConfigLoader {
+    async fn load_storage_node_config(&self) -> anyhow::Result<StorageNodeConfig> {
+        Ok(self.config.read().await.clone())
+    }
+}
+
 /// A storage node handle for simulation tests. Comparing to StorageNodeHandle, this struct
 /// removes any storage node internal state, and adds a simulator node id for node management.
 #[cfg(msim)]
@@ -315,6 +338,8 @@ impl SimStorageNodeHandle {
             _ => panic!("unsupported protocol"),
         };
 
+        let config_loader = Arc::new(SimStorageNodeConfigLoader::new(config.clone()));
+
         let startup_sender = Arc::new(startup_sender);
         let handle = sui_simulator::runtime::Handle::current();
         let builder = handle.create_node();
@@ -338,13 +363,14 @@ impl SimStorageNodeHandle {
                 let config = config.clone();
                 let cancel_token = cancel_token.clone();
                 let startup_sender = startup_sender.clone();
-
+                let config_loader = config_loader.clone();
                 async move {
                     let result = async {
                         let (rest_api_handle, node_handle, event_processor_handle) =
                             Self::build_and_run_node(
                                 config.clone(),
                                 num_checkpoints_per_blob,
+                                Some(config_loader),
                                 cancel_token.clone(),
                             )
                             .await?;
@@ -424,6 +450,7 @@ impl SimStorageNodeHandle {
     async fn build_and_run_node(
         config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
+        config_loader: Option<Arc<dyn ConfigLoader>>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
@@ -496,6 +523,7 @@ impl SimStorageNodeHandle {
         if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
             builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
         };
+        builder = builder.with_config_loader(config_loader);
         let node = builder
             .with_system_event_manager(event_provider)
             .build(&config, metrics_registry.clone())
@@ -821,7 +849,7 @@ impl StorageNodeHandleBuilder {
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
             config_synchronizer: ConfigSynchronizerConfig {
-                interval: Duration::from_secs(5),
+                interval: Duration::from_secs(1),
                 enabled: self.enable_node_config_synchronizer,
             },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
@@ -1357,9 +1385,7 @@ impl SystemContractService for StubContractService {
         _config: &StorageNodeConfig,
         _node_capability_object_id: ObjectID,
     ) -> Result<(), SyncNodeConfigError> {
-        Err(SyncNodeConfigError::Other(anyhow::anyhow!(
-            "stub service does not sync node params"
-        )))
+        Ok(())
     }
 
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
