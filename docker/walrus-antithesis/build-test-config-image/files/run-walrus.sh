@@ -33,14 +33,18 @@ exchange_objects: [${EXCHANGE_OBJECT}]
 EOF
 
 # get some sui tokens
-sui client faucet --url http://sui-localnet:9123/gas
+sui client faucet --url http://10.0.0.20:9123/gas
 sleep 3
 
+echo "Exchange for WAL tokens (500 WAL)"
 # exchange for WAL tokens (500 WAL)
-walrus get-wal -a 500000000000
+walrus get-wal --amount 500000000000
+
+echo "WAL balance"
 sui client balance
 
+echo "starting walrus node"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_LOG=info /opt/walrus/bin/walrus-node run --config-path /opt/walrus/outputs/${HOSTNAME}.yaml
+RUST_BACKTRACE=1RUST_LOG=info /opt/walrus/bin/walrus-node run --config-path /opt/walrus/outputs/${HOSTNAME}.yaml

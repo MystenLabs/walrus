@@ -49,7 +49,7 @@ services:
       - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
       - walrus-deploy-outputs:/opt/walrus/outputs
     command: >
-      /bin/bash -c "sleep 60 && /root/deploy-walrus.sh"
+      /bin/bash -c "sleep 30 && /root/deploy-walrus.sh"
 
   # Performs final setup steps after deployment
   complete-setup:
@@ -62,14 +62,16 @@ services:
     platform: ${WALRUS_PLATFORM:-linux/amd64}
     volumes:
       - ./files/complete-setup.sh:/root/complete-setup.sh
+    # Sleep 60s because Antithesis starts injecting faults after the completion event is fired,
+    # but Walrus node starts cannot tolerate disconnection to fullnode, so we need to add a delay
     command: >
-      /bin/bash -c "/root/complete-setup.sh"
+      /bin/bash -c "sleep 30 && /root/complete-setup.sh"
 
   # Template for Walrus nodes
   walrus-node-0: &walrus-node
     depends_on:
-      sui-localnet:
-        condition: service_healthy
+      # sui-localnet:
+      #   condition: service_healthy
       walrus-deploy:
         condition: service_completed_successfully
     networks:
@@ -88,11 +90,6 @@ services:
       - ./files/run-walrus.sh:/root/run-walrus.sh
     command: >
       /bin/bash -c "/root/run-walrus.sh"
-    logging:
-      driver: "json-file"
-      options:
-        max-file: "10"
-        max-size: "1g"
 
   # Additional Walrus nodes using the template
   walrus-node-1:

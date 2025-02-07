@@ -145,3 +145,6 @@ inherits = "test"
 opt-level = 1
 overflow-checks = true
 panic = 'abort'
+
+[profile.release]
+debug = 1 # Keep debug symbols
