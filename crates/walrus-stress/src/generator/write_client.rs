@@ -9,9 +9,15 @@ use std::{
 use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
-use tokio::sync::{self, mpsc};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
-use walrus_service::client::{Client, ClientError, Config, Refiller, RefreshKind, StoreWhen};
+use walrus_service::client::{
+    Client,
+    ClientError,
+    CommitteesRefresherHandle,
+    Config,
+    Refiller,
+    StoreWhen,
+};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
@@ -43,8 +49,7 @@ impl WriteClient {
         gas_budget: Option<u64>,
         min_size_log2: u8,
         max_size_log2: u8,
-        req_tx: mpsc::Sender<RefreshKind>,
-        notify: Arc<sync::Notify>,
+        refresher_handle: CommitteesRefresherHandle,
         refiller: Refiller,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
@@ -53,7 +58,7 @@ impl WriteClient {
             max_size_log2,
         )
         .await;
-        let client = new_client(config, network, gas_budget, req_tx, notify, refiller).await?;
+        let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
         Ok(Self { client, blob })
     }
 
@@ -204,8 +209,7 @@ async fn new_client(
     config: &Config,
     network: &SuiNetwork,
     gas_budget: Option<u64>,
-    req_tx: mpsc::Sender<RefreshKind>,
-    notify: Arc<sync::Notify>,
+    refresher_handle: CommitteesRefresherHandle,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
@@ -219,7 +223,7 @@ async fn new_client(
 
     let client = sui_contract_client
         .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), req_tx, notify, contract_client)
+            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
         })
         .await?;
     Ok(client)

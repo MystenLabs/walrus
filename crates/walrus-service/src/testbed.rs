@@ -42,7 +42,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     backup::BackupConfig,
-    client::{self, ClientCommunicationConfig},
+    client::{self},
     common::config::SuiConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
@@ -461,7 +461,8 @@ pub async fn create_client_config(
         contract_config,
         exchange_objects,
         wallet_config: Some(wallet_path),
-        communication_config: ClientCommunicationConfig::default(),
+        communication_config: Default::default(),
+        refresh_config: Default::default(),
     };
 
     Ok(client_config)

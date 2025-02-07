@@ -10,16 +10,11 @@ use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
-use metrics::ClientMetricSet;
-use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
 use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
 use responses::BlobStoreResultWithPath;
 use sui_types::base_types::ObjectID;
-use tokio::{
-    sync::{mpsc, oneshot, Notify, Semaphore},
-    time::Duration,
-};
+use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
 use utils::WeightedResult;
 use walrus_core::{
@@ -71,7 +66,12 @@ mod error;
 pub use error::{ClientError, ClientErrorKind};
 
 mod refresh;
-pub use refresh::RefreshKind;
+pub use refresh::{
+    CommitteesRefreshConfig,
+    CommitteesRefresher,
+    CommitteesRefresherHandle,
+    RequestKind,
+};
 mod resource;
 
 mod utils;
@@ -141,34 +141,27 @@ pub struct Client<T> {
     config: Config,
     sui_client: T,
     communication_limits: CommunicationLimits,
-    change_notification: Arc<Notify>,
-    /// The sender to request the latest committees and price computation from the
-    /// `CommitteeRefresher` cache.
-    req_tx: mpsc::Sender<RefreshKind>,
+    committees_handle: CommitteesRefresherHandle,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
     // introducing lifetimes.
     encoding_config: Arc<EncodingConfig>,
     blocklist: Option<Blocklist>,
     communication_factory: NodeCommunicationFactory,
-    metrics: Option<ClientMetricSet>,
 }
 
 impl Client<()> {
     /// Creates a new Walrus client without a Sui client.
     pub async fn new(
         config: Config,
-        req_tx: mpsc::Sender<RefreshKind>,
-        change_notification: Arc<Notify>,
+        committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
         // Request the committees and price computation from the cache.
-        let (tx, rx) = oneshot::channel();
-        req_tx
-            .send(RefreshKind::Soft(tx))
+        let (committees, _) = committees_handle
+            .send_committees_and_price_request(RequestKind::Get)
             .await
             .map_err(ClientError::other)?;
-        let (committees, _) = rx.await.map_err(ClientError::other)?;
 
         let encoding_config = EncodingConfig::new(committees.n_shards());
         let communication_limits =
@@ -180,15 +173,13 @@ impl Client<()> {
             sui_client: (),
             encoding_config: encoding_config.clone(),
             communication_limits,
-            change_notification,
-            req_tx,
+            committees_handle,
             blocklist: None,
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
                 encoding_config,
             ),
             config,
-            metrics: None,
         })
     }
 
@@ -197,24 +188,20 @@ impl Client<()> {
         let Self {
             config,
             sui_client: _,
-            change_notification,
-            req_tx,
+            committees_handle,
             encoding_config,
             communication_limits,
             blocklist,
             communication_factory: node_client_factory,
-            metrics,
         } = self;
         Client::<C> {
             config,
             sui_client,
-            change_notification,
-            req_tx,
+            committees_handle,
             encoding_config,
             communication_limits,
             blocklist,
             communication_factory: node_client_factory,
-            metrics,
         }
     }
 }
@@ -223,11 +210,31 @@ impl<T: ReadClient> Client<T> {
     /// Creates a new read client starting from a config file.
     pub async fn new_read_client(
         config: Config,
-        req_tx: mpsc::Sender<RefreshKind>,
-        change_notification: Arc<Notify>,
+        committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, req_tx, change_notification)
+        Ok(Client::new(config, committees_handle)
+            .await?
+            .with_client(sui_read_client)
+            .await)
+    }
+
+    /// Creates a new read client, and starts a committes refresher process in the background.
+    ///
+    /// This is useful when only one client is needed, and the refresher handle is not useful.
+    pub async fn new_read_client_with_refresher(
+        config: Config,
+        sui_read_client: T,
+    ) -> ClientResult<Self>
+    where
+        T: ReadClient + Clone + 'static,
+    {
+        let committees_handle = config
+            .refresh_config
+            .build_refresher_and_run(sui_read_client.clone())
+            .await
+            .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
+        Ok(Client::new(config, committees_handle)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -241,7 +248,8 @@ impl<T: ReadClient> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        retry_if_committees_change(self, || self.read_blob::<U>(blob_id)).await
+        self.retry_if_committees_change(|| self.read_blob::<U>(blob_id))
+            .await
     }
 
     /// Reconstructs the blob by reading slivers from Walrus shards.
@@ -325,18 +333,82 @@ impl<T: ReadClient> Client<T> {
         self.request_slivers_and_decode::<U>(certified_epoch, &metadata)
             .await
     }
+
+    /// Retries the given function if the client gets notified that the committees have changed.
+    async fn retry_if_committees_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = ClientResult<R>>,
+    {
+        let mut attempts = 0;
+
+        // Retry the given function if the client gets notified that the committees have changed for
+        // N-1 times; if it does not succeed after N-1 times, then the last try is made outside the
+        // loop.
+        while attempts < MAX_COMMITTEE_CHANGE_RETRIES - 1 {
+            tokio::select! {
+                _ = self.committees_handle.change_notified() => {
+                    tracing::warn!(
+                        "notified that committees have changed; \
+                        stopping the current operation and retrying"
+                    );
+                    attempts += 1;
+                    continue;
+                }
+                result = func() => {
+                    match result {
+                        Ok(result) => return Ok(result),
+                        Err(error) => {
+                            if error.may_be_caused_by_epoch_change() {
+                                tracing::warn!(
+                                    %error,
+                                    "operation failed; maybe because of epoch change; \
+                                    forcing committee refresh and retrying"
+                                );
+                                self.force_refresh_committees().await?;
+                                attempts += 1;
+                                continue;
+                            } else {
+                                tracing::warn!(%error, "operation failed; not retrying");
+                                return Err(error);
+                            }
+                        },
+                    };
+                },
+            };
+        }
+
+        // The last try.
+        func().await
+    }
 }
 
 impl Client<SuiContractClient> {
     /// Creates a new client starting from a config file.
     pub async fn new_contract_client(
         config: Config,
-
-        req_tx: mpsc::Sender<RefreshKind>,
-        change_notification: Arc<Notify>,
+        committees_handle: CommitteesRefresherHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, req_tx, change_notification)
+        Ok(Client::new(config, committees_handle)
+            .await?
+            .with_client(sui_client)
+            .await)
+    }
+
+    /// Creates a new client, and starts a committes refresher process in the background.
+    ///
+    /// This is useful when only one client is needed, and the refresher handle is not useful.
+    pub async fn new_contract_client_with_refresher(
+        config: Config,
+        sui_client: SuiContractClient,
+    ) -> ClientResult<Self> {
+        let committees_handle = config
+            .refresh_config
+            .build_refresher_and_run(sui_client.read_client().clone())
+            .await
+            .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
+        Ok(Client::new(config, committees_handle)
             .await?
             .with_client(sui_client)
             .await)
@@ -354,7 +426,7 @@ impl Client<SuiContractClient> {
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
 
-        retry_if_committees_change(self, || {
+        self.retry_if_committees_change(|| {
             self.reserve_and_store_encoded_blobs(
                 &pairs_and_metadata,
                 epochs_ahead,
@@ -385,16 +457,17 @@ impl Client<SuiContractClient> {
             .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
             .await?;
 
-        let store_results = retry_if_committees_change(self, || {
-            self.reserve_and_store_encoded_blobs(
-                &pairs_and_metadata,
-                epochs_ahead,
-                store_when,
-                persistence,
-                post_store,
-            )
-        })
-        .await?;
+        let store_results = self
+            .retry_if_committees_change(|| {
+                self.reserve_and_store_encoded_blobs(
+                    &pairs_and_metadata,
+                    epochs_ahead,
+                    store_when,
+                    persistence,
+                    post_store,
+                )
+            })
+            .await?;
 
         // Attach path for the given blob ID to BlobStoreResult.
         Ok(store_results
@@ -923,12 +996,6 @@ impl Client<SuiContractClient> {
 }
 
 impl<T> Client<T> {
-    /// Sets the metric registry used by the client.
-    pub fn set_metric_registry(&mut self, registry: &Registry) {
-        let metrics = ClientMetricSet::new(registry);
-        self.metrics = Some(metrics);
-    }
-
     /// Adds a [`Blocklist`] to the client that will be checked when storing or reading blobs.
     ///
     /// This can be called again to replace the blocklist.
@@ -1589,32 +1656,23 @@ impl<T> Client<T> {
     }
 
     /// Gets the current active committees and price computation from the cache.
-    ///
-    /// This function always uses the [`Soft`][RefreshKind::Soft] refresh kind.
-    /// To force a refresh, use [`Client::force_refresh_committees`].
-    pub(crate) async fn get_committees_and_price(
+    pub async fn get_committees_and_price(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
-        let (tx, rx) = oneshot::channel();
-        self.req_tx
-            .send(RefreshKind::Soft(tx))
+        self.committees_handle
+            .send_committees_and_price_request(RequestKind::Get)
             .await
-            .map_err(ClientError::other)?;
-        let (committees, price_computation) = rx.await.map_err(ClientError::other)?;
-        Ok((committees, price_computation))
+            .map_err(ClientError::other)
     }
 
     /// Forces a refresh of the committees and price computation.
-    pub(crate) async fn force_refresh_committees(
+    pub async fn force_refresh_committees(
         &self,
     ) -> ClientResult<(Arc<ActiveCommittees>, PriceComputation)> {
-        let (tx, rx) = oneshot::channel();
-        self.req_tx
-            .send(RefreshKind::Hard(tx))
+        self.committees_handle
+            .send_committees_and_price_request(RequestKind::Refresh)
             .await
-            .map_err(ClientError::other)?;
-        let (committees, price_computation) = rx.await.map_err(ClientError::other)?;
-        Ok((committees, price_computation))
+            .map_err(ClientError::other)
     }
 
     /// Gets the current active committees from the cache.
@@ -1678,52 +1736,4 @@ async fn verify_blob_status_event(
     };
 
     Ok(())
-}
-
-/// Retries the given function if the client gets notified that the committees have changed.
-async fn retry_if_committees_change<T, F, R, Fut>(client: &Client<T>, func: F) -> ClientResult<R>
-where
-    T: ReadClient,
-    F: Fn() -> Fut,
-    Fut: Future<Output = ClientResult<R>>,
-{
-    let mut attempts = 0;
-
-    // Retry the given function if the client gets notified that the committees have changed for N-1
-    // times; if it does not succeed after N-1 times, then the last try is made outside the loop.
-    while attempts < MAX_COMMITTEE_CHANGE_RETRIES - 1 {
-        tokio::select! {
-            _ = client.change_notification.notified() => {
-                tracing::warn!(
-                    "notified that committees have changed; \
-                    stopping the current operation and retrying"
-                );
-                attempts += 1;
-                continue;
-            }
-            result = func() => {
-                match result {
-                    Ok(result) => return Ok(result),
-                    Err(error) => {
-                        if error.may_be_caused_by_epoch_change() {
-                            tracing::warn!(
-                                %error,
-                                "operation failed; maybe because of epoch change; \
-                                forcing committee refresh and retrying"
-                            );
-                            client.force_refresh_committees().await?;
-                            attempts += 1;
-                            continue;
-                        } else {
-                            tracing::warn!(%error, "operation failed; not retrying");
-                            return Err(error);
-                        }
-                    },
-                };
-            },
-        };
-    }
-
-    // The last try.
-    func().await
 }

@@ -57,7 +57,6 @@ use super::args::{
 use crate::{
     client::{
         cli::{
-            create_and_run_refresher,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -564,8 +563,11 @@ impl ClientCommandRunner {
         )
         .await?;
 
-        let (req_tx, notify) = create_and_run_refresher(sui_read_client.clone()).await?;
-        let client = Client::new(config, req_tx, notify).await?;
+        let refresher_handle = config
+            .refresh_config
+            .build_refresher_and_run(sui_read_client.clone())
+            .await?;
+        let client = Client::new(config, refresher_handle).await?;
 
         let file = file_or_blob_id.file.clone();
         let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;

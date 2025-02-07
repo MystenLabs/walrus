@@ -782,13 +782,12 @@ pub async fn collect_event_blobs_for_catchup(
         contract_config,
         exchange_objects: vec![],
         wallet_config: None,
-        communication_config: crate::client::ClientCommunicationConfig::default(),
+        communication_config: Default::default(),
+        refresh_config: Default::default(),
     };
 
-    let (req_tx, notify) =
-        crate::client::cli::create_and_run_refresher(sui_read_client.clone()).await?;
     let walrus_client =
-        crate::client::Client::new_read_client(config, req_tx, notify, sui_read_client.clone())
+        crate::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
             .await?;
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);

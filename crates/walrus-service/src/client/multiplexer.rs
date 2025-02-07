@@ -17,7 +17,6 @@ use sui_sdk::{
     types::base_types::SuiAddress,
     wallet_context::WalletContext,
 };
-use tokio::sync::{mpsc, Notify};
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{
@@ -38,10 +37,9 @@ use super::{
     responses::BlobStoreResult,
     Client,
     ClientResult,
-    RefreshKind,
     StoreWhen,
 };
-use crate::client::{cli::create_and_run_refresher, refill::should_refill, Config};
+use crate::client::{refill::should_refill, CommitteesRefresherHandle, Config};
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
@@ -66,11 +64,13 @@ impl ClientMultiplexer {
         let sui_read_client = (*contract_client.read_client).clone();
 
         // Start the refresher here, so that all the clients can share it.
-        let (req_tx, notify) = create_and_run_refresher(sui_read_client.clone()).await?;
+        let refresh_handle = config
+            .refresh_config
+            .build_refresher_and_run(sui_read_client.clone())
+            .await?;
         let read_client = Client::new_read_client(
             config.clone(),
-            req_tx.clone(),
-            notify.clone(),
+            refresh_handle.clone(),
             sui_read_client.clone(),
         )
         .await?;
@@ -92,8 +92,7 @@ impl ClientMultiplexer {
                 args.sub_wallets_min_balance,
             ),
             &refiller,
-            req_tx.clone(),
-            notify.clone(),
+            refresh_handle.clone(),
         )
         .await?;
 
@@ -147,10 +146,6 @@ impl ClientMultiplexer {
 impl WalrusReadClient for ClientMultiplexer {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         WalrusReadClient::read_blob(&self.read_client, blob_id).await
-    }
-
-    fn set_metric_registry(&mut self, registry: &Registry) {
-        self.read_client.set_metric_registry(registry);
     }
 }
 
@@ -211,8 +206,7 @@ impl WriteClientPool {
         config: &Config,
         pool_config: WriteClientPoolConfig,
         refiller: &Refiller,
-        req_tx: mpsc::Sender<RefreshKind>,
-        notify: Arc<Notify>,
+        refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<Self> {
         tracing::info!(%pool_config.n_clients, "creating write client pool");
 
@@ -224,7 +218,7 @@ impl WriteClientPool {
             refiller,
             pool_config.min_balance,
         )
-        .create_or_load_sub_clients(pool_config.n_clients, req_tx, notify)
+        .create_or_load_sub_clients(pool_config.n_clients, refresh_handle)
         .await?;
 
         Ok(Self {
@@ -288,14 +282,13 @@ impl<'a> SubClientLoader<'a> {
     async fn create_or_load_sub_clients(
         &self,
         n_clients: usize,
-        req_tx: mpsc::Sender<RefreshKind>,
-        notify: Arc<Notify>,
+        refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<Vec<Arc<Client<SuiContractClient>>>> {
         let mut clients = Vec::with_capacity(n_clients);
 
         for idx in 0..n_clients {
             let client = self
-                .create_or_load_sub_client(idx, req_tx.clone(), notify.clone())
+                .create_or_load_sub_client(idx, refresh_handle.clone())
                 .await?;
             clients.push(Arc::new(client));
         }
@@ -307,8 +300,7 @@ impl<'a> SubClientLoader<'a> {
     async fn create_or_load_sub_client(
         &self,
         sub_wallet_idx: usize,
-        req_tx: mpsc::Sender<RefreshKind>,
-        notify: Arc<Notify>,
+        refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<Client<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
         self.top_up_if_necessary(&mut wallet, self.min_balance)
@@ -322,7 +314,7 @@ impl<'a> SubClientLoader<'a> {
         sui_client.merge_coins().await?;
 
         let client =
-            Client::new_contract_client(self.config.clone(), req_tx, notify, sui_client).await?;
+            Client::new_contract_client(self.config.clone(), refresh_handle, sui_client).await?;
         Ok(client)
     }
 

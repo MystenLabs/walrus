@@ -11,53 +11,138 @@ use std::{
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationSeconds};
 use tokio::sync::{mpsc, oneshot, Notify};
 use walrus_sui::{client::ReadClient, types::move_structs::EpochState};
 
 use crate::{client::resource::PriceComputation, common::active_committees::ActiveCommittees};
 
-pub(crate) type CommitteesRequest = oneshot::Sender<(Arc<ActiveCommittees>, PriceComputation)>;
+pub(crate) type CommitteesRequestChannel =
+    oneshot::Sender<(Arc<ActiveCommittees>, PriceComputation)>;
 
-// TODO(giac): make configurable.
-/// The interval after which the cache is considered stale.
-pub(crate) const DEFAULT_CACHE_VALIDITY: Duration = Duration::from_secs(30);
-/// The maximum interval after which the cache is force-refreshed automatically.
-pub(crate) const MAX_AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
-/// The minimum interval after which the cache is force-refreshed automatically.
-pub(crate) const MIN_AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
-/// A threshold of time from the expected epoch change, after which the auto-refresh interval
-/// switches from max to min.
-pub(crate) const EPOCH_CHANGE_DISTANCE_THRS: Duration = Duration::from_secs(300);
-
-/// The kind of refresh that the client can request.
-#[derive(Debug)]
-pub enum RefreshKind {
-    /// A soft refresh, that is executed only if the cache is stale.
-    Soft(CommitteesRequest),
-    /// A hard refresh, that is executed even if a soft refresh was done recently.
-    Hard(CommitteesRequest),
+/// The configuration for the committees refresher.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct CommitteesRefreshConfig {
+    /// The interval after a new refresh can be requested by the client.
+    ///
+    /// If multiple refreshes are issued within `REFRESH_GRACE_PERIOD` of each other, only the first
+    /// one is executed.
+    #[serde(rename = "refresh_grace_period_secs")]
+    #[serde_as(as = "DurationSeconds")]
+    pub refresh_grace_period: Duration,
+    /// The maximum interval after which the cache is force-refreshed automatically.
+    #[serde(rename = "max_auto_refresh_interval_secs")]
+    #[serde_as(as = "DurationSeconds")]
+    pub max_auto_refresh_interval: Duration,
+    /// The minimum interval after which the cache is force-refreshed automatically.
+    #[serde(rename = "min_auto_refresh_interval_secs")]
+    #[serde_as(as = "DurationSeconds")]
+    pub min_auto_refresh_interval: Duration,
+    /// A threshold of time from the expected epoch change, after which the auto-refresh interval
+    /// switches from max to min.
+    #[serde(rename = "epoch_change_distance_threshold_secs")]
+    #[serde_as(as = "DurationSeconds")]
+    pub epoch_change_distance_threshold: Duration,
+    /// The size of the refresher channel.
+    pub refresher_channel_size: usize,
 }
 
-impl RefreshKind {
-    /// Returns the reply oneshot channel.
-    pub fn into_reply_channel(self) -> CommitteesRequest {
-        match self {
-            RefreshKind::Soft(req_tx) | RefreshKind::Hard(req_tx) => req_tx,
-        }
+impl CommitteesRefreshConfig {
+    /// Builds a new [`CommitteesRefresher`] and [`CommitteesRefresherHandle`].
+    pub async fn build_refresher_and_handle(
+        &self,
+        sui_client: impl ReadClient,
+    ) -> Result<(
+        CommitteesRefresher<impl ReadClient>,
+        CommitteesRefresherHandle,
+    )> {
+        let notify = Arc::new(Notify::new());
+        let (req_tx, req_rx) = mpsc::channel(self.refresher_channel_size);
+
+        let refresher =
+            CommitteesRefresher::new(self.clone(), sui_client, req_rx, notify.clone()).await?;
+
+        Ok((refresher, CommitteesRefresherHandle::new(notify, req_tx)))
     }
 
-    /// Returns `true` if the refresh kind is hard.
-    pub fn is_hard(&self) -> bool {
-        matches!(self, RefreshKind::Hard(_))
+    /// Builds a new [`CommitteesRefresher`], spawns it on a separate task, and
+    /// returns the [`CommitteesRefresherHandle`].
+    pub async fn build_refresher_and_run(
+        &self,
+        sui_client: impl ReadClient + 'static,
+    ) -> Result<CommitteesRefresherHandle> {
+        let (mut refresher, handle) = self.build_refresher_and_handle(sui_client).await?;
+
+        tokio::spawn(async move {
+            if let Err(e) = refresher.run().await {
+                tracing::error!("failed to run the committee refresher: {:?}", e);
+            }
+        });
+
+        Ok(handle)
+    }
+}
+
+impl Default for CommitteesRefreshConfig {
+    fn default() -> Self {
+        Self {
+            refresh_grace_period: default::REFRESH_GRACE_PERIOD,
+            max_auto_refresh_interval: default::MAX_AUTO_REFRESH_INTERVAL,
+            min_auto_refresh_interval: default::MIN_AUTO_REFRESH_INTERVAL,
+            epoch_change_distance_threshold: default::EPOCH_CHANGE_DISTANCE_THRS,
+            refresher_channel_size: default::REFRESHER_CHANNEL_SIZE,
+        }
+    }
+}
+
+mod default {
+    use std::time::Duration;
+
+    pub(crate) const REFRESH_GRACE_PERIOD: Duration = Duration::from_secs(10);
+    pub(crate) const MAX_AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+    pub(crate) const MIN_AUTO_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+    pub(crate) const EPOCH_CHANGE_DISTANCE_THRS: Duration = Duration::from_secs(300);
+    pub const REFRESHER_CHANNEL_SIZE: usize = 100;
+}
+
+/// The kind of request that the client can request.
+#[derive(Debug, Clone)]
+pub enum RequestKind {
+    /// Request the current committees and the price computation.
+    Get,
+    /// Get the current committees and the price computation, and refresh the cache.
+    Refresh,
+}
+
+/// The request that the client can make to the refresher.
+#[derive(Debug)]
+pub struct CommitteesRequest {
+    /// The kind of request.
+    kind: RequestKind,
+    /// The reply channel.
+    tx: CommitteesRequestChannel,
+}
+
+impl CommitteesRequest {
+    /// Returns the reply oneshot channel.
+    pub fn into_reply_channel(self) -> CommitteesRequestChannel {
+        self.tx
+    }
+
+    /// Returns true if the request is of kind `Refresh`.
+    pub fn is_refresh(&self) -> bool {
+        matches!(self.kind, RequestKind::Refresh)
     }
 }
 
 /// An actor that caches the active committees and the price computation data, and refreshes them
-/// periodically if needed.
-pub(crate) struct CommitteeRefresher<T> {
-    cache_validity: Duration,
+/// periodically or on demand.
+#[derive(Debug)]
+pub struct CommitteesRefresher<T> {
     last_refresh: Instant,
-    last_hard_refresh: Instant,
     last_committees: Arc<ActiveCommittees>,
     last_price_computation: PriceComputation,
     // The `epoch_state` is used to compute when the next epoch will likely start.
@@ -67,14 +152,16 @@ pub(crate) struct CommitteeRefresher<T> {
     epoch_duration: Duration,
     notify: Arc<Notify>,
     sui_client: T,
-    req_rx: mpsc::Receiver<RefreshKind>,
+    req_rx: mpsc::Receiver<CommitteesRequest>,
+    config: CommitteesRefreshConfig,
 }
 
-impl<T: ReadClient> CommitteeRefresher<T> {
+impl<T: ReadClient> CommitteesRefresher<T> {
+    /// Creates a new refresher cache.
     pub async fn new(
-        refresh_interval: Duration,
+        config: CommitteesRefreshConfig,
         sui_client: T,
-        req_rx: mpsc::Receiver<RefreshKind>,
+        req_rx: mpsc::Receiver<CommitteesRequest>,
         notify: Arc<Notify>,
     ) -> Result<Self> {
         let (committees, last_price_computation, epoch_state) =
@@ -83,9 +170,8 @@ impl<T: ReadClient> CommitteeRefresher<T> {
         let epoch_duration = sui_client.fixed_system_parameters().await?.epoch_duration;
 
         Ok(Self {
-            cache_validity: refresh_interval,
+            config,
             last_refresh: Instant::now(),
-            last_hard_refresh: Instant::now(),
             last_committees: Arc::new(committees),
             epoch_state,
             epoch_duration,
@@ -109,23 +195,23 @@ impl<T: ReadClient> CommitteeRefresher<T> {
                     // occurs it is detected and the operations are notified.
                     //
                     // This is a force refresh (ignores cache staleness). However, the
-                    // `last_hard_refresh` instant is not updated, so that if a running store
+                    // `last_refresh` instant is not updated, so that if a running store
                     // operation detects epoch change it can still force the refresh.
                     tracing::debug!(
                         ?timer_interval,
                         "auto-refreshing the active committee"
                     );
                     self.refresh().await?;
-                    self.last_refresh = Instant::now();
                 }
-                refresh = self.req_rx.recv() => {
-                    if let Some(refresh) = refresh {
+                request = self.req_rx.recv() => {
+                    if let Some(request) = request {
                     tracing::trace!(
-                        is_hard = refresh.is_hard(),
-                        "received a refresh request"
+                        "received a request"
                     );
-                    self.refresh_if_stale(refresh.is_hard()).await?;
-                    let _ = refresh
+                    if request.is_refresh() {
+                        self.refresh_if_stale().await?;
+                    }
+                    let _ = request
                         .into_reply_channel()
                         .send((
                             self.last_committees.clone(),
@@ -134,10 +220,10 @@ impl<T: ReadClient> CommitteeRefresher<T> {
                         .inspect_err(|_| {
                             // This may happen because the client was notified of a committee
                             // change, and therefore the receiver end of the channel was dropped.
-                            tracing::info!("failed to send the refreshed committee and price")
+                            tracing::info!("failed to send the committee and price")
                         });
                     } else {
-                        tracing::info!("the refresh channel is closed, stopping the refresher");
+                        tracing::info!("the channel is closed, stopping the refresher");
                         break;
                     }
                 }
@@ -148,26 +234,18 @@ impl<T: ReadClient> CommitteeRefresher<T> {
     }
 
     /// Refreshes the data in the cache if the last refresh is older than the refresh interval.
-    pub async fn refresh_if_stale(&mut self, is_hard: bool) -> Result<()> {
-        if self.last_refresh.elapsed() > self.cache_validity {
+    pub async fn refresh_if_stale(&mut self) -> Result<()> {
+        if self.last_refresh.elapsed() > self.config.refresh_grace_period {
             tracing::debug!(
                 elapsed = ?self.last_refresh.elapsed(),
                 "the active committee is stale, refreshing"
             );
             self.refresh().await?;
             self.last_refresh = Instant::now();
-        } else if is_hard && self.last_hard_refresh.elapsed() > self.cache_validity {
-            tracing::debug!(
-                elapsed = ?self.last_hard_refresh.elapsed(),
-                "the active committee is forced to refresh, refreshing"
-            );
-            self.refresh().await?;
-            self.last_hard_refresh = Instant::now();
-            self.last_refresh = Instant::now();
         } else {
             tracing::trace!(
                 elapsed = ?self.last_refresh.elapsed(),
-                "the active committee is fresh, skipping refresh"
+                "the active committee was force-refreshed recently, skipping refresh"
             );
         }
         Ok(())
@@ -176,22 +254,29 @@ impl<T: ReadClient> CommitteeRefresher<T> {
     /// Refreshes the data in the cache and _notifies_ the clients if the committee has changed.
     ///
     /// This function does _not_ update the last refresh time.
-    pub async fn refresh(&mut self) -> Result<()> {
+    async fn refresh(&mut self) -> Result<()> {
         tracing::debug!("getting the latest active committee and price computation from chain");
         let (committees, price_computation, epoch_state) =
             Self::get_latest(&self.sui_client).await?;
 
+        // First update, then notify if needed.
+        let comparison =
+            compare_current_previous_committees(&committees, self.last_committees.as_ref());
+        self.last_committees = Arc::new(committees);
+        self.last_price_computation = price_computation;
+        self.epoch_state = epoch_state;
+
         // If the committee has changed, send a notification to the clients.
-        if are_committees_different(&committees, self.last_committees.as_ref()) {
-            tracing::info!("the active committee has changed, notifying the clients");
+        if let Err(error) = comparison {
+            tracing::info!(
+                differences=%error,
+                "the active committees have changed, notifying the clients"
+            );
             self.notify.notify_waiters();
         } else {
             tracing::trace!("the active committee has not changed");
         }
 
-        self.last_committees = Arc::new(committees);
-        self.last_price_computation = price_computation;
-        self.epoch_state = epoch_state;
         Ok(())
     }
 
@@ -239,27 +324,74 @@ impl<T: ReadClient> CommitteeRefresher<T> {
     ///   `EPOCH_CHANGE_DISTANCE_THRS` in the future.
     /// - `MIN_AUTO_REFRESH_INTERVAL` otherwise.
     fn next_refresh_interval(&self) -> Duration {
-        if self.time_to_next_epoch() > EPOCH_CHANGE_DISTANCE_THRS {
-            MAX_AUTO_REFRESH_INTERVAL
+        if self.time_to_next_epoch() > self.config.epoch_change_distance_threshold {
+            self.config.max_auto_refresh_interval
         } else {
-            MIN_AUTO_REFRESH_INTERVAL
+            self.config.min_auto_refresh_interval
         }
     }
 }
 
+/// An error that occurs when communicating with the refresher.
+#[derive(Debug, thiserror::Error)]
+pub enum RefresherCommunicationError {
+    #[error("error communicating with the refresher: {0}")]
+    Send(#[from] mpsc::error::SendError<CommitteesRequest>),
+    #[error("error receiving from the refresher: {0}")]
+    Receive(#[from] oneshot::error::RecvError),
+}
+
+/// A handle to communicate with the [`CommitteesRefresher`].
+#[derive(Debug, Clone)]
+pub struct CommitteesRefresherHandle {
+    notify: Arc<Notify>,
+    req_tx: mpsc::Sender<CommitteesRequest>,
+}
+
+impl CommitteesRefresherHandle {
+    /// Creates a new handle to communicate with the refresher.
+    pub fn new(notify: Arc<Notify>, req_tx: mpsc::Sender<CommitteesRequest>) -> Self {
+        Self { notify, req_tx }
+    }
+
+    /// Sends a request to the refresher to refresh and get the active committees and the price
+    /// computation.
+    pub async fn send_committees_and_price_request(
+        &self,
+        kind: RequestKind,
+    ) -> Result<(Arc<ActiveCommittees>, PriceComputation), RefresherCommunicationError> {
+        let (tx, rx) = oneshot::channel();
+        self.req_tx.send(CommitteesRequest { kind, tx }).await?;
+        let (committees, price_computation) = rx.await?;
+        Ok((committees, price_computation))
+    }
+
+    /// Awaits for a notification from the refresher that the active committee has changed.
+    pub async fn change_notified(&self) {
+        self.notify.notified().await
+    }
+}
+
 /// Checks if two committes are different enough to require a notification to the clients.
-fn are_committees_different(first: &ActiveCommittees, second: &ActiveCommittees) -> bool {
-    if first == second {
-        // They are identical.
-        return false;
-    }
+fn compare_current_previous_committees(
+    first: &ActiveCommittees,
+    second: &ActiveCommittees,
+) -> anyhow::Result<()> {
+    // Compare the current committees.
+    first
+        .current_committee()
+        .compare_functional_equivalence(second.current_committee())?;
 
-    if first.current_committee() == second.current_committee()
-        && first.previous_committee() == second.previous_committee()
-    {
-        // The relevant committees for storing and reading are the same.
-        return false;
-    }
+    // Compare the previous committees, if present.
+    match (first.previous_committee(), second.previous_committee()) {
+        (Some(first_previous), Some(second_previous)) => {
+            first_previous.compare_functional_equivalence(second_previous)
+        }
+        (None, None) => Ok(()),
+        _ => Err(anyhow::anyhow!(
+            "one of the two sets has a previous committee, the other does not"
+        )),
+    }?;
 
-    true
+    Ok(())
 }
