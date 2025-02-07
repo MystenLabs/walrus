@@ -343,7 +343,7 @@ pub enum CliCommands {
         /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
         /// values must be equal to the number of node IDs, and each amount is staked at the node
         /// with the same index.
-        #[clap(long, alias("amount"), default_value = "1000000000")]
+        #[clap(long, alias("amount"), num_args=1.., default_value = "1000000000")]
         #[serde(default = "default::staking_amounts_frost")]
         amounts: Vec<u64>,
     },

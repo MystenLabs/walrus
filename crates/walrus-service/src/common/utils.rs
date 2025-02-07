@@ -427,7 +427,7 @@ async fn push_metrics(
     registry: &Registry,
     labels: Option<HashMap<String, String>>,
 ) -> Result<(), anyhow::Error> {
-    tracing::info!(push_url, "pushing metrics to remote");
+    tracing::debug!(push_url, "pushing metrics to remote");
 
     // now represents a collection timestamp for all of the metrics we send to the proxy.
     let now = SystemTime::now()

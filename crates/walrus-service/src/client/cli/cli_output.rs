@@ -820,7 +820,7 @@ impl CliOutput for NodeHealthOutput {
                     event_heading = "Event Progress".bold().walrus_teal(),
                     highest_finished_event_index_output = highest_finished_event_index
                         .map_or("".to_string(), |index| format!(
-                            "\nHighest finished event index: {index}\n"
+                            "\nHighest finished event index: {index}"
                         )),
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,

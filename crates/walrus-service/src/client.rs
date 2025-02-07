@@ -1288,6 +1288,9 @@ impl<T> Client<T> {
         } else {
             // We were not able to decode. Keep requesting slivers and try decoding as soon as every
             // new sliver is received.
+            tracing::info!(
+                "blob decoding with initial set of slivers failed; requesting additional slivers"
+            );
             self.decode_sliver_by_sliver(
                 &mut requests,
                 &mut decoder,
