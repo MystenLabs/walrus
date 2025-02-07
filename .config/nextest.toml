@@ -24,3 +24,14 @@ retries = 0 # Do not retry these tests as they always succeed on the second run
 [profile.simtest]
 slow-timeout = { period = "5m", terminate-after = 6 } # Timeout tests after 30 minutes
 test-threads = "num-cpus"
+
+[profile.simtestnightly]
+# Print out output for failing tests as soon as they fail, and also at the end
+# of the run (for easy scrollability).
+failure-output = "immediate"
+# Show skipped tests in the CI output.
+status-level = "fail"
+# Do not cancel the test run on the first failure.
+fail-fast = false
+# Mark tests as slow after 30m, terminate after 1.5h
+slow-timeout = { period = "30m", terminate-after = 3 }
