@@ -260,18 +260,15 @@ impl<T: ReadClient> CommitteesRefresher<T> {
             Self::get_latest(&self.sui_client).await?;
 
         // First update, then notify if needed.
-        let comparison =
-            compare_current_previous_committees(&committees, self.last_committees.as_ref());
+        let are_different =
+            are_current_previous_different(&committees, self.last_committees.as_ref());
         self.last_committees = Arc::new(committees);
         self.last_price_computation = price_computation;
         self.epoch_state = epoch_state;
 
         // If the committee has changed, send a notification to the clients.
-        if let Err(error) = comparison {
-            tracing::info!(
-                differences=%error,
-                "the active committees have changed, notifying the clients"
-            );
+        if are_different {
+            tracing::debug!("the active committees have changed, notifying the clients");
             self.notify.notify_waiters();
         } else {
             tracing::trace!("the active committee has not changed");
@@ -373,17 +370,18 @@ impl CommitteesRefresherHandle {
 }
 
 /// Checks if two committes are different enough to require a notification to the clients.
-fn compare_current_previous_committees(
-    first: &ActiveCommittees,
-    second: &ActiveCommittees,
-) -> anyhow::Result<()> {
+fn are_current_previous_different(first: &ActiveCommittees, second: &ActiveCommittees) -> bool {
     // Compare the current committees.
-    first
+    if let Err(error) = first
         .current_committee()
-        .compare_functional_equivalence(second.current_committee())?;
+        .compare_functional_equivalence(second.current_committee())
+    {
+        tracing::debug!(differences = %error, "current committees are different");
+        return true;
+    }
 
     // Compare the previous committees, if present.
-    match (first.previous_committee(), second.previous_committee()) {
+    let previous_comparison = match (first.previous_committee(), second.previous_committee()) {
         (Some(first_previous), Some(second_previous)) => {
             first_previous.compare_functional_equivalence(second_previous)
         }
@@ -391,7 +389,11 @@ fn compare_current_previous_committees(
         _ => Err(anyhow::anyhow!(
             "one of the two sets has a previous committee, the other does not"
         )),
-    }?;
+    };
+    if let Err(error) = previous_comparison {
+        tracing::debug!(differences = %error, "previous committees are different");
+        return true;
+    }
 
-    Ok(())
+    false
 }
