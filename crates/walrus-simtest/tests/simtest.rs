@@ -1246,22 +1246,6 @@ mod tests {
             .find_by_public_key(&walrus_cluster.nodes[5].public_key)
             .is_none());
 
-        // Check the current protocol key in the staking pool
-        let pool = client_arc
-            .as_ref()
-            .as_ref()
-            .sui_client()
-            .read_client
-            .get_staking_pool(
-                walrus_cluster.nodes[5]
-                    .storage_node_capability
-                    .as_ref()
-                    .unwrap()
-                    .node_id,
-            )
-            .await
-            .expect("Failed to get staking pool");
-
         let config = Arc::new(RwLock::new(
             walrus_cluster.nodes[5].storage_node_config.clone(),
         ));

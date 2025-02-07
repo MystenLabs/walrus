@@ -75,7 +75,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
 #[cfg(msim)]
-use crate::node::config_synchronizer::ConfigLoader;
+use crate::node::ConfigLoader;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
