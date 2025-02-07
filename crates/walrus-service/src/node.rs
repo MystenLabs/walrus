@@ -891,12 +891,11 @@ impl StorageNode {
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
-        let _timer_guard = &self
-            .inner
-            .metrics
-            .event_process_duration_seconds
-            .with_label_values(&[stream_element.element.label()])
-            .start_timer();
+        let _timer_guard = walrus_utils::with_label!(
+            self.inner.metrics.event_process_duration_seconds,
+            stream_element.element.label()
+        )
+        .start_timer();
         match stream_element.element {
             EventStreamElement::ContractEvent(ContractEvent::BlobEvent(blob_event)) => {
                 self.process_blob_event(event_handle, blob_event).await?;
@@ -1046,7 +1045,7 @@ impl StorageNode {
         {
             event_handle.mark_as_complete();
 
-            metrics::with_label!(histogram_set, metrics::STATUS_SKIPPED)
+            walrus_utils::with_label!(histogram_set, metrics::STATUS_SKIPPED)
                 .observe(start.elapsed().as_secs_f64());
 
             return Ok(());
@@ -1576,7 +1575,7 @@ impl StorageNodeInner {
         let persisted = self.storage.get_sequentially_processed_event_count()?;
         let node_status = self.storage.node_status()?;
 
-        metrics::with_label!(self.metrics.event_cursor_progress, "persisted").set(persisted);
+        walrus_utils::with_label!(self.metrics.event_cursor_progress, "persisted").set(persisted);
         self.metrics.current_node_status.set(node_status.to_i64());
 
         Ok(())
@@ -1671,7 +1670,7 @@ impl StorageNodeInner {
             .put_sliver(blob_id, sliver)
             .context("unable to store sliver")?;
 
-        metrics::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
+        walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
 
         Ok(true)
     }
@@ -1996,7 +1995,8 @@ impl ServiceState for StorageNodeInner {
             .context("unable to retrieve sliver")?
             .ok_or(RetrieveSliverError::Unavailable)
             .inspect(|sliver| {
-                metrics::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type()).inc();
+                walrus_utils::with_label!(self.metrics.slivers_retrieved_total, sliver.r#type())
+                    .inc();
             })
     }
 

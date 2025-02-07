@@ -47,12 +47,7 @@ use super::{
     blob_info::{BlobInfo, BlobInfoIterator},
     DatabaseConfig,
 };
-use crate::node::{
-    config::ShardSyncConfig,
-    errors::SyncShardClientError,
-    metrics,
-    StorageNodeInner,
-};
+use crate::node::{config::ShardSyncConfig, errors::SyncShardClientError, StorageNodeInner};
 
 // Important: this enum is committed to database. Do not modify the existing fields. Only add new
 // fields at the end.
@@ -636,7 +631,7 @@ impl ShardStorage {
                     SliverType::Secondary => self.secondary_slivers.batch(),
                 };
 
-                metrics::with_label!(
+                walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_progress,
                     &self.id.to_string(),
                     &sliver_type.to_string()
@@ -681,7 +676,7 @@ impl ShardStorage {
                 }
                 batch.write()?;
 
-                metrics::with_label!(
+                walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_total,
                     &self.id.to_string(),
                     &sliver_type.to_string()
@@ -891,7 +886,7 @@ impl ShardStorage {
                     walrus.blob_id = %blob_id,
                     "blob is not certified; skip recovering it"
                 );
-                metrics::with_label!(
+                walrus_utils::with_label!(
                     node.metrics.sync_shard_recover_sliver_skip_total,
                     &self.id.to_string(),
                     &sliver_type.to_string()
@@ -934,7 +929,7 @@ impl ShardStorage {
         node: &Arc<StorageNodeInner>,
         total_blobs_pending_recovery: usize,
     ) {
-        metrics::with_label!(
+        walrus_utils::with_label!(
             node.metrics.sync_shard_recover_sliver_pending_total,
             &self.id.to_string()
         )
@@ -953,7 +948,7 @@ impl ShardStorage {
             shard_index = %self.id,
             "blob is no longer certified during recovery; stop recovery"
         );
-        metrics::with_label!(
+        walrus_utils::with_label!(
             node.metrics.sync_shard_recover_sliver_cancellation_total,
             &self.id.to_string(),
             &sliver_type.to_string()
@@ -994,7 +989,7 @@ impl ShardStorage {
             .id
             .to_pair_index(node.encoding_config.n_shards(), &blob_id);
 
-        metrics::with_label!(
+        walrus_utils::with_label!(
             node.metrics.sync_shard_recover_sliver_total,
             &self.id.to_string(),
             &sliver_type.to_string()
@@ -1045,7 +1040,7 @@ impl ShardStorage {
 
         match result {
             Ok(sliver) => {
-                metrics::with_label!(
+                walrus_utils::with_label!(
                     node.metrics.sync_shard_recover_sliver_success_total,
                     &self.id.to_string(),
                     &sliver_type.to_string()
@@ -1055,7 +1050,7 @@ impl ShardStorage {
             }
             Err(inconsistency_proof) => {
                 tracing::debug!("received an inconsistency proof when recovering sliver");
-                metrics::with_label!(
+                walrus_utils::with_label!(
                     node.metrics.sync_shard_recover_sliver_error_total,
                     &self.id.to_string(),
                     &sliver_type.to_string()

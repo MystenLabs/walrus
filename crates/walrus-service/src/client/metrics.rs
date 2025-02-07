@@ -116,22 +116,19 @@ impl ClientMetrics {
 
     /// Increments the number of submitted transactions for the given workload.
     pub fn observe_submitted(&self, workload: &str) {
-        self.submitted.with_label_values(&[workload]).inc();
+        walrus_utils::with_label!(self.submitted, workload).inc();
     }
 
     /// Logs the latency for the given workload.
     pub fn observe_latency(&self, workload: &str, latency: Duration) {
-        self.latency_s
-            .with_label_values(&[workload])
-            .observe(latency.as_secs_f64());
-        self.latency_squared_s
-            .with_label_values(&[workload])
+        walrus_utils::with_label!(self.latency_s, workload).observe(latency.as_secs_f64());
+        walrus_utils::with_label!(self.latency_squared_s, workload)
             .inc_by(latency.as_secs_f64().powi(2));
     }
 
     /// Increments the error counter for the given error type.
     pub fn observe_error(&self, error: &str) {
-        self.errors.with_label_values(&[error]).inc();
+        walrus_utils::with_label!(self.errors, error).inc();
     }
 
     /// Increments the gas refill counter.

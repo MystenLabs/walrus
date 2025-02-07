@@ -50,12 +50,9 @@ pub async fn publish_metrics(
     Extension(relay): Extension<HistogramRelay>,
     LenDelimProtobuf(data): LenDelimProtobuf,
 ) -> (StatusCode, &'static str) {
-    HANDLER_HITS
-        .with_label_values(&["publish_metrics", &name])
-        .inc();
-    let timer = HTTP_HANDLER_DURATION
-        .with_label_values(&["publish_metrics", &name])
-        .start_timer();
+    walrus_utils::with_label!(HANDLER_HITS, "publish_metrics", &name).inc();
+    let timer =
+        walrus_utils::with_label!(HTTP_HANDLER_DURATION, "publish_metrics", &name).start_timer();
     let data = populate_labels(name, labels, data);
     relay.submit(data.clone());
     let response = convert_to_remote_write(

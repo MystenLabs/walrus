@@ -3,6 +3,7 @@
 
 pub mod backoff;
 pub mod checkpoint_downloader;
+pub mod metrics;
 
 pub mod tests {
     use std::sync::OnceLock;

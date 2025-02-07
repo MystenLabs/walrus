@@ -58,7 +58,12 @@ pub async fn expect_content_length(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    MIDDLEWARE_HEADERS.with_label_values(&["content-length", &format!("{}", content_length.0)]);
+    walrus_utils::with_label!(
+        MIDDLEWARE_HEADERS,
+        "content-length",
+        &format!("{}", content_length.0)
+    )
+    .inc();
     Ok(next.run(request).await)
 }
 
@@ -93,17 +98,20 @@ pub async fn expect_valid_recoverable_pubkey(
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, &'static str)> {
-    MIDDLEWARE_OPS
-        .with_label_values(&["expect_valid_recoverable_pubkey", "begin-auth-verify"])
-        .inc();
+    walrus_utils::with_label!(
+        MIDDLEWARE_OPS,
+        "expect_valid_recoverable_pubkey",
+        "begin-auth-verify"
+    )
+    .inc();
     // Extract the Authorization header
     let Some(auth_header) = request.headers().get(header::AUTHORIZATION) else {
-        MIDDLEWARE_OPS
-            .with_label_values(&[
-                "expect_valid_recoverable_pubkey",
-                "walrus-node-missing-auth-header",
-            ])
-            .inc();
+        walrus_utils::with_label!(
+            MIDDLEWARE_OPS,
+            "expect_valid_recoverable_pubkey",
+            "walrus-node-missing-auth-header"
+        )
+        .inc();
         return Err((StatusCode::FORBIDDEN, "authorization header is required"));
     };
 
@@ -128,18 +136,21 @@ pub async fn expect_valid_recoverable_pubkey(
         (StatusCode::FORBIDDEN, "authorization header is malformed")
     })?) else {
         // no errors from allower, we just didn't match
-        MIDDLEWARE_OPS
-            .with_label_values(&[
-                "expect_valid_recoverable_pubkey",
-                "unknown-walrus-node-connection-attempt",
-            ])
-            .inc();
+        walrus_utils::with_label!(
+            MIDDLEWARE_OPS,
+            "expect_valid_recoverable_pubkey",
+            "unknown-walrus-node-connection-attempt"
+        )
+        .inc();
         return Err((StatusCode::FORBIDDEN, "unknown clients are not allowed"));
     };
     request.extensions_mut().insert(peer);
-    MIDDLEWARE_OPS
-        .with_label_values(&["expect_valid_recoverable_pubkey", "end-auth-verify"])
-        .inc();
+    walrus_utils::with_label!(
+        MIDDLEWARE_OPS,
+        "expect_valid_recoverable_pubkey",
+        "end-auth-verify"
+    )
+    .inc();
     Ok(next.run(request).await)
 }
 
@@ -183,9 +194,12 @@ where
         let body = Bytes::from_request(req, state).await.map_err(|e| {
             let msg = format!("error extracting bytes; {e}");
             error!(msg);
-            MIDDLEWARE_OPS
-                .with_label_values(&["LenDelimProtobuf_from_request", "unable-to-extract-bytes"])
-                .inc();
+            walrus_utils::with_label!(
+                MIDDLEWARE_OPS,
+                "LenDelimProtobuf_from_request",
+                "unable-to-extract-bytes"
+            )
+            .inc();
             (e.status(), msg)
         })?;
 
@@ -193,9 +207,12 @@ where
         let decompressed = s.decompress_vec(&body).map_err(|e| {
             let msg = format!("unable to decode snappy encoded protobufs; {e}");
             error!(msg);
-            MIDDLEWARE_OPS
-                .with_label_values(&["LenDelimProtobuf_decompress_vec", "unable-to-decode-snappy"])
-                .inc();
+            walrus_utils::with_label!(
+                MIDDLEWARE_OPS,
+                "LenDelimProtobuf_decompress_vec",
+                "unable-to-decode-snappy"
+            )
+            .inc();
             (StatusCode::BAD_REQUEST, msg)
         })?;
 
@@ -214,12 +231,12 @@ where
         let metric_families = decoder.parse::<MetricFamily>().map_err(|e| {
             let msg = format!("unable to decode len delimited protobufs; {e}");
             error!(msg);
-            MIDDLEWARE_OPS
-                .with_label_values(&[
-                    "LenDelimProtobuf_from_request",
-                    "unable-to-decode-protobufs",
-                ])
-                .inc();
+            walrus_utils::with_label!(
+                MIDDLEWARE_OPS,
+                "LenDelimProtobuf_from_request",
+                "unable-to-decode-protobufs"
+            )
+            .inc();
             (StatusCode::BAD_REQUEST, msg)
         })?;
 
