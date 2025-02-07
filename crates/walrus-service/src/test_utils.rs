@@ -849,7 +849,7 @@ impl StorageNodeHandleBuilder {
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
             config_synchronizer: ConfigSynchronizerConfig {
-                interval: Duration::from_secs(1),
+                interval: Duration::from_secs(5),
                 enabled: self.enable_node_config_synchronizer,
             },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
