@@ -1689,15 +1689,17 @@ impl TestClusterBuilder {
     /// Sets the [`SystemContractService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_system_contract_services<T>(mut self, contract_services: &[T]) -> Self
+    pub fn with_system_contract_services<T, U>(mut self, contract_services: T) -> Self
     where
-        T: SystemContractService + Clone + 'static,
+        T: IntoIterator<Item = U>,
+        U: SystemContractService + Clone + 'static,
     {
-        assert_eq!(contract_services.len(), self.storage_node_configs.len());
-        self.contract_services = contract_services
-            .iter()
+        let contract_services: Vec<_> = contract_services
+            .into_iter()
             .map(|service| Some(Arc::new(service.clone()) as _))
             .collect();
+        assert_eq!(contract_services.len(), self.storage_node_configs.len());
+        self.contract_services = contract_services;
         self
     }
 
@@ -2239,32 +2241,35 @@ pub mod test_cluster {
         )
         .await?;
 
-        let mut contract_clients = vec![];
-        let mut node_wallet_dirs = vec![];
-        let mut blocklist_files = vec![];
-        let mut disable_event_blob_writers = vec![];
-        for (i, _) in members.iter().enumerate() {
-            let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+        let n_nodes = members.len();
+        let mut contract_clients = Vec::with_capacity(n_nodes);
+        let mut node_wallet_dirs = Vec::with_capacity(n_nodes);
+        let mut blocklist_files = Vec::with_capacity(n_nodes);
+        let mut disable_event_blob_writers = Vec::with_capacity(n_nodes);
+
+        for (i, wallet) in
+            test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), n_nodes)
                 .await?
+                .into_iter()
+                .enumerate()
+        {
+            let client = wallet
                 .and_then_async(|wallet| {
-                    system_ctx.new_contract_client(
-                        wallet,
-                        ExponentialBackoffConfig::default(),
-                        None,
-                    )
+                    system_ctx.new_contract_client(wallet, Default::default(), None)
                 })
                 .await?;
             let temp_dir = client.temp_dir.path().to_owned();
             node_wallet_dirs.push(temp_dir.clone());
-            contract_clients.push(client);
+            contract_clients.push(client.inner);
             let blocklist_dir = test_nodes_config.blocklist_dir.clone().unwrap_or(temp_dir);
             blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
             disable_event_blob_writers.push(test_nodes_config.disable_event_blob_writer);
+            // In simtest, storage nodes load the Sui wallet config from the `temp_dir`. We
+            // need to keep the directory alive throughout the test.
+            #[cfg(msim)]
+            Box::leak(Box::new(client.temp_dir));
         }
-        let contract_clients_refs = contract_clients
-            .iter()
-            .map(|client| &client.inner)
-            .collect::<Vec<_>>();
+        let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
         let contract_config =
             ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
@@ -2312,23 +2317,16 @@ pub mod test_cluster {
         .await;
 
         // Create a contract service for the storage nodes using a wallet in a temp dir.
-        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
+        let node_contract_services = contract_clients
             .into_iter()
             .zip(committee_services.iter())
-            .map(|(client, committee_service)| (client.inner, committee_service, client.temp_dir))
-            .map(|(client, committee_service, tmp_dir)| {
-                (
-                    SuiSystemContractService::new(client, committee_service.clone()),
-                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We
-                    // need to keep the directory alive throughout the test.
-                    Box::leak(Box::new(tmp_dir)),
-                )
-            })
-            .unzip();
+            .map(|(client, committee_service)| {
+                SuiSystemContractService::new(client, committee_service.clone())
+            });
 
         let cluster_builder = cluster_builder
             .with_committee_services(&committee_services)
-            .with_system_contract_services(&node_contract_services);
+            .with_system_contract_services(node_contract_services);
 
         let event_processor_config = Default::default();
         let cluster_builder = if test_nodes_config.use_legacy_event_processor {
