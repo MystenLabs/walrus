@@ -26,8 +26,8 @@ db_config:
     blob_garbage_collection_force_threshold: 0.5
     blob_compaction_read_ahead_size: 10485760
     write_buffer_size: 268435456
-    target_file_size_base: 4194304
-    max_bytes_for_level_base: 33554432
+    target_file_size_base: 67108864
+    max_bytes_for_level_base: 536870912
   node_status: null
   metadata: null
   blob_info: null
