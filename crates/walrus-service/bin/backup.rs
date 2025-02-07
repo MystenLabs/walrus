@@ -27,6 +27,12 @@ use walrus_service::{
 struct Args {
     #[clap(long, short, help = "Specify the config file path to use")]
     config: PathBuf,
+    #[clap(
+        long,
+        short,
+        help = "Override the metrics address to use (ie: 127.0.0.1:9184)"
+    )]
+    metrics_address: Option<std::net::SocketAddr>,
     #[command(subcommand)]
     command: BackupCommands,
 }
@@ -50,7 +56,10 @@ fn exit_process_on_return(result: anyhow::Result<()>, context: &str) {
 
 fn main() {
     let args = Args::parse();
-    let config: BackupConfig = load_from_yaml(&args.config).expect("loading config from yaml");
+    let mut config: BackupConfig = load_from_yaml(&args.config).expect("loading config from yaml");
+    if let Some(metrics_address) = args.metrics_address {
+        config.metrics_address = metrics_address;
+    }
 
     let rt = tokio::runtime::Runtime::new().expect("creating tokio runtime");
     let _guard = rt.enter();
