@@ -126,10 +126,17 @@ missing_debug_implementations = "warn"
 missing_docs = "warn"
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(msim)'] }
 
+[profile.release]
+panic = 'abort'
+
+[profile.dev]
+panic = 'abort'
+
 [profile.simulator]
 debug = true
 debug-assertions = true
 inherits = "test"
-overflow-checks = true
 # opt-level 1 gives >5x speedup for simulator tests without slowing down build times very much.
 opt-level = 1
+overflow-checks = true
+panic = 'abort'
