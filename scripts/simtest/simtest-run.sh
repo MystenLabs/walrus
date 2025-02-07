@@ -47,7 +47,7 @@ date
 # TODO: this logs directly to stdout since it is not being run in parallel. is that ok?
 MSIM_TEST_SEED="$SEED" \
 MSIM_TEST_NUM=${TEST_NUM} \
-scripts/simtest/cargo-simtest simtest \
+scripts/simtest/cargo-simtest simtest simtest \
   --color always \
   --test-threads "$NUM_CPUS" \
   --profile simtestnightly \
@@ -67,7 +67,7 @@ for SUB_SEED in `seq 1 $NUM_CPUS`; do
   # --test-threads 1 is important: parallelism is achieved via the for loop
   MSIM_TEST_SEED="$SEED" \
   MSIM_TEST_NUM=1 \
-  scripts/simtest/cargo-simtest simtest \
+  scripts/simtest/cargo-simtest simtest simtest \
     --test-threads 1 \
     --profile simtestnightly \
     > "$LOG_FILE" 2>&1 &
