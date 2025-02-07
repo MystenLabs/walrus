@@ -108,10 +108,12 @@ pub enum StoreWhen {
     /// storage space. This is useful when using the publisher, to avoid wasting multiple round
     /// trips to the fullnode.
     NotStoredIgnoreResources,
-    /// Store the blob always, without checking the status.
-    Always,
     /// Check the status of the blob before storing it, and store it only if it is not already.
     NotStored,
+    /// Store the blob always, without checking the status.
+    Always,
+    /// Store the blob always, without checking the status, and ignore the resources in the wallet.
+    AlwaysIgnoreResources,
 }
 
 impl StoreWhen {
@@ -126,14 +128,12 @@ impl StoreWhen {
     }
 
     /// Returns [`Self`] based on the value of the `force` and `ignore-resources` flags.
-    pub fn from_flags(force: bool, ignore_resources: bool) -> anyhow::Result<Self> {
+    pub fn from_flags(force: bool, ignore_resources: bool) -> Self {
         match (force, ignore_resources) {
-            (true, true) => Err(anyhow!(
-                "both force and ignore-resources flags are set; please only specify one of them"
-            )),
-            (true, false) => Ok(Self::Always),
-            (false, true) => Ok(Self::NotStoredIgnoreResources),
-            (false, false) => Ok(Self::NotStored),
+            (true, true) => Self::AlwaysIgnoreResources,
+            (true, false) => Self::Always,
+            (false, true) => Self::NotStoredIgnoreResources,
+            (false, false) => Self::NotStored,
         }
     }
 }

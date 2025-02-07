@@ -199,14 +199,14 @@ pub enum CliCommands {
         ///
         /// This will create a new blob even if the blob is already certified for a sufficient
         /// duration.
-        #[clap(long, action, conflicts_with = "ignore_resources")]
+        #[clap(long, action)]
         #[serde(default)]
         force: bool,
         /// Ignore the storage resources owned by the wallet.
         ///
         /// The client will not check if it can reuse existing resources, and just check the blob
         /// status on chain.
-        #[clap(long, action, conflicts_with = "force")]
+        #[clap(long, action)]
         #[serde(default)]
         ignore_resources: bool,
         /// Mark the blob as deletable.

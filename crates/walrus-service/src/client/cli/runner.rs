@@ -164,7 +164,7 @@ impl ClientCommandRunner {
                     files,
                     epoch_arg,
                     dry_run,
-                    StoreWhen::from_flags(force, ignore_resources)?,
+                    StoreWhen::from_flags(force, ignore_resources),
                     BlobPersistence::from_deletable(deletable),
                     PostStoreAction::from_share(share),
                 )
