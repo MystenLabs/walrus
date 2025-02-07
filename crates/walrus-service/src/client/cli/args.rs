@@ -170,6 +170,13 @@ pub enum CliCommands {
     ///
     /// If the `--force` flag is used, this operation always creates a new certification for the
     /// blob (possibly reusing storage resources or uncertified but registered blobs).
+    ///
+    /// The `--ignore-resources` flag can be used to ignore the storage resources owned by the
+    /// wallet and always purchase new storage resources, bypassing the need to check the owned
+    /// resources on chain. Using this flag could speed up the store operation in case there are
+    /// thousands of resources or blobs owned by the wallet.
+    ///
+    /// At this moment, only one between `--force` and `--
     #[clap(alias("write"))]
     Store {
         /// The files containing the blob to be published to Walrus.
@@ -192,16 +199,22 @@ pub enum CliCommands {
         ///
         /// This will create a new blob even if the blob is already certified for a sufficient
         /// duration.
-        #[clap(long, action)]
+        #[clap(long, action, conflicts_with = "ignore_resources")]
         #[serde(default)]
         force: bool,
+        /// Ignore the storage resources owned by the wallet.
+        ///
+        /// The client will not check if it can reuse existing resources, and just check the blob
+        /// status on chain.
+        #[clap(long, action, conflicts_with = "force")]
+        #[serde(default)]
+        ignore_resources: bool,
         /// Mark the blob as deletable.
         ///
         /// Deletable blobs can be removed from Walrus before their expiration time.
         #[clap(long, action)]
         #[serde(default)]
         deletable: bool,
-
         /// Whether to put the blob into a shared blob object.
         #[clap(long, action)]
         #[serde(default)]
@@ -1134,6 +1147,7 @@ mod tests {
             },
             dry_run: false,
             force: false,
+            ignore_resources: false,
             deletable: false,
             share: false,
         })

@@ -133,6 +133,18 @@ impl StoreWhen {
             Self::NotStored
         }
     }
+
+    /// Returns [`Self`] based on the value of the `force` and `ignore-resources` flags.
+    pub fn from_flags(force: bool, ignore_resources: bool) -> anyhow::Result<Self> {
+        match (force, ignore_resources) {
+            (true, true) => Err(anyhow!(
+                "both force and ignore-resources flags are set; please only specify one of them"
+            )),
+            (true, false) => Ok(Self::Always),
+            (false, true) => Ok(Self::NotStoredIgnoreResources),
+            (false, false) => Ok(Self::NotStored),
+        }
+    }
 }
 
 /// A client to communicate with Walrus shards and storage nodes.

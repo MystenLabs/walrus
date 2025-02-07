@@ -281,6 +281,12 @@ impl<'a> ResourceManager<'a> {
         // This keeps tracks of selected storage objects and exclude them from selecting again.
         let mut excluded = Vec::with_capacity(max_len);
 
+        // Gets the owned blobs once for all checks, to avoid multiple calls to the RPC.
+        let owned_blobs = self
+            .sui_client
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
+            .await?;
+
         // For all the metadata, if the blob is registered in wallet, add it directly to results.
         // Otherwise, check if there is existing storage resource selected for the encoded length,
         // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
@@ -292,6 +298,7 @@ impl<'a> ResourceManager<'a> {
                     epochs_ahead,
                     persistence,
                     !store_when.is_store_always(),
+                    &owned_blobs,
                 )
                 .await?
             {
@@ -419,18 +426,17 @@ impl<'a> ResourceManager<'a> {
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         include_certified: bool,
+        owned_blobs: &[Blob],
     ) -> ClientResult<Option<Blob>> {
-        Ok(self
-            .sui_client
-            .owned_blobs(None, ExpirySelectionPolicy::Valid)
-            .await?
-            .into_iter()
+        Ok(owned_blobs
+            .iter()
             .find(|blob| {
                 blob.blob_id == *blob_id
                     && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
                     && blob.deletable == persistence.is_deletable()
                     && (include_certified || blob.certified_epoch.is_none())
-            }))
+            })
+            .cloned())
     }
 
     /// Checks if blob of the given status is already in a state for which we can return.
