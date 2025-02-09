@@ -38,7 +38,6 @@ use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
-pub(crate) use walrus_utils::with_label;
 
 use super::active_committees::ActiveCommittees;
 
@@ -557,25 +556,25 @@ impl CurrentEpochStateMetric {
     /// Record the current state as being `EpochState::EpochChangeSync`.
     pub fn set_change_sync_state(&self) {
         self.clear_state();
-        with_label!(self.0, Self::CHANGE_SYNC).set(true.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_SYNC).set(true.into());
     }
 
     /// Record the current state as being `EpochState::EpochChangeDone`.
     pub fn set_change_done_state(&self) {
         self.clear_state();
-        with_label!(self.0, Self::CHANGE_DONE).set(true.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_DONE).set(true.into());
     }
 
     /// Record the current state as being `EpochState::NextParamsSelected`.
     pub fn set_next_params_selected_state(&self) {
         self.clear_state();
-        with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(true.into());
+        walrus_utils::with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(true.into());
     }
 
     fn clear_state(&self) {
-        with_label!(self.0, Self::CHANGE_SYNC).set(false.into());
-        with_label!(self.0, Self::CHANGE_DONE).set(false.into());
-        with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(false.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_SYNC).set(false.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_DONE).set(false.into());
+        walrus_utils::with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(false.into());
     }
 }
 
