@@ -687,6 +687,7 @@ impl ClientCommandRunner {
 
         ClientDaemon::new_publisher(
             client,
+            args.cache_config.clone(),
             auth_config,
             args.daemon_args.bind_address,
             args.max_body_size(),
@@ -733,6 +734,7 @@ impl ClientCommandRunner {
         .await?;
         ClientDaemon::new_daemon(
             client,
+            args.cache_config.clone(),
             auth_config,
             args.daemon_args.bind_address,
             args.max_body_size(),

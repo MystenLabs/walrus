@@ -33,13 +33,21 @@ pub(crate) const DEFAULT_CACHE_CHANNEL_SIZE: usize = 100;
 
 /// The configuration for the cache.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, clap::Parser, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
-pub(crate) struct CacheConfig {
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase")]
+pub struct CacheConfig {
     /// The maximum number of elements the cache can hold.
+    #[clap(long = "jwt-cache-size", default_value_t = default::max_size())]
     max_size: usize,
     /// The interval at which the cache should check for expired elements.
     #[serde(rename = "refresh_interval_secs")]
+    #[clap(
+        long = "jwt-cache-refresh-interval",
+        value_parser = humantime::parse_duration,
+        default_value = "5s"
+    )]
     #[serde_as(as = "DurationSeconds")]
     pub(crate) refresh_interval: Duration,
 }
@@ -47,9 +55,19 @@ pub(crate) struct CacheConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            max_size: 10_000,
-            refresh_interval: Duration::from_secs(5),
+            max_size: default::max_size(),
+            refresh_interval: default::refresh_interval(),
         }
+    }
+}
+
+mod default {
+    pub(crate) fn max_size() -> usize {
+        10_000
+    }
+
+    pub(crate) fn refresh_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(5)
     }
 }
 

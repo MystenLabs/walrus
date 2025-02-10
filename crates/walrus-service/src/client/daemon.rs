@@ -42,8 +42,8 @@ use crate::{
 };
 
 pub mod auth;
-mod cache;
-use cache::{CacheConfig, CacheHandle};
+pub(crate) mod cache;
+pub(crate) use cache::{CacheConfig, CacheHandle};
 mod openapi;
 mod routes;
 
@@ -175,8 +175,10 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
 
 impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with publisher functionality.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_publisher(
         client: T,
+        cache_config: CacheConfig,
         auth_config: Option<AuthConfig>,
         network_address: SocketAddr,
         max_body_limit: usize,
@@ -185,8 +187,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_concurrent_requests: usize,
     ) -> Self {
         Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
-            // TODO: Make this configurable.
-            Default::default(),
+            cache_config,
             auth_config,
             max_body_limit,
             max_request_buffer_size,
@@ -195,8 +196,10 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     }
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_daemon(
         client: T,
+        cache_config: CacheConfig,
         auth_config: Option<AuthConfig>,
         network_address: SocketAddr,
         max_body_limit: usize,
@@ -207,8 +210,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         Self::new::<DaemonApiDoc>(client, network_address, registry)
             .with_aggregator()
             .with_publisher(
-                // TODO: Make this configurable.
-                Default::default(),
+                cache_config,
                 auth_config,
                 max_body_limit,
                 max_request_buffer_size,

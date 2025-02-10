@@ -24,7 +24,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::config::AuthConfig;
+use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -624,10 +624,15 @@ pub struct PublisherArgs {
     ///   present;
     /// - Verify that the `send_object_to` field in the query is the same as the `send_object_to`
     ///   in the JWT, if present;
-    // TODO: /// - Verify the size/hash of uploaded file
+    /// - Verify the size of uploaded file;
+    /// - Verify the uniqueness of the `jti` claim.
     #[clap(long, action)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
+    #[clap(flatten)]
+    #[serde(flatten)]
+    /// The configuration for the JWT duplicate suppression cache.
+    pub cache_config: CacheConfig,
 }
 
 impl PublisherArgs {
@@ -1187,6 +1192,7 @@ mod tests {
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
+                cache_config: Default::default(),
             },
         })
     }
