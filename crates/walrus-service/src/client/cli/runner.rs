@@ -318,7 +318,7 @@ impl ClientCommandRunner {
                 .print_output(self.json)
             }
 
-            CliCommands::GetBlobAttribute { blob_obj_id, out } => {
+            CliCommands::GetBlobAttribute { blob_obj_id } => {
                 let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
                     &self.config?,
                     None,
@@ -326,19 +326,8 @@ impl ClientCommandRunner {
                     self.wallet_path.is_none(),
                 )
                 .await?;
-                let attribute = sui_read_client.get_blob_with_attribute(blob_obj_id).await?;
-                if let Some(out_path) = out {
-                    let json_str = serde_json::to_string_pretty(&attribute)
-                        .context("failed to serialize attribute")?;
-                    std::fs::write(out_path, json_str)
-                        .context("failed to write attribute to json file")?;
-                    Ok(())
-                } else {
-                    GetBlobAttributeOutput {
-                        attribute: Some(attribute),
-                    }
-                    .print_output(self.json)
-                }
+                let attribute = sui_read_client.get_blob_attribute(blob_obj_id).await?;
+                GetBlobAttributeOutput { attribute }.print_output(self.json)
             }
 
             CliCommands::SetBlobAttribute {

@@ -45,8 +45,7 @@ use walrus_sdk::{
 use walrus_sui::{
     client::ReadClient,
     types::{
-        move_structs::BlobWithAttribute,
-        Blob,
+        move_structs::{Blob, BlobAttribute},
         Committee,
         NetworkAddress,
         StakedWal,
@@ -645,7 +644,7 @@ pub struct ShareBlobOutput {
 /// The output of the `walrus get-blob-attribute` command.
 pub struct GetBlobAttributeOutput {
     /// The attribute of the blob.
-    pub attribute: Option<BlobWithAttribute>,
+    pub attribute: Option<BlobAttribute>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -450,14 +450,12 @@ pub enum CliCommands {
         amount: Option<u64>,
     },
     /// Get the attribute of a blob.
+    ///
+    /// This command will return all the attribute fields of a blob, but not the blob data.
     GetBlobAttribute {
         /// The object ID of the blob to get the attribute of.
         #[clap(index = 1)]
         blob_obj_id: ObjectID,
-        /// If unset, prints the blob to stdout.
-        #[clap(long)]
-        #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
-        out: Option<PathBuf>,
     },
     /// Set the attribute of a blob.
     SetBlobAttribute {
