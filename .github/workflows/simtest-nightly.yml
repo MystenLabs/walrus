@@ -57,7 +57,7 @@ jobs:
             "source ~/.bashrc && \
             source ~/.cargo/env && \
             cd ~/ && \
-            git clone https://x-access-token:${secrets.GITHUB_TOKEN}@github.com:MystenLabs/walrus.git"
+            git clone https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/MystenLabs/walrus.git"
 
       # Deleting files in tmpfs that usually fill up pretty quickly after each run. Cargo clean to free up space as well.
       - name: Tmpfs and cargo clean
