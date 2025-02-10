@@ -598,6 +598,10 @@ pub struct PublisherArgs {
     /// If not specified, the verification is disabled.
     /// This is useful, e.g., in case the API Gateway has already checked the token.
     /// The secret can be hex string, starting with `0x`.
+    ///
+    /// JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value.
+    /// The JWT creator must ensure that this value is unique among all requests to the publisher.
+    /// We recommend using large nonces to avoid collisions.
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,

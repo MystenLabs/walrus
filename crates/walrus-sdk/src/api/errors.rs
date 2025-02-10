@@ -360,6 +360,10 @@ status_codes![
     /// The request does not have valid authentication credentials for the
     /// operation.
     (Unauthenticated, "UNAUTHENTICATED", HttpStatusCode::UNAUTHORIZED),
+
+    /// Some resource has been exhausted, perhaps a per-user quota, or
+    /// perhaps the entire file system is out of space.
+    (ResourceExhausted, "RESOURCE_EXHAUSTED", HttpStatusCode::TOO_MANY_REQUESTS),
 ];
 
 #[serde_as]

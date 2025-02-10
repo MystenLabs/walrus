@@ -3,7 +3,7 @@
 
 //! A client daemon who serves a set of simple HTTP endpoints to store, encode, or read blobs.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{fmt::Debug, net::SocketAddr, sync::Arc};
 
 use axum::{
     body::HttpBody,
@@ -42,6 +42,8 @@ use crate::{
 };
 
 pub mod auth;
+mod cache;
+use cache::{CacheConfig, CacheHandle};
 mod openapi;
 mod routes;
 
@@ -183,6 +185,8 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_concurrent_requests: usize,
     ) -> Self {
         Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
+            // TODO: Make this configurable.
+            Default::default(),
             auth_config,
             max_body_limit,
             max_request_buffer_size,
@@ -203,6 +207,8 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         Self::new::<DaemonApiDoc>(client, network_address, registry)
             .with_aggregator()
             .with_publisher(
+                // TODO: Make this configurable.
+                Default::default(),
                 auth_config,
                 max_body_limit,
                 max_request_buffer_size,
@@ -213,6 +219,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Specifies that the daemon should expose the publisher interface (store blobs).
     fn with_publisher(
         mut self,
+        cache_config: CacheConfig,
         auth_config: Option<AuthConfig>,
         max_body_limit: usize,
         max_request_buffer_size: usize,
@@ -224,6 +231,9 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             %max_concurrent_requests,
             "configuring the publisher endpoint",
         );
+
+        // Create and run the cache to track the used JWT tokens.
+        let token_cache = cache_config.build_and_run();
 
         let base_layers = ServiceBuilder::new()
             .layer(DefaultBodyLimit::max(max_body_limit))
@@ -239,7 +249,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                     .route_layer(
                         ServiceBuilder::new()
                             .layer(axum::middleware::from_fn_with_state(
-                                Arc::new(auth_config),
+                                (Arc::new(auth_config), Arc::new(token_cache)),
                                 auth_layer,
                             ))
                             .layer(base_layers),
@@ -259,7 +269,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
 }
 
 pub(crate) async fn auth_layer(
-    State(auth_config): State<Arc<AuthConfig>>,
+    State((auth_config, token_cache)): State<(Arc<AuthConfig>, Arc<CacheHandle<String>>)>,
     query: Query<PublisherQuery>,
     TypedHeader(bearer_header): TypedHeader<Authorization<Bearer>>,
     request: Request,
@@ -272,7 +282,15 @@ pub(crate) async fn auth_layer(
     let body_size_hint = request.body().size_hint().upper().unwrap_or(0);
     tracing::debug!(%body_size_hint, query = ?query.0, "authenticating a request to store a blob");
 
-    if let Err(resp) = verify_jwt_claim(query, bearer_header, &auth_config, body_size_hint) {
+    if let Err(resp) = verify_jwt_claim(
+        query,
+        bearer_header,
+        &auth_config,
+        token_cache.as_ref(),
+        body_size_hint,
+    )
+    .await
+    {
         resp
     } else {
         next.run(request).await
