@@ -506,7 +506,7 @@ impl EventProcessor {
                         counter,
                     );
                     let walrus_event =
-                        PositionedStreamEvent::new(contract_event, event_sequence_number.clone());
+                        PositionedStreamEvent::new(contract_event, event_sequence_number);
                     write_batch
                         .insert_batch(
                             &self.stores.event_store,
