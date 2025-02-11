@@ -64,6 +64,13 @@ pub struct BackupConfig {
         default = "defaults::idle_fetcher_sleep_time"
     )]
     pub idle_fetcher_sleep_time: Duration,
+    /// How long to sleep between PostgreSQL serializable transaction retries.
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(
+        rename = "db_serializability_retry_time_milliseconds",
+        default = "defaults::db_serializability_retry_time"
+    )]
+    pub db_serializability_retry_time: Duration,
 }
 
 impl BackupConfig {
@@ -83,6 +90,7 @@ impl BackupConfig {
             max_retries_per_blob: defaults::max_retries_per_blob(),
             retry_fetch_after_interval: defaults::retry_fetch_after_interval(),
             idle_fetcher_sleep_time: defaults::idle_fetcher_sleep_time(),
+            db_serializability_retry_time: defaults::db_serializability_retry_time(),
         }
     }
 }
@@ -134,5 +142,9 @@ pub mod defaults {
     /// can't find it to ensure there is always a database_url.
     pub fn database_url_from_env_var() -> String {
         std::env::var("DATABASE_URL").expect("missing DATABASE_URL env var")
+    }
+    /// Default wait time between PostgreSQL serializability error retries.
+    pub fn db_serializability_retry_time() -> Duration {
+        Duration::from_millis(100)
     }
 }

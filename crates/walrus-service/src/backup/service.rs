@@ -3,10 +3,14 @@
 
 //! Backup service implementation.
 
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{panic::Location, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
-use diesel::Connection as _;
+use diesel::{
+    result::{DatabaseErrorKind, Error},
+    sql_types::{Bytea, Int4, Text},
+    Connection as _,
+};
 use diesel_async::{
     scoped_futures::ScopedFutureExt,
     AsyncConnection as _,
@@ -59,6 +63,7 @@ async fn stream_events(
     event_processor: Arc<EventProcessor>,
     _metrics_registry: Registry,
     mut pg_connection: AsyncPgConnection,
+    db_serializability_retry_time: Duration,
 ) -> Result<()> {
     let event_cursor = models::get_backup_node_cursor(&mut pg_connection).await?;
     tracing::info!(?event_cursor, "[stream_events] starting");
@@ -82,6 +87,7 @@ async fn stream_events(
                     checkpoint_event_position,
                     element_index,
                     contract_event,
+                    db_serializability_retry_time,
                 )
                 .await?;
             }
@@ -101,12 +107,14 @@ async fn record_event(
     checkpoint_event_position: CheckpointEventPosition,
     element_index: u64,
     contract_event: &ContractEvent,
-) -> Result<(), anyhow::Error> {
+    db_serializability_retry_time: Duration,
+) -> Result<(), Error> {
     let event_id: EventID = element.event_id().unwrap();
-    pg_connection
-        .build_transaction()
-        .serializable()
-        .run::<_, anyhow::Error, _>(|conn| {
+    retry_serializable_query(
+        pg_connection,
+        Location::caller(),
+        db_serializability_retry_time,
+        |conn| {
             async move {
                 diesel::insert_into(schema::stream_event::dsl::stream_event)
                     .values(&StreamEvent::new(
@@ -115,22 +123,23 @@ async fn record_event(
                         event_id.event_seq,
                         element_index,
                         element,
-                    )?)
+                    ))
                     .execute(conn)
                     .await?;
 
                 dispatch_contract_event(contract_event, conn).await
             }
             .scope_boxed()
-        })
-        .await?;
+        },
+    )
+    .await?;
     Ok(())
 }
 
 async fn dispatch_contract_event(
     contract_event: &ContractEvent,
     conn: &mut AsyncPgConnection,
-) -> Result<()> {
+) -> Result<(), Error> {
     match contract_event {
         // Note that certifying the same blob twice might result in resetting the retry_count. This
         // automatically gives the re-certified blob another chance to be backed up without human
@@ -163,9 +172,9 @@ async fn dispatch_contract_event(
                         END,
                     orchestrator_version = $3",
             )
-            .bind::<diesel::sql_types::Bytea, _>(blob_certified.blob_id.0.to_vec())
+            .bind::<Bytea, _>(blob_certified.blob_id.0.to_vec())
             .bind::<diesel::sql_types::Int8, _>(i64::from(blob_certified.end_epoch))
-            .bind::<diesel::sql_types::Text, _>(VERSION)
+            .bind::<Text, _>(VERSION)
             .execute(conn)
             .await?;
             tracing::info!(
@@ -289,7 +298,13 @@ pub async fn start_backup_orchestrator(
         establish_connection_async(&config.database_url, "start_backup_node").await?;
 
     // Stream events from Sui and pull them into our main business logic workflow.
-    stream_events(event_processor, metrics_registry, pg_connection).await
+    stream_events(
+        event_processor,
+        metrics_registry,
+        pg_connection,
+        config.db_serializability_retry_time,
+    )
+    .await
 }
 
 /// Starts a new backup node runtime.
@@ -338,52 +353,61 @@ async fn backup_take_task(
     conn: &mut AsyncPgConnection,
     retry_fetch_after_interval: Duration,
     max_retries_per_blob: u32,
+    db_serializability_retry_time: Duration,
 ) -> Option<BlobId> {
     let max_retries_per_blob =
         i32::try_from(max_retries_per_blob).expect("max_retries_per_blob config overflow");
     let retry_fetch_after_interval_seconds = i32::try_from(retry_fetch_after_interval.as_secs())
         .expect("retry_fetch_after_interval_seconds config overflow");
     // Poll the db for a new work item.
-    let blob_id_rows: Vec<BlobIdRow> = conn
-        .build_transaction()
-        .serializable()
-        .run::<_, anyhow::Error, _>(|conn| {
-            async move {
+    let blob_id_rows: Vec<BlobIdRow> = retry_serializable_query(
+        conn,
+        Location::caller(),
+        db_serializability_retry_time,
+        |conn| {
+            async {
                 // This query will fetch the next blob that is in the waiting state and is ready to
                 // be fetched. It will also update its initiate_fetch_after timestamp to give this
                 // backup_fetcher worker time to conduct the fetch, and the push to GCS.
-                Ok(diesel::sql_query(
+                //
+                // The backoff interval is calculated to be an exponential function of the retry
+                // count, with a maximum of 24 hours. The exponential base is 1.5, which means that
+                // the backoff interval will increase by 50% with each retry.
+                diesel::sql_query(
                     "WITH ready_blob_ids AS (
-                        SELECT blob_id FROM blob_state
-                        WHERE
-                            state = 'waiting'
-                            AND blob_state.initiate_fetch_after < NOW()
-                            AND blob_state.retry_count < $1
-                            AND LENGTH(blob_state.blob_id) = 32
-                        ORDER BY blob_state.initiate_fetch_after ASC
-                        LIMIT 1
-                    ),
-                    _updated_count AS (
-                        UPDATE blob_state
-                        SET
-                            initiate_fetch_after = NOW() + $2 * INTERVAL '1 second',
-                            retry_count = retry_count + 1
-                        WHERE blob_id IN (SELECT blob_id FROM ready_blob_ids)
-                    )
-                    SELECT blob_id FROM ready_blob_ids",
+                            SELECT blob_id FROM blob_state
+                            WHERE
+                                state = 'waiting'
+                                AND blob_state.initiate_fetch_after < NOW()
+                                AND blob_state.retry_count < $1
+                            ORDER BY blob_state.initiate_fetch_after ASC
+                            LIMIT 1
+                        ),
+                        _updated_count AS (
+                            UPDATE blob_state
+                            SET
+                                initiate_fetch_after =
+                                    NOW()
+                                    + LEAST(86400, ($2 / 1.5) * POW(1.5, retry_count))
+                                        * INTERVAL '1 second',
+                                retry_count = retry_count + 1
+                            WHERE blob_id IN (SELECT blob_id FROM ready_blob_ids)
+                        )
+                        SELECT blob_id FROM ready_blob_ids",
                 )
-                .bind::<diesel::sql_types::Int4, _>(max_retries_per_blob)
-                .bind::<diesel::sql_types::Int4, _>(retry_fetch_after_interval_seconds)
+                .bind::<Int4, _>(max_retries_per_blob)
+                .bind::<Int4, _>(retry_fetch_after_interval_seconds)
                 .get_results(conn)
-                .await?)
+                .await
             }
             .scope_boxed()
-        })
-        .await
-        .inspect_err(|error| {
-            tracing::error!(?error, "encountered an error querying for ready blob_ids");
-        })
-        .ok()?;
+        },
+    )
+    .await
+    .inspect_err(|error: &Error| {
+        tracing::error!(?error, "encountered an error querying for ready blob_ids");
+    })
+    .ok()?;
 
     tracing::debug!(
         count = blob_id_rows.len(),
@@ -432,6 +456,7 @@ async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
             &mut conn,
             backup_config.retry_fetch_after_interval,
             backup_config.max_retries_per_blob,
+            backup_config.db_serializability_retry_time,
         )
         .await
         {
@@ -472,12 +497,13 @@ async fn backup_fetch_inner_core(
     // Store the blob in the backup storage (Google Cloud Storage or fallback to filesystem).
     match upload_blob_to_storage(blob_id, blob, backup_config).await {
         Ok(backup_url) => {
-            let affected_rows = conn
-                .build_transaction()
-                .serializable()
-                .run::<_, anyhow::Error, _>(|conn| {
-                    async move {
-                        Ok(diesel::sql_query(
+            let affected_rows: usize = retry_serializable_query(
+                conn,
+                Location::caller(),
+                backup_config.db_serializability_retry_time,
+                |conn| {
+                    async {
+                        diesel::sql_query(
                             "UPDATE blob_state
                                 SET state = 'archived',
                                     backup_url = $1,
@@ -490,15 +516,16 @@ async fn backup_fetch_inner_core(
                                     AND backup_url IS NULL
                                     AND state = 'waiting'",
                         )
-                        .bind::<diesel::sql_types::Text, _>(backup_url)
-                        .bind::<diesel::sql_types::Text, _>(VERSION)
-                        .bind::<diesel::sql_types::Bytea, _>(blob_id.as_ref().to_vec())
+                        .bind::<Text, _>(&backup_url)
+                        .bind::<Text, _>(VERSION)
+                        .bind::<Bytea, _>(blob_id.as_ref().to_vec())
                         .execute(conn)
-                        .await?)
+                        .await
                     }
                     .scope_boxed()
-                })
-                .await?;
+                },
+            )
+            .await?;
             tracing::info!(
                 affected_rows,
                 blob_id = %blob_id,
@@ -517,9 +544,9 @@ async fn backup_fetch_inner_core(
                         fetcher_version = $2
                     WHERE blob_id = $3",
             )
-            .bind::<diesel::sql_types::Text, _>(error.to_string())
-            .bind::<diesel::sql_types::Text, _>(VERSION)
-            .bind::<diesel::sql_types::Bytea, _>(blob_id.as_ref().to_vec())
+            .bind::<Text, _>(error.to_string())
+            .bind::<Text, _>(VERSION)
+            .bind::<Bytea, _>(blob_id.as_ref().to_vec())
             .execute(conn)
             .await;
             return Err(error);
@@ -568,4 +595,44 @@ async fn upload_blob_to_storage(
         "[upload_blob_to_storage] uploaded blob",
     );
     Ok(blob_url)
+}
+
+async fn retry_serializable_query<'a, 'b, T, F>(
+    conn: &mut AsyncPgConnection,
+    callsite: &'static Location<'static>,
+    db_serializability_retry_time: Duration,
+    f: F,
+) -> std::result::Result<T, Error>
+where
+    F: for<'r> FnMut(
+            &'r mut AsyncPgConnection,
+        ) -> scoped_futures::ScopedBoxFuture<'b, 'r, Result<T, Error>>
+        + Send
+        + Clone
+        + 'a,
+    T: 'b,
+{
+    loop {
+        match conn
+            .build_transaction()
+            .serializable()
+            .run::<_, Error, _>(f.clone())
+            .await
+        {
+            Ok(value) => break Ok(value),
+            Err(error @ Error::DatabaseError(DatabaseErrorKind::SerializationFailure, _)) => {
+                tracing::warn!(
+                    ?error,
+                    ?callsite,
+                    "SERIALIZABLE transaction failure, retrying"
+                );
+                // Retry after a short delay.
+                tokio::time::sleep(db_serializability_retry_time).await;
+                continue;
+            }
+            Err(error) => {
+                panic!("unrecoverable error while inserting blob: {:?}", error);
+            }
+        }
+    }
 }

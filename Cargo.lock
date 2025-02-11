@@ -11799,6 +11799,7 @@ dependencies = [
  "ring 0.17.8",
  "rocksdb",
  "rustls 0.23.22",
+ "scoped-futures",
  "serde",
  "serde_json",
  "serde_with",
