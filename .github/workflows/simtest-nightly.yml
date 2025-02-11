@@ -50,6 +50,7 @@ jobs:
           certificate-ttl: 2h
 
       # Cargo clean and git restore on any left over files from git checkout, and deletes all remote tracking branches
+      # Note that we need to clear the ~/walrus_simtest_tmp directory because it is a tmpfs and will fill up pretty quickly
       - name: Environment clean
         run: |
           tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 \
@@ -63,8 +64,11 @@ jobs:
             cd ~/ && \
             git clone https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/MystenLabs/walrus.git"
 
-      # Deleting files in tmpfs that usually fill up pretty quickly after each run. Cargo clean to free up space as well.
-      - name: Tmpfs and cargo clean
+      # Creating the ~/walrus_simtest_tmp directory to ensure that it exists.
+      # It is the tmpfs directory that is used for the simulator tests. When publishing contracts,
+      # it requires that the contracts must exist in the same file system as the simulator tests.
+      # Therefore, we cannot simply use the /tmp directory for the simulator tests.
+      - name: Creating the tmpfs directory and cleaning the cargo cache
         run: |
           tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 "mkdir -p ~/walrus_simtest_tmp"
           tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 \

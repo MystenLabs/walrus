@@ -33,9 +33,13 @@ SIMTEST_LOGS_DIR=~/walrus_simtest_logs
 LOG_DIR="${SIMTEST_LOGS_DIR}/${DATE}"
 LOG_FILE="$LOG_DIR/log"
 
+# Specify the temporary directory for the simulator tests.
+# Note that publishing contracts requires that the contracts exist in the same file system as the simulator tests.
+# Therefore, we cannot simply use the /tmp directory for the simulator tests.
 WALRUS_TMP_DIR="~/walrus_simtest_tmp"
 
-LD_LIBRARY_PATH="~/.rustup/toolchains/1.84-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib:$LD_LIBRARY_PATH"
+# Set the LD_LIBRARY_PATH to include the crt-static library.
+export LD_LIBRARY_PATH=~/.rustup/toolchains/1.84-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib:$LD_LIBRARY_PATH
 
 # By default run 1 iteration for each test, if not specified.
 : ${TEST_NUM:=1}
@@ -49,7 +53,7 @@ date
 # This command runs many different tests, so it already uses all CPUs fairly efficiently, and
 # don't need to be done inside of the for loop below.
 # TODO: this logs directly to stdout since it is not being run in parallel. is that ok?
-LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+
 TMPDIR="$WALRUS_TMP_DIR" \
 MSIM_TEST_SEED="$SEED" \
 MSIM_TEST_NUM=${TEST_NUM} \
@@ -58,29 +62,6 @@ scripts/simtest/cargo-simtest simtest simtest \
   --test-threads "$NUM_CPUS" \
   --profile simtestnightly \
   -E "$TEST_FILTER" 2>&1 | tee "$LOG_FILE"
-
-echo ""
-echo "============================================="
-echo "Running $NUM_CPUS stress simtests in parallel"
-echo "============================================="
-date
-
-for SUB_SEED in `seq 1 $NUM_CPUS`; do
-  SEED="$SUB_SEED$DATE"
-  LOG_FILE="$LOG_DIR/log-$SEED"
-  echo "Iteration $SUB_SEED using MSIM_TEST_SEED=$SEED, logging to $LOG_FILE"
-
-  # --test-threads 1 is important: parallelism is achieved via the for loop
-  LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
-  TMPDIR="$WALRUS_TMP_DIR" \
-  MSIM_TEST_SEED="$SEED" \
-  MSIM_TEST_NUM=1 \
-  scripts/simtest/cargo-simtest simtest simtest \
-    --test-threads 1 \
-    --profile simtestnightly \
-    > "$LOG_FILE" 2>&1 &
-
-done
 
 # wait for all the jobs to end
 wait
