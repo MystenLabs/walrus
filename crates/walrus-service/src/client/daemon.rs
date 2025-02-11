@@ -175,10 +175,8 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
 
 impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with publisher functionality.
-    #[allow(clippy::too_many_arguments)]
     pub fn new_publisher(
         client: T,
-        cache_config: CacheConfig,
         auth_config: Option<AuthConfig>,
         network_address: SocketAddr,
         max_body_limit: usize,
@@ -187,7 +185,6 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         max_concurrent_requests: usize,
     ) -> Self {
         Self::new::<PublisherApiDoc>(client, network_address, registry).with_publisher(
-            cache_config,
             auth_config,
             max_body_limit,
             max_request_buffer_size,
@@ -196,10 +193,8 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     }
 
     /// Constructs a new [`ClientDaemon`] with combined aggregator and publisher functionality.
-    #[allow(clippy::too_many_arguments)]
     pub fn new_daemon(
         client: T,
-        cache_config: CacheConfig,
         auth_config: Option<AuthConfig>,
         network_address: SocketAddr,
         max_body_limit: usize,
@@ -210,7 +205,6 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         Self::new::<DaemonApiDoc>(client, network_address, registry)
             .with_aggregator()
             .with_publisher(
-                cache_config,
                 auth_config,
                 max_body_limit,
                 max_request_buffer_size,
@@ -221,7 +215,6 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Specifies that the daemon should expose the publisher interface (store blobs).
     fn with_publisher(
         mut self,
-        cache_config: CacheConfig,
         auth_config: Option<AuthConfig>,
         max_body_limit: usize,
         max_request_buffer_size: usize,
@@ -234,9 +227,6 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             "configuring the publisher endpoint",
         );
 
-        // Create and run the cache to track the used JWT tokens.
-        let token_cache = cache_config.build_and_run();
-
         let base_layers = ServiceBuilder::new()
             .layer(DefaultBodyLimit::max(max_body_limit))
             .layer(HandleErrorLayer::new(handle_publisher_error))
@@ -245,13 +235,15 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
 
         if let Some(auth_config) = auth_config {
+            // Create and run the cache to track the used JWT tokens.
+            let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
                 put(routes::put_blob)
                     .route_layer(
                         ServiceBuilder::new()
                             .layer(axum::middleware::from_fn_with_state(
-                                (Arc::new(auth_config), Arc::new(token_cache)),
+                                (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
                                 auth_layer,
                             ))
                             .layer(base_layers),

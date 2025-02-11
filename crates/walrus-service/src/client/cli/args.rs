@@ -632,7 +632,7 @@ pub struct PublisherArgs {
     #[clap(flatten)]
     #[serde(flatten)]
     /// The configuration for the JWT duplicate suppression cache.
-    pub cache_config: CacheConfig,
+    pub replay_suppression_config: CacheConfig,
 }
 
 impl PublisherArgs {
@@ -659,12 +659,13 @@ impl PublisherArgs {
         );
     }
 
-    pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
+    pub(crate) fn generate_auth_config(&self) -> Result<Option<AuthConfig>> {
         if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
             let mut auth_config = AuthConfig {
                 expiring_sec: self.jwt_expiring_sec,
                 verify_upload: self.jwt_verify_upload,
                 algorithm: self.jwt_algorithm,
+                replay_suppression_config: self.replay_suppression_config.clone(),
                 ..Default::default()
             };
 
@@ -1192,7 +1193,7 @@ mod tests {
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
-                cache_config: Default::default(),
+                replay_suppression_config: Default::default(),
             },
         })
     }

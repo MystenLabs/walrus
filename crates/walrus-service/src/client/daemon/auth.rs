@@ -394,6 +394,7 @@ mod tests {
             algorithm,
             expiring_sec,
             verify_upload,
+            ..Default::default()
         };
 
         if let Some(secret) = secret {
