@@ -33,6 +33,10 @@ SIMTEST_LOGS_DIR=~/walrus_simtest_logs
 LOG_DIR="${SIMTEST_LOGS_DIR}/${DATE}"
 LOG_FILE="$LOG_DIR/log"
 
+WALRUS_TMP_DIR="~/walrus_simtest_tmp"
+
+LD_LIBRARY_PATH="~/.rustup/toolchains/1.84-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib:$LD_LIBRARY_PATH"
+
 # By default run 1 iteration for each test, if not specified.
 : ${TEST_NUM:=1}
 
@@ -45,6 +49,8 @@ date
 # This command runs many different tests, so it already uses all CPUs fairly efficiently, and
 # don't need to be done inside of the for loop below.
 # TODO: this logs directly to stdout since it is not being run in parallel. is that ok?
+LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+TMPDIR="$WALRUS_TMP_DIR" \
 MSIM_TEST_SEED="$SEED" \
 MSIM_TEST_NUM=${TEST_NUM} \
 scripts/simtest/cargo-simtest simtest simtest \
@@ -65,6 +71,8 @@ for SUB_SEED in `seq 1 $NUM_CPUS`; do
   echo "Iteration $SUB_SEED using MSIM_TEST_SEED=$SEED, logging to $LOG_FILE"
 
   # --test-threads 1 is important: parallelism is achieved via the for loop
+  LD_LIBRARY_PATH="$LD_LIBRARY_PATH" \
+  TMPDIR="$WALRUS_TMP_DIR" \
   MSIM_TEST_SEED="$SEED" \
   MSIM_TEST_NUM=1 \
   scripts/simtest/cargo-simtest simtest simtest \
