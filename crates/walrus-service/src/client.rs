@@ -50,6 +50,8 @@ use self::{
 use crate::common::active_committees::ActiveCommittees;
 
 pub mod cli;
+mod rayon_pool;
+pub use rayon_pool::{RayonPoolConfig, RayonPoolHandle};
 pub mod responses;
 
 pub use crate::common::blocklist::Blocklist;
@@ -151,6 +153,7 @@ pub struct Client<T> {
     sui_client: T,
     communication_limits: CommunicationLimits,
     committees_handle: CommitteesRefresherHandle,
+    rayon_pool: RayonPoolHandle,
     // The `Arc` is used to share the encoding config with the `communication_factory` without
     // introducing lifetimes.
     encoding_config: Arc<EncodingConfig>,
@@ -163,6 +166,7 @@ impl Client<()> {
     pub async fn new(
         config: Config,
         committees_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
     ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
@@ -183,6 +187,7 @@ impl Client<()> {
             encoding_config: encoding_config.clone(),
             communication_limits,
             committees_handle,
+            rayon_pool,
             blocklist: None,
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
@@ -198,6 +203,7 @@ impl Client<()> {
             config,
             sui_client: _,
             committees_handle,
+            rayon_pool,
             encoding_config,
             communication_limits,
             blocklist,
@@ -207,6 +213,7 @@ impl Client<()> {
             config,
             sui_client,
             committees_handle,
+            rayon_pool,
             encoding_config,
             communication_limits,
             blocklist,
@@ -220,18 +227,19 @@ impl<T: ReadClient> Client<T> {
     pub async fn new_read_client(
         config: Config,
         committees_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
+        Ok(Client::new(config, committees_handle, rayon_pool)
             .await?
             .with_client(sui_read_client)
             .await)
     }
 
-    /// Creates a new read client, and starts a committes refresher process in the background.
+    /// Creates a new read client, and starts a committes refresher and the rayon pool.
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
-    pub async fn new_read_client_with_refresher(
+    pub async fn new_read_client_standalone(
         config: Config,
         sui_read_client: T,
     ) -> ClientResult<Self>
@@ -243,7 +251,8 @@ impl<T: ReadClient> Client<T> {
             .build_refresher_and_run(sui_read_client.clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
+        let rayon_pool = RayonPoolConfig::default().build_and_run();
+        Ok(Client::new(config, committees_handle, rayon_pool)
             .await?
             .with_client(sui_read_client)
             .await)
@@ -397,9 +406,10 @@ impl Client<SuiContractClient> {
     pub async fn new_contract_client(
         config: Config,
         committees_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
-        Ok(Client::new(config, committees_handle)
+        Ok(Client::new(config, committees_handle, rayon_pool)
             .await?
             .with_client(sui_client)
             .await)
@@ -408,7 +418,7 @@ impl Client<SuiContractClient> {
     /// Creates a new client, and starts a committes refresher process in the background.
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
-    pub async fn new_contract_client_with_refresher(
+    pub async fn new_contract_client_standalone(
         config: Config,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
@@ -417,7 +427,8 @@ impl Client<SuiContractClient> {
             .build_refresher_and_run(sui_client.read_client().clone())
             .await
             .map_err(|e| ClientError::from(ClientErrorKind::Other(e.into())))?;
-        Ok(Client::new(config, committees_handle)
+        let rayon_pool = RayonPoolConfig::default().build_and_run();
+        Ok(Client::new(config, committees_handle, rayon_pool)
             .await?
             .with_client(sui_client)
             .await)

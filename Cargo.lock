@@ -11793,6 +11793,7 @@ dependencies = [
  "prettytable",
  "prometheus",
  "rand 0.8.5",
+ "rayon",
  "rcgen",
  "regex",
  "reqwest",

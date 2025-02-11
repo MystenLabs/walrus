@@ -423,8 +423,7 @@ async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
     };
 
     let read_client =
-        Client::new_read_client_with_refresher(walrus_client_config, sui_read_client.clone())
-            .await?;
+        Client::new_read_client_standalone(walrus_client_config, sui_read_client.clone()).await?;
 
     let mut consecutive_fetch_errors = 0;
     loop {

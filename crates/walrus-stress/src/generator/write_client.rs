@@ -15,6 +15,7 @@ use walrus_service::client::{
     ClientError,
     CommitteesRefresherHandle,
     Config,
+    RayonPoolHandle,
     Refiller,
     StoreWhen,
 };
@@ -42,6 +43,7 @@ pub(crate) struct WriteClient {
 
 impl WriteClient {
     /// Creates a new WriteClient with the given configuration
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(err, skip_all)]
     pub async fn new(
         config: &Config,
@@ -50,6 +52,7 @@ impl WriteClient {
         min_size_log2: u8,
         max_size_log2: u8,
         refresher_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
         refiller: Refiller,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
@@ -58,7 +61,15 @@ impl WriteClient {
             max_size_log2,
         )
         .await;
-        let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
+        let client = new_client(
+            config,
+            network,
+            gas_budget,
+            refresher_handle,
+            rayon_pool,
+            refiller,
+        )
+        .await?;
         Ok(Self { client, blob })
     }
 
@@ -210,6 +221,7 @@ async fn new_client(
     network: &SuiNetwork,
     gas_budget: Option<u64>,
     refresher_handle: CommitteesRefresherHandle,
+    rayon_pool: RayonPoolHandle,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
@@ -223,7 +235,12 @@ async fn new_client(
 
     let client = sui_contract_client
         .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
+            Client::new_contract_client(
+                config.clone(),
+                refresher_handle,
+                rayon_pool,
+                contract_client,
+            )
         })
         .await?;
     Ok(client)

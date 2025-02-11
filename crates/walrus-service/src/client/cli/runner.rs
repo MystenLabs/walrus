@@ -69,6 +69,7 @@ use crate::{
             HumanReadableMist,
         },
         multiplexer::ClientMultiplexer,
+        rayon_pool::RayonPoolConfig,
         responses::{
             BlobIdConversionOutput,
             BlobIdOutput,
@@ -517,7 +518,8 @@ impl ClientCommandRunner {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let client = Client::new(config, refresher_handle).await?;
+        let rayon_pool = RayonPoolConfig::default().build_and_run();
+        let client = Client::new(config, refresher_handle, rayon_pool).await?;
 
         let file = file_or_blob_id.file.clone();
         let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;

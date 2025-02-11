@@ -21,6 +21,7 @@ use walrus_service::client::{
     Client,
     ClientError,
     Config,
+    RayonPoolConfig,
     RefillHandles,
     Refiller,
 };
@@ -79,10 +80,12 @@ impl LoadGenerator {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
+        let rayon_pool = RayonPoolConfig::default().build_and_run();
         for read_client in try_join_all((0..n_clients).map(|_| {
             Client::new_read_client(
                 client_config.clone(),
                 refresher_handle.clone(),
+                rayon_pool.clone(),
                 sui_read_client.clone(),
             )
         }))
@@ -104,6 +107,7 @@ impl LoadGenerator {
                     min_size_log2,
                     max_size_log2,
                     refresher_handle.clone(),
+                    rayon_pool.clone(),
                     refiller.clone(),
                 )
                 .await?,

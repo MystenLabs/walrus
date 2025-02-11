@@ -39,7 +39,12 @@ use super::{
     ClientResult,
     StoreWhen,
 };
-use crate::client::{refill::should_refill, CommitteesRefresherHandle, Config};
+use crate::client::{
+    rayon_pool::{RayonPoolConfig, RayonPoolHandle},
+    refill::should_refill,
+    CommitteesRefresherHandle,
+    Config,
+};
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
@@ -68,9 +73,13 @@ impl ClientMultiplexer {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
+
+        // TODO: make this configurable.
+        let rayon_pool = RayonPoolConfig::default().build_and_run();
         let read_client = Client::new_read_client(
             config.clone(),
             refresh_handle.clone(),
+            rayon_pool.clone(),
             sui_read_client.clone(),
         )
         .await?;
@@ -93,6 +102,7 @@ impl ClientMultiplexer {
             ),
             &refiller,
             refresh_handle.clone(),
+            rayon_pool.clone(),
         )
         .await?;
 
@@ -207,6 +217,7 @@ impl WriteClientPool {
         pool_config: WriteClientPoolConfig,
         refiller: &Refiller,
         refresh_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
     ) -> anyhow::Result<Self> {
         tracing::info!(%pool_config.n_clients, "creating write client pool");
 
@@ -218,7 +229,7 @@ impl WriteClientPool {
             refiller,
             pool_config.min_balance,
         )
-        .create_or_load_sub_clients(pool_config.n_clients, refresh_handle)
+        .create_or_load_sub_clients(pool_config.n_clients, refresh_handle, rayon_pool)
         .await?;
 
         Ok(Self {
@@ -283,12 +294,13 @@ impl<'a> SubClientLoader<'a> {
         &self,
         n_clients: usize,
         refresh_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
     ) -> anyhow::Result<Vec<Arc<Client<SuiContractClient>>>> {
         let mut clients = Vec::with_capacity(n_clients);
 
         for idx in 0..n_clients {
             let client = self
-                .create_or_load_sub_client(idx, refresh_handle.clone())
+                .create_or_load_sub_client(idx, refresh_handle.clone(), rayon_pool.clone())
                 .await?;
             clients.push(Arc::new(client));
         }
@@ -301,6 +313,7 @@ impl<'a> SubClientLoader<'a> {
         &self,
         sub_wallet_idx: usize,
         refresh_handle: CommitteesRefresherHandle,
+        rayon_pool: RayonPoolHandle,
     ) -> anyhow::Result<Client<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
         self.top_up_if_necessary(&mut wallet, self.min_balance)
@@ -313,8 +326,13 @@ impl<'a> SubClientLoader<'a> {
         // Merge existing coins to avoid fragmentation.
         sui_client.merge_coins().await?;
 
-        let client =
-            Client::new_contract_client(self.config.clone(), refresh_handle, sui_client).await?;
+        let client = Client::new_contract_client(
+            self.config.clone(),
+            refresh_handle,
+            rayon_pool,
+            sui_client,
+        )
+        .await?;
         Ok(client)
     }
 

@@ -2382,7 +2382,7 @@ pub mod test_cluster {
 
         let client = admin_contract_client
             .and_then_async(|contract_client| {
-                client::Client::new_contract_client_with_refresher(config, contract_client)
+                client::Client::new_contract_client_standalone(config, contract_client)
             })
             .await?;
 
