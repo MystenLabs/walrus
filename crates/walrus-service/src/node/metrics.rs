@@ -22,6 +22,7 @@ use walrus_sui::types::{
 };
 
 use crate::{
+    client::ClientErrorKind,
     common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric},
     node::events::EventStreamElement,
 };
@@ -217,5 +218,25 @@ impl TelemetryLabel for EventStreamElement {
 impl TelemetryLabel for BlobCertified {
     fn label(&self) -> &'static str {
         "certified"
+    }
+}
+
+impl TelemetryLabel for ClientErrorKind {
+    fn label(&self) -> &'static str {
+        match self {
+            ClientErrorKind::CertificationFailed(_) => "certification-failed",
+            ClientErrorKind::NotEnoughConfirmations(_, _) => "not-enough-confirmations",
+            ClientErrorKind::NotEnoughSlivers => "not-enough-slivers",
+            ClientErrorKind::BlobIdDoesNotExist => "blob-id-does-not-exist",
+            ClientErrorKind::NoMetadataReceived => "no-metadata-received",
+            ClientErrorKind::NoValidStatusReceived => "no-valid-status-received",
+            ClientErrorKind::InvalidConfig => "invalid-config",
+            ClientErrorKind::BlobIdBlocked(_) => "blob-id-blocked",
+            ClientErrorKind::NoCompatiblePaymentCoin => "no-compatible-payment-coin",
+            ClientErrorKind::NoCompatibleGasCoins => "no-compatible-gas-coins",
+            ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
+            ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
+            ClientErrorKind::Other(_) => "unknown",
+        }
     }
 }

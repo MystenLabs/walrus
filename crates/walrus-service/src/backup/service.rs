@@ -36,6 +36,7 @@ use super::{
     BACKUP_BLOB_ARCHIVE_SUBDIR,
 };
 use crate::{
+    backup::metrics::{BackupFetcherMetricSet, BackupOrchestratorMetricSet},
     client::{
         config::{ClientCommunicationConfig, Config as ClientConfig},
         Client,
@@ -49,6 +50,7 @@ use crate::{
             EventStreamElement,
             PositionedStreamEvent,
         },
+        metrics::TelemetryLabel as _,
         system_events::SystemEventProvider as _,
     },
 };
@@ -64,6 +66,7 @@ async fn stream_events(
     _metrics_registry: Registry,
     mut pg_connection: AsyncPgConnection,
     db_serializability_retry_time: Duration,
+    backup_orchestrator_metric_set: BackupOrchestratorMetricSet,
 ) -> Result<()> {
     let event_cursor = models::get_backup_node_cursor(&mut pg_connection).await?;
     tracing::info!(?event_cursor, "[stream_events] starting");
@@ -90,6 +93,7 @@ async fn stream_events(
                     db_serializability_retry_time,
                 )
                 .await?;
+                backup_orchestrator_metric_set.stream_events_recorded.inc();
             }
             EventStreamElement::CheckpointBoundary => {
                 // Skip checkpoint boundaries as they are not relevant for the backup node.
@@ -297,12 +301,15 @@ pub async fn start_backup_orchestrator(
     let pg_connection =
         establish_connection_async(&config.database_url, "start_backup_node").await?;
 
+    let backup_orchestrator_metric_set =
+        BackupOrchestratorMetricSet::new(&metrics_runtime.registry);
     // Stream events from Sui and pull them into our main business logic workflow.
     stream_events(
         event_processor,
         metrics_registry,
         pg_connection,
         config.db_serializability_retry_time,
+        backup_orchestrator_metric_set,
     )
     .await
 }
@@ -341,7 +348,8 @@ pub async fn start_backup_fetcher(
 
     utils::export_build_info(&metrics_runtime.registry, VERSION);
 
-    backup_fetcher(config).await
+    let backup_fetcher_metric_set = BackupFetcherMetricSet::new(&metrics_runtime.registry);
+    backup_fetcher(config, backup_fetcher_metric_set).await
 }
 
 /// Read the oldest un-fetched blob state from the database and return its BlobId.
@@ -421,7 +429,10 @@ async fn backup_take_task(
     })
 }
 
-async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
+async fn backup_fetcher(
+    backup_config: BackupConfig,
+    backup_metric_set: BackupFetcherMetricSet,
+) -> Result<()> {
     tracing::info!("[backup_fetcher] starting worker");
     let mut conn = establish_connection_async(&backup_config.database_url, "backup_fetcher")
         .await
@@ -460,14 +471,22 @@ async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
         )
         .await
         {
-            match backup_fetch_inner_core(&mut conn, &backup_config, &read_client, blob_id).await {
+            match backup_fetch_inner_core(
+                &mut conn,
+                &backup_config,
+                &backup_metric_set,
+                &read_client,
+                blob_id,
+            )
+            .await
+            {
                 Ok(()) => {
                     consecutive_fetch_errors = 0;
                 }
                 Err(error) => {
                     // Handle the error, report it, and continue polling for work to do.
                     consecutive_fetch_errors += 1;
-                    tracing::error!(consecutive_fetch_errors, ?error, "[backup_fetcher] error");
+                    tracing::error!(?error, consecutive_fetch_errors, "[backup_fetcher] error");
                     tokio::time::sleep(FETCHER_ERROR_BACKOFF).await;
                 }
             }
@@ -482,6 +501,7 @@ async fn backup_fetcher(backup_config: BackupConfig) -> Result<()> {
 async fn backup_fetch_inner_core(
     conn: &mut AsyncPgConnection,
     backup_config: &BackupConfig,
+    backup_metric_set: &BackupFetcherMetricSet,
     read_client: &Client<SuiReadClient>,
     blob_id: BlobId,
 ) -> Result<()> {
@@ -491,12 +511,20 @@ async fn backup_fetch_inner_core(
         .read_blob::<Primary>(&blob_id)
         .await
         .inspect_err(|error| {
+            backup_metric_set
+                .blob_fetch_errors
+                .with_label_values(&[error.kind().label()])
+                .inc();
             tracing::error!(?error, %blob_id, "[backup_fetcher] error reading blob");
         })?;
+    backup_metric_set.blobs_fetched.inc();
+
     tracing::info!(blob_id = %blob_id, "[blob_fetcher] fetched blob from network");
+    let timer_guard = backup_metric_set.blob_upload_duration.start_timer();
     // Store the blob in the backup storage (Google Cloud Storage or fallback to filesystem).
     match upload_blob_to_storage(blob_id, blob, backup_config).await {
         Ok(backup_url) => {
+            timer_guard.stop_and_record();
             let affected_rows: usize = retry_serializable_query(
                 conn,
                 Location::caller(),
@@ -531,9 +559,11 @@ async fn backup_fetch_inner_core(
                 blob_id = %blob_id,
                 "[backup_fetcher] attempted update to blob_state"
             );
+            backup_metric_set.blobs_uploaded.inc();
             Ok(())
         }
         Err(error) => {
+            timer_guard.stop_and_discard();
             tracing::error!(?error, %blob_id, "error uploading blob to storage");
 
             // Update the database to indicate what went wrong and enable faster debugging. Ignore

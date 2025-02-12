@@ -16,6 +16,9 @@ mod schema;
 mod service;
 
 #[cfg(feature = "backup")]
+mod metrics;
+
+#[cfg(feature = "backup")]
 pub use service::{
     run_backup_database_migrations,
     start_backup_fetcher,
