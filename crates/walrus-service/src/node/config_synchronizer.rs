@@ -67,6 +67,9 @@ impl ConfigSynchronizer {
     /// Syncs node parameters with on-chain values.
     #[instrument(skip(self))]
     pub async fn sync_node_params(&self) -> Result<(), SyncNodeConfigError> {
+        // self.contract_service
+        //     .add_quilt_task(self.node_capability_object_id, ObjectID::random())
+        //     .await?;
         self.contract_service
             .sync_node_params(&self.config, self.node_capability_object_id)
             .await

@@ -1406,6 +1406,14 @@ impl SystemContractService for StubContractService {
     ) -> Result<StorageNodeCap, SuiClientError> {
         Ok(self.node_capability_object.clone())
     }
+
+    async fn add_quilt_task(
+        &self,
+        _node_capability_object_id: ObjectID,
+        _task_id: ObjectID,
+    ) -> Result<(), anyhow::Error> {
+        anyhow::bail!("stub service cannot add quilt task")
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -2061,6 +2069,14 @@ where
             .inner
             .get_node_capability_object(node_capability_object_id)
             .await
+    }
+
+    async fn add_quilt_task(
+        &self,
+        _node_capability_object_id: ObjectID,
+        _task_id: ObjectID,
+    ) -> Result<(), anyhow::Error> {
+        self.as_ref().inner.add_quilt_task(_node_capability_object_id, _task_id).await
     }
 }
 

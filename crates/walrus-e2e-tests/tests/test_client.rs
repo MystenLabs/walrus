@@ -1155,9 +1155,13 @@ impl<'a> BlobAttributeTestContext<'a> {
     }
 
     /// Insert or update the blob attribute and verify the result.
+    ///
+    /// When force is true, a new attribute dynamic field will be created if it
+    /// does not exist.
     pub async fn insert_or_update_attribute_pairs_and_verify(
         &mut self,
         kvs: &HashMap<String, String>,
+        force: bool,
     ) -> TestResult {
         let client = self.client.as_mut().sui_client_mut();
         client
@@ -1166,6 +1170,7 @@ impl<'a> BlobAttributeTestContext<'a> {
                 kvs.iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect::<Vec<(String, String)>>(),
+                force,
             )
             .await?;
         if let Some(expected_pairs) = &mut self.expected_pairs {
@@ -1322,10 +1327,10 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
 
     // Test adding a pair without attribute should fail.
     let result = test_context
-        .insert_or_update_attribute_pairs_and_verify(&HashMap::from([(
-            "key".to_string(),
-            "value".to_string(),
-        )]))
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([("key".to_string(), "value".to_string())]),
+            false,
+        )
         .await;
     assert!(matches!(
         result
@@ -1353,15 +1358,17 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
         ))
     ));
 
-    // Initialize empty attribute.
     test_context
-        .add_attribute_and_verify(BlobAttribute::default(), false)
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([("key".to_string(), "value".to_string())]),
+            true,
+        )
         .await?;
 
     let kvs = test_context.key_value_pairs.clone();
     // Test adding individual pairs.
     test_context
-        .insert_or_update_attribute_pairs_and_verify(&kvs)
+        .insert_or_update_attribute_pairs_and_verify(&kvs, false)
         .await?;
 
     // Test removing random pairs.
@@ -1380,16 +1387,16 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
     let updated_value = "updated_value".to_string();
 
     test_context
-        .insert_or_update_attribute_pairs_and_verify(&HashMap::from([(
-            key.clone(),
-            initial_value.clone(),
-        )]))
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([(key.clone(), initial_value.clone())]),
+            false,
+        )
         .await?;
     test_context
-        .insert_or_update_attribute_pairs_and_verify(&HashMap::from([(
-            key.clone(),
-            updated_value.clone(),
-        )]))
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([(key.clone(), updated_value.clone())]),
+            false,
+        )
         .await?;
 
     // Test removing non-existent pairs.
@@ -1448,5 +1455,98 @@ async fn test_ptb_retriable_error() -> TestResult {
 
     // Clean up the fail point
     clear_fail_point("ptb_executor_stake_pool_retriable_error");
+    Ok(())
+}
+
+/// Get the next systematic size that can accommodate the max length.
+fn next_systematic_size(n_shards: usize, len: usize) -> usize {
+    // Base value is n_shards - (n_shards - 1) / 3.
+    assert!((n_shards - 1) % 3 == 0);
+    let base = n_shards - (n_shards - 1) / 3;
+
+    // If len is 0, return BASE.
+    if len == 0 {
+        return 0;
+    }
+
+    // Find the smallest m where BASE * 2^m >= len.
+    let mut result = base;
+    while result < len {
+        result *= 2;
+    }
+
+    result
+}
+
+/// Construct a quilt from a list of blobs.
+fn quilt(n_shards: usize, blobs: &[&[u8]]) -> Vec<u8> {
+    // Find the maximum length among all blobs.
+    let max_len = blobs.iter().map(|blob| blob.len()).max().unwrap_or(0);
+    tracing::info!("max_len: {}", max_len);
+    // Get the next systematic size that can accommodate the max length.
+    let target_len = next_systematic_size(n_shards, max_len);
+    tracing::info!("target_len: {}", target_len);
+
+    // Pad each blob to the target length.
+    // concatenate the blobs into a single blob after padding.
+    let mut concatenated_blob = Vec::new();
+    for blob in blobs {
+        let mut padded = Vec::from(*blob);
+        padded.resize(target_len, 0); // Pad with zeros to target length.
+        tracing::info!("padded length: {}", padded.len());
+        concatenated_blob.extend_from_slice(&padded);
+    }
+
+    // return the concatenated blob.
+    concatenated_blob
+}
+
+/// POC for quilt encoding.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_systematic_property_of_encoding() -> TestResult {
+    use rand::Rng;
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    // Number of blobs to generate.
+    let n_blobs = 5;
+    let n_shards = 13;
+
+    // Generate random blobs between (667, 1334] bytes.
+    let blobs: Vec<Vec<u8>> = (0..n_blobs)
+        .map(|_| {
+            let size = rand::thread_rng().gen_range(668..=1334);
+            walrus_test_utils::random_data(size)
+        })
+        .collect();
+
+    let unpadded_lengths = blobs.iter().map(|blob| blob.len()).collect::<Vec<_>>();
+    tracing::info!("unpadded_lengths: {:?}", unpadded_lengths);
+    // Convert to slice references for encoding.
+    let blob_refs: Vec<&[u8]> = blobs.iter().map(|b| b.as_slice()).collect();
+    let quilt = quilt(n_shards, &blob_refs);
+    tracing::info!("quilt length: {}", quilt.len());
+
+    // Use client API to encode quilt.
+    let pairs_and_metadata = client
+        .as_ref()
+        .encode_blobs_to_pairs_and_metadata(&[&quilt])
+        .await?;
+
+    // Verify that the first unpadded_lengths[i] bytes of the ith primary sliver is
+    // the same as blobs[i].
+    let (pairs, _metadata) = &pairs_and_metadata[0];
+    for (i, pair) in pairs.iter().enumerate() {
+        if i >= n_blobs {
+            break;
+        }
+        tracing::info!("pair length: {}", pair.primary.symbols.data().len());
+        let original_blob = &blobs[i];
+        assert_eq!(
+            &pair.primary.symbols.data()[..unpadded_lengths[i]],
+            original_blob.as_slice()
+        );
+    }
+
     Ok(())
 }

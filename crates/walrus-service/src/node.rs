@@ -149,6 +149,7 @@ pub mod dbtool;
 pub mod events;
 pub mod server;
 pub mod system_events;
+pub mod quilt;
 
 pub(crate) mod metrics;
 
@@ -548,6 +549,8 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
+        // contract_service.add_quilt_task(node_capability.id, ObjectID::random()).await?;
+
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
 
         let inner = Arc::new(StorageNodeInner {
@@ -915,6 +918,12 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EventStreamElement::CheckpointBoundary => {
+                event_handle.mark_as_complete();
+            }
+            EventStreamElement::ContractEvent(ContractEvent::QuiltEvent(quilt_event)) => {
+                // self.process_quilt_event(event_handle, quilt_event).await?;
+                tracing::info!("quilt event received: {:?}", quilt_event);
+                panic!("quilt event received");
                 event_handle.mark_as_complete();
             }
         }

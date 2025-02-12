@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
-use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey};
+use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey, QuiltTaskId};
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
@@ -105,6 +105,8 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         &self,
         node_capability_object_id: Option<ObjectID>,
     ) -> Result<StorageNodeCap, SuiClientError>;
+
+    async fn add_quilt_task(&self, node_capability_object_id: ObjectID, task_id: ObjectID) -> Result<(), anyhow::Error>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -459,6 +461,12 @@ impl SystemContractService for SuiSystemContractService {
         };
 
         Ok(node_capability)
+    }
+
+    async fn add_quilt_task(&self, node_capability_object_id: ObjectID, task_id: ObjectID) -> Result<(), anyhow::Error> {
+        let client = self.contract_client.lock().await;
+        client.add_quilt_task(node_capability_object_id, task_id).await?;
+        Ok(())
     }
 }
 

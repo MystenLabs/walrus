@@ -27,6 +27,7 @@ use walrus_core::{
     Epoch,
     EpochCount,
     NetworkPublicKey,
+    BlobId,
 };
 
 use super::{
@@ -1088,6 +1089,38 @@ impl WalrusPtbBuilder {
             self.pt_builder.pure(node_capacity)?,
         ];
         self.walrus_move_call(contracts::staking::set_node_capacity_vote, args)?;
+        Ok(())
+    }
+
+    /// Adds a call to `add_quilt_task` to the PTB.
+    pub async fn add_quilt_task(
+        &mut self,
+        storage_node_cap: ArgumentOrOwnedObject,
+        task_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.system_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(storage_node_cap).await?,
+            self.pt_builder.pure(task_id)?,
+        ];
+        self.walrus_move_call(contracts::system::add_quilt_task, args)?;
+        Ok(())
+    }
+
+    /// Adds a call to `update_quilt_task_state` to the PTB.
+    pub async fn update_quilt_task_state(
+        &mut self,
+        storage_node_cap: ArgumentOrOwnedObject,
+        task_id: ObjectID,
+        new_state: u8,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.system_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(storage_node_cap).await?,
+            self.pt_builder.pure(task_id)?,
+            self.pt_builder.pure(new_state)?,
+        ];
+        self.walrus_move_call(contracts::system::update_quilt_task_state, args)?;
         Ok(())
     }
 

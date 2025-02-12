@@ -37,6 +37,7 @@ use crate::client::{
         ExchangeOutput,
         ExtendBlobOutput,
         FundSharedBlobOutput,
+        GetBlobAttributeOutput,
         InfoBftOutput,
         InfoCommitteeOutput,
         InfoEpochOutput,
@@ -999,6 +1000,49 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
                 r->"N/A",
                 Fr->truncated_error,
             ]);
+        }
+    }
+}
+
+impl CliOutput for GetBlobAttributeOutput {
+    fn print_cli_output(&self) {
+        if let Some(blob_with_attribute) = &self.attribute {
+            let cert_epoch_str = blob_with_attribute
+                .blob
+                .certified_epoch
+                .map_or("".to_string(), |epoch| {
+                    format!("\nCertified in epoch: {}", epoch)
+                });
+
+            printdoc!(
+                "
+
+                {heading}
+                Blob ID: {blob_id}
+                Object ID: {object_id}
+                Size: {size}
+                Registered in epoch: {reg_epoch}
+                Deletable: {deletable}{cert_epoch}
+                Storage expiry epoch: {end_epoch}
+                ",
+                heading = "Blob Information".bold().walrus_purple(),
+                blob_id = blob_with_attribute.blob.blob_id,
+                object_id = blob_with_attribute.blob.id,
+                size = HumanReadableBytes(blob_with_attribute.blob.size),
+                reg_epoch = blob_with_attribute.blob.registered_epoch,
+                deletable = blob_with_attribute.blob.deletable,
+                cert_epoch = cert_epoch_str,
+                end_epoch = blob_with_attribute.blob.storage.end_epoch,
+            );
+
+            if let Some(attribute) = &blob_with_attribute.attribute {
+                println!("\n{}", "Attribute".bold().walrus_purple());
+                for (key, value) in attribute.iter() {
+                    println!("{}: {}", key, value);
+                }
+            }
+        } else {
+            println!("No attribute found");
         }
     }
 }

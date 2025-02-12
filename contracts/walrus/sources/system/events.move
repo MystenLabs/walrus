@@ -120,6 +120,19 @@ public struct ContractUpgradeQuorumReached has copy, drop {
     package_digest: vector<u8>,
 }
 
+public struct QuiltTaskInit has copy, drop {
+    quilt_task_id: u256,
+    epoch: u32,
+    leader_id: ID,
+}
+
+public struct QuiltBlobSelected has copy, drop {
+    quilt_task_id: u256,
+    epoch: u32,
+    leader_id: ID,
+    blobs: vector<u256>,
+}
+
 // === Functions to emit the events from other modules ===
 
 public(package) fun emit_blob_registered(
@@ -219,4 +232,12 @@ public(package) fun emit_contract_upgrade_proposed(epoch: u32, package_digest: v
 
 public(package) fun emit_contract_upgrade_quorum_reached(epoch: u32, package_digest: vector<u8>) {
     event::emit(ContractUpgradeQuorumReached { epoch, package_digest })
+}
+
+public(package) fun emit_quilt_task_init(quilt_task_id: u256, epoch: u32, leader_id: ID) {
+    event::emit(QuiltTaskInit { quilt_task_id, epoch, leader_id })
+}
+
+public(package) fun emit_quilt_blobs_selected(quilt_task_id: u256, epoch: u32, leader_id: ID, blobs: vector<u256>) {  
+    event::emit(QuiltBlobSelected { quilt_task_id, epoch, leader_id, blobs })
 }

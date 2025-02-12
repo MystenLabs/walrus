@@ -801,21 +801,36 @@ impl SuiContractClient {
     /// Inserts or updates a key-value pairs in the blob's attribute.
     ///
     /// If the key already exists, its value is updated.
-    /// If attribute does not exist, an error is returned.
+    /// If attribute does not exist, an error is returned unless `force` is true.
     pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_obj_id: ObjectID,
         pairs: I,
+        force: bool,
     ) -> SuiClientResult<()>
     where
         I: IntoIterator<Item = (T, T)>,
         T: Into<String>,
     {
-        self.inner
-            .lock()
+        let mut inner = self.inner.lock().await;
+        let pairs_clone: Vec<(String, String)> = pairs
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+        match inner
+            .insert_or_update_blob_attribute_pairs(blob_obj_id, pairs_clone.clone())
             .await
-            .insert_or_update_blob_attribute_pairs(blob_obj_id, pairs)
-            .await
+        {
+            Ok(()) => Ok(()),
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EMissingMetadata(_),
+            ))) if force => {
+                inner
+                    .add_blob_attribute(blob_obj_id, &BlobAttribute::from(pairs_clone))
+                    .await
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Removes key-value pairs from the blob's attribute.
@@ -858,6 +873,34 @@ impl SuiContractClient {
             .lock()
             .await
             .multiple_pay_wal(address, amount, n)
+            .await
+    }
+
+    /// Adds a new quilt task. Returns true if the task was successfully added,
+    /// false if a task with the given ID already exists.
+    pub async fn add_quilt_task(
+        &self,
+        storage_node_cap: ObjectID,
+        task_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .add_quilt_task(storage_node_cap, task_id)
+            .await
+    }
+
+    /// Updates the state of a quilt task.
+    pub async fn update_quilt_task_state(
+        &self,
+        storage_node_cap: ObjectID,
+        task_id: ObjectID,
+        new_state: u8,
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .update_quilt_task_state(storage_node_cap, task_id, new_state)
             .await
     }
 }
@@ -1446,6 +1489,38 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.delete_blob(blob_object_id.into()).await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Adds a new quilt task. Returns true if the task was successfully added,
+    /// false if a task with the given ID already exists.
+    pub async fn add_quilt_task(
+        &mut self,
+        storage_node_cap: ObjectID,
+        task_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .add_quilt_task(storage_node_cap.into(), task_id)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Updates the state of a quilt task.
+    pub async fn update_quilt_task_state(
+        &mut self,
+        storage_node_cap: ObjectID,
+        task_id: ObjectID,
+        new_state: u8,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .update_quilt_task_state(storage_node_cap.into(), task_id, new_state)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
     }

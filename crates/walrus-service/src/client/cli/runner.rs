@@ -36,7 +36,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::move_structs::EpochState,
+    types::move_structs::{BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
 
@@ -78,6 +78,7 @@ use crate::{
             ExchangeOutput,
             ExtendBlobOutput,
             FundSharedBlobOutput,
+            GetBlobAttributeOutput,
             InfoBftOutput,
             InfoCommitteeOutput,
             InfoEpochOutput,
@@ -316,6 +317,85 @@ impl ClientCommandRunner {
                     amount,
                 }
                 .print_output(self.json)
+            }
+
+            CliCommands::GetBlobAttribute { blob_obj_id, out } => {
+                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                    &self.config?,
+                    None,
+                    self.wallet,
+                    self.wallet_path.is_none(),
+                )
+                .await?;
+                let attribute = sui_read_client.get_blob_with_attribute(blob_obj_id).await?;
+                if let Some(out_path) = out {
+                    let json_str = serde_json::to_string_pretty(&attribute)
+                        .context("failed to serialize attribute")?;
+                    std::fs::write(out_path, json_str)
+                        .context("failed to write attribute to json file")?;
+                    Ok(())
+                } else {
+                    GetBlobAttributeOutput {
+                        attribute: Some(attribute),
+                    }
+                    .print_output(self.json)
+                }
+            }
+
+            CliCommands::SetBlobAttribute {
+                blob_obj_id,
+                attributes,
+            } => {
+                let mut sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let attribute = BlobAttribute::from(attributes);
+                sui_client
+                    .add_blob_attribute(blob_obj_id, attribute, true)
+                    .await?;
+                if !self.json {
+                    println!(
+                        "{} Successfully added attribute for blob object {}",
+                        success(),
+                        blob_obj_id
+                    );
+                }
+                Ok(())
+            }
+
+            CliCommands::RemoveBlobAttributeFields { blob_obj_id, keys } => {
+                let mut sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                sui_client
+                    .remove_blob_attribute_pairs(blob_obj_id, keys)
+                    .await?;
+                if !self.json {
+                    println!(
+                        "{} Successfully removed attribute for blob object {}",
+                        success(),
+                        blob_obj_id
+                    );
+                }
+                Ok(())
+            }
+
+            CliCommands::RemoveBlobAttribute { blob_obj_id } => {
+                let mut sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                sui_client.remove_blob_attribute(blob_obj_id).await?;
+                if !self.json {
+                    println!(
+                        "{} Successfully removed attribute for blob object {}",
+                        success(),
+                        blob_obj_id
+                    );
+                }
+                Ok(())
             }
         }
     }

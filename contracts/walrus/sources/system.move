@@ -238,6 +238,29 @@ public(package) fun version(system: &System): u64 {
     system.version
 }
 
+// === Quilting ===
+
+public fun add_quilt_task(
+    self: &mut System, 
+    cap: &mut StorageNodeCap,
+    task_id: u256
+): bool {
+    self.inner_mut().add_quilt_task(cap, task_id)
+}
+
+public fun remove_quilt_task(self: &mut System, task_id: u256): bool {
+    self.inner_mut().remove_quilt_task(task_id)
+}
+
+public fun update_quilt_task_state(
+    self: &mut System, 
+    cap: &mut StorageNodeCap,
+    task_id: u256, 
+    new_state: u8
+): bool {
+    self.inner_mut().update_quilt_task_state(cap, task_id, new_state)
+}
+
 // === Upgrade ===
 
 public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) {

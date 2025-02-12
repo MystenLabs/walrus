@@ -112,7 +112,7 @@ typed-store = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.42.
 url = "2.5.4"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
-uuid = { version = "1.12.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.12.1", features = ["fast-rng", "macro-diagnostics", "v7", "serde"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }

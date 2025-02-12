@@ -19,6 +19,7 @@ use walrus_sui::types::{
     DenyListEvent,
     EpochChangeEvent,
     PackageEvent,
+    QuiltEvent,
 };
 
 use crate::{
@@ -201,6 +202,7 @@ impl TelemetryLabel for ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.label(),
             ContractEvent::PackageEvent(event) => event.label(),
             ContractEvent::DenyListEvent(event) => event.label(),
+            ContractEvent::QuiltEvent(event) => event.label(),
         }
     }
 }
@@ -217,5 +219,14 @@ impl TelemetryLabel for EventStreamElement {
 impl TelemetryLabel for BlobCertified {
     fn label(&self) -> &'static str {
         "certified"
+    }
+}
+
+impl TelemetryLabel for QuiltEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            QuiltEvent::QuiltTaskInit(_) => "quilt-task-init",
+            QuiltEvent::QuiltBlobSelected(_) => "quilt-blob-selected",
+        }
     }
 }

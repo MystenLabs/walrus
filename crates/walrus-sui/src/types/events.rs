@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
-use walrus_core::{ensure, BlobId, EncodingType, Epoch, ShardIndex};
+use walrus_core::{ensure, BlobId, EncodingType, Epoch, ShardIndex, QuiltTaskId};
 
 use crate::contracts::{self, AssociatedSuiEvent, MoveConversionError, StructTag};
 
@@ -802,6 +802,90 @@ impl DenyListEvent {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltBlobSelected {
+    pub quilt_task_id: QuiltTaskId,
+    pub epoch: Epoch,
+    pub leader_id: ObjectID,
+    pub blob_ids: Vec<BlobId>,
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for QuiltBlobSelected {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::QuiltBlobSelected;
+}
+
+impl TryFrom<SuiEvent> for QuiltBlobSelected {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (quilt_task_id, epoch, leader_id, blob_ids) = bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            quilt_task_id,
+            epoch,
+            leader_id,
+            blob_ids,
+            event_id: sui_event.id,
+        })
+    }
+}   
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltTaskInit {
+    pub quilt_task_id: QuiltTaskId,
+    pub epoch: Epoch,
+    pub leader_id: ObjectID,
+    pub event_id: EventID,
+}
+
+impl AssociatedSuiEvent for QuiltTaskInit {
+    const EVENT_STRUCT: StructTag<'static> = contracts::events::QuiltTaskInit;
+}
+
+impl TryFrom<SuiEvent> for QuiltTaskInit {
+    type Error = MoveConversionError;
+
+    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
+        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+
+        let (quilt_task_id, epoch, leader_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+
+        Ok(Self {
+            quilt_task_id,
+            epoch,
+            leader_id,
+            event_id: sui_event.id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QuiltEvent {
+    QuiltTaskInit(QuiltTaskInit),
+    QuiltBlobSelected(QuiltBlobSelected),
+}
+
+impl QuiltEvent {
+    /// Returns the event ID of the wrapped event.
+    pub fn event_id(&self) -> EventID {
+        match self {
+            QuiltEvent::QuiltTaskInit(event) => event.event_id,
+            QuiltEvent::QuiltBlobSelected(event) => event.event_id,
+        }
+    }
+
+    /// The epoch corresponding to the quilt event.
+    pub fn event_epoch(&self) -> Epoch {
+        match self {
+            QuiltEvent::QuiltTaskInit(event) => event.epoch,
+            QuiltEvent::QuiltBlobSelected(event) => event.epoch,
+        }
+    }  
+}
+
 /// Enum to wrap contract events used in event streaming.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractEvent {
@@ -813,6 +897,8 @@ pub enum ContractEvent {
     PackageEvent(PackageEvent),
     /// Events related to deny list.
     DenyListEvent(DenyListEvent),
+    /// Events related to quilt.
+    QuiltEvent(QuiltEvent),
 }
 
 impl ContractEvent {
@@ -823,6 +909,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.event_id(),
             ContractEvent::PackageEvent(event) => event.event_id(),
             ContractEvent::DenyListEvent(event) => event.event_id(),
+            ContractEvent::QuiltEvent(event) => event.event_id(),
         }
     }
 
@@ -833,6 +920,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(_) => None,
             ContractEvent::PackageEvent(_) => None,
             ContractEvent::DenyListEvent(_) => None,
+            ContractEvent::QuiltEvent(_) => None,
         }
     }
 
@@ -843,6 +931,7 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
             ContractEvent::PackageEvent(event) => event.event_epoch(),
             ContractEvent::DenyListEvent(event) => event.event_epoch(),
+            ContractEvent::QuiltEvent(event) => event.event_epoch(),
         }
     }
 }
@@ -890,6 +979,12 @@ impl TryFrom<SuiEvent> for ContractEvent {
             )),
             contracts::events::DenyListBlobDeleted => Ok(ContractEvent::BlobEvent(
                 BlobEvent::DenyListBlobDeleted(value.try_into()?),
+            )),
+            contracts::events::QuiltTaskInit => Ok(ContractEvent::QuiltEvent(
+                QuiltEvent::QuiltTaskInit(value.try_into()?),
+            )),
+            contracts::events::QuiltBlobSelected => Ok(ContractEvent::QuiltEvent(
+                QuiltEvent::QuiltBlobSelected(value.try_into()?),
             )),
             _ => unreachable!("Encountered unexpected unrecognized events {}", value),
         }

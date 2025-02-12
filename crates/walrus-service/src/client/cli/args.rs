@@ -460,6 +460,50 @@ pub enum CliCommands {
         #[clap(long)]
         amount: Option<u64>,
     },
+    /// Get the attribute of a blob.
+    GetBlobAttribute {
+        /// The object ID of the blob to get the attribute of.
+        #[clap(index = 1)]
+        blob_obj_id: ObjectID,
+        /// If unset, prints the blob to stdout.
+        #[clap(long)]
+        #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
+        out: Option<PathBuf>,
+    },
+    /// Set the attribute of a blob.
+    SetBlobAttribute {
+        /// The object ID of the blob to set the attribute of.
+        #[clap(index = 1)]
+        blob_obj_id: ObjectID,
+        /// The key-value pairs to set as attributes, in the format "key=value".
+        /// Multiple pairs can be separated by commas.
+        /// Examples:
+        ///   --attrs key1=value1,key2=value2,key3=value3
+        #[clap(
+            long = "attrs",
+            value_delimiter = ',',
+            value_parser = parse_attr_pair,
+        )]
+        attributes: Vec<(String, String)>,
+    },
+    /// Remove a key-value pair from a blob's attribute.
+    RemoveBlobAttributeFields {
+        /// The object ID of the blob.
+        #[clap(index = 1)]
+        blob_obj_id: ObjectID,
+        /// The keys to remove from the blob's attribute.
+        /// Multiple keys can be separated by commas.
+        /// Examples:
+        ///   --keys key1,key2,key3
+        #[clap(long, value_delimiter = ',')]
+        keys: Vec<String>,
+    },
+    /// Remove the attribute dynamic field from a blob.
+    RemoveBlobAttribute {
+        /// The object ID of the blob.
+        #[clap(index = 1)]
+        blob_obj_id: ObjectID,
+    },
 }
 
 /// Subcommands for the `info` command.
@@ -1245,5 +1289,16 @@ impl UserConfirmation {
     /// Checks if the user confirmation is required.
     pub fn is_required(&self) -> bool {
         matches!(self, UserConfirmation::Required)
+    }
+}
+
+fn parse_attr_pair(s: &str) -> Result<(String, String)> {
+    let parts: Vec<&str> = s.trim().split('=').collect();
+    match parts.as_slice() {
+        [key, value] => Ok((key.trim().to_string(), value.trim().to_string())),
+        _ => Err(anyhow!(
+            "Invalid key-value pair format. Expected 'key=value', got '{}'",
+            s
+        )),
     }
 }

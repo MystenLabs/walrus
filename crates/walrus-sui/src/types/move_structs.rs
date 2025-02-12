@@ -110,14 +110,14 @@ impl AssociatedContractStruct for Blob {
 /// The attribute struct for Blob objects.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlobAttribute {
-    /// The metadata key-value pairs.
-    pub metadata: VecMap<String, String>,
+    /// The key-value pairs.
+    pub fields: VecMap<String, String>,
 }
 
 impl Default for BlobAttribute {
     fn default() -> Self {
         Self {
-            metadata: VecMap { contents: vec![] },
+            fields: VecMap { contents: vec![] },
         }
     }
 }
@@ -139,43 +139,43 @@ impl BlobAttribute {
             .collect();
 
         Self {
-            metadata: VecMap { contents },
+            fields: VecMap { contents },
         }
     }
 
-    /// Insert a key-value pair into the metadata.
+    /// Insert a key-value pair into the fields.
     pub fn insert(&mut self, key: String, value: String) {
-        if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
-            self.metadata.contents[idx].value = value;
+        if let Some(idx) = self.fields.contents.iter().position(|e| e.key == key) {
+            self.fields.contents[idx].value = value;
         } else {
-            self.metadata.contents.push(Entry { key, value });
+            self.fields.contents.push(Entry { key, value });
         }
     }
 
-    /// Get a value from the metadata.
+    /// Get a value from the fields.
     pub fn get<T: AsRef<str>>(&self, key: T) -> Option<&str> {
-        self.metadata
+        self.fields
             .contents
             .iter()
             .find(|e| e.key == key.as_ref())
             .map(|e| e.value.as_str())
     }
 
-    /// Returns an iterator over the key-value pairs in the metadata.
+    /// Returns an iterator over the key-value pairs in the fields.
     pub fn iter(&self) -> MetadataIter {
         MetadataIter {
-            inner: self.metadata.contents.iter(),
+            inner: self.fields.contents.iter(),
         }
     }
 
     /// Returns the number of key-value pairs in the attribute.
     pub fn len(&self) -> usize {
-        self.metadata.contents.len()
+        self.fields.contents.len()
     }
 
     /// Returns `true` if the attribute is empty.
     pub fn is_empty(&self) -> bool {
-        self.metadata.contents.is_empty()
+        self.fields.contents.is_empty()
     }
 }
 

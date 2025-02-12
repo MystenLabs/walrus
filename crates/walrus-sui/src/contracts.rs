@@ -209,6 +209,8 @@ pub mod system {
     contract_ident!(fn system::delete_blob);
     contract_ident!(fn system::certify_event_blob);
     contract_ident!(fn system::extend_blob);
+    contract_ident!(fn system::add_quilt_task);
+    contract_ident!(fn system::update_quilt_task_state);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.
@@ -335,6 +337,8 @@ pub mod events {
     contract_ident!(struct events::DenyListBlobDeleted);
     contract_ident!(struct events::ContractUpgradeProposed);
     contract_ident!(struct events::ContractUpgradeQuorumReached);
+    contract_ident!(struct events::QuiltTaskInit);
+    contract_ident!(struct events::QuiltBlobSelected);
 }
 
 /// Module for tags corresponding to the Move module `auth`.

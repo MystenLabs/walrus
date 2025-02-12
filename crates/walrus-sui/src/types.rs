@@ -31,6 +31,7 @@ pub use events::{
     InvalidBlobId,
     PackageEvent,
     RegisterDenyListUpdateEvent,
+    QuiltEvent,
 };
 
 pub mod move_structs;

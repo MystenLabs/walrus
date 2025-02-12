@@ -97,6 +97,9 @@ pub mod test_utils;
 ))]
 pub struct BlobId(pub [u8; Self::LENGTH]);
 
+/// Alias for BlobId to represent quilt task IDs
+pub type QuiltTaskId = BlobId;
+
 impl BlobId {
     /// The length of a blob ID in bytes.
     pub const LENGTH: usize = 32;
