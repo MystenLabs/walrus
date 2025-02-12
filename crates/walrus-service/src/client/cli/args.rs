@@ -470,10 +470,9 @@ pub enum CliCommands {
             long = "attr",
             value_names = &["KEY", "VALUE"],
             num_args = 2,
-            value_parser = parse_key_value_pair,
-            action = clap::ArgAction::Append
+            action = clap::ArgAction::Append,
         )]
-        attributes: Vec<(String, String)>,
+        attributes: Vec<String>,
     },
     /// Remove a key-value pair from a blob's attribute.
     RemoveBlobAttributeFields {
@@ -481,10 +480,10 @@ pub enum CliCommands {
         #[clap(index = 1)]
         blob_obj_id: ObjectID,
         /// The keys to remove from the blob's attribute.
-        /// Multiple keys can be separated by commas.
+        /// Multiple keys should be provided as separate arguments.
         /// Examples:
-        ///   --keys key1,key2,key3
-        #[clap(long, value_delimiter = ',')]
+        ///   --keys "key1" "key2,with,commas" "key3 with spaces"
+        #[clap(long, num_args = 1.., value_parser)]
         keys: Vec<String>,
     },
     /// Remove the attribute dynamic field from a blob.
@@ -1278,8 +1277,4 @@ impl UserConfirmation {
     pub fn is_required(&self) -> bool {
         matches!(self, UserConfirmation::Required)
     }
-}
-
-fn parse_key_value_pair(s: &str) -> Result<(String, String), std::convert::Infallible> {
-    Ok((s.to_string(), s.to_string()))
 }

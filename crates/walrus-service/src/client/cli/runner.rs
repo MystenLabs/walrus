@@ -334,13 +334,17 @@ impl ClientCommandRunner {
                 blob_obj_id,
                 attributes,
             } => {
+                let pairs: Vec<(String, String)> = attributes
+                    .chunks_exact(2)
+                    .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
+                    .collect();
                 let mut sui_client = self
                     .config?
                     .new_contract_client(self.wallet?, self.gas_budget)
                     .await?;
-                let attribute = BlobAttribute::from(attributes);
+                let attribute = BlobAttribute::from(pairs);
                 sui_client
-                    .add_blob_attribute(blob_obj_id, attribute, true)
+                    .insert_or_update_blob_attribute_pairs(blob_obj_id, attribute.iter(), true)
                     .await?;
                 if !self.json {
                     println!(
