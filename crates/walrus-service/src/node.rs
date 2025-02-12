@@ -1984,7 +1984,7 @@ impl ServiceState for StorageNodeInner {
         ensure!(!self.is_blocked(blob_id), RetrieveSliverError::Forbidden);
 
         ensure!(
-            self.is_blob_certified(blob_id)?,
+            self.is_blob_registered(blob_id)?,
             RetrieveSliverError::Unavailable,
         );
 
