@@ -382,7 +382,7 @@ async fn test_store_with_existing_blob_resource(
     Ok(())
 }
 
-/// Tests that the client can store multiple blobs with different epochs-ahead.
+/// Tests that blobs can be extended when possible.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_with_existing_blobs() -> TestResult {

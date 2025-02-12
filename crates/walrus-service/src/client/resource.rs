@@ -51,6 +51,13 @@ impl PriceComputation {
             RegisterBlobOp::ReuseStorage { encoded_length } => {
                 self.write_fee_for_encoded_length(*encoded_length)
             }
+            RegisterBlobOp::ReuseAndExtend {
+                encoded_length,
+                epochs_ahead,
+            } => {
+                self.storage_fee_for_encoded_length(*encoded_length, *epochs_ahead)
+                    + self.write_fee_for_encoded_length(*encoded_length)
+            }
             _ => 0, // No cost for reusing registration or no-op.
         }
     }
@@ -84,8 +91,9 @@ pub enum RegisterBlobOp {
     /// The blob was already certified, but its lifetime is too short.
     ReuseAndExtend {
         encoded_length: u64,
+        // The number of epochs extended wrt the original epoch end.
         #[schema(value_type = u32)]
-        end_epoch: Epoch,
+        epochs_ahead: EpochCount,
     },
 }
 
@@ -123,11 +131,13 @@ pub enum StoreOp {
         blob: Blob,
         operation: RegisterBlobOp,
     },
-    // Extend the lifetime of a registered blob.
-    // We only need to make sure it has enough resource, but not the exact amount.
+    // Extend the lifetime of a registered blob instead of creating a new one.
     Extend {
+        // The original blob object.
         blob: Blob,
-        end_epoch: Epoch,
+        // The new end epoch.
+        encoded_length: u64,
+        epochs_ahead: EpochCount,
     },
 }
 
@@ -193,13 +203,16 @@ impl<'a> ResourceManager<'a> {
             .await?;
 
         for (blob, op) in blobs_with_ops {
-            // If the blob is deletable and already certified, add it results as noop.
             let store_op = if let RegisterBlobOp::ReuseAndExtend {
-                encoded_length: _,
-                end_epoch,
+                encoded_length,
+                epochs_ahead,
             } = op
             {
-                StoreOp::Extend { blob, end_epoch }
+                StoreOp::Extend {
+                    blob,
+                    encoded_length,
+                    epochs_ahead,
+                }
             } else if blob.certified_epoch.is_some() {
                 debug_assert!(
                     blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead,
@@ -327,11 +340,13 @@ impl<'a> ResourceManager<'a> {
                     "blob is already registered and valid; using the existing registration"
                 );
                 if blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead {
+                    let epoch_delta =
+                        self.write_committee_epoch + epochs_ahead - blob.storage.end_epoch;
                     extended_blobs.push((
                         blob,
                         RegisterBlobOp::ReuseAndExtend {
                             encoded_length: *encoded_length,
-                            end_epoch: self.write_committee_epoch + epochs_ahead,
+                            epochs_ahead: epoch_delta,
                         },
                     ));
                 } else {
