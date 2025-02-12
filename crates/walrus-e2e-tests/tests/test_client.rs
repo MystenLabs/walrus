@@ -60,7 +60,7 @@ use walrus_sui::{
         SuiContractClient,
     },
     types::{
-        move_errors::{BlobError, MoveExecutionError, RawMoveError},
+        move_errors::{MoveExecutionError, RawMoveError},
         move_structs::{BlobAttribute, SharedBlob},
         Blob,
         BlobEvent,
@@ -1272,9 +1272,7 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
             .downcast::<SuiClientError>()
             .unwrap()
             .as_ref(),
-        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-            BlobError::EDuplicateMetadata(..)
-        ))
+        SuiClientError::AttributeAlreadyExists
     ));
 
     // Test force adding duplicate metadata (should succeed).
@@ -1295,9 +1293,7 @@ async fn test_blob_attribute_add_and_remove() -> TestResult {
             .downcast::<SuiClientError>()
             .unwrap()
             .as_ref(),
-        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-            BlobError::EMissingMetadata(..)
-        ))
+        SuiClientError::AttributeDoesNotExist
     ));
 
     Ok(())
@@ -1324,9 +1320,7 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
             .downcast::<SuiClientError>()
             .unwrap()
             .as_ref(),
-        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-            BlobError::EMissingMetadata(..)
-        ))
+        SuiClientError::AttributeDoesNotExist
     ));
 
     // Test removing a pair without an existing attribute should fail.
@@ -1339,9 +1333,7 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
             .downcast::<SuiClientError>()
             .unwrap()
             .as_ref(),
-        SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-            BlobError::EMissingMetadata(..)
-        ))
+        SuiClientError::AttributeDoesNotExist
     ));
 
     test_context

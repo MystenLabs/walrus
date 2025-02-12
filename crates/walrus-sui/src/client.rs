@@ -148,6 +148,12 @@ pub enum SuiClientError {
     /// Transaction execution was cancelled due to shared object congestion
     #[error("execution cancelled due to shared object congestion on objects {0:?}")]
     SharedObjectCongestion(Vec<ObjectID>),
+    /// The attribute does not exist on the blob.
+    #[error("the attribute does not exist on the blob")]
+    AttributeDoesNotExist,
+    /// The attribute already exists on the blob.
+    #[error("the attribute already exists on the blob")]
+    AttributeAlreadyExists,
 }
 
 impl SuiClientError {
@@ -778,10 +784,14 @@ impl SuiContractClient {
             Ok(()) => Ok(()),
             Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
                 BlobError::EDuplicateMetadata(_),
-            ))) if force => {
-                inner
-                    .insert_or_update_blob_attribute_pairs(blob_obj_id, blob_attribute.iter())
-                    .await
+            ))) => {
+                if force {
+                    inner
+                        .insert_or_update_blob_attribute_pairs(blob_obj_id, blob_attribute.iter())
+                        .await
+                } else {
+                    Err(SuiClientError::AttributeAlreadyExists)
+                }
             }
             Err(e) => Err(e),
         }
@@ -791,17 +801,25 @@ impl SuiContractClient {
     ///
     /// If attribute does not exist, an error is returned.
     pub async fn remove_blob_attribute(&mut self, blob_obj_id: ObjectID) -> SuiClientResult<()> {
-        self.inner
+        match self
+            .inner
             .lock()
             .await
             .remove_blob_attribute(blob_obj_id)
             .await
+        {
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EMissingMetadata(_),
+            ))) => Err(SuiClientError::AttributeDoesNotExist),
+            result => result,
+        }
     }
 
-    /// Inserts or updates a key-value pairs in the blob's attribute.
+    /// Inserts or updates key-value pairs in the blob's attribute.
     ///
-    /// If the key already exists, its value is updated.
-    /// If attribute does not exist, an error is returned unless `force` is true.
+    /// If the attribute does not exist and `force` is true, it will be created.
+    /// If the attribute does not exist and `force` is false, an error is returned.
+    /// If the attribute exists, the key-value pairs will be updated.
     pub async fn insert_or_update_blob_attribute_pairs<I, T>(
         &mut self,
         blob_obj_id: ObjectID,
@@ -817,19 +835,27 @@ impl SuiContractClient {
             .into_iter()
             .map(|(k, v)| (k.into(), v.into()))
             .collect();
-        match inner
-            .insert_or_update_blob_attribute_pairs(blob_obj_id, pairs_clone.clone())
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-                BlobError::EMissingMetadata(_),
-            ))) if force => {
-                inner
-                    .add_blob_attribute(blob_obj_id, &BlobAttribute::from(pairs_clone))
-                    .await
+
+        // Check if attribute exists first
+        let attribute_exists = inner
+            .read_client
+            .get_blob_attribute(blob_obj_id)
+            .await?
+            .is_some();
+
+        if !attribute_exists {
+            if !force {
+                return Err(SuiClientError::AttributeDoesNotExist);
             }
-            Err(e) => Err(e),
+            // Create new attribute if it doesn't exist and force is true
+            inner
+                .add_blob_attribute(blob_obj_id, &BlobAttribute::from(pairs_clone))
+                .await
+        } else {
+            // Update existing attribute
+            inner
+                .insert_or_update_blob_attribute_pairs(blob_obj_id, pairs_clone)
+                .await
         }
     }
 
@@ -845,11 +871,18 @@ impl SuiContractClient {
         I: IntoIterator<Item = T>,
         T: AsRef<str>,
     {
-        self.inner
+        match self
+            .inner
             .lock()
             .await
             .remove_blob_attribute_pairs(blob_obj_id, keys)
             .await
+        {
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EMissingMetadata(_),
+            ))) => Err(SuiClientError::AttributeDoesNotExist),
+            result => result,
+        }
     }
 
     /// Returns a mutable reference to the wallet.

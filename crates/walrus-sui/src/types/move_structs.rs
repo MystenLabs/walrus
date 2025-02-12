@@ -111,13 +111,13 @@ impl AssociatedContractStruct for Blob {
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlobAttribute {
     /// The key-value pairs.
-    pub fields: VecMap<String, String>,
+    pub metadata: VecMap<String, String>,
 }
 
 impl Default for BlobAttribute {
     fn default() -> Self {
         Self {
-            fields: VecMap { contents: vec![] },
+            metadata: VecMap { contents: vec![] },
         }
     }
 }
@@ -139,43 +139,43 @@ impl BlobAttribute {
             .collect();
 
         Self {
-            fields: VecMap { contents },
+            metadata: VecMap { contents },
         }
     }
 
-    /// Insert a key-value pair into the fields.
+    /// Insert a key-value pair into the metadata.
     pub fn insert(&mut self, key: String, value: String) {
-        if let Some(idx) = self.fields.contents.iter().position(|e| e.key == key) {
-            self.fields.contents[idx].value = value;
+        if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
+            self.metadata.contents[idx].value = value;
         } else {
-            self.fields.contents.push(Entry { key, value });
+            self.metadata.contents.push(Entry { key, value });
         }
     }
 
-    /// Get a value from the fields.
+    /// Get a value from the metadata.
     pub fn get<T: AsRef<str>>(&self, key: T) -> Option<&str> {
-        self.fields
+        self.metadata
             .contents
             .iter()
             .find(|e| e.key == key.as_ref())
             .map(|e| e.value.as_str())
     }
 
-    /// Returns an iterator over the key-value pairs in the fields.
+    /// Returns an iterator over the key-value pairs in the metadata.
     pub fn iter(&self) -> MetadataIter {
         MetadataIter {
-            inner: self.fields.contents.iter(),
+            inner: self.metadata.contents.iter(),
         }
     }
 
     /// Returns the number of key-value pairs in the attribute.
     pub fn len(&self) -> usize {
-        self.fields.contents.len()
+        self.metadata.contents.len()
     }
 
     /// Returns `true` if the attribute is empty.
     pub fn is_empty(&self) -> bool {
-        self.fields.contents.is_empty()
+        self.metadata.contents.is_empty()
     }
 }
 

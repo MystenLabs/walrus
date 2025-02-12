@@ -462,14 +462,16 @@ pub enum CliCommands {
         /// The object ID of the blob to set the attribute of.
         #[clap(index = 1)]
         blob_obj_id: ObjectID,
-        /// The key-value pairs to set as attributes, in the format "key=value".
-        /// Multiple pairs can be separated by commas.
-        /// Examples:
-        ///   --attrs key1=value1,key2=value2,key3=value3
+        /// The key-value pairs to set as attributes.
+        /// Multiple pairs can be specified by repeating the flag.
+        /// Example:
+        ///   --attr "key1" "value1" --attr "key2" "value2"
         #[clap(
-            long = "attrs",
-            value_delimiter = ',',
-            value_parser = parse_attr_pair,
+            long = "attr",
+            value_names = &["KEY", "VALUE"],
+            num_args = 2,
+            value_parser = parse_key_value_pair,
+            action = clap::ArgAction::Append
         )]
         attributes: Vec<(String, String)>,
     },
@@ -1278,13 +1280,6 @@ impl UserConfirmation {
     }
 }
 
-fn parse_attr_pair(s: &str) -> Result<(String, String)> {
-    let parts: Vec<&str> = s.trim().split('=').collect();
-    match parts.as_slice() {
-        [key, value] => Ok((key.trim().to_string(), value.trim().to_string())),
-        _ => Err(anyhow!(
-            "Invalid key-value pair format. Expected 'key=value', got '{}'",
-            s
-        )),
-    }
+fn parse_key_value_pair(s: &str) -> Result<(String, String), std::convert::Infallible> {
+    Ok((s.to_string(), s.to_string()))
 }
