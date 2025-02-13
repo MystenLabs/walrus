@@ -1165,10 +1165,6 @@ impl EventBlobWriter {
             .update_blob_info_with_metadata(&blob_id)
             .context("unable to update metadata")?;
 
-        self.metrics
-            .latest_certified_event_index
-            .set(element_index as i64);
-
         let attested = self.attested.clone();
         let failed_to_attest = self.failed_to_attest.clone();
         let metadata = self
@@ -1182,6 +1178,10 @@ impl EventBlobWriter {
         let Some(metadata) = metadata else {
             return Ok(());
         };
+
+        self.metrics
+            .latest_certified_event_index
+            .set(element_index as i64);
 
         batch.insert_batch(&self.certified, std::iter::once(((), metadata.clone())))?;
 
