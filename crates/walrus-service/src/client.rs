@@ -746,11 +746,14 @@ impl Client<SuiContractClient> {
 
         let cert_and_extend_results: Vec<_> = certify_and_extend_blobs_and_ops
             .into_iter()
-            .map(|(blob, op)| BlobStoreResult::NewlyCreated {
-                cost: self.price_computation.operation_cost(&op),
-                resource_operation: op,
-                shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
-                blob_object: blob,
+            .map(|(mut blob, op)| {
+                blob.storage.end_epoch = write_committee_epoch + epochs_ahead;
+                BlobStoreResult::NewlyCreated {
+                    cost: self.price_computation.operation_cost(&op),
+                    resource_operation: op,
+                    shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                    blob_object: blob,
+                }
             })
             .collect();
 

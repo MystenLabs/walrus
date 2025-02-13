@@ -478,30 +478,25 @@ async fn test_store_with_existing_blobs() -> TestResult {
         .await?;
     for result in store_results {
         if result.blob_id() == &reuse_blob_id {
-            tracing::info!("reuse result: {:?}", result);
             assert!(matches!(
                 result,
                 BlobStoreResult::NewlyCreated{blob_object:_, resource_operation, ..
                 } if resource_operation.is_reuse_registration()));
         } else if result.blob_id() == &certify_and_extend_blob_id {
-            tracing::info!("certify and extend result: {:?}", result);
             assert!(matches!(result, BlobStoreResult::NewlyCreated {
                 resource_operation,
                 ..
             } if resource_operation.is_certify_and_extend()
             ));
         } else if result.blob_id() == &already_certified_blob_id {
-            tracing::info!("already certified result: {:?}", result);
             assert!(matches!(result, BlobStoreResult::AlreadyCertified { .. }));
         } else if result.blob_id() == &extended_blob_id {
-            tracing::info!("extended result: {:?}", result);
             assert!(matches!(result, BlobStoreResult::NewlyCreated {
                 resource_operation,
                 ..
             } if resource_operation.is_extend()
             ));
         } else {
-            tracing::info!("newly created result: {:?}", result);
             assert!(matches!(result, BlobStoreResult::NewlyCreated {
                 resource_operation,
                 ..
