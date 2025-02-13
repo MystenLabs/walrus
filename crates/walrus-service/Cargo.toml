@@ -98,7 +98,7 @@ indicatif.workspace = true
 indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
-jsonwebtoken = "9.2.0"
+jsonwebtoken = "9.3.1"
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
