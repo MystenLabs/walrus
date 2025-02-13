@@ -95,7 +95,8 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-pub(crate) async fn compile_package_and_update_lock_file(
+/// Compiles a package and returns the dependencies, compiled package, and build config.
+pub(crate) async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
@@ -114,8 +115,33 @@ pub(crate) async fn compile_package_and_update_lock_file(
         None
     };
 
-    let (dependencies, compiled_package) =
-        compile_package(build_config.clone(), &package_path, chain_id.clone()).await?;
+    let run_bytecode_verifier = true;
+    let print_diags_to_stderr = false;
+    let config = BuildConfig {
+        config: build_config.clone(),
+        run_bytecode_verifier,
+        print_diags_to_stderr,
+        chain_id: chain_id.clone(),
+    };
+    let resolution_graph = config.resolution_graph(&package_path, chain_id.clone())?;
+    let (_, dependencies) = gather_published_ids(&resolution_graph, chain_id.clone());
+
+    // Check that the dependencies have a valid published address.
+    check_invalid_dependencies(&dependencies.invalid)?;
+    // Check that all dependencies are published.
+    check_unpublished_dependencies(&dependencies.unpublished)?;
+
+    let compiled_package = build_from_resolution_graph(
+        resolution_graph,
+        run_bytecode_verifier,
+        print_diags_to_stderr,
+        chain_id.clone(),
+    )?;
+
+    ensure!(
+        compiled_package.published_root_module().is_none(),
+        "package was already published, modules must all have 0x0 as their addresses."
+    );
 
     // Restore original ID.
     if let (Some(chain_id), Some(previous_id)) = (chain_id, previous_id) {
@@ -142,7 +168,7 @@ pub(crate) async fn publish_package(
     let chain_id = client.read_api().get_chain_identifier().await.ok();
 
     let (dependencies, compiled_package, build_config) =
-        compile_package_and_update_lock_file(package_path, build_config, chain_id).await?;
+        compile_package(package_path, build_config, chain_id).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -203,44 +229,6 @@ pub(crate) async fn publish_package(
     .context("failed to update Move.lock")?;
 
     Ok(response)
-}
-
-// Based on `compile_package` from the sui CLI codebase, simplified for our needs.
-pub(crate) async fn compile_package(
-    build_config: MoveBuildConfig,
-    package_path: &Path,
-    chain_id: Option<String>,
-) -> Result<(PackageDependencies, CompiledPackage), anyhow::Error> {
-    let config = resolve_lock_file_path(build_config, package_path)?;
-    let run_bytecode_verifier = true;
-    let print_diags_to_stderr = false;
-    let config = BuildConfig {
-        config,
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id: chain_id.clone(),
-    };
-    let resolution_graph = config.resolution_graph(package_path, chain_id.clone())?;
-    let (_, dependencies) = gather_published_ids(&resolution_graph, chain_id.clone());
-
-    // Check that the dependencies have a valid published address.
-    check_invalid_dependencies(&dependencies.invalid)?;
-    // Check that all dependencies are published.
-    check_unpublished_dependencies(&dependencies.unpublished)?;
-
-    let compiled_package = build_from_resolution_graph(
-        resolution_graph,
-        run_bytecode_verifier,
-        print_diags_to_stderr,
-        chain_id,
-    )?;
-
-    ensure!(
-        compiled_package.published_root_module().is_none(),
-        "package was already published, modules must all have 0x0 as their addresses."
-    );
-
-    Ok((dependencies, compiled_package))
 }
 
 pub(crate) struct PublishSystemPackageResult {

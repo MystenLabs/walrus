@@ -1166,7 +1166,7 @@ impl WalrusPtbBuilder {
 
     /// Performs a contract upgrade.
     ///
-    /// Returns the `UpgradeTicket` as result argument.
+    /// Returns the `UpgradeReceipt` as result argument.
     pub fn upgrade(
         &mut self,
         current_package_object_id: ObjectID,

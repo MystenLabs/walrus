@@ -45,7 +45,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     contracts,
-    system_setup::compile_package_and_update_lock_file,
+    system_setup::compile_package,
     types::{
         move_errors::{BlobError, MoveExecutionError},
         move_structs::{
@@ -1385,12 +1385,8 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         // Compile package
         let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (dependencies, compiled_package, build_config) = compile_package_and_update_lock_file(
-            package_path,
-            MoveBuildConfig::default(),
-            chain_id,
-        )
-        .await?;
+        let (dependencies, compiled_package, build_config) =
+            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
 
         let digest = compiled_package.get_package_digest(false);
 
@@ -1431,12 +1427,8 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         // Compile package
         let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (dependencies, compiled_package, build_config) = compile_package_and_update_lock_file(
-            package_path,
-            MoveBuildConfig::default(),
-            chain_id,
-        )
-        .await?;
+        let (dependencies, compiled_package, build_config) =
+            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
 
         let digest = compiled_package.get_package_digest(false);
 
