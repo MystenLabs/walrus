@@ -145,20 +145,19 @@ jobs:
           echo "gh_job_link=${gh_job_link}" >> $GITHUB_ENV
 
       - name: Post to slack
-        uses: slackapi/slack-github-action@34c3fd73326693ef04728f8611669d918a2d781d # pin@v1.19.0
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d # pin@v2.0.0
         env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           WALRUS_SHA: ${{ env.walrus_sha }}
           GH_JOB_LINK: ${{ env.gh_job_link }}
-          SLACK_ID: ${{ env.slack_id }}
         with:
-          channel-id: "walrus-simtest-nightly"
-          slack-message: |
-            :walrus_face::error-cross: *${{ github.workflow }}* workflow status: `${{ env.WORKFLOW_CONCLUSION }}`
-            Walrus commit: <https://github.com/MystenLabs/walrus/commit/${{ env.walrus_sha }}|${{ env.walrus_sha }}>
-            Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
-            There were walrus simtest failures.
-            To investigate:
-              1. Run: `tsh ssh ubuntu@simtest-01`
-              2. Check logs in: `/home/ubuntu/walrus_simtest_logs/{date}`
-              3. Check the test results in: `/home/ubuntu/walrus_simtest_results/{date}`
+          webhook: ${{ secrets.SIMTEST_NIGHTLY_SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: ":walrus_face::error-cross: *${{ github.workflow }}* workflow status: `${{ env.WORKFLOW_CONCLUSION }}`\n
+            Walrus commit: <https://github.com/MystenLabs/walrus/commit/${{ env.walrus_sha }}|${{ env.walrus_sha }}>\n
+            Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>\n
+            There were walrus simtest failures.\n
+            To investigate:\n
+            \x20\x20 1. Run: `tsh ssh ubuntu@simtest-01`\n
+            \x20\x20 2. Check logs in: `/home/ubuntu/walrus_simtest_logs/{date}`\n
+            \x20\x20 3. Check the test results in: `/home/ubuntu/walrus_simtest_results/{date}`"
