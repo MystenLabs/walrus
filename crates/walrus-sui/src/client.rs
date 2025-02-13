@@ -769,6 +769,20 @@ impl SuiContractClient {
             .multiple_pay_wal(address, amount, n)
             .await
     }
+
+    /// Certifies and extends the specified blob on Sui in a single transaction.
+    /// Returns the shared blob object ID if the post store action is Share.
+    pub async fn certify_and_extend_blobs(
+        &self,
+        blobs_with_certificates: &[(&Blob, ConfirmationCertificate, Option<EpochCount>)],
+        post_store: PostStoreAction,
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+        self.inner
+            .lock()
+            .await
+            .certify_and_extend_blobs(blobs_with_certificates, post_store)
+            .await
+    }
 }
 
 struct SuiContractClientInner {
@@ -1616,6 +1630,65 @@ impl SuiContractClientInner {
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
+    }
+
+    /// Certifies and extends the specified blob on Sui in a single transaction.
+    /// Returns the shared blob object ID if the post store action is Share.
+    pub async fn certify_and_extend_blobs(
+        &mut self,
+        blobs_with_certificates: &[(&Blob, ConfirmationCertificate, Option<EpochCount>)],
+        post_store: PostStoreAction,
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+        let mut pt_builder = self.transaction_builder()?;
+        for (blob, certificate, epochs_ahead) in blobs_with_certificates {
+            pt_builder.certify_blob(blob.id.into(), certificate).await?;
+
+            if let Some(epochs) = epochs_ahead {
+                pt_builder
+                    .extend_blob(blob.id.into(), *epochs, blob.storage.storage_size)
+                    .await?;
+            }
+
+            match post_store {
+                PostStoreAction::TransferTo(address) => {
+                    pt_builder
+                        .transfer(Some(address), vec![blob.id.into()])
+                        .await?;
+                }
+                PostStoreAction::Burn => {
+                    pt_builder.burn_blob(blob.id.into()).await?;
+                }
+                PostStoreAction::Keep => (),
+                PostStoreAction::Share => {
+                    pt_builder.new_shared_blob(blob.id.into()).await?;
+                }
+            }
+        }
+
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(ptb).await?;
+
+        if post_store != PostStoreAction::Share {
+            return Ok(HashMap::new());
+        }
+
+        let object_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            object_ids.len() == blobs_with_certificates.len(),
+            "unexpected number of shared blob objects created: {} (expected {})",
+            object_ids.len(),
+            blobs_with_certificates.len()
+        );
+
+        Ok(blobs_with_certificates
+            .iter()
+            .zip(object_ids)
+            .map(|((blob, _, _), obj_id)| (blob.blob_id, obj_id))
+            .collect())
     }
 }
 

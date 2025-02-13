@@ -58,6 +58,13 @@ impl PriceComputation {
                 self.storage_fee_for_encoded_length(*encoded_length, *epochs_ahead)
                     + self.write_fee_for_encoded_length(*encoded_length)
             }
+            RegisterBlobOp::ReuseAndExtendNonCertified {
+                encoded_length,
+                epochs_ahead,
+            } => {
+                self.storage_fee_for_encoded_length(*encoded_length, *epochs_ahead)
+                    + self.write_fee_for_encoded_length(*encoded_length)
+            }
             _ => 0, // No cost for reusing registration or no-op.
         }
     }
@@ -95,6 +102,14 @@ pub enum RegisterBlobOp {
         #[schema(value_type = u32)]
         epochs_ahead: EpochCount,
     },
+    /// The blob was registered, but not certified, and its lifetime is shorter than
+    /// the desired one.
+    ReuseAndExtendNonCertified {
+        encoded_length: u64,
+        // The number of epochs extended wrt the original epoch end.
+        #[schema(value_type = u32)]
+        epochs_ahead: EpochCount,
+    },
 }
 
 impl RegisterBlobOp {
@@ -104,20 +119,31 @@ impl RegisterBlobOp {
             RegisterBlobOp::RegisterFromScratch { encoded_length, .. }
             | RegisterBlobOp::ReuseStorage { encoded_length }
             | RegisterBlobOp::ReuseRegistration { encoded_length }
-            | RegisterBlobOp::ReuseAndExtend { encoded_length, .. } => *encoded_length,
+            | RegisterBlobOp::ReuseAndExtend { encoded_length, .. }
+            | RegisterBlobOp::ReuseAndExtendNonCertified { encoded_length, .. } => *encoded_length,
         }
     }
 
     /// Returns if the operation involved issuing a new registration.
     pub fn is_registration(&self) -> bool {
         matches!(self, RegisterBlobOp::RegisterFromScratch { .. })
-            // Reusing storage also requires a new registration.
-            || matches!(self, RegisterBlobOp::ReuseStorage { .. })
+    }
+
+    pub fn is_reuse_storage(&self) -> bool {
+        matches!(self, RegisterBlobOp::ReuseStorage { .. })
+    }
+
+    pub fn is_reuse_registration(&self) -> bool {
+        matches!(self, RegisterBlobOp::ReuseRegistration { .. })
     }
 
     /// Returns if the operation involved extending the lifetime of a registered blob.
     pub fn is_extend(&self) -> bool {
         matches!(self, RegisterBlobOp::ReuseAndExtend { .. })
+    }
+
+    pub fn is_certify_and_extend(&self) -> bool {
+        matches!(self, RegisterBlobOp::ReuseAndExtendNonCertified { .. })
     }
 }
 
@@ -316,6 +342,7 @@ impl<'a> ResourceManager<'a> {
         let mut new_encoded_lengths = Vec::with_capacity(max_len);
 
         let mut extended_blobs = Vec::with_capacity(max_len);
+        let mut extended_blobs_noncertified = Vec::with_capacity(max_len);
 
         // This keeps tracks of selected storage objects and exclude them from selecting again.
         let mut excluded = Vec::with_capacity(max_len);
@@ -326,9 +353,8 @@ impl<'a> ResourceManager<'a> {
         // Otherwise, add it to new_metadata_list and its length to new_encoded_lengths.
         for (metadata, encoded_length) in metadata_list.iter().zip(encoded_lengths) {
             if let Some(blob) = self
-                .is_blob_registered_in_wallet(
+                .find_blob_owned_by_wallet(
                     metadata.blob_id(),
-                    epochs_ahead,
                     persistence,
                     !store_when.is_store_always(),
                 )
@@ -342,13 +368,27 @@ impl<'a> ResourceManager<'a> {
                 if blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead {
                     let epoch_delta =
                         self.write_committee_epoch + epochs_ahead - blob.storage.end_epoch;
-                    extended_blobs.push((
-                        blob,
-                        RegisterBlobOp::ReuseAndExtend {
-                            encoded_length: *encoded_length,
-                            epochs_ahead: epoch_delta,
-                        },
-                    ));
+                    if blob.certified_epoch.is_some() {
+                        extended_blobs.push((
+                            blob,
+                            RegisterBlobOp::ReuseAndExtend {
+                                encoded_length: *encoded_length,
+                                epochs_ahead: epoch_delta,
+                            },
+                        ));
+                    } else {
+                        tracing::debug!(
+                            blob_id=%blob.blob_id,
+                            "blob is already registered but its lifetime is too short; extending it"
+                        );
+                        extended_blobs_noncertified.push((
+                            blob,
+                            RegisterBlobOp::ReuseAndExtendNonCertified {
+                                encoded_length: *encoded_length,
+                                epochs_ahead: epoch_delta,
+                            },
+                        ));
+                    }
                 } else {
                     results.push((
                         blob,
@@ -417,6 +457,7 @@ impl<'a> ResourceManager<'a> {
         );
 
         results.extend(extended_blobs);
+        results.extend(extended_blobs_noncertified);
 
         Ok(results)
     }
@@ -459,18 +500,15 @@ impl<'a> ResourceManager<'a> {
             .collect())
     }
 
-    /// Checks if the blob is registered by the active wallet for a sufficient duration.
+    /// Finds a blob object with the given `blob_id` owned by the active wallet.
     ///
-    /// To compute if the blob is registered for a sufficient duration, it uses the epoch of the
-    /// current `write_committee`. This is because registration needs to be valid compared to a new
-    /// registration that would be made now to write a new blob.
+    /// Only includes non-expired blobs with the provided `persistence`.
     ///
     /// If `include_certified` is `true`, the function includes already certified blobs owned by the
     /// wallet.
-    async fn is_blob_registered_in_wallet(
+    async fn find_blob_owned_by_wallet(
         &self,
         blob_id: &BlobId,
-        epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         include_certified: bool,
     ) -> ClientResult<Option<Blob>> {
@@ -480,17 +518,10 @@ impl<'a> ResourceManager<'a> {
             .await?
             .into_iter()
             .find(|blob| {
-                // Case 1: Uncertified blob with sufficient lifetime
-                (blob.blob_id == *blob_id
-                    && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
+                blob.blob_id == *blob_id
+                    && blob.storage.end_epoch > self.write_committee_epoch
                     && blob.deletable == persistence.is_deletable()
-                    && (include_certified || blob.certified_epoch.is_none()))
-                // Case 2: Certified blob that needs lifetime extension
-                || (blob.blob_id == *blob_id
-                    && include_certified
-                    && blob.deletable == persistence.is_deletable()
-                    && blob.certified_epoch.is_some()
-                    && blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead)
+                    && (include_certified || blob.certified_epoch.is_none())
             }))
     }
 

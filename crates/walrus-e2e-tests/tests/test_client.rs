@@ -35,6 +35,7 @@ use walrus_service::{
     client::{
         responses::BlobStoreResult,
         Blocklist,
+        Client,
         ClientCommunicationConfig,
         ClientError,
         ClientErrorKind::{
@@ -49,10 +50,16 @@ use walrus_service::{
     test_utils::{test_cluster, StorageNodeHandle},
 };
 use walrus_sui::{
-    client::{BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient},
+    client::{
+        BlobPersistence,
+        ExpirySelectionPolicy,
+        PostStoreAction,
+        ReadClient,
+        SuiContractClient,
+    },
     types::{move_structs::SharedBlob, Blob, BlobEvent, ContractEvent},
 };
-use walrus_test_utils::{async_param_test, Result as TestResult};
+use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -382,6 +389,66 @@ async fn test_store_with_existing_blob_resource(
     Ok(())
 }
 
+async fn register_blobs(
+    client: &WithTempDir<Client<SuiContractClient>>,
+    blob: &[u8],
+    epochs_ahead: EpochCount,
+) -> TestResult<BlobId> {
+    // Encode blob and get metadata
+    let (_, metadata) = client
+        .as_ref()
+        .encoding_config()
+        .get_blob_encoder(blob)
+        .expect("blob encoding should not fail")
+        .encode_with_metadata();
+    let metadata = metadata.metadata().to_owned();
+    let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+    let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
+
+    // Register the blob
+    let blob_id = client
+        .as_ref()
+        .resource_manager()
+        .await
+        .get_existing_or_register(
+            &[&metadata],
+            epochs_ahead,
+            BlobPersistence::Permanent,
+            StoreWhen::NotStored,
+        )
+        .await?
+        .into_iter()
+        .map(|(blob, _)| blob.blob_id)
+        .next()
+        .expect("should have registered blob");
+
+    Ok(blob_id)
+}
+
+async fn store_blob(
+    client: &WithTempDir<Client<SuiContractClient>>,
+    blob: &[u8],
+    epochs_ahead: EpochCount,
+) -> TestResult<BlobId> {
+    let result = client
+        .inner
+        .reserve_and_store_blobs(
+            &[blob],
+            epochs_ahead,
+            StoreWhen::NotStored,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    let blob_id = result
+        .into_iter()
+        .next()
+        .expect("should have one blob store result")
+        .blob_id()
+        .to_owned();
+    Ok(blob_id)
+}
+
 /// Tests that blobs can be extended when possible.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
@@ -390,11 +457,16 @@ async fn test_store_with_existing_blobs() -> TestResult {
 
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
-    let blob_data = walrus_test_utils::random_data_list(31415, 4);
+    let blob_data = walrus_test_utils::random_data_list(31415, 5);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
 
-    // Now ask the client to store again.
-    let _ = client
+    // Register a list of new blobs.
+    let reuse_blob_id = register_blobs(&client, blobs[0], 40).await?;
+    let certify_and_extend_blob_id = register_blobs(&client, blobs[1], 10).await?;
+    let already_certified_blob_id = store_blob(&client, blobs[2], 50).await?;
+    let extended_blob_id = store_blob(&client, blobs[3], 20).await?;
+
+    let store_results = client
         .inner
         .reserve_and_store_blobs(
             &blobs,
@@ -403,33 +475,40 @@ async fn test_store_with_existing_blobs() -> TestResult {
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?
-        .into_iter()
-        .map(|blob_store_result| match blob_store_result {
-            BlobStoreResult::NewlyCreated { blob_object, .. } => (blob_object.blob_id, blob_object),
-            _ => panic!("the client should be able to store the blob"),
-        })
-        .collect::<HashMap<_, _>>();
-
-    // Now ask the client to store again.
-    let extended_blobs = client
-        .inner
-        .reserve_and_store_blobs(
-            &blobs,
-            50,
-            StoreWhen::NotStored,
-            BlobPersistence::Permanent,
-            PostStoreAction::Keep,
-        )
-        .await?
-        .into_iter()
-        .map(|blob_store_result| match blob_store_result {
-            BlobStoreResult::Extended { blob_id, end_epoch } => (blob_id, end_epoch),
-            other => panic!("the client should be able to store the blob: {:?}", other),
-        })
-        .collect::<HashMap<_, _>>();
-
-    assert_eq!(extended_blobs.len(), blobs.len());
+        .await?;
+    for result in store_results {
+        if result.blob_id() == &reuse_blob_id {
+            tracing::info!("reuse result: {:?}", result);
+            assert!(matches!(
+                result,
+                BlobStoreResult::NewlyCreated{blob_object:_, resource_operation, ..
+                } if resource_operation.is_reuse_registration()));
+        } else if result.blob_id() == &certify_and_extend_blob_id {
+            tracing::info!("certify and extend result: {:?}", result);
+            assert!(matches!(result, BlobStoreResult::NewlyCreated {
+                resource_operation,
+                ..
+            } if resource_operation.is_certify_and_extend()
+            ));
+        } else if result.blob_id() == &already_certified_blob_id {
+            tracing::info!("already certified result: {:?}", result);
+            assert!(matches!(result, BlobStoreResult::AlreadyCertified { .. }));
+        } else if result.blob_id() == &extended_blob_id {
+            tracing::info!("extended result: {:?}", result);
+            assert!(matches!(result, BlobStoreResult::NewlyCreated {
+                resource_operation,
+                ..
+            } if resource_operation.is_extend()
+            ));
+        } else {
+            tracing::info!("newly created result: {:?}", result);
+            assert!(matches!(result, BlobStoreResult::NewlyCreated {
+                resource_operation,
+                ..
+            } if resource_operation.is_registration()
+            ));
+        }
+    }
 
     Ok(())
 }
@@ -756,13 +835,18 @@ async fn test_multiple_stores_same_blob() -> TestResult {
         let store_result = results.first().expect("should have one blob store result");
 
         match store_result {
-            BlobStoreResult::NewlyCreated { .. } => {
-                assert!(!is_already_certified, "the blob should be newly stored");
+            BlobStoreResult::NewlyCreated {
+                blob_object: _,
+                resource_operation,
+                ..
+            } => {
+                assert_eq!(
+                    resource_operation.is_extend(),
+                    is_already_certified,
+                    "the blob should be newly stored"
+                );
             }
             BlobStoreResult::AlreadyCertified { .. } => {
-                assert!(is_already_certified, "the blob should be already stored");
-            }
-            BlobStoreResult::Extended { .. } => {
                 assert!(is_already_certified, "the blob should be already stored");
             }
             other => panic!(

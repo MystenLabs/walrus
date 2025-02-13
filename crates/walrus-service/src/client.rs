@@ -627,12 +627,18 @@ impl Client<SuiContractClient> {
         let mut noop_results: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut extended_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
+        let mut certify_and_extend_blobs_and_ops: Vec<_> =
+            Vec::with_capacity(store_operations.len());
         store_operations
             .into_iter()
             .for_each(|store_op| match store_op {
                 StoreOp::NoOp(result) => noop_results.push(result),
                 StoreOp::RegisterNew { blob, operation } => {
-                    new_blobs_and_ops.push((blob, operation))
+                    if operation.is_certify_and_extend() {
+                        certify_and_extend_blobs_and_ops.push((blob, operation));
+                    } else {
+                        new_blobs_and_ops.push((blob, operation));
+                    }
                 }
                 StoreOp::Extend {
                     blob,
@@ -642,7 +648,7 @@ impl Client<SuiContractClient> {
             });
 
         let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
-        for (blob, encoded_length, epochs_ahead) in extended_blobs_and_ops {
+        for (mut blob, encoded_length, epochs_delta) in extended_blobs_and_ops {
             if blob.certified_epoch.is_none() {
                 return Err(ClientError::from(ClientErrorKind::Other(
                     "attempting to extend lifetime of an uncertified blob".into(),
@@ -653,13 +659,18 @@ impl Client<SuiContractClient> {
                 .price_computation
                 .operation_cost(&RegisterBlobOp::ReuseAndExtend {
                     encoded_length,
-                    epochs_ahead,
+                    epochs_ahead: epochs_delta,
                 });
+            assert_ne!(
+                blob.storage.end_epoch,
+                blob.storage.end_epoch + epochs_delta
+            );
+            blob.storage.end_epoch += epochs_delta;
             extended_results.push(BlobStoreResult::NewlyCreated {
                 blob_object: blob,
                 resource_operation: RegisterBlobOp::ReuseAndExtend {
                     encoded_length,
-                    epochs_ahead,
+                    epochs_ahead: epochs_delta,
                 },
                 cost,
                 shared_blob_object: None,
@@ -676,18 +687,34 @@ impl Client<SuiContractClient> {
 
         // Get certificates for all new blobs.
         let committees = self.committees.read().await;
+        let certfiy_blobs = new_blobs_and_ops
+            .clone()
+            .into_iter()
+            .chain(certify_and_extend_blobs_and_ops.clone().into_iter())
+            .collect::<Vec<_>>();
         let blobs_with_certificates = self
             .get_all_blob_certificates(
-                &new_blobs_and_ops,
+                &certfiy_blobs,
                 &blob_id_to_metadata_with_status,
                 &committees,
             )
             .await?;
+        let blobs_with_cert_and_extend: Vec<(&Blob, ConfirmationCertificate, Option<EpochCount>)> =
+            blobs_with_certificates
+                .into_iter()
+                .map(|(blob, cert)| {
+                    let epochs_ahead = certify_and_extend_blobs_and_ops
+                        .iter()
+                        .find(|(b, _)| b.blob_id == blob.blob_id)
+                        .map(|(_, _)| epochs_ahead);
+                    (blob, cert, epochs_ahead)
+                })
+                .collect();
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
         let shared_blob_object_map = self
             .sui_client
-            .certify_blobs(&blobs_with_certificates, post_store)
+            .certify_and_extend_blobs(&blobs_with_cert_and_extend, post_store)
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, "failed to certify blobs on Sui");
@@ -696,7 +723,7 @@ impl Client<SuiContractClient> {
         tracing::info!(
             duration = ?sui_cert_timer.elapsed(),
             "certified {} blobs on Sui",
-            blobs_with_certificates.len()
+            blobs_with_cert_and_extend.len()
         );
 
         // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
@@ -717,10 +744,21 @@ impl Client<SuiContractClient> {
             })
             .collect();
 
+        let cert_and_extend_results: Vec<_> = certify_and_extend_blobs_and_ops
+            .into_iter()
+            .map(|(blob, op)| BlobStoreResult::NewlyCreated {
+                cost: self.price_computation.operation_cost(&op),
+                resource_operation: op,
+                shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                blob_object: blob,
+            })
+            .collect();
+
         Ok(newly_created_results
             .into_iter()
             .chain(noop_results.into_iter())
             .chain(extended_results.into_iter())
+            .chain(cert_and_extend_results.into_iter())
             .collect())
     }
 
@@ -873,7 +911,9 @@ impl Client<SuiContractClient> {
                 // If the blob is not certified, we need to store the slivers. Also, during
                 // epoch change we may need to store the slivers again for an already certified
                 // blob, as the current committee may not have synced them yet.
-                if resource_operation.is_registration() && !blob_status.is_registered() {
+                if (resource_operation.is_registration() || resource_operation.is_reuse_storage())
+                    && !blob_status.is_registered()
+                {
                     tracing::debug!(
                         delay=?self.config.communication_config.registration_delay,
                         "waiting to ensure that all storage nodes have seen the registration"

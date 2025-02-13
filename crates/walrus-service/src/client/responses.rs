@@ -127,15 +127,6 @@ pub enum BlobStoreResult {
         #[schema(value_type = Option<ObjectIdSchema>)]
         shared_blob_object: Option<ObjectID>,
     },
-    /// The blob was extended in lifetime.
-    Extended {
-        /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
-        /// The number of epochs ahead.
-        #[schema(value_type = u64)]
-        end_epoch: Epoch,
-    },
     /// The blob is known to Walrus but was marked as invalid.
     ///
     /// This indicates a bug within the client, the storage nodes, or more than a third malicious
@@ -160,7 +151,6 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => blob_id,
-            Self::Extended { blob_id, .. } => blob_id,
         }
     }
 }

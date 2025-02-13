@@ -11636,6 +11636,7 @@ dependencies = [
  "indicatif",
  "prometheus",
  "reqwest",
+ "serde_json",
  "serde_yaml 0.9.34+deprecated",
  "sui-macros",
  "sui-protocol-config",
