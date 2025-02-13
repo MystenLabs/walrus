@@ -35,7 +35,7 @@ const MIN_STAKE: u64 = 0;
 
 /// Temporary upper limit for the number of storage nodes.
 /// TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
-const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 100;
+const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 111;
 
 /// The number of nodes from which a flat shards limit is applied.
 const MIN_NODES_FOR_SHARDS_LIMIT: u8 = 20;
@@ -764,6 +764,12 @@ public(package) fun calculate_rewards(
 ): u64 {
     assert!(self.pools.contains(node_id), EPoolNotFound);
     self.pools[node_id].calculate_rewards(staked_principal, activation_epoch, withdraw_epoch)
+}
+
+// === Upgrade ===
+
+public(package) fun migrate(self: &mut StakingInnerV1) {
+    self.active_set.borrow_mut().set_max_size(TEMP_ACTIVE_SET_SIZE_LIMIT);
 }
 
 // === Internal ===

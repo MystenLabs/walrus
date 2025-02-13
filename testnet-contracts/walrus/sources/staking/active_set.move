@@ -127,6 +127,11 @@ public(package) fun remove(set: &mut ActiveSet, node_id: ID) {
     });
 }
 
+/// Sets the maximum size of the active set.
+public(package) fun set_max_size(set: &mut ActiveSet, max_size: u16) {
+    set.max_size = max_size;
+}
+
 /// The maximum size of the active set.
 public(package) fun max_size(set: &ActiveSet): u16 { set.max_size }
 
