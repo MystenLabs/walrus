@@ -199,11 +199,11 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                         ?timer_interval,
                         "auto-refreshing the active committee"
                     );
-                    self.refresh().await.unwrap_or_else(|error| {
+                    let _ = self.refresh().await.inspect_err(|error| {
                         tracing::error!(
-                            "failed to refresh the active committee: {:?}; \
+                            %error,
+                            "failed to refresh the active committee; \
                             retrying again at the next interval",
-                            error
                         )
                     });
                 }
@@ -213,11 +213,11 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                             "received a request"
                         );
                         if request.is_refresh() {
-                            self.refresh_if_stale().await.unwrap_or_else(|error| {
+                            let _ = self.refresh_if_stale().await.inspect_err(|error| {
                                 tracing::error!(
-                                    "failed to refresh the active committee: {:?}; \
+                                    %error,
+                                    "failed to refresh the active committee; \
                                     retrying again at the next interval",
-                                    error
                                 )
                             });
                         }
