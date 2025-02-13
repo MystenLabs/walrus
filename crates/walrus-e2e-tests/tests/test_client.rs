@@ -389,7 +389,8 @@ async fn test_store_with_existing_blob_resource(
     Ok(())
 }
 
-async fn register_blobs(
+/// Register a blob and return the blob id.
+async fn register_blob(
     client: &WithTempDir<Client<SuiContractClient>>,
     blob: &[u8],
     epochs_ahead: EpochCount,
@@ -425,6 +426,7 @@ async fn register_blobs(
     Ok(blob_id)
 }
 
+/// Store a blob and return the blob id.
 async fn store_blob(
     client: &WithTempDir<Client<SuiContractClient>>,
     blob: &[u8],
@@ -440,13 +442,13 @@ async fn store_blob(
             PostStoreAction::Keep,
         )
         .await?;
-    let blob_id = result
+
+    Ok(result
         .into_iter()
         .next()
         .expect("should have one blob store result")
         .blob_id()
-        .to_owned();
-    Ok(blob_id)
+        .to_owned())
 }
 
 /// Tests that blobs can be extended when possible.
@@ -460,48 +462,91 @@ async fn test_store_with_existing_blobs() -> TestResult {
     let blob_data = walrus_test_utils::random_data_list(31415, 5);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
 
-    // Register a list of new blobs.
-    let reuse_blob_id = register_blobs(&client, blobs[0], 40).await?;
-    let certify_and_extend_blob_id = register_blobs(&client, blobs[1], 10).await?;
-    let already_certified_blob_id = store_blob(&client, blobs[2], 50).await?;
-    let extended_blob_id = store_blob(&client, blobs[3], 20).await?;
+    // Initial setup, with blobs in different states, the names indicate the later outcome
+    // of a following store operation.
+    let reuse_blob = register_blob(&client, blobs[0], 40).await?;
+    let certify_and_extend_blob = register_blob(&client, blobs[1], 10).await?;
+    let already_certified_blob = store_blob(&client, blobs[2], 50).await?;
+    let extended_blob = store_blob(&client, blobs[3], 20).await?;
 
-    let store_results = client
+    let epoch = client.as_ref().sui_client().current_epoch().await?;
+    let epochs_ahead = 30;
+    let store_results: Vec<BlobStoreResult> = client
         .inner
         .reserve_and_store_blobs(
             &blobs,
-            30,
+            epochs_ahead,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
         .await?;
     for result in store_results {
-        if result.blob_id() == &reuse_blob_id {
+        if result.blob_id() == &reuse_blob {
+            tracing::info!("reuse_blob: {:?}", result);
             assert!(matches!(
-                result,
+                &result,
                 BlobStoreResult::NewlyCreated{blob_object:_, resource_operation, ..
                 } if resource_operation.is_reuse_registration()));
-        } else if result.blob_id() == &certify_and_extend_blob_id {
-            assert!(matches!(result, BlobStoreResult::NewlyCreated {
-                resource_operation,
-                ..
-            } if resource_operation.is_certify_and_extend()
+            assert!(
+                result
+                    .end_epoch()
+                    .is_some_and(|end| end >= epoch + epochs_ahead),
+                "end_epoch should exist and be at least epoch + epochs_ahead {}, {} {}",
+                epoch,
+                epochs_ahead,
+                result.end_epoch().unwrap_or(0)
+            );
+        } else if result.blob_id() == &certify_and_extend_blob {
+            assert!(matches!(
+                &result,
+                BlobStoreResult::NewlyCreated {
+                    resource_operation,
+                    ..
+                } if resource_operation.is_certify_and_extend()
             ));
-        } else if result.blob_id() == &already_certified_blob_id {
-            assert!(matches!(result, BlobStoreResult::AlreadyCertified { .. }));
-        } else if result.blob_id() == &extended_blob_id {
-            assert!(matches!(result, BlobStoreResult::NewlyCreated {
-                resource_operation,
+            assert!(
+                result
+                    .end_epoch()
+                    .is_some_and(|end| end == epoch + epochs_ahead),
+                "end_epoch should exist and be equal to epoch + epochs_ahead"
+            );
+        } else if result.blob_id() == &already_certified_blob {
+            assert!(matches!(&result, BlobStoreResult::AlreadyCertified { .. }));
+            assert!(
+                result
+                    .end_epoch()
+                    .is_some_and(|end| end >= epoch + epochs_ahead),
+                "end_epoch should exist and be at least epoch + epochs_ahead"
+            );
+        } else if result.blob_id() == &extended_blob {
+            assert!(matches!(
+                &result,
+                BlobStoreResult::NewlyCreated {
+                    resource_operation,
                 ..
             } if resource_operation.is_extend()
             ));
+            assert!(
+                result
+                    .end_epoch()
+                    .is_some_and(|end| end == epoch + epochs_ahead),
+                "end_epoch should exist and be equal to epoch + epochs_ahead"
+            );
         } else {
-            assert!(matches!(result, BlobStoreResult::NewlyCreated {
-                resource_operation,
-                ..
-            } if resource_operation.is_registration()
+            assert!(matches!(
+                &result,
+                BlobStoreResult::NewlyCreated {
+                    resource_operation,
+                    ..
+                } if resource_operation.is_registration()
             ));
+            assert!(
+                result
+                    .end_epoch()
+                    .is_some_and(|end| end == epoch + epochs_ahead),
+                "end_epoch should exist and be equal to epoch + epochs_ahead"
+            );
         }
     }
 
@@ -1152,6 +1197,9 @@ async fn test_post_store_action(
         .owned_blobs(Some(target_address), ExpirySelectionPolicy::Valid)
         .await?;
     assert_eq!(target_address_blobs.len(), n_target_blobs);
+    for result in &results {
+        println!("test_post_store_action result: {:?}", result);
+    }
 
     if post_store == PostStoreAction::Share {
         for result in results {

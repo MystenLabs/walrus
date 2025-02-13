@@ -972,36 +972,15 @@ impl SuiContractClientInner {
         }
 
         // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-        let object_ids = get_created_sui_object_ids_by_type(
+        self.create_blob_id_to_shared_mapping(
             &res,
-            &contracts::shared_blob::SharedBlob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
-        )?;
-        ensure!(
-            object_ids.len() == blobs_with_certificates.len(),
-            "unexpected number of shared blob objects created: {} (expected {})",
-            object_ids.len(),
-            blobs_with_certificates.len()
-        );
-
-        // If there is only one blob, we can directly return the mapping.
-        if object_ids.len() == 1 {
-            Ok(HashMap::from([(
-                blobs_with_certificates[0].0.blob_id,
-                object_ids[0],
-            )]))
-        } else {
-            // Fetch all SharedBlob objects and collect them as a mapping blob id
-            // to shared blob object id.
-            let shared_blobs = self
-                .sui_client()
-                .get_sui_objects::<SharedBlob>(&object_ids)
-                .await?;
-            Ok(shared_blobs
-                .into_iter()
-                .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
-                .collect())
-        }
+            blobs_with_certificates
+                .iter()
+                .map(|(blob, _)| blob.blob_id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await
     }
 
     /// Certifies the specified event blob on Sui, with the given metadata and epoch.
@@ -1672,23 +1651,51 @@ impl SuiContractClientInner {
             return Ok(HashMap::new());
         }
 
-        let object_ids = get_created_sui_object_ids_by_type(
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        self.create_blob_id_to_shared_mapping(
             &res,
+            blobs_with_certificates
+                .iter()
+                .map(|(blob, _, _)| blob.blob_id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await
+    }
+
+    /// Helper function to create a mapping from blob IDs to shared blob object IDs.
+    async fn create_blob_id_to_shared_mapping(
+        &self,
+        res: &SuiTransactionBlockResponse,
+        blobs_ids: &[BlobId],
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+        let object_ids = get_created_sui_object_ids_by_type(
+            res,
             &contracts::shared_blob::SharedBlob
                 .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
         )?;
         ensure!(
-            object_ids.len() == blobs_with_certificates.len(),
+            object_ids.len() == blobs_ids.len(),
             "unexpected number of shared blob objects created: {} (expected {})",
             object_ids.len(),
-            blobs_with_certificates.len()
+            blobs_ids.len()
         );
 
-        Ok(blobs_with_certificates
-            .iter()
-            .zip(object_ids)
-            .map(|((blob, _, _), obj_id)| (blob.blob_id, obj_id))
-            .collect())
+        // If there is only one blob, we can directly return the mapping
+        if object_ids.len() == 1 {
+            Ok(HashMap::from([(blobs_ids[0], object_ids[0])]))
+        } else {
+            // Fetch all SharedBlob objects and collect them as a mapping blob id
+            // to shared blob object id
+            let shared_blobs = self
+                .sui_client()
+                .get_sui_objects::<SharedBlob>(&object_ids)
+                .await?;
+            Ok(shared_blobs
+                .into_iter()
+                .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
+                .collect())
+        }
     }
 }
 

@@ -382,13 +382,13 @@ components:
             description: The blob was already certified, but its lifetime is too short.
             required:
             - encoded_length
-            - epochs_ahead
+            - epochs_extended
             properties:
               encoded_length:
                 type: integer
                 format: int64
                 minimum: 0
-              epochs_ahead:
+              epochs_extended:
                 type: integer
                 format: int32
                 minimum: 0
@@ -406,13 +406,13 @@ components:
               the desired one.
             required:
             - encoded_length
-            - epochs_ahead
+            - epochs_extended
             properties:
               encoded_length:
                 type: integer
                 format: int64
                 minimum: 0
-              epochs_ahead:
+              epochs_extended:
                 type: integer
                 format: int32
                 minimum: 0

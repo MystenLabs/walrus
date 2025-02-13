@@ -643,12 +643,12 @@ impl Client<SuiContractClient> {
                 StoreOp::Extend {
                     blob,
                     encoded_length,
-                    epochs_ahead,
-                } => extended_blobs_and_ops.push((blob, encoded_length, epochs_ahead)),
+                    epochs_extended,
+                } => extended_blobs_and_ops.push((blob, encoded_length, epochs_extended)),
             });
 
         let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
-        for (mut blob, encoded_length, epochs_delta) in extended_blobs_and_ops {
+        for (mut blob, encoded_length, epochs_extended) in extended_blobs_and_ops {
             if blob.certified_epoch.is_none() {
                 return Err(ClientError::from(ClientErrorKind::Other(
                     "attempting to extend lifetime of an uncertified blob".into(),
@@ -659,18 +659,18 @@ impl Client<SuiContractClient> {
                 .price_computation
                 .operation_cost(&RegisterBlobOp::ReuseAndExtend {
                     encoded_length,
-                    epochs_ahead: epochs_delta,
+                    epochs_extended,
                 });
-            assert_ne!(
+            debug_assert_ne!(
                 blob.storage.end_epoch,
-                blob.storage.end_epoch + epochs_delta
+                blob.storage.end_epoch + epochs_extended
             );
-            blob.storage.end_epoch += epochs_delta;
+            blob.storage.end_epoch += epochs_extended;
             extended_results.push(BlobStoreResult::NewlyCreated {
                 blob_object: blob,
                 resource_operation: RegisterBlobOp::ReuseAndExtend {
                     encoded_length,
-                    epochs_ahead: epochs_delta,
+                    epochs_extended,
                 },
                 cost,
                 shared_blob_object: None,
