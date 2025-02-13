@@ -499,6 +499,7 @@ mod commands {
         admin_contract_client
             .migrate_contracts(new_package_id)
             .await?;
+        println!("Successfully upgraded the system contract:\npackage_id: {new_package_id}");
         Ok(())
     }
 }

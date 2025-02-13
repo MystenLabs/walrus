@@ -58,6 +58,7 @@ network=devnet
 shards=10 # Default value of 4 if no argument is provided
 tail_logs=false
 use_existing_config=false
+contract_dir="./contracts"
 
 while getopts "b:c:d:efhn:s:t" arg; do
   case "${arg}" in
@@ -81,6 +82,9 @@ while getopts "b:c:d:efhn:s:t" arg; do
       ;;
     b)
       backup_database_url=${OPTARG}
+      ;;
+    t)
+      contract_dir="./testnet-contracts"
       ;;
     h)
       usage
@@ -168,6 +172,7 @@ if ! $use_existing_config; then
     --storage-price 5 \
     --write-price 1 \
     --epoch-duration "$epoch_duration" \
+    --contract-dir "$contract_dir" \
     --with-wal-exchange
 
   # Generate configs

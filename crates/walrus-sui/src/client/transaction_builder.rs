@@ -236,9 +236,12 @@ impl WalrusPtbBuilder {
         function: FunctionTag<'_>,
         arguments: Vec<Argument>,
     ) -> SuiClientResult<Argument> {
-        tracing::info!("package_id: {:?}", package_id);
-        tracing::info!("function: {:?}", function);
-        tracing::info!("arguments: {:?}", arguments);
+        tracing::debug!(
+            package_id = package_id.to_canonical_string(true),
+            ?function,
+            ?arguments,
+            "move call"
+        );
         Ok(self.pt_builder.programmable_move_call(
             package_id,
             Identifier::from_str(function.module)?,
