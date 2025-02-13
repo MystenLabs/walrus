@@ -77,9 +77,7 @@ impl CommitteesRefreshConfig {
         let (mut refresher, handle) = self.build_refresher_and_handle(sui_client).await?;
 
         tokio::spawn(async move {
-            if let Err(e) = refresher.run().await {
-                tracing::error!("failed to run the committee refresher: {:?}", e);
-            }
+            refresher.run().await;
         });
 
         Ok(handle)
@@ -183,7 +181,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
     }
 
     /// Runs the refresher cache.
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) {
         loop {
             let timer_interval = self.next_refresh_interval();
             tokio::select! {
@@ -201,27 +199,40 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                         ?timer_interval,
                         "auto-refreshing the active committee"
                     );
-                    self.refresh().await?;
+                    self.refresh().await.unwrap_or_else(|error| {
+                        tracing::error!(
+                            "failed to refresh the active committee: {:?}; \
+                            retrying again at the next interval",
+                            error
+                        )
+                    });
                 }
                 request = self.req_rx.recv() => {
                     if let Some(request) = request {
-                    tracing::trace!(
-                        "received a request"
-                    );
-                    if request.is_refresh() {
-                        self.refresh_if_stale().await?;
-                    }
-                    let _ = request
-                        .into_reply_channel()
-                        .send((
-                            self.last_committees.clone(),
-                            self.last_price_computation.clone(),
-                        ))
-                        .inspect_err(|_| {
-                            // This may happen because the client was notified of a committee
-                            // change, and therefore the receiver end of the channel was dropped.
-                            tracing::info!("failed to send the committee and price")
-                        });
+                        tracing::trace!(
+                            "received a request"
+                        );
+                        if request.is_refresh() {
+                            self.refresh_if_stale().await.unwrap_or_else(|error| {
+                                tracing::error!(
+                                    "failed to refresh the active committee: {:?}; \
+                                    retrying again at the next interval",
+                                    error
+                                )
+                            });
+                        }
+                        let _ = request
+                            .into_reply_channel()
+                            .send((
+                                self.last_committees.clone(),
+                                self.last_price_computation.clone(),
+                            ))
+                            .inspect_err(|_| {
+                                // This may happen because the client was notified of a committee
+                                // change, and therefore the receiver end of the channel was
+                                // dropped.
+                                tracing::info!("failed to send the committee and price")
+                            });
                     } else {
                         tracing::info!("the channel is closed, stopping the refresher");
                         break;
@@ -229,8 +240,6 @@ impl<T: ReadClient> CommitteesRefresher<T> {
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Refreshes the data in the cache if the last refresh is older than the refresh interval.
