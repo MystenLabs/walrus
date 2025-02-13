@@ -21,7 +21,7 @@ use super::{
     NodeStatus,
     StorageNodeInner,
 };
-use crate::node::{errors::ShardNotAssigned, metrics, storage::blob_info::BlobInfoApi};
+use crate::node::{errors::ShardNotAssigned, storage::blob_info::BlobInfoApi};
 
 /// Manages tasks for syncing shards during epoch change.
 #[derive(Debug, Clone)]
@@ -334,7 +334,7 @@ impl ShardSyncHandler {
                     return false;
                 };
 
-                metrics::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
+                walrus_utils::with_label!(node_clone.metrics.shard_sync_total, "start").inc();
                 let recover_shard = *directly_recover_shard.lock().await;
                 let sync_result = shard_storage
                     .start_sync_shard_before_epoch(
@@ -346,7 +346,8 @@ impl ShardSyncHandler {
                     .await;
                 match sync_result {
                     Ok(_) => {
-                        metrics::with_label!(node_clone.metrics.shard_sync_total, "complete").inc();
+                        walrus_utils::with_label!(node_clone.metrics.shard_sync_total, "complete")
+                            .inc();
                         tracing::info!(
                             walrus.shard_index = %shard_index,
                             "successfully synced shard to before epoch {}",
@@ -356,7 +357,8 @@ impl ShardSyncHandler {
                     }
 
                     Err(error) => {
-                        metrics::with_label!(node_clone.metrics.shard_sync_total, "error").inc();
+                        walrus_utils::with_label!(node_clone.metrics.shard_sync_total, "error")
+                            .inc();
                         tracing::error!(
                             ?error,
                             "failed to sync {shard_index} to before epoch {current_epoch}"

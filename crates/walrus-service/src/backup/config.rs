@@ -16,7 +16,7 @@ use crate::{
 /// The subdirectory in which to store the backup blobs when running without remote storage.
 pub const BACKUP_BLOB_ARCHIVE_SUBDIR: &str = "archive";
 
-/// Configuration of a Walrus backup node.
+/// Configuration of a Walrus backup node used for serialization and deserialization.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BackupConfig {
@@ -40,7 +40,7 @@ pub struct BackupConfig {
     /// Database URL.
     ///
     /// URL of the PostgreSQL database used to manage blob backup state and event stream progress.
-    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    #[serde(default = "defaults::database_url_from_env_var")]
     pub database_url: String,
     /// Maximum number of retries allowed per blob.
     ///
@@ -64,10 +64,17 @@ pub struct BackupConfig {
         default = "defaults::idle_fetcher_sleep_time"
     )]
     pub idle_fetcher_sleep_time: Duration,
+    /// How long to sleep between PostgreSQL serializable transaction retries.
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(
+        rename = "db_serializability_retry_time_milliseconds",
+        default = "defaults::db_serializability_retry_time"
+    )]
+    pub db_serializability_retry_time: Duration,
 }
 
 impl BackupConfig {
-    /// Creates a new `BackupConfig` with default values for all optional fields.
+    /// Creates a new `BackupConfigSpec` with default values for all optional fields.
     pub fn new_with_defaults(
         backup_storage_path: PathBuf,
         sui: SuiReaderConfig,
@@ -83,6 +90,7 @@ impl BackupConfig {
             max_retries_per_blob: defaults::max_retries_per_blob(),
             retry_fetch_after_interval: defaults::retry_fetch_after_interval(),
             idle_fetcher_sleep_time: defaults::idle_fetcher_sleep_time(),
+            db_serializability_retry_time: defaults::db_serializability_retry_time(),
         }
     }
 }
@@ -113,7 +121,6 @@ pub mod defaults {
     pub fn max_retries_per_blob() -> u32 {
         25
     }
-
     /// The default interval between retries for any specific blob.
     ///
     /// Explanation of the 45 minute interval:
@@ -130,5 +137,14 @@ pub mod defaults {
     /// Note that there are likely to be many fetchers running simultaneously.
     pub fn idle_fetcher_sleep_time() -> Duration {
         Duration::from_secs(1)
+    }
+    /// Returns the database URL from the `DATABASE_URL` environment variable. Fails hard if it
+    /// can't find it to ensure there is always a database_url.
+    pub fn database_url_from_env_var() -> String {
+        std::env::var("DATABASE_URL").expect("missing DATABASE_URL env var")
+    }
+    /// Default wait time between PostgreSQL serializability error retries.
+    pub fn db_serializability_retry_time() -> Duration {
+        Duration::from_millis(100)
     }
 }

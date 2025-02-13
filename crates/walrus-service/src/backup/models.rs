@@ -1,7 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Result;
 use diesel::{
     ExpressionMethods,
     Insertable,
@@ -34,8 +33,8 @@ impl StreamEvent {
         event_index: u64,
         element_index: u64,
         element: &EventStreamElement,
-    ) -> Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             element_index: element_index.try_into().expect("element_index overflow"),
             checkpoint_sequence_number: checkpoint_event_position
                 .checkpoint_sequence_number
@@ -47,8 +46,8 @@ impl StreamEvent {
                 .expect("counter overflow"),
             transaction_digest: transaction_digest.into(),
             event_index: event_index.try_into().expect("event_index overflow"),
-            element: serde_json::to_value(element)?,
-        })
+            element: serde_json::to_value(element).expect("failed to deserialize JSON"),
+        }
     }
 }
 

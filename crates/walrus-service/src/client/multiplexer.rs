@@ -4,7 +4,7 @@
 //! A client mulitplexer, that allows to submit requests using multiple clients in the background.
 
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -39,7 +39,7 @@ use super::{
     ClientResult,
     StoreWhen,
 };
-use crate::client::{refill::should_refill, Config};
+use crate::client::{refill::should_refill, CommitteesRefresherHandle, Config};
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
@@ -62,7 +62,18 @@ impl ClientMultiplexer {
 
         let sui_client = contract_client.sui_client().clone();
         let sui_read_client = (*contract_client.read_client).clone();
-        let read_client = Client::new_read_client(config.clone(), sui_read_client).await?;
+
+        // Start the refresher here, so that all the clients can share it.
+        let refresh_handle = config
+            .refresh_config
+            .build_refresher_and_run(sui_read_client.clone())
+            .await?;
+        let read_client = Client::new_read_client(
+            config.clone(),
+            refresh_handle.clone(),
+            sui_read_client.clone(),
+        )
+        .await?;
 
         let refiller = Refiller::new(
             contract_client,
@@ -72,13 +83,16 @@ impl ClientMultiplexer {
         );
 
         let client_pool = WriteClientPool::new(
-            args.n_clients,
             config,
-            sui_env,
-            gas_budget,
-            &args.sub_wallets_dir,
+            WriteClientPoolConfig::new(
+                args.n_clients,
+                sui_env,
+                gas_budget,
+                args.sub_wallets_dir.clone(),
+                args.sub_wallets_min_balance,
+            ),
             &refiller,
-            args.sub_wallets_min_balance,
+            refresh_handle.clone(),
         )
         .await?;
 
@@ -133,10 +147,6 @@ impl WalrusReadClient for ClientMultiplexer {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         WalrusReadClient::read_blob(&self.read_client, blob_id).await
     }
-
-    fn set_metric_registry(&mut self, registry: &Registry) {
-        self.read_client.set_metric_registry(registry);
-    }
 }
 
 impl WalrusWriteClient for ClientMultiplexer {
@@ -157,6 +167,33 @@ impl WalrusWriteClient for ClientMultiplexer {
     }
 }
 
+/// The configuration for a [`WriteClientPool`].
+pub struct WriteClientPoolConfig {
+    n_clients: usize,
+    sui_env: SuiEnv,
+    gas_budget: Option<u64>,
+    sub_wallets_dir: PathBuf,
+    min_balance: u64,
+}
+
+impl WriteClientPoolConfig {
+    pub fn new(
+        n_clients: usize,
+        sui_env: SuiEnv,
+        gas_budget: Option<u64>,
+        sub_wallets_dir: PathBuf,
+        min_balance: u64,
+    ) -> Self {
+        Self {
+            n_clients,
+            sui_env,
+            gas_budget,
+            sub_wallets_dir,
+            min_balance,
+        }
+    }
+}
+
 /// A pool of temporary write clients that are rotated.
 pub struct WriteClientPool {
     pool: Vec<Arc<Client<SuiContractClient>>>,
@@ -166,24 +203,22 @@ pub struct WriteClientPool {
 impl WriteClientPool {
     /// Creates a new client pool with `n_client`, based on the given `config` and `sui_env`.
     pub async fn new(
-        n_clients: usize,
         config: &Config,
-        sui_env: SuiEnv,
-        gas_budget: Option<u64>,
-        sub_wallets_dir: &Path,
+        pool_config: WriteClientPoolConfig,
         refiller: &Refiller,
-        min_balance: u64,
+        refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<Self> {
-        tracing::info!(%n_clients, "creating write client pool");
+        tracing::info!(%pool_config.n_clients, "creating write client pool");
+
         let pool = SubClientLoader::new(
             config,
-            sub_wallets_dir,
-            sui_env,
-            gas_budget,
+            &pool_config.sub_wallets_dir,
+            pool_config.sui_env,
+            pool_config.gas_budget,
             refiller,
-            min_balance,
+            pool_config.min_balance,
         )
-        .create_or_load_sub_clients(n_clients)
+        .create_or_load_sub_clients(pool_config.n_clients, refresh_handle)
         .await?;
 
         Ok(Self {
@@ -247,10 +282,14 @@ impl<'a> SubClientLoader<'a> {
     async fn create_or_load_sub_clients(
         &self,
         n_clients: usize,
+        refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<Vec<Arc<Client<SuiContractClient>>>> {
         let mut clients = Vec::with_capacity(n_clients);
+
         for idx in 0..n_clients {
-            let client = self.create_or_load_sub_client(idx).await?;
+            let client = self
+                .create_or_load_sub_client(idx, refresh_handle.clone())
+                .await?;
             clients.push(Arc::new(client));
         }
 
@@ -261,6 +300,7 @@ impl<'a> SubClientLoader<'a> {
     async fn create_or_load_sub_client(
         &self,
         sub_wallet_idx: usize,
+        refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<Client<SuiContractClient>> {
         let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx)?;
         self.top_up_if_necessary(&mut wallet, self.min_balance)
@@ -273,7 +313,9 @@ impl<'a> SubClientLoader<'a> {
         // Merge existing coins to avoid fragmentation.
         sui_client.merge_coins().await?;
 
-        Ok(Client::new_contract_client(self.config.clone(), sui_client).await?)
+        let client =
+            Client::new_contract_client(self.config.clone(), refresh_handle, sui_client).await?;
+        Ok(client)
     }
 
     /// Creates or loads a new wallet to use with the multiplexer.

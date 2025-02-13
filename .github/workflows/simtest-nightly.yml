@@ -1,0 +1,164 @@
+name: Simtest Nightly
+
+concurrency:
+  group: ${{ github.workflow }}
+
+on:
+  schedule:
+    - cron: "0 21 * * *" # equivalent to 1pm PST
+  workflow_dispatch:
+    inputs:
+      walrus_ref:
+        description: "Branch / commit to test"
+        type: string
+        required: true
+        default: main
+      test_num:
+        description: "MSIM_TEST_NUM (test iterations)"
+        type: string
+        required: false
+        default: "30"
+
+env:
+  WALRUS_REF: "${{ github.event.inputs.walrus_ref || 'main' }}"
+  TEST_NUM: "${{ github.event.inputs.test_num || '30' }}"
+
+jobs:
+  simtest:
+    # Allow running the job for up to 6 hours, maximum for GitHub Actions.
+    timeout-minutes: 360
+    permissions:
+      # The "id-token: write" permission is required or Machine ID will not be
+      # able to authenticate with the cluster.
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Teleport
+        uses: teleport-actions/setup@176c25dfcd19cd31a252f275d579822b243e7b9c # pin@v1.0.6
+        with:
+          version: 12.1.0
+      - name: Authorize against Teleport
+        id: auth
+        uses: teleport-actions/auth@9091dad16a564f3c5b9c2ec520b234a4872b6879 # pin@v1
+        with:
+          # Specify the publically accessible address of your Teleport proxy.
+          proxy: proxy.mysten-int.com:443
+          # Specify the name of the join token for your bot.
+          token: sui-simtest-token
+          # Specify the length of time that the generated credentials should be
+          # valid for. This is optional and defaults to "1h"
+          certificate-ttl: 2h
+
+      # Cargo clean and git restore on any left over files from git checkout, and deletes all remote tracking branches
+      # Note that we need to clear the ~/walrus_simtest_tmp directory because it is a tmpfs and will fill up pretty quickly
+      - name: Environment clean
+        run: |
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 \
+            "source ~/.bashrc && \
+            source ~/.cargo/env && \
+            rm -rf ~/walrus && \
+            rm -rf ~/walrus_simtest_tmp"
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 \
+            "source ~/.bashrc && \
+            source ~/.cargo/env && \
+            cd ~/ && \
+            git clone https://x-access-token:${{secrets.GITHUB_TOKEN}}@github.com/MystenLabs/walrus.git"
+
+      # Creating the ~/walrus_simtest_tmp directory to ensure that it exists.
+      # It is the tmpfs directory that is used for the simulator tests. When publishing contracts,
+      # it requires that the contracts must exist in the same file system as the simulator tests.
+      # Therefore, we cannot simply use the /tmp directory for the simulator tests.
+      - name: Creating the tmpfs directory and cleaning the cargo cache
+        run: |
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 "mkdir -p ~/walrus_simtest_tmp"
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 5 ssh ubuntu@simtest-01 \
+            "source ~/.bashrc && \
+            source ~/.cargo/env && \
+            cd ~/walrus && \
+            cargo clean"
+
+      # Checkout out the latest walrus repo
+      - name: Checkout walrus repo
+        run: |
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 10 ssh ubuntu@simtest-01 \
+            "source ~/.bashrc && \
+            source ~/.cargo/env && \
+            cd ~/walrus && \
+            git fetch origin && \
+            git checkout ${{ env.WALRUS_REF }}"
+
+      # Setting up cargo and simtest
+      - name: Install simtest
+        run: |
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 10 ssh ubuntu@simtest-01 \
+            "source ~/.bashrc && \
+            source ~/.cargo/env && \
+            cd ~/walrus && \
+            ./scripts/simtest/install.sh"
+
+      # Run simulator tests
+      - name: Run simtest
+        run: |
+          tsh -i ${{ steps.auth.outputs.identity-file }} --ttl 120 ssh ubuntu@simtest-01 "\
+            source ~/.bashrc && \
+            source ~/.cargo/env && \
+            cd ~/walrus && \
+            RUSTUP_MAX_RETRIES=10 \
+            CARGO_TERM_COLOR=always \
+            CARGO_INCREMENTAL=0 \
+            CARGO_NET_RETRY=10 \
+            RUST_BACKTRACE=short \
+            RUST_LOG=off \
+            NUM_CPUS=24 \
+            TEST_NUM=${{ env.TEST_NUM }} \
+            ./scripts/simtest/simtest-run.sh"
+
+  notify:
+    name: Notify
+    needs: [simtest]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' && failure()
+
+    steps:
+      - uses: technote-space/workflow-conclusion-action@45ce8e0eb155657ab8ccf346ade734257fd196a5 # Pin v4.1.1
+
+      - name: Checkout walrus repo main branch
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
+        with:
+          repository: MystenLabs/walrus
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get walrus commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          export walrus_sha=$(git rev-parse HEAD)
+          echo "walrus_sha=${walrus_sha}" >> $GITHUB_ENV
+
+      - name: Get link to logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh_job_link=$(gh api -X GET 'repos/MystenLabs/walrus/actions/runs/${{ github.run_id }}/jobs' --jq '.jobs.[0].html_url')
+          echo "gh_job_link=${gh_job_link}" >> $GITHUB_ENV
+
+      - name: Post to slack
+        uses: slackapi/slack-github-action@34c3fd73326693ef04728f8611669d918a2d781d # pin@v1.19.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          WALRUS_SHA: ${{ env.walrus_sha }}
+          GH_JOB_LINK: ${{ env.gh_job_link }}
+          SLACK_ID: ${{ env.slack_id }}
+        with:
+          channel-id: "walrus-simtest-nightly"
+          slack-message: |
+            :walrus_face::error-cross: *${{ github.workflow }}* workflow status: `${{ env.WORKFLOW_CONCLUSION }}`
+            Walrus commit: <https://github.com/MystenLabs/walrus/commit/${{ env.walrus_sha }}|${{ env.walrus_sha }}>
+            Run: <${{ env.GH_JOB_LINK }}|${{ github.run_id }}>
+            There were walrus simtest failures.
+            To investigate:
+              1. Run: `tsh ssh ubuntu@simtest-01`
+              2. Check logs in: `/home/ubuntu/walrus_simtest_logs/{date}`
+              3. Check the test results in: `/home/ubuntu/walrus_simtest_results/{date}`

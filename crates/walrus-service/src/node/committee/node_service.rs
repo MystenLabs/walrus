@@ -278,9 +278,9 @@ impl Service<Request> for RemoteStorageNode {
                     target_type,
                 } => client
                     .list_and_verify_recovery_symbols(
-                        &filter,
-                        &metadata,
-                        &encoding_config,
+                        filter,
+                        metadata.clone(),
+                        encoding_config.clone(),
                         target_index,
                         target_type,
                     )

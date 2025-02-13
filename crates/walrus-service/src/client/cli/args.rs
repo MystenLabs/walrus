@@ -170,6 +170,11 @@ pub enum CliCommands {
     ///
     /// If the `--force` flag is used, this operation always creates a new certification for the
     /// blob (possibly reusing storage resources or uncertified but registered blobs).
+    ///
+    /// The `--ignore-resources` flag can be used to ignore the storage resources owned by the
+    /// wallet and always purchase new storage resources, bypassing the need to check the owned
+    /// resources on chain. Using this flag could speed up the store operation in case there are
+    /// thousands of resources or blobs owned by the wallet.
     #[clap(alias("write"))]
     Store {
         /// The files containing the blob to be published to Walrus.
@@ -195,13 +200,19 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         force: bool,
+        /// Ignore the storage resources owned by the wallet.
+        ///
+        /// The client will not check if it can reuse existing resources, and just check the blob
+        /// status on chain.
+        #[clap(long, action)]
+        #[serde(default)]
+        ignore_resources: bool,
         /// Mark the blob as deletable.
         ///
         /// Deletable blobs can be removed from Walrus before their expiration time.
         #[clap(long, action)]
         #[serde(default)]
         deletable: bool,
-
         /// Whether to put the blob into a shared blob object.
         #[clap(long, action)]
         #[serde(default)]
@@ -343,7 +354,7 @@ pub enum CliCommands {
         /// If this is a single value, this amount is staked at all nodes. Otherwise, the number of
         /// values must be equal to the number of node IDs, and each amount is staked at the node
         /// with the same index.
-        #[clap(long, alias("amount"), default_value = "1000000000")]
+        #[clap(long, alias("amount"), num_args=1.., default_value = "1000000000")]
         #[serde(default = "default::staking_amounts_frost")]
         amounts: Vec<u64>,
     },
@@ -1134,6 +1145,7 @@ mod tests {
             },
             dry_run: false,
             force: false,
+            ignore_resources: false,
             deletable: false,
             share: false,
         })

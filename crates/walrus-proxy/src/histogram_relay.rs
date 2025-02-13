@@ -117,8 +117,8 @@ impl HistogramRelay {
     /// use for pruning old entries on each submission call. this may not be
     /// ideal long term.
     pub fn submit(&self, data: Vec<MetricFamily>) {
-        RELAY_PRESSURE.with_label_values(&["submit"]).inc();
-        let timer = RELAY_DURATION.with_label_values(&["submit"]).start_timer();
+        walrus_utils::with_label!(RELAY_PRESSURE, "submit").inc();
+        let timer = walrus_utils::with_label!(RELAY_DURATION, "submit").start_timer();
         //  represents a collection timestamp
         let timestamp_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -133,23 +133,21 @@ impl HistogramRelay {
             if (timestamp_secs - v.0) < var!("MAX_QUEUE_TIME_SECS", 300) {
                 return true;
             }
-            RELAY_PRESSURE.with_label_values(&["overflow"]).inc();
+            walrus_utils::with_label!(RELAY_PRESSURE, "overflow").inc();
             false
         }); // drain anything 5 mins or older
 
         // filter out our histograms from normal metrics
         let data: Vec<MetricFamily> = extract_histograms(data).collect();
-        RELAY_PRESSURE
-            .with_label_values(&["submitted"])
-            .inc_by(data.len() as f64);
+        walrus_utils::with_label!(RELAY_PRESSURE, "submitted").inc_by(data.len() as f64);
         queue.push_back(Wrapper(timestamp_secs, data));
         timer.observe_duration();
     }
     /// export drains our histogram registry from the nodes and exports it to a
     /// string format that we can send to mimir
     pub fn export(&self) -> Result<String> {
-        RELAY_PRESSURE.with_label_values(&["export"]).inc();
-        let timer = RELAY_DURATION.with_label_values(&["export"]).start_timer();
+        walrus_utils::with_label!(RELAY_PRESSURE, "export").inc();
+        let timer = walrus_utils::with_label!(RELAY_DURATION, "export").start_timer();
         // totally drain all metrics whenever we get a scrape request from the metrics
         // handler
         let mut queue = self
@@ -173,9 +171,7 @@ impl HistogramRelay {
             Ok(s) => s,
             Err(error) => bail!("{error}"),
         };
-        RELAY_PRESSURE
-            .with_label_values(&["exported"])
-            .inc_by(histograms.len() as f64);
+        walrus_utils::with_label!(RELAY_PRESSURE, "exported").inc_by(histograms.len() as f64);
         timer.observe_duration();
         Ok(string)
     }

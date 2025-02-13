@@ -223,6 +223,10 @@ pub enum ListSymbolsError {
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Last(#[from] RetrieveSymbolError),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Internal(#[from] InternalError),
 }
 
 #[derive(Debug, thiserror::Error, RestApiError)]

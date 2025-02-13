@@ -4,16 +4,18 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
+use move_package::BuildConfig as MoveBuildConfig;
 use retry_client::RetriableSuiClient;
+use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
+        get_new_package_obj_from_response,
         Coin,
         SuiExecutionStatus,
-        SuiObjectDataOptions,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
@@ -24,7 +26,7 @@ use sui_types::{
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, ProgrammableTransaction, TransactionData, TransactionKind},
+    transaction::{ProgrammableTransaction, TransactionData, TransactionKind},
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -43,6 +45,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     contracts,
+    system_setup::compile_package,
     types::{
         move_errors::{BlobError, MoveExecutionError},
         move_structs::{
@@ -50,6 +53,7 @@ use crate::{
             Blob,
             BlobAttribute,
             BlobWithAttribute,
+            EmergencyUpgradeCap,
             EpochState,
             SharedBlob,
             StorageNode,
@@ -580,6 +584,33 @@ impl SuiContractClient {
                 PoolOperationWithAuthorization::Governance,
                 authorized,
             )
+            .await
+    }
+
+    /// Performs an emergency upgrade.
+    ///
+    /// Returns the new package ID.
+    pub async fn emergency_upgrade(
+        &self,
+        upgrade_manager: ObjectID,
+        package_path: PathBuf,
+    ) -> SuiClientResult<ObjectID> {
+        self.inner
+            .lock()
+            .await
+            .emergency_upgrade(upgrade_manager, package_path)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after an upgrade is committed in a separate
+    /// transaction.
+    pub async fn migrate_contracts(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .migrate_contracts(new_package_id)
             .await
     }
 
@@ -1329,6 +1360,66 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    /// Performs an emergency upgrade.
+    ///
+    /// Returns the new package ID.
+    pub async fn emergency_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        package_path: PathBuf,
+    ) -> SuiClientResult<ObjectID> {
+        // Compile package
+        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        let (dependencies, compiled_package, build_config) =
+            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
+
+        let digest = compiled_package.get_package_digest(false);
+
+        let emergency_upgrade_cap: EmergencyUpgradeCap = self
+            .read_client
+            .get_owned_objects(self.wallet.active_address()?, &[])
+            .await?
+            .next()
+            .ok_or_else(|| anyhow!("no emergency upgrade capability found"))?;
+        let mut pt_builder = self.transaction_builder()?;
+
+        // Authorize the upgrade.
+        let upgrade_ticket_arg = pt_builder
+            .authorize_emergency_upgrade(upgrade_manager, emergency_upgrade_cap.id.into(), &digest)
+            .await?;
+
+        // Execute the upgrade.
+        let modules = compiled_package.get_package_bytes(false);
+        let upgrade_receipt_arg = pt_builder.upgrade(
+            self.read_client.get_system_package_id(),
+            upgrade_ticket_arg,
+            dependencies.published.into_values().collect(),
+            modules,
+        );
+
+        // Commit the upgrade
+        pt_builder
+            .commit_upgrade(upgrade_manager, upgrade_receipt_arg)
+            .await?;
+
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let response = self.sign_and_send_ptb(ptb).await?;
+        self.post_upgrade_lock_file_update(&response, build_config)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after an upgrade is committed in a separate
+    /// transaction.
+    pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.migrate_contracts(new_package_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
     async fn set_authorized_for_pool(
         &mut self,
         node_id: ObjectID,
@@ -1336,65 +1427,22 @@ impl SuiContractClientInner {
         authorized: Authorized,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        let authenticated_arg = self
-            .get_authenticated_arg_for_pool(&mut pt_builder, node_id, operation)
-            .await?;
         let authorized_arg = pt_builder.authorized_address_or_object(authorized)?;
         match operation {
             PoolOperationWithAuthorization::Commission => {
                 pt_builder
-                    .set_commission_receiver(node_id, authenticated_arg, authorized_arg)
+                    .set_commission_receiver(node_id, authorized_arg)
                     .await?;
             }
             PoolOperationWithAuthorization::Governance => {
                 pt_builder
-                    .set_governance_authorized(node_id, authenticated_arg, authorized_arg)
+                    .set_governance_authorized(node_id, authorized_arg)
                     .await?;
             }
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
-    }
-
-    /// Given the node ID, checks if the sender is authorized to perform the operation (either as
-    /// sender or by owning the corresponding object) and returns an `Authenticated` Move type as
-    /// result argument.
-    async fn get_authenticated_arg_for_pool(
-        &mut self,
-        pt_builder: &mut WalrusPtbBuilder,
-        node_id: ObjectID,
-        operation: PoolOperationWithAuthorization,
-    ) -> SuiClientResult<Argument> {
-        let pool = self.read_client.get_staking_pool(node_id).await?;
-        let authorized = match operation {
-            PoolOperationWithAuthorization::Commission => pool.commission_receiver,
-            PoolOperationWithAuthorization::Governance => pool.governance_authorized,
-        };
-        match authorized {
-            Authorized::Address(receiver) => {
-                ensure!(
-                    receiver == self.wallet.active_address()?,
-                    SuiClientError::NotAuthorizedForPool(node_id)
-                );
-                pt_builder.authenticate_sender()
-            }
-            Authorized::Object(receiver) => {
-                let object = self
-                    .sui_client()
-                    .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
-                    .await?;
-                ensure!(
-                    object
-                        .owner()
-                        .ok_or_else(|| anyhow!("no object owner returned from rpc"))?
-                        .get_owner_address()?
-                        == self.wallet.active_address()?,
-                    SuiClientError::NotAuthorizedForPool(node_id)
-                );
-                pt_builder.authenticate_with_object(receiver).await
-            }
-        }
     }
 
     /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with
@@ -1769,6 +1817,33 @@ impl SuiContractClientInner {
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
+    }
+
+    /// Updates the lock file after an upgrade and returns the new package ID.
+    async fn post_upgrade_lock_file_update(
+        &mut self,
+        response: &SuiTransactionBlockResponse,
+        build_config: MoveBuildConfig,
+    ) -> SuiClientResult<ObjectID> {
+        let new_package_id = get_new_package_obj_from_response(response)
+            .ok_or_else(|| {
+                anyhow!(
+                    "no new package ID found in the transaction response: {:?}",
+                    response
+                )
+            })?
+            .0;
+
+        // Update the lock file with the upgraded package info.
+        sui_package_management::update_lock_file(
+            &self.wallet,
+            LockCommand::Upgrade,
+            build_config.install_dir,
+            build_config.lock_file,
+            response,
+        )
+        .await?;
+        Ok(new_package_id)
     }
 }
 

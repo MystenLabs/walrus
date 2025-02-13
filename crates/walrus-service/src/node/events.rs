@@ -58,7 +58,7 @@ impl Default for EventProcessorConfig {
 
 /// The position of an event in the event stream. This is a combination of the sequence
 /// number of the Sui checkpoint the event belongs to and the index of the event in the checkpoint.
-#[derive(Eq, PartialEq, Default, Clone, Debug, Serialize, Deserialize)]
+#[derive(Eq, PartialEq, Default, Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct CheckpointEventPosition {
     /// The sequence number of the Sui checkpoint an event belongs to.
     pub checkpoint_sequence_number: CheckpointSequenceNumber,

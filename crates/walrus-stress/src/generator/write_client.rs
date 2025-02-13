@@ -10,7 +10,14 @@ use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
-use walrus_service::client::{Client, ClientError, Config, Refiller, StoreWhen};
+use walrus_service::client::{
+    Client,
+    ClientError,
+    CommitteesRefresherHandle,
+    Config,
+    Refiller,
+    StoreWhen,
+};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
@@ -42,6 +49,7 @@ impl WriteClient {
         gas_budget: Option<u64>,
         min_size_log2: u8,
         max_size_log2: u8,
+        refresher_handle: CommitteesRefresherHandle,
         refiller: Refiller,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
@@ -50,7 +58,7 @@ impl WriteClient {
             max_size_log2,
         )
         .await;
-        let client = new_client(config, network, gas_budget, refiller).await?;
+        let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
         Ok(Self { client, blob })
     }
 
@@ -76,7 +84,7 @@ impl WriteClient {
             .client
             .as_ref()
             // TODO(giac): add also some deletable blobs in the mix (#800).
-            .reserve_and_store_blobs_retry_epoch(
+            .reserve_and_store_blobs_retry_committees(
                 &[blob],
                 epochs_to_store,
                 StoreWhen::Always,
@@ -155,10 +163,11 @@ impl WriteClient {
         );
 
         // Register blob.
+        let committees = self.client.as_ref().get_committees().await?;
         let (blob_sui_object, _operation) = self
             .client
             .as_ref()
-            .resource_manager()
+            .resource_manager(&committees)
             .await
             .get_existing_or_register(
                 &[&metadata],
@@ -200,6 +209,7 @@ async fn new_client(
     config: &Config,
     network: &SuiNetwork,
     gas_budget: Option<u64>,
+    refresher_handle: CommitteesRefresherHandle,
     refiller: Refiller,
 ) -> anyhow::Result<WithTempDir<Client<SuiContractClient>>> {
     // Create the client with a separate wallet
@@ -213,7 +223,7 @@ async fn new_client(
 
     let client = sui_contract_client
         .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), contract_client)
+            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
         })
         .await?;
     Ok(client)

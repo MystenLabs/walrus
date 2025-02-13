@@ -68,7 +68,7 @@ mod tests {
 
         let store_results = client
             .as_ref()
-            .reserve_and_store_blobs_retry_epoch(
+            .reserve_and_store_blobs_retry_committees(
                 &[blob.as_slice()],
                 5,
                 StoreWhen::Always,

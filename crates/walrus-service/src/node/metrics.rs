@@ -12,7 +12,6 @@ use prometheus::{
     Opts,
     Registry,
 };
-pub(crate) use telemetry::with_label;
 use walrus_sui::types::{
     BlobCertified,
     BlobEvent,

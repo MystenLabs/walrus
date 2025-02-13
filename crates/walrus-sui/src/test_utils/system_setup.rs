@@ -3,9 +3,10 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
+use std::{collections::HashMap, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
 
 use anyhow::Result;
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use rand::{rngs::StdRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
@@ -17,7 +18,13 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::default_protocol_keypair;
 use crate::{
-    client::{contract_config::ContractConfig, ReadClient, SuiClientError, SuiContractClient},
+    client::{
+        contract_config::ContractConfig,
+        ReadClient,
+        SuiClientError,
+        SuiClientResult,
+        SuiContractClient,
+    },
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
@@ -97,6 +104,8 @@ pub struct SystemContext {
     pub system_object: ObjectID,
     /// The ID of the staking Object.
     pub staking_object: ObjectID,
+    /// The ID of the upgrade manager object.
+    pub upgrade_manager_object: ObjectID,
     /// The ID of the WAL package.
     pub wal_pkg_id: ObjectID,
     /// The ID of the WAL exchange package.
@@ -179,20 +188,22 @@ pub async fn create_and_init_system(
     )
     .await?;
 
-    let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
-        admin_wallet,
-        walrus_pkg_id,
-        init_cap_id,
-        upgrade_cap_id,
-        init_system_params,
-        gas_budget,
-    )
-    .await?;
+    let (system_object, staking_object, upgrade_manager_object) =
+        system_setup::create_system_and_staking_objects(
+            admin_wallet,
+            walrus_pkg_id,
+            init_cap_id,
+            upgrade_cap_id,
+            init_system_params,
+            gas_budget,
+        )
+        .await?;
 
     Ok(SystemContext {
         walrus_pkg_id,
         system_object,
         staking_object,
+        upgrade_manager_object,
         wal_pkg_id,
         wal_exchange_pkg_id,
     })
@@ -220,36 +231,49 @@ pub async fn register_committee_and_stake(
 ) -> Result<Vec<StorageNodeCap>> {
     let current_epoch = admin_contract_client.current_epoch().await?;
 
-    // Initialize client.
     // Note that it is important to return the node capabilities in the same order as the nodes
     // were registered, so that the node capabilities match the nodes in the node config.
-    let mut node_capabilities = Vec::new();
-    for ((storage_node_params, bls_sk), contract_client) in node_params
-        .iter()
-        .zip(node_bls_keys)
-        .zip(node_contract_clients)
-    {
-        let proof_of_possession =
-            crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
+    let node_capabilities = (0..node_params.len())
+        .map(|i| async move {
+            let storage_node_params = &node_params[i];
+            let contract_client = node_contract_clients[i];
+            let bls_sk = &node_bls_keys[i];
+            let proof_of_possession =
+                crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
 
-        #[cfg(msim)]
-        {
-            use rand::Rng;
-            // In simtest, have a small probability of storage node owning multiple capability
-            // objects
-            // for the same node.
-            if rand::thread_rng().gen_bool(0.1) {
-                let _ = contract_client
-                    .register_candidate(storage_node_params, proof_of_possession.clone())
-                    .await?;
+            #[cfg(msim)]
+            {
+                use rand::Rng;
+                // In simtest, have a small probability of storage node owning multiple capability
+                // objects
+                // for the same node.
+                if rand::thread_rng().gen_bool(0.1) {
+                    let _ = contract_client
+                        .register_candidate(storage_node_params, proof_of_possession.clone())
+                        .await?;
+                }
             }
-        }
 
-        let node_cap = contract_client
-            .register_candidate(storage_node_params, proof_of_possession)
-            .await?;
-        node_capabilities.push(node_cap);
-    }
+            SuiClientResult::<_>::Ok((
+                i,
+                contract_client
+                    .register_candidate(storage_node_params, proof_of_possession)
+                    .await?,
+            ))
+        })
+        .collect::<FuturesUnordered<_>>()
+        .try_collect::<HashMap<_, _>>()
+        .await?;
+
+    let node_capabilities: Vec<_> = (0..node_params.len())
+        .map(|i| {
+            node_capabilities
+                .get(&i)
+                .expect("all indices are inserted above")
+        })
+        .cloned()
+        .collect();
+
     // Use admin wallet to stake with storage nodes
     let node_ids_with_stake_amounts: Vec<_> = node_capabilities
         .iter()
@@ -260,6 +284,7 @@ pub async fn register_committee_and_stake(
     let _staked_wal = admin_contract_client
         .stake_with_pools(&node_ids_with_stake_amounts)
         .await?;
+
     Ok(node_capabilities)
 }
 

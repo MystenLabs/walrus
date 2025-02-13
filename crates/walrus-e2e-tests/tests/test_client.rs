@@ -163,7 +163,7 @@ async fn run_store_and_read_with_crash_failures(
 
     let store_result = client
         .as_ref()
-        .reserve_and_store_blobs_retry_epoch_with_path(
+        .reserve_and_store_blobs_retry_committees_with_path(
             &blobs_with_paths,
             1,
             StoreWhen::Always,
@@ -208,7 +208,15 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     // Find the shards of the failed nodes.
     let failed_node_names: Vec<String> =
         failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
-    let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names).await;
+    let committees = client
+        .as_ref()
+        .get_committees()
+        .await
+        .expect("committees should be available");
+    let shards_of_failed_nodes = client
+        .as_ref()
+        .shards_of(&failed_node_names, &committees)
+        .await;
 
     // Encode the blob with false metadata for one shard.
     let (pairs, metadata) = client
@@ -241,7 +249,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     // Register blob.
     let (blob_sui_object, _) = client
         .as_ref()
-        .resource_manager()
+        .resource_manager(&committees)
         .await
         .get_existing_or_register(
             &[&metadata],
@@ -355,9 +363,15 @@ async fn test_store_with_existing_blob_resource(
         .collect::<Vec<_>>();
 
     // Register a list of new blobs.
+    let committees = client
+        .as_ref()
+        .get_committees()
+        .await
+        .expect("committees should be available");
+
     let original_blob_objects = client
         .as_ref()
-        .resource_manager()
+        .resource_manager(&committees)
         .await
         .get_existing_or_register(
             &metatdatum.iter().collect::<Vec<_>>(),
@@ -1010,7 +1024,7 @@ async fn test_post_store_action(
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_epoch(
+        .reserve_and_store_blobs_retry_committees(
             &blobs,
             1,
             StoreWhen::Always,

@@ -415,6 +415,16 @@ impl RetriableSuiClient {
         .await
     }
 
+    /// Returns the chain identifier.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::get_chain_identifier`] internally.
+    pub async fn get_chain_identifier(&self) -> SuiRpcResult<String> {
+        retry_rpc_errors(self.get_strategy(), || async {
+            self.sui_client.read_api().get_chain_identifier().await
+        })
+        .await
+    }
+
     // Other wrapper methods.
 
     #[tracing::instrument(level = Level::DEBUG, skip_all)]

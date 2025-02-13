@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context as _, Error};
+use anyhow::Context as _;
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_types::base_types::ObjectID;
@@ -23,12 +23,7 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::{
-        move_errors::{MoveExecutionError, SystemStateInnerError},
-        move_structs::EpochState,
-        StorageNodeCap,
-        UpdatePublicKeyParams,
-    },
+    types::{move_structs::EpochState, StorageNodeCap, UpdatePublicKeyParams},
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
@@ -87,7 +82,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         ending_checkpoint_seq_num: u64,
         epoch: u32,
         node_capability_object_id: ObjectID,
-    ) -> Result<(), Error>;
+    ) -> Result<(), SuiClientError>;
 
     /// Refreshes the contract package that the service is using.
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error>;
@@ -335,100 +330,18 @@ impl SystemContractService for SuiSystemContractService {
         ending_checkpoint_seq_num: u64,
         epoch: u32,
         node_capability_object_id: ObjectID,
-    ) -> Result<(), Error> {
-        let backoff = ExponentialBackoff::new_with_seed(
-            MIN_BACKOFF,
-            MAX_BACKOFF,
-            None,
-            self.rng.lock().unwrap().gen(),
-        );
-        backoff::retry(backoff, || {
-            let blob_metadata = blob_metadata.clone();
-            let blob_id = blob_metadata.blob_id;
-            async move {
-                match self
-                    .contract_client
-                    .lock()
-                    .await
-                    .certify_event_blob(
-                        blob_metadata,
-                        ending_checkpoint_seq_num,
-                        epoch,
-                        node_capability_object_id,
-                    )
-                    .await
-                {
-                    Ok(()) => Some(()),
-                    Err(SuiClientError::StorageNodeCapabilityObjectNotSet) => {
-                        tracing::debug!(blob_id = ?blob_id,
-                            "Storage node capability object not set");
-                        Some(())
-                    }
-                    Err(
-                        e @ SuiClientError::TransactionExecutionError(
-                            MoveExecutionError::SystemStateInner(
-                                SystemStateInnerError::EInvalidIdEpoch(_),
-                            ),
-                        ),
-                    ) => {
-                        tracing::debug!(
-                            walrus.epoch = epoch,
-                            error = ?e,
-                            blob_id = ?blob_id,
-                            "Non-retriable event blob certification error while \
-                            attesting event blob"
-                        );
-                        Some(())
-                    }
-                    Err(
-                        e @ SuiClientError::TransactionExecutionError(
-                            MoveExecutionError::SystemStateInner(
-                                SystemStateInnerError::EIncorrectAttestation(_)
-                                | SystemStateInnerError::ERepeatedAttestation(_)
-                                | SystemStateInnerError::ENotCommitteeMember(_),
-                            ),
-                        ),
-                    ) => {
-                        tracing::warn!(
-                            walrus.epoch = epoch,
-                            error = ?e,
-                            blob_id = ?blob_id,
-                            "Unexpected non-retriable event blob certification error \
-                            while attesting event blob"
-                        );
-                        Some(())
-                    }
-                    Err(SuiClientError::TransactionExecutionError(
-                        MoveExecutionError::NotParsable(_),
-                    )) => {
-                        tracing::error!(blob_id = ?blob_id,
-                            "Unexpected unknown transaction execution error while \
-                            attesting event blob, retrying");
-                        None
-                    }
-                    Err(SuiClientError::TransactionExecutionError(e)) => {
-                        tracing::warn!(error = ?e, blob_id = ?blob_id,
-                            "Unexpected move execution error while attesting event blob");
-                        Some(())
-                    }
-                    Err(SuiClientError::SharedObjectCongestion(object_ids)) => {
-                        tracing::debug!(blob_id = ?blob_id,
-                            object_ids = ?object_ids,
-                            "Shared object congestion error while attesting event blob, retrying");
-                        None
-                    }
-                    Err(error) => {
-                        tracing::error!(?error, blob_id = ?blob_id,
-                            "Unexpected unknown sui client error while attesting event blob, \
-                            retrying"
-                        );
-                        None
-                    }
-                }
-            }
-        })
-        .await;
-        Ok(())
+    ) -> Result<(), SuiClientError> {
+        let blob_metadata = blob_metadata.clone();
+        self.contract_client
+            .lock()
+            .await
+            .certify_event_blob(
+                blob_metadata,
+                ending_checkpoint_seq_num,
+                epoch,
+                node_capability_object_id,
+            )
+            .await
     }
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {

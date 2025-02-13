@@ -23,6 +23,7 @@ use sui_types::{
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
+    ensure,
     messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     Epoch,
     EpochCount,
@@ -34,6 +35,7 @@ use super::{
     BlobObjectMetadata,
     BlobPersistence,
     CoinType,
+    PoolOperationWithAuthorization,
     ReadClient,
     SuiClientError,
     SuiClientResult,
@@ -234,9 +236,12 @@ impl WalrusPtbBuilder {
         function: FunctionTag<'_>,
         arguments: Vec<Argument>,
     ) -> SuiClientResult<Argument> {
-        tracing::info!("package_id: {:?}", package_id);
-        tracing::info!("function: {:?}", function);
-        tracing::info!("arguments: {:?}", arguments);
+        tracing::debug!(
+            package_id = package_id.to_canonical_string(true),
+            ?function,
+            ?arguments,
+            "move call"
+        );
         Ok(self.pt_builder.programmable_move_call(
             package_id,
             Identifier::from_str(function.module)?,
@@ -584,6 +589,7 @@ impl WalrusPtbBuilder {
         self.reduce_wal_balance(price)?;
         Ok(())
     }
+
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.
     pub async fn transfer<I: IntoIterator<Item = ArgumentOrOwnedObject>>(
         &mut self,
@@ -905,14 +911,15 @@ impl WalrusPtbBuilder {
         }
     }
 
-    #[instrument(err, skip(self))]
     /// Sets the commission receiver for the node.
     pub async fn set_commission_receiver(
         &mut self,
         node_id: ObjectID,
-        authenticated: Argument,
         receiver: Argument,
     ) -> SuiClientResult<()> {
+        let authenticated = self
+            .get_authenticated_arg_for_pool(node_id, PoolOperationWithAuthorization::Commission)
+            .await?;
         let args = vec![
             self.staking_arg(Mutability::Mutable).await?,
             self.pt_builder.pure(node_id)?,
@@ -923,14 +930,15 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    #[instrument(err, skip(self))]
     /// Sets the governance authorized object for the pool.
     pub async fn set_governance_authorized(
         &mut self,
         node_id: ObjectID,
-        authenticated: Argument,
         authorized: Argument,
     ) -> SuiClientResult<()> {
+        let authenticated = self
+            .get_authenticated_arg_for_pool(node_id, PoolOperationWithAuthorization::Governance)
+            .await?;
         let args = vec![
             self.staking_arg(Mutability::Mutable).await?,
             self.pt_builder.pure(node_id)?,
@@ -1091,12 +1099,164 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Votes for an upgrade of the system contract from the Node with `node_id`.
+    pub async fn vote_for_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        node_id: ObjectID,
+        digest: &[u8],
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_shared_obj(upgrade_manager, Mutability::Mutable)
+                    .await?,
+            )?,
+            self.staking_arg(Mutability::Mutable).await?,
+            self.get_authenticated_arg_for_pool(
+                node_id,
+                PoolOperationWithAuthorization::Governance,
+            )
+            .await?,
+            self.pt_builder.pure(node_id)?,
+            self.pt_builder.pure(digest)?,
+        ];
+        self.walrus_move_call(contracts::upgrade::vote_for_upgrade, args)?;
+        Ok(())
+    }
+
+    /// Authorizes an upgrade that has reached a quorum of the votes from the storage nodes.
+    ///
+    /// Returns the `UpgradeTicket` as result argument.
+    pub async fn authorize_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        digest: &[u8],
+    ) -> SuiClientResult<Argument> {
+        let args = vec![
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_shared_obj(upgrade_manager, Mutability::Mutable)
+                    .await?,
+            )?,
+            self.staking_arg(Mutability::Immutable).await?,
+            self.pt_builder.pure(digest)?,
+        ];
+        self.walrus_move_call(contracts::upgrade::authorize_upgrade, args)
+    }
+
+    /// Authorizes an emergency upgrade using the emergency upgrade cap.
+    pub async fn authorize_emergency_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        emergency_upgrade_cap: ArgumentOrOwnedObject,
+        digest: &[u8],
+    ) -> SuiClientResult<Argument> {
+        let args = vec![
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_shared_obj(upgrade_manager, Mutability::Mutable)
+                    .await?,
+            )?,
+            self.argument_from_arg_or_obj(emergency_upgrade_cap).await?,
+            self.pt_builder.pure(digest)?,
+        ];
+        self.walrus_move_call(contracts::upgrade::authorize_emergency_upgrade, args)
+    }
+
+    /// Performs a contract upgrade.
+    ///
+    /// Returns the `UpgradeReceipt` as result argument.
+    pub fn upgrade(
+        &mut self,
+        current_package_object_id: ObjectID,
+        upgrade_ticket: Argument,
+        transitive_deps: Vec<ObjectID>,
+        modules: Vec<Vec<u8>>,
+    ) -> Argument {
+        self.pt_builder.upgrade(
+            current_package_object_id,
+            upgrade_ticket,
+            transitive_deps,
+            modules,
+        )
+    }
+
+    /// Commits a contract upgrade.
+    pub async fn commit_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        upgrade_receipt: Argument,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_shared_obj(upgrade_manager, Mutability::Mutable)
+                    .await?,
+            )?,
+            self.staking_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            upgrade_receipt,
+        ];
+        self.walrus_move_call(contracts::upgrade::commit_upgrade, args)?;
+        Ok(())
+    }
+
+    /// Migrates the staking and system contracts to the new package id.
+    pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+        ];
+        self.move_call(new_package_id, contracts::init::migrate, args)?;
+        Ok(())
+    }
     /// Transfers all remaining outputs and returns the PTB and the SUI balance needed in addition
     /// to the gas cost that needs to be covered by the gas coin.
     pub async fn finish(mut self) -> SuiClientResult<(ProgrammableTransaction, u64)> {
         self.transfer_remaining_outputs(None).await?;
         let sui_cost = self.tx_sui_cost;
         Ok((self.pt_builder.finish(), sui_cost))
+    }
+
+    /// Given the node ID, checks if the sender is authorized to perform the operation (either as
+    /// sender or by owning the corresponding object) and returns an `Authenticated` Move type as
+    /// result argument.
+    async fn get_authenticated_arg_for_pool(
+        &mut self,
+        node_id: ObjectID,
+        operation: PoolOperationWithAuthorization,
+    ) -> SuiClientResult<Argument> {
+        let pool = self.read_client.get_staking_pool(node_id).await?;
+        let authorized = match operation {
+            PoolOperationWithAuthorization::Commission => pool.commission_receiver,
+            PoolOperationWithAuthorization::Governance => pool.governance_authorized,
+        };
+        match authorized {
+            Authorized::Address(receiver) => {
+                ensure!(
+                    receiver == self.sender_address,
+                    SuiClientError::NotAuthorizedForPool(node_id)
+                );
+                self.authenticate_sender()
+            }
+            Authorized::Object(receiver) => {
+                let object = self
+                    .read_client
+                    .sui_client()
+                    .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
+                    .await?;
+                ensure!(
+                    object
+                        .owner()
+                        .ok_or_else(|| anyhow::anyhow!("no object owner returned from rpc"))?
+                        .get_owner_address()?
+                        == self.sender_address,
+                    SuiClientError::NotAuthorizedForPool(node_id)
+                );
+                self.authenticate_with_object(receiver).await
+            }
+        }
     }
 
     async fn storage_price_for_encoded_length(

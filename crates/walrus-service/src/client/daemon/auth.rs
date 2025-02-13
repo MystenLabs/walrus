@@ -313,7 +313,6 @@ mod tests {
         routing::get,
         Router,
     };
-    use http_body_util::Empty;
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use rand::distributions::{Alphanumeric, DistString};
     use ring::signature::{self, Ed25519KeyPair, KeyPair};
@@ -322,6 +321,8 @@ mod tests {
 
     use super::*;
     use crate::client::{config::AuthConfig, daemon::auth_layer};
+
+    // Fixtures and helpers for tests.
 
     const ADDRESS: [u8; SUI_ADDRESS_LENGTH] = [42; SUI_ADDRESS_LENGTH];
     const OTHER_ADDRESS: &str =
@@ -347,16 +348,16 @@ mod tests {
         config
     }
 
-    #[tokio::test]
-    async fn auth_layer_is_working() {
+    fn setup_router_and_token(
+        expiring_sec: u64,
+        verify_upload: bool,
+        use_secret: bool,
+        claim: Claim,
+    ) -> (Router, String, EncodingKey) {
         let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = auth_config_for_tests(Some(&secret), None, 0, false);
+        let secret_to_use = use_secret.then_some(secret.as_str());
+        let auth_config = auth_config_for_tests(secret_to_use, None, expiring_sec, verify_upload);
 
-        let claim = Claim {
-            iat: None,
-            exp: u64::MAX,
-            ..Default::default()
-        };
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
 
@@ -365,128 +366,150 @@ mod tests {
             auth_layer,
         ));
 
-        let router = Router::new().route("/", get(|| async {}).route_layer(publisher_layers));
+        let router =
+            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
+        (router, token, encode_key)
+    }
 
-        // Test token missing
-        let response = router
-            .clone()
-            .oneshot(Request::builder().uri("/").body(Empty::new()).unwrap())
-            .await
-            .unwrap();
+    /// A helper to build requests
+    struct RequestHeadersAndData {
+        uri: String,
+        auth_header: Option<(String, String)>,
+        body: Body,
+    }
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    impl RequestHeadersAndData {
+        fn new(uri: &str, auth_header: Option<(String, String)>, body: Option<Body>) -> Self {
+            Self {
+                uri: uri.to_string(),
+                auth_header,
+                body: body.unwrap_or_else(Body::empty),
+            }
+        }
 
-        // Invalid Test bearer missing
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header("authorization", token.clone())
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        fn into_request(self) -> Request<Body> {
+            let mut request = Request::builder().uri(self.uri);
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            if let Some((key, value)) = self.auth_header {
+                request = request.header(key, value);
+            }
 
-        // Test valid
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            request.body(self.body).unwrap()
+        }
+    }
 
-        assert_eq!(response.status(), StatusCode::OK);
+    async fn execute_requests(router: &Router, requests: Vec<(RequestHeadersAndData, StatusCode)>) {
+        for (request_data, expected_status) in requests {
+            let request = request_data.into_request();
+            let response = router.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), expected_status);
+        }
+    }
+
+    fn correct_auth_header(token: String) -> Option<(String, String)> {
+        Some(("authorization".to_string(), format!("Bearer {}", token)))
+    }
+
+    // Test bodies.
+
+    #[tokio::test]
+    async fn auth_layer_is_working() {
+        let (router, token, _) = setup_router_and_token(
+            // Expiring sec.
+            0,
+            // Verify upload.
+            false,
+            // Use secret.
+            true,
+            // Claim.
+            Claim {
+                iat: None,
+                exp: u64::MAX,
+                ..Default::default()
+            },
+        );
+
+        let requests = vec![
+            (
+                // No token supplied.
+                RequestHeadersAndData::new("/v1/blobs", None, None),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    "/v1/blobs",
+                    // Incorrectly formatted auth header.
+                    Some(("authorization".to_owned(), token.clone())),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new("/v1/blobs", correct_auth_header(token), None),
+                StatusCode::OK,
+            ),
+        ];
+
+        execute_requests(&router, requests).await;
     }
 
     #[tokio::test]
     async fn verify_upload() {
-        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = auth_config_for_tests(Some(&secret), None, 0, true);
+        let (router, token, _) = setup_router_and_token(
+            // Expiring sec.
+            0,
+            // Verify upload.
+            true,
+            // Use secret.
+            true,
+            // Claim.
+            Claim {
+                iat: None,
+                exp: u64::MAX,
+                send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
+                epochs: Some(1),
+                ..Default::default()
+            },
+        );
 
-        let claim = Claim {
-            iat: None,
-            exp: u64::MAX,
-            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
-            epochs: Some(1),
-            ..Default::default()
-        };
-        let encode_key = EncodingKey::from_secret(secret.as_bytes());
-        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
-
-        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-            Arc::new(auth_config),
-            auth_layer,
-        ));
-
-        let router =
-            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
-
-        // Test invalid epoch
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/blobs?epochs=100")
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test invalid address
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        OTHER_ADDRESS
-                    ))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test valid
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
+        let requests = vec![
+            (
+                // Epochs is too high.
+                RequestHeadersAndData::new(
+                    "/v1/blobs?epochs=100",
+                    correct_auth_header(token.clone()),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    // The send_object_to field is does not match.
+                    &format!("/v1/blobs?epochs=1&send_object_to={}", OTHER_ADDRESS),
+                    correct_auth_header(token.clone()),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    // Valid epochs and send_object_to.
+                    &format!(
                         "/v1/blobs?epochs=1&send_object_to={}",
                         SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+                    ),
+                    correct_auth_header(token),
+                    None,
+                ),
+                StatusCode::OK,
+            ),
+        ];
 
-        assert_eq!(response.status(), StatusCode::OK);
+        execute_requests(&router, requests).await;
     }
 
     #[tokio::test]
-    async fn verify_upload_skip_check_token() {
-        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = auth_config_for_tests(None, None, 0, true);
-
+    async fn verify_upload_skip_check_signature() {
         let claim = Claim {
             iat: None,
             exp: u64::MAX,
@@ -494,147 +517,164 @@ mod tests {
             epochs: Some(1),
             ..Default::default()
         };
-        let encode_key = EncodingKey::from_secret(secret.as_bytes());
-        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-            Arc::new(auth_config.clone()),
-            auth_layer,
-        ));
+        let (router, _, _) = setup_router_and_token(
+            // Expiring sec.
+            0,
+            // Verify upload.
+            true,
+            // Use secret.
+            false,
+            claim.clone(),
+        );
 
-        let router =
-            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
+        // Replace the token with one signed with another key.
+        // The signature is not checked, so the behavior should be the same as `verify_upload`.
+        let encode_key = EncodingKey::from_secret(&[42; 32]);
+        let token_invalid_sig = encode(&Header::default(), &claim, &encode_key).unwrap();
 
-        // Test invalid epoch
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/blobs?epochs=100")
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test invalid address
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        OTHER_ADDRESS
-                    ))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test valid
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
+        let requests = vec![
+            (
+                RequestHeadersAndData::new(
+                    "/v1/blobs?epochs=100",
+                    correct_auth_header(token_invalid_sig.clone()),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!("/v1/blobs?epochs=1&send_object_to={}", OTHER_ADDRESS),
+                    correct_auth_header(token_invalid_sig.clone()),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
                         "/v1/blobs?epochs=1&send_object_to={}",
                         SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+                    ),
+                    correct_auth_header(token_invalid_sig),
+                    None,
+                ),
+                StatusCode::OK,
+            ),
+        ];
 
-        assert_eq!(response.status(), StatusCode::OK);
+        execute_requests(&router, requests).await;
     }
 
     #[tokio::test]
     async fn verify_exp() {
-        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = auth_config_for_tests(Some(&secret), None, u64::MAX - 1, false);
-
         let valid_claim = Claim {
             iat: Some(0),
             exp: u64::MAX - 1,
             ..Default::default()
         };
+        let (router, valid_token, encode_key) = setup_router_and_token(
+            // Expiring sec.
+            u64::MAX - 1,
+            // Verify upload.
+            false,
+            // Use secret.
+            true,
+            valid_claim,
+        );
+
+        // Other two tokens, correctly authenticated but with expiry too long.
         let invalid_claim = Claim {
             iat: Some(0),
             exp: u64::MAX,
             ..Default::default()
         };
-        let invalid_claim2 = Claim {
+        let invalid_claim_2 = Claim {
             iat: None,
             exp: u64::MAX,
             ..Default::default()
         };
-
-        let encode_key = EncodingKey::from_secret(secret.as_bytes());
-        let valid_token = encode(&Header::default(), &valid_claim, &encode_key).unwrap();
         let invalid_token = encode(&Header::default(), &invalid_claim, &encode_key).unwrap();
-        let invalid_token2 = encode(&Header::default(), &invalid_claim2, &encode_key).unwrap();
+        let invalid_token_2 = encode(&Header::default(), &invalid_claim_2, &encode_key).unwrap();
 
-        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-            Arc::new(auth_config.clone()),
-            auth_layer,
-        ));
+        let requests = vec![
+            (
+                RequestHeadersAndData::new("/v1/blobs", correct_auth_header(invalid_token), None),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new("/v1/blobs", correct_auth_header(invalid_token_2), None),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new("/v1/blobs", correct_auth_header(valid_token), None),
+                StatusCode::OK,
+            ),
+        ];
 
-        let router =
-            Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
+        execute_requests(&router, requests).await;
+    }
 
-        // Test invalid token
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/blobs")
-                    .header("authorization", format!("Bearer {invalid_token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+    #[tokio::test]
+    async fn verify_body_size() {
+        let (router, token, _) = setup_router_and_token(
+            // Expiring sec.
+            0,
+            // Verify upload.
+            true,
+            // Use secret.
+            true,
+            // Claim.
+            Claim {
+                iat: None,
+                exp: u64::MAX,
+                send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
+                epochs: Some(1),
+                max_size: Some(10),
+                ..Default::default()
+            },
+        );
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let requests = vec![
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token.clone()),
+                    // Big body fails.
+                    Some(Body::from(vec![42; 100])),
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token.clone()),
+                    // Small body is ok.
+                    Some(Body::from(vec![42; 10])),
+                ),
+                StatusCode::OK,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token),
+                    // No body is ok.
+                    None,
+                ),
+                StatusCode::OK,
+            ),
+        ];
 
-        // Test invalid token
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/blobs")
-                    .header("authorization", format!("Bearer {invalid_token2}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test valid token
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/blobs")
-                    .header("authorization", format!("Bearer {valid_token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
+        execute_requests(&router, requests).await;
     }
 
     #[tokio::test]
@@ -670,106 +710,30 @@ mod tests {
             auth_layer,
         ));
 
-        let router = Router::new().route("/", get(|| async {}).route_layer(publisher_layers));
-
-        // Test token missing
-        let response = router
-            .clone()
-            .oneshot(Request::builder().uri("/").body(Empty::new()).unwrap())
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Invalid Test bearer missing
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header("authorization", token.clone())
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test valid
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/")
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Empty::new())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn verify_body_size() {
-        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
-        let auth_config = auth_config_for_tests(Some(&secret), None, 0, true);
-
-        let claim = Claim {
-            iat: None,
-            exp: u64::MAX,
-            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
-            epochs: Some(1),
-            max_size: Some(10),
-            ..Default::default()
-        };
-        let encode_key = EncodingKey::from_secret(secret.as_bytes());
-        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
-
-        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-            Arc::new(auth_config),
-            auth_layer,
-        ));
-
         let router =
             Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
 
-        // Test invalid, body is too big
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Body::from(vec![42u8; 100]))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let requests = vec![
+            (
+                // No token supplied.
+                RequestHeadersAndData::new("/v1/blobs", None, None),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    "/v1/blobs",
+                    // Incorrectly formatted auth header.
+                    Some(("authorization".to_owned(), token.clone())),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new("/v1/blobs", correct_auth_header(token), None),
+                StatusCode::OK,
+            ),
+        ];
 
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-
-        // Test valid
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri(format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ))
-                    .header("authorization", format!("Bearer {token}"))
-                    .body(Body::from(vec![42u8; 10]))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
+        execute_requests(&router, requests).await;
     }
 }

@@ -322,6 +322,29 @@ impl Display for StorageNodeCap {
     }
 }
 
+/// Sui type for the emergency upgrade capability.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct EmergencyUpgradeCap {
+    /// The object ID of the capability.
+    pub id: ObjectID,
+    /// The object ID of the upgrade manager.
+    pub upgrade_manager_id: ObjectID,
+}
+
+impl AssociatedContractStruct for EmergencyUpgradeCap {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::upgrade::EmergencyUpgradeCap;
+}
+
+impl Display for EmergencyUpgradeCap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "EmergencyUpgradeCap: object ID: {}, upgrade manager ID: {}",
+            self.id, self.upgrade_manager_id
+        )
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 enum PoolState {
     // The pool is active and can accept stakes.

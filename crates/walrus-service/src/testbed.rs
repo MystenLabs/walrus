@@ -41,7 +41,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     backup::BackupConfig,
-    client::{self, ClientCommunicationConfig},
+    client::{self},
     common::config::SuiConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
@@ -419,10 +419,12 @@ pub async fn deploy_walrus_contract(
             package_id: {}\n\
             system_object: {}\n\
             staking_object: {}\n\
+            upgrade_manager_object: {}\n\
             exchange_object: {}",
         system_ctx.walrus_pkg_id,
         system_ctx.system_object,
         system_ctx.staking_object,
+        system_ctx.upgrade_manager_object,
         exchange_object
             .map(|id| id.to_string())
             .unwrap_or_else(|| "None".to_string())
@@ -491,7 +493,8 @@ pub async fn create_client_config(
         contract_config,
         exchange_objects,
         wallet_config: Some(wallet_path),
-        communication_config: ClientCommunicationConfig::default(),
+        communication_config: Default::default(),
+        refresh_config: Default::default(),
     };
 
     Ok(client_config)

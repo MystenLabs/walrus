@@ -4,10 +4,9 @@ A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for co
 
 ## Documentation
 
-General Walrus documentation is available at
-[mystenlabs.github.io/walrus-docs](https://mystenlabs.github.io/walrus-docs), which is built from
-the [MystenLabs/walrus-docs](https://github.com/MystenLabs/walrus-docs) repository. That repository
-also contains usage examples for Walrus.
+General Walrus documentation is available at [docs.walrus.site](https://docs.walrus.site), which is
+built from the [MystenLabs/walrus-docs](https://github.com/MystenLabs/walrus-docs) repository. That
+repository also contains usage examples for Walrus.
 
 Our encoding system, which we call *Red Stuff*, is described in detail in
 [docs/red-stuff.md](docs/red-stuff.md).

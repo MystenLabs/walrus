@@ -31,7 +31,9 @@ backup = [
   "dep:bytes",
   "dep:diesel",
   "dep:diesel-async",
+  "dep:diesel_migrations",
   "dep:object_store",
+  "dep:scoped-futures",
 ]
 client = [
   "dep:colored",
@@ -83,6 +85,7 @@ clap.workspace = true
 colored = { workspace = true, optional = true }
 diesel = { workspace = true, optional = true }
 diesel-async = { workspace = true, optional = true }
+diesel_migrations = { workspace = true, optional = true }
 enum_dispatch = { workspace = true, optional = true }
 fastcrypto.workspace = true
 futures.workspace = true
@@ -112,6 +115,7 @@ regex.workspace = true
 reqwest.workspace = true
 rocksdb = { workspace = true, optional = true }
 rustls.workspace = true
+scoped-futures = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true

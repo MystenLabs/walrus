@@ -74,10 +74,18 @@ impl LoadGenerator {
         .await?;
 
         let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;
-        for read_client in try_join_all(
-            (0..n_clients)
-                .map(|_| Client::new_read_client(client_config.clone(), sui_read_client.clone())),
-        )
+
+        let refresher_handle = client_config
+            .refresh_config
+            .build_refresher_and_run(sui_read_client.clone())
+            .await?;
+        for read_client in try_join_all((0..n_clients).map(|_| {
+            Client::new_read_client(
+                client_config.clone(),
+                refresher_handle.clone(),
+                sui_read_client.clone(),
+            )
+        }))
         .await?
         {
             read_client_pool_tx.send(read_client).await?;
@@ -95,6 +103,7 @@ impl LoadGenerator {
                     None,
                     min_size_log2,
                     max_size_log2,
+                    refresher_handle.clone(),
                     refiller.clone(),
                 )
                 .await?,

@@ -110,9 +110,9 @@ impl ProtobufDecoder {
     /// parse a delimited buffer of protobufs. this is used to consume data sent
     /// from a sui-node
     pub fn parse<T: protobuf::Message>(&mut self) -> Result<Vec<T>> {
-        let timer = CONSUMER_OPERATION_DURATION
-            .with_label_values(&["decode_len_delim_protobuf"])
-            .start_timer();
+        let timer =
+            walrus_utils::with_label!(CONSUMER_OPERATION_DURATION, "decode_len_delim_protobuf")
+                .start_timer();
         let mut result: Vec<T> = vec![];
         while !self.buf.get_ref().is_empty() {
             let len = {
@@ -147,9 +147,8 @@ pub fn populate_labels(
     // labels and metric data sent to use from the node
     data: MetricFamilyWithStaticLabels,
 ) -> Vec<proto::MetricFamily> {
-    let timer = CONSUMER_OPERATION_DURATION
-        .with_label_values(&["populate_labels"])
-        .start_timer();
+    let timer =
+        walrus_utils::with_label!(CONSUMER_OPERATION_DURATION, "populate_labels").start_timer();
     debug!("received metrics from {name}");
 
     // merge our node provided labels, careful not to overwrite any labels we
@@ -184,9 +183,11 @@ pub fn populate_labels(
 // encode and compress our metric data before it gets sent to mimir
 fn encode_compress(request: &WriteRequest) -> Result<Vec<u8>, (StatusCode, &'static str)> {
     let observe = || {
-        let timer = CONSUMER_ENCODE_COMPRESS_DURATION
-            .with_label_values(&["encode_compress"])
-            .start_timer();
+        let timer = walrus_utils::with_label!(
+            CONSUMER_ENCODE_COMPRESS_DURATION,
+            "encode_compress"
+        )
+        .start_timer();
         || {
             timer.observe_duration();
         }
@@ -194,9 +195,7 @@ fn encode_compress(request: &WriteRequest) -> Result<Vec<u8>, (StatusCode, &'sta
     let mut buf = Vec::with_capacity(request.encoded_len());
     if request.encode(&mut buf).is_err() {
         observe();
-        CONSUMER_OPS
-            .with_label_values(&["encode_compress", "failed"])
-            .inc();
+        walrus_utils::with_label!(CONSUMER_OPS, "encode_compress", "failed").inc();
         error!("unable to encode prompb to mimirpb");
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -209,9 +208,7 @@ fn encode_compress(request: &WriteRequest) -> Result<Vec<u8>, (StatusCode, &'sta
         Ok(compressed) => compressed,
         Err(error) => {
             observe();
-            CONSUMER_OPS
-                .with_label_values(&["encode_compress", "failed"])
-                .inc();
+            walrus_utils::with_label!(CONSUMER_OPS, "encode_compress", "failed").inc();
             error!("unable to compress to snappy block format; {error}");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -220,9 +217,7 @@ fn encode_compress(request: &WriteRequest) -> Result<Vec<u8>, (StatusCode, &'sta
         }
     };
     observe();
-    CONSUMER_OPS
-        .with_label_values(&["encode_compress", "success"])
-        .inc();
+    walrus_utils::with_label!(CONSUMER_OPS, "encode_compress", "success").inc();
     Ok(compressed)
 }
 
@@ -232,9 +227,7 @@ async fn check_response(
 ) -> Result<(), (StatusCode, &'static str)> {
     match response.status() {
         reqwest::StatusCode::OK => {
-            CONSUMER_OPS
-                .with_label_values(&["check_response", "OK"])
-                .inc();
+            walrus_utils::with_label!(CONSUMER_OPS, "check_response", "OK").inc();
             debug!("({}) SUCCESS: {:?}", reqwest::StatusCode::OK, request);
             Ok(())
         }
@@ -247,17 +240,14 @@ async fn check_response(
             // see mimir docs on this error condition. it's not actionable from the proxy
             // so we drop it.
             if body.contains("err-mimir-sample-out-of-order") {
-                CONSUMER_OPS
-                    .with_label_values(&["check_response", "BAD_REQUEST"])
-                    .inc();
+                walrus_utils::with_label!(CONSUMER_OPS, "check_response", "BAD_REQUEST").inc();
                 error!("({}) ERROR: {:?}", reqwest::StatusCode::BAD_REQUEST, body);
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "IGNORING METRICS due to err-mimir-sample-out-of-order",
                 ));
             }
-            CONSUMER_OPS
-                .with_label_values(&["check_response", "INTERNAL_SERVER_ERROR"])
+            walrus_utils::with_label!(CONSUMER_OPS, "check_response", "INTERNAL_SERVER_ERROR")
                 .inc();
             error!("({}) ERROR: {:?}", reqwest::StatusCode::BAD_REQUEST, body);
             Err((
@@ -270,8 +260,7 @@ async fn check_response(
                 .text()
                 .await
                 .unwrap_or_else(|_| "response body cannot be decoded".into());
-            CONSUMER_OPS
-                .with_label_values(&["check_response", "INTERNAL_SERVER_ERROR"])
+            walrus_utils::with_label!(CONSUMER_OPS, "check_response", "INTERNAL_SERVER_ERROR")
                 .inc();
             error!("({}) ERROR: {:?}", code, body);
             Err((
@@ -286,9 +275,9 @@ async fn convert(
     mfs: Vec<MetricFamily>,
 ) -> Result<impl Iterator<Item = WriteRequest>, (StatusCode, &'static str)> {
     let result = tokio::task::spawn_blocking(|| {
-        let timer = CONSUMER_OPERATION_DURATION
-            .with_label_values(&["convert_to_remote_write_task"])
-            .start_timer();
+        let timer =
+            walrus_utils::with_label!(CONSUMER_OPERATION_DURATION, "convert_to_remote_write_task")
+                .start_timer();
         let result = Mimir::from(mfs);
         timer.observe_duration();
         result.into_iter()
@@ -316,8 +305,7 @@ pub async fn convert_to_remote_write(
     rc: ReqwestClient,
     node_metric: NodeMetric,
 ) -> (StatusCode, &'static str) {
-    let timer = CONSUMER_OPERATION_DURATION
-        .with_label_values(&["convert_to_remote_write"])
+    let timer = walrus_utils::with_label!(CONSUMER_OPERATION_DURATION, "convert_to_remote_write")
         .start_timer();
 
     let remote_write_protos = match convert(node_metric.data).await {
@@ -353,8 +341,7 @@ pub async fn convert_to_remote_write(
         {
             Ok(response) => response,
             Err(error) => {
-                CONSUMER_OPS
-                    .with_label_values(&["check_response", "INTERNAL_SERVER_ERROR"])
+                walrus_utils::with_label!(CONSUMER_OPS, "check_response", "INTERNAL_SERVER_ERROR")
                     .inc();
                 error!("DROPPING METRICS due to post error: {error}");
                 timer.stop_and_discard();

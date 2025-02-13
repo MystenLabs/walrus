@@ -372,7 +372,11 @@ impl SuiReadClient {
             .await?
             .owner()
         else {
-            return Err(anyhow!("trying to get the initial version of a non-shared object").into());
+            return Err(anyhow!(
+                "trying to get the initial version of a non-shared object {}",
+                object_id
+            )
+            .into());
         };
         Ok(initial_shared_version)
     }

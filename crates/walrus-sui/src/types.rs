@@ -400,8 +400,16 @@ impl Committee {
         &mut self.members
     }
 
-    /// Compares two committees based only on epoch, n_shards, and storage node ids/shards
-    pub fn compare_essential(&self, other: &Committee) -> anyhow::Result<()> {
+    /// Compares two committees.
+    ///
+    /// If `extended` is `false`, it compares only the epoch, the number of shards, and the mapping
+    /// between node IDs and shards. If `true`, it also compares the public keys, network keys, and
+    /// network addresses.
+    pub fn compare_committee_attributes(
+        &self,
+        other: &Committee,
+        extended: bool,
+    ) -> anyhow::Result<()> {
         let mut error_msgs = Vec::new();
 
         // Compare epoch
@@ -420,28 +428,24 @@ impl Committee {
             ));
         }
 
-        // Create HashMaps of node_id -> shard_ids for both committees
+        // Create HashMaps of node_id -> node for both committees
         let self_nodes: HashMap<_, _> = self
             .members
             .iter()
-            .map(|node| (&node.node_id, &node.shard_ids))
+            .map(|node| (&node.node_id, node))
             .collect();
 
         let other_nodes: HashMap<_, _> = other
             .members
             .iter()
-            .map(|node| (&node.node_id, &node.shard_ids))
+            .map(|node| (&node.node_id, node))
             .collect();
 
         // Check each node in left committee exists in right with matching shards
-        for (node_id, left_shards) in self_nodes.iter() {
-            if let Some(right_shards) = other_nodes.get(node_id) {
-                if left_shards != right_shards {
-                    error_msgs.push(format!(
-                        "Shard assignment mismatch for node {:?}: left {:?}, right {:?}",
-                        node_id, left_shards, right_shards
-                    ));
-                }
+        for (node_id, left_node) in self_nodes.iter() {
+            if let Some(right_node) = other_nodes.get(node_id) {
+                let comparison = compare_node_attributes(node_id, left_node, right_node, extended);
+                error_msgs.extend(comparison);
             } else {
                 error_msgs.push(format!(
                     "Node {:?} exists in left but not in right",
@@ -466,4 +470,59 @@ impl Committee {
             Err(anyhow::anyhow!(error_msgs.join("\n")))
         }
     }
+
+    /// Compares two committees based on epoch, n_shards, storage node ids/shards, and node
+    /// attributes.
+    pub fn compare_functional_equivalence(&self, other: &Committee) -> anyhow::Result<()> {
+        self.compare_committee_attributes(other, true)
+    }
+
+    /// Compares two committees based only on epoch, n_shards, and storage node ids/shards.
+    pub fn compare_essential(&self, other: &Committee) -> anyhow::Result<()> {
+        self.compare_committee_attributes(other, false)
+    }
+}
+
+/// Helper function to collect node comparison errors.
+///
+/// The base function only compares the storage node ids and shards mapping. If `extended` is
+/// `true`, the function will also compare the public keys, network public keys, and network
+/// addresses.
+fn compare_node_attributes(
+    node_id: &ObjectID,
+    left: &StorageNode,
+    right: &StorageNode,
+    extended: bool,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    if left.shard_ids != right.shard_ids {
+        errors.push(format!(
+            "Shard assignment mismatch for node {:?}: left {:?}, right {:?}",
+            node_id, left.shard_ids, right.shard_ids
+        ));
+    }
+
+    if extended && left.public_key != right.public_key {
+        errors.push(format!(
+            "Public key mismatch for node {:?}: left {:?}, right {:?}",
+            node_id, left.public_key, right.public_key
+        ));
+    }
+
+    if extended && left.network_public_key != right.network_public_key {
+        errors.push(format!(
+            "Network public key mismatch for node {:?}: left {:?}, right {:?}",
+            node_id, left.network_public_key, right.network_public_key
+        ));
+    }
+
+    if extended && left.network_address != right.network_address {
+        errors.push(format!(
+            "Network address mismatch for node {:?}: left {}, right {}",
+            node_id, left.network_address, right.network_address
+        ));
+    }
+
+    errors
 }
