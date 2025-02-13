@@ -483,7 +483,6 @@ async fn test_store_with_existing_blobs() -> TestResult {
         .await?;
     for result in store_results {
         if result.blob_id() == &reuse_blob {
-            tracing::info!("reuse_blob: {:?}", result);
             assert!(matches!(
                 &result,
                 BlobStoreResult::NewlyCreated{blob_object:_, resource_operation, ..
