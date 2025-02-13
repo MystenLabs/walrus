@@ -587,21 +587,6 @@ impl SuiContractClient {
             .await
     }
 
-    /// Executes an upgrade that has been voted for by a quorum of the committee.
-    ///
-    /// Returns the new package ID.
-    pub async fn execute_upgrade(
-        &self,
-        upgrade_manager: ObjectID,
-        package_path: PathBuf,
-    ) -> SuiClientResult<ObjectID> {
-        self.inner
-            .lock()
-            .await
-            .execute_upgrade(upgrade_manager, package_path)
-            .await
-    }
-
     /// Performs an emergency upgrade.
     ///
     /// Returns the new package ID.
@@ -1373,48 +1358,6 @@ impl SuiContractClientInner {
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
-    }
-
-    /// Executes an upgrade that has been voted for by a quorum of the committee.
-    ///
-    /// Returns the new package ID.
-    pub async fn execute_upgrade(
-        &mut self,
-        upgrade_manager: ObjectID,
-        package_path: PathBuf,
-    ) -> SuiClientResult<ObjectID> {
-        // Compile package
-        let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (dependencies, compiled_package, build_config) =
-            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
-
-        let digest = compiled_package.get_package_digest(false);
-
-        let mut pt_builder = self.transaction_builder()?;
-
-        // Authorize the upgrade.
-        let upgrade_ticket_arg = pt_builder
-            .authorize_upgrade(upgrade_manager, &digest)
-            .await?;
-
-        // Execute the upgrade.
-        let modules = compiled_package.get_package_bytes(false);
-        let upgrade_receipt_arg = pt_builder.upgrade(
-            self.read_client.get_system_package_id(),
-            upgrade_ticket_arg,
-            dependencies.published.into_values().collect(),
-            modules,
-        );
-
-        // Commit the upgrade
-        pt_builder
-            .commit_upgrade(upgrade_manager, upgrade_receipt_arg)
-            .await?;
-
-        let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let response = self.sign_and_send_ptb(ptb).await?;
-        self.post_upgrade_lock_file_update(&response, build_config)
-            .await
     }
 
     /// Performs an emergency upgrade.
