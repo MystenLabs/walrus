@@ -24,7 +24,9 @@ telemetry::define_metric_set! {
 telemetry::define_metric_set! {
     /// Metrics exported by the backup orchestrator node.
     struct BackupOrchestratorMetricSet {
-        #[help = "The count of stream events seen"]
-        stream_events_recorded: IntCounter[],
+        #[help = "The count of all Sui stream events seen"]
+        sui_events_seen: IntCounter[],
+        #[help = "The count of Walrus contract events seen"]
+        events_recorded: IntCounter[],
     }
 }

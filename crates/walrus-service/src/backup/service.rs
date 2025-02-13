@@ -82,6 +82,7 @@ async fn stream_events(
         },
     )) = indexed_element_stream.next().await
     {
+        backup_orchestrator_metric_set.sui_events_seen.inc();
         match &element {
             EventStreamElement::ContractEvent(ref contract_event) => {
                 record_event(
@@ -93,7 +94,7 @@ async fn stream_events(
                     db_serializability_retry_time,
                 )
                 .await?;
-                backup_orchestrator_metric_set.stream_events_recorded.inc();
+                backup_orchestrator_metric_set.events_recorded.inc();
             }
             EventStreamElement::CheckpointBoundary => {
                 // Skip checkpoint boundaries as they are not relevant for the backup node.
