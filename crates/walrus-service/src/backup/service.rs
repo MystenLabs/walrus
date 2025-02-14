@@ -74,6 +74,10 @@ async fn stream_events(
     let next_event_index = event_cursor.element_index;
     let index_stream = stream::iter(next_event_index..);
     let mut indexed_element_stream = index_stream.zip(event_stream);
+    let counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64> =
+        &backup_orchestrator_metric_set
+            .db_serializability_retries
+            .with_label_values(&["record_event"]);
     while let Some((
         element_index,
         PositionedStreamEvent {
@@ -92,6 +96,7 @@ async fn stream_events(
                     element_index,
                     contract_event,
                     db_serializability_retry_time,
+                    counter,
                 )
                 .await?;
                 backup_orchestrator_metric_set.events_recorded.inc();
@@ -113,12 +118,14 @@ async fn record_event(
     element_index: u64,
     contract_event: &ContractEvent,
     db_serializability_retry_time: Duration,
+    retry_counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
 ) -> Result<(), Error> {
     let event_id: EventID = element.event_id().unwrap();
     retry_serializable_query(
         pg_connection,
         Location::caller(),
         db_serializability_retry_time,
+        retry_counter,
         |conn| {
             async move {
                 diesel::insert_into(schema::stream_event::dsl::stream_event)
@@ -360,6 +367,7 @@ pub async fn start_backup_fetcher(
 /// amount (to prevent other workers from also claiming this task.)
 async fn backup_take_task(
     conn: &mut AsyncPgConnection,
+    backup_fetcher_metric_set: &BackupFetcherMetricSet,
     retry_fetch_after_interval: Duration,
     max_retries_per_blob: u32,
     db_serializability_retry_time: Duration,
@@ -373,6 +381,9 @@ async fn backup_take_task(
         conn,
         Location::caller(),
         db_serializability_retry_time,
+        &backup_fetcher_metric_set
+            .db_serializability_retries
+            .with_label_values(&["take_task"]),
         |conn| {
             async {
                 // This query will fetch the next blob that is in the waiting state and is ready to
@@ -466,6 +477,7 @@ async fn backup_fetcher(
     loop {
         if let Some(blob_id) = backup_take_task(
             &mut conn,
+            &backup_metric_set,
             backup_config.retry_fetch_after_interval,
             backup_config.max_retries_per_blob,
             backup_config.db_serializability_retry_time,
@@ -530,6 +542,9 @@ async fn backup_fetch_inner_core(
                 conn,
                 Location::caller(),
                 backup_config.db_serializability_retry_time,
+                &backup_metric_set
+                    .db_serializability_retries
+                    .with_label_values(&["uploaded_blob"]),
                 |conn| {
                     async {
                         diesel::sql_query(
@@ -632,6 +647,7 @@ async fn retry_serializable_query<'a, 'b, T, F>(
     conn: &mut AsyncPgConnection,
     callsite: &'static Location<'static>,
     db_serializability_retry_time: Duration,
+    retry_counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
     f: F,
 ) -> std::result::Result<T, Error>
 where
@@ -652,6 +668,7 @@ where
         {
             Ok(value) => break Ok(value),
             Err(error @ Error::DatabaseError(DatabaseErrorKind::SerializationFailure, _)) => {
+                retry_counter.inc();
                 tracing::warn!(
                     ?error,
                     ?callsite,

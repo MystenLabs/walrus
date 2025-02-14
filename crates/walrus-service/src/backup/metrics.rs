@@ -18,7 +18,11 @@ telemetry::define_metric_set! {
         blobs_uploaded: IntCounter[],
 
         #[help = "The time it takes to upload a blob"]
-        blob_upload_duration: Histogram[]
+        blob_upload_duration: Histogram[],
+
+        #[help = "The number of retries due to serializability failures"]
+        db_serializability_retries: IntCounterVec["context"],
+
     }
 }
 telemetry::define_metric_set! {
@@ -28,5 +32,8 @@ telemetry::define_metric_set! {
         sui_events_seen: IntCounter[],
         #[help = "The count of Walrus contract events seen"]
         events_recorded: IntCounter[],
+
+        #[help = "The number of retries due to serializability failures"]
+        db_serializability_retries: IntCounterVec["context"],
     }
 }
