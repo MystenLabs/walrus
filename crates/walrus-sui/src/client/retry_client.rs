@@ -7,6 +7,7 @@
 
 use std::{collections::BTreeMap, fmt::Debug, future::Future, str::FromStr};
 
+use futures::{future, stream, Stream, StreamExt};
 use rand::{
     rngs::{StdRng, ThreadRng},
     Rng as _,
@@ -210,7 +211,8 @@ impl RetriableSuiClient {
 
     /// Return a list of coins for the given address, or an error upon failure.
     ///
-    /// Calls [`sui_sdk::apis::CoinReadApi::select_coins`] internally.
+    /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
+    /// addition of retries on network errors.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn select_coins(
         &self,
@@ -220,12 +222,90 @@ impl RetriableSuiClient {
         exclude: Vec<ObjectID>,
     ) -> SuiRpcResult<Vec<Coin>> {
         retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .coin_read_api()
-                .select_coins(address, coin_type.clone(), amount, exclude.clone())
+            self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
                 .await
         })
         .await
+    }
+
+    /// Returns a list of coins for the given address, or an error upon failure.
+    ///
+    /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi::select_coins`] method, but
+    /// using [`get_coins_stream_retry`] to handle retriable failures.
+    async fn select_coins_inner(
+        &self,
+        address: SuiAddress,
+        coin_type: Option<String>,
+        amount: u128,
+        exclude: Vec<ObjectID>,
+    ) -> SuiRpcResult<Vec<Coin>> {
+        let mut total = 0u128;
+        let coins = self
+            .get_coins_stream_retry(address, coin_type)
+            .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
+            .take_while(|coin: &Coin| {
+                let ready = future::ready(total < amount);
+                total += coin.balance as u128;
+                ready
+            })
+            .collect::<Vec<_>>()
+            .await;
+
+        if total < amount {
+            return Err(sui_sdk::error::Error::InsufficientFund { address, amount });
+        }
+        Ok(coins)
+    }
+
+    /// Returns a stream of coins for the given address.
+    ///
+    /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi:::get_coins_stream`] method
+    /// in the `SuiClient` struct. Unlike the original implementation, this version will retry
+    /// failed RPC calls.
+    fn get_coins_stream_retry(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+    ) -> impl Stream<Item = Coin> + '_ {
+        stream::unfold(
+            (
+                vec![],
+                /* cursor */ None,
+                /* has_next_page */ true,
+                coin_type,
+            ),
+            move |(mut data, cursor, has_next_page, coin_type)| async move {
+                if let Some(item) = data.pop() {
+                    Some((item, (data, cursor, /* has_next_page */ true, coin_type)))
+                } else if has_next_page {
+                    let page = match retry_rpc_errors(self.get_strategy(), || async {
+                        self.sui_client
+                            .coin_read_api()
+                            .get_coins(owner, coin_type.clone(), cursor, Some(100))
+                            .await
+                    })
+                    .await
+                    {
+                        Ok(page) => page,
+                        Err(error) => {
+                            tracing::warn!(%error, "failed to get coins after retries");
+                            return None;
+                        }
+                    };
+
+                    let mut data = page.data;
+                    data.reverse();
+                    data.pop().map(|item| {
+                        (
+                            item,
+                            (data, page.next_cursor, page.has_next_page, coin_type),
+                        )
+                    })
+                } else {
+                    None
+                }
+            },
+        )
     }
 
     /// Returns the balance for the given coin type owned by address.
