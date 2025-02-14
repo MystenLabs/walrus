@@ -110,7 +110,7 @@ impl AssociatedContractStruct for Blob {
 /// The attribute struct for Blob objects.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct BlobAttribute {
-    /// The key-value pairs.
+    /// The metadata key-value pairs.
     pub metadata: VecMap<String, String>,
 }
 
@@ -122,14 +122,13 @@ impl Default for BlobAttribute {
     }
 }
 
-impl BlobAttribute {
-    /// Creates a new BlobAttribute from any collection of key-value pairs.
-    pub fn from<I, K, V>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: Into<String>,
-        V: Into<String>,
-    {
+impl<I, K, V> From<I> for BlobAttribute
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    fn from(iter: I) -> Self {
         let contents = iter
             .into_iter()
             .map(|(key, value)| Entry {
@@ -142,7 +141,9 @@ impl BlobAttribute {
             metadata: VecMap { contents },
         }
     }
+}
 
+impl BlobAttribute {
     /// Insert a key-value pair into the metadata.
     pub fn insert(&mut self, key: String, value: String) {
         if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
