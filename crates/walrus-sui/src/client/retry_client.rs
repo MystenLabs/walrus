@@ -64,6 +64,13 @@ use crate::{
 
 /// The list of HTTP status codes that are retriable.
 const RETRIABLE_RPC_ERRORS: &[&str] = &["429", "500", "502"];
+/// The list of gRPC status codes that are retriable.
+const RETRIABLE_GRPC_ERRORS: &[tonic::Code] = &[
+    tonic::Code::ResourceExhausted,
+    tonic::Code::Internal,
+    tonic::Code::Unavailable,
+    tonic::Code::DeadlineExceeded,
+];
 
 /// The gas overhead to add to the gas budget to ensure that the transaction will succeed.
 /// Set based on `GAS_SAFE_OVERHEAD` in the sui CLI. Used for gas budget estimation.
@@ -116,7 +123,7 @@ impl RetriableRpcError for SuiClientError {
 
 impl RetriableRpcError for tonic::Status {
     fn is_retriable_rpc_error(&self) -> bool {
-        RETRIABLE_RPC_ERRORS.contains(&self.code().to_string().as_str())
+        RETRIABLE_GRPC_ERRORS.contains(&self.code())
     }
 }
 
