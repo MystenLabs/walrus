@@ -1280,9 +1280,9 @@ mod tests {
 
         // Generate new protocol key pair
         let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
-        // Update the next protocol key pair in the node's config
+        // Update the next protocol key pair in the node's config,
+        // The config will be loaded by the config synchronizer.
         config.write().await.next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
-        // Trace the protocol key and next protocol key before spawning the node
         tracing::debug!(
             "current protocol key: {:?}, next protocol key: {:?}",
             config.read().await.protocol_key_pair().public(),
@@ -1294,7 +1294,13 @@ mod tests {
                 .map(|kp| kp.public())
         );
 
-        tokio::time::sleep(Duration::from_secs(100)).await;
+        wait_for_public_key_change(
+            &config,
+            new_protocol_key_pair.public(),
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Protocol key should be updated");
 
         // Check that the protocol key in StakePool is updated to the new one
         let pool = client_arc
@@ -1319,5 +1325,31 @@ mod tests {
             new_protocol_key_pair.public(),
             config.read().await.protocol_key_pair().public()
         );
+    }
+
+    /// Waits until the node's protocol key pair in the config matches the target public key.
+    /// Returns Ok(()) if the key matches within the timeout duration, or an error if it times out.
+    async fn wait_for_public_key_change(
+        config: &Arc<RwLock<walrus_service::node::config::StorageNodeConfig>>,
+        target_public_key: &walrus_core::PublicKey,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timed out waiting for public key change after {:?}",
+                    timeout
+                );
+            }
+
+            let current_public_key = config.read().await.protocol_key_pair().public().clone();
+            if &current_public_key == target_public_key {
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 }
