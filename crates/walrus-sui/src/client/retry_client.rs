@@ -285,7 +285,9 @@ impl RetriableSuiClient {
                             .await
                     })
                     .await
-                    .inspect_err(|error| tracing::warn!(%error, "failed to get coins after retries"))
+                    .inspect_err(
+                        |error| tracing::warn!(%error, "failed to get coins after retries"),
+                    )
                     .ok()?;
 
                     let mut data = page.data;
