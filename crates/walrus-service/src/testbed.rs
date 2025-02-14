@@ -394,6 +394,7 @@ pub async fn deploy_walrus_contract(
             &contract_config,
             ExponentialBackoffConfig::default(),
             gas_budget,
+            false,
         )
         .await?;
 
@@ -681,7 +682,7 @@ pub async fn create_storage_node_configs(
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
         testbed_config
             .system_ctx
-            .new_contract_client(wallet, ExponentialBackoffConfig::default(), None)
+            .new_contract_client(wallet, ExponentialBackoffConfig::default(), None, false)
             .await
             .expect("should not fail")
     }))

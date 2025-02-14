@@ -2250,6 +2250,7 @@ pub mod test_cluster {
                         wallet,
                         ExponentialBackoffConfig::default(),
                         None,
+                        false,
                     )
                 })
                 .await?;
@@ -2275,6 +2276,7 @@ pub mod test_cluster {
                     &contract_config,
                     ExponentialBackoffConfig::default(),
                     None,
+                    false,
                 )
             })
             .await?;

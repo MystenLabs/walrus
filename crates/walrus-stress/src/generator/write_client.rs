@@ -218,7 +218,12 @@ async fn new_client(
         RetriableSuiClient::new_from_wallet(wallet.as_ref(), Default::default()).await?;
     let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
-        SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
+        SuiContractClient::new_with_read_client(
+            wallet,
+            gas_budget,
+            Arc::new(sui_read_client),
+            false,
+        )
     })?;
 
     let client = sui_contract_client

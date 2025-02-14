@@ -386,6 +386,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
                 &contract_config,
                 existing_client.read_client().backoff_config().clone(),
                 None,
+                false,
             )
         })
         .await?;

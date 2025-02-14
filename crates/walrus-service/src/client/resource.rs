@@ -349,6 +349,7 @@ impl<'a> ResourceManager<'a> {
             num_blobs=%reused_metadata_with_storage.len(),
             "registering blobs with its storage resources"
         );
+
         let blobs = self
             .sui_client
             .register_blobs(reused_metadata_with_storage, persistence)

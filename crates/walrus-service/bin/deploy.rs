@@ -384,7 +384,12 @@ mod commands {
         let admin_wallet = load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
         let mut admin_contract_client = testbed_config
             .system_ctx
-            .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
+            .new_contract_client(
+                admin_wallet,
+                ExponentialBackoffConfig::default(),
+                None,
+                false,
+            )
             .await?;
 
         let client_config = create_client_config(
@@ -396,6 +401,7 @@ mod commands {
             testbed_config.exchange_object.into_iter().collect(),
         )
         .await?;
+
         let serialized_client_config =
             serde_yaml::to_string(&client_config).context("Failed to serialize client configs")?;
         let client_config_path = working_dir.join("client_config.yaml");

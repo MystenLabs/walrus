@@ -65,6 +65,7 @@ impl SuiConfig {
             &self.contract_config,
             self.backoff_config.clone(),
             self.gas_budget,
+            false,
         )
         .await
     }

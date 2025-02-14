@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
 
     let wallet = load_wallet_context(&args.wallet_path)?;
-    let contract_client = config.new_contract_client(wallet, None).await?;
+    let contract_client = config.new_contract_client(wallet, None, false).await?;
 
     let refiller = Refiller::new(
         contract_client,

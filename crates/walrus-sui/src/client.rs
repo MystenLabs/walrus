@@ -4,7 +4,13 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+    process,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
@@ -12,6 +18,7 @@ use retry_client::RetriableSuiClient;
 use sui_sdk::{
     rpc_types::{
         Coin,
+        DryRunTransactionBlockResponse,
         SuiExecutionStatus,
         SuiObjectDataOptions,
         SuiTransactionBlockEffectsAPI,
@@ -328,6 +335,7 @@ impl SuiContractClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
+        dry_run: bool,
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
@@ -336,7 +344,7 @@ impl SuiContractClient {
             )
             .await?,
         );
-        Self::new_with_read_client(wallet, gas_budget, read_client)
+        Self::new_with_read_client(wallet, gas_budget, read_client, dry_run)
     }
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
@@ -344,6 +352,7 @@ impl SuiContractClient {
         mut wallet: WalletContext,
         gas_budget: Option<u64>,
         read_client: Arc<SuiReadClient>,
+        dry_run: bool,
     ) -> SuiClientResult<Self> {
         let wallet_address = wallet.active_address()?;
         Ok(Self {
@@ -351,6 +360,7 @@ impl SuiContractClient {
                 wallet,
                 read_client.clone(),
                 gas_budget,
+                dry_run,
             )?),
             read_client,
             wallet_address,
@@ -870,6 +880,7 @@ struct SuiContractClientInner {
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
     /// the required gas budget.
     gas_budget: Option<u64>,
+    dry_run: bool,
 }
 
 impl SuiContractClientInner {
@@ -878,11 +889,13 @@ impl SuiContractClientInner {
         wallet: WalletContext,
         read_client: Arc<SuiReadClient>,
         gas_budget: Option<u64>,
+        dry_run: bool,
     ) -> SuiClientResult<Self> {
         Ok(Self {
             wallet,
             read_client,
             gas_budget,
+            dry_run,
         })
     }
 
@@ -1048,6 +1061,7 @@ impl SuiContractClientInner {
                 .await?;
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
+
         let res = self.sign_and_send_ptb(ptb).await?;
         let blob_obj_ids = get_created_sui_object_ids_by_type(
             &res,
@@ -1099,6 +1113,7 @@ impl SuiContractClientInner {
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
+
         let res = self.sign_and_send_ptb(ptb).await?;
 
         if !res.errors.is_empty() {
@@ -1467,8 +1482,39 @@ impl SuiContractClientInner {
         &mut self,
         programmable_transaction: ProgrammableTransaction,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        self.sign_and_send_ptb_inner(programmable_transaction, 0, 0)
-            .await
+        if !self.dry_run {
+            return self
+                .sign_and_send_ptb_inner(programmable_transaction, 0, 0)
+                .await;
+        }
+        let res = self.dry_run_ptb(programmable_transaction.clone()).await;
+        io::stdout().flush().unwrap();
+        println!(
+            "Dry run: a Sui PTB will be executed that will cost {:?} MIST",
+            res?
+        );
+        print!("Would you like to continue? (Y/n): ");
+        io::stdout().flush().unwrap();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        if input.trim().eq_ignore_ascii_case("y") {
+            println!("Continuing...");
+            // Sign and execute the PTB as initially.
+            self.sign_and_send_ptb_inner(programmable_transaction, 0, 0)
+                .await
+        } else {
+            println!("Operation aborted.");
+            process::exit(0);
+        }
+    }
+
+    /// Dry runs a Sui programmable transaction block.
+    pub async fn dry_run_ptb(
+        &mut self,
+        programmable_transaction: ProgrammableTransaction,
+    ) -> Result<i64> {
+        let res = self.dry_run_ptb_inner(programmable_transaction, 0).await?;
+        Ok(res.effects.gas_cost_summary().net_gas_usage())
     }
 
     /// Signs and sends a programmable transaction with an additional gas coin balance.
@@ -1496,6 +1542,51 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         self.sign_and_send_ptb_inner(programmable_transaction, 0, minimum_gas_coin_balance)
             .await
+    }
+
+    /// Contains all the logic needed to dry run a Sui programmable transaction block.
+    ///
+    /// This includes: getting the current gas price, gas budget, and instantiating a client to dry
+    /// run the whole transaction.
+    async fn dry_run_ptb_inner(
+        &mut self,
+        programmable_transaction: ProgrammableTransaction,
+        min_gas_coin_balance: u64,
+    ) -> Result<DryRunTransactionBlockResponse> {
+        let gas_price = self.wallet.get_reference_gas_price().await?;
+
+        let wallet_address = self.wallet.active_address()?;
+
+        // Estimate the gas budget unless explicitly set.
+        let gas_budget = if let Some(budget) = self.gas_budget {
+            budget
+        } else {
+            let tx_kind =
+                TransactionKind::ProgrammableTransaction(programmable_transaction.clone());
+            self.read_client
+                .sui_client()
+                .estimate_gas_budget(wallet_address, tx_kind, gas_price)
+                .await?
+        };
+
+        let transaction = TransactionData::new_programmable(
+            wallet_address,
+            self.get_compatible_gas_coins(min_gas_coin_balance).await?,
+            programmable_transaction,
+            gas_budget,
+            gas_price,
+        );
+        // Await the future to get the SuiClient.
+        let client = self.wallet.get_client().await?;
+
+        // Now you can call read_api() on the actual client.
+        let response = client
+            .read_api()
+            .dry_run_transaction_block(transaction)
+            .await?;
+
+        // Return the response wrapped in Ok.
+        Ok(response)
     }
 
     async fn sign_and_send_ptb_inner(

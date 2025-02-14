@@ -95,15 +95,17 @@ pub async fn get_contract_client(
     wallet: Result<WalletContext>,
     gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
+    dry_run: bool,
 ) -> Result<Client<SuiContractClient>> {
-    let sui_client = config.new_contract_client(wallet?, gas_budget).await?;
+    let sui_client = config
+        .new_contract_client(wallet?, gas_budget, dry_run)
+        .await?;
 
     let refresh_handle = config
         .refresh_config
         .build_refresher_and_run(sui_client.read_client().clone())
         .await?;
     let client = Client::new_contract_client(config, refresh_handle, sui_client).await?;
-
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
     } else {

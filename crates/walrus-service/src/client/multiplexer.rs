@@ -57,7 +57,9 @@ impl ClientMultiplexer {
         args: &PublisherArgs,
     ) -> anyhow::Result<Self> {
         let sui_env = wallet.config.get_active_env()?.clone();
-        let contract_client = config.new_contract_client(wallet, gas_budget).await?;
+        let contract_client = config
+            .new_contract_client(wallet, gas_budget, false)
+            .await?;
         let main_address = contract_client.address();
 
         let sui_client = contract_client.sui_client().clone();
@@ -308,7 +310,7 @@ impl<'a> SubClientLoader<'a> {
 
         let sui_client = self
             .config
-            .new_contract_client(wallet, self.gas_budget)
+            .new_contract_client(wallet, self.gas_budget, false)
             .await?;
         // Merge existing coins to avoid fragmentation.
         sui_client.merge_coins().await?;

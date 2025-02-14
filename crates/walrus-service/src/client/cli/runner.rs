@@ -254,7 +254,7 @@ impl ClientCommandRunner {
             } => {
                 let sui_client = self
                     .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .new_contract_client(self.wallet?, self.gas_budget, false)
                     .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("funding blob...");
@@ -274,7 +274,7 @@ impl ClientCommandRunner {
             } => {
                 let sui_client = self
                     .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .new_contract_client(self.wallet?, self.gas_budget, false)
                     .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("extending blob...");
@@ -301,7 +301,7 @@ impl ClientCommandRunner {
             } => {
                 let sui_client = self
                     .config?
-                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .new_contract_client(self.wallet?, self.gas_budget, false)
                     .await?;
                 let spinner = styled_spinner();
                 spinner.set_message("sharing blob...");
@@ -409,7 +409,8 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
 
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let client =
+            get_contract_client(self.config?, self.wallet, self.gas_budget, &None, dry_run).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
         let epochs_ahead =
@@ -420,7 +421,7 @@ impl ClientCommandRunner {
         }
 
         if dry_run {
-            return Self::store_dry_run(client, files, epochs_ahead, self.json).await;
+            Self::store_dry_run(&client, &files, epochs_ahead, self.json).await?;
         }
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
@@ -461,8 +462,8 @@ impl ClientCommandRunner {
     }
 
     async fn store_dry_run(
-        client: Client<SuiContractClient>,
-        files: Vec<PathBuf>,
+        client: &Client<SuiContractClient>,
+        files: &Vec<PathBuf>,
         epochs_ahead: EpochCount,
         json: bool,
     ) -> Result<()> {
@@ -471,7 +472,7 @@ impl ClientCommandRunner {
         let mut outputs = Vec::with_capacity(files.len());
 
         for file in files {
-            let blob = read_blob_from_file(&file)?;
+            let blob = read_blob_from_file(file)?;
             let (_, metadata) = client
                 .encode_pairs_and_metadata(&blob, &MultiProgress::new())
                 .await?;
@@ -487,7 +488,7 @@ impl ClientCommandRunner {
             );
 
             outputs.push(DryRunOutput {
-                path: file,
+                path: file.to_path_buf(),
                 blob_id: *metadata.blob_id(),
                 unencoded_size,
                 encoded_size,
@@ -658,7 +659,7 @@ impl ClientCommandRunner {
     pub(crate) async fn list_blobs(self, include_expired: bool) -> Result<()> {
         let config = self.config?;
         let contract_client = config
-            .new_contract_client(self.wallet?, self.gas_budget)
+            .new_contract_client(self.wallet?, self.gas_budget, false)
             .await?;
         let blobs = contract_client
             .owned_blobs(
@@ -729,6 +730,7 @@ impl ClientCommandRunner {
             self.wallet,
             self.gas_budget,
             &args.daemon_args.blocklist,
+            false,
         )
         .await?;
         ClientDaemon::new_daemon(
@@ -758,7 +760,8 @@ impl ClientCommandRunner {
         // Check that the target is valid.
         target.exactly_one_is_some()?;
 
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let client =
+            get_contract_client(self.config?, self.wallet, self.gas_budget, &None, false).await?;
         let file = target.file.clone();
         let object_id = target.object_id;
 
@@ -852,7 +855,8 @@ impl ClientCommandRunner {
                 .zip(amounts.into_iter())
                 .collect::<Vec<_>>()
         };
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
+        let client =
+            get_contract_client(self.config?, self.wallet, self.gas_budget, &None, false).await?;
         let staked_wal = client.stake_with_node_pools(&node_ids_with_amounts).await?;
         StakeOutput { staked_wal }.print_output(self.json)
     }
@@ -887,7 +891,8 @@ impl ClientCommandRunner {
                 or as a command-line argument.\n\
                 Note that this command is only available on Testnet.",
             )?;
-        let client = get_contract_client(config, self.wallet, self.gas_budget, &None).await?;
+        let client =
+            get_contract_client(config, self.wallet, self.gas_budget, &None, false).await?;
         tracing::info!(
             "exchanging {} for WAL using exchange object {exchange_id}",
             HumanReadableMist::from(amount)
@@ -903,7 +908,7 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         let sui_client = self
             .config?
-            .new_contract_client(self.wallet?, self.gas_budget)
+            .new_contract_client(self.wallet?, self.gas_budget, false)
             .await?;
         let object_ids = burn_selection.get_object_ids(&sui_client).await?;
 

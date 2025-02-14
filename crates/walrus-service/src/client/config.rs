@@ -67,12 +67,14 @@ impl Config {
         &self,
         wallet: WalletContext,
         gas_budget: Option<u64>,
+        dry_run: bool,
     ) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
             wallet,
             &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,
+            dry_run,
         )
         .await
     }
@@ -92,7 +94,7 @@ impl Config {
             );
         };
         let wallet = WalletContext::new(wallet_config, None, None)?;
-        Ok(self.new_contract_client(wallet, gas_budget).await?)
+        Ok(self.new_contract_client(wallet, gas_budget, false).await?)
     }
 
     /// Returns a reference to the backoff configuration.
