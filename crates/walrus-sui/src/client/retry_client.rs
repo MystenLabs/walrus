@@ -278,20 +278,15 @@ impl RetriableSuiClient {
                 if let Some(item) = data.pop() {
                     Some((item, (data, cursor, /* has_next_page */ true, coin_type)))
                 } else if has_next_page {
-                    let page = match retry_rpc_errors(self.get_strategy(), || async {
+                    let page = retry_rpc_errors(self.get_strategy(), || async {
                         self.sui_client
                             .coin_read_api()
                             .get_coins(owner, coin_type.clone(), cursor, Some(100))
                             .await
                     })
                     .await
-                    {
-                        Ok(page) => page,
-                        Err(error) => {
-                            tracing::warn!(%error, "failed to get coins after retries");
-                            return None;
-                        }
-                    };
+                    .inspect_err(|error| tracing::warn!(%error, "failed to get coins after retries"))
+                    .ok()?;
 
                     let mut data = page.data;
                     data.reverse();
