@@ -30,7 +30,7 @@ use walrus_sui::{
 };
 
 use super::{
-    config::BackupConfig,
+    config::{BackupConfig, BackupDbConfig},
     models::{self, BlobIdRow, StreamEvent},
     schema,
     BACKUP_BLOB_ARCHIVE_SUBDIR,
@@ -65,7 +65,7 @@ async fn stream_events(
     event_processor: Arc<EventProcessor>,
     _metrics_registry: Registry,
     mut pg_connection: AsyncPgConnection,
-    db_serializability_retry_time: Duration,
+    db_config: &BackupDbConfig,
     backup_orchestrator_metric_set: BackupOrchestratorMetricSet,
 ) -> Result<()> {
     let event_cursor = models::get_backup_node_cursor(&mut pg_connection).await?;
@@ -95,8 +95,9 @@ async fn stream_events(
                     checkpoint_event_position,
                     element_index,
                     contract_event,
-                    db_serializability_retry_time,
+                    db_config,
                     counter,
+                    &backup_orchestrator_metric_set.db_reconnects,
                 )
                 .await?;
                 backup_orchestrator_metric_set.events_recorded.inc();
@@ -111,21 +112,24 @@ async fn stream_events(
     bail!("event stream for blob events stopped")
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn record_event(
     pg_connection: &mut AsyncPgConnection,
     element: &EventStreamElement,
     checkpoint_event_position: CheckpointEventPosition,
     element_index: u64,
     contract_event: &ContractEvent,
-    db_serializability_retry_time: Duration,
+    db_config: &BackupDbConfig,
     retry_counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
+    db_reconnects: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
 ) -> Result<(), Error> {
     let event_id: EventID = element.event_id().unwrap();
     retry_serializable_query(
         pg_connection,
         Location::caller(),
-        db_serializability_retry_time,
+        db_config,
         retry_counter,
+        db_reconnects,
         |conn| {
             async move {
                 diesel::insert_into(schema::stream_event::dsl::stream_event)
@@ -246,16 +250,18 @@ async fn establish_connection_async(
 
 /// Run the database migrations for the backup node.
 pub fn run_backup_database_migrations(config: &BackupConfig) {
-    let mut connection =
-        establish_connection(&config.database_url, "run_backup_database_migrations")
-            .inspect_err(|error| {
-                tracing::error!(
-                    ?error,
-                    "failed to connect to postgres for database migration"
-                );
-                std::process::exit(1);
-            })
-            .unwrap();
+    let mut connection = establish_connection(
+        &config.db_config.database_url,
+        "run_backup_database_migrations",
+    )
+    .inspect_err(|error| {
+        tracing::error!(
+            ?error,
+            "failed to connect to postgres for database migration"
+        );
+        std::process::exit(1);
+    })
+    .unwrap();
     tracing::info!("running pending migrations");
     let versions = connection
         .run_pending_migrations(MIGRATIONS)
@@ -307,7 +313,7 @@ pub async fn start_backup_orchestrator(
 
     // Connect to the database.
     let pg_connection =
-        establish_connection_async(&config.database_url, "start_backup_node").await?;
+        establish_connection_async(&config.db_config.database_url, "start_backup_node").await?;
 
     let backup_orchestrator_metric_set =
         BackupOrchestratorMetricSet::new(&metrics_runtime.registry);
@@ -316,7 +322,7 @@ pub async fn start_backup_orchestrator(
         event_processor,
         metrics_registry,
         pg_connection,
-        config.db_serializability_retry_time,
+        &config.db_config,
         backup_orchestrator_metric_set,
     )
     .await
@@ -370,7 +376,7 @@ async fn backup_take_task(
     backup_fetcher_metric_set: &BackupFetcherMetricSet,
     retry_fetch_after_interval: Duration,
     max_retries_per_blob: u32,
-    db_serializability_retry_time: Duration,
+    db_config: &BackupDbConfig,
 ) -> Option<BlobId> {
     let max_retries_per_blob =
         i32::try_from(max_retries_per_blob).expect("max_retries_per_blob config overflow");
@@ -380,10 +386,11 @@ async fn backup_take_task(
     let blob_id_rows: Vec<BlobIdRow> = retry_serializable_query(
         conn,
         Location::caller(),
-        db_serializability_retry_time,
+        db_config,
         &backup_fetcher_metric_set
             .db_serializability_retries
             .with_label_values(&["take_task"]),
+        &backup_fetcher_metric_set.db_reconnects,
         |conn| {
             async {
                 // This query will fetch the next blob that is in the waiting state and is ready to
@@ -393,6 +400,9 @@ async fn backup_take_task(
                 // The backoff interval is calculated to be an exponential function of the retry
                 // count, with a maximum of 24 hours. The exponential base is 1.5, which means that
                 // the backoff interval will increase by 50% with each retry.
+                //
+                // This query will also ensure that the blob is still unexpired by checking the
+                // end_epoch of the blob against the latest epoch_change_start_event.
                 diesel::sql_query(
                     "WITH ready_blob_ids AS (
                             SELECT blob_id FROM blob_state
@@ -400,6 +410,10 @@ async fn backup_take_task(
                                 state = 'waiting'
                                 AND blob_state.initiate_fetch_after < NOW()
                                 AND blob_state.retry_count < $1
+                                AND COALESCE(
+                                    blob_state.end_epoch > (SELECT MAX(epoch)
+                                                            FROM epoch_change_start_event),
+                                    TRUE)
                             ORDER BY blob_state.initiate_fetch_after ASC
                             LIMIT 1
                         ),
@@ -446,9 +460,10 @@ async fn backup_fetcher(
     backup_metric_set: BackupFetcherMetricSet,
 ) -> Result<()> {
     tracing::info!("[backup_fetcher] starting worker");
-    let mut conn = establish_connection_async(&backup_config.database_url, "backup_fetcher")
-        .await
-        .context("[backup_fetcher] connecting to postgres")?;
+    let mut conn =
+        establish_connection_async(&backup_config.db_config.database_url, "backup_fetcher")
+            .await
+            .context("[backup_fetcher] connecting to postgres")?;
     let sui_read_client = SuiReadClient::new(
         RetriableSuiClient::new_for_rpc(
             &backup_config.sui.rpc,
@@ -480,7 +495,7 @@ async fn backup_fetcher(
             &backup_metric_set,
             backup_config.retry_fetch_after_interval,
             backup_config.max_retries_per_blob,
-            backup_config.db_serializability_retry_time,
+            &backup_config.db_config,
         )
         .await
         {
@@ -541,10 +556,11 @@ async fn backup_fetch_inner_core(
             let affected_rows: usize = retry_serializable_query(
                 conn,
                 Location::caller(),
-                backup_config.db_serializability_retry_time,
+                &backup_config.db_config,
                 &backup_metric_set
                     .db_serializability_retries
                     .with_label_values(&["uploaded_blob"]),
+                &backup_metric_set.db_reconnects,
                 |conn| {
                     async {
                         diesel::sql_query(
@@ -606,11 +622,16 @@ async fn upload_blob_to_storage(
     blob: Vec<u8>,
     backup_config: &BackupConfig,
 ) -> Result<String> {
+    let blob_size = blob.len();
     let (store, blob_url): (Box<dyn ObjectStore>, String) =
         if let Some(backup_bucket) = backup_config.backup_bucket.as_deref() {
             (
                 Box::new(
                     GoogleCloudStorageBuilder::from_env()
+                        .with_client_options(
+                            object_store::ClientOptions::default()
+                                .with_timeout(backup_config.blob_upload_timeout),
+                        )
                         .with_bucket_name(backup_bucket.to_string())
                         .build()?,
                 ),
@@ -637,6 +658,7 @@ async fn upload_blob_to_storage(
         store.put(&blob_id.to_string().into(), blob.into()).await?;
     tracing::info!(
         blob_id = %blob_id,
+        blob_size,
         ?put_result,
         "[upload_blob_to_storage] uploaded blob",
     );
@@ -646,8 +668,9 @@ async fn upload_blob_to_storage(
 async fn retry_serializable_query<'a, 'b, T, F>(
     conn: &mut AsyncPgConnection,
     callsite: &'static Location<'static>,
-    db_serializability_retry_time: Duration,
+    db_config: &BackupDbConfig,
     retry_counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
+    db_reconnects: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
     f: F,
 ) -> std::result::Result<T, Error>
 where
@@ -659,6 +682,7 @@ where
         + 'a,
     T: 'b,
 {
+    let starting_retry_count = retry_counter.get();
     loop {
         match conn
             .build_transaction()
@@ -667,19 +691,40 @@ where
             .await
         {
             Ok(value) => break Ok(value),
-            Err(error @ Error::DatabaseError(DatabaseErrorKind::SerializationFailure, _)) => {
-                retry_counter.inc();
+            Err(Error::DatabaseError(DatabaseErrorKind::SerializationFailure, detail)) => {
                 tracing::warn!(
-                    ?error,
+                    ?detail,
                     ?callsite,
-                    "SERIALIZABLE transaction failure, retrying"
+                    retry_count = retry_counter.get() - starting_retry_count,
+                    "encountered a SerializationFailure, retrying"
                 );
+                retry_counter.inc();
                 // Retry after a short delay.
-                tokio::time::sleep(db_serializability_retry_time).await;
+                tokio::time::sleep(db_config.db_serializability_retry_time).await;
                 continue;
             }
+            Err(error) if retry_counter.get() - starting_retry_count < 3 => {
+                // This is a bit of a broken situation, since we don't understand the failure. but
+                // we can try to reconnect to the database a few times before giving up.
+                tracing::error!(
+                    ?error,
+                    ?callsite,
+                    retry_count = retry_counter.get() - starting_retry_count,
+                    ?db_config.db_reconnect_wait_time,
+                    "unexpected error within retry_serializable_query. attempting to reconnect"
+                );
+                retry_counter.inc();
+                tokio::time::sleep(db_config.db_reconnect_wait_time).await;
+
+                // Implicitly drop the prior connection and create a new one.
+                *conn =
+                    establish_connection_async(&db_config.database_url, "retry_serializable_query")
+                        .await
+                        .expect("attempt to reconnect failed");
+                db_reconnects.inc();
+            }
             Err(error) => {
-                panic!("unrecoverable error while inserting blob: {:?}", error);
+                panic!("final error within retry_serializable_query: {:?}", error);
             }
         }
     }

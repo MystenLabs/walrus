@@ -16,6 +16,30 @@ use crate::{
 /// The subdirectory in which to store the backup blobs when running without remote storage.
 pub const BACKUP_BLOB_ARCHIVE_SUBDIR: &str = "archive";
 
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BackupDbConfig {
+    /// Database URL.
+    ///
+    /// URL of the PostgreSQL database used to manage blob backup state and event stream progress.
+    #[serde(default = "defaults::database_url_from_env_var")]
+    pub database_url: String,
+    /// How long to sleep between PostgreSQL serializable transaction retries.
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(
+        rename = "db_serializability_retry_time_milliseconds",
+        default = "defaults::db_serializability_retry_time"
+    )]
+    pub db_serializability_retry_time: Duration,
+    /// How long to sleep between PostgreSQL reconnection attempts.
+    #[serde_as(as = "DurationMilliSeconds<u64>")]
+    #[serde(
+        rename = "db_reconnect_wait_time_milliseconds",
+        default = "defaults::db_reconnect_wait_time"
+    )]
+    pub db_reconnect_wait_time: Duration,
+}
+
 /// Configuration of a Walrus backup node used for serialization and deserialization.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -24,11 +48,18 @@ pub struct BackupConfig {
     /// no backup_bucket is specified.
     #[serde(deserialize_with = "utils::resolve_home_dir")]
     pub backup_storage_path: PathBuf,
+    /// Database configuration. Split apart to ease passing these values to db-specific routines.
+    #[serde(flatten)]
+    pub db_config: BackupDbConfig,
     /// Google Cloud Storage bucket to which the backup blobs will be uploaded.
     ///
     /// If this is `None`, the backup blobs will not be uploaded to GCS, they will be placed in the
     /// `backup_storage_path` under the `archive` subdir.
     pub backup_bucket: Option<String>,
+    /// Time allowed to spend uploading a blob before timing out.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(default = "defaults::blob_upload_timeout")]
+    pub blob_upload_timeout: Duration,
     /// Socket address on which the Prometheus server should export its metrics.
     #[serde(default = "defaults::metrics_address")]
     pub metrics_address: SocketAddr,
@@ -37,11 +68,6 @@ pub struct BackupConfig {
     /// Configuration for the event processor.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub event_processor_config: EventProcessorConfig,
-    /// Database URL.
-    ///
-    /// URL of the PostgreSQL database used to manage blob backup state and event stream progress.
-    #[serde(default = "defaults::database_url_from_env_var")]
-    pub database_url: String,
     /// Maximum number of retries allowed per blob.
     ///
     /// This is the maximum number of times that a backup_delegator will enqueue a particular blob
@@ -64,13 +90,6 @@ pub struct BackupConfig {
         default = "defaults::idle_fetcher_sleep_time"
     )]
     pub idle_fetcher_sleep_time: Duration,
-    /// How long to sleep between PostgreSQL serializable transaction retries.
-    #[serde_as(as = "DurationMilliSeconds<u64>")]
-    #[serde(
-        rename = "db_serializability_retry_time_milliseconds",
-        default = "defaults::db_serializability_retry_time"
-    )]
-    pub db_serializability_retry_time: Duration,
 }
 
 impl BackupConfig {
@@ -83,14 +102,18 @@ impl BackupConfig {
         Self {
             backup_storage_path,
             backup_bucket: None,
+            blob_upload_timeout: defaults::blob_upload_timeout(),
             metrics_address: defaults::metrics_address(),
             sui,
             event_processor_config: Default::default(),
-            database_url,
+            db_config: BackupDbConfig {
+                database_url,
+                db_serializability_retry_time: defaults::db_serializability_retry_time(),
+                db_reconnect_wait_time: defaults::db_reconnect_wait_time(),
+            },
             max_retries_per_blob: defaults::max_retries_per_blob(),
             retry_fetch_after_interval: defaults::retry_fetch_after_interval(),
             idle_fetcher_sleep_time: defaults::idle_fetcher_sleep_time(),
-            db_serializability_retry_time: defaults::db_serializability_retry_time(),
         }
     }
 }
@@ -146,5 +169,13 @@ pub mod defaults {
     /// Default wait time between PostgreSQL serializability error retries.
     pub fn db_serializability_retry_time() -> Duration {
         Duration::from_millis(100)
+    }
+    /// Default wait time between PostgreSQL reconnect attempts.
+    pub fn db_reconnect_wait_time() -> Duration {
+        Duration::from_millis(1000)
+    }
+    /// Default time to allow blob uploads to take before timing out.
+    pub fn blob_upload_timeout() -> Duration {
+        Duration::from_secs(60)
     }
 }
