@@ -58,7 +58,7 @@ use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBack
 use super::{SuiClientError, SuiClientResult};
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
-    types::move_structs::{Key, SuiDynamicField, SystemObjectForDeserialization},
+    types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
 };
 
@@ -601,6 +601,19 @@ impl RetriableSuiClient {
             .await?;
 
         let pkg_id = system_object.package_id;
+        Ok(pkg_id)
+    }
+
+    /// Checks if the Walrus subsidies object exist on chain and returns the subsidies package ID.
+    pub(crate) async fn get_subsidies_package_id_from_subsidies_object(
+        &self,
+        subsidies_object_id: ObjectID,
+    ) -> SuiClientResult<ObjectID> {
+        let subsidies_object = self
+            .get_sui_object::<Subsidies>(subsidies_object_id)
+            .await?;
+
+        let pkg_id = subsidies_object.package_id;
         Ok(pkg_id)
     }
 

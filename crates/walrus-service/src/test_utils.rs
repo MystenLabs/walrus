@@ -105,6 +105,13 @@ use crate::{
     },
 };
 
+/// Default buyer subsidy rate (5%)
+const DEFAULT_BUYER_SUBSIDY_RATE: u16 = 500;
+/// Default system subsidy rate (6%)
+const DEFAULT_SYSTEM_SUBSIDY_RATE: u16 = 600;
+/// Default initial subsidy funds amount
+pub const DEFAULT_SUBSIDY_FUNDS: u64 = 1_000_000;
+
 /// A system event manager that provides events from a stream. It does not support dropping events.
 #[derive(Debug)]
 pub struct DefaultSystemEventManager {
@@ -2132,7 +2139,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{contract_config::ContractConfig, SuiContractClient, SuiReadClient},
+        client::{Subsidies as ClientSubsidies, SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -2167,13 +2174,24 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
-        default_setup_with_epoch_duration(Duration::from_secs(60 * 60)).await
+        default_setup_with_epoch_duration(Duration::from_secs(60 * 60), false).await
+    }
+
+    /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
+    /// node handle.
+    pub async fn default_setup_with_subsidies() -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster,
+        WithTempDir<client::Client<SuiContractClient>>,
+    )> {
+        default_setup_with_epoch_duration(Duration::from_secs(60 * 60), true).await
     }
 
     /// Performs the default setup with the input epoch duration for the test cluster using
     /// StorageNodeHandle as default storage node handle.
     pub async fn default_setup_with_epoch_duration(
         epoch_duration: Duration,
+        with_subsidies: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster,
@@ -2191,6 +2209,7 @@ pub mod test_cluster {
             test_nodes_config,
             Some(10),
             ClientCommunicationConfig::default_for_test(),
+            with_subsidies,
         )
         .await
     }
@@ -2202,6 +2221,7 @@ pub mod test_cluster {
         test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
+        with_subsidies: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2212,6 +2232,7 @@ pub mod test_cluster {
             test_nodes_config,
             num_checkpoints_per_blob,
             communication_config,
+            with_subsidies,
         )
         .await
     }
@@ -2223,6 +2244,7 @@ pub mod test_cluster {
         test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
+        with_subsidies: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2263,6 +2285,7 @@ pub mod test_cluster {
             Duration::from_secs(0),
             epoch_duration,
             None,
+            with_subsidies,
         )
         .await?;
 
@@ -2296,8 +2319,7 @@ pub mod test_cluster {
         }
         let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
-        let contract_config =
-            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
+        let contract_config = system_ctx.contract_config();
 
         let admin_contract_client = admin_wallet
             .and_then_async(|wallet| {
@@ -2309,6 +2331,20 @@ pub mod test_cluster {
                 )
             })
             .await?;
+
+        if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
+            let (subsidies_id, _) = admin_contract_client
+                .as_ref()
+                .create_and_fund_subsidies(
+                    subsidies_pkg_id,
+                    DEFAULT_BUYER_SUBSIDY_RATE,
+                    DEFAULT_SYSTEM_SUBSIDY_RATE,
+                    DEFAULT_SUBSIDY_FUNDS,
+                )
+                .await?;
+            let subsidies = ClientSubsidies::new(subsidies_pkg_id, subsidies_id);
+            *admin_contract_client.inner.read_client().subsidies_mut() = Some(subsidies);
+        }
 
         let amounts_to_stake = test_nodes_config
             .node_weights

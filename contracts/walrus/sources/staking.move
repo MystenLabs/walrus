@@ -21,6 +21,7 @@ use walrus::{
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EInvalidMigration: u64 = 0;
+const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the Walrus system.
 const VERSION: u64 = 0;
@@ -388,13 +389,13 @@ public(package) fun migrate(staking: &mut Staking) {
 
 /// Get a mutable reference to `StakingInner` from the `Staking`.
 fun inner_mut(staking: &mut Staking): &mut StakingInnerV1 {
-    assert!(staking.version == VERSION);
+    assert!(staking.version == VERSION, EWrongVersion);
     df::borrow_mut(&mut staking.id, VERSION)
 }
 
 /// Get an immutable reference to `StakingInner` from the `Staking`.
 fun inner(staking: &Staking): &StakingInnerV1 {
-    assert!(staking.version == VERSION);
+    assert!(staking.version == VERSION, EWrongVersion);
     df::borrow(&staking.id, VERSION)
 }
 

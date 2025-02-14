@@ -242,6 +242,8 @@ pub struct DeployTestbedContractParameters<'a> {
     pub with_wal_exchange: bool,
     /// Flag to use an existing WAL token deployment at the address specified in `Move.lock`.
     pub use_existing_wal_token: bool,
+    /// Flag to create a subsidies package.
+    pub with_subsidies: bool,
 }
 
 /// Create and deploy a Walrus contract.
@@ -265,10 +267,16 @@ pub async fn deploy_walrus_contract(
         do_not_copy_contracts,
         with_wal_exchange,
         use_existing_wal_token,
+        with_subsidies,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
-
+    // 1000 WAL for subsidies that will be used to fund the subsidy pool
+    const SUBSIDIES_AMOUNT: u64 = 1000 * 1_000_000_000;
+    // 5% buyer subsidy rate
+    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 500;
+    // 10% system subsidy rate
+    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 1000;
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();
@@ -366,19 +374,20 @@ pub async fn deploy_walrus_contract(
         Some(working_dir.join("contracts"))
     };
 
-    let system_ctx = create_and_init_system(
-        contract_dir,
+    let mut system_ctx = create_and_init_system(
         &mut admin_wallet,
         InitSystemParams {
             n_shards,
             epoch_zero_duration,
             epoch_duration,
             max_epochs_ahead,
+            contract_dir,
+            deploy_directory,
+            use_existing_wal_token,
+            with_wal_exchange,
+            with_subsidies,
         },
         gas_budget,
-        deploy_directory,
-        with_wal_exchange,
-        use_existing_wal_token,
     )
     .await?;
 
@@ -391,16 +400,16 @@ pub async fn deploy_walrus_contract(
 
     tracing::debug!("Retrieved contract configuration from system context");
 
+    let contract_client = SuiContractClient::new(
+        admin_wallet,
+        &contract_config,
+        ExponentialBackoffConfig::default(),
+        gas_budget,
+    )
+    .await?;
+
     let exchange_object = if let Some(wal_exchange_pkg_id) = system_ctx.wal_exchange_pkg_id {
         // Create WAL exchange.
-        let contract_client = SuiContractClient::new(
-            admin_wallet,
-            &contract_config,
-            ExponentialBackoffConfig::default(),
-            gas_budget,
-        )
-        .await?;
-
         // TODO(WAL-520): create multiple exchange objects
         Some(
             contract_client
@@ -418,21 +427,56 @@ pub async fn deploy_walrus_contract(
             .unwrap_or_else(|| "None".to_string())
     );
 
+    let objects = if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
+        Some(
+            contract_client
+                .create_and_fund_subsidies(
+                    subsidies_pkg_id,
+                    INITIAL_BUYER_SUBSIDY_RATE,
+                    INITIAL_SYSTEM_SUBSIDY_RATE,
+                    SUBSIDIES_AMOUNT,
+                )
+                .await?,
+        )
+    } else {
+        None
+    };
+
+    match &objects {
+        Some((subsidies_id, admin_cap_id)) => {
+            tracing::debug!(
+                subsidies_id = %subsidies_id,
+                admin_cap_id = %admin_cap_id,
+                "Successfully created subsidies objects"
+            );
+        }
+        None => {
+            tracing::debug!("Subsidies creation skipped");
+        }
+    }
+
+    system_ctx.subsidies_object = objects.map(|(id, _)| id);
     println!(
         "Walrus contract created:\n\
             package_id: {}\n\
             system_object: {}\n\
             staking_object: {}\n\
             upgrade_manager_object: {}\n\
+            subsidies_object: {}\n\
             exchange_object: {}",
         system_ctx.walrus_pkg_id,
         system_ctx.system_object,
         system_ctx.staking_object,
         system_ctx.upgrade_manager_object,
+        system_ctx
+            .subsidies_object
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "None".to_string()),
         exchange_object
             .map(|id| id.to_string())
-            .unwrap_or_else(|| "None".to_string())
+            .unwrap_or_else(|| "None".to_string()),
     );
+
     Ok(TestbedConfig {
         sui_network,
         nodes: node_configs,

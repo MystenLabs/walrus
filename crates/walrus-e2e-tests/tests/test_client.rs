@@ -49,7 +49,13 @@ use walrus_service::{
         },
         StoreWhen,
     },
-    test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait, TestNodesConfig},
+    test_utils::{
+        test_cluster,
+        StorageNodeHandle,
+        StorageNodeHandleTrait,
+        TestNodesConfig,
+        DEFAULT_SUBSIDY_FUNDS,
+    },
 };
 use walrus_sui::{
     client::{
@@ -62,7 +68,7 @@ use walrus_sui::{
     },
     types::{
         move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, SharedBlob},
+        move_structs::{BlobAttribute, SharedBlob, Subsidies},
         Blob,
         BlobEvent,
         ContractEvent,
@@ -792,6 +798,7 @@ async fn test_blocklist() -> TestResult {
             },
             None,
             ClientCommunicationConfig::default_for_test(),
+            false,
         )
         .await?;
     let client = client.as_ref();
@@ -859,6 +866,68 @@ async fn test_blocklist() -> TestResult {
     }
 
     assert_eq!(blob_read_result?, blob);
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_operations_with_subsidies() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (_sui_cluster_handle, _cluster, client) =
+        test_cluster::default_setup_with_subsidies().await?;
+    let client = client.as_ref();
+
+    // Store a blob with subsidies
+    let blob_data = walrus_test_utils::random_data(314);
+    let blobs = vec![blob_data.as_slice()];
+    let store_result = client
+        .reserve_and_store_blobs(
+            &blobs,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+
+    let blob_object = match &store_result[0] {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.clone(),
+        _ => panic!("Expected newly created blob"),
+    };
+
+    let initial_storage = blob_object.storage.clone();
+
+    // Extend blob storage with subsidies
+    client.sui_client().extend_blob(blob_object.id, 5).await?;
+
+    // Verify blob storage was extended with subsidies
+    let extended_blob: Blob = client
+        .sui_client()
+        .sui_client()
+        .get_sui_object(blob_object.id)
+        .await?;
+
+    // Verify the blob was extended
+    assert!(extended_blob.storage.end_epoch > initial_storage.end_epoch);
+
+    // Verify subsidies were applied by checking remaining funds
+    let subsidies: Subsidies = client
+        .sui_client()
+        .read_client()
+        .sui_client()
+        .get_sui_object(
+            client
+                .sui_client()
+                .read_client()
+                .get_subsidies_object_id()
+                .unwrap(),
+        )
+        .await?;
+    assert!(
+        subsidies.subsidy_pool < DEFAULT_SUBSIDY_FUNDS,
+        "Subsidies should have been used"
+    );
 
     Ok(())
 }
@@ -962,6 +1031,7 @@ async fn test_repeated_shard_move() -> TestResult {
             },
             None,
             ClientCommunicationConfig::default_for_test(),
+            false,
         )
         .await?;
 

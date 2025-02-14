@@ -27,8 +27,11 @@ const N_COINS: u64 = 1_000_000_000;
 fun test_new() {
     let user = @0xa11ce;
     let mut test = test::begin(user);
+    let ctx = test.ctx();
 
-    let admin_cap = subsidies::new(test.ctx());
+    let package_id = object::new(ctx);
+    let package_id_inner = object::uid_to_inner(&package_id);
+    let admin_cap = subsidies::new(package_id_inner, ctx);
 
     test.next_tx(user);
     let subsidies = test.take_shared<Subsidies>();
@@ -40,7 +43,7 @@ fun test_new() {
 
     admin_cap.destroy_admin_cap();
     subsidies.destroy_subsidies();
-
+    object::delete(package_id);
     test.end();
 }
 
@@ -48,16 +51,19 @@ fun test_new() {
 fun test_new_with_initial_rates_and_funds_public_fn() {
     let user = @0xa11ce;
     let mut test = test::begin(user);
+    let ctx = test.ctx();
 
     let initial_buyer_subsidy_rate: u16 = 5_00; // 5%
     let initial_storage_node_subsidy_rate: u16 = 10_00; // 10%
     let initial_funds_value = 1_000_000;
+    let package_id = object::new(ctx);
 
     let admin_cap = subsidies::new_with_initial_rates_and_funds(
+        package_id.to_inner(),
         initial_buyer_subsidy_rate,
         initial_storage_node_subsidy_rate,
-        mint(initial_funds_value, test.ctx()),
-        test.ctx(),
+        mint(initial_funds_value, ctx),
+        ctx,
     );
 
     test.next_tx(user);
@@ -70,6 +76,7 @@ fun test_new_with_initial_rates_and_funds_public_fn() {
 
     admin_cap.destroy_admin_cap();
     subsidies.destroy_subsidies();
+    object::delete(package_id);
 
     test.end();
 }

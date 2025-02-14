@@ -890,6 +890,7 @@ mod tests {
         let contract_config = ContractConfig {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
+            subsidies_object: None,
         };
         let config = StorageNodeConfig {
             sui: Some(SuiConfig {

@@ -207,6 +207,7 @@ mod tests {
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
+                false,
             )
             .await
             .unwrap();
@@ -250,6 +251,7 @@ mod tests {
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
+                false,
             )
             .await
             .unwrap();
@@ -452,6 +454,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -599,6 +602,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -733,6 +737,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -799,6 +804,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -941,6 +947,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -1099,6 +1106,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -1231,6 +1239,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();

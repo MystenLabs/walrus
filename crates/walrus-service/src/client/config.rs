@@ -576,6 +576,7 @@ mod tests {
         let contract_config = ContractConfig {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
+            subsidies_object: Some(ObjectID::random_from_rng(&mut rng)),
         };
         let config = Config {
             contract_config,
@@ -614,6 +615,7 @@ mod tests {
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects: []
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
         "};
 
         let config: Config = serde_yaml::from_str(yaml)?;
@@ -623,10 +625,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_no_subsidies_object_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects:
+                - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+        "};
+
+        let config: Config = serde_yaml::from_str(yaml)?;
+        assert!(config.contract_config.subsidies_object.is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn parses_single_exchange_object_config_file() -> TestResult {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects:
                 - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
         "};
@@ -642,6 +660,7 @@ mod tests {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects:
                 - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
                 - 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
@@ -658,6 +677,7 @@ mod tests {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects:
                 - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
             wallet_config: path/to/wallet

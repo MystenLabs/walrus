@@ -234,6 +234,7 @@ pub(crate) async fn publish_package(
 pub(crate) struct PublishSystemPackageResult {
     pub walrus_pkg_id: ObjectID,
     pub wal_exchange_pkg_id: Option<ObjectID>,
+    pub subsidies_pkg_id: Option<ObjectID>,
     pub init_cap_id: ObjectID,
     pub upgrade_cap_id: ObjectID,
 }
@@ -255,7 +256,7 @@ fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> 
     Ok(())
 }
 
-/// Publishes the `wal`, `wal_exchange`, and `walrus` packages.
+/// Publishes the `wal`, `wal_exchange`, `subsidies`, and `walrus` packages.
 ///
 /// Returns the IDs of the packages, the `InitCap`, and the `UpgradeCap`.
 ///
@@ -271,6 +272,7 @@ pub async fn publish_coin_and_system_package(
     deploy_directory: Option<PathBuf>,
     with_wal_exchange: bool,
     use_existing_wal_token: bool,
+    with_subsidies: bool,
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
@@ -319,6 +321,19 @@ pub async fn publish_coin_and_system_package(
     .await?;
     let walrus_pkg_id = get_pkg_id_from_tx_response(&transaction_response)?;
 
+    let subsidies_pkg_id = if with_subsidies {
+        // Publish `subsidies` package.
+        let transaction_response = publish_package_with_default_build_config(
+            wallet,
+            walrus_contract_directory.join("subsidies"),
+            gas_budget,
+        )
+        .await?;
+        Some(get_pkg_id_from_tx_response(&transaction_response)?)
+    } else {
+        None
+    };
+
     let [init_cap_id] = get_created_sui_object_ids_by_type(
         &transaction_response,
         &INIT_CAP_TAG.to_move_struct_tag_with_package(walrus_pkg_id, &[])?,
@@ -336,13 +351,14 @@ pub async fn publish_coin_and_system_package(
     Ok(PublishSystemPackageResult {
         walrus_pkg_id,
         wal_exchange_pkg_id,
+        subsidies_pkg_id,
         init_cap_id,
         upgrade_cap_id,
     })
 }
 
 /// Parameters used to call the `init_walrus` function in the Walrus contracts.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct InitSystemParams {
     /// Number of shards in the system.
     pub n_shards: NonZeroU16,
@@ -352,6 +368,16 @@ pub struct InitSystemParams {
     pub epoch_duration: Duration,
     /// The maximum number of epochs ahead for which storage can be obtained.
     pub max_epochs_ahead: EpochCount,
+    /// The directory containing the contract source code.
+    pub contract_dir: PathBuf,
+    /// The directory to deploy the contracts to.
+    pub deploy_directory: Option<PathBuf>,
+    /// Whether to publish the `wal_exchange` package.
+    pub with_wal_exchange: bool,
+    /// Whether to use an existing WAL token.
+    pub use_existing_wal_token: bool,
+    /// Whether to publish the `subsidies` package.
+    pub with_subsidies: bool,
 }
 
 /// Initialize the system and staking objects on chain.

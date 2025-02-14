@@ -59,6 +59,7 @@ pub async fn publish_with_default_system(
         Duration::from_secs(0),
         Duration::from_secs(3600),
         None,
+        false,
     )
     .await?;
 
@@ -108,6 +109,10 @@ pub struct SystemContext {
     pub upgrade_manager_object: ObjectID,
     /// The ID of the WAL exchange package.
     pub wal_exchange_pkg_id: Option<ObjectID>,
+    /// The ID of the subsidies Object.
+    pub subsidies_object: Option<ObjectID>,
+    /// The ID of the subsidies package.
+    pub subsidies_pkg_id: Option<ObjectID>,
 }
 
 impl SystemContext {
@@ -124,7 +129,11 @@ impl SystemContext {
 
     /// Returns the contract config for the system.
     pub fn contract_config(&self) -> ContractConfig {
-        ContractConfig::new(self.system_object, self.staking_object)
+        ContractConfig::new_with_subsidies(
+            self.system_object,
+            self.staking_object,
+            self.subsidies_object,
+        )
     }
 }
 
@@ -137,53 +146,54 @@ pub async fn create_and_init_system_for_test(
     epoch_zero_duration: Duration,
     epoch_duration: Duration,
     max_epochs_ahead: Option<EpochCount>,
+    with_subsidies: bool,
 ) -> Result<SystemContext> {
     let temp_dir = tempfile::tempdir()?;
     let deploy_directory = Some(temp_dir.path().to_path_buf());
     create_and_init_system(
-        contract_dir_for_testing()?,
         admin_wallet,
         InitSystemParams {
             n_shards,
             epoch_zero_duration,
             epoch_duration,
             max_epochs_ahead: max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
+            contract_dir: contract_dir_for_testing()?,
+            deploy_directory,
+            with_wal_exchange: true,
+            use_existing_wal_token: false,
+            with_subsidies,
         },
         None,
-        deploy_directory,
-        true,
-        false,
     )
     .await
 }
 
-/// Publishes the contracts specified in `contract_path` and initializes the system.
+/// Publishes the contracts and initializes the system with the provided parameters.
 ///
-/// Returns the package ID and the object IDs of the system object, the staking object, and the WAL
-/// treasury cap.
+/// Returns a `SystemContext` containing the package ID and object IDs for the system, staking,
+/// upgrade manager, and optionally subsidies and WAL exchange objects.
 ///
 /// If `deploy_directory` is provided, the contracts will be copied to this directory and published
 /// from there to keep the `Move.toml` in the original directory unchanged.
 pub async fn create_and_init_system(
-    contract_dir: PathBuf,
     admin_wallet: &mut WalletContext,
     init_system_params: InitSystemParams,
     gas_budget: Option<u64>,
-    deploy_directory: Option<PathBuf>,
-    with_wal_exchange: bool,
-    use_existing_wal_token: bool,
 ) -> Result<SystemContext> {
+    let init_system_params_cloned = init_system_params.clone();
     let PublishSystemPackageResult {
         walrus_pkg_id,
         init_cap_id,
         upgrade_cap_id,
         wal_exchange_pkg_id,
+        subsidies_pkg_id,
     } = system_setup::publish_coin_and_system_package(
         admin_wallet,
-        contract_dir,
-        deploy_directory,
-        with_wal_exchange,
-        use_existing_wal_token,
+        init_system_params_cloned.contract_dir,
+        init_system_params_cloned.deploy_directory,
+        init_system_params_cloned.with_wal_exchange,
+        init_system_params_cloned.use_existing_wal_token,
+        init_system_params_cloned.with_subsidies,
         gas_budget,
     )
     .await?;
@@ -204,7 +214,9 @@ pub async fn create_and_init_system(
         system_object,
         staking_object,
         upgrade_manager_object,
+        subsidies_object: None,
         wal_exchange_pkg_id,
+        subsidies_pkg_id,
     })
 }
 

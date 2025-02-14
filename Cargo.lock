@@ -11944,6 +11944,7 @@ name = "walrus-sui"
 version = "1.15.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bcs",
  "chrono",
  "fastcrypto",

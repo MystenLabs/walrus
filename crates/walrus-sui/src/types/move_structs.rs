@@ -789,6 +789,27 @@ impl ExchangeRate {
     }
 }
 
+/// Sui type for a subsidies object.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Subsidies {
+    /// The object ID of the subsidies object
+    pub id: ObjectID,
+    /// The subsidy rate for blob storage buyers
+    pub buyer_subsidy_rate: u16,
+    /// The subsidy rate for system operations
+    pub system_subsidy_rate: u16,
+    /// The total amount of WAL available for subsidies
+    pub subsidy_pool: u64,
+    /// The version of the subsidies object
+    pub version: u64,
+    /// The package ID of the subsidies contract
+    pub package_id: ObjectID,
+}
+
+impl AssociatedContractStruct for Subsidies {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::subsidies::Subsidies;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 /// Sui type for a dynamic field.
 pub struct SuiDynamicField<N, V> {

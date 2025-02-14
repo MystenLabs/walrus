@@ -15,19 +15,23 @@ use sui::{balance::{Self, Balance}, coin::Coin};
 use wal::wal::WAL;
 use walrus::{blob::Blob, storage_resource::Storage, system::System};
 
+/// Track the current version of the module
+const VERSION: u64 = 0;
+
 /// Subsidy rate is in basis points (1/100 of a percent).
 const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%
 
 // === Errors ===
 const EInvalidSubsidyRate: u64 = 0;
 const EUnauthorizedAdminCap: u64 = 1;
+const EWrongVersion: u64 = 2;
 
 // === Structs ===
 
 /// Capability to perform admin operations, tied to a specific Subsidies object.
 ///
 /// Only the holder of this capability can modify subsidy rates
-public struct AdminCap has key {
+public struct AdminCap has key, store {
     id: UID,
     subsidies_id: ID,
 }
@@ -45,15 +49,21 @@ public struct Subsidies has key, store {
     system_subsidy_rate: u16,
     /// The balance of funds available in the subsidy pool.
     subsidy_pool: Balance<WAL>,
+    /// Package ID of the subsidies contract.
+    package_id: ID,
+    /// The version of the subsidies contract.
+    version: u64,
 }
 
 /// Creates a new `Subsidies` object and an `AdminCap`.
-public fun new(ctx: &mut TxContext): AdminCap {
+public fun new(package_id: ID, ctx: &mut TxContext): AdminCap {
     let subsidies = Subsidies {
         id: object::new(ctx),
         buyer_subsidy_rate: 0,
         system_subsidy_rate: 0,
+        package_id,
         subsidy_pool: balance::zero(),
+        version: VERSION,
     };
     let admin_cap = AdminCap { id: object::new(ctx), subsidies_id: object::id(&subsidies) };
     transfer::share_object(subsidies);
@@ -62,6 +72,7 @@ public fun new(ctx: &mut TxContext): AdminCap {
 
 /// Creates a new `Subsidies` object with initial rates and funds and an `AdminCap`.
 public fun new_with_initial_rates_and_funds(
+    package_id: ID,
     initial_buyer_subsidy_rate: u16,
     initial_system_subsidy_rate: u16,
     initial_funds: Coin<WAL>,
@@ -74,6 +85,8 @@ public fun new_with_initial_rates_and_funds(
         buyer_subsidy_rate: initial_buyer_subsidy_rate,
         system_subsidy_rate: initial_system_subsidy_rate,
         subsidy_pool: initial_funds.into_balance(),
+        package_id,
+        version: VERSION,
     };
     let admin_cap = AdminCap { id: object::new(ctx), subsidies_id: object::id(&subsidies) };
     transfer::share_object(subsidies);
@@ -93,6 +106,10 @@ public fun add_funds(self: &mut Subsidies, funds: Coin<WAL>) {
 /// Aborts if the cap does not match.
 fun check_admin(self: &Subsidies, admin_cap: &AdminCap) {
     assert!(object::id(self) == admin_cap.subsidies_id, EUnauthorizedAdminCap);
+}
+
+fun check_version_upgrade(self: &Subsidies) {
+    assert!(self.version < VERSION, EWrongVersion);
 }
 
 /// Set the subsidy rate for buyers, in basis points.
@@ -152,7 +169,7 @@ fun apply_subsidies(
     payment.join(buyer_subsidy_coin);
 
     let system_subsidy_coin = self.subsidy_pool.split(system_subsidy).into_coin(ctx);
-    system.add_subsidy(system_subsidy_coin, epochs_ahead);
+    system.add_subsidy(system_subsidy_coin, epochs_ahead)
 }
 
 /// Extends a blob's lifetime and applies the buyer and storage node subsidies.
@@ -167,6 +184,7 @@ public fun extend_blob(
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ) {
+    assert!(self.version == VERSION, EWrongVersion);
     let initial_payment_value = payment.value();
     system.extend_blob(blob, epochs_ahead, payment);
     self.apply_subsidies(
@@ -190,6 +208,7 @@ public fun reserve_space(
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): Storage {
+    assert!(self.version == VERSION, EWrongVersion);
     let initial_payment_value = payment.value();
     let storage = system.reserve_space(storage_amount, epochs_ahead, payment, ctx);
     self.apply_subsidies(
@@ -200,6 +219,13 @@ public fun reserve_space(
         ctx,
     );
     storage
+}
+
+entry fun migrate(subsidies: &mut Subsidies, admin_cap: &AdminCap, package_id: ID) {
+    check_admin(subsidies, admin_cap);
+    check_version_upgrade(subsidies);
+    subsidies.version = VERSION;
+    subsidies.package_id = package_id;
 }
 
 // === Accessors ===
@@ -235,16 +261,20 @@ public fun get_subsidy_pool(self: &Subsidies): &Balance<WAL> {
 
 #[test_only]
 public fun new_for_testing(ctx: &mut TxContext): (Subsidies, AdminCap) {
+    let package_id = object::new(ctx);
     let subsidies = Subsidies {
         id: object::new(ctx),
         buyer_subsidy_rate: 0,
         system_subsidy_rate: 0,
         subsidy_pool: balance::zero(),
+        package_id: package_id.to_inner(),
+        version: VERSION,
     };
     let admin_cap = AdminCap {
         id: object::new(ctx),
         subsidies_id: object::id(&subsidies),
     };
+    object::delete(package_id);
     (subsidies, admin_cap)
 }
 
@@ -257,16 +287,20 @@ public fun new_with_initial_rates_and_funds_for_testing(
 ): (Subsidies, AdminCap) {
     assert!(initial_buyer_subsidy_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
     assert!(initial_system_subsidy_rate <= MAX_SUBSIDY_RATE, EInvalidSubsidyRate);
+    let package_id = object::new(ctx);
     let subsidies = Subsidies {
         id: object::new(ctx),
         buyer_subsidy_rate: initial_buyer_subsidy_rate,
         system_subsidy_rate: initial_system_subsidy_rate,
         subsidy_pool: initial_funds.into_balance(),
+        version: VERSION,
+        package_id: package_id.to_inner(),
     };
     let admin_cap = AdminCap {
         id: object::new(ctx),
         subsidies_id: object::id(&subsidies),
     };
+    object::delete(package_id);
     (subsidies, admin_cap)
 }
 

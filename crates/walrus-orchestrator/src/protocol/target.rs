@@ -170,6 +170,7 @@ impl ProtocolCommands for TargetProtocol {
             do_not_copy_contracts: false,
             with_wal_exchange: true,
             use_existing_wal_token: false,
+            with_subsidies: false,
         })
         .await
         .expect("Failed to create Walrus contract");

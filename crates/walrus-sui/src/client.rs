@@ -4,7 +4,7 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, future::Future, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
@@ -47,7 +47,7 @@ use crate::{
     contracts,
     system_setup::compile_package,
     types::{
-        move_errors::{BlobError, MoveExecutionError},
+        move_errors::{BlobError, MoveExecutionError, StakingError, SubsidiesError, SystemError},
         move_structs::{
             Authorized,
             Blob,
@@ -76,6 +76,7 @@ pub use read_client::{
     CommitteesAndState,
     FixedSystemParameters,
     ReadClient,
+    Subsidies,
     SuiReadClient,
 };
 pub mod retry_client;
@@ -88,6 +89,9 @@ pub mod contract_config;
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
 pub enum SuiClientError {
+    /// Subsidies are not enabled for this network.
+    #[error("subsidies are not enabled for this network")]
+    SubsidiesNotEnabled,
     /// Unexpected internal errors.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -412,11 +416,14 @@ impl SuiContractClient {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        self.inner
-            .lock()
-            .await
-            .reserve_space(encoded_size, epochs_ahead)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .reserve_space(encoded_size, epochs_ahead)
+                .await
+        })
+        .await
     }
 
     /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
@@ -429,11 +436,14 @@ impl SuiContractClient {
         blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
-        self.inner
-            .lock()
-            .await
-            .register_blobs(blob_metadata_and_storage, persistence)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .register_blobs(blob_metadata_and_storage.clone(), persistence)
+                .await
+        })
+        .await
     }
 
     /// Purchases blob storage for the next `epochs_ahead` Walrus epochs and uses the resulting
@@ -447,11 +457,14 @@ impl SuiContractClient {
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
-        self.inner
-            .lock()
-            .await
-            .reserve_and_register_blobs(epochs_ahead, blob_metadata_list, persistence)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .reserve_and_register_blobs(epochs_ahead, blob_metadata_list.clone(), persistence)
+                .await
+        })
+        .await
     }
 
     /// Certifies the specified blob on Sui, given a certificate that confirms its storage and
@@ -463,11 +476,14 @@ impl SuiContractClient {
         blobs_with_certificates: &[(&Blob, ConfirmationCertificate)],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
-        self.inner
-            .lock()
-            .await
-            .certify_blobs(blobs_with_certificates, post_store)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_blobs(blobs_with_certificates, post_store)
+                .await
+        })
+        .await
     }
 
     /// Certifies the specified event blob on Sui, with the given metadata and epoch.
@@ -478,16 +494,19 @@ impl SuiContractClient {
         epoch: u32,
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .certify_event_blob(
-                blob_metadata,
-                ending_checkpoint_seq_num,
-                epoch,
-                node_capability_object_id,
-            )
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_event_blob(
+                    blob_metadata.clone(),
+                    ending_checkpoint_seq_num,
+                    epoch,
+                    node_capability_object_id,
+                )
+                .await
+        })
+        .await
     }
 
     /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
@@ -496,11 +515,14 @@ impl SuiContractClient {
         &self,
         certificate: &InvalidBlobCertificate,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .invalidate_blob_id(certificate)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .invalidate_blob_id(certificate)
+                .await
+        })
+        .await
     }
 
     /// Registers a candidate node.
@@ -509,11 +531,14 @@ impl SuiContractClient {
         node_parameters: &NodeRegistrationParams,
         proof_of_possession: ProofOfPossession,
     ) -> SuiClientResult<StorageNodeCap> {
-        self.inner
-            .lock()
-            .await
-            .register_candidate(node_parameters, proof_of_possession)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .register_candidate(node_parameters, proof_of_possession.clone())
+                .await
+        })
+        .await
     }
 
     /// Registers candidate nodes, sending the resulting capability objects to the specified
@@ -526,11 +551,14 @@ impl SuiContractClient {
             SuiAddress,
         )>,
     ) -> SuiClientResult<Vec<StorageNodeCap>> {
-        self.inner
-            .lock()
-            .await
-            .register_candidates(registration_params_with_stake_amounts)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .register_candidates(registration_params_with_stake_amounts.clone())
+                .await
+        })
+        .await
     }
 
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
@@ -540,25 +568,32 @@ impl SuiContractClient {
         &self,
         node_ids_with_amounts: &[(ObjectID, u64)],
     ) -> SuiClientResult<Vec<StakedWal>> {
-        self.inner
-            .lock()
-            .await
-            .stake_with_pools(node_ids_with_amounts)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .stake_with_pools(node_ids_with_amounts)
+                .await
+        })
+        .await
     }
 
     /// Call to end voting and finalize the next epoch parameters.
     ///
     /// Can be called once the voting period is over.
     pub async fn voting_end(&self) -> SuiClientResult<()> {
-        self.inner.lock().await.voting_end().await
+        self.retry_on_wrong_version(|| async { self.inner.lock().await.voting_end().await })
+            .await
     }
 
     /// Call to initialize the epoch change.
     ///
     /// Can be called once the epoch duration is over.
     pub async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
-        self.inner.lock().await.initiate_epoch_change().await
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.initiate_epoch_change().await
+        })
+        .await
     }
 
     /// Call to notify the contract that this node is done syncing the specified epoch.
@@ -567,11 +602,14 @@ impl SuiContractClient {
         epoch: Epoch,
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .epoch_sync_done(epoch, node_capability_object_id)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .epoch_sync_done(epoch, node_capability_object_id)
+                .await
+        })
+        .await
     }
 
     /// Sets the commission receiver for the node.
@@ -580,15 +618,18 @@ impl SuiContractClient {
         node_id: ObjectID,
         receiver: Authorized,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .set_authorized_for_pool(
-                node_id,
-                PoolOperationWithAuthorization::Commission,
-                receiver,
-            )
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .set_authorized_for_pool(
+                    node_id,
+                    PoolOperationWithAuthorization::Commission,
+                    receiver.clone(),
+                )
+                .await
+        })
+        .await
     }
 
     /// Sets the governance authorized entity for the pool.
@@ -597,15 +638,18 @@ impl SuiContractClient {
         node_id: ObjectID,
         authorized: Authorized,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .set_authorized_for_pool(
-                node_id,
-                PoolOperationWithAuthorization::Governance,
-                authorized,
-            )
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .set_authorized_for_pool(
+                    node_id,
+                    PoolOperationWithAuthorization::Governance,
+                    authorized.clone(),
+                )
+                .await
+        })
+        .await
     }
 
     /// Performs an emergency upgrade.
@@ -616,11 +660,14 @@ impl SuiContractClient {
         upgrade_manager: ObjectID,
         package_path: PathBuf,
     ) -> SuiClientResult<ObjectID> {
-        self.inner
-            .lock()
-            .await
-            .emergency_upgrade(upgrade_manager, package_path)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .emergency_upgrade(upgrade_manager, package_path.clone())
+                .await
+        })
+        .await
     }
 
     /// Migrate the staking and system objects to the new package id.
@@ -659,6 +706,28 @@ impl SuiContractClient {
             .lock()
             .await
             .exchange_sui_for_wal(exchange_id, amount)
+            .await
+    }
+
+    /// Creates a new [`contracts::subsidies::Subsidies`] object,
+    /// funds it with the specified amount,
+    /// and returns the object ID and the admin cap ID.
+    pub async fn create_and_fund_subsidies(
+        &self,
+        subsidies_package: ObjectID,
+        initial_buyer_subsidy_rate: u16,
+        initial_system_subsidy_rate: u16,
+        amount: u64,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        self.inner
+            .lock()
+            .await
+            .create_and_fund_subsidies(
+                subsidies_package,
+                initial_buyer_subsidy_rate,
+                initial_system_subsidy_rate,
+                amount,
+            )
             .await
     }
 
@@ -724,7 +793,10 @@ impl SuiContractClient {
 
     /// Deletes the specified blob from the wallet's storage.
     pub async fn delete_blob(&self, blob_object_id: ObjectID) -> SuiClientResult<()> {
-        self.inner.lock().await.delete_blob(blob_object_id).await
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.delete_blob(blob_object_id).await
+        })
+        .await
     }
 
     /// Merges the WAL and SUI coins owned by the wallet of the contract client.
@@ -746,7 +818,10 @@ impl SuiContractClient {
     ///
     /// May use multiple PTBs in sequence to burn all the given object IDs.
     pub async fn burn_blobs(&self, blob_object_ids: &[ObjectID]) -> SuiClientResult<()> {
-        self.inner.lock().await.burn_blobs(blob_object_ids).await
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.burn_blobs(blob_object_ids).await
+        })
+        .await
     }
 
     /// Funds the shared blob object.
@@ -755,11 +830,14 @@ impl SuiContractClient {
         shared_blob_obj_id: ObjectID,
         amount: u64,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .fund_shared_blob(shared_blob_obj_id, amount)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .fund_shared_blob(shared_blob_obj_id, amount)
+                .await
+        })
+        .await
     }
 
     /// Extends the shared blob's lifetime by `epochs_extended` epochs.
@@ -768,11 +846,14 @@ impl SuiContractClient {
         shared_blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .extend_shared_blob(shared_blob_obj_id, epochs_extended)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .extend_shared_blob(shared_blob_obj_id, epochs_extended)
+                .await
+        })
+        .await
     }
 
     /// Shares the blob object with the given object ID. If amount is specified, also fund the blob.
@@ -781,11 +862,14 @@ impl SuiContractClient {
         blob_obj_id: ObjectID,
         amount: Option<u64>,
     ) -> SuiClientResult<ObjectID> {
-        self.inner
-            .lock()
-            .await
-            .share_and_maybe_fund_blob(blob_obj_id, amount)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .share_and_maybe_fund_blob(blob_obj_id, amount)
+                .await
+        })
+        .await
     }
 
     /// Extends the owned blob object by `epochs_extended` epochs.
@@ -794,11 +878,14 @@ impl SuiContractClient {
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .extend_blob(blob_obj_id, epochs_extended)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .extend_blob(blob_obj_id, epochs_extended)
+                .await
+        })
+        .await
     }
 
     /// Updates the parameters for a storage node.
@@ -807,11 +894,14 @@ impl SuiContractClient {
         node_parameters: NodeUpdateParams,
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .update_node_params(node_parameters, node_capability_object_id)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .update_node_params(node_parameters.clone(), node_capability_object_id)
+                .await
+        })
+        .await
     }
 
     /// Adds attribute to a blob object.
@@ -825,40 +915,49 @@ impl SuiContractClient {
         blob_attribute: BlobAttribute,
         force: bool,
     ) -> SuiClientResult<()> {
-        let mut inner = self.inner.lock().await;
-        match inner.add_blob_attribute(blob_obj_id, &blob_attribute).await {
-            Ok(()) => Ok(()),
-            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-                BlobError::EDuplicateMetadata(_),
-            ))) => {
-                if force {
-                    inner
-                        .insert_or_update_blob_attribute_pairs(blob_obj_id, blob_attribute.iter())
-                        .await
-                } else {
-                    Err(SuiClientError::AttributeAlreadyExists)
+        self.retry_on_wrong_version(|| async {
+            let mut inner = self.inner.lock().await;
+            match inner.add_blob_attribute(blob_obj_id, &blob_attribute).await {
+                Ok(()) => Ok(()),
+                Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                    BlobError::EDuplicateMetadata(_),
+                ))) => {
+                    if force {
+                        inner
+                            .insert_or_update_blob_attribute_pairs(
+                                blob_obj_id,
+                                blob_attribute.iter(),
+                            )
+                            .await
+                    } else {
+                        Err(SuiClientError::AttributeAlreadyExists)
+                    }
                 }
+                Err(e) => Err(e),
             }
-            Err(e) => Err(e),
-        }
+        })
+        .await
     }
 
     /// Removes the attribute dynamic field from a blob object.
     ///
     /// If attribute does not exist, an error is returned.
     pub async fn remove_blob_attribute(&mut self, blob_obj_id: ObjectID) -> SuiClientResult<()> {
-        match self
-            .inner
-            .lock()
-            .await
-            .remove_blob_attribute(blob_obj_id)
-            .await
-        {
-            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
-                BlobError::EMissingMetadata(_),
-            ))) => Err(SuiClientError::AttributeDoesNotExist),
-            result => result,
-        }
+        self.retry_on_wrong_version(|| async {
+            match self
+                .inner
+                .lock()
+                .await
+                .remove_blob_attribute(blob_obj_id)
+                .await
+            {
+                Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                    BlobError::EMissingMetadata(_),
+                ))) => Err(SuiClientError::AttributeDoesNotExist),
+                result => result,
+            }
+        })
+        .await
     }
 
     /// Inserts or updates key-value pairs in the blob's attribute.
@@ -948,11 +1047,14 @@ impl SuiContractClient {
         amount: u64,
         n: u64,
     ) -> SuiClientResult<()> {
-        self.inner
-            .lock()
-            .await
-            .multiple_pay_wal(address, amount, n)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .multiple_pay_wal(address, amount, n)
+                .await
+        })
+        .await
     }
 
     /// Certifies and extends the specified blob on Sui in a single transaction.
@@ -964,11 +1066,46 @@ impl SuiContractClient {
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
-        self.inner
-            .lock()
-            .await
-            .certify_and_extend_blobs(blobs_with_certificates, post_store)
-            .await
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_and_extend_blobs(blobs_with_certificates, post_store)
+                .await
+        })
+        .await
+    }
+
+    async fn retry_on_wrong_version<F, Fut, T>(&self, f: F) -> SuiClientResult<T>
+    where
+        F: Fn() -> Fut + Send,
+        Fut: Future<Output = SuiClientResult<T>> + Send,
+        T: Send,
+    {
+        match f().await {
+            e @ Err(SuiClientError::TransactionExecutionError(
+                MoveExecutionError::Subsidies(SubsidiesError::EWrongVersion(_))
+                | MoveExecutionError::Staking(StakingError::EWrongVersion(_))
+                | MoveExecutionError::System(SystemError::EWrongVersion(_)),
+            )) => {
+                // Store old package IDs
+                let old_package_id = self.read_client.get_system_package_id();
+                let old_subsidies_package_id = self.read_client.get_subsidies_package_id();
+
+                self.read_client.refresh_package_id().await?;
+                self.read_client.refresh_subsidies_package_id().await?;
+
+                // Check if either package ID changed
+                if self.read_client.get_system_package_id() != old_package_id
+                    || self.read_client.get_subsidies_package_id() != old_subsidies_package_id
+                {
+                    f().await
+                } else {
+                    e
+                }
+            }
+            result => result,
+        }
     }
 }
 
@@ -1075,11 +1212,15 @@ impl SuiContractClientInner {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<StorageResource> {
-        tracing::debug!(encoded_size, "starting to reserve storage for blob");
+        tracing::debug!(encoded_size, "reserving storage space");
+
         let mut pt_builder = self.transaction_builder()?;
+
         pt_builder.reserve_space(encoded_size, epochs_ahead).await?;
+
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(ptb).await?;
+
         let storage_id = get_created_sui_object_ids_by_type(
             &res,
             &contracts::storage_resource::Storage
@@ -1091,6 +1232,7 @@ impl SuiContractClientInner {
             "unexpected number of storage resources created: {}",
             storage_id.len()
         );
+
         self.sui_client().get_sui_object(storage_id[0]).await
     }
 
@@ -1518,6 +1660,47 @@ impl SuiContractClientInner {
         Ok(exchange_id[0])
     }
 
+    /// Creates a new [`contracts::wal_subsidies::Subsidies`] object,
+    /// funds it with `amount` FROST, and returns its object ID, as well
+    /// as the object ID of its admin cap.
+    pub async fn create_and_fund_subsidies(
+        &mut self,
+        subsidies_package: ObjectID,
+        initial_buyer_subsidy_rate: u16,
+        initial_system_subsidy_rate: u16,
+        amount: u64,
+    ) -> SuiClientResult<(ObjectID, ObjectID)> {
+        tracing::info!("creating a new subsidies object");
+
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .create_and_fund_subsidies(
+                subsidies_package,
+                initial_buyer_subsidy_rate,
+                initial_system_subsidy_rate,
+                amount,
+            )
+            .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(ptb).await?;
+        let admin_cap = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::subsidies::AdminCap
+                .to_move_struct_tag_with_package(subsidies_package, &[])?,
+        )?;
+        let subsidies_id = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::subsidies::Subsidies
+                .to_move_struct_tag_with_package(subsidies_package, &[])?,
+        )?;
+        ensure!(
+            subsidies_id.len() == 1,
+            "unexpected number of `Subsidies`s created: {}",
+            subsidies_id.len()
+        );
+        Ok((subsidies_id[0], admin_cap[0]))
+    }
+
     /// Exchanges the given `amount` of SUI (in MIST) for WAL using the shared exchange.
     pub async fn exchange_sui_for_wal(
         &mut self,
@@ -1816,6 +1999,7 @@ impl SuiContractClientInner {
             .sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
+
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
             .extend_blob(
@@ -2099,6 +2283,10 @@ impl ReadClient for SuiContractClient {
 
     async fn refresh_package_id(&self) -> SuiClientResult<()> {
         self.read_client.refresh_package_id().await
+    }
+
+    async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
+        self.read_client.refresh_subsidies_package_id().await
     }
 }
 

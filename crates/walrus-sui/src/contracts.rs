@@ -397,6 +397,21 @@ pub mod wal_exchange {
     contract_ident!(fn wal_exchange::exchange_for_sui);
 }
 
+/// Module for tags corresponding to the Move module `subsidies`.
+pub mod subsidies {
+    use super::*;
+
+    contract_ident!(struct subsidies::Subsidies);
+    contract_ident!(struct subsidies::AdminCap);
+    contract_ident!(fn subsidies::new);
+    contract_ident!(fn subsidies::new_with_initial_rates_and_funds);
+    contract_ident!(fn subsidies::add_funds);
+    contract_ident!(fn subsidies::set_buyer_subsidy_rate);
+    contract_ident!(fn subsidies::set_system_subsidy_rate);
+    contract_ident!(fn subsidies::extend_blob);
+    contract_ident!(fn subsidies::reserve_space);
+}
+
 /// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.
 pub mod dynamic_field {
     use super::*;

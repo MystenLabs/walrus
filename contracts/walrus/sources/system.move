@@ -19,6 +19,7 @@ use walrus::{
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EInvalidMigration: u64 = 0;
+const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the system.
 const VERSION: u64 = 0;
@@ -269,13 +270,13 @@ public(package) fun migrate(system: &mut System) {
 
 /// Get a mutable reference to `SystemStateInner` from the `System`.
 fun inner_mut(system: &mut System): &mut SystemStateInnerV1 {
-    assert!(system.version == VERSION);
+    assert!(system.version == VERSION, EWrongVersion);
     dynamic_field::borrow_mut(&mut system.id, VERSION)
 }
 
 /// Get an immutable reference to `SystemStateInner` from the `System`.
 public(package) fun inner(system: &System): &SystemStateInnerV1 {
-    assert!(system.version == VERSION);
+    assert!(system.version == VERSION, EWrongVersion);
     dynamic_field::borrow(&system.id, VERSION)
 }
 

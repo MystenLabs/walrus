@@ -57,12 +57,13 @@ pub async fn get_walrus_nodes(
     system_object_id: &str,
     staking_object_id: &str,
 ) -> Result<Vec<NodeInfo>, Error> {
-    let contract_config = ContractConfig::new(
+    let contract_config = ContractConfig::new_with_subsidies(
         ObjectID::from_hex_literal(system_object_id)?,
         ObjectID::from_hex_literal(staking_object_id)?,
+        None,
     );
     let backoff_config = ExponentialBackoffConfig::default();
-    let c = walrus_sui::client::SuiReadClient::new_for_rpc(
+    let c: walrus_sui::client::SuiReadClient = walrus_sui::client::SuiReadClient::new_for_rpc(
         rpc_address,
         &contract_config,
         backoff_config,
