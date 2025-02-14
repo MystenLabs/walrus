@@ -1979,6 +1979,9 @@ impl ServiceState for StorageNodeInner {
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
     ) -> Result<Sliver, RetrieveSliverError> {
+        if let Ok(BlobStatus::Nonexistent) = self.blob_status(blob_id) {
+            return Err(RetrieveSliverError::Unavailable);
+        }
         self.check_index(sliver_pair_index)?;
 
         ensure!(!self.is_blocked(blob_id), RetrieveSliverError::Forbidden);
