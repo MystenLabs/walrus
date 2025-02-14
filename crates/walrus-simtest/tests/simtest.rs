@@ -78,7 +78,11 @@ mod tests {
             .await
             .context("store blob should not fail")?;
 
-        tracing::info!("got store results with {} items", store_results.len());
+        tracing::info!(
+            "got store results with {} items\n{:?}",
+            store_results.len(),
+            store_results
+        );
         let store_result = &store_results
             .first()
             .expect("should have exactly one result");

@@ -38,6 +38,7 @@ use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
         BlobPersistence,
+        CertifyAndExtendBlobParams,
         ExpirySelectionPolicy,
         PostStoreAction,
         ReadClient,
@@ -619,12 +620,13 @@ impl Client<SuiContractClient> {
             .await?;
         tracing::info!(
             duration = ?store_op_timer.elapsed(),
-            "{} blob resources obtained",
-            store_operations.len()
+            "{} blob resources obtained\n{}",
+            store_operations.len(),
+            store_operations.iter().map(|op| format!("{:?}", op)).collect::<Vec<_>>().join("\n")
         );
 
-        // Collect store ops for noops and new blobs.
-        let mut noop_results: Vec<_> = Vec::with_capacity(store_operations.len());
+        // Collect store ops for noops, new blobs, extended blobs, and certify and extend blobs.
+        let mut noop_results: Vec<BlobStoreResult> = Vec::with_capacity(store_operations.len());
         let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut extended_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut certify_and_extend_blobs_and_ops: Vec<_> =
@@ -678,7 +680,7 @@ impl Client<SuiContractClient> {
         }
 
         // Return early if all operations are noops.
-        if new_blobs_and_ops.is_empty() {
+        if new_blobs_and_ops.is_empty() && certify_and_extend_blobs_and_ops.is_empty() {
             return Ok(noop_results
                 .into_iter()
                 .chain(extended_results.into_iter())
@@ -699,17 +701,20 @@ impl Client<SuiContractClient> {
                 &committees,
             )
             .await?;
-        let blobs_with_cert_and_extend: Vec<(&Blob, ConfirmationCertificate, Option<EpochCount>)> =
-            blobs_with_certificates
-                .into_iter()
-                .map(|(blob, cert)| {
-                    let epochs_ahead = certify_and_extend_blobs_and_ops
-                        .iter()
-                        .find(|(b, _)| b.blob_id == blob.blob_id)
-                        .map(|(_, _)| epochs_ahead);
-                    (blob, cert, epochs_ahead)
-                })
-                .collect();
+        let blobs_with_cert_and_extend: Vec<CertifyAndExtendBlobParams> = blobs_with_certificates
+            .into_iter()
+            .map(|(blob, cert)| {
+                let epochs_ahead = certify_and_extend_blobs_and_ops
+                    .iter()
+                    .find(|(b, _)| b.blob_id == blob.blob_id)
+                    .map(|(_, _)| epochs_ahead);
+                CertifyAndExtendBlobParams {
+                    blob,
+                    certificate: Some(cert),
+                    epochs_ahead,
+                }
+            })
+            .collect();
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
         let shared_blob_object_map = self

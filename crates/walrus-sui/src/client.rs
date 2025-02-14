@@ -168,6 +168,17 @@ impl SuiClientError {
     }
 }
 
+/// Parameters for certifying and extending a blob.
+#[derive(Debug, Clone)]
+pub struct CertifyAndExtendBlobParams<'a> {
+    /// The ID of the blob.
+    pub blob: &'a Blob,
+    /// The certificate for the blob.
+    pub certificate: Option<ConfirmationCertificate>,
+    /// The number of epochs ahead to certify the blob.
+    pub epochs_ahead: Option<EpochCount>,
+}
+
 /// Metadata for a blob object on Sui.
 #[derive(Debug, Clone)]
 pub struct BlobObjectMetadata {
@@ -774,7 +785,7 @@ impl SuiContractClient {
     /// Returns the shared blob object ID if the post store action is Share.
     pub async fn certify_and_extend_blobs(
         &self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate, Option<EpochCount>)],
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         self.inner
@@ -943,20 +954,7 @@ impl SuiContractClientInner {
                 "certifying blob on Sui"
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
-            match post_store {
-                PostStoreAction::TransferTo(address) => {
-                    pt_builder
-                        .transfer(Some(address), vec![blob.id.into()])
-                        .await?;
-                }
-                PostStoreAction::Burn => {
-                    pt_builder.burn_blob(blob.id.into()).await?;
-                }
-                PostStoreAction::Keep => (),
-                PostStoreAction::Share => {
-                    pt_builder.new_shared_blob(blob.id.into()).await?;
-                }
-            }
+            Self::apply_post_store_action(&mut pt_builder, blob.id, post_store).await?;
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
@@ -1615,37 +1613,37 @@ impl SuiContractClientInner {
     /// Returns the shared blob object ID if the post store action is Share.
     pub async fn certify_and_extend_blobs(
         &mut self,
-        blobs_with_certificates: &[(&Blob, ConfirmationCertificate, Option<EpochCount>)],
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
         post_store: PostStoreAction,
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         let mut pt_builder = self.transaction_builder()?;
-        for (blob, certificate, epochs_ahead) in blobs_with_certificates {
-            pt_builder.certify_blob(blob.id.into(), certificate).await?;
-
-            if let Some(epochs) = epochs_ahead {
+        for blob_params in blobs_with_certificates {
+            if let Some(certificate) = blob_params.certificate.as_ref() {
                 pt_builder
-                    .extend_blob(blob.id.into(), *epochs, blob.storage.storage_size)
+                    .certify_blob(blob_params.blob.id.into(), certificate)
                     .await?;
             }
 
-            match post_store {
-                PostStoreAction::TransferTo(address) => {
-                    pt_builder
-                        .transfer(Some(address), vec![blob.id.into()])
-                        .await?;
-                }
-                PostStoreAction::Burn => {
-                    pt_builder.burn_blob(blob.id.into()).await?;
-                }
-                PostStoreAction::Keep => (),
-                PostStoreAction::Share => {
-                    pt_builder.new_shared_blob(blob.id.into()).await?;
-                }
+            if let Some(epochs_ahead) = blob_params.epochs_ahead {
+                pt_builder
+                    .extend_blob(
+                        blob_params.blob.id.into(),
+                        epochs_ahead,
+                        blob_params.blob.storage.storage_size,
+                    )
+                    .await?;
             }
+
+            Self::apply_post_store_action(&mut pt_builder, blob_params.blob.id, post_store).await?;
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(ptb).await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify/extend blobs on Sui");
+            return Err(anyhow!("could not certify/extend blob: {:?}", res.errors).into());
+        }
 
         if post_store != PostStoreAction::Share {
             return Ok(HashMap::new());
@@ -1656,7 +1654,7 @@ impl SuiContractClientInner {
             &res,
             blobs_with_certificates
                 .iter()
-                .map(|(blob, _, _)| blob.blob_id)
+                .map(|blob_params| blob_params.blob.blob_id)
                 .collect::<Vec<_>>()
                 .as_slice(),
         )
@@ -1696,6 +1694,29 @@ impl SuiContractClientInner {
                 .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
                 .collect())
         }
+    }
+
+    /// Applies the post-store action for a single blob ID to the transaction builder.
+    async fn apply_post_store_action(
+        pt_builder: &mut WalrusPtbBuilder,
+        blob_id: ObjectID,
+        post_store: PostStoreAction,
+    ) -> SuiClientResult<()> {
+        match post_store {
+            PostStoreAction::TransferTo(address) => {
+                pt_builder
+                    .transfer(Some(address), vec![blob_id.into()])
+                    .await?;
+            }
+            PostStoreAction::Burn => {
+                pt_builder.burn_blob(blob_id.into()).await?;
+            }
+            PostStoreAction::Keep => (),
+            PostStoreAction::Share => {
+                pt_builder.new_shared_blob(blob_id.into()).await?;
+            }
+        }
+        Ok(())
     }
 }
 

@@ -310,7 +310,7 @@ async_param_test! {
     test_store_with_existing_blob_resource -> TestResult : [
         reuse_resource: (1, 1, true),
         reuse_resource_two: (2, 1, true),
-        no_reuse_resource: (1, 2, false),
+        reuse_and_extend: (1, 2, true),
     ]
 }
 /// Tests that the client reuses existing (uncertified) blob registrations to store blobs.
