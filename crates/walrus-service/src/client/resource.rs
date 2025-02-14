@@ -129,19 +129,22 @@ impl RegisterBlobOp {
         matches!(self, RegisterBlobOp::RegisterFromScratch { .. })
     }
 
+    /// Returns if the operation involved reusing storage for the registration.
     pub fn is_reuse_storage(&self) -> bool {
         matches!(self, RegisterBlobOp::ReuseStorage { .. })
     }
 
+    /// Returns if the operation involved reusing a registered blob.
     pub fn is_reuse_registration(&self) -> bool {
         matches!(self, RegisterBlobOp::ReuseRegistration { .. })
     }
 
-    /// Returns if the operation involved extending the lifetime of a registered blob.
+    /// Returns if the operation involved extending a certified blob.
     pub fn is_extend(&self) -> bool {
         matches!(self, RegisterBlobOp::ReuseAndExtend { .. })
     }
 
+    /// Returns if the operation involved certifying and extending a non-certified blob.
     pub fn is_certify_and_extend(&self) -> bool {
         matches!(self, RegisterBlobOp::ReuseAndExtendNonCertified { .. })
     }
@@ -156,14 +159,6 @@ pub enum StoreOp {
     RegisterNew {
         blob: Blob,
         operation: RegisterBlobOp,
-    },
-    // Extend the lifetime of a registered blob instead of creating a new one.
-    Extend {
-        // The original blob object.
-        blob: Blob,
-        // The new end epoch.
-        encoded_length: u64,
-        epochs_extended: EpochCount,
     },
 }
 
@@ -229,17 +224,7 @@ impl<'a> ResourceManager<'a> {
             .await?;
 
         for (blob, op) in blobs_with_ops {
-            let store_op = if let RegisterBlobOp::ReuseAndExtend {
-                encoded_length,
-                epochs_extended,
-            } = op
-            {
-                StoreOp::Extend {
-                    blob,
-                    encoded_length,
-                    epochs_extended,
-                }
-            } else if blob.certified_epoch.is_some() {
+            let store_op = if blob.certified_epoch.is_some() {
                 debug_assert!(
                     blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead,
                     "certified blob with a shorter lifetime should have been extended"
@@ -366,6 +351,10 @@ impl<'a> ResourceManager<'a> {
                     "blob is already registered and valid; using the existing registration"
                 );
                 if blob.storage.end_epoch < self.write_committee_epoch + epochs_ahead {
+                    tracing::debug!(
+                        blob_id=%blob.blob_id,
+                        "blob is already registered but its lifetime is too short; extending it"
+                    );
                     let epoch_delta =
                         self.write_committee_epoch + epochs_ahead - blob.storage.end_epoch;
                     if blob.certified_epoch.is_some() {
@@ -377,10 +366,6 @@ impl<'a> ResourceManager<'a> {
                             },
                         ));
                     } else {
-                        tracing::debug!(
-                            blob_id=%blob.blob_id,
-                            "blob is already registered but its lifetime is too short; extending it"
-                        );
                         extended_blobs_noncertified.push((
                             blob,
                             RegisterBlobOp::ReuseAndExtendNonCertified {

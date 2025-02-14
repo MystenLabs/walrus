@@ -144,7 +144,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     }
                     RegisterBlobOp::ReuseAndExtend { .. } => "(the blob was extended in lifetime)",
                     RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
-                        "(the blob was extended in lifetime)"
+                        "(an existing registration was reused and extended)"
                     }
                 };
                 println!(

@@ -169,6 +169,10 @@ impl SuiClientError {
 }
 
 /// Parameters for certifying and extending a blob.
+///
+/// When certificate is present, the blob will be certified on Sui.
+/// When epochs_ahead is present, the blob will be extended on Sui.
+/// These two operations are allowed to be present at the same time.
 #[derive(Debug, Clone)]
 pub struct CertifyAndExtendBlobParams<'a> {
     /// The ID of the blob.
@@ -782,7 +786,9 @@ impl SuiContractClient {
     }
 
     /// Certifies and extends the specified blob on Sui in a single transaction.
+    ///
     /// Returns the shared blob object ID if the post store action is Share.
+    /// See [`CertifyAndExtendBlobParams`] for the details of the parameters.
     pub async fn certify_and_extend_blobs(
         &self,
         blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
