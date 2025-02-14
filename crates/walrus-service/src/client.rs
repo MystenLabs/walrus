@@ -649,42 +649,9 @@ impl Client<SuiContractClient> {
                 } => extended_blobs_and_ops.push((blob, encoded_length, epochs_extended)),
             });
 
-        let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
-        for (mut blob, encoded_length, epochs_extended) in extended_blobs_and_ops {
-            if blob.certified_epoch.is_none() {
-                return Err(ClientError::from(ClientErrorKind::Other(
-                    "attempting to extend lifetime of an uncertified blob".into(),
-                )));
-            }
-            self.sui_client.extend_blob(blob.id, epochs_ahead).await?;
-            let cost = self
-                .price_computation
-                .operation_cost(&RegisterBlobOp::ReuseAndExtend {
-                    encoded_length,
-                    epochs_extended,
-                });
-            debug_assert_ne!(
-                blob.storage.end_epoch,
-                blob.storage.end_epoch + epochs_extended
-            );
-            blob.storage.end_epoch += epochs_extended;
-            extended_results.push(BlobStoreResult::NewlyCreated {
-                blob_object: blob,
-                resource_operation: RegisterBlobOp::ReuseAndExtend {
-                    encoded_length,
-                    epochs_extended,
-                },
-                cost,
-                shared_blob_object: None,
-            });
-        }
-
         // Return early if all operations are noops.
         if new_blobs_and_ops.is_empty() && certify_and_extend_blobs_and_ops.is_empty() {
-            return Ok(noop_results
-                .into_iter()
-                .chain(extended_results.into_iter())
-                .collect());
+            return Ok(noop_results);
         }
 
         // Get certificates for all new blobs.
@@ -714,7 +681,18 @@ impl Client<SuiContractClient> {
                     epochs_ahead,
                 }
             })
+            .chain(
+                extended_blobs_and_ops
+                    .as_slice()
+                    .iter()
+                    .map(|(blob, _, _)| CertifyAndExtendBlobParams {
+                        blob,
+                        certificate: None,
+                        epochs_ahead: Some(epochs_ahead),
+                    }),
+            )
             .collect();
+
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
         let shared_blob_object_map = self
@@ -749,6 +727,19 @@ impl Client<SuiContractClient> {
             })
             .collect();
 
+        let mut extended_results = Vec::with_capacity(extended_blobs_and_ops.len());
+        for (mut blob, encoded_length, epochs_extended) in extended_blobs_and_ops {
+            blob.storage.end_epoch += epochs_extended;
+            extended_results.push(BlobStoreResult::NewlyCreated {
+                shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                blob_object: blob,
+                resource_operation: RegisterBlobOp::ReuseAndExtend {
+                    encoded_length,
+                    epochs_extended,
+                },
+                cost: 0,
+            });
+        }
         let cert_and_extend_results: Vec<_> = certify_and_extend_blobs_and_ops
             .into_iter()
             .map(|(mut blob, op)| {
