@@ -1,12 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{fs, net::SocketAddr, path::PathBuf};
+use std::net::SocketAddr;
 
 use crate::{
     benchmark::BenchmarkParameters,
     client::Instance,
-    error::{MonitorError, MonitorResult},
+    error::MonitorResult,
     protocol::ProtocolMetrics,
     ssh::{CommandContext, SshConnectionManager},
 };
@@ -226,83 +226,6 @@ impl Grafana {
             &format!("    url: http://localhost:{}", Prometheus::DEFAULT_PORT),
             "    editable: true",
             "    uid: Fixed-UID-testbed",
-        ]
-        .join("\n")
-    }
-}
-
-#[allow(dead_code)] // TODO(Alberto): Will be used to observe local testbeds (#236)
-/// Bootstrap the grafana with datasource to connect to the given instances.
-/// NOTE: Only for macOS. Grafana must be installed through homebrew (and not from source).
-/// Deeper grafana configuration can be done through the grafana.ini file
-/// (/opt/homebrew/etc/grafana/grafana.ini) or the plist file
-/// (~/Library/LaunchAgents/homebrew.mxcl.grafana.plist).
-pub struct LocalGrafana;
-
-#[allow(dead_code)] // TODO(Alberto): Will be used to observe local testbeds (#236)
-impl LocalGrafana {
-    /// The default grafana home directory (macOS, homebrew install).
-    const DEFAULT_GRAFANA_HOME: &'static str = "/opt/homebrew/opt/grafana/share/grafana/";
-    /// The path to the datasources directory.
-    const DATASOURCES_PATH: &'static str = "conf/provisioning/datasources/";
-    /// The default grafana port.
-    pub const DEFAULT_PORT: u16 = 3000;
-
-    /// Configure grafana to connect to the given instances. Only for macOS.
-    pub fn run<I>(instances: I) -> MonitorResult<()>
-    where
-        I: IntoIterator<Item = Instance>,
-    {
-        let path: PathBuf = [Self::DEFAULT_GRAFANA_HOME, Self::DATASOURCES_PATH]
-            .iter()
-            .collect();
-
-        // Remove the old datasources.
-        fs::remove_dir_all(&path).unwrap();
-        fs::create_dir(&path).unwrap();
-
-        // Create the new datasources.
-        for (i, instance) in instances.into_iter().enumerate() {
-            let mut file = path.clone();
-            file.push(format!("instance-{}.yml", i));
-            fs::write(&file, Self::datasource(&instance, i)).map_err(|e| {
-                MonitorError::GrafanaError(format!("Failed to write grafana datasource ({e})"))
-            })?;
-        }
-
-        // Restart grafana.
-        std::process::Command::new("brew")
-            .arg("services")
-            .arg("restart")
-            .arg("grafana")
-            .arg("-q")
-            .spawn()
-            .map_err(|e| MonitorError::GrafanaError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// Generate the content of the datasource file for the given instance. This grafana instance
-    /// takes one datasource per instance and assumes one prometheus server runs per instance.
-    /// NOTE: The datasource file is a yaml file so spaces are important.
-    fn datasource(instance: &Instance, index: usize) -> String {
-        [
-            "apiVersion: 1",
-            "deleteDatasources:",
-            &format!("  - name: instance-{index}"),
-            "    orgId: 1",
-            "datasources:",
-            &format!("  - name: instance-{index}"),
-            "    type: prometheus",
-            "    access: proxy",
-            "    orgId: 1",
-            &format!(
-                "    url: http://{}:{}",
-                instance.main_ip,
-                Prometheus::DEFAULT_PORT
-            ),
-            "    editable: true",
-            &format!("    uid: UID-{index}"),
         ]
         .join("\n")
     }

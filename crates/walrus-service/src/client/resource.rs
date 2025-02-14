@@ -324,8 +324,8 @@ impl<'a> ResourceManager<'a> {
             {
                 // TODO(joy): Currently select is done one at a time for each blob using `excluded`
                 // to filter, this might not be efficient if the list is too long, consider better
-                // storage selection strategy.
-                // TODO(giac): consider splitting the storage before reusing it (#811).
+                // storage selection strategy (WAL-363).
+                // TODO(giac): consider splitting the storage before reusing it (WAL-208).
                 tracing::debug!(
                     blob_id=%metadata.blob_id(),
                     storage_object=%storage_resource.id,

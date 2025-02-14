@@ -1,5 +1,3 @@
 [default]
 
 [default.extend-words]
-# TODO(mlegner): Can be ignored with the next typos release after 1.28.1.
-parametrized = "parametrized"

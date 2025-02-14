@@ -110,7 +110,6 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
     /// Limits the number of simultaneously executing futures.
-    #[allow(dead_code)]
     async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         Self: Future,

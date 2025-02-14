@@ -1056,8 +1056,6 @@ impl ShardStorage {
                     &sliver_type.to_string()
                 )
                 .inc();
-                // TODO(#704): once committee service supports multi-epoch. This needs to use the
-                // committee from the latest epoch.
                 let invalid_blob_certificate = node
                     .committee_service
                     .get_invalid_blob_certificate(blob_id, &inconsistency_proof)

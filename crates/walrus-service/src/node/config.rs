@@ -476,6 +476,7 @@ pub struct CommitteeServiceConfig {
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
     /// Use the experimental batch recovery service endpoint.
+    // TODO: Remove (WAL-594).
     pub experimental_batch_symbol_recovery: bool,
 }
 
