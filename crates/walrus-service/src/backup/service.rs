@@ -68,12 +68,20 @@ async fn stream_events(
     db_serializability_retry_time: Duration,
     backup_orchestrator_metric_set: BackupOrchestratorMetricSet,
 ) -> Result<()> {
-    let event_cursor = models::get_backup_node_cursor(&mut pg_connection).await?;
+    let event_cursor = models::get_backup_node_cursor(&mut pg_connection)
+        .await
+        .context("stream_events/get_backup_node_cursor")?;
     tracing::info!(?event_cursor, "[stream_events] starting");
-    let event_stream = Pin::from(event_processor.events(event_cursor).await?);
+    let event_stream = Pin::from(
+        event_processor
+            .events(event_cursor)
+            .await
+            .context("stream_events/events")?,
+    );
     let next_event_index = event_cursor.element_index;
     let index_stream = stream::iter(next_event_index..);
     let mut indexed_element_stream = index_stream.zip(event_stream);
+    tracing::info!(?event_cursor, "[stream_events] looping...");
     while let Some((
         element_index,
         PositionedStreamEvent {

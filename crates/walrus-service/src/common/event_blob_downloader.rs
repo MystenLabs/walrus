@@ -74,18 +74,15 @@ impl EventBlobDownloader {
             let blob = if blob_path.exists() {
                 std::fs::read(blob_path.as_path())?
             } else {
-                let result = self
-                    .walrus_client
+                self.walrus_client
                     .read_blob_with_status::<walrus_core::encoding::Primary>(
                         &prev_event_blob,
                         blob_status,
                     )
-                    .await;
-                let Ok(blob) = result else {
-                    let err = result.err().unwrap();
-                    return Err(err.into());
-                };
-                blob
+                    .await
+                    .with_context(|| {
+                        format!("reading blob {prev_event_blob} with status {blob_status}")
+                    })?
             };
 
             tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");

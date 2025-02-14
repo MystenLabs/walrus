@@ -275,7 +275,8 @@ impl EventProcessor {
     pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>> {
         let iter = self.stores.event_store.unbounded_iter();
         Ok(iter
-            .skip_to(&from)?
+            .skip_to(&from)
+            .with_context(|| format!("skipping to {from}"))?
             .take(MAX_EVENTS_PER_POLL)
             .map(|(_, event)| event)
             .collect())

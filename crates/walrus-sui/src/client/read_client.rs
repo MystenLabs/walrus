@@ -784,7 +784,8 @@ impl ReadClient for SuiReadClient {
     async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
         let blob = self
             .get_system_object()
-            .await?
+            .await
+            .context("SuiReadClient::last_certified_event_blob")?
             .inner
             .event_blob_certification_state
             .latest_certified_blob;
@@ -795,7 +796,8 @@ impl ReadClient for SuiReadClient {
         self.sui_client
             .event_api()
             .get_events(event_id.tx_digest)
-            .await?
+            .await
+            .context("SuiReadClient::get_blob_event")?
             .into_iter()
             .find(|e| e.id == event_id)
             .and_then(|e| e.try_into().ok())
@@ -806,6 +808,7 @@ impl ReadClient for SuiReadClient {
         tracing::debug!("getting current committee from Sui");
         self.query_staking_for_committee(WhichCommittee::Current)
             .await
+            .context("SuiReadClient::current_committee")
             .map(|committee| {
                 committee.expect("the current committee is always defined in the staking object")
             })
@@ -815,6 +818,7 @@ impl ReadClient for SuiReadClient {
         tracing::debug!("getting previous committee from Sui");
         self.query_staking_for_committee(WhichCommittee::Previous)
             .await
+            .context("SuiReadClient::previous_committee")
             .map(|committee| {
                 committee.expect("the previous committee is always defined in the staking object")
             })
