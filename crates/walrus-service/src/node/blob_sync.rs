@@ -195,7 +195,12 @@ impl BlobSyncHandler {
                 self.node
                     .is_blob_certified(blob_id)
                     .is_ok_and(Not::not)
-                    .then(|| sync.cancel())
+                    .then(|| {
+                        self.node
+                            .blob_expiration_notifier
+                            .notify_blob_expiration(blob_id);
+                        sync.cancel()
+                    })
                     .flatten()
             })
             .collect();

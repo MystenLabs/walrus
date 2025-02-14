@@ -121,6 +121,9 @@ telemetry::define_metric_set! {
         #[help = "The number of blob metadata synced"]
         sync_blob_metadata_count: IntCounter[],
 
+        #[help = "The number of blob metadata skipped"]
+        sync_blob_metadata_skipped: IntCounter[],
+
         #[help = "The progress of the blob metadata sync. It is represented by the first two bytes \
         of the blob ID since the sync job is sequential over blob IDs."]
         sync_blob_metadata_progress: IntGauge[],

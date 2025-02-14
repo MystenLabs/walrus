@@ -14,6 +14,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context};
+use blob_expiration_notifier::BlobExpirationNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
 use errors::ListSymbolsError;
@@ -152,6 +153,7 @@ pub mod system_events;
 
 pub(crate) mod metrics;
 
+mod blob_expiration_notifier;
 mod blob_sync;
 mod epoch_change_driver;
 mod node_recovery;
@@ -472,6 +474,7 @@ pub struct StorageNodeInner {
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
     node_capability: ObjectID,
+    blob_expiration_notifier: Arc<BlobExpirationNotifier>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -563,6 +566,7 @@ impl StorageNode {
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
             node_capability: node_capability.id,
+            blob_expiration_notifier: Arc::new(BlobExpirationNotifier::new()),
         });
 
         blocklist.start_refresh_task();
@@ -1069,6 +1073,9 @@ impl StorageNode {
 
         if let Some(blob_info) = self.inner.storage.get_blob_info(&blob_id)? {
             if !blob_info.is_certified(self.inner.current_epoch()) {
+                self.inner
+                    .blob_expiration_notifier
+                    .notify_blob_expiration(&blob_id);
                 self.blob_sync_handler
                     .cancel_sync_and_mark_event_complete(&blob_id)
                     .await?;
@@ -1103,6 +1110,9 @@ impl StorageNode {
         event_handle: EventHandle,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
+        self.inner
+            .blob_expiration_notifier
+            .notify_blob_expiration(&event.blob_id);
         self.blob_sync_handler
             .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;

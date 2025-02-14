@@ -997,6 +997,7 @@ impl ShardStorage {
         .inc();
 
         // Create a periodic check future which checks if the blob is still certified.
+        // TODO(zhewu): use blob_expiration_notifier to check if the blob is expired.
         let node_clone = node.clone();
         let certified_status_check_future = async move {
             let mut check_interval = if cfg!(not(test)) {
@@ -1024,7 +1025,7 @@ impl ShardStorage {
                 match status_check_result {
                     Ok(()) => {
                         self.skip_recover_blob(blob_id, sliver_type, &node)?;
-                return Ok(());
+                        return Ok(());
                     }
                     Err(error) => {
                         tracing::error!(
