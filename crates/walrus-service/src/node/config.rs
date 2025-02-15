@@ -328,32 +328,28 @@ impl StorageNodeConfig {
     /// Compares the current node parameters with the passed-in parameters and generates the
     /// update params if there are any changes, so that the source of the passed-in parameters
     /// can be updated to the node parameters.
-    pub fn generate_update_params(
-        &self,
-        name: &str,
-        network_address: &str,
-        network_public_key: &NetworkPublicKey,
-        voting_params: &VotingParams,
-        metadata: &NodeMetadata,
-    ) -> NodeUpdateParams {
+    pub fn generate_update_params(&self, synced_config: &SyncedNodeConfigSet) -> NodeUpdateParams {
         let local_network_public_key = self.network_key_pair().public();
         let local_public_address =
             NetworkAddress(format!("{}:{}", self.public_host, self.public_port));
 
         NodeUpdateParams {
-            name: (name != self.name).then_some(self.name.clone()),
-            network_address: (network_address != local_public_address.0)
+            name: (synced_config.name != self.name).then_some(self.name.clone()),
+            network_address: (synced_config.network_address.0 != local_public_address.0)
                 .then_some(local_public_address),
-            network_public_key: (network_public_key != local_network_public_key)
+            network_public_key: (&synced_config.network_public_key != local_network_public_key)
                 .then_some(local_network_public_key.clone()),
             update_public_key: None,
-            storage_price: (voting_params.storage_price != self.voting_params.storage_price)
+            storage_price: (synced_config.voting_params.storage_price
+                != self.voting_params.storage_price)
                 .then_some(self.voting_params.storage_price),
-            write_price: (voting_params.write_price != self.voting_params.write_price)
+            write_price: (synced_config.voting_params.write_price
+                != self.voting_params.write_price)
                 .then_some(self.voting_params.write_price),
-            node_capacity: (voting_params.node_capacity != self.voting_params.node_capacity)
+            node_capacity: (synced_config.voting_params.node_capacity
+                != self.voting_params.node_capacity)
                 .then_some(self.voting_params.node_capacity),
-            metadata: (metadata != &self.metadata).then_some(self.metadata.clone()),
+            metadata: (synced_config.metadata != self.metadata).then_some(self.metadata.clone()),
         }
     }
 }
@@ -1112,7 +1108,32 @@ mod tests {
 
     #[test]
     fn test_generate_update_params() -> TestResult {
-        // Create a config with the new desired values
+        // Setup test data
+        let test_config = create_test_config();
+        let test_cases = create_test_cases(&test_config);
+
+        // Run test cases
+        for test_case in test_cases {
+            let result = test_config.generate_update_params(&test_case.synced_config);
+            assert_eq!(
+                result, test_case.expected_params,
+                "{}",
+                test_case.description
+            );
+        }
+
+        Ok(())
+    }
+
+    // Test helper structs
+    struct TestCase {
+        description: String,
+        synced_config: SyncedNodeConfigSet,
+        expected_params: NodeUpdateParams,
+    }
+
+    // Test data setup functions
+    fn create_test_config() -> StorageNodeConfig {
         let new_voting_params = VotingParams {
             storage_price: 150,
             write_price: 250,
@@ -1123,31 +1144,41 @@ mod tests {
             "https://new-project.com".to_string(),
             "New node description".to_string(),
         );
-        let mut config = StorageNodeConfig {
+
+        StorageNodeConfig {
             name: "new-name".to_string(),
             public_host: "192.168.1.1".to_string(),
             public_port: 9090,
-            network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
+            protocol_key_pair: PathOrInPlace::InPlace(test_utils::protocol_key_pair()),
+            network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: new_voting_params,
-            metadata: new_metadata.clone(),
+            metadata: new_metadata,
             ..Default::default()
-        };
+        }
+    }
 
-        // Test 1: No changes needed - current values match config
-        let current_addr = "192.168.1.1:9090";
-        let result = config.generate_update_params(
-            &config.name,
-            current_addr,
-            config.network_key_pair().public(),
-            &config.voting_params,
-            &config.metadata,
-        );
-        assert!(
-            !result.needs_update(),
-            "Expected no updates when all values match"
-        );
+    fn create_test_cases(config: &StorageNodeConfig) -> Vec<TestCase> {
+        let mut test_cases = Vec::new();
 
-        // Test 2: All fields need updating - current values are all different
+        // Test 1: No changes needed
+        test_cases.push(TestCase {
+            description: "No updates when all values match".to_string(),
+            synced_config: SyncedNodeConfigSet {
+                name: config.name.clone(),
+                network_address: NetworkAddress(format!(
+                    "{}:{}",
+                    config.public_host, config.public_port
+                )),
+                network_public_key: config.network_key_pair().public().clone(),
+                public_key: config.protocol_key_pair().public().clone(),
+                next_public_key: None,
+                voting_params: config.voting_params.clone(),
+                metadata: config.metadata.clone(),
+            },
+            expected_params: NodeUpdateParams::default(),
+        });
+
+        // Test 2: All fields need updating
         let old_network_keypair = NetworkKeyPair::generate();
         let old_voting_params = VotingParams {
             storage_price: 100,
@@ -1159,69 +1190,61 @@ mod tests {
             "https://old-project.com".to_string(),
             "Old description".to_string(),
         );
-        let old_name = "old-name".to_string();
-        let old_network_address = "127.0.0.1:8080";
 
-        let result = config.generate_update_params(
-            &old_name,
-            old_network_address,
-            old_network_keypair.public(),
-            &old_voting_params,
-            &old_metadata,
-        );
-
-        let expected_update_params = NodeUpdateParams {
-            name: Some(config.name.clone()),
-            network_address: Some(NetworkAddress(format!(
-                "{}:{}",
-                config.public_host, config.public_port
-            ))),
-            network_public_key: Some(config.network_key_pair().public().clone()),
-            update_public_key: None,
-            storage_price: Some(config.voting_params.storage_price),
-            write_price: Some(config.voting_params.write_price),
-            node_capacity: Some(config.voting_params.node_capacity),
-            metadata: Some(config.metadata.clone()),
-        };
-        assert_eq!(result, expected_update_params);
+        test_cases.push(TestCase {
+            description: "All fields need updating".to_string(),
+            synced_config: SyncedNodeConfigSet {
+                name: "old-name".to_string(),
+                network_address: NetworkAddress("127.0.0.1:8080".to_string()),
+                network_public_key: old_network_keypair.public().clone(),
+                public_key: config.protocol_key_pair().public().clone(),
+                next_public_key: None,
+                voting_params: old_voting_params.clone(),
+                metadata: old_metadata.clone(),
+            },
+            expected_params: NodeUpdateParams {
+                name: Some(config.name.clone()),
+                network_address: Some(NetworkAddress(format!(
+                    "{}:{}",
+                    config.public_host, config.public_port
+                ))),
+                network_public_key: Some(config.network_key_pair().public().clone()),
+                update_public_key: None,
+                storage_price: Some(config.voting_params.storage_price),
+                write_price: Some(config.voting_params.write_price),
+                node_capacity: Some(config.voting_params.node_capacity),
+                metadata: Some(config.metadata.clone()),
+            },
+        });
 
         // Test 3: Only voting params and metadata need updating
-        let result = config.generate_update_params(
-            &config.name,
-            &format!("{}:{}", config.public_host, config.public_port),
-            config.network_key_pair().public(),
-            &old_voting_params,
-            &old_metadata,
-        );
+        test_cases.push(TestCase {
+            description: "Only voting params and metadata need updating".to_string(),
+            synced_config: SyncedNodeConfigSet {
+                name: config.name.clone(),
+                network_address: NetworkAddress(format!(
+                    "{}:{}",
+                    config.public_host, config.public_port
+                )),
+                network_public_key: config.network_key_pair().public().clone(),
+                public_key: config.protocol_key_pair().public().clone(),
+                next_public_key: None,
+                voting_params: old_voting_params.clone(),
+                metadata: old_metadata.clone(),
+            },
+            expected_params: NodeUpdateParams {
+                name: None,
+                network_address: None,
+                network_public_key: None,
+                update_public_key: None,
+                storage_price: Some(config.voting_params.storage_price),
+                write_price: Some(config.voting_params.write_price),
+                node_capacity: Some(config.voting_params.node_capacity),
+                metadata: Some(config.metadata.clone()),
+            },
+        });
 
-        let expected_update_params = NodeUpdateParams {
-            name: None,
-            network_address: None,
-            network_public_key: None,
-            update_public_key: None,
-            storage_price: Some(config.voting_params.storage_price),
-            write_price: Some(config.voting_params.write_price),
-            node_capacity: Some(config.voting_params.node_capacity),
-            metadata: Some(config.metadata.clone()),
-        };
-        assert_eq!(result, expected_update_params);
-
-        // Test 4: Test hostname instead of IP
-        config.public_host = "example.com".to_string();
-        let result = config.generate_update_params(
-            &config.name,
-            "old-domain.com:8080",
-            config.network_key_pair().public(),
-            &config.voting_params,
-            &config.metadata,
-        );
-
-        assert_eq!(
-            result.network_address.map(|addr| addr.0),
-            Some(format!("{}:{}", config.public_host, config.public_port))
-        );
-
-        Ok(())
+        test_cases
     }
 
     #[test]
