@@ -224,14 +224,13 @@ impl<'a> ResourceManager<'a> {
             .await?;
 
         for (blob, op) in blobs_with_ops {
-            let store_op = if blob.certified_epoch.is_some() {
-                debug_assert!(
-                    blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead,
-                    "certified blob with a shorter lifetime should have been extended"
-                );
+            let store_op = if blob.certified_epoch.is_some()
+                && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
+            {
                 tracing::debug!(
-                    blob_id=%blob.blob_id,
-                    "there is a certified blob in the wallet, and we are not forcing a store"
+                    "certified blob in the wallet: {:?}.\n{:?}",
+                    blob.blob_id,
+                    op
                 );
                 StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
                     blob_id: blob.blob_id,
