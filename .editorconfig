@@ -25,7 +25,7 @@ max_line_length = 150
 indent_size = unset
 
 # Ignore paths
-[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-service/*.yaml}]
+[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-service/*.yaml,docker/walrus-antithesis/build-walrus-image/update_move_toml.sh}]
 charset = unset
 end_of_line = unset
 indent_size = unset

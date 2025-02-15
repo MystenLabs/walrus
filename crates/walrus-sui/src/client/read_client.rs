@@ -52,6 +52,9 @@ use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::{
         move_structs::{
+            Blob,
+            BlobAttribute,
+            BlobWithAttribute,
             EpochState,
             EventBlob,
             StakingInnerV1,
@@ -172,6 +175,18 @@ pub trait ReadClient: Send + Sync {
         &self,
         node_ids: &[ObjectID],
     ) -> impl Future<Output = Result<Vec<StorageNode>>> + Send;
+
+    /// Returns the metadata associated with a blob object.
+    fn get_blob_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
+
+    /// Returns the blob object and its associated metadata.
+    fn get_blob_with_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<BlobWithAttribute>> + Send;
 
     /// Returns the current epoch state.
     fn epoch_state(&self) -> impl Future<Output = SuiClientResult<EpochState>> + Send;
@@ -357,7 +372,11 @@ impl SuiReadClient {
             .await?
             .owner()
         else {
-            return Err(anyhow!("trying to get the initial version of a non-shared object").into());
+            return Err(anyhow!(
+                "trying to get the initial version of a non-shared object {}",
+                object_id
+            )
+            .into());
         };
         Ok(initial_shared_version)
     }
@@ -825,6 +844,31 @@ impl ReadClient for SuiReadClient {
             .into_iter()
             .map(|pool| pool.node_info)
             .collect())
+    }
+
+    async fn get_blob_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<Option<BlobAttribute>> {
+        self.sui_client
+            .get_dynamic_field::<Vec<u8>, BlobAttribute>(
+                blob_id,
+                TypeTag::Vector(Box::new(TypeTag::U8)),
+                b"metadata".to_vec(),
+            )
+            .await
+            .map(Some)
+            .or_else(|_| Ok(None))
+    }
+
+    async fn get_blob_with_attribute(
+        &self,
+        blob_id: ObjectID,
+    ) -> SuiClientResult<BlobWithAttribute> {
+        Ok(BlobWithAttribute {
+            blob: self.sui_client.get_sui_object::<Blob>(blob_id).await?,
+            attribute: self.get_blob_attribute(blob_id).await?,
+        })
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

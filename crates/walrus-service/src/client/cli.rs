@@ -74,7 +74,12 @@ pub async fn get_read_client(
         allow_fallback_to_default,
     )
     .await?;
-    let client = Client::new_read_client(config, sui_read_client).await?;
+
+    let refresh_handle = config
+        .refresh_config
+        .build_refresher_and_run(sui_read_client.clone())
+        .await?;
+    let client = Client::new_read_client(config, refresh_handle, sui_read_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))
@@ -92,7 +97,12 @@ pub async fn get_contract_client(
     blocklist_path: &Option<PathBuf>,
 ) -> Result<Client<SuiContractClient>> {
     let sui_client = config.new_contract_client(wallet?, gas_budget).await?;
-    let client = Client::new_contract_client(config, sui_client).await?;
+
+    let refresh_handle = config
+        .refresh_config
+        .build_refresher_and_run(sui_client.read_client().clone())
+        .await?;
+    let client = Client::new_contract_client(config, refresh_handle, sui_client).await?;
 
     if blocklist_path.is_some() {
         Ok(client.with_blocklist(Blocklist::new(blocklist_path)?))

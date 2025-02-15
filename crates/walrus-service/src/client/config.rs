@@ -28,7 +28,10 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use crate::{client::error::JwtDecodeError, common::utils};
+use crate::{
+    client::{error::JwtDecodeError, refresh::CommitteesRefreshConfig},
+    common::utils,
+};
 
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -45,6 +48,9 @@ pub struct Config {
     /// Configuration for the client's network communication.
     #[serde(default)]
     pub communication_config: ClientCommunicationConfig,
+    /// The configuration of the committee refresh from chain.
+    #[serde(default)]
+    pub refresh_config: CommitteesRefreshConfig,
 }
 
 impl Config {
@@ -118,7 +124,9 @@ pub struct AuthConfig {
     /// the issued-at time (iat) and expiration time (exp) in the JWT. I.e., if `expiring_sec > 0`,
     /// the publisher will check that `exp - iat == expiring_sec`.
     pub(crate) expiring_sec: u64,
-    /// verify upload epochs and address for `send_object_to`
+    /// Verify the upload epochs and address for `send_object_to` in the request.
+    ///
+    /// The token expiration is still checked, even if `verify_upload == true`.
     pub(crate) verify_upload: bool,
 }
 
@@ -573,6 +581,7 @@ mod tests {
             ],
             wallet_config: None,
             communication_config: Default::default(),
+            refresh_config: Default::default(),
         };
 
         walrus_test_utils::overwrite_file_and_fail_if_not_equal(

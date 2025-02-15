@@ -4,16 +4,18 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
+use move_package::BuildConfig as MoveBuildConfig;
 use retry_client::RetriableSuiClient;
+use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
+        get_new_package_obj_from_response,
         Coin,
         SuiExecutionStatus,
-        SuiObjectDataOptions,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
     },
@@ -24,7 +26,7 @@ use sui_types::{
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, ProgrammableTransaction, TransactionData, TransactionKind},
+    transaction::{ProgrammableTransaction, TransactionData, TransactionKind},
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -43,10 +45,19 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     contracts,
+    system_setup::compile_package,
     types::{
-        move_errors::MoveExecutionError,
-        move_structs::{Authorized, EpochState, SharedBlob, StorageNode},
-        Blob,
+        move_errors::{BlobError, MoveExecutionError},
+        move_structs::{
+            Authorized,
+            Blob,
+            BlobAttribute,
+            BlobWithAttribute,
+            EmergencyUpgradeCap,
+            EpochState,
+            SharedBlob,
+            StorageNode,
+        },
         BlobEvent,
         Committee,
         ContractEvent,
@@ -141,6 +152,12 @@ pub enum SuiClientError {
     /// Transaction execution was cancelled due to shared object congestion
     #[error("execution cancelled due to shared object congestion on objects {0:?}")]
     SharedObjectCongestion(Vec<ObjectID>),
+    /// The attribute does not exist on the blob.
+    #[error("the attribute does not exist on the blob")]
+    AttributeDoesNotExist,
+    /// The attribute already exists on the blob.
+    #[error("the attribute already exists on the blob")]
+    AttributeAlreadyExists,
 }
 
 impl SuiClientError {
@@ -591,6 +608,33 @@ impl SuiContractClient {
             .await
     }
 
+    /// Performs an emergency upgrade.
+    ///
+    /// Returns the new package ID.
+    pub async fn emergency_upgrade(
+        &self,
+        upgrade_manager: ObjectID,
+        package_path: PathBuf,
+    ) -> SuiClientResult<ObjectID> {
+        self.inner
+            .lock()
+            .await
+            .emergency_upgrade(upgrade_manager, package_path)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after an upgrade is committed in a separate
+    /// transaction.
+    pub async fn migrate_contracts(&self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .migrate_contracts(new_package_id)
+            .await
+    }
+
     /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with
     /// `amount` FROST, and returns its object ID.
     pub async fn create_and_fund_exchange(
@@ -770,6 +814,132 @@ impl SuiContractClient {
             .await
     }
 
+    /// Adds attribute to a blob object.
+    ///
+    /// If attribute does not exist, it is created with the given key-value pairs.
+    /// If attribute already exists, an error is returned unless `force` is true.
+    /// If `force` is true, the attribute is updated with the given key-value pairs.
+    pub async fn add_blob_attribute(
+        &mut self,
+        blob_obj_id: ObjectID,
+        blob_attribute: BlobAttribute,
+        force: bool,
+    ) -> SuiClientResult<()> {
+        let mut inner = self.inner.lock().await;
+        match inner.add_blob_attribute(blob_obj_id, &blob_attribute).await {
+            Ok(()) => Ok(()),
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EDuplicateMetadata(_),
+            ))) => {
+                if force {
+                    inner
+                        .insert_or_update_blob_attribute_pairs(blob_obj_id, blob_attribute.iter())
+                        .await
+                } else {
+                    Err(SuiClientError::AttributeAlreadyExists)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Removes the attribute dynamic field from a blob object.
+    ///
+    /// If attribute does not exist, an error is returned.
+    pub async fn remove_blob_attribute(&mut self, blob_obj_id: ObjectID) -> SuiClientResult<()> {
+        match self
+            .inner
+            .lock()
+            .await
+            .remove_blob_attribute(blob_obj_id)
+            .await
+        {
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EMissingMetadata(_),
+            ))) => Err(SuiClientError::AttributeDoesNotExist),
+            result => result,
+        }
+    }
+
+    /// Inserts or updates key-value pairs in the blob's attribute.
+    ///
+    /// If the attribute does not exist and `force` is true, it will be created.
+    /// If the attribute does not exist and `force` is false, an error is returned.
+    /// If the attribute exists, the key-value pairs will be updated.
+    pub async fn insert_or_update_blob_attribute_pairs<I, T>(
+        &mut self,
+        blob_obj_id: ObjectID,
+        pairs: I,
+        force: bool,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = (T, T)>,
+        T: Into<String>,
+    {
+        let mut inner = self.inner.lock().await;
+        let pairs_clone: Vec<(String, String)> = pairs
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+
+        // Check if attribute exists first
+        let attribute_exists = inner
+            .read_client
+            .get_blob_attribute(blob_obj_id)
+            .await?
+            .is_some();
+
+        if !attribute_exists {
+            if !force {
+                return Err(SuiClientError::AttributeDoesNotExist);
+            }
+            // Create new attribute if it doesn't exist and force is true
+            inner
+                .add_blob_attribute(blob_obj_id, &BlobAttribute::from(pairs_clone))
+                .await
+        } else {
+            // Update existing attribute
+            inner
+                .insert_or_update_blob_attribute_pairs(blob_obj_id, pairs_clone)
+                .await
+        }
+    }
+
+    /// Removes key-value pairs from the blob's attribute.
+    ///
+    /// If any key does not exist, an error is returned.
+    pub async fn remove_blob_attribute_pairs<I, T>(
+        &mut self,
+        blob_obj_id: ObjectID,
+        keys: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<str>,
+    {
+        match self
+            .inner
+            .lock()
+            .await
+            .remove_blob_attribute_pairs(blob_obj_id, keys)
+            .await
+        {
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::Blob(
+                BlobError::EMissingMetadata(_),
+            ))) => Err(SuiClientError::AttributeDoesNotExist),
+            result => result,
+        }
+    }
+
+    /// Returns a mutable reference to the wallet.
+    ///
+    /// This is mainly useful for deployment code where a wallet is used to provide
+    /// gas coins to the storage nodes and client, while also being used for staking
+    /// operations.
+    pub fn wallet_mut(&mut self) -> &mut WalletContext {
+        &mut self.inner.get_mut().wallet
+    }
+
     /// Sends `n` WAL coins of `amount` to the specified `address`.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn multiple_pay_wal(
@@ -824,6 +994,68 @@ impl SuiContractClientInner {
             read_client,
             gas_budget,
         })
+    }
+
+    /// Adds attribute to a blob object.
+    pub async fn add_blob_attribute(
+        &mut self,
+        blob_obj_id: ObjectID,
+        blob_attribute: &BlobAttribute,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .add_blob_attribute(blob_obj_id.into(), blob_attribute.clone())
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Removes the attribute dynamic field from a blob object.
+    pub async fn remove_blob_attribute(&mut self, blob_obj_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.remove_blob_attribute(blob_obj_id.into()).await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Inserts or updates a key-value pair in the blob's attribute.
+    pub async fn insert_or_update_blob_attribute_pairs<I, T>(
+        &mut self,
+        blob_obj_id: ObjectID,
+        pairs: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = (T, T)>,
+        T: Into<String>,
+    {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .insert_or_update_blob_attribute_pairs(blob_obj_id.into(), pairs)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Removes key-value pairs from the blob's attribute.
+    pub async fn remove_blob_attribute_pairs<I, T>(
+        &mut self,
+        blob_obj_id: ObjectID,
+        keys: I,
+    ) -> SuiClientResult<()>
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<str>,
+    {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .remove_blob_attribute_pairs(blob_obj_id.into(), keys)
+            .await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
     }
 
     /// Returns the contained [`SuiReadClient`].
@@ -1173,6 +1405,66 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    /// Performs an emergency upgrade.
+    ///
+    /// Returns the new package ID.
+    pub async fn emergency_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        package_path: PathBuf,
+    ) -> SuiClientResult<ObjectID> {
+        // Compile package
+        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        let (dependencies, compiled_package, build_config) =
+            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
+
+        let digest = compiled_package.get_package_digest(false);
+
+        let emergency_upgrade_cap: EmergencyUpgradeCap = self
+            .read_client
+            .get_owned_objects(self.wallet.active_address()?, &[])
+            .await?
+            .next()
+            .ok_or_else(|| anyhow!("no emergency upgrade capability found"))?;
+        let mut pt_builder = self.transaction_builder()?;
+
+        // Authorize the upgrade.
+        let upgrade_ticket_arg = pt_builder
+            .authorize_emergency_upgrade(upgrade_manager, emergency_upgrade_cap.id.into(), &digest)
+            .await?;
+
+        // Execute the upgrade.
+        let modules = compiled_package.get_package_bytes(false);
+        let upgrade_receipt_arg = pt_builder.upgrade(
+            self.read_client.get_system_package_id(),
+            upgrade_ticket_arg,
+            dependencies.published.into_values().collect(),
+            modules,
+        );
+
+        // Commit the upgrade
+        pt_builder
+            .commit_upgrade(upgrade_manager, upgrade_receipt_arg)
+            .await?;
+
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let response = self.sign_and_send_ptb(ptb).await?;
+        self.post_upgrade_lock_file_update(&response, build_config)
+            .await
+    }
+
+    /// Migrate the staking and system objects to the new package id.
+    ///
+    /// This must be called in the new package after an upgrade is committed in a separate
+    /// transaction.
+    pub async fn migrate_contracts(&mut self, new_package_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.migrate_contracts(new_package_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
     async fn set_authorized_for_pool(
         &mut self,
         node_id: ObjectID,
@@ -1180,65 +1472,22 @@ impl SuiContractClientInner {
         authorized: Authorized,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
-        let authenticated_arg = self
-            .get_authenticated_arg_for_pool(&mut pt_builder, node_id, operation)
-            .await?;
         let authorized_arg = pt_builder.authorized_address_or_object(authorized)?;
         match operation {
             PoolOperationWithAuthorization::Commission => {
                 pt_builder
-                    .set_commission_receiver(node_id, authenticated_arg, authorized_arg)
+                    .set_commission_receiver(node_id, authorized_arg)
                     .await?;
             }
             PoolOperationWithAuthorization::Governance => {
                 pt_builder
-                    .set_governance_authorized(node_id, authenticated_arg, authorized_arg)
+                    .set_governance_authorized(node_id, authorized_arg)
                     .await?;
             }
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
-    }
-
-    /// Given the node ID, checks if the sender is authorized to perform the operation (either as
-    /// sender or by owning the corresponding object) and returns an `Authenticated` Move type as
-    /// result argument.
-    async fn get_authenticated_arg_for_pool(
-        &mut self,
-        pt_builder: &mut WalrusPtbBuilder,
-        node_id: ObjectID,
-        operation: PoolOperationWithAuthorization,
-    ) -> SuiClientResult<Argument> {
-        let pool = self.read_client.get_staking_pool(node_id).await?;
-        let authorized = match operation {
-            PoolOperationWithAuthorization::Commission => pool.commission_receiver,
-            PoolOperationWithAuthorization::Governance => pool.governance_authorized,
-        };
-        match authorized {
-            Authorized::Address(receiver) => {
-                ensure!(
-                    receiver == self.wallet.active_address()?,
-                    SuiClientError::NotAuthorizedForPool(node_id)
-                );
-                pt_builder.authenticate_sender()
-            }
-            Authorized::Object(receiver) => {
-                let object = self
-                    .sui_client()
-                    .get_object_with_options(receiver, SuiObjectDataOptions::default().with_owner())
-                    .await?;
-                ensure!(
-                    object
-                        .owner()
-                        .ok_or_else(|| anyhow!("no object owner returned from rpc"))?
-                        .get_owner_address()?
-                        == self.wallet.active_address()?,
-                    SuiClientError::NotAuthorizedForPool(node_id)
-                );
-                pt_builder.authenticate_with_object(receiver).await
-            }
-        }
     }
 
     /// Creates a new [`contracts::wal_exchange::Exchange`] with a 1:1 exchange rate, funds it with
@@ -1724,6 +1973,33 @@ impl SuiContractClientInner {
         }
         Ok(())
     }
+
+    /// Updates the lock file after an upgrade and returns the new package ID.
+    async fn post_upgrade_lock_file_update(
+        &mut self,
+        response: &SuiTransactionBlockResponse,
+        build_config: MoveBuildConfig,
+    ) -> SuiClientResult<ObjectID> {
+        let new_package_id = get_new_package_obj_from_response(response)
+            .ok_or_else(|| {
+                anyhow!(
+                    "no new package ID found in the transaction response: {:?}",
+                    response
+                )
+            })?
+            .0;
+
+        // Update the lock file with the upgraded package info.
+        sui_package_management::update_lock_file(
+            &self.wallet,
+            LockCommand::Upgrade,
+            build_config.install_dir,
+            build_config.lock_file,
+            response,
+        )
+        .await?;
+        Ok(new_package_id)
+    }
 }
 
 impl ReadClient for SuiContractClient {
@@ -1777,6 +2053,20 @@ impl ReadClient for SuiContractClient {
 
     async fn get_storage_nodes_by_ids(&self, node_ids: &[ObjectID]) -> Result<Vec<StorageNode>> {
         self.read_client.get_storage_nodes_by_ids(node_ids).await
+    }
+
+    async fn get_blob_attribute(
+        &self,
+        blob_obj_id: ObjectID,
+    ) -> SuiClientResult<Option<BlobAttribute>> {
+        self.read_client.get_blob_attribute(blob_obj_id).await
+    }
+
+    async fn get_blob_with_attribute(
+        &self,
+        blob_obj_id: ObjectID,
+    ) -> SuiClientResult<BlobWithAttribute> {
+        self.read_client.get_blob_with_attribute(blob_obj_id).await
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {

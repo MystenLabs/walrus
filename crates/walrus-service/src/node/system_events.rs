@@ -15,7 +15,7 @@ use tokio_stream::{wrappers::IntervalStream, Stream};
 use tracing::Level;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
-use super::{metrics, StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
+use super::{StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
 use crate::{
     common::config::SuiConfig,
     node::{
@@ -98,9 +98,9 @@ impl EventHandle {
             .expect("DB operations should succeed");
 
         let event_cursor_progress = &self.node.metrics.event_cursor_progress;
-        metrics::with_label!(event_cursor_progress, STATUS_PERSISTED).set(persisted);
-        metrics::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
-        metrics::with_label!(event_cursor_progress, STATUS_HIGHEST_FINISHED)
+        walrus_utils::with_label!(event_cursor_progress, STATUS_PERSISTED).set(persisted);
+        walrus_utils::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
+        walrus_utils::with_label!(event_cursor_progress, STATUS_HIGHEST_FINISHED)
             .set(highest_finished_event_index);
         self.can_be_dropped = true;
     }

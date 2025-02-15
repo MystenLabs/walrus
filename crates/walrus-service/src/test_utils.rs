@@ -17,7 +17,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Error;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
@@ -25,6 +24,8 @@ use prometheus::Registry;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
+#[cfg(msim)]
+use tokio::sync::RwLock;
 use tokio::{task::JoinHandle, time::Duration};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 use tokio_util::sync::CancellationToken;
@@ -48,7 +49,12 @@ use walrus_core::{
 };
 use walrus_sdk::client::Client;
 use walrus_sui::{
-    client::{retry_client::RetriableRpcClient, BlobObjectMetadata, FixedSystemParameters},
+    client::{
+        retry_client::RetriableRpcClient,
+        BlobObjectMetadata,
+        FixedSystemParameters,
+        SuiClientError,
+    },
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
         move_structs::{EpochState, VotingParams},
@@ -79,9 +85,9 @@ use crate::{
             NodeCommitteeService,
         },
         config,
-        config::{ShardSyncConfig, StorageNodeConfig},
+        config::{ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
         contract_service::SystemContractService,
-        errors::SyncShardClientError,
+        errors::{SyncNodeConfigError, SyncShardClientError},
         events::{
             event_processor::EventProcessor,
             CheckpointEventPosition,
@@ -174,6 +180,21 @@ pub trait StorageNodeHandleTrait {
 
     /// Returns whether the storage node should use a distinct IP address.
     fn use_distinct_ip() -> bool;
+}
+
+/// Configuration for test node setup
+#[derive(Debug, Clone, Default)]
+pub struct TestNodesConfig {
+    /// The weights of the nodes in the cluster.
+    pub node_weights: Vec<u16>,
+    /// Whether to use the legacy event processor.
+    pub use_legacy_event_processor: bool,
+    /// Whether to disable the event blob writer.
+    pub disable_event_blob_writer: bool,
+    /// The directory to store the blocklist.
+    pub blocklist_dir: Option<PathBuf>,
+    /// Whether to enable the node config monitor.
+    pub enable_node_config_synchronizer: bool,
 }
 
 /// A storage node and associated data for testing.
@@ -281,14 +302,14 @@ impl SimStorageNodeHandle {
     /// Starts and runs a storage node with the provided configuration in a dedicated simulator
     /// node.
     pub async fn spawn_node(
-        config: StorageNodeConfig,
+        config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> sui_simulator::runtime::NodeHandle {
         let (startup_sender, mut startup_receiver) = tokio::sync::watch::channel(false);
 
         // Extract the IP address from the configuration.
-        let ip = match config.rest_api_address {
+        let ip = match config.read().await.rest_api_address {
             SocketAddr::V4(v4) => std::net::IpAddr::V4(*v4.ip()),
             _ => panic!("unsupported protocol"),
         };
@@ -303,6 +324,8 @@ impl SimStorageNodeHandle {
             .name(&format!(
                 "{:?}",
                 config
+                    .read()
+                    .await
                     .protocol_key_pair
                     .get()
                     .expect("config must contain protocol key pair")
@@ -316,33 +339,72 @@ impl SimStorageNodeHandle {
                 let startup_sender = startup_sender.clone();
 
                 async move {
-                    let (rest_api_handle, node_handle, event_processor_handle) =
-                        Self::build_and_run_node(
-                            config,
-                            num_checkpoints_per_blob,
-                            cancel_token.clone(),
-                        )
-                        .await
-                        .expect("Should start node successfully");
+                    let result = async {
+                        let (rest_api_handle, node_handle, event_processor_handle) =
+                            Self::build_and_run_node(
+                                config.clone(),
+                                num_checkpoints_per_blob,
+                                cancel_token.clone(),
+                            )
+                            .await?;
 
-                    startup_sender.send(true).ok();
+                        startup_sender.send(true).ok();
 
-                    tokio::select! {
-                        _ = rest_api_handle => {
-                            tracing::info!("REST API stopped");
-                        }
-                        _ = node_handle => {
-                            tracing::info!("node stopped");
-                        }
-                        _ = event_processor_handle => {
-                            tracing::info!("event processor stopped");
-                        }
-                        _ = cancel_token.cancelled() => {
-                            tracing::info!("node stopped by cancellation");
+                        tokio::select! {
+                            _ = rest_api_handle => {
+                                tracing::info!("REST API stopped");
+                                Ok(())
+                            }
+                            result = node_handle => {
+                                tracing::info!("node handle completed");
+                                result?
+                            }
+                            _ = event_processor_handle => {
+                                tracing::info!("event processor stopped");
+                                Ok(())
+                            }
+                            _ = cancel_token.cancelled() => {
+                                tracing::info!("node stopped by cancellation");
+                                Ok(())
+                            }
                         }
                     }
+                    .await;
 
-                    tracing::info!("node stopped");
+                    match result {
+                        Err(e) => {
+                            if matches!(
+                                e.downcast_ref::<SyncNodeConfigError>(),
+                                Some(SyncNodeConfigError::ProtocolKeyPairRotationRequired)
+                            ) {
+                                let mut config_guard = config.write().await;
+                                tracing::info!(
+                                    protocol_key = ?config_guard.protocol_key_pair().public(),
+                                    next_protocol_key = ?config_guard
+                                        .next_protocol_key_pair()
+                                        .map(|kp| kp.public()),
+                                    "rotating protocol key pair"
+                                );
+                                config_guard.rotate_protocol_key_pair();
+                                sui_simulator::task::kill_current_node(Some(Duration::from_secs(
+                                    10,
+                                )));
+                            } else if matches!(
+                                e.downcast_ref::<SyncNodeConfigError>(),
+                                Some(SyncNodeConfigError::NodeNeedsReboot)
+                            ) {
+                                tracing::info!("node needs reboot, killing current node");
+                                sui_simulator::task::kill_current_node(Some(Duration::from_secs(
+                                    10,
+                                )));
+                            } else {
+                                tracing::info!("node stopped with error: {e}");
+                            }
+                        }
+                        Ok(()) => {
+                            tracing::info!("node stopped");
+                        }
+                    }
                 }
             })
             .build();
@@ -359,16 +421,17 @@ impl SimStorageNodeHandle {
     /// Builds and runs a storage node with the provided configuration. Returns the handles to the
     /// REST API, the node, and the event processor.
     async fn build_and_run_node(
-        config: StorageNodeConfig,
+        config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
-        tokio::task::JoinHandle<Result<(), std::io::Error>>,
+        tokio::task::JoinHandle<Result<(), anyhow::Error>>,
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
     )> {
         // TODO(#996): extract the common code to start the code, and use it here as well as in
         // StorageNodeRuntime::start.
+        let config = config.read().await.clone();
 
         let metrics_registry = Registry::default();
 
@@ -546,6 +609,7 @@ pub struct StorageNodeHandleBuilder {
     storage_node_capability: Option<StorageNodeCap>,
     node_wallet_dir: Option<PathBuf>,
     num_checkpoints_per_blob: Option<u32>,
+    enable_node_config_synchronizer: bool,
 }
 
 impl StorageNodeHandleBuilder {
@@ -561,6 +625,12 @@ impl StorageNodeHandleBuilder {
     /// storage also dictates the shard assignment to this storage node in the created committee.
     pub fn with_storage(mut self, storage: WithTempDir<Storage>) -> Self {
         self.storage = Some(storage);
+        self
+    }
+
+    /// Enable or disable the node's config monitor.
+    pub fn with_enable_node_config_synchronizer(mut self, enable: bool) -> Self {
+        self.enable_node_config_synchronizer = enable;
         self
     }
 
@@ -741,6 +811,7 @@ impl StorageNodeHandleBuilder {
         let config = StorageNodeConfig {
             storage_path: temp_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
+            next_protocol_key_pair: None,
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
@@ -748,6 +819,10 @@ impl StorageNodeHandleBuilder {
             blocklist_path: self.blocklist_path,
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(5),
+                enabled: self.enable_node_config_synchronizer,
+            },
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
             ..storage_node_config().inner
         };
@@ -881,6 +956,7 @@ impl StorageNodeHandleBuilder {
         let storage_node_config = StorageNodeConfig {
             storage_path: storage_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
+            next_protocol_key_pair: None,
             network_key_pair: node_info.network_key_pair.into(),
             rest_api_address: node_info.rest_api_address,
             public_host: node_info.rest_api_address.ip().to_string(),
@@ -899,6 +975,10 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
             }),
+            config_synchronizer: ConfigSynchronizerConfig {
+                interval: Duration::from_secs(5),
+                enabled: self.enable_node_config_synchronizer,
+            },
             storage_node_cap: node_capability.map(|cap| cap.id),
             ..storage_node_config().inner
         };
@@ -908,7 +988,7 @@ impl StorageNodeHandleBuilder {
         let node_id = if start_node {
             Some(
                 SimStorageNodeHandle::spawn_node(
-                    storage_node_config.clone(),
+                    Arc::new(RwLock::new(storage_node_config.clone())),
                     num_checkpoints_per_blob,
                     cancel_token.clone(),
                 )
@@ -960,6 +1040,7 @@ impl Default for StorageNodeHandleBuilder {
             storage_node_capability: None,
             node_wallet_dir: None,
             num_checkpoints_per_blob: None,
+            enable_node_config_synchronizer: false,
         }
     }
 }
@@ -1253,6 +1334,10 @@ impl CommitteeService for StubCommitteeService {
     ) -> Result<(), BeginCommitteeChangeError> {
         Ok(())
     }
+
+    async fn sync_committee_members(&self) -> Result<(), anyhow::Error> {
+        Ok(())
+    }
 }
 
 /// A stub [`SystemContractService`].
@@ -1266,6 +1351,16 @@ pub struct StubContractService {
 
 #[async_trait]
 impl SystemContractService for StubContractService {
+    async fn sync_node_params(
+        &self,
+        _config: &StorageNodeConfig,
+        _node_capability_object_id: ObjectID,
+    ) -> Result<(), SyncNodeConfigError> {
+        Err(SyncNodeConfigError::Other(anyhow::anyhow!(
+            "stub service does not sync node params"
+        )))
+    }
+
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
 
     async fn epoch_sync_done(&self, _epoch: Epoch, _node_capability_object_id: ObjectID) {}
@@ -1296,8 +1391,8 @@ impl SystemContractService for StubContractService {
         _ending_checkpoint_seq_num: u64,
         _epoch: u32,
         _node_capability_object_id: ObjectID,
-    ) -> Result<(), Error> {
-        anyhow::bail!("stub service cannot certify event blob")
+    ) -> Result<(), SuiClientError> {
+        Ok(())
     }
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
@@ -1307,7 +1402,7 @@ impl SystemContractService for StubContractService {
     async fn get_node_capability_object(
         &self,
         _node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error> {
+    ) -> Result<StorageNodeCap, SuiClientError> {
         Ok(self.node_capability_object.clone())
     }
 }
@@ -1473,6 +1568,7 @@ pub struct TestClusterBuilder {
     num_checkpoints_per_blob: Option<u32>,
     blocklist_files: Vec<Option<PathBuf>>,
     disable_event_blob_writer: Vec<bool>,
+    enable_node_config_synchronizer: bool,
 }
 
 impl TestClusterBuilder {
@@ -1492,6 +1588,15 @@ impl TestClusterBuilder {
     /// Returns a reference to the storage node test configs of the builder.
     pub fn storage_node_test_configs(&self) -> &Vec<StorageNodeTestConfig> {
         &self.storage_node_configs
+    }
+
+    /// Sets the enable storage node config monitor flag for each storage node.
+    pub fn with_enable_node_config_synchronizer(
+        mut self,
+        enable_node_config_synchronizer: bool,
+    ) -> Self {
+        self.enable_node_config_synchronizer = enable_node_config_synchronizer;
+        self
     }
 
     /// Sets the shard sync config for the cluster.
@@ -1583,15 +1688,17 @@ impl TestClusterBuilder {
     /// Sets the [`SystemContractService`] used for each storage node.
     ///
     /// Should be called after the storage nodes have been specified.
-    pub fn with_system_contract_services<T>(mut self, contract_services: &[T]) -> Self
+    pub fn with_system_contract_services<T, U>(mut self, contract_services: T) -> Self
     where
-        T: SystemContractService + Clone + 'static,
+        T: IntoIterator<Item = U>,
+        U: SystemContractService + Clone + 'static,
     {
-        assert_eq!(contract_services.len(), self.storage_node_configs.len());
-        self.contract_services = contract_services
-            .iter()
+        let contract_services: Vec<_> = contract_services
+            .into_iter()
             .map(|service| Some(Arc::new(service.clone()) as _))
             .collect();
+        assert_eq!(contract_services.len(), self.storage_node_configs.len());
+        self.contract_services = contract_services;
         self
     }
 
@@ -1697,7 +1804,12 @@ impl TestClusterBuilder {
                 .with_node_wallet_dir(node_wallet_dir)
                 .with_blocklist_file(blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
-                .with_disabled_event_blob_writer(disable_event_blob_writer);
+                .with_disabled_event_blob_writer(disable_event_blob_writer)
+                .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer);
+            tracing::info!(
+                "test cluster builder build enable_node_config_synchronizer: {}",
+                self.enable_node_config_synchronizer
+            );
 
             let mut builder = if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob
             {
@@ -1866,6 +1978,7 @@ impl Default for TestClusterBuilder {
             sui_cluster_handle: None,
             use_distinct_ip: false,
             num_checkpoints_per_blob: None,
+            enable_node_config_synchronizer: false,
         }
     }
 }
@@ -1875,6 +1988,17 @@ impl<T> SystemContractService for Arc<WithTempDir<T>>
 where
     T: SystemContractService,
 {
+    async fn sync_node_params(
+        &self,
+        config: &StorageNodeConfig,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SyncNodeConfigError> {
+        self.as_ref()
+            .inner
+            .sync_node_params(config, node_capability_object_id)
+            .await
+    }
+
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
         self.as_ref().inner.end_voting().await
     }
@@ -1912,7 +2036,7 @@ where
         ending_checkpoint_seq_num: u64,
         epoch: u32,
         node_capability_object_id: ObjectID,
-    ) -> Result<(), Error> {
+    ) -> Result<(), SuiClientError> {
         self.as_ref()
             .inner
             .certify_event_blob(
@@ -1931,7 +2055,7 @@ where
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error> {
+    ) -> Result<StorageNodeCap, SuiClientError> {
         self.as_ref()
             .inner
             .get_node_capability_object(node_capability_object_id)
@@ -1982,12 +2106,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{
-            contract_config::ContractConfig,
-            retry_client::RetriableSuiClient,
-            SuiContractClient,
-            SuiReadClient,
-        },
+        client::{contract_config::ContractConfig, SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -2034,14 +2153,18 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
-        let node_weights = [1, 2, 3, 3, 4];
+        let test_nodes_config = TestNodesConfig {
+            node_weights: vec![1, 2, 3, 3, 4],
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: None,
+            enable_node_config_synchronizer: false,
+        };
         default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             epoch_duration,
-            &node_weights,
-            true,
-            ClientCommunicationConfig::default_for_test(),
-            None,
+            test_nodes_config,
             Some(10),
+            ClientCommunicationConfig::default_for_test(),
         )
         .await
     }
@@ -2050,11 +2173,9 @@ pub mod test_cluster {
     /// specified storage node handle.
     pub async fn default_setup_with_epoch_duration_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
-        node_weights: &[u16],
-        use_legacy_event_processor: bool,
-        communication_config: ClientCommunicationConfig,
-        blocklist_dir: Option<PathBuf>,
+        test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
+        communication_config: ClientCommunicationConfig,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2062,12 +2183,9 @@ pub mod test_cluster {
     )> {
         default_setup_with_num_checkpoints_generic(
             epoch_duration,
-            node_weights,
-            use_legacy_event_processor,
-            false,
+            test_nodes_config,
             num_checkpoints_per_blob,
             communication_config,
-            blocklist_dir,
         )
         .await
     }
@@ -2076,12 +2194,9 @@ pub mod test_cluster {
     /// specified storage node handle.
     pub async fn default_setup_with_num_checkpoints_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
-        node_weights: &[u16],
-        use_legacy_event_processor: bool,
-        disable_event_blob_writer: bool,
+        test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
-        blocklist_dir: Option<PathBuf>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2093,14 +2208,15 @@ pub mod test_cluster {
         let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
 
         // Get a wallet on the global sui test cluster
-        let mut wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+        let mut admin_wallet =
+            test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
         // Specify an empty assignment to ensure that storage nodes are not created with invalid
         // shard assignments.
-        let n_shards = NonZeroU16::new(node_weights.iter().sum())
+        let n_shards = NonZeroU16::new(test_nodes_config.node_weights.iter().sum())
             .expect("sum of non-zero weights is not zero");
-        let cluster_builder =
-            TestCluster::<T>::builder().with_shard_assignment(&vec![[]; node_weights.len()]);
+        let cluster_builder = TestCluster::<T>::builder()
+            .with_shard_assignment(&vec![[]; test_nodes_config.node_weights.len()]);
 
         // Get the default committee from the test cluster builder
         let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
@@ -2116,7 +2232,7 @@ pub mod test_cluster {
             .unzip();
 
         let system_ctx = create_and_init_system_for_test(
-            &mut wallet.inner,
+            &mut admin_wallet.inner,
             n_shards,
             Duration::from_secs(0),
             epoch_duration,
@@ -2124,63 +2240,68 @@ pub mod test_cluster {
         )
         .await?;
 
-        let mut contract_clients = vec![];
-        let mut node_wallet_dirs = vec![];
-        let mut blocklist_files = vec![];
-        let mut disable_event_blob_writers = vec![];
-        for (i, _) in members.iter().enumerate() {
-            let client = test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone())
+        let n_nodes = members.len();
+        let mut contract_clients = Vec::with_capacity(n_nodes);
+        let mut node_wallet_dirs = Vec::with_capacity(n_nodes);
+        let mut blocklist_files = Vec::with_capacity(n_nodes);
+        let mut disable_event_blob_writers = Vec::with_capacity(n_nodes);
+
+        for (i, wallet) in
+            test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), n_nodes)
                 .await?
+                .into_iter()
+                .enumerate()
+        {
+            let client = wallet
                 .and_then_async(|wallet| {
-                    system_ctx.new_contract_client(
-                        wallet,
-                        ExponentialBackoffConfig::default(),
-                        None,
-                    )
+                    system_ctx.new_contract_client(wallet, Default::default(), None)
                 })
                 .await?;
             let temp_dir = client.temp_dir.path().to_owned();
             node_wallet_dirs.push(temp_dir.clone());
-            contract_clients.push(client);
-            let blocklist_dir = blocklist_dir.clone().unwrap_or(temp_dir);
+            contract_clients.push(client.inner);
+            let blocklist_dir = test_nodes_config.blocklist_dir.clone().unwrap_or(temp_dir);
             blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
-            disable_event_blob_writers.push(disable_event_blob_writer);
+            disable_event_blob_writers.push(test_nodes_config.disable_event_blob_writer);
+            // In simtest, storage nodes load the Sui wallet config from the `temp_dir`. We
+            // need to keep the directory alive throughout the test.
+            #[cfg(msim)]
+            Box::leak(Box::new(client.temp_dir));
         }
-        let contract_clients_refs = contract_clients
-            .iter()
-            .map(|client| &client.inner)
-            .collect::<Vec<_>>();
+        let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
-        let amounts_to_stake = node_weights
+        let contract_config =
+            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
+
+        let admin_contract_client = admin_wallet
+            .and_then_async(|wallet| {
+                SuiContractClient::new(
+                    wallet,
+                    &contract_config,
+                    ExponentialBackoffConfig::default(),
+                    None,
+                )
+            })
+            .await?;
+
+        let amounts_to_stake = test_nodes_config
+            .node_weights
             .iter()
             .map(|&weight| FROST_PER_NODE_WEIGHT * weight as u64)
             .collect::<Vec<_>>();
         let storage_capabilities = register_committee_and_stake(
-            &mut wallet.inner,
-            &system_ctx,
+            admin_contract_client.as_ref(),
             &members,
             &protocol_keypairs,
             &contract_clients_refs,
-            1_000_000_000_000,
             &amounts_to_stake,
         )
         .await?;
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
-        let contract_config =
-            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
-
         // Build the walrus cluster
-        let sui_read_client = SuiReadClient::new(
-            RetriableSuiClient::new_from_wallet(
-                wallet.as_ref(),
-                ExponentialBackoffConfig::default(),
-            )
-            .await?,
-            &contract_config,
-        )
-        .await?;
+        let sui_read_client = admin_contract_client.as_ref().read_client().clone();
 
         let committee_services = future::join_all(contract_clients.iter().map(|_| async {
             let service: Arc<dyn CommitteeService> = Arc::new(
@@ -2195,26 +2316,19 @@ pub mod test_cluster {
         .await;
 
         // Create a contract service for the storage nodes using a wallet in a temp dir.
-        let (node_contract_services, _wallet_dirs): (Vec<_>, Vec<_>) = contract_clients
+        let node_contract_services = contract_clients
             .into_iter()
             .zip(committee_services.iter())
-            .map(|(client, committee_service)| (client.inner, committee_service, client.temp_dir))
-            .map(|(client, committee_service, tmp_dir)| {
-                (
-                    SuiSystemContractService::new(client, committee_service.clone()),
-                    // In simtest, storage nodes load sui wallet config from the `tmp_dir`. We
-                    // need to keep the directory alive throughout the test.
-                    Box::leak(Box::new(tmp_dir)),
-                )
-            })
-            .unzip();
+            .map(|(client, committee_service)| {
+                SuiSystemContractService::new(client, committee_service.clone())
+            });
 
         let cluster_builder = cluster_builder
             .with_committee_services(&committee_services)
-            .with_system_contract_services(&node_contract_services);
+            .with_system_contract_services(node_contract_services);
 
         let event_processor_config = Default::default();
-        let cluster_builder = if use_legacy_event_processor {
+        let cluster_builder = if test_nodes_config.use_legacy_event_processor {
             setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
         } else {
             setup_checkpoint_based_event_processors(
@@ -2246,8 +2360,10 @@ pub mod test_cluster {
                     .collect(),
             )
             .with_disable_event_blob_writer(disable_event_blob_writers)
-            .with_blocklist_files(blocklist_files);
-
+            .with_blocklist_files(blocklist_files)
+            .with_enable_node_config_synchronizer(
+                test_nodes_config.enable_node_config_synchronizer,
+            );
         let cluster = {
             // Lock to avoid race conditions.
             let _lock = global_test_lock().lock().await;
@@ -2255,19 +2371,17 @@ pub mod test_cluster {
         };
 
         // Create the client with the admin wallet to ensure that we have some WAL.
-        let sui_contract_client = wallet.and_then(|wallet| {
-            SuiContractClient::new_with_read_client(wallet, None, Arc::new(sui_read_client))
-        })?;
         let config = Config {
             contract_config,
             exchange_objects: vec![],
             wallet_config: None,
             communication_config,
+            refresh_config: Default::default(),
         };
 
-        let client = sui_contract_client
+        let client = admin_contract_client
             .and_then_async(|contract_client| {
-                client::Client::new_contract_client(config, contract_client)
+                client::Client::new_contract_client_with_refresher(config, contract_client)
             })
             .await?;
 
@@ -2337,6 +2451,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
         inner: StorageNodeConfig {
             name: "node".to_string(),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
+            next_protocol_key_pair: None,
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
             rest_api_address,
             metrics_address: unused_socket_address(false),
@@ -2366,6 +2481,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             public_port: rest_api_address.port(),
             metrics_push: None,
             metadata: Default::default(),
+            config_synchronizer: Default::default(),
             storage_node_cap: None,
         },
         temp_dir,

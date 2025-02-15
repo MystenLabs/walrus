@@ -39,7 +39,6 @@ use walrus_sui::{
     utils,
 };
 use walrus_test_utils::{async_param_test, WithTempDir};
-use walrus_utils::backoff::ExponentialBackoffConfig;
 
 async fn initialize_contract_and_wallet() -> anyhow::Result<(
     Arc<TestClusterHandle>,
@@ -52,31 +51,21 @@ async fn initialize_contract_and_wallet() -> anyhow::Result<(
     let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
 
     // Get a wallet on the global sui test cluster
-    let mut admin_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+    let admin_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
     let node_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
     // TODO(#793): make this nicer, s.t. we don't throw away the wallet with the storage node cap.
     // Fix once the testbed setup is ready.
-    let system_context = node_wallet
-        .and_then_async(|wallet| publish_with_default_system(&mut admin_wallet.inner, wallet))
+    let result = admin_wallet
+        .and_then_async(|admin_wallet| {
+            node_wallet.and_then_async(|wallet| publish_with_default_system(admin_wallet, wallet))
+        })
         .await?
-        .inner;
-    let contract_config = system_context.contract_config();
+        .map(|result| result.inner);
+    let system_context = result.inner.0.clone();
+    let admin_contract_client = result.map(|(_, client)| client);
 
-    Ok((
-        sui_cluster,
-        admin_wallet
-            .and_then_async(|wallet| {
-                SuiContractClient::new(
-                    wallet,
-                    &contract_config,
-                    ExponentialBackoffConfig::default(),
-                    None,
-                )
-            })
-            .await?,
-        system_context,
-    ))
+    Ok((sui_cluster, admin_contract_client, system_context))
 }
 
 #[tokio::test]

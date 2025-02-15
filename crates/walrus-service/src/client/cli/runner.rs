@@ -36,7 +36,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::move_structs::EpochState,
+    types::move_structs::{BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
 
@@ -78,6 +78,7 @@ use crate::{
             ExchangeOutput,
             ExtendBlobOutput,
             FundSharedBlobOutput,
+            GetBlobAttributeOutput,
             InfoBftOutput,
             InfoCommitteeOutput,
             InfoEpochOutput,
@@ -156,6 +157,7 @@ impl ClientCommandRunner {
                 epoch_arg,
                 dry_run,
                 force,
+                ignore_resources,
                 deletable,
                 share,
             } => {
@@ -163,7 +165,7 @@ impl ClientCommandRunner {
                     files,
                     epoch_arg,
                     dry_run,
-                    StoreWhen::always(force),
+                    StoreWhen::from_flags(force, ignore_resources),
                     BlobPersistence::from_deletable(deletable),
                     PostStoreAction::from_share(share),
                 )
@@ -316,6 +318,78 @@ impl ClientCommandRunner {
                 }
                 .print_output(self.json)
             }
+
+            CliCommands::GetBlobAttribute { blob_obj_id } => {
+                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                    &self.config?,
+                    None,
+                    self.wallet,
+                    self.wallet_path.is_none(),
+                )
+                .await?;
+                let attribute = sui_read_client.get_blob_attribute(blob_obj_id).await?;
+                GetBlobAttributeOutput { attribute }.print_output(self.json)
+            }
+
+            CliCommands::SetBlobAttribute {
+                blob_obj_id,
+                attributes,
+            } => {
+                let pairs: Vec<(String, String)> = attributes
+                    .chunks_exact(2)
+                    .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
+                    .collect();
+                let mut sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                let attribute = BlobAttribute::from(pairs);
+                sui_client
+                    .insert_or_update_blob_attribute_pairs(blob_obj_id, attribute.iter(), true)
+                    .await?;
+                if !self.json {
+                    println!(
+                        "{} Successfully added attribute for blob object {}",
+                        success(),
+                        blob_obj_id
+                    );
+                }
+                Ok(())
+            }
+
+            CliCommands::RemoveBlobAttributeFields { blob_obj_id, keys } => {
+                let mut sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                sui_client
+                    .remove_blob_attribute_pairs(blob_obj_id, keys)
+                    .await?;
+                if !self.json {
+                    println!(
+                        "{} Successfully removed attribute for blob object {}",
+                        success(),
+                        blob_obj_id
+                    );
+                }
+                Ok(())
+            }
+
+            CliCommands::RemoveBlobAttribute { blob_obj_id } => {
+                let mut sui_client = self
+                    .config?
+                    .new_contract_client(self.wallet?, self.gas_budget)
+                    .await?;
+                sui_client.remove_blob_attribute(blob_obj_id).await?;
+                if !self.json {
+                    println!(
+                        "{} Successfully removed attribute for blob object {}",
+                        success(),
+                        blob_obj_id
+                    );
+                }
+                Ok(())
+            }
         }
     }
 
@@ -411,59 +485,8 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
-        let max_epochs_ahead = system_object.max_epochs_ahead();
-
-        let epochs_ahead = match epoch_arg {
-            EpochArg {
-                epochs: Some(epochs),
-                ..
-            } => epochs.try_into_epoch_count(max_epochs_ahead)?,
-            EpochArg {
-                earliest_expiry_time: Some(earliest_expiry_time),
-                ..
-            } => {
-                let staking_object = client.sui_client().read_client.get_staking_object().await?;
-                let epoch_state = staking_object.epoch_state();
-                let estimated_start_of_current_epoch = match epoch_state {
-                    EpochState::EpochChangeDone(epoch_start)
-                    | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
-                    EpochState::EpochChangeSync(_) => Utc::now(),
-                };
-                let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
-                ensure!(
-                    earliest_expiry_ts > estimated_start_of_current_epoch
-                        && earliest_expiry_ts > Utc::now(),
-                    "earliest_expiry_time must be greater than the current epoch start time
-                and the current time"
-                );
-                let delta = (earliest_expiry_ts - estimated_start_of_current_epoch)
-                    .num_milliseconds() as u64;
-                (delta / staking_object.epoch_duration() + 1) as u32
-            }
-            EpochArg {
-                end_epoch: Some(end_epoch),
-                ..
-            } => {
-                let current_epoch = client.sui_client().current_epoch().await?;
-                ensure!(
-                    end_epoch > current_epoch,
-                    "end_epoch must be greater than the current epoch"
-                );
-                end_epoch - current_epoch
-            }
-            _ => {
-                anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")
-            }
-        };
-
-        // Check that the number of epochs is lower than the number of epochs the blob can be stored
-        // for.
-        ensure!(
-            epochs_ahead <= max_epochs_ahead,
-            "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
-            max_epochs_ahead,
-            epochs_ahead
-        );
+        let epochs_ahead =
+            get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
@@ -480,7 +503,7 @@ impl ClientCommandRunner {
             .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
             .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()?;
         let results = client
-            .reserve_and_store_blobs_retry_epoch_with_path(
+            .reserve_and_store_blobs_retry_committees_with_path(
                 &blobs,
                 epochs_ahead,
                 store_when,
@@ -529,7 +552,7 @@ impl ClientCommandRunner {
             let encoded_size =
                 encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
                     .expect("must be valid as the encoding succeeded");
-            let storage_cost = client.price_computation.operation_cost(
+            let storage_cost = client.get_price_computation().await?.operation_cost(
                 &crate::client::resource::RegisterBlobOp::RegisterFromScratch {
                     encoded_length: encoded_size,
                     epochs_ahead,
@@ -562,7 +585,13 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
-        let client = Client::new(config, &sui_read_client).await?;
+
+        let refresher_handle = config
+            .refresh_config
+            .build_refresher_and_run(sui_read_client.clone())
+            .await?;
+        let client = Client::new(config, refresher_handle).await?;
+
         let file = file_or_blob_id.file.clone();
         let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;
 
@@ -986,6 +1015,66 @@ impl ClientCommandRunner {
         println!("{} The specified blob objects have been burned", success());
         Ok(())
     }
+}
+
+async fn get_epochs_ahead(
+    epoch_arg: EpochArg,
+    max_epochs_ahead: u32,
+    client: &Client<SuiContractClient>,
+) -> Result<u32, anyhow::Error> {
+    let epochs_ahead = match epoch_arg {
+        EpochArg {
+            epochs: Some(epochs),
+            ..
+        } => epochs.try_into_epoch_count(max_epochs_ahead)?,
+        EpochArg {
+            earliest_expiry_time: Some(earliest_expiry_time),
+            ..
+        } => {
+            let staking_object = client.sui_client().read_client.get_staking_object().await?;
+            let epoch_state = staking_object.epoch_state();
+            let estimated_start_of_current_epoch = match epoch_state {
+                EpochState::EpochChangeDone(epoch_start)
+                | EpochState::NextParamsSelected(epoch_start) => *epoch_start,
+                EpochState::EpochChangeSync(_) => Utc::now(),
+            };
+            let earliest_expiry_ts = DateTime::from(earliest_expiry_time);
+            ensure!(
+                earliest_expiry_ts > estimated_start_of_current_epoch
+                    && earliest_expiry_ts > Utc::now(),
+                "earliest_expiry_time must be greater than the current epoch start time
+                and the current time"
+            );
+            let delta =
+                (earliest_expiry_ts - estimated_start_of_current_epoch).num_milliseconds() as u64;
+            (delta / staking_object.epoch_duration() + 1) as u32
+        }
+        EpochArg {
+            end_epoch: Some(end_epoch),
+            ..
+        } => {
+            let current_epoch = client.sui_client().current_epoch().await?;
+            ensure!(
+                end_epoch > current_epoch,
+                "end_epoch must be greater than the current epoch"
+            );
+            end_epoch - current_epoch
+        }
+        _ => {
+            anyhow::bail!("either epochs or earliest_expiry_time or end_epoch must be provided")
+        }
+    };
+
+    // Check that the number of epochs is lower than the number of epochs the blob can be stored
+    // for.
+    ensure!(
+        epochs_ahead <= max_epochs_ahead,
+        "blobs can only be stored for up to {} epochs ahead; {} epochs were requested",
+        max_epochs_ahead,
+        epochs_ahead
+    );
+
+    Ok(epochs_ahead)
 }
 
 pub fn ask_for_confirmation() -> Result<bool> {

@@ -13,6 +13,7 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
+use sui_types::base_types::ObjectID;
 use walrus_core::EpochCount;
 use walrus_service::{
     node::config::{
@@ -45,6 +46,8 @@ enum Commands {
     DeploySystemContract(DeploySystemContractArgs),
     /// Generate the configuration files to run a testbed of storage nodes.
     GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
+    /// Upgrades the system contract with an Emergency Upgrade.
+    EmergencyUpgrade(EmergencyUpgradeArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -187,6 +190,26 @@ struct GenerateDryRunConfigsArgs {
     admin_wallet_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct EmergencyUpgradeArgs {
+    /// The path to the admin wallet. If not provided, the default wallet path in the
+    /// working directory is used.
+    #[clap(long)]
+    admin_wallet_path: Option<PathBuf>,
+    /// The path to the contract directory.
+    #[clap(long)]
+    contract_dir: PathBuf,
+    /// The staking object ID.
+    #[clap(long)]
+    staking_object_id: ObjectID,
+    /// The system object ID.
+    #[clap(long)]
+    system_object_id: ObjectID,
+    /// The upgrade manager object ID.
+    #[clap(long)]
+    upgrade_manager_object_id: ObjectID,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -194,6 +217,7 @@ fn main() -> anyhow::Result<()> {
         Commands::RegisterNodes(args) => commands::register_nodes(args)?,
         Commands::DeploySystemContract(args) => commands::deploy_system_contract(args)?,
         Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
+        Commands::EmergencyUpgrade(args) => commands::emergency_upgrade(args)?,
     }
     Ok(())
 }
@@ -212,9 +236,13 @@ mod commands {
             DeployTestbedContractParameters,
             TestbedConfig,
         },
-        utils::load_from_yaml,
+        utils::{self, load_from_yaml},
     };
-    use walrus_sui::utils::load_wallet;
+    use walrus_sui::{
+        client::{contract_config::ContractConfig, SuiContractClient},
+        utils::load_wallet,
+    };
+    use walrus_utils::backoff::ExponentialBackoffConfig;
 
     use super::*;
 
@@ -303,7 +331,7 @@ mod commands {
             with_wal_exchange,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
-        tracing_subscriber::fmt::init();
+        utils::init_tracing_subscriber()?;
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
@@ -360,7 +388,7 @@ mod commands {
             admin_wallet_path,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
-        tracing_subscriber::fmt::init();
+        utils::init_tracing_subscriber()?;
 
         fs::create_dir_all(&working_dir)
             .with_context(|| format!("Failed to create directory '{}'", working_dir.display()))?;
@@ -380,15 +408,18 @@ mod commands {
         let admin_wallet_path = admin_wallet_path.or(Some(
             working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
         ));
-        let mut admin_wallet =
-            load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
+        let admin_wallet = load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
+        let mut admin_contract_client = testbed_config
+            .system_ctx
+            .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
+            .await?;
 
         let client_config = create_client_config(
             &testbed_config.system_ctx,
             working_dir.as_path(),
             testbed_config.sui_network.clone(),
             set_config_dir.as_deref(),
-            &mut admin_wallet,
+            &mut admin_contract_client,
             testbed_config.exchange_object.into_iter().collect(),
         )
         .await?;
@@ -423,11 +454,12 @@ mod commands {
             set_config_dir.as_deref(),
             set_db_path.as_deref(),
             faucet_cooldown.map(|duration| duration.into()),
-            &mut admin_wallet,
+            &mut admin_contract_client,
             use_legacy_event_provider,
             disable_event_blob_writer,
         )
         .await?;
+
         for (i, storage_node_config) in storage_node_configs.into_iter().enumerate() {
             let serialized_storage_node_config = serde_yaml::to_string(&storage_node_config)
                 .context("Failed to serialize storage node configs")?;
@@ -440,6 +472,34 @@ mod commands {
                 .context("Failed to write storage node configs")?;
         }
 
+        Ok(())
+    }
+
+    #[tokio::main]
+    pub(super) async fn emergency_upgrade(
+        EmergencyUpgradeArgs {
+            admin_wallet_path,
+            contract_dir,
+            staking_object_id,
+            system_object_id,
+            upgrade_manager_object_id,
+        }: EmergencyUpgradeArgs,
+    ) -> anyhow::Result<()> {
+        utils::init_tracing_subscriber()?;
+
+        let admin_wallet = load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
+        let contract_config = ContractConfig::new(system_object_id, staking_object_id);
+
+        let admin_contract_client =
+            SuiContractClient::new(admin_wallet, &contract_config, Default::default(), None)
+                .await?;
+        let new_package_id = admin_contract_client
+            .emergency_upgrade(upgrade_manager_object_id, contract_dir)
+            .await?;
+        admin_contract_client
+            .migrate_contracts(new_package_id)
+            .await?;
+        println!("Successfully upgraded the system contract:\npackage_id: {new_package_id}");
         Ok(())
     }
 }

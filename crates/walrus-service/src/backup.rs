@@ -16,4 +16,12 @@ mod schema;
 mod service;
 
 #[cfg(feature = "backup")]
-pub use service::{start_backup_fetcher, start_backup_orchestrator, VERSION};
+mod metrics;
+
+#[cfg(feature = "backup")]
+pub use service::{
+    run_backup_database_migrations,
+    start_backup_fetcher,
+    start_backup_orchestrator,
+    VERSION,
+};

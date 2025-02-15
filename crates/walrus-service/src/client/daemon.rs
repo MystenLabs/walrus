@@ -6,6 +6,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
+    body::HttpBody,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
     middleware::{self, Next},
@@ -19,7 +20,7 @@ use axum_extra::{
     TypedHeader,
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
-use prometheus::{HistogramVec, Registry};
+use prometheus::Registry;
 use reqwest::StatusCode;
 use routes::{PublisherQuery, BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
 use tower::{
@@ -37,10 +38,10 @@ use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContra
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
     client::{config::AuthConfig, daemon::auth::verify_jwt_claim},
-    common::telemetry::{metrics_middleware, register_http_metrics, MakeHttpSpan},
+    common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
 };
 
-mod auth;
+pub mod auth;
 mod openapi;
 mod routes;
 
@@ -49,7 +50,6 @@ pub trait WalrusReadClient {
         &self,
         blob_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
-    fn set_metric_registry(&mut self, registry: &Registry);
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -70,11 +70,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
 
 impl<T: ReadClient> WalrusReadClient for Client<T> {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
-        self.read_blob_retry_epoch::<Primary>(blob_id).await
-    }
-
-    fn set_metric_registry(&mut self, registry: &Registry) {
-        self.set_metric_registry(registry);
+        self.read_blob_retry_committees::<Primary>(blob_id).await
     }
 }
 
@@ -88,7 +84,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
         let result = self
-            .reserve_and_store_blobs_retry_epoch(
+            .reserve_and_store_blobs_retry_committees(
                 &[blob],
                 epochs_ahead,
                 store_when,
@@ -116,7 +112,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
 pub struct ClientDaemon<T> {
     client: Arc<T>,
     network_address: SocketAddr,
-    metrics: HistogramVec,
+    metrics: HttpMetrics,
     router: Router<Arc<T>>,
 }
 
@@ -131,8 +127,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     ///
     /// The exposed APIs can be defined by calling a subset of the functions `with_*`. The daemon is
     /// started through [`Self::run()`].
-    fn new<A: OpenApi>(mut client: T, network_address: SocketAddr, registry: &Registry) -> Self {
-        client.set_metric_registry(registry);
+    fn new<A: OpenApi>(client: T, network_address: SocketAddr, registry: &Registry) -> Self {
         ClientDaemon {
             client: Arc::new(client),
             network_address,
@@ -270,7 +265,14 @@ pub(crate) async fn auth_layer(
     request: Request,
     next: Next,
 ) -> Response {
-    if let Err(resp) = verify_jwt_claim(query, bearer_header, &auth_config) {
+    // Get a hint on the body size if possible.
+    // Note: Try to get a body hint to reject a oversize payload as fast as possible.
+    // It is fine to use this imprecise hint, because we will check again the size when storing to
+    // Walrus.
+    let body_size_hint = request.body().size_hint().upper().unwrap_or(0);
+    tracing::debug!(%body_size_hint, query = ?query.0, "authenticating a request to store a blob");
+
+    if let Err(resp) = verify_jwt_claim(query, bearer_header, &auth_config, body_size_hint) {
         resp
     } else {
         next.run(request).await

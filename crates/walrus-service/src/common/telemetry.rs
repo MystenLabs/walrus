@@ -14,6 +14,7 @@ use std::{
 };
 
 use axum::{
+    body::Body,
     extract::{ConnectInfo, MatchedPath, State},
     http::{
         self,
@@ -22,6 +23,7 @@ use axum::{
     },
     middleware,
 };
+use futures::StreamExt;
 use opentelemetry::propagation::Extractor;
 use prometheus::{
     core::{AtomicU64, Collector, GenericGauge},
@@ -41,6 +43,28 @@ use super::active_committees::ActiveCommittees;
 
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
+
+/// HTTP metrics for tracking request/response statistics
+#[derive(Debug, Clone)]
+pub(crate) struct HttpMetrics {
+    pub(crate) duration: HistogramVec,
+    pub(crate) request_size: HistogramVec,
+    pub(crate) response_size: HistogramVec,
+}
+
+impl HttpMetrics {
+    pub(crate) fn new(
+        duration: HistogramVec,
+        request_size: HistogramVec,
+        response_size: HistogramVec,
+    ) -> Self {
+        Self {
+            duration,
+            request_size,
+            response_size,
+        }
+    }
+}
 
 /// Struct to generate new [`tracing::Span`]s for HTTP requests.
 #[derive(Debug, Clone, Default)]
@@ -244,7 +268,7 @@ fn get_header_as_str<B, K: AsHeaderName>(request: &Request<B>, key: K) -> Option
 
 /// Middleware that records the elapsed time, HTTP method, and status of requests.
 pub(crate) async fn metrics_middleware(
-    State(metrics): State<HistogramVec>,
+    State(metrics): State<HttpMetrics>,
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
@@ -259,42 +283,91 @@ pub(crate) async fn metrics_middleware(
         // for each rest to an invalid URI. Use a
         UNMATCHED_ROUTE.into()
     };
+    // Track request size by reading the body
+    let method_clone = method.clone();
+    let route_clone = route.clone();
+    let (parts, body) = request.into_parts();
+    let counted_body = Body::from_stream(body.into_data_stream().map(move |chunk| {
+        chunk.inspect(|c| {
+            walrus_utils::with_label!(metrics.request_size, method_clone.as_str(), &route_clone)
+                .observe(c.len() as f64);
+        })
+    }));
+    let request = Request::from_parts(parts, counted_body);
 
     let response = next.run(request).await;
 
-    let histogram =
-        metrics.with_label_values(&[method.as_str(), &route, response.status().as_str()]);
-    histogram.observe(start.elapsed().as_secs_f64());
+    // Record response metrics
+    let method_clone = method.clone();
+    let route_clone = route.clone();
+    let status = response.status();
+    let (parts, body) = response.into_parts();
+    let counted_body = Body::from_stream(body.into_data_stream().map(move |chunk| {
+        chunk.inspect(|c| {
+            walrus_utils::with_label!(
+                metrics.response_size,
+                method_clone.as_str(),
+                &route_clone,
+                status.as_str()
+            )
+            .observe(c.len() as f64);
+        })
+    }));
+    let response = http::Response::from_parts(parts, counted_body);
+
+    walrus_utils::with_label!(metrics.duration, method.as_str(), &route, status.as_str())
+        .observe(start.elapsed().as_secs_f64());
 
     response
 }
 
 /// Registers the HTTP request method, route, status, and durations metrics.
-pub(crate) fn register_http_metrics(registry: &Registry) -> HistogramVec {
-    let opts = prometheus::Opts::new(
+pub(crate) fn register_http_metrics(registry: &Registry) -> HttpMetrics {
+    let duration_opts = prometheus::Opts::new(
         "request_duration_seconds",
         "Time (in seconds) spent serving HTTP requests.",
     )
     .namespace("http");
 
-    register_histogram_vec_with_registry!(
-        opts.into(),
+    let request_size_opts = prometheus::Opts::new(
+        "request_size_bytes_total",
+        "Total size of HTTP requests in bytes.",
+    )
+    .namespace("http");
+
+    let response_size_opts = prometheus::Opts::new(
+        "response_size_bytes_total",
+        "Total size of HTTP responses in bytes.",
+    )
+    .namespace("http");
+
+    let duration_histogram = register_histogram_vec_with_registry!(
+        duration_opts.into(),
         &["method", "route", "status_code"],
         registry
     )
-    .expect("metric registration must not fail")
-}
+    .expect("metric registration must not fail");
 
-macro_rules! with_label {
-    ($metric:expr, $label:expr) => {
-        $metric.with_label_values(&[$label.as_ref()])
-    };
-    ($metric:expr, $label1:expr, $label2:expr) => {
-        $metric.with_label_values(&[$label1.as_ref(), $label2.as_ref()])
-    };
-}
+    let request_size_histogram = register_histogram_vec_with_registry!(
+        request_size_opts.into(),
+        &["method", "route"],
+        registry
+    )
+    .expect("metric registration must not fail");
 
-pub(crate) use with_label;
+    let response_size_histogram = register_histogram_vec_with_registry!(
+        response_size_opts.into(),
+        &["method", "route", "status_code"],
+        registry
+    )
+    .expect("metric registration must not fail");
+
+    HttpMetrics::new(
+        duration_histogram,
+        request_size_histogram,
+        response_size_histogram,
+    )
+}
 
 /// Defines a set of prometheus metrics.
 ///
@@ -483,25 +556,25 @@ impl CurrentEpochStateMetric {
     /// Record the current state as being `EpochState::EpochChangeSync`.
     pub fn set_change_sync_state(&self) {
         self.clear_state();
-        with_label!(self.0, Self::CHANGE_SYNC).set(true.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_SYNC).set(true.into());
     }
 
     /// Record the current state as being `EpochState::EpochChangeDone`.
     pub fn set_change_done_state(&self) {
         self.clear_state();
-        with_label!(self.0, Self::CHANGE_DONE).set(true.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_DONE).set(true.into());
     }
 
     /// Record the current state as being `EpochState::NextParamsSelected`.
     pub fn set_next_params_selected_state(&self) {
         self.clear_state();
-        with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(true.into());
+        walrus_utils::with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(true.into());
     }
 
     fn clear_state(&self) {
-        with_label!(self.0, Self::CHANGE_SYNC).set(false.into());
-        with_label!(self.0, Self::CHANGE_DONE).set(false.into());
-        with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(false.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_SYNC).set(false.into());
+        walrus_utils::with_label!(self.0, Self::CHANGE_DONE).set(false.into());
+        walrus_utils::with_label!(self.0, Self::NEXT_PARAMS_SELECTED).set(false.into());
     }
 }
 

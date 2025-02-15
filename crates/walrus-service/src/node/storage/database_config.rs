@@ -67,8 +67,8 @@ impl DatabaseTableOptions {
             blob_garbage_collection_force_threshold: Some(0.5),
             blob_compaction_read_ahead_size: Some(10 << 20),
             write_buffer_size: Some(256 << 20),
-            target_file_size_base: Some(4 << 20),
-            max_bytes_for_level_base: Some(32 << 20),
+            target_file_size_base: Some(64 << 20),
+            max_bytes_for_level_base: Some(512 << 20),
         }
     }
 

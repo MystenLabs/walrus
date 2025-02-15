@@ -9,12 +9,12 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context as _, Error};
+use anyhow::Context as _;
 use async_trait::async_trait;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
-use walrus_core::{messages::InvalidBlobCertificate, Epoch};
+use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey};
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
@@ -23,24 +23,33 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::{
-        move_errors::{MoveExecutionError, SystemStateInnerError},
-        move_structs::EpochState,
-        StorageNodeCap,
-    },
+    types::{move_structs::EpochState, StorageNodeCap, UpdatePublicKeyParams},
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::committee::CommitteeService;
+use super::{committee::CommitteeService, config::StorageNodeConfig, errors::SyncNodeConfigError};
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
 
+enum ProtocolKeyAction {
+    UpdateRemoteNextPublicKey(PublicKey),
+    RotateLocalKeyPair,
+    DoNothing,
+}
+
 /// A service for interacting with the system contract.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait SystemContractService: std::fmt::Debug + Sync + Send {
+    /// Syncs the node parameters with the on-chain values.
+    async fn sync_node_params(
+        &self,
+        config: &StorageNodeConfig,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SyncNodeConfigError>;
+
     /// Returns the current epoch and the state that the committee's state.
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error>;
 
@@ -73,7 +82,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         ending_checkpoint_seq_num: u64,
         epoch: u32,
         node_capability_object_id: ObjectID,
-    ) -> Result<(), Error>;
+    ) -> Result<(), SuiClientError>;
 
     /// Refreshes the contract package that the service is using.
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error>;
@@ -90,7 +99,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error>;
+    ) -> Result<StorageNodeCap, SuiClientError>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -136,6 +145,90 @@ impl SuiSystemContractService {
 
 #[async_trait]
 impl SystemContractService for SuiSystemContractService {
+    /// Syncs the node parameters with the on-chain values.
+    /// If the node parameters are not in sync, it updates the node parameters on-chain.
+    /// Note this could return error if the node needs reboot, e.g., when protocol key pair
+    /// rotation is required.
+    async fn sync_node_params(
+        &self,
+        config: &StorageNodeConfig,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SyncNodeConfigError> {
+        let node_capability = self
+            .get_node_capability_object(Some(node_capability_object_id))
+            .await?;
+        let contract_client: tokio::sync::MutexGuard<'_, SuiContractClient> =
+            self.contract_client.lock().await;
+        let pool = contract_client
+            .read_client
+            .get_staking_pool(node_capability.node_id)
+            .await?;
+
+        let node_info = &pool.node_info;
+
+        let mut update_params = config.generate_update_params(
+            node_info.name.as_str(),
+            node_info.network_address.0.as_str(),
+            &node_info.network_public_key,
+            &pool.voting_params,
+        );
+        let action = calculate_protocol_key_action(
+            config.protocol_key_pair().public().clone(),
+            config
+                .next_protocol_key_pair()
+                .map(|kp| kp.public().clone()),
+            node_info.public_key.clone(),
+            node_info.next_epoch_public_key.clone(),
+        )?;
+        match action {
+            ProtocolKeyAction::UpdateRemoteNextPublicKey(next_public_key) => {
+                tracing::info!(
+                    "going to update remote next public key to {:?}",
+                    next_public_key
+                );
+
+                update_params.update_public_key = Some(UpdatePublicKeyParams {
+                    next_public_key,
+                    proof_of_possession:
+                        walrus_sui::utils::generate_proof_of_possession_for_address(
+                            config.next_protocol_key_pair().unwrap(),
+                            contract_client.address(),
+                            contract_client.read_client.current_epoch().await?,
+                        ),
+                });
+            }
+            ProtocolKeyAction::RotateLocalKeyPair => {
+                tracing::info!("going to rotate local key pair");
+                return Err(SyncNodeConfigError::ProtocolKeyPairRotationRequired);
+            }
+            ProtocolKeyAction::DoNothing => {}
+        }
+
+        if update_params.needs_update() {
+            tracing::info!(
+                node_name = config.name,
+                node_id = ?node_info.node_id,
+                update_params = ?update_params,
+                "update node params"
+            );
+            contract_client
+                .update_node_params(update_params.clone(), node_capability_object_id)
+                .await?;
+            if update_params.needs_reboot() {
+                tracing::info!("node needs reboot");
+                return Err(SyncNodeConfigError::NodeNeedsReboot);
+            }
+        } else {
+            tracing::info!(
+                node_name = config.name,
+                node_id = ?node_info.node_id,
+                "node parameters are in sync with on-chain values"
+            );
+        }
+
+        Ok(())
+    }
+
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
         let client = self.contract_client.lock().await;
         let committees = client.get_committees_and_state().await?;
@@ -237,100 +330,18 @@ impl SystemContractService for SuiSystemContractService {
         ending_checkpoint_seq_num: u64,
         epoch: u32,
         node_capability_object_id: ObjectID,
-    ) -> Result<(), Error> {
-        let backoff = ExponentialBackoff::new_with_seed(
-            MIN_BACKOFF,
-            MAX_BACKOFF,
-            None,
-            self.rng.lock().unwrap().gen(),
-        );
-        backoff::retry(backoff, || {
-            let blob_metadata = blob_metadata.clone();
-            let blob_id = blob_metadata.blob_id;
-            async move {
-                match self
-                    .contract_client
-                    .lock()
-                    .await
-                    .certify_event_blob(
-                        blob_metadata,
-                        ending_checkpoint_seq_num,
-                        epoch,
-                        node_capability_object_id,
-                    )
-                    .await
-                {
-                    Ok(()) => Some(()),
-                    Err(SuiClientError::StorageNodeCapabilityObjectNotSet) => {
-                        tracing::debug!(blob_id = ?blob_id,
-                            "Storage node capability object not set");
-                        Some(())
-                    }
-                    Err(
-                        e @ SuiClientError::TransactionExecutionError(
-                            MoveExecutionError::SystemStateInner(
-                                SystemStateInnerError::EInvalidIdEpoch(_),
-                            ),
-                        ),
-                    ) => {
-                        tracing::debug!(
-                            walrus.epoch = epoch,
-                            error = ?e,
-                            blob_id = ?blob_id,
-                            "Non-retriable event blob certification error while \
-                            attesting event blob"
-                        );
-                        Some(())
-                    }
-                    Err(
-                        e @ SuiClientError::TransactionExecutionError(
-                            MoveExecutionError::SystemStateInner(
-                                SystemStateInnerError::EIncorrectAttestation(_)
-                                | SystemStateInnerError::ERepeatedAttestation(_)
-                                | SystemStateInnerError::ENotCommitteeMember(_),
-                            ),
-                        ),
-                    ) => {
-                        tracing::warn!(
-                            walrus.epoch = epoch,
-                            error = ?e,
-                            blob_id = ?blob_id,
-                            "Unexpected non-retriable event blob certification error \
-                            while attesting event blob"
-                        );
-                        Some(())
-                    }
-                    Err(SuiClientError::TransactionExecutionError(
-                        MoveExecutionError::NotParsable(_),
-                    )) => {
-                        tracing::error!(blob_id = ?blob_id,
-                            "Unexpected unknown transaction execution error while \
-                            attesting event blob, retrying");
-                        None
-                    }
-                    Err(SuiClientError::TransactionExecutionError(e)) => {
-                        tracing::warn!(error = ?e, blob_id = ?blob_id,
-                            "Unexpected move execution error while attesting event blob");
-                        Some(())
-                    }
-                    Err(SuiClientError::SharedObjectCongestion(object_ids)) => {
-                        tracing::debug!(blob_id = ?blob_id,
-                            object_ids = ?object_ids,
-                            "Shared object congestion error while attesting event blob, retrying");
-                        None
-                    }
-                    Err(error) => {
-                        tracing::error!(?error, blob_id = ?blob_id,
-                            "Unexpected unknown sui client error while attesting event blob, \
-                            retrying"
-                        );
-                        None
-                    }
-                }
-            }
-        })
-        .await;
-        Ok(())
+    ) -> Result<(), SuiClientError> {
+        let blob_metadata = blob_metadata.clone();
+        self.contract_client
+            .lock()
+            .await
+            .certify_event_blob(
+                blob_metadata,
+                ending_checkpoint_seq_num,
+                epoch,
+                node_capability_object_id,
+            )
+            .await
     }
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
@@ -342,7 +353,7 @@ impl SystemContractService for SuiSystemContractService {
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
-    ) -> Result<StorageNodeCap, anyhow::Error> {
+    ) -> Result<StorageNodeCap, SuiClientError> {
         let node_capability = if let Some(node_cap) = node_capability_object_id {
             self.contract_client
                 .lock()
@@ -361,5 +372,186 @@ impl SystemContractService for SuiSystemContractService {
         };
 
         Ok(node_capability)
+    }
+}
+
+/// Calculates the protocol key action based on the local and remote public keys.
+#[tracing::instrument]
+fn calculate_protocol_key_action(
+    local_public_key: PublicKey,
+    local_next_public_key: Option<PublicKey>,
+    remote_public_key: PublicKey,
+    remote_next_public_key: Option<PublicKey>,
+) -> Result<ProtocolKeyAction, SyncNodeConfigError> {
+    // Case 1: Local public key matches remote public key
+    if local_public_key == remote_public_key {
+        match (local_next_public_key, remote_next_public_key) {
+            // If local has no next key and remote's next key matches local's current key,
+            // do nothing
+            (None, Some(remote_next)) if remote_next == local_public_key => {
+                Ok(ProtocolKeyAction::DoNothing)
+            }
+
+            // If local has no next key but remote does, update remote's next key to
+            // local's current key
+            (None, Some(_)) => Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(
+                local_public_key,
+            )),
+
+            // If local has next key and it differs from remote's next key (or remote has none),
+            // update remote's next key
+            (Some(local_next), remote_next) if Some(local_next.clone()) != remote_next => {
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(local_next))
+            }
+
+            // Keys match or both have no next key - do nothing
+            _ => Ok(ProtocolKeyAction::DoNothing),
+        }
+    }
+    // Case 2: Local public key doesn't match remote public key
+    else {
+        let error_msg = format!(
+            "Local protocol key pair does not match remote protocol key pair, \
+            please update the protocol key pair to match the remote protocol public key: \
+            local public key: {}, remote public key: {}",
+            local_public_key, remote_public_key
+        );
+
+        let Some(local_next) = &local_next_public_key else {
+            return Err(SyncNodeConfigError::NodeConfigInconsistent(error_msg));
+        };
+
+        // Check if local next key matches remote current key, this indicates that
+        // the on-chain protocol public key is updated, so we need to rotate the local key pair.
+        if local_next == &remote_public_key {
+            // Warn if remote has a next key set
+            if remote_next_public_key.is_some() {
+                tracing::warn!("remote node has next public key set while local node is rotating");
+            }
+            return Ok(ProtocolKeyAction::RotateLocalKeyPair);
+        } else {
+            // Update remote's next key only if it differs from local next or is not set
+            tracing::error!(
+                "local and remote protocol key pairs do not match, updating remote's next \
+                public key, it will take effect in the next epoch, consider restoring the \
+                local protocol key pair to match the remote protocol public key"
+            );
+            if local_next_public_key != remote_next_public_key {
+                return Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(
+                    local_next.clone(),
+                ));
+            }
+        }
+
+        tracing::error!(error = error_msg.as_str(), "protocol key mismatch");
+
+        Err(SyncNodeConfigError::NodeConfigInconsistent(error_msg))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_core::keys::ProtocolKeyPair;
+
+    use super::*;
+    #[test]
+    fn test_handle_protocol_key_pair_update() {
+        let key1 = ProtocolKeyPair::generate().public().clone();
+        let key2 = ProtocolKeyPair::generate().public().clone();
+        let key3 = ProtocolKeyPair::generate().public().clone();
+
+        // Case 1: Local public key matches remote public key
+        {
+            // Case 1a: Next public keys don't match - should update remote
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key2.clone()),
+                key1.clone(),
+                Some(key3.clone()),
+            );
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
+            ));
+
+            // Case 1b: Local has next key, remote doesn't - should update remote
+            let result =
+                calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key1.clone(), None);
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key2
+            ));
+
+            // Case 1c: Local doesn't have next key, remote does - should update remote
+            let result =
+                calculate_protocol_key_action(key1.clone(), None, key1.clone(), Some(key2.clone()));
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key1
+            ));
+
+            // Case 1d: Next public keys match - should do nothing
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key2.clone()),
+                key1.clone(),
+                Some(key2.clone()),
+            );
+            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
+
+            // Case 1e: Neither has next key - should do nothing
+            let result = calculate_protocol_key_action(key1.clone(), None, key1.clone(), None);
+            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
+
+            // Case 1f: Local has no next key and remote's next key matches local's current key
+            // - should do nothing
+            let result =
+                calculate_protocol_key_action(key1.clone(), None, key1.clone(), Some(key1.clone()));
+            assert!(matches!(result, Ok(ProtocolKeyAction::DoNothing)));
+        }
+
+        // Case 2: Local public key doesn't match remote public key
+        {
+            // Case 2a: Local next key matches remote current key - should rotate local
+            let result =
+                calculate_protocol_key_action(key1.clone(), Some(key2.clone()), key2.clone(), None);
+            assert!(matches!(result, Ok(ProtocolKeyAction::RotateLocalKeyPair)));
+
+            // Case 2b: Local next key matches remote current key, but remote has next key set
+            // Should rotate local but emit warning (warning check would require log capture)
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key2.clone()),
+                key2.clone(),
+                Some(key3.clone()),
+            );
+            assert!(matches!(result, Ok(ProtocolKeyAction::RotateLocalKeyPair)));
+
+            // Case 2c: Keys don't match and local next key doesn't match remote current key
+            // Should return error
+            let result =
+                calculate_protocol_key_action(key1.clone(), Some(key3.clone()), key2.clone(), None);
+            assert!(
+                matches!(result, Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key3)
+            );
+
+            // Case 2d: Keys don't match and local has no next key
+            // Should return error
+            let result = calculate_protocol_key_action(key1.clone(), None, key2.clone(), None);
+            assert!(result.is_err());
+
+            // Case 2e: Keys don't match and remote's next key differs from local's next key
+            // Should update remote's next key
+            let result = calculate_protocol_key_action(
+                key1.clone(),
+                Some(key3.clone()),
+                key2.clone(),
+                Some(key1.clone()),
+            );
+            assert!(matches!(
+                result,
+                Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key3
+            ));
+        }
     }
 }

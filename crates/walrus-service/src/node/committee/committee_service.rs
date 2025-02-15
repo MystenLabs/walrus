@@ -636,6 +636,26 @@ where
         self.end_committee_change_to(epoch)
     }
 
+    async fn sync_committee_members(&self) -> Result<(), anyhow::Error> {
+        let latest = self
+            .committee_lookup
+            .get_active_committees()
+            .await
+            .map_err(BeginCommitteeChangeError::LookupError)?;
+
+        let mut service_factory = self.inner.service_factory.lock().await;
+
+        if let Some(previous_committee) = latest.previous_committee() {
+            self.extend_services_from_committee(previous_committee, &mut service_factory)
+                .await?;
+        }
+
+        self.extend_services_from_committee(latest.current_committee(), &mut service_factory)
+            .await?;
+
+        Ok(())
+    }
+
     async fn begin_committee_change_to_latest_committee(
         &self,
     ) -> Result<(), BeginCommitteeChangeError> {

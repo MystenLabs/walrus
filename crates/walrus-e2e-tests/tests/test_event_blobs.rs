@@ -11,7 +11,7 @@ use walrus_core::{
 };
 use walrus_service::{
     client::ClientCommunicationConfig,
-    test_utils::{test_cluster, StorageNodeHandle},
+    test_utils::{test_cluster, StorageNodeHandle, TestNodesConfig},
 };
 use walrus_sui::client::ReadClient;
 
@@ -21,12 +21,12 @@ async fn test_event_blobs() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client) =
         test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
-            &[1, 1],
-            false,
-            false,
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                ..Default::default()
+            },
             Some(10),
             ClientCommunicationConfig::default_for_test(),
-            None,
         )
         .await?;
 
@@ -85,12 +85,15 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client) =
         test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
-            &[1, 1],
-            false,
-            true,
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: true,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            },
             Some(10),
             ClientCommunicationConfig::default_for_test(),
-            None,
         )
         .await?;
 

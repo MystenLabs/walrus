@@ -11,7 +11,7 @@ use walrus_sui::{
 
 /// The current, previous, and next committees in the system.
 // INV: current_committee.n_shards() == previous_committee.n_shards() == next_committee.n_shards()
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveCommittees {
     /// The currently reigning committee.
     ///

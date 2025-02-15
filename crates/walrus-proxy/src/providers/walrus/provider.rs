@@ -96,9 +96,8 @@ impl WalrusNodeProvider {
 
             loop {
                 interval.tick().await;
-                let timer = JSON_RPC_DURATION
-                    .with_label_values(&["update_peer_count"])
-                    .start_timer();
+                let timer =
+                    walrus_utils::with_label!(JSON_RPC_DURATION, "update_peer_count").start_timer();
                 cloned_self.update_walrus_nodes().await;
                 timer.observe_duration();
             }
@@ -114,16 +113,12 @@ impl WalrusNodeProvider {
         .await
         {
             Ok(v) => {
-                JSON_RPC_STATE
-                    .with_label_values(&["update_peer_count", "success"])
-                    .inc();
+                walrus_utils::with_label!(JSON_RPC_STATE, "update_peer_count", "success").inc();
                 v
             }
             Err(e) => {
                 error!("unable to perform committee update; {e}");
-                JSON_RPC_STATE
-                    .with_label_values(&["update_peer_count", "failed"])
-                    .inc();
+                walrus_utils::with_label!(JSON_RPC_STATE, "update_peer_count", "failed").inc();
                 return;
             }
         };

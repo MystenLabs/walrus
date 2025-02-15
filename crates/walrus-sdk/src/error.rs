@@ -208,3 +208,13 @@ impl TryFrom<&Status> for ServiceError {
         }
     }
 }
+
+/// Private errors for the `list_and_verify_recovery_symbols` endpoint that may lead to a
+/// `NodeError`.
+#[derive(Debug, Clone, thiserror::Error)]
+pub(crate) enum ListAndVerifyRecoverySymbolsError {
+    #[error("the server returned an empty list of symbols")]
+    EmptyResponse,
+    #[error("the background task verifying symbols failed")]
+    BackgroundWorkerFailed,
+}

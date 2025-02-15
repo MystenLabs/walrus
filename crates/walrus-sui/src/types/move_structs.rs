@@ -15,6 +15,7 @@ use serde::{
 };
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
+    collection_types::{Entry, VecMap},
     messages_checkpoint::CheckpointSequenceNumber,
 };
 use utoipa::openapi::schema;
@@ -104,6 +105,115 @@ fn object_id_schema() -> schema::Ref {
 
 impl AssociatedContractStruct for Blob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blob::Blob;
+}
+
+/// The attribute struct for Blob objects.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlobAttribute {
+    /// The metadata key-value pairs.
+    pub metadata: VecMap<String, String>,
+}
+
+impl Default for BlobAttribute {
+    fn default() -> Self {
+        Self {
+            metadata: VecMap { contents: vec![] },
+        }
+    }
+}
+
+impl<I, K, V> From<I> for BlobAttribute
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    fn from(iter: I) -> Self {
+        let contents = iter
+            .into_iter()
+            .map(|(key, value)| Entry {
+                key: key.into(),
+                value: value.into(),
+            })
+            .collect();
+
+        Self {
+            metadata: VecMap { contents },
+        }
+    }
+}
+
+impl BlobAttribute {
+    /// Insert a key-value pair into the metadata.
+    pub fn insert(&mut self, key: String, value: String) {
+        if let Some(idx) = self.metadata.contents.iter().position(|e| e.key == key) {
+            self.metadata.contents[idx].value = value;
+        } else {
+            self.metadata.contents.push(Entry { key, value });
+        }
+    }
+
+    /// Get a value from the metadata.
+    pub fn get<T: AsRef<str>>(&self, key: T) -> Option<&str> {
+        self.metadata
+            .contents
+            .iter()
+            .find(|e| e.key == key.as_ref())
+            .map(|e| e.value.as_str())
+    }
+
+    /// Returns an iterator over the key-value pairs in the metadata.
+    pub fn iter(&self) -> MetadataIter {
+        MetadataIter {
+            inner: self.metadata.contents.iter(),
+        }
+    }
+
+    /// Returns the number of key-value pairs in the attribute.
+    pub fn len(&self) -> usize {
+        self.metadata.contents.len()
+    }
+
+    /// Returns `true` if the attribute is empty.
+    pub fn is_empty(&self) -> bool {
+        self.metadata.contents.is_empty()
+    }
+}
+
+/// Iterator for BlobAttribute key-value pairs.
+#[derive(Debug)]
+pub struct MetadataIter<'a> {
+    inner: std::slice::Iter<'a, Entry<String, String>>,
+}
+
+impl<'a> Iterator for MetadataIter<'a> {
+    type Item = (&'a String, &'a String);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next().map(|entry| (&entry.key, &entry.value))
+    }
+}
+
+impl<'a> IntoIterator for &'a BlobAttribute {
+    type Item = (&'a String, &'a String);
+    type IntoIter = MetadataIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl AssociatedContractStruct for BlobAttribute {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::metadata::Metadata;
+}
+
+/// A blob with its metadata.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BlobWithAttribute {
+    /// The blob.
+    pub blob: Blob,
+    /// The attribute associated with the blob.
+    pub attribute: Option<BlobAttribute>,
 }
 
 /// Event blob attestation.
@@ -209,6 +319,29 @@ impl Display for StorageNodeCap {
             f,
             "StorageNodeCap: object ID: {}, node ID: {}, last_epoch_sync_done: {}",
             self.id, self.node_id, self.last_epoch_sync_done
+        )
+    }
+}
+
+/// Sui type for the emergency upgrade capability.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct EmergencyUpgradeCap {
+    /// The object ID of the capability.
+    pub id: ObjectID,
+    /// The object ID of the upgrade manager.
+    pub upgrade_manager_id: ObjectID,
+}
+
+impl AssociatedContractStruct for EmergencyUpgradeCap {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::upgrade::EmergencyUpgradeCap;
+}
+
+impl Display for EmergencyUpgradeCap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "EmergencyUpgradeCap: object ID: {}, upgrade manager ID: {}",
+            self.id, self.upgrade_manager_id
         )
     }
 }

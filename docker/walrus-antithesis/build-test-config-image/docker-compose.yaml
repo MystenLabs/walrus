@@ -1,0 +1,142 @@
+# Copyright (c) Mysten Labs, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+# This docker-compose file sets up a test environment for Walrus with:
+# - A single-validator Sui network
+# - A Walrus deployment service
+# - A setup completion service
+# - 4 Walrus nodes for testing
+
+services:
+  # Runs a local Sui network with a single validator
+  sui-localnet:
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.20
+    hostname: sui-node
+    image: mysten/sui-tools:mainnet-v1.40.3
+    platform: ${SUI_PLATFORM:-linux/amd64}
+    environment:
+      - NO_COLOR=1
+    command: >
+      /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
+      sui start --with-faucet --force-regenesis --committee-size 1 --epoch-duration-ms 86400000"
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-c", "echo > /dev/tcp/127.0.0.1/9123 && echo > /dev/tcp/127.0.0.1/9000"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    volumes:
+      - sui-bin:/root/sui_bin
+
+  # Deploys the Walrus contracts and initializes the system
+  walrus-deploy:
+    restart: no
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+    networks:
+      testbed-network:
+    image: walrus-service:walrus-service-zhe
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
+    hostname: walrus-deploy
+    container_name: walrus-deploy
+    environment:
+      - EPOCH_DURATION=1m
+      - NO_COLOR=1
+    volumes:
+      - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
+      - walrus-deploy-outputs:/opt/walrus/outputs
+    command: >
+      /bin/bash -c "sleep 60 && /root/deploy-walrus.sh"
+
+  # Performs final setup steps after deployment
+  complete-setup:
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+      walrus-deploy:
+        condition: service_completed_successfully
+    image: walrus-service:walrus-service-zhe
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
+    volumes:
+      - ./files/complete-setup.sh:/root/complete-setup.sh
+    command: >
+      /bin/bash -c "/root/complete-setup.sh"
+
+  # Template for Walrus nodes
+  walrus-node-0: &walrus-node
+    depends_on:
+      sui-localnet:
+        condition: service_healthy
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.10
+    image: walrus-service:walrus-service-zhe
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
+    hostname: dryrun-node-0
+    container_name: dryrun-node-0
+    environment:
+      - NODE_NAME=dryrun-node-0
+      - NO_COLOR=1
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/run-walrus.sh:/root/run-walrus.sh
+    command: >
+      /bin/bash -c "/root/run-walrus.sh"
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "10"
+        max-size: "1g"
+
+  # Additional Walrus nodes using the template
+  walrus-node-1:
+    <<: *walrus-node
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.11
+    hostname: dryrun-node-1
+    container_name: dryrun-node-1
+    environment:
+      - NODE_NAME=dryrun-node-1
+      - NO_COLOR=1
+
+  walrus-node-2:
+    <<: *walrus-node
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.12
+    hostname: dryrun-node-2
+    container_name: dryrun-node-2
+    environment:
+      - NODE_NAME=dryrun-node-2
+      - NO_COLOR=1
+
+  walrus-node-3:
+    <<: *walrus-node
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.13
+    hostname: dryrun-node-3
+    container_name: dryrun-node-3
+    environment:
+      - NODE_NAME=dryrun-node-3
+      - NO_COLOR=1
+
+# Persistent volumes for sharing data between containers
+volumes:
+  sui-bin:
+  walrus-deploy-outputs:
+
+# Network configuration for container communication
+networks:
+  testbed-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.0.0/24

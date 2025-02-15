@@ -23,7 +23,7 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 0;
+const VERSION: u64 = 1;
 
 /// The one and only staking object.
 public struct Staking has key {
@@ -367,7 +367,8 @@ public(package) fun migrate(staking: &mut Staking) {
     assert!(staking.version < VERSION, EInvalidMigration);
 
     // Move the old system state inner to the new version.
-    let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
+    let mut staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
+    staking_inner.migrate();
     df::add(&mut staking.id, VERSION, staking_inner);
     staking.version = VERSION;
 

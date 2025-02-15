@@ -37,6 +37,7 @@ use crate::client::{
         ExchangeOutput,
         ExtendBlobOutput,
         FundSharedBlobOutput,
+        GetBlobAttributeOutput,
         InfoBftOutput,
         InfoCommitteeOutput,
         InfoEpochOutput,
@@ -824,7 +825,7 @@ impl CliOutput for NodeHealthOutput {
                     event_heading = "Event Progress".bold().walrus_teal(),
                     highest_finished_event_index_output = highest_finished_event_index
                         .map_or("".to_string(), |index| format!(
-                            "\nHighest finished event index: {index}\n"
+                            "\nHighest finished event index: {index}"
                         )),
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
@@ -1003,6 +1004,19 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
                 r->"N/A",
                 Fr->truncated_error,
             ]);
+        }
+    }
+}
+
+impl CliOutput for GetBlobAttributeOutput {
+    fn print_cli_output(&self) {
+        if let Some(attribute) = &self.attribute {
+            println!("\n{}", "Attribute".bold().walrus_purple());
+            for (key, value) in attribute.iter() {
+                println!("{}: {}", key, value);
+            }
+        } else {
+            println!("No attribute found");
         }
     }
 }

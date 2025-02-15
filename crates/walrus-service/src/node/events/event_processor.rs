@@ -216,6 +216,21 @@ pub struct SystemConfig {
     pub staking_object_id: ObjectID,
 }
 
+impl SystemConfig {
+    /// Creates a new instance of the system configuration.
+    pub fn new(
+        system_pkg_id: ObjectID,
+        system_object_id: ObjectID,
+        staking_object_id: ObjectID,
+    ) -> Self {
+        Self {
+            system_pkg_id,
+            system_object_id,
+            staking_object_id,
+        }
+    }
+}
+
 /// Struct to group general configuration parameters.
 #[derive(Debug)]
 pub struct EventProcessorRuntimeConfig {
@@ -230,11 +245,17 @@ pub struct EventProcessorRuntimeConfig {
 /// Struct to group client-related parameters.
 pub struct SuiClientSet {
     /// Sui client.
-    sui_client: RetriableSuiClient,
+    pub sui_client: RetriableSuiClient,
     /// Rest client for the full node.
     client: RetriableRpcClient,
 }
 
+impl SuiClientSet {
+    /// Creates a new instance of the Sui client set.
+    pub fn new(sui_client: RetriableSuiClient, client: RetriableRpcClient) -> Self {
+        Self { sui_client, client }
+    }
+}
 impl Debug for SuiClientSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClientConfig").finish()
@@ -485,7 +506,7 @@ impl EventProcessor {
                         counter,
                     );
                     let walrus_event =
-                        PositionedStreamEvent::new(contract_event, event_sequence_number.clone());
+                        PositionedStreamEvent::new(contract_event, event_sequence_number);
                     write_batch
                         .insert_batch(
                             &self.stores.event_store,
@@ -667,7 +688,10 @@ impl EventProcessor {
         Ok(client)
     }
 
-    fn initialize_database(processor_config: &EventProcessorRuntimeConfig) -> Result<Arc<RocksDB>> {
+    /// Initializes the database for the event processor.
+    pub fn initialize_database(
+        processor_config: &EventProcessorRuntimeConfig,
+    ) -> Result<Arc<RocksDB>> {
         let metric_conf = MetricConf::default();
         let mut db_opts = Options::default();
         db_opts.create_missing_column_families(true);
@@ -713,7 +737,8 @@ impl EventProcessor {
         Ok(database)
     }
 
-    fn open_stores(database: &Arc<RocksDB>) -> Result<EventProcessorStores, anyhow::Error> {
+    /// Opens the stores for the event processor.
+    pub fn open_stores(database: &Arc<RocksDB>) -> Result<EventProcessorStores, anyhow::Error> {
         let checkpoint_store = DBMap::reopen(
             database,
             Some(CHECKPOINT_STORE),

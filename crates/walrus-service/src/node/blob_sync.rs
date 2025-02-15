@@ -300,7 +300,7 @@ impl BlobSyncHandler {
         mut event_handle: Option<EventHandle>,
     ) -> Option<EventHandle> {
         let queued_gauge =
-            metrics::with_label!(self.node.metrics.recover_blob_backlog, STATUS_QUEUED);
+            walrus_utils::with_label!(self.node.metrics.recover_blob_backlog, STATUS_QUEUED);
         let start = tokio::time::Instant::now();
         let _permit = permits
             .blob
@@ -310,7 +310,7 @@ impl BlobSyncHandler {
             .expect("semaphore should not be dropped");
 
         let in_progress_gauge =
-            metrics::with_label!(self.node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
+            walrus_utils::with_label!(self.node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
 
         let _decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
         let blob_id = synchronizer.blob_id;
@@ -333,7 +333,7 @@ impl BlobSyncHandler {
         // We remove the blob handler regardless of the result.
         self.remove_sync_handle(&blob_id).await;
 
-        metrics::with_label!(self.node.metrics.recover_blob_duration_seconds, label)
+        walrus_utils::with_label!(self.node.metrics.recover_blob_duration_seconds, label)
             .observe(start.elapsed().as_secs_f64());
 
         event_handle
@@ -589,7 +589,7 @@ impl BlobSynchronizer {
             let shard_storage = self
                 .storage()
                 .shard_storage(shard)
-                .expect("shard is managed by this node");
+                .unwrap_or_else(|| panic!("shard {} is managed by this node", shard));
             let sliver_id = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));

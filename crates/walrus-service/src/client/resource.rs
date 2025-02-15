@@ -25,7 +25,7 @@ use crate::client::responses::EventOrObjectId;
 
 /// Struct to compute the cost of operations with blob and storage resources.
 #[derive(Debug, Clone)]
-pub(crate) struct PriceComputation {
+pub struct PriceComputation {
     storage_price_per_unit_size: u64,
     write_price_per_unit_size: u64,
 }
@@ -54,10 +54,7 @@ impl PriceComputation {
             RegisterBlobOp::ReuseAndExtend {
                 encoded_length,
                 epochs_extended,
-            } => {
-                self.storage_fee_for_encoded_length(*encoded_length, *epochs_extended)
-                    + self.write_fee_for_encoded_length(*encoded_length)
-            }
+            } => self.storage_fee_for_encoded_length(*encoded_length, *epochs_extended),
             RegisterBlobOp::ReuseAndExtendNonCertified {
                 encoded_length,
                 epochs_extended,
@@ -197,8 +194,7 @@ impl<'a> ResourceManager<'a> {
         let to_be_processed = metadata_with_status
             .iter()
             .filter(|(metadata, blob_status)| {
-                if !store_when.is_store_always() && !persistence.is_deletable() {
-                    // TODO: also collect known certified blobs and extend their lifetime if needed.
+                if !matches!(store_when, StoreWhen::Always) && !persistence.is_deletable() {
                     if let Some(result) = self.blob_status_to_store_result(
                         *metadata.blob_id(),
                         epochs_ahead,
@@ -331,6 +327,12 @@ impl<'a> ResourceManager<'a> {
         // This keeps tracks of selected storage objects and exclude them from selecting again.
         let mut excluded = Vec::with_capacity(max_len);
 
+        // Gets the owned blobs once for all checks, to avoid multiple calls to the RPC.
+        let owned_blobs = self
+            .sui_client
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
+            .await?;
+
         // For all the metadata, if the blob is registered in wallet, add it directly to results.
         // Otherwise, check if there is existing storage resource selected for the encoded length,
         // add it to reused_metadata_with_storage and its length to reused_encoded_lengths.
@@ -340,7 +342,8 @@ impl<'a> ResourceManager<'a> {
                 .find_blob_owned_by_wallet(
                     metadata.blob_id(),
                     persistence,
-                    !store_when.is_store_always(),
+                    !store_when.is_ignore_status(),
+                    &owned_blobs,
                 )
                 .await?
             {
@@ -495,18 +498,17 @@ impl<'a> ResourceManager<'a> {
         blob_id: &BlobId,
         persistence: BlobPersistence,
         include_certified: bool,
+        owned_blobs: &[Blob],
     ) -> ClientResult<Option<Blob>> {
-        Ok(self
-            .sui_client
-            .owned_blobs(None, ExpirySelectionPolicy::Valid)
-            .await?
-            .into_iter()
+        Ok(owned_blobs
+            .iter()
             .find(|blob| {
                 blob.blob_id == *blob_id
                     && blob.storage.end_epoch > self.write_committee_epoch
                     && blob.deletable == persistence.is_deletable()
                     && (include_certified || blob.certified_epoch.is_none())
-            }))
+            })
+            .cloned())
     }
 
     /// Checks if blob of the given status is already in a state for which we can return.

@@ -16,9 +16,10 @@ use std::{
 };
 
 use indicatif::MultiProgress;
+use rand::random;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
-use sui_simulator::sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
+use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::Primary,
@@ -47,7 +48,7 @@ use walrus_service::{
         },
         StoreWhen,
     },
-    test_utils::{test_cluster, StorageNodeHandle},
+    test_utils::{test_cluster, StorageNodeHandle, TestNodesConfig},
 };
 use walrus_sui::{
     client::{
@@ -55,12 +56,18 @@ use walrus_sui::{
         ExpirySelectionPolicy,
         PostStoreAction,
         ReadClient,
+        SuiClientError,
         SuiContractClient,
     },
-    types::{move_structs::SharedBlob, Blob, BlobEvent, ContractEvent},
+    types::{
+        move_errors::{MoveExecutionError, RawMoveError},
+        move_structs::{BlobAttribute, SharedBlob},
+        Blob,
+        BlobEvent,
+        ContractEvent,
+    },
 };
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
-
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
@@ -155,7 +162,7 @@ async fn run_store_and_read_with_crash_failures(
 
     let store_result = client
         .as_ref()
-        .reserve_and_store_blobs_retry_epoch_with_path(
+        .reserve_and_store_blobs_retry_committees_with_path(
             &blobs_with_paths,
             1,
             StoreWhen::Always,
@@ -200,7 +207,15 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     // Find the shards of the failed nodes.
     let failed_node_names: Vec<String> =
         failed_nodes.iter().map(|i| format!("node-{}", i)).collect();
-    let shards_of_failed_nodes = client.as_ref().shards_of(&failed_node_names).await;
+    let committees = client
+        .as_ref()
+        .get_committees()
+        .await
+        .expect("committees should be available");
+    let shards_of_failed_nodes = client
+        .as_ref()
+        .shards_of(&failed_node_names, &committees)
+        .await;
 
     // Encode the blob with false metadata for one shard.
     let (pairs, metadata) = client
@@ -233,7 +248,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     // Register blob.
     let (blob_sui_object, _) = client
         .as_ref()
-        .resource_manager()
+        .resource_manager(&committees)
         .await
         .get_existing_or_register(
             &[&metadata],
@@ -347,9 +362,15 @@ async fn test_store_with_existing_blob_resource(
         .collect::<Vec<_>>();
 
     // Register a list of new blobs.
+    let committees = client
+        .as_ref()
+        .get_committees()
+        .await
+        .expect("committees should be available");
+
     let original_blob_objects = client
         .as_ref()
-        .resource_manager()
+        .resource_manager(&committees)
         .await
         .get_existing_or_register(
             &metatdatum.iter().collect::<Vec<_>>(),
@@ -406,10 +427,15 @@ async fn register_blob(
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
 
+    let committees = client
+        .as_ref()
+        .get_committees()
+        .await
+        .expect("committees should be available");
     // Register the blob
     let blob_id = client
         .as_ref()
-        .resource_manager()
+        .resource_manager(&committees)
         .await
         .get_existing_or_register(
             &[&metadata],
@@ -748,11 +774,15 @@ async fn test_blocklist() -> TestResult {
     let (_sui_cluster_handle, _cluster, client) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
-            &[1, 2, 3, 3, 4],
-            true,
-            ClientCommunicationConfig::default_for_test(),
-            Some(blocklist_dir.path().to_path_buf()),
+            TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: Some(blocklist_dir.path().to_path_buf()),
+                enable_node_config_synchronizer: false,
+            },
             None,
+            ClientCommunicationConfig::default_for_test(),
         )
         .await?;
     let client = client.as_ref();
@@ -914,11 +944,15 @@ async fn test_repeated_shard_move() -> TestResult {
     let (_sui_cluster_handle, walrus_cluster, client) =
         test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
-            &[1, 1],
-            true,
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            },
+            None,
             ClientCommunicationConfig::default_for_test(),
-            None,
-            None,
         )
         .await?;
 
@@ -1175,7 +1209,7 @@ async fn test_post_store_action(
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let results = client
         .as_ref()
-        .reserve_and_store_blobs_retry_epoch(
+        .reserve_and_store_blobs_retry_committees(
             &blobs,
             1,
             StoreWhen::Always,
@@ -1232,6 +1266,336 @@ async fn test_post_store_action(
             }
         }
     }
+    Ok(())
+}
+
+/// A toolkit for blob attribute tests.
+struct BlobAttributeTestContext<'a> {
+    pub client: &'a mut WithTempDir<Client<SuiContractClient>>,
+    pub blob: Blob,
+    pub key_value_pairs: HashMap<String, String>,
+    pub expected_pairs: Option<HashMap<String, String>>,
+}
+
+impl<'a> BlobAttributeTestContext<'a> {
+    /// Verify the blob attribute are the same the expected pairs.
+    async fn verify_blob_attribute(&self) -> TestResult {
+        let client = self.client.as_ref().sui_client();
+        let blob = self.blob.clone();
+
+        let res = client.get_blob_with_attribute(blob.id).await?;
+        if res.attribute.is_none() {
+            assert!(self.expected_pairs.is_none());
+        }
+        if let Some(expected_pairs) = &self.expected_pairs {
+            assert_eq!(
+                res.attribute
+                    .as_ref()
+                    .expect("attribute should exist")
+                    .len(),
+                expected_pairs.len()
+            );
+            for (key, value) in expected_pairs.iter() {
+                assert_eq!(
+                    res.attribute
+                        .as_ref()
+                        .expect("attribute should exist")
+                        .get(key)
+                        .expect("key should exist"),
+                    value
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Add the blob attribute.
+    pub async fn add_attribute_and_verify(
+        &mut self,
+        attribute: BlobAttribute,
+        force: bool,
+    ) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client
+            .add_blob_attribute(self.blob.id, attribute.clone(), force)
+            .await?;
+        if self.expected_pairs.is_none() {
+            self.expected_pairs = Some(HashMap::new());
+        }
+        let expected_pairs = self
+            .expected_pairs
+            .as_mut()
+            .expect("expected_pairs should be Some at this point");
+        for (key, value) in attribute.iter() {
+            expected_pairs.insert(key.clone(), value.clone());
+        }
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    /// Remove the blob attribute and verify the result.
+    pub async fn remove_attribute_and_verify(&mut self) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client.remove_blob_attribute(self.blob.id).await?;
+        self.expected_pairs = None;
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    /// Insert or update the blob attribute and verify the result.
+    ///
+    /// When force is true, a new attribute dynamic field will be created if it
+    /// does not exist.
+    pub async fn insert_or_update_attribute_pairs_and_verify(
+        &mut self,
+        kvs: &HashMap<String, String>,
+        force: bool,
+    ) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client
+            .insert_or_update_blob_attribute_pairs(
+                self.blob.id,
+                kvs.iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect::<Vec<(String, String)>>(),
+                force,
+            )
+            .await?;
+        if let Some(expected_pairs) = &mut self.expected_pairs {
+            expected_pairs.extend(kvs.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        } else {
+            panic!("expected_pairs should be Some at this point");
+        }
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    /// Remove the blob attribute pairs and verify the result.
+    pub async fn remove_blob_attribute_pairs_and_verify(&mut self, keys: &[&String]) -> TestResult {
+        let client = self.client.as_mut().sui_client_mut();
+        client
+            .remove_blob_attribute_pairs(self.blob.id, keys)
+            .await?;
+        if let Some(expected_pairs) = &mut self.expected_pairs {
+            for key in keys.iter() {
+                expected_pairs.remove(*key);
+            }
+        } else {
+            panic!("expected_pairs should be Some at this point");
+        }
+        self.verify_blob_attribute().await?;
+        Ok(())
+    }
+
+    /// Create a new test context with multiple copies of the same blob.
+    pub async fn new(client: &'a mut WithTempDir<Client<SuiContractClient>>) -> TestResult<Self> {
+        let blobs_to_create = 2;
+        let blob = walrus_test_utils::random_data(314);
+        let blobs = vec![blob.as_slice()];
+
+        // Store multiple copies of the same blob with different end times.
+        for idx in 1..blobs_to_create + 1 {
+            client
+                .as_mut()
+                .reserve_and_store_blobs(
+                    &blobs,
+                    idx,
+                    StoreWhen::Always,
+                    BlobPersistence::Permanent,
+                    PostStoreAction::Keep,
+                )
+                .await
+                .expect("reserve_and_store_blobs should succeed.");
+        }
+
+        // Verify initial blob count and no metadata.
+        let blobs = client
+            .as_mut()
+            .sui_client()
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
+            .await
+            .expect("owned_blobs should succeed.");
+        assert_eq!(blobs.len(), blobs_to_create as usize);
+
+        for blob in blobs.iter() {
+            let res = client
+                .as_ref()
+                .sui_client()
+                .get_blob_with_attribute(blob.id)
+                .await
+                .expect("get_blob_with_attribute should succeed.");
+            assert!(res.attribute.is_none());
+        }
+
+        Ok(Self {
+            client,
+            blob: blobs[0].clone(),
+            key_value_pairs: HashMap::from([
+                ("name".to_string(), "test_blob".to_string()),
+                (
+                    "description".to_string(),
+                    "A test blob for metadata".to_string(),
+                ),
+                ("version".to_string(), "1.0.0".to_string()),
+                ("author".to_string(), "walrus_test".to_string()),
+                ("timestamp".to_string(), "2024-01-01".to_string()),
+                ("addr".to_string(), "Mars".to_string()),
+            ]),
+            expected_pairs: Some(HashMap::new()),
+        })
+    }
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_attribute_add_and_remove() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
+    let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
+
+    let mut attribute = BlobAttribute::default();
+    for (key, value) in test_context.key_value_pairs.iter() {
+        if random::<bool>() {
+            attribute.insert(key.clone(), value.clone());
+        }
+    }
+    test_context
+        .add_attribute_and_verify(attribute.clone(), false)
+        .await?;
+
+    // Test duplicate metadata error (should fail when force=false).
+    let duplicate_result = test_context
+        .add_attribute_and_verify(attribute.clone(), false)
+        .await;
+    assert!(matches!(
+        duplicate_result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::AttributeAlreadyExists
+    ));
+
+    // Test force adding duplicate metadata (should succeed).
+    let mut updated_attribute = BlobAttribute::default();
+    updated_attribute.insert("new_key".to_string(), "new_value".to_string());
+    test_context
+        .add_attribute_and_verify(updated_attribute, true)
+        .await?;
+
+    // Test removing metadata from the blob.
+    test_context.remove_attribute_and_verify().await?;
+
+    // Removing metadata from a blob that does not have any should fail.
+    let result = test_context.remove_attribute_and_verify().await;
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::AttributeDoesNotExist
+    ));
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_blob_attribute_fields_operations() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, mut client) = test_cluster::default_setup().await?;
+    let mut test_context = BlobAttributeTestContext::new(&mut client).await?;
+
+    // Test adding a pair without attribute should fail.
+    let result = test_context
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([("key".to_string(), "value".to_string())]),
+            false,
+        )
+        .await;
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::AttributeDoesNotExist
+    ));
+
+    // Test removing a pair without an existing attribute should fail.
+    let result = test_context
+        .remove_blob_attribute_pairs_and_verify(&[&"key".to_string()])
+        .await;
+    assert!(matches!(
+        result
+            .unwrap_err()
+            .downcast::<SuiClientError>()
+            .unwrap()
+            .as_ref(),
+        SuiClientError::AttributeDoesNotExist
+    ));
+
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([("key".to_string(), "value".to_string())]),
+            true,
+        )
+        .await?;
+
+    let kvs = test_context.key_value_pairs.clone();
+    // Test adding individual pairs.
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(&kvs, false)
+        .await?;
+
+    // Test removing random pairs.
+    for key in kvs.keys() {
+        if random::<bool>() {
+            continue;
+        }
+        test_context
+            .remove_blob_attribute_pairs_and_verify(&[key])
+            .await?;
+    }
+
+    // Test updating existing pairs.
+    let key = "test_key".to_string();
+    let initial_value = "initial_value".to_string();
+    let updated_value = "updated_value".to_string();
+
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([(key.clone(), initial_value.clone())]),
+            false,
+        )
+        .await?;
+    test_context
+        .insert_or_update_attribute_pairs_and_verify(
+            &HashMap::from([(key.clone(), updated_value.clone())]),
+            false,
+        )
+        .await?;
+
+    // Test removing non-existent pairs.
+    let non_existing_key = "non_existing_key".to_string();
+    let result = test_context
+        .remove_blob_attribute_pairs_and_verify(&[&non_existing_key])
+        .await;
+    assert!(matches!(
+        result.unwrap_err().downcast::<SuiClientError>().unwrap().as_ref(),
+        SuiClientError::TransactionExecutionError(
+            MoveExecutionError::OtherMoveModule(RawMoveError {
+                function,
+                module,
+                error_code,
+                ..
+            })
+        ) if function.as_str() == "get_idx" && module.as_str() == "vec_map" && *error_code == 1
+    ));
+
     Ok(())
 }
 

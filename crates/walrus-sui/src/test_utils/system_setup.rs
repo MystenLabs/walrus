@@ -3,33 +3,28 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{iter, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
+use std::{collections::HashMap, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use rand::{rngs::StdRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
-use sui_sdk::{
-    rpc_types::{SuiExecutionStatus, SuiObjectDataOptions, SuiTransactionBlockEffectsAPI},
-    types::base_types::ObjectID,
-    wallet_context::WalletContext,
-};
-use sui_types::{
-    base_types::SuiAddress,
-    programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::TransactionData,
-    Identifier,
-    TypeTag,
-    SUI_FRAMEWORK_PACKAGE_ID,
-};
+use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{default_protocol_keypair, DEFAULT_GAS_BUDGET};
+use super::default_protocol_keypair;
 use crate::{
-    client::{contract_config::ContractConfig, ReadClient, SuiClientError, SuiContractClient},
+    client::{
+        contract_config::ContractConfig,
+        ReadClient,
+        SuiClientError,
+        SuiClientResult,
+        SuiContractClient,
+    },
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},
 };
@@ -52,14 +47,14 @@ pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
 /// returns the IDs of the system and staking objects. The default test setup currently uses a
 /// single storage node with sk = 117.
 pub async fn publish_with_default_system(
-    admin_wallet: &mut WalletContext,
+    mut admin_wallet: WalletContext,
     node_wallet: WalletContext,
-) -> Result<SystemContext> {
+) -> Result<(SystemContext, SuiContractClient)> {
     // Default system config, compatible with current tests
 
     // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_context = create_and_init_system_for_test(
-        admin_wallet,
+        &mut admin_wallet,
         NonZeroU16::new(100).expect("100 is not 0"),
         Duration::from_secs(0),
         Duration::from_secs(3600),
@@ -75,18 +70,21 @@ pub async fn publish_with_default_system(
     let storage_node_params =
         NodeRegistrationParams::new_for_test(protocol_keypair.public(), network_key_pair.public());
 
-    // Initialize client
+    // Create admin contract client
+    let admin_contract_client = system_context
+        .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
+        .await?;
+
+    // Initialize node contract client
     let contract_client = system_context
         .new_contract_client(node_wallet, ExponentialBackoffConfig::default(), None)
         .await?;
 
     register_committee_and_stake(
-        admin_wallet,
-        &system_context,
+        &admin_contract_client,
         &[storage_node_params],
         &[protocol_keypair],
         &[&contract_client],
-        1_000_000_000_000,
         &[1_000_000_000],
     )
     .await?;
@@ -94,7 +92,7 @@ pub async fn publish_with_default_system(
     // call vote end
     end_epoch_zero(&contract_client).await?;
 
-    Ok(system_context)
+    Ok((system_context, admin_contract_client))
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -106,10 +104,10 @@ pub struct SystemContext {
     pub system_object: ObjectID,
     /// The ID of the staking Object.
     pub staking_object: ObjectID,
+    /// The ID of the upgrade manager object.
+    pub upgrade_manager_object: ObjectID,
     /// The ID of the WAL package.
     pub wal_pkg_id: ObjectID,
-    /// The ID of the WAL treasury Cap.
-    pub treasury_cap: ObjectID,
     /// The ID of the WAL exchange package.
     pub wal_exchange_pkg_id: Option<ObjectID>,
 }
@@ -179,7 +177,6 @@ pub async fn create_and_init_system(
         walrus_pkg_id,
         init_cap_id,
         upgrade_cap_id,
-        treasury_cap_id,
         wal_exchange_pkg_id,
         wal_pkg_id,
     } = system_setup::publish_coin_and_system_package(
@@ -191,22 +188,23 @@ pub async fn create_and_init_system(
     )
     .await?;
 
-    let (system_object, staking_object) = system_setup::create_system_and_staking_objects(
-        admin_wallet,
-        walrus_pkg_id,
-        init_cap_id,
-        upgrade_cap_id,
-        init_system_params,
-        gas_budget,
-    )
-    .await?;
+    let (system_object, staking_object, upgrade_manager_object) =
+        system_setup::create_system_and_staking_objects(
+            admin_wallet,
+            walrus_pkg_id,
+            init_cap_id,
+            upgrade_cap_id,
+            init_system_params,
+            gas_budget,
+        )
+        .await?;
 
     Ok(SystemContext {
         walrus_pkg_id,
         system_object,
         staking_object,
+        upgrade_manager_object,
         wal_pkg_id,
-        treasury_cap: treasury_cap_id,
         wal_exchange_pkg_id,
     })
 }
@@ -217,79 +215,76 @@ pub async fn create_and_init_system(
 #[tracing::instrument(
     err,
     skip(
-        admin_wallet,
-        system_context,
+        admin_contract_client,
         node_params,
         node_bls_keys,
-        contract_clients
+        node_contract_clients,
+        amounts_to_stake
     )
 )]
 pub async fn register_committee_and_stake(
-    admin_wallet: &mut WalletContext,
-    system_context: &SystemContext,
+    admin_contract_client: &SuiContractClient,
     node_params: &[NodeRegistrationParams],
     node_bls_keys: &[ProtocolKeyPair],
-    contract_clients: &[&SuiContractClient],
-    wal_to_mint: u64,
+    node_contract_clients: &[&SuiContractClient],
     amounts_to_stake: &[u64],
 ) -> Result<Vec<StorageNodeCap>> {
-    let receiver_addrs: Vec<_> = contract_clients
-        .iter()
-        .map(|client| client.address())
-        .collect();
+    let current_epoch = admin_contract_client.current_epoch().await?;
 
-    mint_wal_to_addresses(
-        admin_wallet,
-        system_context.wal_pkg_id,
-        system_context.treasury_cap,
-        &receiver_addrs,
-        wal_to_mint.max(
-            *amounts_to_stake
-                .iter()
-                .max()
-                .expect("stake amount must be set"),
-        ),
-    )
-    .await?;
-    let current_epoch = contract_clients[0].current_epoch().await?;
-
-    // Initialize client.
     // Note that it is important to return the node capabilities in the same order as the nodes
     // were registered, so that the node capabilities match the nodes in the node config.
-    let mut node_capabilities = Vec::new();
-    for (((storage_node_params, bls_sk), contract_client), amount_to_stake) in node_params
-        .iter()
-        .zip(node_bls_keys)
-        .zip(contract_clients)
-        .zip(amounts_to_stake)
-    {
-        let proof_of_possession =
-            crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
+    let node_capabilities = (0..node_params.len())
+        .map(|i| async move {
+            let storage_node_params = &node_params[i];
+            let contract_client = node_contract_clients[i];
+            let bls_sk = &node_bls_keys[i];
+            let proof_of_possession =
+                crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
 
-        #[cfg(msim)]
-        {
-            use rand::Rng;
-            // In simtest, have a small probability of storage node owning multiple capability
-            // objects
-            // for the same node.
-            if rand::thread_rng().gen_bool(0.1) {
-                let _ = contract_client
-                    .register_candidate(storage_node_params, proof_of_possession.clone())
-                    .await?;
+            #[cfg(msim)]
+            {
+                use rand::Rng;
+                // In simtest, have a small probability of storage node owning multiple capability
+                // objects
+                // for the same node.
+                if rand::thread_rng().gen_bool(0.1) {
+                    let _ = contract_client
+                        .register_candidate(storage_node_params, proof_of_possession.clone())
+                        .await?;
+                }
             }
-        }
 
-        let node_cap = contract_client
-            .register_candidate(storage_node_params, proof_of_possession)
-            .await?;
-        // stake with storage nodes
-        if *amount_to_stake > 0 {
-            let _staked_wal = contract_client
-                .stake_with_pools(&[(node_cap.node_id, *amount_to_stake)])
-                .await?;
-        }
-        node_capabilities.push(node_cap);
-    }
+            SuiClientResult::<_>::Ok((
+                i,
+                contract_client
+                    .register_candidate(storage_node_params, proof_of_possession)
+                    .await?,
+            ))
+        })
+        .collect::<FuturesUnordered<_>>()
+        .try_collect::<HashMap<_, _>>()
+        .await?;
+
+    let node_capabilities: Vec<_> = (0..node_params.len())
+        .map(|i| {
+            node_capabilities
+                .get(&i)
+                .expect("all indices are inserted above")
+        })
+        .cloned()
+        .collect();
+
+    // Use admin wallet to stake with storage nodes
+    let node_ids_with_stake_amounts: Vec<_> = node_capabilities
+        .iter()
+        .zip(amounts_to_stake.iter())
+        .filter(|(_, amount)| **amount > 0)
+        .map(|(cap, amount)| (cap.node_id, *amount))
+        .collect();
+    let _staked_wal = admin_contract_client
+        .stake_with_pools(&node_ids_with_stake_amounts)
+        .await?;
+
     Ok(node_capabilities)
 }
 
@@ -311,72 +306,4 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     );
 
     Ok(())
-}
-
-/// Mints WAL to the provided addresses.
-pub async fn mint_wal_to_addresses(
-    admin_wallet: &mut WalletContext,
-    wal_pkg_id: ObjectID,
-    treasury_cap: ObjectID,
-    receiver_addrs: &[SuiAddress],
-    value: u64,
-) -> Result<()> {
-    // Mint WAL to stake with storage nodes.
-    let sender = admin_wallet.active_address()?;
-    let mut pt_builder = ProgrammableTransactionBuilder::new();
-    let treasury_cap_arg = pt_builder.input(
-        admin_wallet
-            .get_client()
-            .await?
-            .read_api()
-            .get_object_with_options(treasury_cap, SuiObjectDataOptions::new())
-            .await?
-            .into_object()?
-            .object_ref()
-            .into(),
-    )?;
-
-    let amount_arg = pt_builder.pure(value)?;
-    for addr in receiver_addrs.iter().chain(iter::once(&sender)) {
-        let result = pt_builder.programmable_move_call(
-            SUI_FRAMEWORK_PACKAGE_ID,
-            Identifier::new("coin").expect("should be able to convert to Identifier"),
-            Identifier::new("mint").expect("should be able to convert to Identifier"),
-            vec![TypeTag::from_str(&format!("{wal_pkg_id}::wal::WAL"))?],
-            vec![treasury_cap_arg, amount_arg],
-        );
-        pt_builder.transfer_arg(*addr, result);
-    }
-
-    let gas_price = admin_wallet.get_reference_gas_price().await?;
-    let gas_coin = admin_wallet
-        .gas_for_owner_budget(sender, DEFAULT_GAS_BUDGET, Default::default())
-        .await?
-        .1
-        .object_ref();
-    let transaction = TransactionData::new_programmable(
-        sender,
-        vec![gas_coin],
-        pt_builder.finish(),
-        DEFAULT_GAS_BUDGET,
-        gas_price,
-    );
-
-    let transaction = admin_wallet.sign_transaction(&transaction);
-
-    let tx_response = admin_wallet
-        .execute_transaction_may_fail(transaction)
-        .await?;
-
-    match tx_response
-        .effects
-        .as_ref()
-        .ok_or_else(|| anyhow!("No transaction effects in response"))?
-        .status()
-    {
-        SuiExecutionStatus::Success => Ok(()),
-        SuiExecutionStatus::Failure { error } => {
-            Err(anyhow!("Error when executing mint transaction: {}", error))
-        }
-    }
 }

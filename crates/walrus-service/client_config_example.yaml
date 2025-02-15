@@ -29,3 +29,9 @@ communication_config:
     base_millis: 500
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
+refresh_config:
+  refresh_grace_period_secs: 10
+  max_auto_refresh_interval_secs: 30
+  min_auto_refresh_interval_secs: 5
+  epoch_change_distance_threshold_secs: 300
+  refresher_channel_size: 100

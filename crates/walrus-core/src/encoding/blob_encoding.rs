@@ -549,7 +549,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         }
 
         if !decoding_successful {
-            tracing::warn!("decoding unsuccessful");
+            tracing::debug!("decoding attempt unsuccessful");
             return None;
         }
 
