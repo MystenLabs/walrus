@@ -327,7 +327,7 @@ impl ClientCommandRunner {
                     self.wallet_path.is_none(),
                 )
                 .await?;
-                let attribute = sui_read_client.get_blob_attribute(blob_obj_id).await?;
+                let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
                 GetBlobAttributeOutput { attribute }.print_output(self.json)
             }
 

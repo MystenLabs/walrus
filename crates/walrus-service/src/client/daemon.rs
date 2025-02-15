@@ -22,7 +22,14 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::Registry;
 use reqwest::StatusCode;
-use routes::{PublisherQuery, BLOB_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
+use routes::{
+    PublisherQuery,
+    BLOB_GET_ENDPOINT,
+    BLOB_PUT_ENDPOINT,
+    BLOB_WITH_ATTRIBUTE_GET_ENDPOINT,
+    STATUS_ENDPOINT,
+};
+use sui_types::base_types::ObjectID;
 use tower::{
     buffer::BufferLayer,
     limit::ConcurrencyLimitLayer,
@@ -33,7 +40,10 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{encoding::Primary, BlobId, EpochCount};
-use walrus_sui::client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient};
+use walrus_sui::{
+    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    types::move_structs::BlobWithAttribute,
+};
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
@@ -50,6 +60,11 @@ pub trait WalrusReadClient {
         &self,
         blob_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
+
+    fn get_blob_with_attribute(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
 }
 
 /// Trait representing a client that can write blobs to Walrus.
@@ -71,6 +86,13 @@ pub trait WalrusWriteClient: WalrusReadClient {
 impl<T: ReadClient> WalrusReadClient for Client<T> {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         self.read_blob_retry_committees::<Primary>(blob_id).await
+    }
+
+    async fn get_blob_with_attribute(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithAttribute> {
+        self.get_blob_with_attribute(blob_object_id).await
     }
 }
 
@@ -140,7 +162,13 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
     fn with_aggregator(mut self) -> Self {
-        self.router = self.router.route(BLOB_GET_ENDPOINT, get(routes::get_blob));
+        self.router = self
+            .router
+            .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
+            .route(
+                BLOB_WITH_ATTRIBUTE_GET_ENDPOINT,
+                get(routes::get_blob_with_attribute),
+            );
         self
     }
 

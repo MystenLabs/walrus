@@ -38,7 +38,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::{Blob, BlobEvent, StakedWal},
+    types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
 };
 
 use self::{
@@ -389,6 +389,16 @@ impl<T: ReadClient> Client<T> {
 
         // The last try.
         func().await
+    }
+
+    async fn get_blob_with_attribute(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithAttribute> {
+        self.sui_client
+            .get_blob_with_attribute(blob_object_id)
+            .await
+            .map_err(ClientError::other)
     }
 }
 
