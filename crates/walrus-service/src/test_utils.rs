@@ -57,11 +57,10 @@ use walrus_sui::{
     },
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
-        move_structs::{EpochState, VotingParams},
+        move_structs::{EpochState, NodeMetadata, VotingParams},
         Committee,
         ContractEvent,
         NetworkAddress,
-        NodeMetadata,
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,

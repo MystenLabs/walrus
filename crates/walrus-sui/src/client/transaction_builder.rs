@@ -44,9 +44,8 @@ use super::{
 use crate::{
     contracts::{self, FunctionTag},
     types::{
-        move_structs::{Authorized, BlobAttribute, WalExchange},
+        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
         NetworkAddress,
-        NodeMetadata,
         NodeRegistrationParams,
         NodeUpdateParams,
         SystemObject,

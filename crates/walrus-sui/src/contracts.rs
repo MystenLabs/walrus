@@ -372,6 +372,7 @@ pub mod node_metadata {
     use super::*;
 
     contract_ident!(fn node_metadata::new);
+    contract_ident!(struct node_metadata::NodeMetadata);
 }
 
 /// Module for tags corresponding to the Move module `wal_exchange`.

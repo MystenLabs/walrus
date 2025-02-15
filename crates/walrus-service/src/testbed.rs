@@ -34,7 +34,11 @@ use walrus_sui::{
         register_committee_and_stake,
         SystemContext,
     },
-    types::{move_structs::VotingParams, NetworkAddress, NodeMetadata, NodeRegistrationParams},
+    types::{
+        move_structs::{NodeMetadata, VotingParams},
+        NetworkAddress,
+        NodeRegistrationParams,
+    },
     utils::{create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet, SuiNetwork},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;

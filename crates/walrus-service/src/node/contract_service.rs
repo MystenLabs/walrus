@@ -23,11 +23,19 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::{move_structs::EpochState, StorageNodeCap, UpdatePublicKeyParams},
+    types::{
+        move_structs::{EpochState, NodeMetadata},
+        StorageNodeCap,
+        UpdatePublicKeyParams,
+    },
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::{committee::CommitteeService, config::StorageNodeConfig, errors::SyncNodeConfigError};
+use super::{
+    committee::CommitteeService,
+    config::{StorageNodeConfig, SyncedNodeConfigSet},
+    errors::SyncNodeConfigError,
+};
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
@@ -141,6 +149,38 @@ impl SuiSystemContractService {
             committee_service,
         ))
     }
+
+    /// Fetches the synced node config set from the contract.
+    pub async fn get_synced_node_config_set(
+        &self,
+        node_capability_object_id: ObjectID,
+    ) -> Result<SyncedNodeConfigSet, anyhow::Error> {
+        let node_capability = self
+            .get_node_capability_object(Some(node_capability_object_id))
+            .await?;
+        let contract_client: tokio::sync::MutexGuard<'_, SuiContractClient> =
+            self.contract_client.lock().await;
+        let pool = contract_client
+            .read_client
+            .get_staking_pool(node_capability.node_id)
+            .await?;
+
+        let node_info = pool.node_info.clone();
+        let metadata = contract_client
+            .sui_client()
+            .get_sui_object::<NodeMetadata>(node_info.metadata)
+            .await?;
+
+        Ok(SyncedNodeConfigSet {
+            name: node_info.name,
+            network_address: node_info.network_address,
+            network_public_key: node_info.network_public_key,
+            public_key: node_info.public_key,
+            next_public_key: node_info.next_epoch_public_key,
+            voting_params: pool.voting_params,
+            metadata,
+        })
+    }
 }
 
 #[async_trait]
@@ -166,11 +206,17 @@ impl SystemContractService for SuiSystemContractService {
 
         let node_info = &pool.node_info;
 
+        let metadata = contract_client
+            .sui_client()
+            .get_sui_object::<NodeMetadata>(node_info.metadata)
+            .await?;
+
         let mut update_params = config.generate_update_params(
             node_info.name.as_str(),
             node_info.network_address.0.as_str(),
             &node_info.network_public_key,
             &pool.voting_params,
+            &metadata,
         );
         let action = calculate_protocol_key_action(
             config.protocol_key_pair().public().clone(),

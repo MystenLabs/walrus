@@ -29,11 +29,11 @@ use walrus_core::{
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
     messages::ProofOfPossession,
     NetworkPublicKey,
+    PublicKey,
 };
 use walrus_sui::types::{
-    move_structs::VotingParams,
+    move_structs::{NodeMetadata, VotingParams},
     NetworkAddress,
-    NodeMetadata,
     NodeRegistrationParams,
     NodeUpdateParams,
 };
@@ -334,6 +334,7 @@ impl StorageNodeConfig {
         network_address: &str,
         network_public_key: &NetworkPublicKey,
         voting_params: &VotingParams,
+        metadata: &NodeMetadata,
     ) -> NodeUpdateParams {
         let local_network_public_key = self.network_key_pair().public();
         let local_public_address =
@@ -352,8 +353,36 @@ impl StorageNodeConfig {
                 .then_some(self.voting_params.write_price),
             node_capacity: (voting_params.node_capacity != self.voting_params.node_capacity)
                 .then_some(self.voting_params.node_capacity),
+            metadata: (metadata != &self.metadata).then_some(self.metadata.clone()),
         }
     }
+}
+
+/// A set of node config parameters that are monitored by the config synchronizer.
+///
+/// The on-chain storage node config is updated if any parameter in this set is
+/// updated locally.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct SyncedNodeConfigSet {
+    /// The name of the storage node, it corresponds to `[StorageNodeConfig::name]`.
+    pub name: String,
+    /// The network address of the storage node, it corresponds to
+    /// `[StorageNodeConfig::public_host]`:`[StorageNodeConfig::public_port]`.
+    pub network_address: NetworkAddress,
+    /// The network public key of the storage node, it corresponds to the public key of
+    /// `[StorageNodeConfig::network_key_pair]`.
+    pub network_public_key: NetworkPublicKey,
+    /// The public key of the storage node, it corresponds to the public key of
+    /// `[StorageNodeConfig::protocol_key_pair]`.
+    pub public_key: PublicKey,
+    /// The next public key of the storage node, it corresponds to the public key of
+    /// `[StorageNodeConfig::next_protocol_key_pair]`.
+    pub next_public_key: Option<PublicKey>,
+    /// The voting parameters of the storage node, it corresponds to
+    /// `[StorageNodeConfig::voting_params]`.
+    pub voting_params: VotingParams,
+    /// The metadata of the storage node, it corresponds to `[StorageNodeConfig::metadata]`.
+    pub metadata: NodeMetadata,
 }
 
 /// Configuration for metric push.
@@ -1089,12 +1118,18 @@ mod tests {
             write_price: 250,
             node_capacity: 2000,
         };
+        let new_metadata = NodeMetadata::new(
+            "https://new-image.com".to_string(),
+            "https://new-project.com".to_string(),
+            "New node description".to_string(),
+        );
         let mut config = StorageNodeConfig {
             name: "new-name".to_string(),
             public_host: "192.168.1.1".to_string(),
             public_port: 9090,
             network_key_pair: PathOrInPlace::InPlace(NetworkKeyPair::generate()),
             voting_params: new_voting_params,
+            metadata: new_metadata.clone(),
             ..Default::default()
         };
 
@@ -1105,6 +1140,7 @@ mod tests {
             current_addr,
             config.network_key_pair().public(),
             &config.voting_params,
+            &config.metadata,
         );
         assert!(
             !result.needs_update(),
@@ -1118,6 +1154,11 @@ mod tests {
             write_price: 200,
             node_capacity: 1000,
         };
+        let old_metadata = NodeMetadata::new(
+            "https://old-image.com".to_string(),
+            "https://old-project.com".to_string(),
+            "Old description".to_string(),
+        );
         let old_name = "old-name".to_string();
         let old_network_address = "127.0.0.1:8080";
 
@@ -1126,6 +1167,7 @@ mod tests {
             old_network_address,
             old_network_keypair.public(),
             &old_voting_params,
+            &old_metadata,
         );
 
         let expected_update_params = NodeUpdateParams {
@@ -1139,15 +1181,17 @@ mod tests {
             storage_price: Some(config.voting_params.storage_price),
             write_price: Some(config.voting_params.write_price),
             node_capacity: Some(config.voting_params.node_capacity),
+            metadata: Some(config.metadata.clone()),
         };
         assert_eq!(result, expected_update_params);
 
-        // Test 3: Only voting params need updating
+        // Test 3: Only voting params and metadata need updating
         let result = config.generate_update_params(
             &config.name,
             &format!("{}:{}", config.public_host, config.public_port),
             config.network_key_pair().public(),
             &old_voting_params,
+            &old_metadata,
         );
 
         let expected_update_params = NodeUpdateParams {
@@ -1158,6 +1202,7 @@ mod tests {
             storage_price: Some(config.voting_params.storage_price),
             write_price: Some(config.voting_params.write_price),
             node_capacity: Some(config.voting_params.node_capacity),
+            metadata: Some(config.metadata.clone()),
         };
         assert_eq!(result, expected_update_params);
 
@@ -1168,6 +1213,7 @@ mod tests {
             "old-domain.com:8080",
             config.network_key_pair().public(),
             &config.voting_params,
+            &config.metadata,
         );
 
         assert_eq!(

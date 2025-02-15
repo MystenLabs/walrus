@@ -36,6 +36,7 @@ pub use events::{
 pub mod move_structs;
 pub use move_structs::{
     Blob,
+    NodeMetadata,
     StakedWal,
     StakingObject,
     StorageNode,
@@ -99,32 +100,6 @@ impl NetworkAddress {
     }
 }
 
-/// Node metadata.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize, Default)]
-#[serde(default)]
-pub struct NodeMetadata {
-    /// The image URL of the storage node.
-    pub image_url: String,
-    /// The project URL of the storage node.
-    pub project_url: String,
-    /// The description of the storage node.
-    pub description: String,
-    /// Extra fields of the storage node for future use.
-    extra_fields: Vec<(String, String)>,
-}
-
-impl NodeMetadata {
-    /// Creates a new node metadata object.
-    pub fn new(image_url: String, project_url: String, description: String) -> Self {
-        Self {
-            image_url,
-            project_url,
-            description,
-            extra_fields: vec![],
-        }
-    }
-}
-
 /// Update public key parameters
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdatePublicKeyParams {
@@ -151,6 +126,8 @@ pub struct NodeUpdateParams {
     pub write_price: Option<u64>,
     /// The node capacity to vote for
     pub node_capacity: Option<u64>,
+    /// The metadata of the storage node.
+    pub metadata: Option<NodeMetadata>,
 }
 
 impl NodeUpdateParams {

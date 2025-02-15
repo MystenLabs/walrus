@@ -453,7 +453,7 @@ mod commands {
             ReadClient as _,
             SuiReadClient,
         },
-        types::NodeMetadata,
+        types::move_structs::NodeMetadata,
     };
     use walrus_utils::backoff::ExponentialBackoffConfig;
 
