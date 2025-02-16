@@ -960,6 +960,7 @@ impl BlobInfoApi for BlobInfoV1 {
     fn is_registered(&self, current_epoch: Epoch) -> bool {
         let Self::Valid(ValidBlobInfoV1 {
             count_deletable_total,
+            count_deletable_certified,
             permanent_total,
             latest_seen_deletable_registered_epoch,
             permanent_certified,
@@ -984,7 +985,8 @@ impl BlobInfoApi for BlobInfoV1 {
 
             // TODO(mlegner): This is a temporary workaround due to a previous bug (#1163) with the
             // blob-status tracking. This is no longer needed after a full redeployment.
-            || latest_seen_deletable_certified_epoch.is_some_and(|l| l > current_epoch);
+            || *count_deletable_certified > 0
+                && latest_seen_deletable_certified_epoch.is_some_and(|l| l > current_epoch);
 
         exists_registered_permanent_blob || maybe_exists_registered_deletable_blob
     }
