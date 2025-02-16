@@ -192,7 +192,7 @@ pub(super) async fn get_blob_with_attribute<T: WalrusReadClient>(
 
                 // Add metadata headers if available
                 if let Some(attribute) = attribute {
-                    let standard_headers = [
+                    let allowed_headers = [
                         (String::from("content-disposition"), CONTENT_DISPOSITION),
                         (String::from("content-encoding"), CONTENT_ENCODING),
                         (String::from("content-language"), CONTENT_LANGUAGE),
@@ -201,7 +201,7 @@ pub(super) async fn get_blob_with_attribute<T: WalrusReadClient>(
                         (String::from("link"), LINK),
                     ];
 
-                    for (key, header) in &standard_headers {
+                    for (key, header) in &allowed_headers {
                         if let Some(value) = &attribute.get(key) {
                             if let Ok(header_value) = HeaderValue::from_str(value) {
                                 headers.insert(header, header_value);
