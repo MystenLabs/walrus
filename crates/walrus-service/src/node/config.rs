@@ -335,7 +335,7 @@ impl StorageNodeConfig {
 
         NodeUpdateParams {
             name: (synced_config.name != self.name).then_some(self.name.clone()),
-            network_address: (synced_config.network_address.0 != local_public_address.0)
+            network_address: (synced_config.network_address != local_public_address)
                 .then_some(local_public_address),
             network_public_key: (&synced_config.network_public_key != local_network_public_key)
                 .then_some(local_network_public_key.clone()),

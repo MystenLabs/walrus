@@ -47,6 +47,7 @@ impl ConfigSynchronizer {
         loop {
             tokio::time::sleep(self.check_interval).await;
 
+            tracing::info!("config_synchronizer: syncing node params");
             if let Err(e) = self.sync_node_params().await {
                 if matches!(
                     e,

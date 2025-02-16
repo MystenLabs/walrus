@@ -198,6 +198,8 @@ impl SystemContractService for SuiSystemContractService {
             .get_synced_node_config_set(node_capability_object_id)
             .await?;
 
+        tracing::info!("synced config: {:?}", synced_config);
+
         let mut update_params = config.generate_update_params(&synced_config);
         let action = calculate_protocol_key_action(
             config.protocol_key_pair().public().clone(),
