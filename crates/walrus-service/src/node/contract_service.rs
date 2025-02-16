@@ -190,12 +190,11 @@ impl SystemContractService for SuiSystemContractService {
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
     ) -> Result<(), SyncNodeConfigError> {
-        tracing::info!("contract_service: syncing node params");
         let synced_config = self
             .get_synced_node_config_set(node_capability_object_id)
             .await?;
 
-        tracing::info!("synced config: {:?}", synced_config);
+        tracing::debug!("on-chain synced config: {:?}", synced_config);
 
         let mut update_params = config.generate_update_params(&synced_config);
         let action = calculate_protocol_key_action(
