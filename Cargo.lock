@@ -163,7 +163,7 @@ dependencies = [
  "quinn-proto",
  "rand 0.8.5",
  "rcgen",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls 0.23.23",
  "rustls-webpki 0.102.8",
  "serde",
@@ -634,7 +634,7 @@ dependencies = [
  "fastrand",
  "hex",
  "http 0.2.12",
- "ring 0.17.8",
+ "ring 0.17.9",
  "time",
  "tokio",
  "tracing",
@@ -681,9 +681,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ec2"
-version = "1.109.0"
+version = "1.110.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cfaf5e69196f0a5d6006b7897a049ce4e5642907df487d1d387ff7744a25c89"
+checksum = "3c11b1875f8930a2ee7d45e1088af402fde11a03bfd79a391fde84dfe87da8a1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -4573,7 +4573,7 @@ dependencies = [
  "base64 0.22.1",
  "js-sys",
  "pem",
- "ring 0.17.8",
+ "ring 0.17.9",
  "serde",
  "serde_json",
  "simple_asn1",
@@ -6109,7 +6109,7 @@ dependencies = [
  "quick-xml 0.36.2",
  "rand 0.8.5",
  "reqwest",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
@@ -6139,7 +6139,7 @@ dependencies = [
  "quick-xml 0.37.2",
  "rand 0.8.5",
  "reqwest",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
@@ -7171,7 +7171,7 @@ dependencies = [
  "bytes",
  "getrandom 0.2.15",
  "rand 0.8.5",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustc-hash 2.1.0",
  "rustls 0.23.23",
  "rustls-pki-types",
@@ -7379,7 +7379,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
 dependencies = [
  "pem",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls-pki-types",
  "time",
  "yasna",
@@ -7604,15 +7604,14 @@ dependencies = [
 
 [[package]]
 name = "ring"
-version = "0.17.8"
+version = "0.17.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c17fa4cb658e3583423e915b9f3acc01cceaee1860e33d59ebae66adc3a2dc0d"
+checksum = "e75ec5e92c4d8aede845126adc388046234541629e76029599ed35a003c7ed24"
 dependencies = [
  "cc",
  "cfg-if",
  "getrandom 0.2.15",
  "libc",
- "spin 0.9.8",
  "untrusted 0.9.0",
  "windows-sys 0.52.0",
 ]
@@ -7735,7 +7734,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f56a14d1f48b391359b22f731fd4bd7e43c97f3c50eee276f3aa09c94784d3e"
 dependencies = [
  "log",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls-webpki 0.101.7",
  "sct",
 ]
@@ -7748,7 +7747,7 @@ checksum = "47796c98c480fce5406ef69d1c76378375492c3b0a0de587be0c1d9feb12f395"
 dependencies = [
  "log",
  "once_cell",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls-pki-types",
  "rustls-webpki 0.102.8",
  "subtle",
@@ -7852,7 +7851,7 @@ version = "0.101.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
 dependencies = [
- "ring 0.17.8",
+ "ring 0.17.9",
  "untrusted 0.9.0",
 ]
 
@@ -7862,7 +7861,7 @@ version = "0.102.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64ca1bc8749bd4cf37b5ce386cc146580777b4e8572c7b97baf22c83f444bee9"
 dependencies = [
- "ring 0.17.8",
+ "ring 0.17.9",
  "rustls-pki-types",
  "untrusted 0.9.0",
 ]
@@ -7961,7 +7960,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
 dependencies = [
- "ring 0.17.8",
+ "ring 0.17.9",
  "untrusted 0.9.0",
 ]
 
@@ -10367,9 +10366,9 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.16.0"
+version = "3.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c246215d7d24f48ae091a2902398798e05d978b24315d6efbc00ede9a8bb91"
+checksum = "a40f762a77d2afa88c2d919489e390a12bdd261ed568e60cfa7e48d4e20f0d33"
 dependencies = [
  "cfg-if",
  "fastrand",
@@ -11627,7 +11626,7 @@ dependencies = [
  "enum_dispatch",
  "fastcrypto",
  "p256",
- "rand 0.8.5",
+ "rand 0.9.0",
  "raptorq",
  "serde",
  "serde_test",
@@ -11647,7 +11646,7 @@ dependencies = [
  "futures",
  "indicatif",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.9.0",
  "reqwest",
  "serde_yaml 0.9.34+deprecated",
  "sui-macros",
@@ -11727,7 +11726,7 @@ dependencies = [
  "prometheus",
  "prost 0.13.5",
  "protobuf",
- "rand 0.8.5",
+ "rand 0.9.0",
  "reqwest",
  "serde",
  "serde_json",
@@ -11758,7 +11757,7 @@ dependencies = [
  "mime",
  "opentelemetry",
  "p256",
- "rand 0.8.5",
+ "rand 0.9.0",
  "rcgen",
  "reqwest",
  "rustls 0.23.23",
@@ -11823,11 +11822,11 @@ dependencies = [
  "pin-project",
  "prettytable",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.9.0",
  "rcgen",
  "regex",
  "reqwest",
- "ring 0.17.8",
+ "ring 0.17.9",
  "rocksdb",
  "rustls 0.23.23",
  "scoped-futures",
@@ -11875,7 +11874,7 @@ dependencies = [
  "anyhow",
  "futures",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.9.0",
  "reqwest",
  "sui-macros",
  "sui-protocol-config",
@@ -11900,7 +11899,7 @@ dependencies = [
  "indicatif",
  "mysten-metrics",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.9.0",
  "sui-sdk",
  "tokio",
  "tracing",
@@ -11925,7 +11924,7 @@ dependencies = [
  "jsonrpsee",
  "move-core-types",
  "move-package",
- "rand 0.8.5",
+ "rand 0.9.0",
  "regex",
  "reqwest",
  "serde",
@@ -11960,7 +11959,7 @@ name = "walrus-test-utils"
 version = "1.14.0"
 dependencies = [
  "anyhow",
- "rand 0.8.5",
+ "rand 0.9.0",
  "tempfile",
  "tokio",
 ]
@@ -11972,7 +11971,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.9.0",
  "reqwest",
  "rocksdb",
  "serde",

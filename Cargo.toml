@@ -67,7 +67,7 @@ pin-project = "1.1.9"
 prettytable = "0.10.0"
 prometheus = "0.13.4"
 quote = "1.0"
-rand = "0.8.5"
+rand = "0.9.0"
 raptorq = "2.0.0"
 rcgen = "0.13.2"
 regex = "1"
@@ -97,7 +97,7 @@ sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.42.
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.42.1" }
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.42.1" }
-tempfile = "3.16.0"
+tempfile = "3.17.0"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.42.1" }
 thiserror = "2.0.11"
 tokio = { version = "=1.43.0", features = ["macros", "rt-multi-thread", "signal"] }
