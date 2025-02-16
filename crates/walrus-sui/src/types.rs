@@ -140,6 +140,7 @@ impl NodeUpdateParams {
             || self.storage_price.is_some()
             || self.write_price.is_some()
             || self.node_capacity.is_some()
+            || self.metadata.is_some()
     }
 
     /// Returns true if the node needs a reboot due to the proposed changes.

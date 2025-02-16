@@ -23,11 +23,7 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::{
-        move_structs::{EpochState, NodeMetadata},
-        StorageNodeCap,
-        UpdatePublicKeyParams,
-    },
+    types::{move_structs::EpochState, StorageNodeCap, UpdatePublicKeyParams},
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
@@ -167,10 +163,9 @@ impl SuiSystemContractService {
 
         let node_info = pool.node_info.clone();
         let metadata = contract_client
-            .sui_client()
-            .get_sui_object::<NodeMetadata>(node_info.metadata)
-            .await
-            .ok();
+            .read_client
+            .get_node_metadata(node_info.metadata)
+            .await?;
 
         Ok(SyncedNodeConfigSet {
             name: node_info.name,

@@ -57,6 +57,7 @@ use crate::{
             BlobWithAttribute,
             EpochState,
             EventBlob,
+            NodeMetadata,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
@@ -724,6 +725,16 @@ impl SuiReadClient {
     /// Returns the backoff configuration for the inner client.
     pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
         self.sui_client.backoff_config()
+    }
+
+    /// Returns the node metadata for the given metadata ID.
+    pub async fn get_node_metadata(&self, metadata_id: ObjectID) -> SuiClientResult<NodeMetadata> {
+        let type_map = self.type_origin_map().clone();
+        let metadata = self
+            .sui_client
+            .get_extended_field::<NodeMetadata>(metadata_id, &type_map)
+            .await?;
+        Ok(metadata)
     }
 }
 
