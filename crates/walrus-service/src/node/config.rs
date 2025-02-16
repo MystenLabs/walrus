@@ -349,7 +349,8 @@ impl StorageNodeConfig {
             node_capacity: (synced_config.voting_params.node_capacity
                 != self.voting_params.node_capacity)
                 .then_some(self.voting_params.node_capacity),
-            metadata: (synced_config.metadata != self.metadata).then_some(self.metadata.clone()),
+            metadata: (synced_config.metadata != Some(self.metadata.clone()))
+                .then_some(self.metadata.clone()),
         }
     }
 }
@@ -378,7 +379,7 @@ pub struct SyncedNodeConfigSet {
     /// `[StorageNodeConfig::voting_params]`.
     pub voting_params: VotingParams,
     /// The metadata of the storage node, it corresponds to `[StorageNodeConfig::metadata]`.
-    pub metadata: NodeMetadata,
+    pub metadata: Option<NodeMetadata>,
 }
 
 /// Configuration for metric push.
@@ -1173,7 +1174,7 @@ mod tests {
                 public_key: config.protocol_key_pair().public().clone(),
                 next_public_key: None,
                 voting_params: config.voting_params.clone(),
-                metadata: config.metadata.clone(),
+                metadata: Some(config.metadata.clone()),
             },
             expected_params: NodeUpdateParams::default(),
         });
@@ -1200,7 +1201,7 @@ mod tests {
                 public_key: config.protocol_key_pair().public().clone(),
                 next_public_key: None,
                 voting_params: old_voting_params.clone(),
-                metadata: old_metadata.clone(),
+                metadata: Some(old_metadata.clone()),
             },
             expected_params: NodeUpdateParams {
                 name: Some(config.name.clone()),
@@ -1230,7 +1231,7 @@ mod tests {
                 public_key: config.protocol_key_pair().public().clone(),
                 next_public_key: None,
                 voting_params: old_voting_params.clone(),
-                metadata: old_metadata.clone(),
+                metadata: Some(old_metadata.clone()),
             },
             expected_params: NodeUpdateParams {
                 name: None,

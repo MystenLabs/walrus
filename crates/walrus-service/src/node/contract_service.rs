@@ -169,7 +169,8 @@ impl SuiSystemContractService {
         let metadata = contract_client
             .sui_client()
             .get_sui_object::<NodeMetadata>(node_info.metadata)
-            .await?;
+            .await
+            .ok();
 
         Ok(SyncedNodeConfigSet {
             name: node_info.name,
@@ -194,6 +195,7 @@ impl SystemContractService for SuiSystemContractService {
         config: &StorageNodeConfig,
         node_capability_object_id: ObjectID,
     ) -> Result<(), SyncNodeConfigError> {
+        tracing::info!("contract_service: syncing node params");
         let synced_config = self
             .get_synced_node_config_set(node_capability_object_id)
             .await?;
