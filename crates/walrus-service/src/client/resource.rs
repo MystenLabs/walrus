@@ -58,10 +58,7 @@ impl PriceComputation {
             RegisterBlobOp::ReuseAndExtendNonCertified {
                 encoded_length,
                 epochs_extended,
-            } => {
-                self.storage_fee_for_encoded_length(*encoded_length, *epochs_extended)
-                    + self.write_fee_for_encoded_length(*encoded_length)
-            }
+            } => self.storage_fee_for_encoded_length(*encoded_length, *epochs_extended),
             _ => 0, // No cost for reusing registration or no-op.
         }
     }
@@ -194,7 +191,7 @@ impl<'a> ResourceManager<'a> {
         let to_be_processed = metadata_with_status
             .iter()
             .filter(|(metadata, blob_status)| {
-                if !matches!(store_when, StoreWhen::Always) && !persistence.is_deletable() {
+                if !store_when.is_ignore_status() && !persistence.is_deletable() {
                     if let Some(result) = self.blob_status_to_store_result(
                         *metadata.blob_id(),
                         epochs_ahead,
