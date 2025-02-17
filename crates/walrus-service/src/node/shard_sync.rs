@@ -176,8 +176,8 @@ impl ShardSyncHandler {
             .set(blob_id.first_two_bytes() as i64);
 
         let blob_expiration_notify = node
-            .blob_expiration_notifier
-            .acquire_blob_expiration_notify(&blob_id);
+            .blob_retirement_notifier
+            .acquire_blob_retirement_notify(&blob_id);
         let notified = blob_expiration_notify.notified();
 
         // Check blob is certified must be after acquiring the notify handle.
@@ -188,7 +188,7 @@ impl ShardSyncHandler {
 
         tokio::select! {
             _ = notified => {
-                tracing::debug!(%blob_id, "blob expired; skipping sync");
+                tracing::debug!(%blob_id, "blob retired; skipping sync");
                 node.metrics.sync_blob_metadata_skipped.inc();
             }
             result = node.get_or_recover_blob_metadata(
