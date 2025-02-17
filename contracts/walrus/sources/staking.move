@@ -306,7 +306,6 @@ public fun request_withdraw_stake(
     staking.inner_mut().request_withdraw_stake(staked_wal, ctx);
 }
 
-#[allow(lint(self_transfer))]
 /// Withdraws the staked amount from the staking pool.
 public fun withdraw_stake(
     staking: &mut Staking,
@@ -314,6 +313,10 @@ public fun withdraw_stake(
     ctx: &mut TxContext,
 ): Coin<WAL> {
     staking.inner_mut().withdraw_stake(staked_wal, ctx)
+}
+
+public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
+    staking.inner_mut().try_join_active_set(cap)
 }
 
 // === Accessors ===

@@ -514,6 +514,20 @@ public(package) fun withdraw_stake(
     wal_balance.into_coin(ctx)
 }
 
+public(package) fun try_join_active_set(self: &mut StakingInnerV1, cap: &StorageNodeCap) {
+    let node_id = cap.node_id();
+    let wctx = &self.new_walrus_context();
+    let pool = &self.pools[node_id];
+
+    // Active set only tracks the stake for the next vote, which either happens for the committee
+    // in wctx.epoch() + 1, or in wctx.epoch() + 2, depending on whether the vote already happened.
+    let balance = match (self.epoch_state) {
+        EpochState::NextParamsSelected(_) => pool.wal_balance_at_epoch(wctx.epoch() + 2),
+        _ => pool.wal_balance_at_epoch(wctx.epoch() + 1),
+    };
+    self.active_set.borrow_mut().insert_or_update(node_id, balance);
+}
+
 // === System ===
 
 /// Computes the committee for the next epoch.

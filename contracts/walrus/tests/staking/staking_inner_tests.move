@@ -39,12 +39,74 @@ fun test_registration() {
 }
 
 #[test]
+fun test_staking_rejoin_active_set() {
+    let ctx = &mut tx_context::dummy();
+    let clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
+
+    // Reduce the active set size for testing.
+    let active_set_size = 10;
+    staking.active_set().set_max_size(active_set_size);
+
+    // Register more pools than the active set size
+    let mut pools = vector[];
+    (active_set_size + 1).do!(|_| {
+        let pool = test::pool().register(&mut staking, ctx);
+        pools.push_back(pool);
+    });
+
+    // Now stake with all pools, pool 0 should be kicked out of the active set once
+    // the last staking operation is performed.
+    let mut staked_wal = vector[];
+    let mut stake_amount = 10_000;
+    pools.do_ref!(|pool| {
+        let wal = staking.stake_with_pool(test::mint(stake_amount, ctx), *pool, ctx);
+        staked_wal.push_back(wal);
+        // Increase the stake amount to have a clear ordering.
+        stake_amount = stake_amount + 1;
+        // Check that the new pool is in the active set.
+        assert!(staking.active_set().active_ids().contains(pool));
+    });
+
+    // Check that pool 0 was removed from the active set.
+    assert!(!staking.active_set().active_ids().contains(&pools[0]));
+
+    // Try to rejoin the active set with pool 0.
+    let cap = storage_node::new_cap(pools[0], ctx);
+    staking.try_join_active_set(&cap);
+
+    // This should not change anything since the node does not have enough stake.
+    assert!(!staking.active_set().active_ids().contains(&pools[0]));
+
+    // Now unstake from the pool 1, which puts its stake below the stake of pool 0.
+    let staked_wal_1 = staked_wal.swap_remove(1);
+    let coin = staking.withdraw_stake(staked_wal_1, ctx);
+    // But pool 0 is still not in the active set.
+    assert!(!staking.active_set().active_ids().contains(&pools[0]));
+
+    // Now try to rejoin the active set with pool 0
+    staking.try_join_active_set(&cap);
+    // Check that the pool is now in the active set.
+    assert!(staking.active_set().active_ids().contains(&pools[0]));
+    // And pool 1 has been removed from the active set.
+    assert!(!staking.active_set().active_ids().contains(&pools[1]));
+
+    // Cleanup all objects.
+    destroy(staked_wal);
+    destroy(pools);
+    destroy(staking);
+    destroy(coin);
+    destroy(cap);
+    clock.destroy_for_testing();
+}
+
+#[test]
 fun test_staking_active_set() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);
     let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
 
-    // register the pool in the `StakingInnerV1`.
+    // register pools in the `StakingInnerV1`.
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
     let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
     let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
