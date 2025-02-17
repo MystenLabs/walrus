@@ -523,6 +523,8 @@ pub enum InfoCommands {
     /// Print all information listed below.
     All {
         /// Sort the committee information by the specified field.
+        ///
+        /// By default, the output is sorted by name.
         #[clap(long, value_enum)]
         #[serde(default)]
         sort_by: Option<NodeSortBy>,
@@ -544,6 +546,8 @@ pub enum InfoCommands {
     /// Print committee information.
     Committee {
         /// Sort the committee information by the specified field.
+        ///
+        /// By default, the output is sorted by name.
         #[clap(long, value_enum)]
         #[serde(default)]
         sort_by: Option<NodeSortBy>,

@@ -462,22 +462,21 @@ impl InfoCommitteeOutput {
             .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
 
         // Sort nodes if sort_by is specified
-        if let Some(sort_by) = sort_by {
-            let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort_by {
-                NodeSortBy::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-                NodeSortBy::Id => a.node_id.cmp(&b.node_id),
-                NodeSortBy::Url => a
-                    .network_address
-                    .0
-                    .to_lowercase()
-                    .cmp(&b.network_address.0.to_lowercase()),
-            };
+        let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort_by {
+            Some(NodeSortBy::Id) => a.node_id.cmp(&b.node_id),
+            Some(NodeSortBy::Url) => a
+                .network_address
+                .0
+                .to_lowercase()
+                .cmp(&b.network_address.0.to_lowercase()),
+            // Default to sorting by name (when None or NodeSortBy::Name)
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        };
 
-            storage_nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
+        storage_nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
 
-            if let Some(ref mut nodes) = next_storage_nodes {
-                nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
-            }
+        if let Some(ref mut nodes) = next_storage_nodes {
+            nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
         }
 
         let metadata_storage_size =
