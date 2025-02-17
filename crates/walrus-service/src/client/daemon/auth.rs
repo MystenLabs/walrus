@@ -26,10 +26,10 @@ pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp).
-    pub iat: Option<u64>,
+    pub iat: Option<i64>,
 
     /// Token expires at (timestamp).
-    pub exp: u64,
+    pub exp: i64,
 
     /// A unique identifier for the token, the JTI (JWT ID).
     ///
@@ -250,12 +250,7 @@ pub async fn verify_jwt_claim(
         Ok(claim) => {
             // To avoid race conditions between store requests, we insert the token into the cache
             // now, and later remove it if the JWT verification fails.
-            let Some(expiration) = claim
-                .exp
-                .try_into()
-                .ok()
-                .and_then(|exp| DateTime::from_timestamp(exp, 0))
-            else {
+            let Some(expiration) = DateTime::from_timestamp(claim.exp, 0) else {
                 return Err(PublisherAuthError::InvalidTimestamp.to_response());
             };
 
@@ -381,12 +376,12 @@ mod tests {
     const OTHER_ADDRESS: &str =
         "0x1111111111111111111111111111111111111111111111111111111111111111";
 
-    const FAR_EXP: u64 = 33292598400; // 3025-01-01 00:00:00 UTC
+    const FAR_EXP: i64 = 33292598400; // 3025-01-01 00:00:00 UTC
 
     fn auth_config_for_tests(
         secret: Option<&str>,
         algorithm: Option<Algorithm>,
-        expiring_sec: u64,
+        expiring_sec: i64,
         verify_upload: bool,
     ) -> AuthConfig {
         let mut config = AuthConfig {
@@ -405,7 +400,7 @@ mod tests {
     }
 
     fn setup_router_and_token(
-        expiring_sec: u64,
+        expiring_sec: i64,
         verify_upload: bool,
         use_secret: bool,
         claim: Claim,

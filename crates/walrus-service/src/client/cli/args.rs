@@ -616,7 +616,7 @@ pub struct PublisherArgs {
     /// the "issued at" (`iat`) value.
     #[clap(long, default_value_t = 0)]
     #[serde(default)]
-    pub jwt_expiring_sec: u64,
+    pub jwt_expiring_sec: i64,
     /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
     ///
     /// Specifically, the publisher will:
