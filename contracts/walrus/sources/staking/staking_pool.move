@@ -26,7 +26,7 @@ const MAX_NODE_NAME_LENGTH: u64 = 100;
 const MAX_NETWORK_ADDRESS_LENGTH: u64 = 259;
 
 // The number of basis points in 100%.
-const N_BASIS_POINTS: u64 = 100_00;
+const N_BASIS_POINTS: u16 = 100_00;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -419,7 +419,7 @@ public(package) fun advance_epoch(
 
     // split the commission from the rewards
     let total_rewards = rewards.value();
-    let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / N_BASIS_POINTS);
+    let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / (N_BASIS_POINTS as u64));
     pool.commission.join(commission);
 
     // add rewards to the pool and update the `wal_balance`
