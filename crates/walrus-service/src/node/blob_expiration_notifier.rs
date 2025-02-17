@@ -6,8 +6,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use mysten_metrics::monitored_scope;
 use tokio::sync::{futures::Notified, Notify};
 use walrus_core::BlobId;
+
+use super::StorageNodeInner;
 
 /// BlobExpirationNotifier is a wrapper around Notify to notify blob expiration.
 /// Caller acquires a BlobExpirationNotify and wait for notification.
@@ -41,8 +44,27 @@ impl BlobExpirationNotifier {
             pending.remove(blob_id)
         };
         if let Some(notify) = notify {
+            tracing::debug!(%blob_id, "notify blob expiration");
             notify.notify_waiters();
         }
+    }
+
+    /// Notify all BlobExpirationNotify for all blobs.
+    /// This is used when epoch changes.
+    pub fn epoch_change_notify_all_pending_blob_expiration(
+        &self,
+        node: Arc<StorageNodeInner>,
+    ) -> anyhow::Result<()> {
+        let _scope = monitored_scope("EpochChange::NotifyExpiredBlobs");
+        let mut pending = self.pending_blob.lock().unwrap();
+        for (blob_id, notify) in pending.iter_mut() {
+            if !node.is_blob_certified(blob_id)? {
+                tracing::debug!(%blob_id, "epoch change notify blob expiration");
+                notify.notify_waiters();
+            }
+        }
+
+        Ok(())
     }
 }
 

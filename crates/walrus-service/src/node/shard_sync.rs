@@ -188,7 +188,7 @@ impl ShardSyncHandler {
 
         tokio::select! {
             _ = notified => {
-                tracing::info!("blob expired; skipping sync");
+                tracing::debug!(%blob_id, "blob expired; skipping sync");
                 node.metrics.sync_blob_metadata_skipped.inc();
             }
             result = node.get_or_recover_blob_metadata(

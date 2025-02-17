@@ -29,6 +29,8 @@ use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
+#[cfg(msim)]
+use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
@@ -1161,6 +1163,11 @@ impl StorageNode {
             .begin_committee_change_to_latest_committee()
             .await?;
 
+        // Notify all blob expiration.
+        self.inner
+            .blob_expiration_notifier
+            .epoch_change_notify_all_pending_blob_expiration(self.inner.clone())?;
+
         if event.epoch < self.inner.current_epoch() {
             // We have not caught up to the latest epoch yet, so we can skip the event.
             event_handle.mark_as_complete();
@@ -1213,6 +1220,11 @@ impl StorageNode {
             event_handle.mark_as_complete();
             return Ok(());
         }
+
+        // Notify all blob expiration.
+        self.inner
+            .blob_expiration_notifier
+            .epoch_change_notify_all_pending_blob_expiration(self.inner.clone())?;
 
         // Cancel all blob syncs for blobs that are expired in the *current epoch*.
         self.blob_sync_handler
@@ -1920,6 +1932,17 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
+        #[cfg(msim)]
+        {
+            let mut return_unavailable = false;
+            fail_point_if!("get_metadata_return_unavailable", || {
+                return_unavailable = true;
+            });
+            if return_unavailable {
+                return Err(RetrieveMetadataError::Unavailable);
+            }
+        }
+
         ensure!(!self.is_blocked(blob_id), RetrieveMetadataError::Forbidden);
 
         ensure!(
@@ -4079,7 +4102,8 @@ mod tests {
     }
 
     /// Sets up a test cluster for shard recovery tests.
-    async fn setup_shard_recovery_test_cluster<F, G, H>(
+    async fn setup_shard_recovery_test_cluster_with_blob_count<F, G, H>(
+        blob_count: u8,
         blob_index_store_at_shard_0: F,
         blob_index_to_end_epoch: G,
         blob_index_to_deletable: H,
@@ -4089,7 +4113,7 @@ mod tests {
         G: FnMut(usize) -> Epoch,
         H: FnMut(usize) -> bool,
     {
-        let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
+        let blobs: Vec<[u8; 32]> = (1..(blob_count + 1)).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, blob_details, event_senders) =
             cluster_with_partially_stored_blobs_in_shard_0(
@@ -4103,6 +4127,25 @@ mod tests {
             .await?;
 
         Ok((cluster, blob_details, event_senders))
+    }
+
+    async fn setup_shard_recovery_test_cluster<F, G, H>(
+        blob_index_store_at_shard_0: F,
+        blob_index_to_end_epoch: G,
+        blob_index_to_deletable: H,
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, ClusterEventSenders)>
+    where
+        F: FnMut(usize) -> bool,
+        G: FnMut(usize) -> Epoch,
+        H: FnMut(usize) -> bool,
+    {
+        setup_shard_recovery_test_cluster_with_blob_count(
+            23,
+            blob_index_store_at_shard_0,
+            blob_index_to_end_epoch,
+            blob_index_to_deletable,
+        )
+        .await
     }
 
     // Tests shard transfer completely using shard recovery functionality.
@@ -4283,15 +4326,14 @@ mod tests {
             );
 
             let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-
-            // Blob 3 expires at epoch 2, which is the current epoch when
-            // `setup_shard_recovery_test_cluster` returns.
-            let blob_end_epoch = |blob_index| if blob_index == 3 { 2 } else { 42 };
             // Blob 9 is a deletable blob.
             let deletable_blob_index: [usize; 1] = [9];
+
             let (cluster, blob_details, event_senders) = setup_shard_recovery_test_cluster(
                 |blob_index| !skip_stored_blob_index.contains(&blob_index),
-                blob_end_epoch,
+                // Blob 3 expires at epoch 2, which is the current epoch when
+                // `setup_shard_recovery_test_cluster` returns.
+                |blob_index| if blob_index == 3 { 2 } else { 42 },
                 |blob_index| deletable_blob_index.contains(&blob_index),
             )
             .await?;
@@ -4305,7 +4347,7 @@ mod tests {
                 .all_other_node_events
                 .send(InvalidBlobId::for_testing(*blob_details[19].blob_id()).into())?;
 
-            // Make sure that blobs in `sync_shard_partial_recovery` are not certified in node 0.
+            // Make sure that blobs in `skip_stored_blob_index` are not certified in node 0.
             for i in skip_stored_blob_index {
                 let blob_info = cluster.nodes[0]
                     .storage_node
@@ -4360,6 +4402,101 @@ mod tests {
 
             clear_fail_point("shard_recovery_skip_initial_blob_certification_check");
 
+            Ok(())
+        }
+
+        #[walrus_simtest]
+        async fn shard_recovery_cancel_metadata_sync_when_blob_expired() -> TestResult {
+            register_fail_point_if("get_metadata_return_unavailable", move || true);
+
+            // Blob 1 is a deletable blob.
+            let deletable_blob_index: [usize; 1] = [1];
+
+            let (cluster, blob_details, event_senders) =
+                setup_shard_recovery_test_cluster_with_blob_count(
+                    3,
+                    |_blob_index| true,
+                    // Blob 3 expires at epoch 2, which is the current epoch when
+                    // `setup_shard_recovery_test_cluster` returns.
+                    |blob_index| if blob_index == 0 { 3 } else { 42 },
+                    |blob_index| deletable_blob_index.contains(&blob_index),
+                )
+                .await?;
+
+            let node_inner = unsafe {
+                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            };
+            node_inner
+                .storage
+                .create_storage_for_shards(&[ShardIndex(0)])?;
+            node_inner.storage.clear_metadata_in_test()?;
+            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
+
+            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)], true)
+                .await?;
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            assert_eq!(
+                node_inner.storage.node_status().unwrap(),
+                NodeStatus::RecoverMetadata
+            );
+            let unblock = Arc::new(Notify::new());
+
+            {
+                tracing::info!(
+                    "send blob deletion event for blob {:?}",
+                    blob_details[1].blob_id()
+                );
+                // Delete blob 1 and invalidate blob 2.
+                event_senders
+                    .all_other_node_events
+                    .send(BlobDeleted::for_testing(*blob_details[1].blob_id()).into())?;
+            }
+
+            {
+                tracing::info!(
+                    "send invalid blob evnt for blob {:?}",
+                    blob_details[2].blob_id()
+                );
+                event_senders
+                    .all_other_node_events
+                    .send(InvalidBlobId::for_testing(*blob_details[2].blob_id()).into())?;
+            }
+
+            {
+                let unblock_clone = unblock.clone();
+                register_fail_point_async("blocking_finishing_epoch_change_start", move || {
+                    let unblock_clone = unblock_clone.clone();
+                    async move {
+                        unblock_clone.notified().await;
+                    }
+                });
+
+                tracing::info!("advance to epoch 3");
+                advance_cluster_to_epoch(
+                    &cluster,
+                    &[
+                        &event_senders.node_0_events,
+                        &event_senders.all_other_node_events,
+                    ],
+                    3,
+                )
+                .await?;
+            }
+
+            // Shard recovery should be completed, and all the data should be synced.
+            wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+
+            // Cleanup the test environment.
+            unblock.notify_one();
+            clear_fail_point("get_metadata_return_unavailable");
+            clear_fail_point("blocking_finishing_epoch_change_start");
             Ok(())
         }
 
@@ -4662,7 +4799,7 @@ mod tests {
             Ok(())
         }
 
-        // Tests that shard sync can be resumed from a specific progress point.
+        // Tests shard metadata recovery with failure injection.
         simtest_param_test! {
             sync_shard_recovery_metadata_restart -> TestResult: [
                 fail_before_start_fetching: (true),

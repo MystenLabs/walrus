@@ -977,12 +977,26 @@ impl ShardStorage {
         let metadata = if let Some(metadata) = node.storage.get_metadata(&blob_id)? {
             metadata
         } else {
+            // We need to recover the blob. So check if we also need to recover the metadata.
+            let blob_expiration_notify = node
+                .blob_expiration_notifier
+                .acquire_blob_expiration_notify(&blob_id);
+            let notified = blob_expiration_notify.notified();
+
             if !node.is_blob_certified(&blob_id)? {
                 self.skip_recover_blob(blob_id, sliver_type, &node)?;
                 return Ok(());
             }
-            // We need to recover the blob. So check if we also need to recover the metadata.
-            node.get_or_recover_blob_metadata(&blob_id, epoch).await?
+
+            tokio::select! {
+                _ = notified => {
+                    self.skip_recover_blob(blob_id, sliver_type, &node)?;
+                    return Ok(());
+                }
+                result = node.get_or_recover_blob_metadata(&blob_id, epoch) => {
+                    result?
+                }
+            }
         };
 
         let sliver_id = self
