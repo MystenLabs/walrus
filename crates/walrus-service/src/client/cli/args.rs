@@ -13,7 +13,7 @@ use std::{
 use anyhow::{anyhow, Context as _, Result};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
 use walrus_core::{encoding::EncodingConfig, ensure, BlobId, Epoch, EpochCount};
@@ -295,6 +295,16 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         detail: bool,
+        /// Sort the output by the specified field.
+        ///
+        /// By default, the output is sorted by node status.
+        #[clap(long, value_enum)]
+        #[serde(default)]
+        sort_by: Option<HealthSortBy>,
+        /// Sort in descending order.
+        #[clap(long, action)]
+        #[serde(default)]
+        desc: bool,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -511,7 +521,16 @@ pub enum CliCommands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InfoCommands {
     /// Print all information listed below.
-    All,
+    All {
+        /// Sort the committee information by the specified field.
+        #[clap(long, value_enum)]
+        #[serde(default)]
+        sort_by: Option<NodeSortBy>,
+        /// Sort in descending order.
+        #[clap(long, action)]
+        #[serde(default)]
+        desc: bool,
+    },
     /// Print epoch information.
     Epoch,
     /// Print storage information.
@@ -523,7 +542,16 @@ pub enum InfoCommands {
     /// Print byzantine fault tolerance (BFT) information.
     Bft,
     /// Print committee information.
-    Committee,
+    Committee {
+        /// Sort the committee information by the specified field.
+        #[clap(long, value_enum)]
+        #[serde(default)]
+        sort_by: Option<NodeSortBy>,
+        /// Sort in descending order.
+        #[clap(long, action)]
+        #[serde(default)]
+        desc: bool,
+    },
 }
 
 /// The daemon commands for the Walrus client.
@@ -1288,5 +1316,62 @@ impl UserConfirmation {
     /// Checks if the user confirmation is required.
     pub fn is_required(&self) -> bool {
         matches!(self, UserConfirmation::Required)
+    }
+}
+
+/// Sort options for node information display
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeSortBy {
+    /// Sort by node ID
+    Id,
+    /// Sort by node name
+    Name,
+    /// Sort by node URL
+    Url,
+}
+
+impl std::str::FromStr for NodeSortBy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "id" => Ok(Self::Id),
+            "name" => Ok(Self::Name),
+            "url" => Ok(Self::Url),
+            _ => Err(anyhow!(
+                "invalid sort option; valid options are: id, name, url"
+            )),
+        }
+    }
+}
+
+/// Sort options for health information display
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum HealthSortBy {
+    /// Sort by node status
+    Status,
+    /// Sort by node ID
+    NodeId,
+    /// Sort by node name
+    NodeName,
+    /// Sort by node URL
+    NodeUrl,
+}
+
+impl std::str::FromStr for HealthSortBy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "status" => Ok(Self::Status),
+            "node-id" => Ok(Self::NodeId),
+            "node-name" => Ok(Self::NodeName),
+            "node-url" => Ok(Self::NodeUrl),
+            _ => Err(anyhow!(
+                "invalid sort option; valid options are: status, node-id, node-name"
+            )),
+        }
     }
 }

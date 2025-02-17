@@ -60,7 +60,7 @@ use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
 };
-use crate::client::cli::{format_event_id, HumanReadableFrost};
+use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -273,13 +273,15 @@ impl InfoOutput {
     pub async fn get_system_info(
         sui_read_client: &impl ReadClient,
         dev: bool,
+        sort_by: Option<NodeSortBy>,
+        desc: bool,
     ) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
         let committee_info = if dev {
-            Some(InfoCommitteeOutput::get_committee_info(sui_read_client).await?)
+            Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort_by, desc).await?)
         } else {
             None
         };
@@ -436,7 +438,11 @@ pub(crate) struct InfoCommitteeOutput {
 }
 
 impl InfoCommitteeOutput {
-    pub async fn get_committee_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+    pub async fn get_committee_info(
+        sui_read_client: &impl ReadClient,
+        sort_by: Option<NodeSortBy>,
+        desc: bool,
+    ) -> anyhow::Result<Self> {
         let committee = sui_read_client.current_committee().await?;
         let next_committee = sui_read_client.next_committee().await?;
         let stake_assignment = sui_read_client.stake_assignment().await?;
@@ -450,10 +456,29 @@ impl InfoCommitteeOutput {
         let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
             .expect("we can compute the encoded length of the max blob size");
 
-        let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
-        let next_storage_nodes = next_committee
+        let mut storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
+        let mut next_storage_nodes = next_committee
             .as_ref()
             .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
+
+        // Sort nodes if sort_by is specified
+        if let Some(sort_by) = sort_by {
+            let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort_by {
+                NodeSortBy::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                NodeSortBy::Id => a.node_id.cmp(&b.node_id),
+                NodeSortBy::Url => a
+                    .network_address
+                    .0
+                    .to_lowercase()
+                    .cmp(&b.network_address.0.to_lowercase()),
+            };
+
+            storage_nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
+
+            if let Some(ref mut nodes) = next_storage_nodes {
+                nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
+            }
+        }
 
         let metadata_storage_size =
             (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
@@ -699,6 +724,8 @@ impl NodeHealthOutput {
 /// The output of the `walrus health` command.
 pub(crate) struct ServiceHealthInfoOutput {
     pub health_info: Vec<NodeHealthOutput>,
+    pub sort_by: Option<HealthSortBy>,
+    pub desc: bool,
 }
 
 impl ServiceHealthInfoOutput {
@@ -706,6 +733,8 @@ impl ServiceHealthInfoOutput {
     pub async fn new_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         detail: bool,
+        sort_by: Option<HealthSortBy>,
+        desc: bool,
     ) -> anyhow::Result<Self> {
         let health_info = stream::iter(nodes)
             .map(|node| NodeHealthOutput::new(node, detail))
@@ -713,6 +742,10 @@ impl ServiceHealthInfoOutput {
             .collect::<Vec<_>>()
             .await;
 
-        Ok(Self { health_info })
+        Ok(Self {
+            health_info,
+            sort_by,
+            desc,
+        })
     }
 }

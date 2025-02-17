@@ -20,6 +20,7 @@ use crate::client::{
         format_event_id,
         success,
         thousands_separator,
+        HealthSortBy,
         HumanReadableBytes,
         HumanReadableFrost,
         HumanReadableMist,
@@ -861,18 +862,49 @@ impl CliOutput for ServiceHealthInfoOutput {
         let mut owned_shards = 0;
         let mut read_only_shards = 0;
         let mut node_statuses = std::collections::HashMap::new();
-        let mut error_nodes = Vec::new();
-
         let mut table = create_node_health_table();
-        // Collect summary information while building the table
-        for (node_idx, node) in self.health_info.iter().enumerate() {
+
+        // Create sorted indices based on self.sort_by
+        let mut indices: Vec<usize> = (0..self.health_info.len()).collect();
+        indices.sort_by(|&a, &b| {
+            let node_a = &self.health_info[a];
+            let node_b = &self.health_info[b];
+            match &self.sort_by {
+                Some(HealthSortBy::NodeName) => node_a
+                    .node_name
+                    .to_lowercase()
+                    .cmp(&node_b.node_name.to_lowercase()),
+                Some(HealthSortBy::NodeId) => node_a.node_id.cmp(&node_b.node_id),
+                Some(HealthSortBy::NodeUrl) => node_a
+                    .node_url
+                    .to_lowercase()
+                    .cmp(&node_b.node_url.to_lowercase()),
+                Some(HealthSortBy::Status) | None => {
+                    match (&node_a.health_info, &node_b.health_info) {
+                        (Ok(info_a), Ok(info_b)) => info_a
+                            .node_status
+                            .to_lowercase()
+                            .cmp(&info_b.node_status.to_lowercase()),
+                        (Err(err_a), Err(err_b)) => err_a.cmp(err_b),
+                        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+                    }
+                }
+            }
+        });
+
+        if self.sort_by.is_some() && self.desc {
+            indices.reverse();
+        }
+
+        // Collect summary information while building the table using sorted indices
+        for &idx in &indices {
+            let node = &self.health_info[idx];
             match &node.health_info {
                 Err(_) => {
                     *node_statuses.entry("Error".to_string()).or_insert(0) += 1;
-                    error_nodes.push(node);
                 }
                 Ok(health_info) => {
-                    node.print_cli_output();
                     owned_shards += health_info.shard_summary.owned;
                     read_only_shards += health_info.shard_summary.read_only;
                     *node_statuses
@@ -880,7 +912,8 @@ impl CliOutput for ServiceHealthInfoOutput {
                         .or_insert(0) += 1;
                 }
             }
-            add_node_health_to_table(&mut table, node, node_idx);
+            node.print_cli_output();
+            add_node_health_to_table(&mut table, node, idx);
         }
         if table.len() > 3 {
             println!("\n{}\n", "Summary".bold().walrus_purple());
@@ -892,14 +925,6 @@ impl CliOutput for ServiceHealthInfoOutput {
             println!("\n{}", "Node Status Breakdown".bold().walrus_purple());
             for (status, count) in &node_statuses {
                 println!("{}: {}", status, count);
-            }
-        }
-
-        // Print error nodes summary if there are any errors
-        if !error_nodes.is_empty() {
-            println!("\n{}", "Nodes with Errors".bold().walrus_purple());
-            for node in error_nodes {
-                node.print_cli_output();
             }
         }
     }

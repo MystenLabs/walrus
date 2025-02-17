@@ -26,7 +26,16 @@ use super::{default_configuration_paths, Blocklist, Client, Config};
 mod args;
 mod cli_output;
 mod runner;
-pub use args::{App, CliCommands, Commands, DaemonCommands, NodeSelection, PublisherArgs};
+pub use args::{
+    App,
+    CliCommands,
+    Commands,
+    DaemonCommands,
+    HealthSortBy,
+    NodeSelection,
+    NodeSortBy,
+    PublisherArgs,
+};
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;
 

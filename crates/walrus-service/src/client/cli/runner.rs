@@ -48,6 +48,7 @@ use super::args::{
     EpochArg,
     FileOrBlobId,
     FileOrBlobIdOrObjectId,
+    HealthSortBy,
     InfoCommands,
     NodeSelection,
     PublisherArgs,
@@ -186,8 +187,13 @@ impl ClientCommandRunner {
             CliCommands::Health {
                 node_selection,
                 detail,
+                sort_by,
+                desc,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.health(rpc_url, node_selection, detail).await,
+            } => {
+                self.health(rpc_url, node_selection, detail, sort_by, desc)
+                    .await
+            }
 
             CliCommands::BlobId {
                 file,
@@ -643,12 +649,14 @@ impl ClientCommandRunner {
         .await?;
 
         match command {
-            None => InfoOutput::get_system_info(&sui_read_client, false)
+            None => InfoOutput::get_system_info(&sui_read_client, false, None, false)
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::All) => InfoOutput::get_system_info(&sui_read_client, true)
-                .await?
-                .print_output(self.json),
+            Some(InfoCommands::All { sort_by, desc }) => {
+                InfoOutput::get_system_info(&sui_read_client, true, sort_by, desc)
+                    .await?
+                    .print_output(self.json)
+            }
             Some(InfoCommands::Epoch) => InfoEpochOutput::get_epoch_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
@@ -661,8 +669,8 @@ impl ClientCommandRunner {
             Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::Committee) => {
-                InfoCommitteeOutput::get_committee_info(&sui_read_client)
+            Some(InfoCommands::Committee { sort_by, desc }) => {
+                InfoCommitteeOutput::get_committee_info(&sui_read_client, sort_by, desc)
                     .await?
                     .print_output(self.json)
             }
@@ -677,6 +685,8 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         node_selection: NodeSelection,
         detail: bool,
+        sort_by: Option<HealthSortBy>,
+        desc: bool,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
         let config = self.config?;
@@ -691,6 +701,8 @@ impl ClientCommandRunner {
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             detail,
+            sort_by,
+            desc,
         )
         .await?
         .print_output(self.json)
