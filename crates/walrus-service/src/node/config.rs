@@ -70,6 +70,7 @@ impl Default for ConfigSynchronizerConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct StorageNodeConfig {
     /// The name of the storage node that is set in the staking pool on chain.
+    #[serde(deserialize_with = "utils::deserialize_node_name")]
     pub name: String,
     /// Directory in which to persist the database.
     #[serde(deserialize_with = "utils::resolve_home_dir")]

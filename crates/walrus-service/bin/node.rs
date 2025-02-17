@@ -49,6 +49,7 @@ use walrus_service::{
         EnableMetricsPush,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
+        MAX_NODE_NAME_LENGTH,
     },
     SyncNodeConfigError,
 };
@@ -823,6 +824,13 @@ mod commands {
             !public_host.contains(':'),
             "DNS names must not contain ':'; to specify a port different from the default, use the \
                 '--public-port' option."
+        );
+
+        // Check that the name does not exceed the maximum length.
+        ensure!(
+            name.len() <= MAX_NODE_NAME_LENGTH,
+            "name must not exceed {} characters",
+            MAX_NODE_NAME_LENGTH
         );
 
         let system_object = system_object.unwrap_or_else(|| {
