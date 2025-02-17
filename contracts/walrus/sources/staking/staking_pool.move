@@ -419,7 +419,9 @@ public(package) fun advance_epoch(
 
     // split the commission from the rewards
     let total_rewards = rewards.value();
-    let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / (N_BASIS_POINTS as u64));
+    let commission = rewards.split(
+        total_rewards * (pool.commission_rate as u64) / (N_BASIS_POINTS as u64),
+    );
     pool.commission.join(commission);
 
     // add rewards to the pool and update the `wal_balance`
