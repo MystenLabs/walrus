@@ -3,7 +3,7 @@
 
 //! A client daemon who serves a set of simple HTTP endpoints to store, encode, or read blobs.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 
 use axum::{
     body::HttpBody,
@@ -25,8 +25,8 @@ use reqwest::StatusCode;
 use routes::{
     PublisherQuery,
     BLOB_GET_ENDPOINT,
+    BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
-    BLOB_WITH_ATTRIBUTE_GET_ENDPOINT,
     STATUS_ENDPOINT,
 };
 use sui_types::base_types::ObjectID;
@@ -47,7 +47,7 @@ use walrus_sui::{
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
-    client::{config::AuthConfig, daemon::auth::verify_jwt_claim},
+    client::{cli::PublisherArgs, config::AuthConfig, daemon::auth::verify_jwt_claim},
     common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
 };
 
@@ -136,12 +136,19 @@ pub struct ClientDaemon<T> {
     network_address: SocketAddr,
     metrics: HttpMetrics,
     router: Router<Arc<T>>,
+    allowed_headers: Option<Arc<HashSet<String>>>,
 }
 
 impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Constructs a new [`ClientDaemon`] with aggregator functionality.
-    pub fn new_aggregator(client: T, network_address: SocketAddr, registry: &Registry) -> Self {
-        Self::new::<AggregatorApiDoc>(client, network_address, registry).with_aggregator()
+    pub fn new_aggregator(
+        client: T,
+        network_address: SocketAddr,
+        registry: &Registry,
+        allowed_headers: Option<Vec<String>>,
+    ) -> Self {
+        Self::new::<AggregatorApiDoc>(client, network_address, registry)
+            .with_aggregator(allowed_headers)
     }
 
     /// Creates a new [`ClientDaemon`], which serves requests at the provided `network_address` and
@@ -157,19 +164,20 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             router: Router::new()
                 .merge(Redoc::with_url(routes::API_DOCS, A::openapi()))
                 .route(STATUS_ENDPOINT, get(routes::status)),
+            allowed_headers: None,
         }
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
-    fn with_aggregator(mut self) -> Self {
+    fn with_aggregator(mut self, allowed_headers: Option<Vec<String>>) -> Self {
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
             .route(
-                BLOB_WITH_ATTRIBUTE_GET_ENDPOINT,
+                BLOB_OBJECT_GET_ENDPOINT,
                 get(routes::get_blob_with_attribute),
             );
-        self
+        self.with_allowed_headers(allowed_headers)
     }
 
     /// Runs the daemon.
@@ -222,19 +230,16 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
     pub fn new_daemon(
         client: T,
         auth_config: Option<AuthConfig>,
-        network_address: SocketAddr,
-        max_body_limit: usize,
         registry: &Registry,
-        max_request_buffer_size: usize,
-        max_concurrent_requests: usize,
+        publisher_args: &PublisherArgs,
     ) -> Self {
-        Self::new::<DaemonApiDoc>(client, network_address, registry)
-            .with_aggregator()
+        Self::new::<DaemonApiDoc>(client, publisher_args.daemon_args.bind_address, registry)
+            .with_aggregator(publisher_args.daemon_args.allowed_headers.clone())
             .with_publisher(
                 auth_config,
-                max_body_limit,
-                max_request_buffer_size,
-                max_concurrent_requests,
+                publisher_args.max_body_size_kib,
+                publisher_args.max_request_buffer_size,
+                publisher_args.max_concurrent_requests,
             )
     }
 
@@ -282,6 +287,14 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                     .options(routes::store_blob_options),
             );
         }
+        self
+    }
+}
+
+impl<T> ClientDaemon<T> {
+    fn with_allowed_headers(mut self, allowed_headers: Option<Vec<String>>) -> Self {
+        self.allowed_headers =
+            allowed_headers.map(|headers| Arc::new(headers.into_iter().collect()));
         self
     }
 }

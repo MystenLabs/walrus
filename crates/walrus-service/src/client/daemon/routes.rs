@@ -41,6 +41,7 @@ use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
     client::BlobPersistence,
     types::move_structs::BlobWithAttribute,
+    ObjectIdSchema,
     SuiAddressSchema,
 };
 
@@ -66,7 +67,7 @@ pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
 /// The path to get the metadata with the given blob ID.
-pub const BLOB_WITH_ATTRIBUTE_GET_ENDPOINT: &str = "/v1/blobs/{blob_object_id}/with-attribute";
+pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 
@@ -145,8 +146,8 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
 #[utoipa::path(
     get,
-    path = BLOB_WITH_ATTRIBUTE_GET_ENDPOINT,
-    params(("blob_object_id" = BlobId,)),
+    path = BLOB_OBJECT_GET_ENDPOINT,
+    params(("blob_object_id" = ObjectIdSchema,)),
     responses(
         (
             status = 200,

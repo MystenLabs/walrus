@@ -787,9 +787,14 @@ impl ClientCommandRunner {
             &daemon_args.blocklist,
         )
         .await?;
-        ClientDaemon::new_aggregator(client, daemon_args.bind_address, registry)
-            .run()
-            .await?;
+        ClientDaemon::new_aggregator(
+            client,
+            daemon_args.bind_address,
+            registry,
+            daemon_args.allowed_headers,
+        )
+        .run()
+        .await?;
         Ok(())
     }
 
@@ -804,17 +809,9 @@ impl ClientCommandRunner {
             &args.daemon_args.blocklist,
         )
         .await?;
-        ClientDaemon::new_daemon(
-            client,
-            auth_config,
-            args.daemon_args.bind_address,
-            args.max_body_size(),
-            registry,
-            args.max_request_buffer_size,
-            args.max_concurrent_requests,
-        )
-        .run()
-        .await?;
+        ClientDaemon::new_daemon(client, auth_config, registry, &args)
+            .run()
+            .await?;
         Ok(())
     }
 

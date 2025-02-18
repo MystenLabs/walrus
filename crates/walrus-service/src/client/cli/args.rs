@@ -744,6 +744,15 @@ pub struct DaemonArgs {
     #[clap(long)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub(crate) blocklist: Option<PathBuf>,
+    /// Allowed headers for the daemon.
+    ///
+    /// This defines the allow-list of headers. It is currently used for the
+    /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
+    /// allowed headers if the specified header names are present in the BlobAttribute associated
+    /// with the requested blob.
+    #[clap(long)]
+    #[serde(default)]
+    pub(crate) allowed_headers: Option<Vec<String>>,
 }
 
 #[serde_as]
@@ -1212,6 +1221,7 @@ mod tests {
                     bind_address: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
                     metrics_address: default::metrics_address(),
                     blocklist: None,
+                    allowed_headers: None,
                 },
                 max_body_size_kib: default::max_body_size_kib(),
                 max_request_buffer_size: default::max_request_buffer_size(),
