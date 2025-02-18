@@ -61,7 +61,7 @@ pub const STATUS_ENDPOINT: &str = "/status";
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
-/// The path to get the metadata with the given blob ID.
+/// The path to get the blob and its attribute with the given object ID.
 pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
@@ -135,9 +135,10 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
 
 /// Retrieve a Walrus blob with its associated attribute.
 ///
-/// Reconstructs the blob identified by the provided blob object ID from Sui and then reconstructs
-/// the blob from Walrus by the blob_id in the object and returns its binary data along with
-/// attribute information in the response headers.
+/// First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
+/// blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
+/// includes the binary data along with any attribute headers from the metadata that are present in
+/// the configured allowed_headers set.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
 #[utoipa::path(
     get,
@@ -146,22 +147,9 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     responses(
         (
             status = 200,
-            description = "The blob was reconstructed successfully with attribute headers",
-            body = [u8],
-            headers(
-                ("content-disposition" = String,
-                    description = "Content disposition header if provided in attribute"),
-                ("content-encoding" = String,
-                    description = "Content encoding header if provided in attribute"),
-                ("content-language" = String,
-                    description = "Content language header if provided in attribute"),
-                ("content-location" = String,
-                    description = "Content location header if provided in attribute"),
-                ("content-type" = String,
-                    description = "Content type header if provided in attribute"),
-                ("link" = String,
-                    description = "Link header if provided in attribute")
-            )
+            description = "The blob was reconstructed successfully. Any attribute headers present \
+                        in the allowed_headers configuration will be included in the response.",
+            body = [u8]
         ),
         GetBlobError,
     ),

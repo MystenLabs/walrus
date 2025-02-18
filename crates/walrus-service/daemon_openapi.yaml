@@ -87,9 +87,10 @@ paths:
       - routes
       summary: Retrieve a Walrus blob with its associated attribute.
       description: |-
-        Reconstructs the blob identified by the provided blob object ID from Sui and then reconstructs
-        the blob from Walrus by the blob_id in the object and returns its binary data along with
-        attribute information in the response headers.
+        First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
+        blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
+        includes the binary data along with any attribute headers from the metadata that are present in
+        the configured allowed_headers set.
       operationId: get_blob_with_attribute
       parameters:
       - name: blob_object_id
@@ -99,32 +100,7 @@ paths:
           $ref: '#/components/schemas/ObjectID'
       responses:
         '200':
-          description: The blob was reconstructed successfully with attribute headers
-          headers:
-            content-disposition:
-              schema:
-                type: string
-              description: Content disposition header if provided in attribute
-            content-encoding:
-              schema:
-                type: string
-              description: Content encoding header if provided in attribute
-            content-language:
-              schema:
-                type: string
-              description: Content language header if provided in attribute
-            content-location:
-              schema:
-                type: string
-              description: Content location header if provided in attribute
-            content-type:
-              schema:
-                type: string
-              description: Content type header if provided in attribute
-            link:
-              schema:
-                type: string
-              description: Link header if provided in attribute
+          description: The blob was reconstructed successfully. Any attribute headers present in the allowed_headers configuration will be included in the response.
           content:
             application/octet-stream:
               schema:
