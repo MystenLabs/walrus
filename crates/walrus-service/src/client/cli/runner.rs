@@ -53,6 +53,7 @@ use super::args::{
     NodeSelection,
     PublisherArgs,
     RpcArg,
+    SortBy,
     UserConfirmation,
 };
 use crate::{
@@ -187,13 +188,9 @@ impl ClientCommandRunner {
             CliCommands::Health {
                 node_selection,
                 detail,
-                sort_by,
-                desc,
+                sort,
                 rpc_arg: RpcArg { rpc_url },
-            } => {
-                self.health(rpc_url, node_selection, detail, sort_by, desc)
-                    .await
-            }
+            } => self.health(rpc_url, node_selection, detail, sort).await,
 
             CliCommands::BlobId {
                 file,
@@ -649,11 +646,11 @@ impl ClientCommandRunner {
         .await?;
 
         match command {
-            None => InfoOutput::get_system_info(&sui_read_client, false, None, false)
+            None => InfoOutput::get_system_info(&sui_read_client, false, SortBy::default())
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::All { sort_by, desc }) => {
-                InfoOutput::get_system_info(&sui_read_client, true, sort_by, desc)
+            Some(InfoCommands::All { sort }) => {
+                InfoOutput::get_system_info(&sui_read_client, true, sort)
                     .await?
                     .print_output(self.json)
             }
@@ -669,8 +666,8 @@ impl ClientCommandRunner {
             Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::Committee { sort_by, desc }) => {
-                InfoCommitteeOutput::get_committee_info(&sui_read_client, sort_by, desc)
+            Some(InfoCommands::Committee { sort }) => {
+                InfoCommitteeOutput::get_committee_info(&sui_read_client, sort)
                     .await?
                     .print_output(self.json)
             }
@@ -685,8 +682,7 @@ impl ClientCommandRunner {
         rpc_url: Option<String>,
         node_selection: NodeSelection,
         detail: bool,
-        sort_by: Option<HealthSortBy>,
-        desc: bool,
+        sort: SortBy<HealthSortBy>,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
         let config = self.config?;
@@ -701,8 +697,7 @@ impl ClientCommandRunner {
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             detail,
-            sort_by,
-            desc,
+            sort,
         )
         .await?
         .print_output(self.json)

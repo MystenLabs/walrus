@@ -20,7 +20,6 @@ use crate::client::{
         format_event_id,
         success,
         thousands_separator,
-        HealthSortBy,
         HumanReadableBytes,
         HumanReadableFrost,
         HumanReadableMist,
@@ -864,42 +863,8 @@ impl CliOutput for ServiceHealthInfoOutput {
         let mut node_statuses = std::collections::HashMap::new();
         let mut table = create_node_health_table();
 
-        // Create sorted indices based on self.sort_by
-        let mut indices: Vec<usize> = (0..self.health_info.len()).collect();
-        indices.sort_by(|&a, &b| {
-            let node_a = &self.health_info[a];
-            let node_b = &self.health_info[b];
-            match &self.sort_by {
-                Some(HealthSortBy::NodeName) => node_a
-                    .node_name
-                    .to_lowercase()
-                    .cmp(&node_b.node_name.to_lowercase()),
-                Some(HealthSortBy::NodeId) => node_a.node_id.cmp(&node_b.node_id),
-                Some(HealthSortBy::NodeUrl) => node_a
-                    .node_url
-                    .to_lowercase()
-                    .cmp(&node_b.node_url.to_lowercase()),
-                Some(HealthSortBy::Status) | None => {
-                    match (&node_a.health_info, &node_b.health_info) {
-                        (Ok(info_a), Ok(info_b)) => info_a
-                            .node_status
-                            .to_lowercase()
-                            .cmp(&info_b.node_status.to_lowercase()),
-                        (Err(err_a), Err(err_b)) => err_a.cmp(err_b),
-                        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
-                        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
-                    }
-                }
-            }
-        });
-
-        if self.sort_by.is_some() && self.desc {
-            indices.reverse();
-        }
-
-        // Collect summary information while building the table using sorted indices
-        for &idx in &indices {
-            let node = &self.health_info[idx];
+        // Collect summary information while building the table
+        for (idx, node) in self.health_info.iter().enumerate() {
             match &node.health_info {
                 Err(_) => {
                     *node_statuses.entry("Error".to_string()).or_insert(0) += 1;

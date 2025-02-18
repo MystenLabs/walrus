@@ -295,16 +295,10 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         detail: bool,
-        /// Sort the output by the specified field.
-        ///
-        /// By default, the output is sorted by node status.
-        #[clap(long, value_enum)]
-        #[serde(default)]
-        sort_by: Option<HealthSortBy>,
-        /// Sort in descending order.
-        #[clap(long, action)]
-        #[serde(default)]
-        desc: bool,
+        /// Sort configuration
+        #[clap(flatten)]
+        #[serde(flatten)]
+        sort: SortBy<HealthSortBy>,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -522,16 +516,10 @@ pub enum CliCommands {
 pub enum InfoCommands {
     /// Print all information listed below.
     All {
-        /// Sort the committee information by the specified field.
-        ///
-        /// By default, the output is sorted by name.
-        #[clap(long, value_enum)]
-        #[serde(default)]
-        sort_by: Option<NodeSortBy>,
-        /// Sort in descending order.
-        #[clap(long, action)]
-        #[serde(default)]
-        desc: bool,
+        /// Sort configuration for committee information
+        #[clap(flatten)]
+        #[serde(flatten)]
+        sort: SortBy<NodeSortBy>,
     },
     /// Print epoch information.
     Epoch,
@@ -545,16 +533,10 @@ pub enum InfoCommands {
     Bft,
     /// Print committee information.
     Committee {
-        /// Sort the committee information by the specified field.
-        ///
-        /// By default, the output is sorted by name.
-        #[clap(long, value_enum)]
-        #[serde(default)]
-        sort_by: Option<NodeSortBy>,
-        /// Sort in descending order.
-        #[clap(long, action)]
-        #[serde(default)]
-        desc: bool,
+        /// Sort configuration
+        #[clap(flatten)]
+        #[serde(flatten)]
+        sort: SortBy<NodeSortBy>,
     },
 }
 
@@ -1324,37 +1306,24 @@ impl UserConfirmation {
 }
 
 /// Sort options for node information display
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum NodeSortBy {
     /// Sort by node ID
     Id,
     /// Sort by node name
+    #[default]
     Name,
     /// Sort by node URL
     Url,
 }
 
-impl std::str::FromStr for NodeSortBy {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "id" => Ok(Self::Id),
-            "name" => Ok(Self::Name),
-            "url" => Ok(Self::Url),
-            _ => Err(anyhow!(
-                "invalid sort option; valid options are: id, name, url"
-            )),
-        }
-    }
-}
-
 /// Sort options for health information display
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum HealthSortBy {
     /// Sort by node status
+    #[default]
     Status,
     /// Sort by node ID
     NodeId,
@@ -1364,18 +1333,26 @@ pub enum HealthSortBy {
     NodeUrl,
 }
 
-impl std::str::FromStr for HealthSortBy {
-    type Err = anyhow::Error;
+/// Generic sort configuration that can be used with any ValueEnum type
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, clap::Args)]
+#[serde(rename_all = "camelCase")]
+pub struct SortBy<T: clap::ValueEnum + Send + Sync + Default + 'static> {
+    /// Field to sort by
+    #[clap(long, value_enum)]
+    #[serde(default)]
+    pub sort_by: Option<T>,
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "status" => Ok(Self::Status),
-            "node-id" => Ok(Self::NodeId),
-            "node-name" => Ok(Self::NodeName),
-            "node-url" => Ok(Self::NodeUrl),
-            _ => Err(anyhow!(
-                "invalid sort option; valid options are: status, node-id, node-name"
-            )),
+    /// Sort in descending order
+    #[clap(long, action)]
+    #[serde(default)]
+    pub desc: bool,
+}
+
+impl<T: clap::ValueEnum + Send + Sync + Default + 'static> Default for SortBy<T> {
+    fn default() -> Self {
+        Self {
+            sort_by: Some(T::default()),
+            desc: false,
         }
     }
 }

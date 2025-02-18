@@ -35,6 +35,7 @@ pub use args::{
     NodeSelection,
     NodeSortBy,
     PublisherArgs,
+    SortBy,
 };
 pub use cli_output::CliOutput;
 pub use runner::ClientCommandRunner;

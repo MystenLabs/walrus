@@ -60,7 +60,7 @@ use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
 };
-use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy};
+use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -273,15 +273,14 @@ impl InfoOutput {
     pub async fn get_system_info(
         sui_read_client: &impl ReadClient,
         dev: bool,
-        sort_by: Option<NodeSortBy>,
-        desc: bool,
+        sort: SortBy<NodeSortBy>,
     ) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
         let committee_info = if dev {
-            Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort_by, desc).await?)
+            Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort).await?)
         } else {
             None
         };
@@ -440,8 +439,7 @@ pub(crate) struct InfoCommitteeOutput {
 impl InfoCommitteeOutput {
     pub async fn get_committee_info(
         sui_read_client: &impl ReadClient,
-        sort_by: Option<NodeSortBy>,
-        desc: bool,
+        sort: SortBy<NodeSortBy>,
     ) -> anyhow::Result<Self> {
         let committee = sui_read_client.current_committee().await?;
         let next_committee = sui_read_client.next_committee().await?;
@@ -462,7 +460,7 @@ impl InfoCommitteeOutput {
             .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
 
         // Sort nodes if sort_by is specified
-        let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort_by {
+        let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort.sort_by {
             Some(NodeSortBy::Id) => a.node_id.cmp(&b.node_id),
             Some(NodeSortBy::Url) => a
                 .network_address
@@ -473,10 +471,10 @@ impl InfoCommitteeOutput {
             _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         };
 
-        storage_nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
+        storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
 
         if let Some(ref mut nodes) = next_storage_nodes {
-            nodes.sort_by(|a, b| if desc { cmp(b, a) } else { cmp(a, b) });
+            nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
         }
 
         let metadata_storage_size =
@@ -723,8 +721,6 @@ impl NodeHealthOutput {
 /// The output of the `walrus health` command.
 pub(crate) struct ServiceHealthInfoOutput {
     pub health_info: Vec<NodeHealthOutput>,
-    pub sort_by: Option<HealthSortBy>,
-    pub desc: bool,
 }
 
 impl ServiceHealthInfoOutput {
@@ -732,19 +728,82 @@ impl ServiceHealthInfoOutput {
     pub async fn new_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         detail: bool,
-        sort_by: Option<HealthSortBy>,
-        desc: bool,
+        sort: SortBy<HealthSortBy>,
     ) -> anyhow::Result<Self> {
-        let health_info = stream::iter(nodes)
+        let mut health_info = stream::iter(nodes)
             .map(|node| NodeHealthOutput::new(node, detail))
             .buffer_unordered(10)
             .collect::<Vec<_>>()
             .await;
 
-        Ok(Self {
-            health_info,
-            sort_by,
-            desc,
-        })
+        // Sort health_info directly based on sort_by
+        health_info.sort_by(|a, b| match sort.sort_by {
+            Some(HealthSortBy::NodeName) => a.cmp_by_name(b),
+            Some(HealthSortBy::NodeId) => a.cmp_by_id(b),
+            Some(HealthSortBy::NodeUrl) => a.cmp_by_url(b),
+            Some(HealthSortBy::Status) => a.cmp_by_status(b),
+            None => a.cmp_by_status(b),
+        });
+
+        if sort.desc {
+            health_info.reverse();
+        }
+
+        Ok(Self { health_info })
+    }
+}
+
+impl Ord for NodeHealthOutput {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Default to Status comparison
+        self.cmp_by_status(other)
+    }
+}
+
+// Required for Ord
+impl PartialOrd for NodeHealthOutput {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Required for Ord/PartialOrd
+impl PartialEq for NodeHealthOutput {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == std::cmp::Ordering::Equal
+    }
+}
+
+// Required for PartialEq
+impl Eq for NodeHealthOutput {}
+
+impl NodeHealthOutput {
+    pub fn cmp_by_name(&self, other: &Self) -> std::cmp::Ordering {
+        self.node_name
+            .to_lowercase()
+            .cmp(&other.node_name.to_lowercase())
+    }
+
+    pub fn cmp_by_id(&self, other: &Self) -> std::cmp::Ordering {
+        self.node_id.cmp(&other.node_id)
+    }
+
+    pub fn cmp_by_url(&self, other: &Self) -> std::cmp::Ordering {
+        self.node_url
+            .to_lowercase()
+            .cmp(&other.node_url.to_lowercase())
+    }
+
+    pub fn cmp_by_status(&self, other: &Self) -> std::cmp::Ordering {
+        match (&self.health_info, &other.health_info) {
+            (Ok(info_a), Ok(info_b)) => info_a
+                .node_status
+                .to_lowercase()
+                .cmp(&info_b.node_status.to_lowercase())
+                .then_with(|| self.cmp_by_name(other)),
+            (Err(err_a), Err(err_b)) => err_a.cmp(err_b).then_with(|| self.cmp_by_name(other)),
+            (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+            (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        }
     }
 }
