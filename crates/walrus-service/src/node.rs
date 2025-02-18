@@ -1127,7 +1127,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        #[cfg(not(test))]
+        // #[cfg(not(test))]
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }

@@ -361,7 +361,7 @@ fn main() -> anyhow::Result<()> {
             let result = commands::run(
                 load_from_yaml(&config_path)?,
                 cleanup_storage,
-                Some(Arc::new(StorageNodeConfigLoader::new(config_path.clone()))),
+                Arc::new(StorageNodeConfigLoader::new(config_path.clone())),
                 ignore_sync_failures,
             );
 
@@ -465,7 +465,7 @@ mod commands {
     pub(super) fn run(
         mut config: StorageNodeConfig,
         cleanup_storage: bool,
-        config_loader: Option<Arc<dyn ConfigLoader>>,
+        config_loader: Arc<dyn ConfigLoader>,
         ignore_sync_failures: bool,
     ) -> anyhow::Result<()> {
         if cleanup_storage {
@@ -565,7 +565,7 @@ mod commands {
             exit_notifier,
             event_manager,
             cancel_token.child_token(),
-            config_loader,
+            Some(config_loader),
             ignore_sync_failures,
         )?;
 

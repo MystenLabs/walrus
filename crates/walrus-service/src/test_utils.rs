@@ -369,7 +369,7 @@ impl SimStorageNodeHandle {
                             Self::build_and_run_node(
                                 config.clone(),
                                 num_checkpoints_per_blob,
-                                Some(config_loader),
+                                config_loader,
                                 cancel_token.clone(),
                             )
                             .await?;
@@ -449,7 +449,7 @@ impl SimStorageNodeHandle {
     async fn build_and_run_node(
         config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
-        config_loader: Option<Arc<dyn ConfigLoader>>,
+        config_loader: Arc<dyn ConfigLoader>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
@@ -522,7 +522,7 @@ impl SimStorageNodeHandle {
         if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
             builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
         };
-        builder = builder.with_config_loader(config_loader);
+        builder = builder.with_config_loader(Some(config_loader));
         let node = builder
             .with_system_event_manager(event_provider)
             .build(&config, metrics_registry.clone())
