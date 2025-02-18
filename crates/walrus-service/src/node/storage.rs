@@ -622,16 +622,10 @@ impl Storage {
     #[cfg(test)]
     pub fn clear_metadata_in_test(&self) -> Result<(), TypedStoreError> {
         tracing::info!("clear metadata in test");
-        let iter = self.metadata.safe_iter();
-        let mut purged_value = Vec::new();
-        for iter_result in iter {
-            let (blob_id, _) = iter_result?;
-            tracing::debug!(?blob_id, "purge blob metadata");
-            purged_value.push(blob_id);
-        }
-        let mut batch = self.metadata.batch();
-        batch.delete_batch(&self.metadata, purged_value)?;
-        batch.write()?;
+        self.metadata.schedule_delete_all()?;
+        self.metadata.flush()?;
+        self.metadata
+            .compact_range(&BlobId([0; 32]), &BlobId([255; 32]))?;
         Ok(())
     }
 }
