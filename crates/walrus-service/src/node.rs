@@ -4116,7 +4116,7 @@ mod tests {
         G: FnMut(usize) -> Epoch,
         H: FnMut(usize) -> bool,
     {
-        let blobs: Vec<[u8; 32]> = (1..(blob_count + 1)).map(|i| [i; 32]).collect();
+        let blobs: Vec<[u8; 32]> = (1..=blob_count).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, blob_details, event_senders) =
             cluster_with_partially_stored_blobs_in_shard_0(

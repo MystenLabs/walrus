@@ -138,7 +138,8 @@ impl Drop for BlobRetirementNotify {
             *ref_count
         };
 
-        // If ref count is 0, remove from BlobRetirementNotifier.
+        // If ref count is 1, remove from BlobRetirementNotifier. The only ref is the one stored in
+        // the HashMap.
         // Note that the blob may have already being dropped after notify_waiters is called.
         if new_ref_count == 1 {
             self.node_wide_blob_retirement_notifier
