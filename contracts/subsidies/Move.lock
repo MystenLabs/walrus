@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "89D2D6F2BEB527A2DB9C3565426EE553F7211B7A0C50499D4C5647CDFD55DA4F"
+manifest_digest = "A5FA51572F8A75830CA98F654F19DF4FEBDD51F8BB10A50E506DA7B04A25AC41"
 deps_digest = "060AD7E57DFB13104F21BE5F5C3759D03F0553FC3229247D9A7A6B45F50D03A3"
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -12,11 +12,11 @@ dependencies = [
 
 [[move.package]]
 id = "MoveStdlib"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.42.1", subdir = "crates/sui-framework/packages/move-stdlib" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.43.0", subdir = "crates/sui-framework/packages/move-stdlib" }
 
 [[move.package]]
 id = "Sui"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.42.1", subdir = "crates/sui-framework/packages/sui-framework" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.43.0", subdir = "crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -31,25 +31,15 @@ dependencies = [
 ]
 
 [[move.package]]
-id = "WAL_exchange"
-source = { local = "../wal_exchange" }
-
-dependencies = [
-  { id = "Sui", name = "Sui" },
-  { id = "WAL", name = "WAL" },
-]
-
-[[move.package]]
 id = "Walrus"
 source = { local = "../walrus" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
   { id = "WAL", name = "WAL" },
-  { id = "WAL_exchange", name = "WAL_exchange" },
 ]
 
 [move.toolchain-version]
-compiler-version = "1.42.3"
+compiler-version = "1.43.0"
 edition = "2024.beta"
 flavor = "sui"

@@ -288,7 +288,7 @@ impl RetriableSuiClient {
                     let page = retry_rpc_errors(self.get_strategy(), || async {
                         self.sui_client
                             .coin_read_api()
-                            .get_coins(owner, coin_type.clone(), cursor, Some(100))
+                            .get_coins(owner, coin_type.clone(), cursor.clone(), Some(100))
                             .await
                     })
                     .await
