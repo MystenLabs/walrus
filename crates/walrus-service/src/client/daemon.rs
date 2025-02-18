@@ -136,7 +136,7 @@ pub struct ClientDaemon<T> {
     network_address: SocketAddr,
     metrics: HttpMetrics,
     router: Router<Arc<T>>,
-    allowed_headers: Option<Arc<HashSet<String>>>,
+    allowed_headers: Arc<HashSet<String>>,
 }
 
 impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
@@ -164,20 +164,22 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
             router: Router::new()
                 .merge(Redoc::with_url(routes::API_DOCS, A::openapi()))
                 .route(STATUS_ENDPOINT, get(routes::status)),
-            allowed_headers: None,
+            allowed_headers: Arc::new(HashSet::new()),
         }
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
     fn with_aggregator(mut self, allowed_headers: Option<Vec<String>>) -> Self {
+        self.with_allowed_headers(allowed_headers);
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
             .route(
                 BLOB_OBJECT_GET_ENDPOINT,
-                get(routes::get_blob_with_attribute),
+                get(routes::get_blob_with_attribute)
+                    .with_state((self.client.clone(), self.allowed_headers.clone())),
             );
-        self.with_allowed_headers(allowed_headers)
+        self
     }
 
     /// Runs the daemon.
@@ -292,10 +294,26 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
 }
 
 impl<T> ClientDaemon<T> {
-    fn with_allowed_headers(mut self, allowed_headers: Option<Vec<String>>) -> Self {
-        self.allowed_headers =
-            allowed_headers.map(|headers| Arc::new(headers.into_iter().collect()));
-        self
+    fn default_allowed_headers() -> Arc<HashSet<String>> {
+        Arc::new(
+            [
+                "content-type".to_string(),
+                "authorization".to_string(),
+                "content-disposition".to_string(),
+                "content-encoding".to_string(),
+                "content-language".to_string(),
+                "content-location".to_string(),
+                "link".to_string(),
+            ]
+            .into_iter()
+            .collect(),
+        )
+    }
+
+    fn with_allowed_headers(&mut self, allowed_headers: Option<Vec<String>>) {
+        self.allowed_headers = allowed_headers
+            .map(|headers| Arc::new(headers.into_iter().collect()))
+            .unwrap_or_else(Self::default_allowed_headers);
     }
 }
 

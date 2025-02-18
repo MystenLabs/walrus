@@ -1,13 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{collections::HashSet, str::FromStr, sync::Arc};
 
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -22,13 +22,8 @@ use reqwest::header::{
     ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_MAX_AGE,
     CACHE_CONTROL,
-    CONTENT_DISPOSITION,
-    CONTENT_ENCODING,
-    CONTENT_LANGUAGE,
-    CONTENT_LOCATION,
     CONTENT_TYPE,
     ETAG,
-    LINK,
     X_CONTENT_TYPE_OPTIONS,
 };
 use serde::Deserialize;
@@ -172,8 +167,8 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     ),
 )]
 pub(super) async fn get_blob_with_attribute<T: WalrusReadClient>(
+    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
     request_headers: HeaderMap,
-    State(client): State<Arc<T>>,
     Path(blob_object_id): Path<ObjectID>,
 ) -> Response {
     tracing::debug!("starting to read blob with attribute");
@@ -190,22 +185,13 @@ pub(super) async fn get_blob_with_attribute<T: WalrusReadClient>(
             // If the response was successful, add our additional metadata headers
             if response.status() == StatusCode::OK {
                 let headers = response.headers_mut();
-
-                // Add metadata headers if available
                 if let Some(attribute) = attribute {
-                    let allowed_headers = [
-                        (String::from("content-disposition"), CONTENT_DISPOSITION),
-                        (String::from("content-encoding"), CONTENT_ENCODING),
-                        (String::from("content-language"), CONTENT_LANGUAGE),
-                        (String::from("content-location"), CONTENT_LOCATION),
-                        (String::from("content-type"), CONTENT_TYPE),
-                        (String::from("link"), LINK),
-                    ];
-
-                    for (key, header) in &allowed_headers {
-                        if let Some(value) = &attribute.get(key) {
-                            if let Ok(header_value) = HeaderValue::from_str(value) {
-                                headers.insert(header, header_value);
+                    for (key, value) in attribute.iter() {
+                        if allowed_headers.contains(key) {
+                            if let (Ok(header_name), Ok(header_value)) =
+                                (HeaderName::from_str(key), HeaderValue::from_str(value))
+                            {
+                                headers.insert(header_name, header_value);
                             }
                         }
                     }
