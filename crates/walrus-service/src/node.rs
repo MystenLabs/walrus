@@ -4627,10 +4627,12 @@ mod tests {
             } else {
                 let total_blobs = blob_details.len() as u64;
                 // Randomly pick a blob index to inject failure.
-                let break_index = rand::thread_rng().gen_range(0..total_blobs);
+                // Note that the scan count starts from 1.
+                let break_scan_count = rand::thread_rng().gen_range(1..=total_blobs);
+
                 register_fail_point_arg(
                     "fail_point_shard_sync_recovery_metadata_error_during_fetch",
-                    move || -> Option<u64> { Some(break_index) },
+                    move || -> Option<u64> { Some(break_scan_count) },
                 );
             }
 
