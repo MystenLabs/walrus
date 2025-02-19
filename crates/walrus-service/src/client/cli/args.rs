@@ -24,7 +24,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::config::AuthConfig;
+use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -664,6 +664,10 @@ pub struct PublisherArgs {
     /// If not specified, the verification is disabled.
     /// This is useful, e.g., in case the API Gateway has already checked the token.
     /// The secret can be hex string, starting with `0x`.
+    ///
+    /// JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value.
+    /// The JWT creator must ensure that this value is unique among all requests to the publisher.
+    /// We recommend using large nonces to avoid collisions.
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
@@ -678,7 +682,7 @@ pub struct PublisherArgs {
     /// the "issued at" (`iat`) value.
     #[clap(long, default_value_t = 0)]
     #[serde(default)]
-    pub jwt_expiring_sec: u64,
+    pub jwt_expiring_sec: i64,
     /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
     ///
     /// Specifically, the publisher will:
@@ -686,10 +690,15 @@ pub struct PublisherArgs {
     ///   present;
     /// - Verify that the `send_object_to` field in the query is the same as the `send_object_to`
     ///   in the JWT, if present;
-    // TODO: /// - Verify the size/hash of uploaded file
+    /// - Verify the size of uploaded file;
+    /// - Verify the uniqueness of the `jti` claim.
     #[clap(long, action)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
+    #[clap(flatten)]
+    #[serde(flatten)]
+    /// The configuration for the JWT duplicate suppression cache.
+    pub replay_suppression_config: CacheConfig,
 }
 
 impl PublisherArgs {
@@ -716,12 +725,13 @@ impl PublisherArgs {
         );
     }
 
-    pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
+    pub(crate) fn generate_auth_config(&self) -> Result<Option<AuthConfig>> {
         if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
             let mut auth_config = AuthConfig {
                 expiring_sec: self.jwt_expiring_sec,
                 verify_upload: self.jwt_verify_upload,
                 algorithm: self.jwt_algorithm,
+                replay_suppression_config: self.replay_suppression_config.clone(),
                 ..Default::default()
             };
 
@@ -1261,6 +1271,7 @@ mod tests {
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
+                replay_suppression_config: Default::default(),
             },
             aggregator_args: AggregatorArgs {
                 allowed_headers: default::allowed_headers(),

@@ -17,11 +17,6 @@ pub(super) struct EventSequencer {
 }
 
 impl EventSequencer {
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Creates a new `EventSequencer`, that continues sequencing from the provided next index.
     pub fn continue_from(head_index: u64) -> Self {
         Self {

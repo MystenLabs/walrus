@@ -172,6 +172,7 @@ impl SystemContractService for SuiSystemContractService {
             &node_info.network_public_key,
             &pool.voting_params,
         );
+
         let action = calculate_protocol_key_action(
             config.protocol_key_pair().public().clone(),
             config

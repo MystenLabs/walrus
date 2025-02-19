@@ -3,6 +3,7 @@
 
 use axum::{body::Body, extract::Query, http::Response};
 use axum_extra::headers::{authorization::Bearer, Authorization};
+use chrono::DateTime;
 use jsonwebtoken::{
     decode,
     errors::{Error as JwtError, ErrorKind as JwtErrorKind},
@@ -15,7 +16,7 @@ use tracing::error;
 use walrus_core::EpochCount;
 use walrus_proc_macros::RestApiError;
 
-use super::routes::PublisherQuery;
+use super::{cache::CacheHandle, routes::PublisherQuery};
 use crate::{client::config::AuthConfig, common::api::RestApiError};
 
 pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
@@ -25,10 +26,17 @@ pub const PUBLISHER_AUTH_DOMAIN: &str = "auth.publisher.walrus.space";
 pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     /// Token is issued at (timestamp).
-    pub iat: Option<u64>,
+    pub iat: Option<i64>,
 
     /// Token expires at (timestamp).
-    pub exp: u64,
+    pub exp: i64,
+
+    /// A unique identifier for the token, the JTI (JWT ID).
+    ///
+    /// See [RFC 7519][rfc7519s4.1.7].
+    ///
+    /// [rfc7519s4.1.7]: https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.7
+    pub jti: String,
 
     /// The owner address of the sui blob object.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,10 +219,11 @@ impl Claim {
     }
 }
 
-pub fn verify_jwt_claim(
+pub async fn verify_jwt_claim(
     query: Query<PublisherQuery>,
     bearer: Authorization<Bearer>,
     auth_config: &AuthConfig,
+    token_cache: &CacheHandle<String>,
     body_size_hint: u64,
 ) -> Result<(), Response<Body>> {
     let mut validation = if auth_config.decoding_key.is_some() {
@@ -239,7 +248,33 @@ pub fn verify_jwt_claim(
 
     match Claim::from_token(bearer.token().trim(), decode_key, &validation) {
         Ok(claim) => {
+            // To avoid race conditions between store requests, we insert the token into the cache
+            // now, and later remove it if the JWT verification fails.
+            let Some(expiration) = DateTime::from_timestamp(claim.exp, 0) else {
+                return Err(PublisherAuthError::InvalidTimestamp.to_response());
+            };
+
+            if let Err(error) = token_cache
+                .insert_if_not_present(
+                    claim.jti.clone(),
+                    // We can trust the expiration value for now. If it is
+                    // invalid, the JWT verification will fail anyways later and
+                    // the entry will be removed.
+                    expiration,
+                )
+                .await
+            {
+                return Err(PublisherAuthError::from(error).to_response());
+            }
+
             if let Err(error) = claim.check_valid_upload(&query.0, auth_config, body_size_hint) {
+                // Remove the spurious token entry from the cache.
+                let _ = token_cache
+                    .remove(claim.jti.clone())
+                    .await
+                    .inspect_err(|error| {
+                        tracing::warn!(?error, "there was an error while removing the token")
+                    });
                 Err(error.to_response())
             } else {
                 Ok(())
@@ -298,6 +333,16 @@ pub enum PublisherAuthError {
     #[rest_api_error(reason = "INVALID_TOKEN", status = ApiStatusCode::FailedPrecondition)]
     InvalidToken(JwtError),
 
+    /// The JWT token was already used.
+    #[error("the JWT token was already used")]
+    #[rest_api_error(reason = "TOKEN_ALREADY_USED", status = ApiStatusCode::ResourceExhausted)]
+    TokenAlreadyUsed,
+
+    /// One of the timestamps in the JWT token is invalid.
+    #[error("one of the timestamps in the JWT token is invalid")]
+    #[rest_api_error(reason = "INVALID_TIMESTAMP", status = ApiStatusCode::FailedPrecondition)]
+    InvalidTimestamp,
+
     /// Other errors that are not covered by the other variants.
     #[error("an internal error occurred")]
     #[rest_api_error(delegate)]
@@ -320,7 +365,10 @@ mod tests {
     use tower::{ServiceBuilder, ServiceExt};
 
     use super::*;
-    use crate::client::{config::AuthConfig, daemon::auth_layer};
+    use crate::client::{
+        config::AuthConfig,
+        daemon::{auth_layer, cache::CacheConfig},
+    };
 
     // Fixtures and helpers for tests.
 
@@ -328,10 +376,12 @@ mod tests {
     const OTHER_ADDRESS: &str =
         "0x1111111111111111111111111111111111111111111111111111111111111111";
 
+    const FAR_EXP: i64 = 33292598400; // 3025-01-01 00:00:00 UTC
+
     fn auth_config_for_tests(
         secret: Option<&str>,
         algorithm: Option<Algorithm>,
-        expiring_sec: u64,
+        expiring_sec: i64,
         verify_upload: bool,
     ) -> AuthConfig {
         let mut config = AuthConfig {
@@ -339,6 +389,7 @@ mod tests {
             algorithm,
             expiring_sec,
             verify_upload,
+            ..Default::default()
         };
 
         if let Some(secret) = secret {
@@ -349,7 +400,7 @@ mod tests {
     }
 
     fn setup_router_and_token(
-        expiring_sec: u64,
+        expiring_sec: i64,
         verify_upload: bool,
         use_secret: bool,
         claim: Claim,
@@ -361,8 +412,10 @@ mod tests {
         let encode_key = EncodingKey::from_secret(secret.as_bytes());
         let token = encode(&Header::default(), &claim, &encode_key).unwrap();
 
+        let token_cache = CacheConfig::default().build_and_run();
+
         let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-            Arc::new(auth_config),
+            (Arc::new(auth_config), Arc::new(token_cache)),
             auth_layer,
         ));
 
@@ -423,8 +476,9 @@ mod tests {
             true,
             // Claim.
             Claim {
+                jti: "test".to_string(),
                 iat: None,
-                exp: u64::MAX,
+                exp: FAR_EXP,
                 ..Default::default()
             },
         );
@@ -464,8 +518,9 @@ mod tests {
             true,
             // Claim.
             Claim {
+                jti: "test".to_string(),
                 iat: None,
-                exp: u64::MAX,
+                exp: FAR_EXP,
                 send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
                 epochs: Some(1),
                 ..Default::default()
@@ -509,10 +564,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn verify_replay_suppression_works() {
+        let (router, token, _) = setup_router_and_token(
+            // Expiring sec.
+            0,
+            // Verify upload.
+            true,
+            // Use secret.
+            true,
+            // Claim.
+            Claim {
+                jti: "test".to_string(),
+                iat: None,
+                exp: FAR_EXP,
+                send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
+                epochs: Some(1),
+                ..Default::default()
+            },
+        );
+
+        let requests = vec![
+            (
+                // First request works.
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token.clone()),
+                    None,
+                ),
+                StatusCode::OK,
+            ),
+            (
+                // Second request des not work, because the JTI is the same.
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token),
+                    Some(vec![42; 10].into()),
+                ),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+        ];
+
+        execute_requests(&router, requests).await;
+    }
+
+    #[tokio::test]
     async fn verify_upload_skip_check_signature() {
         let claim = Claim {
+            jti: "test".to_string(),
             iat: None,
-            exp: u64::MAX,
+            exp: FAR_EXP,
             send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
             epochs: Some(1),
             ..Default::default()
@@ -569,13 +675,14 @@ mod tests {
     #[tokio::test]
     async fn verify_exp() {
         let valid_claim = Claim {
+            jti: "test".to_string(),
             iat: Some(0),
-            exp: u64::MAX - 1,
+            exp: FAR_EXP - 1,
             ..Default::default()
         };
         let (router, valid_token, encode_key) = setup_router_and_token(
             // Expiring sec.
-            u64::MAX - 1,
+            FAR_EXP - 1,
             // Verify upload.
             false,
             // Use secret.
@@ -585,13 +692,15 @@ mod tests {
 
         // Other two tokens, correctly authenticated but with expiry too long.
         let invalid_claim = Claim {
+            jti: "test".to_string(),
             iat: Some(0),
-            exp: u64::MAX,
+            exp: FAR_EXP,
             ..Default::default()
         };
         let invalid_claim_2 = Claim {
+            jti: "test".to_string(),
             iat: None,
-            exp: u64::MAX,
+            exp: FAR_EXP,
             ..Default::default()
         };
         let invalid_token = encode(&Header::default(), &invalid_claim, &encode_key).unwrap();
@@ -617,23 +726,29 @@ mod tests {
 
     #[tokio::test]
     async fn verify_body_size() {
-        let (router, token, _) = setup_router_and_token(
+        let claim = Claim {
+            jti: "test".to_string(),
+            iat: None,
+            exp: FAR_EXP,
+            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
+            epochs: Some(1),
+            max_size: Some(10),
+            ..Default::default()
+        };
+        let (router, token, encode_key) = setup_router_and_token(
             // Expiring sec.
             0,
             // Verify upload.
             true,
             // Use secret.
             true,
-            // Claim.
-            Claim {
-                iat: None,
-                exp: u64::MAX,
-                send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
-                epochs: Some(1),
-                max_size: Some(10),
-                ..Default::default()
-            },
+            claim.clone(),
         );
+
+        let mut other_claim = claim;
+        // Need to change the JTI to avoid the replay suppression.
+        other_claim.jti = "other".to_string();
+        let other_token = encode(&Header::default(), &other_claim, &encode_key).unwrap();
 
         let requests = vec![
             (
@@ -654,7 +769,7 @@ mod tests {
                         "/v1/blobs?epochs=1&send_object_to={}",
                         SuiAddress::from_bytes(ADDRESS).expect("valid address")
                     ),
-                    correct_auth_header(token.clone()),
+                    correct_auth_header(token),
                     // Small body is ok.
                     Some(Body::from(vec![42; 10])),
                 ),
@@ -666,7 +781,7 @@ mod tests {
                         "/v1/blobs?epochs=1&send_object_to={}",
                         SuiAddress::from_bytes(ADDRESS).expect("valid address")
                     ),
-                    correct_auth_header(token),
+                    correct_auth_header(other_token),
                     // No body is ok.
                     None,
                 ),
@@ -693,8 +808,9 @@ mod tests {
         );
 
         let claim = Claim {
+            jti: "test".to_string(),
             iat: None,
-            exp: u64::MAX,
+            exp: FAR_EXP,
             ..Default::default()
         };
         let encode_key = EncodingKey::from_ed_der(doc.as_ref());
@@ -705,8 +821,9 @@ mod tests {
         )
         .unwrap();
 
+        let token_cache = CacheConfig::default().build_and_run();
         let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
-            Arc::new(auth_config.clone()),
+            (Arc::new(auth_config.clone()), Arc::new(token_cache)),
             auth_layer,
         ));
 

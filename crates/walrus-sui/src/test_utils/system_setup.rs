@@ -106,8 +106,6 @@ pub struct SystemContext {
     pub staking_object: ObjectID,
     /// The ID of the upgrade manager object.
     pub upgrade_manager_object: ObjectID,
-    /// The ID of the WAL package.
-    pub wal_pkg_id: ObjectID,
     /// The ID of the WAL exchange package.
     pub wal_exchange_pkg_id: Option<ObjectID>,
 }
@@ -154,6 +152,7 @@ pub async fn create_and_init_system_for_test(
         None,
         deploy_directory,
         true,
+        false,
     )
     .await
 }
@@ -172,18 +171,19 @@ pub async fn create_and_init_system(
     gas_budget: Option<u64>,
     deploy_directory: Option<PathBuf>,
     with_wal_exchange: bool,
+    use_existing_wal_token: bool,
 ) -> Result<SystemContext> {
     let PublishSystemPackageResult {
         walrus_pkg_id,
         init_cap_id,
         upgrade_cap_id,
         wal_exchange_pkg_id,
-        wal_pkg_id,
     } = system_setup::publish_coin_and_system_package(
         admin_wallet,
         contract_dir,
         deploy_directory,
         with_wal_exchange,
+        use_existing_wal_token,
         gas_budget,
     )
     .await?;
@@ -204,7 +204,6 @@ pub async fn create_and_init_system(
         system_object,
         staking_object,
         upgrade_manager_object,
-        wal_pkg_id,
         wal_exchange_pkg_id,
     })
 }

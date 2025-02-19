@@ -962,8 +962,6 @@ impl BlobInfoApi for BlobInfoV1 {
             count_deletable_total,
             permanent_total,
             latest_seen_deletable_registered_epoch,
-            permanent_certified,
-            latest_seen_deletable_certified_epoch,
             ..
         }) = self
         else {
@@ -972,19 +970,9 @@ impl BlobInfoApi for BlobInfoV1 {
 
         let exists_registered_permanent_blob = permanent_total
             .as_ref()
-            .is_some_and(|p| p.end_epoch > current_epoch)
-
-            // TODO(mlegner): This is a temporary workaround due to a previous bug (#1163) with the
-            // blob-status tracking. This is no longer needed after a full redeployment.
-            || permanent_certified
-                .as_ref()
-                .is_some_and(|p| p.end_epoch > current_epoch);
+            .is_some_and(|p| p.end_epoch > current_epoch);
         let maybe_exists_registered_deletable_blob = *count_deletable_total > 0
-            && latest_seen_deletable_registered_epoch.is_some_and(|l| l > current_epoch)
-
-            // TODO(mlegner): This is a temporary workaround due to a previous bug (#1163) with the
-            // blob-status tracking. This is no longer needed after a full redeployment.
-            || latest_seen_deletable_certified_epoch.is_some_and(|l| l > current_epoch);
+            && latest_seen_deletable_registered_epoch.is_some_and(|l| l > current_epoch);
 
         exists_registered_permanent_blob || maybe_exists_registered_deletable_blob
     }

@@ -19,7 +19,7 @@ pub type ConfirmationCertificate = ProtocolMessageCertificate<Confirmation>;
 /// A certificate from storage nodes over a [`super::invalid_blob_id::InvalidBlobIdMsg`]
 pub type InvalidBlobCertificate = ProtocolMessageCertificate<InvalidBlobIdMsg>;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct ProtocolMessageCertificate<T> {
     /// The indices of the signing nodes
     pub signers: Vec<u16>,

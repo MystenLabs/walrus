@@ -262,7 +262,6 @@ impl Debug for SuiClientSet {
     }
 }
 
-#[allow(dead_code)]
 impl EventProcessor {
     /// Returns the initialization state for the given event index. If the event index is not found,
     /// it will return `None`. This method is used to recover the state of the event blob writer.

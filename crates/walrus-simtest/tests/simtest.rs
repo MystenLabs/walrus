@@ -78,7 +78,11 @@ mod tests {
             .await
             .context("store blob should not fail")?;
 
-        tracing::info!("got store results with {} items", store_results.len());
+        tracing::info!(
+            "got store results with {} items\n{:?}",
+            store_results.len(),
+            store_results
+        );
         let store_result = &store_results
             .first()
             .expect("should have exactly one result");
@@ -1208,5 +1212,148 @@ mod tests {
         wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
             .await
             .expect("Node should be active");
+    }
+
+    #[walrus_simtest]
+    #[ignore = "ignore simtests by default"]
+    async fn test_node_config_synchronizer() {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: true,
+                },
+                Some(10),
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .await
+            .unwrap();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+        let client_arc = Arc::new(client);
+
+        // Get current committee and verify node[5] is in it
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .expect("Should get committees");
+
+        assert!(committees
+            .current_committee()
+            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
+            .is_none());
+
+        let config = Arc::new(RwLock::new(
+            walrus_cluster.nodes[5].storage_node_config.clone(),
+        ));
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                config.clone(),
+                None,
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+
+        // Adding stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
+            .await
+            .expect("Node should be active");
+
+        // Generate new protocol key pair
+        let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
+        // Update the next protocol key pair in the node's config,
+        // The config will be loaded by the config synchronizer.
+        config.write().await.next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
+        tracing::debug!(
+            "current protocol key: {:?}, next protocol key: {:?}",
+            config.read().await.protocol_key_pair().public(),
+            config
+                .read()
+                .await
+                .next_protocol_key_pair()
+                .as_ref()
+                .map(|kp| kp.public())
+        );
+
+        wait_for_public_key_change(
+            &config,
+            new_protocol_key_pair.public(),
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Protocol key should be updated");
+
+        // Check that the protocol key in StakePool is updated to the new one
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+
+        assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
+        let public_key = config.read().await.protocol_key_pair().public().clone();
+        assert_eq!(&public_key, new_protocol_key_pair.public());
+        assert_eq!(
+            new_protocol_key_pair.public(),
+            config.read().await.protocol_key_pair().public()
+        );
+    }
+
+    /// Waits until the node's protocol key pair in the config matches the target public key.
+    /// Returns Ok(()) if the key matches within the timeout duration, or an error if it times out.
+    async fn wait_for_public_key_change(
+        config: &Arc<RwLock<walrus_service::node::config::StorageNodeConfig>>,
+        target_public_key: &walrus_core::PublicKey,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timed out waiting for public key change after {:?}",
+                    timeout
+                );
+            }
+
+            let current_public_key = config.read().await.protocol_key_pair().public().clone();
+            if &current_public_key == target_public_key {
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 }

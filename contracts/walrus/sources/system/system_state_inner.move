@@ -107,12 +107,9 @@ public(package) fun advance_epoch(
     let old_committee = self.committee;
 
     assert!(new_committee.epoch() == new_epoch, EIncorrectCommittee);
-    self.committee = new_committee;
 
-    // Update the system object.
-    self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
-    self.storage_price_per_unit_size = new_epoch_params.storage_price();
-    self.write_price_per_unit_size = new_epoch_params.write_price();
+    // === Update the system object ===
+    self.committee = new_committee;
 
     let accounts_old_epoch = self.future_accounting.ring_pop_expand();
 
@@ -127,6 +124,11 @@ public(package) fun advance_epoch(
 
     // Update used capacity size to the new epoch without popping the ring buffer.
     self.used_capacity_size = self.future_accounting.ring_lookup_mut(0).used_capacity();
+
+    // Update capacity and prices.
+    self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
+    self.storage_price_per_unit_size = new_epoch_params.storage_price();
+    self.write_price_per_unit_size = new_epoch_params.write_price();
 
     // === Rewards distribution ===
 

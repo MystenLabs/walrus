@@ -185,6 +185,21 @@ impl SuiClientError {
     }
 }
 
+/// Parameters for certifying and extending a blob.
+///
+/// When certificate is present, the blob will be certified on Sui.
+/// When epochs_ahead is present, the blob will be extended on Sui.
+/// These two operations are allowed to be present at the same time.
+#[derive(Debug, Clone)]
+pub struct CertifyAndExtendBlobParams<'a> {
+    /// The ID of the blob.
+    pub blob: &'a Blob,
+    /// The certificate for the blob.
+    pub certificate: Option<ConfirmationCertificate>,
+    /// The number of epochs ahead to certify the blob.
+    pub epochs_ahead: Option<EpochCount>,
+}
+
 /// Metadata for a blob object on Sui.
 #[derive(Debug, Clone)]
 pub struct BlobObjectMetadata {
@@ -939,6 +954,22 @@ impl SuiContractClient {
             .multiple_pay_wal(address, amount, n)
             .await
     }
+
+    /// Certifies and extends the specified blob on Sui in a single transaction.
+    ///
+    /// Returns the shared blob object ID if the post store action is Share.
+    /// See [`CertifyAndExtendBlobParams`] for the details of the parameters.
+    pub async fn certify_and_extend_blobs(
+        &self,
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        post_store: PostStoreAction,
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+        self.inner
+            .lock()
+            .await
+            .certify_and_extend_blobs(blobs_with_certificates, post_store)
+            .await
+    }
 }
 
 struct SuiContractClientInner {
@@ -1161,20 +1192,7 @@ impl SuiContractClientInner {
                 "certifying blob on Sui"
             );
             pt_builder.certify_blob(blob.id.into(), certificate).await?;
-            match post_store {
-                PostStoreAction::TransferTo(address) => {
-                    pt_builder
-                        .transfer(Some(address), vec![blob.id.into()])
-                        .await?;
-                }
-                PostStoreAction::Burn => {
-                    pt_builder.burn_blob(blob.id.into()).await?;
-                }
-                PostStoreAction::Keep => (),
-                PostStoreAction::Share => {
-                    pt_builder.new_shared_blob(blob.id.into()).await?;
-                }
-            }
+            Self::apply_post_store_action(&mut pt_builder, blob.id, post_store).await?;
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
@@ -1190,36 +1208,15 @@ impl SuiContractClientInner {
         }
 
         // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-        let object_ids = get_created_sui_object_ids_by_type(
+        self.create_blob_id_to_shared_mapping(
             &res,
-            &contracts::shared_blob::SharedBlob
-                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
-        )?;
-        ensure!(
-            object_ids.len() == blobs_with_certificates.len(),
-            "unexpected number of shared blob objects created: {} (expected {})",
-            object_ids.len(),
-            blobs_with_certificates.len()
-        );
-
-        // If there is only one blob, we can directly return the mapping.
-        if object_ids.len() == 1 {
-            Ok(HashMap::from([(
-                blobs_with_certificates[0].0.blob_id,
-                object_ids[0],
-            )]))
-        } else {
-            // Fetch all SharedBlob objects and collect them as a mapping blob id
-            // to shared blob object id.
-            let shared_blobs = self
-                .sui_client()
-                .get_sui_objects::<SharedBlob>(&object_ids)
-                .await?;
-            Ok(shared_blobs
-                .into_iter()
-                .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
-                .collect())
-        }
+            blobs_with_certificates
+                .iter()
+                .map(|(blob, _)| blob.blob_id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await
     }
 
     /// Certifies the specified event blob on Sui, with the given metadata and epoch.
@@ -1864,6 +1861,116 @@ impl SuiContractClientInner {
         }
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Certifies and extends the specified blob on Sui in a single transaction.
+    /// Returns the shared blob object ID if the post store action is Share.
+    pub async fn certify_and_extend_blobs(
+        &mut self,
+        blobs_with_certificates: &[CertifyAndExtendBlobParams<'_>],
+        post_store: PostStoreAction,
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+        let mut pt_builder = self.transaction_builder()?;
+        for blob_params in blobs_with_certificates {
+            if let Some(certificate) = blob_params.certificate.as_ref() {
+                pt_builder
+                    .certify_blob(blob_params.blob.id.into(), certificate)
+                    .await?;
+            }
+
+            if let Some(epochs_ahead) = blob_params.epochs_ahead {
+                pt_builder
+                    .extend_blob(
+                        blob_params.blob.id.into(),
+                        epochs_ahead,
+                        blob_params.blob.storage.storage_size,
+                    )
+                    .await?;
+            }
+
+            Self::apply_post_store_action(&mut pt_builder, blob_params.blob.id, post_store).await?;
+        }
+
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        let res = self.sign_and_send_ptb(ptb).await?;
+
+        if !res.errors.is_empty() {
+            tracing::warn!(errors = ?res.errors, "failed to certify/extend blobs on Sui");
+            return Err(anyhow!("could not certify/extend blob: {:?}", res.errors).into());
+        }
+
+        if post_store != PostStoreAction::Share {
+            return Ok(HashMap::new());
+        }
+
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        self.create_blob_id_to_shared_mapping(
+            &res,
+            blobs_with_certificates
+                .iter()
+                .map(|blob_params| blob_params.blob.blob_id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await
+    }
+
+    /// Helper function to create a mapping from blob IDs to shared blob object IDs.
+    async fn create_blob_id_to_shared_mapping(
+        &self,
+        res: &SuiTransactionBlockResponse,
+        blobs_ids: &[BlobId],
+    ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
+        let object_ids = get_created_sui_object_ids_by_type(
+            res,
+            &contracts::shared_blob::SharedBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            object_ids.len() == blobs_ids.len(),
+            "unexpected number of shared blob objects created: {} (expected {})",
+            object_ids.len(),
+            blobs_ids.len()
+        );
+
+        // If there is only one blob, we can directly return the mapping
+        if object_ids.len() == 1 {
+            Ok(HashMap::from([(blobs_ids[0], object_ids[0])]))
+        } else {
+            // Fetch all SharedBlob objects and collect them as a mapping blob id
+            // to shared blob object id
+            let shared_blobs = self
+                .sui_client()
+                .get_sui_objects::<SharedBlob>(&object_ids)
+                .await?;
+            Ok(shared_blobs
+                .into_iter()
+                .map(|shared_blob| (shared_blob.blob.blob_id, shared_blob.id))
+                .collect())
+        }
+    }
+
+    /// Applies the post-store action for a single blob ID to the transaction builder.
+    async fn apply_post_store_action(
+        pt_builder: &mut WalrusPtbBuilder,
+        blob_id: ObjectID,
+        post_store: PostStoreAction,
+    ) -> SuiClientResult<()> {
+        match post_store {
+            PostStoreAction::TransferTo(address) => {
+                pt_builder
+                    .transfer(Some(address), vec![blob_id.into()])
+                    .await?;
+            }
+            PostStoreAction::Burn => {
+                pt_builder.burn_blob(blob_id.into()).await?;
+            }
+            PostStoreAction::Keep => (),
+            PostStoreAction::Share => {
+                pt_builder.new_shared_blob(blob_id.into()).await?;
+            }
+        }
         Ok(())
     }
 

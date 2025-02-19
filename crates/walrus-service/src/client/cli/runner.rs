@@ -755,11 +755,7 @@ impl ClientCommandRunner {
         blobs.print_output(self.json)
     }
 
-    pub(crate) async fn publisher(
-        self,
-        registry: &Registry,
-        mut args: PublisherArgs,
-    ) -> Result<()> {
+    pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus publisher");
         let client = ClientMultiplexer::new(
             self.wallet?,
@@ -815,7 +811,7 @@ impl ClientCommandRunner {
     pub(crate) async fn daemon(
         self,
         registry: &Registry,
-        mut args: PublisherArgs,
+        args: PublisherArgs,
         aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");

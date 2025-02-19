@@ -18,6 +18,16 @@ use walrus::{
     walrus_context::WalrusContext
 };
 
+// Limit name length to 100 characters. Keep in sync with `MAX_NODE_NAME_LENGTH` in
+// `crates/walrus-service/src/common/utils.rs`.
+const MAX_NODE_NAME_LENGTH: u64 = 100;
+
+// 253 characters in DNS name + 5 characters for the port + 1 for the delimiter.
+const MAX_NETWORK_ADDRESS_LENGTH: u64 = 259;
+
+// The number of basis points in 100%.
+const N_BASIS_POINTS: u16 = 100_00;
+
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 const EPoolAlreadyUpdated: u64 = 0;
@@ -48,6 +58,10 @@ const EWithdrawDirectly: u64 = 13;
 const EIncorrectCommissionRate: u64 = 14;
 /// Trying to collect commission or change receiver without authorization.
 const EAuthorizationFailure: u64 = 15;
+/// Invalid network address length.
+const EInvalidNetworkAddressLength: u64 = 16;
+/// Invalid name length.
+const EInvalidNameLength: u64 = 17;
 
 /// Represents the state of the staking pool.
 public enum PoolState has copy, drop, store {
@@ -184,6 +198,15 @@ public(package) fun new(
         // Invalid proof of possession in the `new` function.
         EInvalidProofOfPossession,
     );
+
+    // Verify name length.
+    assert!(name.length() <= MAX_NODE_NAME_LENGTH, EInvalidNameLength);
+
+    // Verify network address length.
+    assert!(network_address.length() <= MAX_NETWORK_ADDRESS_LENGTH, EInvalidNetworkAddressLength);
+
+    // Verify commission rate.
+    assert!(commission_rate <= N_BASIS_POINTS, EIncorrectCommissionRate);
 
     let activation_epoch = if (wctx.committee_selected()) {
         wctx.epoch() + 1
@@ -396,7 +419,9 @@ public(package) fun advance_epoch(
 
     // split the commission from the rewards
     let total_rewards = rewards.value();
-    let commission = rewards.split(total_rewards * (pool.commission_rate as u64) / 100_00);
+    let commission = rewards.split(
+        total_rewards * (pool.commission_rate as u64) / (N_BASIS_POINTS as u64),
+    );
     pool.commission.join(commission);
 
     // add rewards to the pool and update the `wal_balance`
@@ -470,7 +495,7 @@ public(package) fun set_next_commission(
     commission_rate: u16,
     wctx: &WalrusContext,
 ) {
-    assert!(commission_rate <= 100_00, EIncorrectCommissionRate);
+    assert!(commission_rate <= N_BASIS_POINTS, EIncorrectCommissionRate);
     pool.pending_commission_rate.insert_or_replace(wctx.epoch() + 2, commission_rate as u64);
 }
 
@@ -511,11 +536,17 @@ public(package) fun set_next_public_key(
 
 /// Sets the name of the storage node.
 public(package) fun set_name(self: &mut StakingPool, name: String) {
+    // Verify name length.
+    assert!(name.length() <= MAX_NODE_NAME_LENGTH, EInvalidNameLength);
+
     self.node_info.set_name(name);
 }
 
 /// Sets the network address or host of the storage node.
 public(package) fun set_network_address(self: &mut StakingPool, network_address: String) {
+    // Verify network address length.
+    assert!(network_address.length() <= MAX_NETWORK_ADDRESS_LENGTH, EInvalidNetworkAddressLength);
+
     self.node_info.set_network_address(network_address);
 }
 

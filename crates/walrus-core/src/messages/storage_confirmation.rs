@@ -46,7 +46,7 @@ pub struct StorageConfirmationBody {
 
 /// A Confirmation that a storage node has stored all respective slivers
 /// of a blob in their shards.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(try_from = "ProtocolMessage<StorageConfirmationBody>")]
 pub struct Confirmation(pub(crate) ProtocolMessage<StorageConfirmationBody>);
 

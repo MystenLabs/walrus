@@ -383,7 +383,6 @@ pub async fn request_sui_from_faucet(
 
 /// Gets 1 SUI for `address` from the provided wallet if the wallet has at least 2 SUI, otherwise
 /// request SUI from the faucet.
-// TODO(WAL-529): Refactor and completely remove the faucet from the deployment flow.
 pub async fn get_sui_from_wallet_or_faucet(
     address: SuiAddress,
     wallet: &mut WalletContext,

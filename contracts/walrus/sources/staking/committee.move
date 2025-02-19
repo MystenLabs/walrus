@@ -79,8 +79,7 @@ public(package) fun transition(cmt: &Committee, mut new_assignments: VecMap<ID, 
         // if the node is not in the new committee, remove all shards, make
         // them available for reassignment
         if (assigned_len.is_none() || assigned_len.borrow() == &0) {
-            let shards = cmt.0.get(&node_id);
-            to_move.append(*shards);
+            to_move.append(*prev_shards);
             return
         };
 

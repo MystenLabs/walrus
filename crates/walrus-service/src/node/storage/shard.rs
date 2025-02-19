@@ -880,7 +880,7 @@ impl ShardStorage {
             );
 
             if skip_certified_check_in_test || node.is_blob_certified(&blob_id)? {
-                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch, config));
+                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
             } else {
                 tracing::info!(
                     walrus.blob_id = %blob_id,
@@ -966,8 +966,8 @@ impl ShardStorage {
         sliver_type: SliverType,
         node: Arc<StorageNodeInner>,
         epoch: Epoch,
-        config: &ShardSyncConfig,
     ) -> Result<(), SyncShardClientError> {
+        // TODO(zhewu): cleanup this function to make it more readable.
         tracing::info!(
             walrus.blob_id = %blob_id,
             walrus.shard_index = %self.id,
@@ -977,12 +977,27 @@ impl ShardStorage {
         let metadata = if let Some(metadata) = node.storage.get_metadata(&blob_id)? {
             metadata
         } else {
+            // We need to recover the blob. So check if we also need to recover the metadata.
+            // Register a task to notify the node when the blob is expired, deleted, or invalidated.
+            let blob_retirement_notify = node
+                .blob_retirement_notifier
+                .acquire_blob_retirement_notify(&blob_id);
+            let notified = blob_retirement_notify.notified();
+
             if !node.is_blob_certified(&blob_id)? {
                 self.skip_recover_blob(blob_id, sliver_type, &node)?;
                 return Ok(());
             }
-            // We need to recover the blob. So check if we also need to recover the metadata.
-            node.get_or_recover_blob_metadata(&blob_id, epoch).await?
+
+            tokio::select! {
+                _ = notified => {
+                    self.skip_recover_blob(blob_id, sliver_type, &node)?;
+                    return Ok(());
+                }
+                result = node.get_or_recover_blob_metadata(&blob_id, epoch) => {
+                    result?
+                }
+            }
         };
 
         let sliver_id = self
@@ -996,46 +1011,27 @@ impl ShardStorage {
         )
         .inc();
 
-        // Create a periodic check future which checks if the blob is still certified.
-        let node_clone = node.clone();
-        let certified_status_check_future = async move {
-            let mut check_interval = if cfg!(not(test)) {
-                tokio::time::interval(config.blob_certified_check_interval)
-            } else {
-                // Short interval for testing.
-                tokio::time::interval(Duration::from_secs(1))
-            };
+        // Register a task to notify the node when the blob is expired, deleted, or invalidated.
+        let blob_retirement_notify = node
+            .blob_retirement_notifier
+            .acquire_blob_retirement_notify(&blob_id);
+        let notified = blob_retirement_notify.notified();
 
-            loop {
-                check_interval.tick().await;
-                if !node_clone.is_blob_certified(&blob_id)? {
-                    return Ok(());
-                }
-            }
-        };
+        if !node.is_blob_certified(&blob_id)? {
+            self.skip_recover_blob(blob_id, sliver_type, &node)?;
+            return Ok(());
+        }
 
         let recover_future =
             node.committee_service
                 .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch);
 
         let result = tokio::select! {
-            result = recover_future => result,
-            status_check_result = certified_status_check_future => {
-                match status_check_result {
-                    Ok(()) => {
-                        self.skip_recover_blob(blob_id, sliver_type, &node)?;
+            _ = notified => {
+                self.skip_recover_blob(blob_id, sliver_type, &node)?;
                 return Ok(());
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            ?error,
-                            %blob_id,
-                            "error checking blob certification status during recovery"
-                        );
-                        return Err(error);
-                    }
-                }
             }
+            result = recover_future => result,
         };
 
         match result {
@@ -1056,8 +1052,6 @@ impl ShardStorage {
                     &sliver_type.to_string()
                 )
                 .inc();
-                // TODO(#704): once committee service supports multi-epoch. This needs to use the
-                // committee from the latest epoch.
                 let invalid_blob_certificate = node
                     .committee_service
                     .get_invalid_blob_certificate(blob_id, &inconsistency_proof)
