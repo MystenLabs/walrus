@@ -38,6 +38,7 @@ use walrus_core::{
     encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
     BlobId,
     Epoch,
+    InconsistencyProof,
     ShardIndex,
     Sliver,
     SliverType,
@@ -978,12 +979,8 @@ impl ShardStorage {
             "start recovering missing blob"
         );
 
-        let metadata = if let Some(metadata) = node.storage.get_metadata(&blob_id)? {
-            metadata
-        } else {
-            // We need to recover the blob. So check if we also need to recover the metadata.
-            // Register a task to notify the node when the blob is expired, deleted, or invalidated.
-
+        // Get the metadata for the blob. If metadata is not found, it will be recovered.
+        let metadata = {
             let result = node
                 .blob_retirement_notifier
                 .execute_with_retirement_check(&node, blob_id, || {
@@ -1011,6 +1008,7 @@ impl ShardStorage {
         )
         .inc();
 
+        // Recover the blob sliver.
         let execution_result = node
             .blob_retirement_notifier
             .execute_with_retirement_check(&node, blob_id, || {
@@ -1023,45 +1021,68 @@ impl ShardStorage {
             })
             .await?;
 
-        let result = match execution_result {
-            ExecutionResultWithRetirementCheck::Executed(result) => result,
+        match execution_result {
+            ExecutionResultWithRetirementCheck::Executed(result) => {
+                match result {
+                    Ok(sliver) => {
+                        self.handle_successful_recovery(&node, sliver_type, blob_id, sliver)?;
+                    }
+                    Err(inconsistency_proof) => {
+                        self.handle_inconsistency(&node, sliver_type, blob_id, inconsistency_proof)
+                            .await;
+                    }
+                }
+                self.pending_recover_slivers
+                    .remove(&(sliver_type, blob_id))?;
+            }
             ExecutionResultWithRetirementCheck::BlobRetired => {
                 self.skip_recover_blob(blob_id, sliver_type, &node)?;
-                return Ok(());
             }
         };
 
-        match result {
-            Ok(sliver) => {
-                walrus_utils::with_label!(
-                    node.metrics.sync_shard_recover_sliver_success_total,
-                    &self.id.to_string(),
-                    &sliver_type.to_string()
-                )
-                .inc();
-                self.put_sliver(&blob_id, &sliver)?;
-            }
-            Err(inconsistency_proof) => {
-                tracing::debug!("received an inconsistency proof when recovering sliver");
-                walrus_utils::with_label!(
-                    node.metrics.sync_shard_recover_sliver_error_total,
-                    &self.id.to_string(),
-                    &sliver_type.to_string()
-                )
-                .inc();
-                let invalid_blob_certificate = node
-                    .committee_service
-                    .get_invalid_blob_certificate(blob_id, &inconsistency_proof)
-                    .await;
-                node.contract_service
-                    .invalidate_blob_id(&invalid_blob_certificate)
-                    .await
-            }
-        }
-
-        self.pending_recover_slivers
-            .remove(&(sliver_type, blob_id))?;
         Ok(())
+    }
+
+    /// Handles the successful recovery of a blob.
+    fn handle_successful_recovery(
+        &self,
+        node: &StorageNodeInner,
+        sliver_type: SliverType,
+        blob_id: BlobId,
+        sliver: Sliver,
+    ) -> Result<(), TypedStoreError> {
+        walrus_utils::with_label!(
+            node.metrics.sync_shard_recover_sliver_success_total,
+            &self.id.to_string(),
+            &sliver_type.to_string()
+        )
+        .inc();
+        self.put_sliver(&blob_id, &sliver)
+    }
+
+    /// Handles the inconsistency of a blob.
+    async fn handle_inconsistency(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        sliver_type: SliverType,
+        blob_id: BlobId,
+        inconsistency_proof: InconsistencyProof,
+    ) {
+        tracing::debug!("received an inconsistency proof when recovering sliver");
+        walrus_utils::with_label!(
+            node.metrics.sync_shard_recover_sliver_error_total,
+            &self.id.to_string(),
+            &sliver_type.to_string()
+        )
+        .inc();
+
+        let invalid_blob_certificate = node
+            .committee_service
+            .get_invalid_blob_certificate(blob_id, &inconsistency_proof)
+            .await;
+        node.contract_service
+            .invalidate_blob_id(&invalid_blob_certificate)
+            .await
     }
 
     /// Deletes the storage for the shard.

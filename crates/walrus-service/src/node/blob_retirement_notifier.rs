@@ -14,9 +14,9 @@ use super::StorageNodeInner;
 
 /// The result of an operation with a retirement check.
 #[derive(Debug)]
-pub enum ExecutionResultWithRetirementCheck<T, E> {
+pub enum ExecutionResultWithRetirementCheck<T> {
     /// The operation was executed successfully.
-    Executed(Result<T, E>),
+    Executed(T),
     /// The blob has retired. The operation may or may not have been executed.
     BlobRetired,
 }
@@ -79,12 +79,18 @@ impl BlobRetirementNotifier {
     }
 
     /// Execute an operation with a retirement check.
+    ///
+    /// If the blob has retired, it does not wait for the operation to complete, and returns
+    /// `BlobRetired`.
+    ///
+    /// When the operation is executed, the execution result including any error is wrapped inside
+    /// `Executed`.
     pub async fn execute_with_retirement_check<T, E, Fut>(
         &self,
         node: &Arc<StorageNodeInner>,
         blob_id: BlobId,
         operation: impl FnOnce() -> Fut,
-    ) -> Result<ExecutionResultWithRetirementCheck<T, E>, anyhow::Error>
+    ) -> Result<ExecutionResultWithRetirementCheck<Result<T, E>>, anyhow::Error>
     where
         Fut: std::future::Future<Output = Result<T, E>>,
     {
@@ -95,12 +101,10 @@ impl BlobRetirementNotifier {
             return Ok(ExecutionResultWithRetirementCheck::BlobRetired);
         }
 
-        let result = tokio::select! {
+        tokio::select! {
             _ = notified => Ok(ExecutionResultWithRetirementCheck::BlobRetired),
             result = operation() => Ok(ExecutionResultWithRetirementCheck::Executed(result)),
-        };
-
-        result
+        }
     }
 }
 
