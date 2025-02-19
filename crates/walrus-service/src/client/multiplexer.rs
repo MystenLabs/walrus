@@ -150,13 +150,11 @@ impl WalrusReadClient for ClientMultiplexer {
         WalrusReadClient::read_blob(&self.read_client, blob_id).await
     }
 
-    async fn get_blob_with_attribute(
+    async fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
-        self.read_client
-            .get_blob_with_attribute(blob_object_id)
-            .await
+        self.read_client.get_blob_by_object_id(blob_object_id).await
     }
 }
 

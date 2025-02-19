@@ -41,6 +41,7 @@ use walrus_sui::{
 };
 
 use super::args::{
+    AggregatorArgs,
     BurnSelection,
     CliCommands,
     DaemonArgs,
@@ -412,12 +413,24 @@ impl ClientCommandRunner {
             DaemonCommands::Aggregator {
                 rpc_arg: RpcArg { rpc_url },
                 daemon_args,
+                aggregator_args,
             } => {
-                self.aggregator(&metrics_runtime.registry, rpc_url, daemon_args)
-                    .await
+                self.aggregator(
+                    &metrics_runtime.registry,
+                    rpc_url,
+                    daemon_args,
+                    aggregator_args,
+                )
+                .await
             }
 
-            DaemonCommands::Daemon { args } => self.daemon(&metrics_runtime.registry, args).await,
+            DaemonCommands::Daemon {
+                args,
+                aggregator_args,
+            } => {
+                self.daemon(&metrics_runtime.registry, args, aggregator_args)
+                    .await
+            }
         }
     }
 
@@ -777,6 +790,7 @@ impl ClientCommandRunner {
         registry: &Registry,
         rpc_url: Option<String>,
         daemon_args: DaemonArgs,
+        aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
         let client = get_read_client(
@@ -791,14 +805,19 @@ impl ClientCommandRunner {
             client,
             daemon_args.bind_address,
             registry,
-            daemon_args.allowed_headers,
+            aggregator_args.allowed_headers,
         )
         .run()
         .await?;
         Ok(())
     }
 
-    pub(crate) async fn daemon(self, registry: &Registry, mut args: PublisherArgs) -> Result<()> {
+    pub(crate) async fn daemon(
+        self,
+        registry: &Registry,
+        mut args: PublisherArgs,
+        aggregator_args: AggregatorArgs,
+    ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
         let auth_config = args.generate_auth_config()?;
 
@@ -809,7 +828,7 @@ impl ClientCommandRunner {
             &args.daemon_args.blocklist,
         )
         .await?;
-        ClientDaemon::new_daemon(client, auth_config, registry, &args)
+        ClientDaemon::new_daemon(client, auth_config, registry, &args, &aggregator_args)
             .run()
             .await?;
         Ok(())

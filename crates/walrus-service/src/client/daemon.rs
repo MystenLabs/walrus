@@ -47,7 +47,11 @@ use walrus_sui::{
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
-    client::{cli::PublisherArgs, config::AuthConfig, daemon::auth::verify_jwt_claim},
+    client::{
+        cli::{AggregatorArgs, PublisherArgs},
+        config::AuthConfig,
+        daemon::auth::verify_jwt_claim,
+    },
     common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
 };
 
@@ -61,7 +65,7 @@ pub trait WalrusReadClient {
         blob_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
 
-    fn get_blob_with_attribute(
+    fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
     ) -> impl std::future::Future<Output = ClientResult<BlobWithAttribute>> + Send;
@@ -88,11 +92,11 @@ impl<T: ReadClient> WalrusReadClient for Client<T> {
         self.read_blob_retry_committees::<Primary>(blob_id).await
     }
 
-    async fn get_blob_with_attribute(
+    async fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
-        self.get_blob_with_attribute(blob_object_id).await
+        self.get_blob_by_object_id(blob_object_id).await
     }
 }
 
@@ -145,7 +149,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         client: T,
         network_address: SocketAddr,
         registry: &Registry,
-        allowed_headers: Option<Vec<String>>,
+        allowed_headers: Vec<String>,
     ) -> Self {
         Self::new::<AggregatorApiDoc>(client, network_address, registry)
             .with_aggregator(allowed_headers)
@@ -169,14 +173,14 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     }
 
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
-    fn with_aggregator(mut self, allowed_headers: Option<Vec<String>>) -> Self {
+    fn with_aggregator(mut self, allowed_headers: Vec<String>) -> Self {
         self.with_allowed_headers(allowed_headers);
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))
             .route(
                 BLOB_OBJECT_GET_ENDPOINT,
-                get(routes::get_blob_with_attribute)
+                get(routes::get_blob_by_object_id)
                     .with_state((self.client.clone(), self.allowed_headers.clone())),
             );
         self
@@ -234,9 +238,10 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         auth_config: Option<AuthConfig>,
         registry: &Registry,
         publisher_args: &PublisherArgs,
+        aggregator_args: &AggregatorArgs,
     ) -> Self {
         Self::new::<DaemonApiDoc>(client, publisher_args.daemon_args.bind_address, registry)
-            .with_aggregator(publisher_args.daemon_args.allowed_headers.clone())
+            .with_aggregator(aggregator_args.allowed_headers.clone())
             .with_publisher(
                 auth_config,
                 publisher_args.max_body_size_kib,
@@ -294,26 +299,8 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
 }
 
 impl<T> ClientDaemon<T> {
-    fn default_allowed_headers() -> Arc<HashSet<String>> {
-        Arc::new(
-            [
-                "content-type".to_string(),
-                "authorization".to_string(),
-                "content-disposition".to_string(),
-                "content-encoding".to_string(),
-                "content-language".to_string(),
-                "content-location".to_string(),
-                "link".to_string(),
-            ]
-            .into_iter()
-            .collect(),
-        )
-    }
-
-    fn with_allowed_headers(&mut self, allowed_headers: Option<Vec<String>>) {
-        self.allowed_headers = allowed_headers
-            .map(|headers| Arc::new(headers.into_iter().collect()))
-            .unwrap_or_else(Self::default_allowed_headers);
+    fn with_allowed_headers(&mut self, allowed_headers: Vec<String>) {
+        self.allowed_headers = Arc::new(allowed_headers.into_iter().collect());
     }
 }
 

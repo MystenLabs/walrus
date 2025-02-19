@@ -391,12 +391,12 @@ impl<T: ReadClient> Client<T> {
         func().await
     }
 
-    async fn get_blob_with_attribute(
+    async fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,
     ) -> ClientResult<BlobWithAttribute> {
         self.sui_client
-            .get_blob_with_attribute(blob_object_id)
+            .get_blob_by_object_id(blob_object_id)
             .await
             .map_err(ClientError::other)
     }

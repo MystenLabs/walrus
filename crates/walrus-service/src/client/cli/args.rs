@@ -552,6 +552,10 @@ pub enum DaemonCommands {
         #[serde(flatten)]
         /// The daemon args.
         daemon_args: DaemonArgs,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        /// The aggregator args.
+        aggregator_args: AggregatorArgs,
     },
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
@@ -560,6 +564,10 @@ pub enum DaemonCommands {
         #[serde(flatten)]
         /// The publisher args.
         args: PublisherArgs,
+        #[clap(flatten)]
+        #[serde(flatten)]
+        /// The aggregator args.
+        aggregator_args: AggregatorArgs,
     },
 }
 
@@ -569,9 +577,24 @@ impl DaemonCommands {
         match &self {
             DaemonCommands::Publisher { args } => args.daemon_args.metrics_address,
             DaemonCommands::Aggregator { daemon_args, .. } => daemon_args.metrics_address,
-            DaemonCommands::Daemon { args } => args.daemon_args.metrics_address,
+            DaemonCommands::Daemon { args, .. } => args.daemon_args.metrics_address,
         }
     }
+}
+
+/// The arguments for the aggregator service.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregatorArgs {
+    /// Allowed headers for the daemon.
+    ///
+    /// This defines the allow-list of headers. It is currently used for the
+    /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
+    /// allowed headers if the specified header names are present in the BlobAttribute associated
+    /// with the requested blob.
+    #[clap(long)]
+    #[serde(default = "default::allowed_headers")]
+    pub(crate) allowed_headers: Vec<String>,
 }
 
 /// The arguments for the publisher service.
@@ -744,15 +767,6 @@ pub struct DaemonArgs {
     #[clap(long)]
     #[serde(default, deserialize_with = "crate::utils::resolve_home_dir_option")]
     pub(crate) blocklist: Option<PathBuf>,
-    /// Allowed headers for the daemon.
-    ///
-    /// This defines the allow-list of headers. It is currently used for the
-    /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
-    /// allowed headers if the specified header names are present in the BlobAttribute associated
-    /// with the requested blob.
-    #[clap(long)]
-    #[serde(default)]
-    pub(crate) allowed_headers: Option<Vec<String>>,
 }
 
 #[serde_as]
@@ -1158,6 +1172,18 @@ pub(crate) mod default {
     pub(crate) fn faucet_timeout() -> Duration {
         Duration::from_secs(60)
     }
+
+    pub(crate) fn allowed_headers() -> Vec<String> {
+        vec![
+            "content-type".to_string(),
+            "authorization".to_string(),
+            "content-disposition".to_string(),
+            "content-encoding".to_string(),
+            "content-language".to_string(),
+            "content-location".to_string(),
+            "link".to_string(),
+        ]
+    }
 }
 
 #[cfg(test)]
@@ -1221,7 +1247,6 @@ mod tests {
                     bind_address: SocketAddr::from_str("127.0.0.1:12345").unwrap(),
                     metrics_address: default::metrics_address(),
                     blocklist: None,
-                    allowed_headers: None,
                 },
                 max_body_size_kib: default::max_body_size_kib(),
                 max_request_buffer_size: default::max_request_buffer_size(),
@@ -1236,6 +1261,9 @@ mod tests {
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
+            },
+            aggregator_args: AggregatorArgs {
+                allowed_headers: default::allowed_headers(),
             },
         })
     }

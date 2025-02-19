@@ -20,7 +20,7 @@ paths:
         blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
         includes the binary data along with any attribute headers from the metadata that are present in
         the configured allowed_headers set.
-      operationId: get_blob_with_attribute
+      operationId: get_blob_by_object_id
       parameters:
       - name: blob_object_id
         in: path

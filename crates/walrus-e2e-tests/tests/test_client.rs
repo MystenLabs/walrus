@@ -1095,7 +1095,7 @@ impl<'a> BlobAttributeTestContext<'a> {
         let client = self.client.as_ref().sui_client();
         let blob = self.blob.clone();
 
-        let res = client.get_blob_with_attribute(&blob.id).await?;
+        let res = client.get_blob_by_object_id(&blob.id).await?;
         if res.attribute.is_none() {
             assert!(self.expected_pairs.is_none());
         }
@@ -1233,9 +1233,9 @@ impl<'a> BlobAttributeTestContext<'a> {
             let res = client
                 .as_ref()
                 .sui_client()
-                .get_blob_with_attribute(&blob.id)
+                .get_blob_by_object_id(&blob.id)
                 .await
-                .expect("get_blob_with_attribute should succeed.");
+                .expect("get_blob_by_object_id should succeed.");
             assert!(res.attribute.is_none());
         }
 

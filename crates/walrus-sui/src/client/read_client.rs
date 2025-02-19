@@ -183,7 +183,7 @@ pub trait ReadClient: Send + Sync {
     ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
 
     /// Returns the blob object and its associated metadata.
-    fn get_blob_with_attribute(
+    fn get_blob_by_object_id(
         &self,
         blob_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<BlobWithAttribute>> + Send;
@@ -861,7 +861,7 @@ impl ReadClient for SuiReadClient {
             .or_else(|_| Ok(None))
     }
 
-    async fn get_blob_with_attribute(
+    async fn get_blob_by_object_id(
         &self,
         blob_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {

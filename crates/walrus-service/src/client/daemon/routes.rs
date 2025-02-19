@@ -35,7 +35,7 @@ use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
     client::BlobPersistence,
-    types::move_structs::BlobWithAttribute,
+    types::move_structs::{BlobAttribute, BlobWithAttribute},
     ObjectIdSchema,
     SuiAddressSchema,
 };
@@ -133,6 +133,22 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
     }
 }
 
+fn populate_response_headers(
+    headers: &mut HeaderMap,
+    attribute: &BlobAttribute,
+    allowed_headers: &HashSet<String>,
+) {
+    for (key, value) in attribute.iter() {
+        if allowed_headers.contains(key) {
+            if let (Ok(header_name), Ok(header_value)) =
+                (HeaderName::from_str(key), HeaderValue::from_str(value))
+            {
+                headers.insert(header_name, header_value);
+            }
+        }
+    }
+}
+
 /// Retrieve a Walrus blob with its associated attribute.
 ///
 /// First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
@@ -154,13 +170,13 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
         GetBlobError,
     ),
 )]
-pub(super) async fn get_blob_with_attribute<T: WalrusReadClient>(
+pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
     State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
     request_headers: HeaderMap,
     Path(blob_object_id): Path<ObjectID>,
 ) -> Response {
     tracing::debug!("starting to read blob with attribute");
-    match client.get_blob_with_attribute(&blob_object_id).await {
+    match client.get_blob_by_object_id(&blob_object_id).await {
         Ok(BlobWithAttribute { blob, attribute }) => {
             // Get the blob data using the existing get_blob function
             let mut response = get_blob(
@@ -172,17 +188,8 @@ pub(super) async fn get_blob_with_attribute<T: WalrusReadClient>(
 
             // If the response was successful, add our additional metadata headers
             if response.status() == StatusCode::OK {
-                let headers = response.headers_mut();
                 if let Some(attribute) = attribute {
-                    for (key, value) in attribute.iter() {
-                        if allowed_headers.contains(key) {
-                            if let (Ok(header_name), Ok(header_value)) =
-                                (HeaderName::from_str(key), HeaderValue::from_str(value))
-                            {
-                                headers.insert(header_name, header_value);
-                            }
-                        }
-                    }
+                    populate_response_headers(response.headers_mut(), &attribute, &allowed_headers);
                 }
             }
 
