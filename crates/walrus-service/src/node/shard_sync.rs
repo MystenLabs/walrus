@@ -15,6 +15,7 @@ use walrus_sdk::error::ServiceError;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{
+    blob_retirement_notifier::ExecutionResultWithRetirementCheck,
     config::ShardSyncConfig,
     errors::SyncShardClientError,
     storage::{blob_info::BlobInfo, ShardStatus, ShardStorage},
@@ -175,30 +176,26 @@ impl ShardSyncHandler {
             .sync_blob_metadata_progress
             .set(blob_id.first_two_bytes() as i64);
 
-        let blob_expiration_notify = node
+        let result = node
             .blob_retirement_notifier
-            .acquire_blob_retirement_notify(&blob_id);
-        let notified = blob_expiration_notify.notified();
+            .execute_with_retirement_check(&node, blob_id, || {
+                node.get_or_recover_blob_metadata(
+                    &blob_id,
+                    blob_info
+                        .initial_certified_epoch()
+                        .expect("certified blob must have certified epoch set"),
+                )
+            })
+            .await?;
 
-        // Check blob is certified must be after acquiring the notify handle.
-        if !node.is_blob_certified(&blob_id)? {
-            node.metrics.sync_blob_metadata_skipped.inc();
-            return Ok(());
-        }
-
-        tokio::select! {
-            _ = notified => {
+        match result {
+            ExecutionResultWithRetirementCheck::Executed(result) => {
+                result?;
+                node.metrics.sync_blob_metadata_count.inc();
+            }
+            ExecutionResultWithRetirementCheck::BlobRetired => {
                 tracing::debug!(%blob_id, "blob retired; skipping sync");
                 node.metrics.sync_blob_metadata_skipped.inc();
-            }
-            result = node.get_or_recover_blob_metadata(
-                &blob_id,
-                blob_info
-                    .initial_certified_epoch()
-                    .expect("certified blob must have certified epoch set"),
-            ) => {
-                node.metrics.sync_blob_metadata_count.inc();
-                result?;
             }
         }
 

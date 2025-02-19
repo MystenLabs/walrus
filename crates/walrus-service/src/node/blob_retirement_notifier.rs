@@ -12,6 +12,15 @@ use walrus_core::BlobId;
 
 use super::StorageNodeInner;
 
+/// The result of an operation with a retirement check.
+#[derive(Debug)]
+pub enum ExecutionResultWithRetirementCheck<T, E> {
+    /// The operation was executed successfully.
+    Executed(Result<T, E>),
+    /// The blob has retired. The operation may or may not have been executed.
+    BlobRetired,
+}
+
 /// BlobRetirementNotifier is a wrapper around Notify to notify blob expiration, deletion, or
 /// invalidation.
 /// Caller acquires a BlobRetirementNotify and wait for notification.
@@ -67,6 +76,31 @@ impl BlobRetirementNotifier {
         }
 
         Ok(())
+    }
+
+    /// Execute an operation with a retirement check.
+    pub async fn execute_with_retirement_check<T, E, Fut>(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        blob_id: BlobId,
+        operation: impl FnOnce() -> Fut,
+    ) -> Result<ExecutionResultWithRetirementCheck<T, E>, anyhow::Error>
+    where
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        let blob_retirement_notify = self.acquire_blob_retirement_notify(&blob_id);
+        let notified = blob_retirement_notify.notified();
+
+        if !node.is_blob_certified(&blob_id)? {
+            return Ok(ExecutionResultWithRetirementCheck::BlobRetired);
+        }
+
+        let result = tokio::select! {
+            _ = notified => Ok(ExecutionResultWithRetirementCheck::BlobRetired),
+            result = operation() => Ok(ExecutionResultWithRetirementCheck::Executed(result)),
+        };
+
+        result
     }
 }
 

@@ -47,7 +47,12 @@ use super::{
     blob_info::{BlobInfo, BlobInfoIterator},
     DatabaseConfig,
 };
-use crate::node::{config::ShardSyncConfig, errors::SyncShardClientError, StorageNodeInner};
+use crate::node::{
+    blob_retirement_notifier::ExecutionResultWithRetirementCheck,
+    config::ShardSyncConfig,
+    errors::SyncShardClientError,
+    StorageNodeInner,
+};
 
 // Important: this enum is committed to database. Do not modify the existing fields. Only add new
 // fields at the end.
@@ -967,7 +972,6 @@ impl ShardStorage {
         node: Arc<StorageNodeInner>,
         epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
-        // TODO(zhewu): cleanup this function to make it more readable.
         tracing::info!(
             walrus.blob_id = %blob_id,
             walrus.shard_index = %self.id,
@@ -979,23 +983,19 @@ impl ShardStorage {
         } else {
             // We need to recover the blob. So check if we also need to recover the metadata.
             // Register a task to notify the node when the blob is expired, deleted, or invalidated.
-            let blob_retirement_notify = node
+
+            let result = node
                 .blob_retirement_notifier
-                .acquire_blob_retirement_notify(&blob_id);
-            let notified = blob_retirement_notify.notified();
+                .execute_with_retirement_check(&node, blob_id, || {
+                    node.get_or_recover_blob_metadata(&blob_id, epoch)
+                })
+                .await?;
 
-            if !node.is_blob_certified(&blob_id)? {
-                self.skip_recover_blob(blob_id, sliver_type, &node)?;
-                return Ok(());
-            }
-
-            tokio::select! {
-                _ = notified => {
+            match result {
+                ExecutionResultWithRetirementCheck::Executed(metadata) => metadata?,
+                ExecutionResultWithRetirementCheck::BlobRetired => {
                     self.skip_recover_blob(blob_id, sliver_type, &node)?;
                     return Ok(());
-                }
-                result = node.get_or_recover_blob_metadata(&blob_id, epoch) => {
-                    result?
                 }
             }
         };
@@ -1011,27 +1011,24 @@ impl ShardStorage {
         )
         .inc();
 
-        // Register a task to notify the node when the blob is expired, deleted, or invalidated.
-        let blob_retirement_notify = node
+        let execution_result = node
             .blob_retirement_notifier
-            .acquire_blob_retirement_notify(&blob_id);
-        let notified = blob_retirement_notify.notified();
+            .execute_with_retirement_check(&node, blob_id, || {
+                node.committee_service.recover_sliver(
+                    metadata.into(),
+                    sliver_id,
+                    sliver_type,
+                    epoch,
+                )
+            })
+            .await?;
 
-        if !node.is_blob_certified(&blob_id)? {
-            self.skip_recover_blob(blob_id, sliver_type, &node)?;
-            return Ok(());
-        }
-
-        let recover_future =
-            node.committee_service
-                .recover_sliver(metadata.into(), sliver_id, sliver_type, epoch);
-
-        let result = tokio::select! {
-            _ = notified => {
+        let result = match execution_result {
+            ExecutionResultWithRetirementCheck::Executed(result) => result,
+            ExecutionResultWithRetirementCheck::BlobRetired => {
                 self.skip_recover_blob(blob_id, sliver_type, &node)?;
                 return Ok(());
             }
-            result = recover_future => result,
         };
 
         match result {
