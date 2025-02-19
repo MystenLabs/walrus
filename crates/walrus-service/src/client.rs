@@ -24,6 +24,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
+    EncodingType,
     Epoch,
     EpochCount,
     ShardIndex,
@@ -83,6 +84,9 @@ pub mod metrics;
 mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
+
+// TODO (WAL-607): Support both encoding types.
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
 
 /// The maximum number of retries for an operation that is stopped because of a committee change.
 // TODO: make this configurable.

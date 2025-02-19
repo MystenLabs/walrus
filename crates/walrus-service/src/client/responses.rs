@@ -60,6 +60,7 @@ use walrus_sui::{
 use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
+    ENCODING_TYPE,
 };
 use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
 
@@ -366,7 +367,7 @@ impl InfoSizeOutput {
 
         Ok(Self {
             storage_unit_size: BYTES_PER_UNIT_SIZE,
-            max_blob_size: max_blob_size_for_n_shards(committee.n_shards()),
+            max_blob_size: max_blob_size_for_n_shards(committee.n_shards(), ENCODING_TYPE),
         })
     }
 }
@@ -392,7 +393,7 @@ impl InfoPriceOutput {
 
         // Calculate marginal size and price
         let mut marginal_size = 1024 * 1024; // Start with 1 MiB
-        while marginal_size > max_blob_size_for_n_shards(n_shards) {
+        while marginal_size > max_blob_size_for_n_shards(n_shards, ENCODING_TYPE) {
             marginal_size /= 4;
         }
 
@@ -402,17 +403,18 @@ impl InfoPriceOutput {
             storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
 
         let marginal_price = storage_units_from_size(
-            encoded_slivers_length_for_n_shards(n_shards, marginal_size)
+            encoded_slivers_length_for_n_shards(n_shards, marginal_size, ENCODING_TYPE)
                 .expect("we can encode 1 MiB"),
         ) * storage_price_per_unit_size;
 
         // Calculate example blobs
-        let example_blob_0 = max_blob_size_for_n_shards(n_shards).next_power_of_two() / 1024;
+        let example_blob_0 =
+            max_blob_size_for_n_shards(n_shards, ENCODING_TYPE).next_power_of_two() / 1024;
         let example_blob_1 = example_blob_0 * 32;
         let example_blobs = [
             example_blob_0,
             example_blob_1,
-            max_blob_size_for_n_shards(n_shards),
+            max_blob_size_for_n_shards(n_shards, ENCODING_TYPE),
         ]
         .into_iter()
         .map(|unencoded_size| {
@@ -457,12 +459,14 @@ impl InfoCommitteeOutput {
 
         let n_shards = committee.n_shards();
         let (n_primary_source_symbols, n_secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards);
+            source_symbols_for_n_shards(n_shards, ENCODING_TYPE);
 
-        let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
-        let max_blob_size = max_blob_size_for_n_shards(n_shards);
-        let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
-            .expect("we can compute the encoded length of the max blob size");
+        let max_sliver_size =
+            max_sliver_size_for_n_secondary(n_secondary_source_symbols, ENCODING_TYPE);
+        let max_blob_size = max_blob_size_for_n_shards(n_shards, ENCODING_TYPE);
+        let max_encoded_blob_size =
+            encoded_blob_length_for_n_shards(n_shards, max_blob_size, ENCODING_TYPE)
+                .expect("we can compute the encoded length of the max blob size");
 
         let mut storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
         let mut next_storage_nodes = next_committee
@@ -604,7 +608,8 @@ impl ExampleBlobInfo {
         n_shards: NonZeroU16,
         price_per_unit_size: u64,
     ) -> Option<Self> {
-        let encoded_size = encoded_blob_length_for_n_shards(n_shards, unencoded_size)?;
+        let encoded_size =
+            encoded_blob_length_for_n_shards(n_shards, unencoded_size, ENCODING_TYPE)?;
         let price = price_for_encoded_length(encoded_size, price_per_unit_size, 1);
         Some(Self {
             unencoded_size,

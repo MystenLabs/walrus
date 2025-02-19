@@ -6,7 +6,10 @@
 // TODO(giac): Link or import the `../../../docs/red-stuff.md` documentation here (#307).
 
 mod basic_encoding;
-pub use basic_encoding::{Decoder, Encoder};
+pub use basic_encoding::{
+    raptorq::{RaptorQDecoder, RaptorQEncoder},
+    reed_solomon::{RSDecoder, RSEncoder},
+};
 
 mod blob_encoding;
 pub use blob_encoding::{BlobDecoder, BlobEncoder};

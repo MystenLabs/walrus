@@ -10,12 +10,12 @@ use tracing::{Level, Span};
 use super::{
     utils,
     DataTooLargeError,
-    Decoder,
     DecodingSymbol,
     DecodingVerificationError,
     EncodingAxis,
     EncodingConfig,
     Primary,
+    RaptorQDecoder,
     Secondary,
     SliverData,
     SliverPair,
@@ -53,6 +53,9 @@ pub struct BlobEncoder<'a> {
 }
 
 impl<'a> BlobEncoder<'a> {
+    // TODO (WAL-605): Support both encoding types.
+    const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+
     /// Creates a new `BlobEncoder` to encode the provided `blob` with the provided configuration.
     ///
     /// The actual encoding can be performed with the [`encode()`][Self::encode] method.
@@ -69,8 +72,11 @@ impl<'a> BlobEncoder<'a> {
     ///    that due to limitations of the address space.
     pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob encoder");
-        let symbol_size =
-            utils::compute_symbol_size_from_usize(blob.len(), config.source_symbols_per_blob())?;
+        let symbol_size = utils::compute_symbol_size_from_usize(
+            blob.len(),
+            config.source_symbols_per_blob(),
+            Self::ENCODING_TYPE.required_alignment(),
+        )?;
         let n_rows = config.n_source_symbols::<Primary>().get().into();
         let n_columns = config.n_source_symbols::<Secondary>().get().into();
 
@@ -452,7 +458,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
 #[derive(Debug)]
 pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
     _decoding_axis: PhantomData<T>,
-    decoders: Vec<Decoder>,
+    decoders: Vec<RaptorQDecoder>,
     blob_size: usize,
     symbol_size: NonZeroU16,
     config: &'a EncodingConfig,
@@ -466,8 +472,8 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     ///
     /// The generic parameter specifies from which type of slivers the decoding will be performed.
     ///
-    /// This function creates the necessary [`Decoder`s][Decoder] for the decoding; actual decoding
-    /// can be performed with the [`decode()`][Self::decode] method.
+    /// This function creates the necessary [`RaptorQDecoder`s][RaptorQDecoder] for the decoding;
+    /// actual decoding can be performed with the [`decode()`][Self::decode] method.
     ///
     /// # Errors
     ///
@@ -479,7 +485,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
         Ok(Self {
             _decoding_axis: PhantomData,
             decoders: vec![
-                Decoder::new(config.n_source_symbols::<T>(), symbol_size);
+                RaptorQDecoder::new(config.n_source_symbols::<T>(), symbol_size,);
                 config.n_source_symbols::<T::OrthogonalAxis>().get().into()
             ],
             blob_size,

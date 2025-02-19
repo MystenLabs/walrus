@@ -804,9 +804,11 @@ pub struct InvalidEncodingType;
 #[repr(u8)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum EncodingType {
-    /// Default RaptorQ encoding.
-    #[default]
+    /// Original RedStuff encoding using the RaptorQ erasure code.
     RedStuff = 0,
+    /// RedStuff using the Reed-Solomon erasure code.
+    #[default]
+    RS2 = 1,
 }
 
 impl From<EncodingType> for u8 {
@@ -821,7 +823,27 @@ impl TryFrom<u8> for EncodingType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(EncodingType::RedStuff),
+            1 => Ok(EncodingType::RS2),
             _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
+impl EncodingType {
+    /// Returns the required alignment of symbols for the encoding type.
+    pub fn required_alignment(&self) -> u64 {
+        match self {
+            EncodingType::RedStuff => 1,
+            EncodingType::RS2 => 2,
+        }
+    }
+
+    /// Returns the maximum size of a symbol for the encoding type.
+    pub fn max_symbol_size(&self) -> u64 {
+        match self {
+            EncodingType::RedStuff => u16::MAX.into(),
+            // TODO (WAL-611): Probably we can support larger symbols for Reed-Solomon.
+            EncodingType::RS2 => (u16::MAX - 1).into(),
         }
     }
 }

@@ -6,18 +6,17 @@ use core::num::{NonZeroU16, NonZeroU32};
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
+    basic_encoding::raptorq::{RaptorQDecoder, RaptorQEncoder},
     utils,
     BlobDecoder,
     BlobEncoder,
     DataTooLargeError,
-    Decoder,
     EncodeError,
-    Encoder,
     EncodingAxis,
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
-use crate::{bft, merkle::DIGEST_LEN, BlobId};
+use crate::{bft, merkle::DIGEST_LEN, BlobId, EncodingType};
 
 /// Configuration of the Walrus encoding.
 ///
@@ -30,8 +29,8 @@ pub struct EncodingConfig {
     /// the Byzantine parameter.
     pub(crate) source_symbols_primary: NonZeroU16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
-    /// number of symbols per primary sliver.It must be strictly less than `n_shards - f`, where `f`
-    /// is the Byzantine parameter.
+    /// number of symbols per primary sliver. It must be strictly less than `n_shards - f`, where
+    /// `f` is the Byzantine parameter.
     pub(crate) source_symbols_secondary: NonZeroU16,
     /// The number of shards.
     pub(crate) n_shards: NonZeroU16,
@@ -42,6 +41,9 @@ pub struct EncodingConfig {
 }
 
 impl EncodingConfig {
+    // TODO (WAL-605): Support both encoding types.
+    const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+
     /// Creates a new encoding config, given the number of shards.
     ///
     /// The number of shards determines the the appropriate number of primary and secondary source
@@ -56,7 +58,7 @@ impl EncodingConfig {
     /// to be larger than [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
     pub fn new(n_shards: NonZeroU16) -> Self {
         let (primary_source_symbols, secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards);
+            source_symbols_for_n_shards(n_shards, Self::ENCODING_TYPE);
         tracing::debug!(
             n_shards,
             primary_source_symbols,
@@ -192,15 +194,13 @@ impl EncodingConfig {
     /// See [`max_blob_size_for_n_shards`] for additional documentation.
     #[inline]
     pub fn max_blob_size(&self) -> u64 {
-        max_blob_size_for_n_shards(self.n_shards())
+        max_blob_size_for_n_shards(self.n_shards(), Self::ENCODING_TYPE)
     }
 
     /// The number of symbols a blob is split into.
     #[inline]
     pub fn source_symbols_per_blob(&self) -> NonZeroU32 {
-        NonZeroU32::from(self.source_symbols_primary)
-            .checked_mul(self.source_symbols_secondary.into())
-            .expect("product of two u16 always fits into a u32")
+        utils::source_symbols_per_blob(self.source_symbols_primary, self.source_symbols_secondary)
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
@@ -211,7 +211,11 @@ impl EncodingConfig {
     /// [`MAX_SYMBOL_SIZE`].
     #[inline]
     pub fn symbol_size_for_blob(&self, blob_size: u64) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size(blob_size, self.source_symbols_per_blob())
+        utils::compute_symbol_size(
+            blob_size,
+            self.source_symbols_per_blob(),
+            Self::ENCODING_TYPE.required_alignment(),
+        )
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
@@ -224,8 +228,13 @@ impl EncodingConfig {
     pub fn symbol_size_for_blob_from_nonzero(
         &self,
         blob_size: u64,
+        required_alignment: u64,
     ) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size(blob_size, self.source_symbols_per_blob())
+        utils::compute_symbol_size(
+            blob_size,
+            self.source_symbols_per_blob(),
+            required_alignment,
+        )
     }
 
     /// The symbol size when encoding a blob of size `blob_size`.
@@ -238,8 +247,13 @@ impl EncodingConfig {
     pub fn symbol_size_for_blob_from_usize(
         &self,
         blob_size: usize,
+        required_alignment: u64,
     ) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size_from_usize(blob_size, self.source_symbols_per_blob())
+        utils::compute_symbol_size_from_usize(
+            blob_size,
+            self.source_symbols_per_blob(),
+            required_alignment,
+        )
     }
 
     /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
@@ -260,7 +274,7 @@ impl EncodingConfig {
     /// See [`encoded_blob_length_for_n_shards`] for additional documentation.
     #[inline]
     pub fn encoded_blob_length(&self, unencoded_length: u64) -> Option<u64> {
-        encoded_blob_length_for_n_shards(self.n_shards(), unencoded_length)
+        encoded_blob_length_for_n_shards(self.n_shards(), unencoded_length, Self::ENCODING_TYPE)
     }
 
     /// Computes the length of a blob of given `unencoded_length`, once encoded.
@@ -284,10 +298,10 @@ impl EncodingConfig {
     /// This is the size of a primary sliver with `u16::MAX` symbol size.
     #[inline]
     pub fn max_sliver_size(&self) -> u64 {
-        max_sliver_size_for_n_secondary(self.n_secondary_source_symbols())
+        max_sliver_size_for_n_secondary(self.n_secondary_source_symbols(), Self::ENCODING_TYPE)
     }
 
-    /// Returns an [`Encoder`] to perform a single primary or secondary encoding of the data.
+    /// Returns a [`RaptorQEncoder`] to perform a single primary or secondary encoding of the data.
     ///
     /// The `data` to be encoded _does not_ have to be aligned/padded. The `encoding_axis` specifies
     /// which encoding parameters the encoder uses, i.e., the parameters for either the primary or
@@ -295,10 +309,10 @@ impl EncodingConfig {
     ///
     /// # Errors
     ///
-    /// Returns an [`EncodeError`] if the `data` cannot be encoded. See [`Encoder::new`] for further
-    /// details about the returned errors.
-    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<Encoder, EncodeError> {
-        Encoder::new(
+    /// Returns an [`EncodeError`] if the `data` cannot be encoded. See [`RaptorQEncoder::new`] for
+    /// further details about the returned errors.
+    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<RaptorQEncoder, EncodeError> {
+        RaptorQEncoder::new(
             data,
             self.n_source_symbols::<E>(),
             self.n_shards(),
@@ -306,10 +320,10 @@ impl EncodingConfig {
         )
     }
 
-    /// Returns a [`Decoder`] to perform a single primary or secondary decoding for the provided
-    /// `symbol_size`.
-    pub fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> Decoder {
-        Decoder::new(self.n_source_symbols::<E>(), symbol_size)
+    /// Returns a [`RaptorQDecoder`] to perform a single primary or secondary decoding for the
+    /// provided `symbol_size`.
+    pub fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> RaptorQDecoder {
+        RaptorQDecoder::new(self.n_source_symbols::<E>(), symbol_size)
     }
 
     /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][super::SliverPair].
@@ -358,16 +372,21 @@ impl EncodingConfig {
 /// reconstruction after receiving f+1 primary slivers is at least
 /// `1 - (1 / 256)^(decoding_safety_limit(n_shards) + 1)`.
 #[inline]
-pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
-    // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a safety
-    // limit of 5.
-    match n_shards.get() {
-        0..=15 => 0,
-        16..=30 => 1, // f=5, 3f+1=16, 0.2*f=1
-        31..=45 => 2, // f=10, 3f+1=31, 0.2*f=2
-        46..=60 => 3, // f=15, 3f+1=46, 0.2*f=3
-        61..=75 => 4, // f=20, 3f+1=61, 0.2*f=4
-        76.. => 5,    // f=25, 3f+1=76, 0.2*f=5
+pub fn decoding_safety_limit(n_shards: NonZeroU16, encoding_type: EncodingType) -> u16 {
+    match encoding_type {
+        EncodingType::RedStuff => {
+            // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a
+            // safety limit of 5.
+            match n_shards.get() {
+                0..=15 => 0,
+                16..=30 => 1, // f=5, 3f+1=16, 0.2*f=1
+                31..=45 => 2, // f=10, 3f+1=31, 0.2*f=2
+                46..=60 => 3, // f=15, 3f+1=46, 0.2*f=3
+                61..=75 => 4, // f=20, 3f+1=61, 0.2*f=4
+                76.. => 5,    // f=25, 3f+1=76, 0.2*f=5
+            }
+        }
+        EncodingType::RS2 => 0,
     }
 }
 
@@ -377,8 +396,11 @@ pub fn decoding_safety_limit(n_shards: NonZeroU16) -> u16 {
 /// - `source_symbols_primary = n_shards - 2f - decoding_safety_limit(n_shards)`
 /// - `source_symbols_secondary = n_shards - f - decoding_safety_limit(n_shards)`
 #[inline]
-pub fn source_symbols_for_n_shards(n_shards: NonZeroU16) -> (NonZeroU16, NonZeroU16) {
-    let safety_limit = decoding_safety_limit(n_shards);
+pub fn source_symbols_for_n_shards(
+    n_shards: NonZeroU16,
+    encoding_type: EncodingType,
+) -> (NonZeroU16, NonZeroU16) {
+    let safety_limit = decoding_safety_limit(n_shards, encoding_type);
     let min_n_correct = bft::min_n_correct(n_shards).get();
     (
         (min_n_correct - bft::max_n_faulty(n_shards) - safety_limit)
@@ -407,8 +429,11 @@ pub fn metadata_length_for_n_shards(n_shards: NonZeroU16) -> u64 {
 
 /// Returns the maximum size of a sliver for a system with `n_secondary_source_symbols`.
 #[inline]
-pub fn max_sliver_size_for_n_secondary(n_secondary_source_symbols: NonZeroU16) -> u64 {
-    u64::from(n_secondary_source_symbols.get()) * u64::from(u16::MAX)
+pub fn max_sliver_size_for_n_secondary(
+    n_secondary_source_symbols: NonZeroU16,
+    encoding_type: EncodingType,
+) -> u64 {
+    u64::from(n_secondary_source_symbols.get()) * encoding_type.max_symbol_size()
 }
 
 /// Returns the maximum size of a sliver for a system with `n_shards` shards.
@@ -416,8 +441,14 @@ pub fn max_sliver_size_for_n_secondary(n_secondary_source_symbols: NonZeroU16) -
 /// This is the size of a primary sliver with `u16::MAX` symbol size.
 #[inline]
 pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
-    let (_, secondary) = source_symbols_for_n_shards(n_shards);
-    max_sliver_size_for_n_secondary(secondary)
+    [EncodingType::RedStuff, EncodingType::RS2]
+        .iter()
+        .map(|encoding_type| {
+            let (_, secondary) = source_symbols_for_n_shards(n_shards, *encoding_type);
+            max_sliver_size_for_n_secondary(secondary, *encoding_type)
+        })
+        .max()
+        .expect("we can always compute the maximum of two values")
 }
 
 /// The maximum size in bytes of a blob that can be encoded, given the number of shards.
@@ -429,13 +460,18 @@ pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
 /// Note that on 32-bit architectures, the actual limit can be smaller than that due to the
 /// limited address space.
 #[inline]
-pub fn max_blob_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
-    u64::from(source_symbols_per_blob_for_n_shards(n_shards).get()) * u64::from(MAX_SYMBOL_SIZE)
+pub fn max_blob_size_for_n_shards(n_shards: NonZeroU16, encoding_type: EncodingType) -> u64 {
+    u64::from(source_symbols_per_blob_for_n_shards(n_shards, encoding_type).get())
+        * u64::from(MAX_SYMBOL_SIZE)
 }
 
 #[inline]
-fn source_symbols_per_blob_for_n_shards(n_shards: NonZeroU16) -> NonZeroU32 {
-    let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
+fn source_symbols_per_blob_for_n_shards(
+    n_shards: NonZeroU16,
+    encoding_type: EncodingType,
+) -> NonZeroU32 {
+    let (source_symbols_primary, source_symbols_secondary) =
+        source_symbols_for_n_shards(n_shards, encoding_type);
     NonZeroU32::from(source_symbols_primary)
         .checked_mul(source_symbols_secondary.into())
         .expect("product of two u16 always fits into a u32")
@@ -452,8 +488,10 @@ fn source_symbols_per_blob_for_n_shards(n_shards: NonZeroU16) -> NonZeroU32 {
 pub fn encoded_blob_length_for_n_shards(
     n_shards: NonZeroU16,
     unencoded_length: u64,
+    encoding_type: EncodingType,
 ) -> Option<u64> {
-    let slivers_size = encoded_slivers_length_for_n_shards(n_shards, unencoded_length)?;
+    let slivers_size =
+        encoded_slivers_length_for_n_shards(n_shards, unencoded_length, encoding_type)?;
     Some(u64::from(n_shards.get()) * metadata_length_for_n_shards(n_shards) + slivers_size)
 }
 
@@ -467,14 +505,17 @@ pub fn encoded_blob_length_for_n_shards(
 pub fn encoded_slivers_length_for_n_shards(
     n_shards: NonZeroU16,
     unencoded_length: u64,
+    encoding_type: EncodingType,
 ) -> Option<u64> {
-    let (source_symbols_primary, source_symbols_secondary) = source_symbols_for_n_shards(n_shards);
+    let (source_symbols_primary, source_symbols_secondary) =
+        source_symbols_for_n_shards(n_shards, encoding_type);
     let single_shard_slivers_size = (u64::from(source_symbols_primary.get())
         + u64::from(source_symbols_secondary.get()))
         * u64::from(
             utils::compute_symbol_size(
                 unencoded_length,
-                source_symbols_per_blob_for_n_shards(n_shards),
+                source_symbols_per_blob_for_n_shards(n_shards, encoding_type),
+                encoding_type.required_alignment(),
             )
             .ok()?
             .get(),
@@ -554,7 +595,7 @@ mod tests {
         expected_secondary: u16,
     ) {
         let (actual_primary, actual_secondary) =
-            source_symbols_for_n_shards(n_shards.try_into().unwrap());
+            source_symbols_for_n_shards(n_shards.try_into().unwrap(), EncodingType::RedStuff);
         assert_eq!(actual_primary.get(), expected_primary);
         assert_eq!(actual_secondary.get(), expected_secondary);
     }

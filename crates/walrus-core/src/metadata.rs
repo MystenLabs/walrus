@@ -123,7 +123,8 @@ impl VerifiedBlobMetadataWithId {
     /// Returns true if the number of symbols and number of shards in the provided encoding config,
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
-        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards());
+        let (n_primary, n_secondary) =
+            source_symbols_for_n_shards(self.n_shards(), self.metadata.encoding_type());
 
         self.metadata.encoding_type() == EncodingType::RedStuff
             && self.n_shards() == config.n_shards()
@@ -287,6 +288,7 @@ impl BlobMetadataApi for BlobMetadataV1 {
         &self,
         encoding_config: &EncodingConfig,
     ) -> Result<NonZeroU16, DataTooLargeError> {
+        // TODO (WAL-605): use self.encoding_type to select the correct config.
         encoding_config.symbol_size_for_blob(self.unencoded_length)
     }
 
@@ -300,6 +302,7 @@ impl BlobMetadataApi for BlobMetadataV1 {
         encoded_blob_length_for_n_shards(
             NonZeroU16::new(self.hashes.len().try_into().ok()?)?,
             self.unencoded_length,
+            self.encoding_type,
         )
     }
 

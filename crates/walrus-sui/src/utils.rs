@@ -35,6 +35,7 @@ use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},
+    EncodingType,
     Epoch,
     EpochCount,
 };
@@ -64,8 +65,9 @@ pub fn price_for_unencoded_length(
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
     epochs: EpochCount,
+    encoding_type: EncodingType,
 ) -> Option<u64> {
-    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
+    encoded_blob_length_for_n_shards(n_shards, unencoded_length, encoding_type)
         .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
 }
 

@@ -65,7 +65,7 @@ use crate::{
 };
 
 /// Failure cases when verifying an [`InconsistencyProof`].
-#[derive(thiserror::Error, Debug, Eq, PartialEq)]
+#[derive(thiserror::Error, Debug, PartialEq)]
 pub enum InconsistencyVerificationError {
     /// No sliver can be decoded from the authentic recovery symbols.
     #[error(transparent)]

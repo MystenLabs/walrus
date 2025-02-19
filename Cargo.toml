@@ -70,6 +70,7 @@ quote = "1.0"
 rand = "0.8.5"
 raptorq = "2.0.0"
 rcgen = "0.13.2"
+reed-solomon-simd = "3.0.1"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"

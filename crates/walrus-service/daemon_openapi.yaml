@@ -317,6 +317,7 @@ components:
       description: Supported Walrus encoding types.
       enum:
       - RedStuff
+      - RS2
     Epoch:
       type: integer
       format: int32

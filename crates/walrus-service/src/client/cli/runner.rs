@@ -100,6 +100,7 @@ use crate::{
         ClientDaemon,
         Config,
         StoreWhen,
+        ENCODING_TYPE,
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };
@@ -561,9 +562,12 @@ impl ClientCommandRunner {
                 .encode_pairs_and_metadata(&blob, &MultiProgress::new())
                 .await?;
             let unencoded_size = metadata.metadata().unencoded_length();
-            let encoded_size =
-                encoded_blob_length_for_n_shards(encoding_config.n_shards(), unencoded_size)
-                    .expect("must be valid as the encoding succeeded");
+            let encoded_size = encoded_blob_length_for_n_shards(
+                encoding_config.n_shards(),
+                unencoded_size,
+                ENCODING_TYPE,
+            )
+            .expect("must be valid as the encoding succeeded");
             let storage_cost = client.get_price_computation().await?.operation_cost(
                 &crate::client::resource::RegisterBlobOp::RegisterFromScratch {
                     encoded_length: encoded_size,
