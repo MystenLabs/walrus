@@ -1269,6 +1269,84 @@ async fn test_post_store_action(
     Ok(())
 }
 
+/// Test extend shared blob.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_extend_shared_blob() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+
+    // Create initial blob data
+    let blob_data = walrus_test_utils::random_data(314);
+    let blobs = vec![blob_data.as_slice()];
+
+    // First store and share the blob with end_epoch at 30
+    let initial_result = client
+        .as_ref()
+        .reserve_and_store_blobs(
+            &blobs,
+            30,  // end_epoch at 30
+            StoreWhen::NotStored,
+            BlobPersistence::Deletable,
+            PostStoreAction::Share,  // Share the blob
+        )
+        .await?;
+
+    let initial_store = initial_result
+        .into_iter()
+        .next()
+        .expect("should have one result");
+
+    // Verify the initial shared blob was created correctly
+    // match initial_store {
+    //     BlobStoreResult::NewlyCreated {
+    //         shared_blob_object: Some(shared_blob_id),
+    //         blob_object,
+    //         ..
+    //     } => {
+    //         let shared_blob: SharedBlob = client
+    //             .as_ref()
+    //             .sui_client()
+    //             .sui_client()
+    //             .get_sui_object(shared_blob_id)
+    //             .await?;
+    //         assert_eq!(shared_blob.funds, 0);
+    //         assert_eq!(shared_blob.blob.id, blob_object.id);
+    //         assert_eq!(shared_blob.blob.storage.end_epoch, 30);
+    //     }
+    //     _ => panic!("expected newly created shared blob"),
+    // }
+    println!("initial_store: {:?}", initial_store);
+
+    // Now try to store the same blob again with end_epoch at 20
+    let second_result = client
+        .as_ref()
+        .reserve_and_store_blobs(
+            &blobs,
+            20,  // end_epoch at 20
+            StoreWhen::NotStored,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+
+    let second_store = second_result
+        .into_iter()
+        .next()
+        .expect("should have one result");
+
+    // The second store should return AlreadyCertified since the blob already exists
+    println!("second_store: {:?}", second_store);
+
+    let owned_blobs = client
+        .as_ref()
+        .sui_client()
+        .owned_blobs(None, ExpirySelectionPolicy::Valid)
+        .await.expect("owned_blobs should succeed.");
+    println!("owned_blobs: {:?}", owned_blobs);
+    Ok(())
+}
+
 /// A toolkit for blob attribute tests.
 struct BlobAttributeTestContext<'a> {
     pub client: &'a mut WithTempDir<Client<SuiContractClient>>,
