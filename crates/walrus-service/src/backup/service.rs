@@ -274,14 +274,6 @@ pub fn run_backup_database_migrations(config: &BackupConfig) {
     tracing::info!(?versions, "migrations ran successfully");
 }
 
-#[derive(QueryableByName)]
-struct BlobStateStatistic {
-    #[sql_type = "diesel::sql_types::Text"]
-    state: String,
-    #[sql_type = "diesel::sql_types::BigInt"]
-    count: i64,
-}
-
 /// Starts a new backup node runtime.
 pub async fn start_backup_orchestrator(
     config: BackupConfig,
@@ -342,6 +334,14 @@ pub async fn start_backup_orchestrator(
     .await
 }
 
+#[derive(Debug, QueryableByName)]
+struct BlobStateStatistic {
+    #[sql_type = "diesel::sql_types::Text"]
+    state: String,
+    #[sql_type = "diesel::sql_types::BigInt"]
+    count: i64,
+}
+
 fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &BackupConfig) {
     // Start an infinite loop polling the database for blob state statistics and updating the metrics.
     let backup_db_metric_set = BackupDbMetricSet::new(&metrics_runtime.registry);
@@ -378,6 +378,9 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
             .await
             .inspect_err(|error| {
                 tracing::warn!(?error, "failed to query blob_state table for stats");
+            })
+            .inspect(|stats| {
+                tracing::info!(?stats, "fetched blob state statistics");
             })
             .unwrap_or_default();
 
