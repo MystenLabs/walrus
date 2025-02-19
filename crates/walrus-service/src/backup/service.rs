@@ -10,6 +10,7 @@ use diesel::{
     result::{DatabaseErrorKind, Error},
     sql_types::{Bytea, Int4, Text},
     Connection as _,
+    QueryableByName,
 };
 use diesel_async::{
     scoped_futures::ScopedFutureExt,
@@ -36,7 +37,7 @@ use super::{
     BACKUP_BLOB_ARCHIVE_SUBDIR,
 };
 use crate::{
-    backup::metrics::{BackupFetcherMetricSet, BackupOrchestratorMetricSet},
+    backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
     client::{
         config::{ClientCommunicationConfig, Config as ClientConfig},
         Client,
@@ -273,6 +274,14 @@ pub fn run_backup_database_migrations(config: &BackupConfig) {
     tracing::info!(?versions, "migrations ran successfully");
 }
 
+#[derive(QueryableByName)]
+struct BlobStateStatistic {
+    #[sql_type = "diesel::sql_types::Text"]
+    state: String,
+    #[sql_type = "diesel::sql_types::BigInt"]
+    count: i64,
+}
+
 /// Starts a new backup node runtime.
 pub async fn start_backup_orchestrator(
     config: BackupConfig,
@@ -311,12 +320,17 @@ pub async fn start_backup_orchestrator(
 
     let metrics_registry = metrics_runtime.registry.clone();
 
-    // Connect to the database.
-    let pg_connection =
-        establish_connection_async(&config.db_config.database_url, "start_backup_node").await?;
+    start_db_metrics_loop(metrics_runtime, &config);
 
     let backup_orchestrator_metric_set =
         BackupOrchestratorMetricSet::new(&metrics_runtime.registry);
+    // Connect to the database.
+    let pg_connection = establish_connection_async(
+        &config.db_config.database_url,
+        "db connect for stream_events",
+    )
+    .await?;
+
     // Stream events from Sui and pull them into our main business logic workflow.
     stream_events(
         event_processor,
@@ -326,6 +340,56 @@ pub async fn start_backup_orchestrator(
         backup_orchestrator_metric_set,
     )
     .await
+}
+
+fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &BackupConfig) {
+    // Start an infinite loop polling the database for blob state statistics and updating the metrics.
+    let backup_db_metric_set = BackupDbMetricSet::new(&metrics_runtime.registry);
+    let database_url = config.db_config.database_url.clone();
+
+    tokio::spawn(async move {
+        let mut conn =
+            establish_connection_async(&database_url, "db connect for db metrics polling")
+                .await
+                .expect("failed to connect to postgres for db metrics polling");
+
+        loop {
+            let stats: Vec<BlobStateStatistic> = diesel::sql_query(
+                "
+                    SELECT
+                        state,
+                        COUNT(*)
+                    FROM blob_state
+                    WHERE
+                        COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
+                                    FALSE)
+                    GROUP BY 1
+                    UNION
+                    SELECT
+                        'expired' AS state,
+                        COUNT(*)
+                    FROM blob_state
+                    WHERE
+                        COALESCE(end_epoch <= (SELECT MAX(epoch) FROM epoch_change_start_event),
+                                    TRUE)
+                    ",
+            )
+            .get_results(&mut conn)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(?error, "failed to query blob_state table for stats");
+            })
+            .unwrap_or_default();
+
+            for stat in stats {
+                backup_db_metric_set
+                    .blob_states
+                    .with_label_values(&[&stat.state])
+                    .set(stat.count as f64);
+            }
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
+    });
 }
 
 /// Starts a new backup node runtime.

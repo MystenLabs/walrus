@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::{Histogram, IntCounter, IntCounterVec, Opts, Registry};
+use prometheus::{GaugeVec, Histogram, IntCounter, IntCounterVec, Opts, Registry};
 
 use crate::common::telemetry;
 
@@ -41,5 +41,12 @@ telemetry::define_metric_set! {
 
         #[help = "The number of retries due to serializability failures"]
         db_serializability_retries: IntCounterVec["context"],
+    }
+}
+telemetry::define_metric_set! {
+    /// Metrics exported by the backup orchestrator node.
+    struct BackupDbMetricSet {
+        #[help = "The states of the blobs in the db"]
+        blob_states: GaugeVec["state"],
     }
 }
