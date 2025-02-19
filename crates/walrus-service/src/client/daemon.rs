@@ -175,6 +175,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
     /// Specifies that the daemon should expose the aggregator interface (read blobs).
     fn with_aggregator(mut self, allowed_headers: Vec<String>) -> Self {
         self.with_allowed_headers(allowed_headers);
+        tracing::info!("Aggregator allowed headers: {:?}", self.allowed_headers);
         self.router = self
             .router
             .route(BLOB_GET_ENDPOINT, get(routes::get_blob))

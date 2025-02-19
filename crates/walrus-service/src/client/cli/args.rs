@@ -553,7 +553,7 @@ pub enum DaemonCommands {
         /// The daemon args.
         daemon_args: DaemonArgs,
         #[clap(flatten)]
-        #[serde(flatten)]
+        #[serde(flatten, default)]
         /// The aggregator args.
         aggregator_args: AggregatorArgs,
     },
@@ -565,7 +565,7 @@ pub enum DaemonCommands {
         /// The publisher args.
         args: PublisherArgs,
         #[clap(flatten)]
-        #[serde(flatten)]
+        #[serde(flatten, default)]
         /// The aggregator args.
         aggregator_args: AggregatorArgs,
     },
@@ -583,7 +583,7 @@ impl DaemonCommands {
 }
 
 /// The arguments for the aggregator service.
-#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Default, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AggregatorArgs {
     /// Allowed headers for the daemon.
@@ -592,7 +592,7 @@ pub struct AggregatorArgs {
     /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
     /// allowed headers if the specified header names are present in the BlobAttribute associated
     /// with the requested blob.
-    #[clap(long)]
+    #[clap(long, num_args = 1.., default_values_t = default::allowed_headers())]
     #[serde(default = "default::allowed_headers")]
     pub(crate) allowed_headers: Vec<String>,
 }
