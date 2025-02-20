@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::{GaugeVec, Histogram, IntCounter, IntCounterVec, Opts, Registry};
+use prometheus::{Gauge, GaugeVec, Histogram, IntCounter, IntCounterVec, Opts, Registry};
 
 use crate::common::telemetry;
 
@@ -13,6 +13,12 @@ telemetry::define_metric_set! {
 
         #[help = "The total count of failed blob fetches"]
         blob_fetch_errors: IntCounterVec["client_error"],
+
+        #[help = "The current count of failed blob fetches in a row"]
+        consecutive_blob_fetch_errors: Gauge[],
+
+        #[help = "The time it takes to fetch a blob from the network"]
+        blob_fetch_duration: Histogram[],
 
         #[help = "The total count of blobs uploaded"]
         blobs_uploaded: IntCounter[],

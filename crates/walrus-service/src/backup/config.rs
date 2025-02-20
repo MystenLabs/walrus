@@ -75,7 +75,12 @@ pub struct BackupConfig {
     /// backup lifecycles.)
     #[serde(default = "defaults::max_retries_per_blob")]
     pub max_retries_per_blob: u32,
-    /// How long to delay between retries when a backup fails in minutes.
+    /// The number of waiting blobs to fetch for any given single worker at a time. This is a
+    /// simplistic way of avoiding database read/write contention.
+    #[serde(default = "defaults::blob_job_chunk_size")]
+    pub blob_job_chunk_size: u32,
+    /// How long to delay between retries when a backup fails in minutes. Note that this will need
+    /// to be a function of the blob_job_chunk_size in order to prevent fetcher races.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(
         rename = "retry_fetch_after_interval",
@@ -112,6 +117,7 @@ impl BackupConfig {
                 db_reconnect_wait_time: defaults::db_reconnect_wait_time(),
             },
             max_retries_per_blob: defaults::max_retries_per_blob(),
+            blob_job_chunk_size: defaults::blob_job_chunk_size(),
             retry_fetch_after_interval: defaults::retry_fetch_after_interval(),
             idle_fetcher_sleep_time: defaults::idle_fetcher_sleep_time(),
         }
@@ -142,7 +148,7 @@ pub mod defaults {
 
     /// Default backup max_retries_per_blob.
     pub fn max_retries_per_blob() -> u32 {
-        25
+        3
     }
     /// The default interval between retries for any specific blob.
     ///
@@ -152,8 +158,11 @@ pub mod defaults {
     ///
     /// This is a rough estimate and can be adjusted as needed. A minor goal here is to avoid the
     /// need for another layer of synchronization between fetcher workers and the delegator.
+    ///
+    /// The reason we multiply by the chunk size is to ensure that the fetchers don't race to fetch
+    /// blobs that are already in another fetcher's in-memory queue.
     pub fn retry_fetch_after_interval() -> Duration {
-        Duration::from_secs(45 * 60)
+        Duration::from_secs(45 * 60 * blob_job_chunk_size() as u64)
     }
 
     /// The default interval between the fetcher polling the database when there is no work to do.
@@ -177,5 +186,8 @@ pub mod defaults {
     /// Default time to allow blob uploads to take before timing out.
     pub fn blob_upload_timeout() -> Duration {
         Duration::from_secs(60)
+    }
+    pub fn blob_job_chunk_size() -> u32 {
+        10
     }
 }

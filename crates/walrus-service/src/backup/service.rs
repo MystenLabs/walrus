@@ -336,9 +336,9 @@ pub async fn start_backup_orchestrator(
 
 #[derive(Debug, QueryableByName)]
 struct BlobStateStatistic {
-    #[sql_type = "diesel::sql_types::Text"]
+    #[diesel(sql_type = diesel::sql_types::Text)]
     state: String,
-    #[sql_type = "diesel::sql_types::BigInt"]
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
     count: i64,
 }
 
@@ -433,24 +433,27 @@ pub async fn start_backup_fetcher(
     backup_fetcher(config, backup_fetcher_metric_set).await
 }
 
-/// Read the oldest un-fetched blob state from the database and return its BlobId.
+/// Read the oldest un-fetched blob states from the database and return their BlobIds.
 ///
 /// Note that this function mutates the database when it "takes" a blob_state job from the database
 /// by pushing the `initiate_fetch_after` timestamp forward into the future by some configured
 /// amount (to prevent other workers from also claiming this task.)
-async fn backup_take_task(
+async fn backup_take_tasks(
     conn: &mut AsyncPgConnection,
     backup_fetcher_metric_set: &BackupFetcherMetricSet,
     retry_fetch_after_interval: Duration,
     max_retries_per_blob: u32,
+    blob_job_chunk_size: u32,
     db_config: &BackupDbConfig,
-) -> Option<BlobId> {
+) -> Vec<BlobId> {
     let max_retries_per_blob =
         i32::try_from(max_retries_per_blob).expect("max_retries_per_blob config overflow");
+    let blob_job_chunk_size =
+        i32::try_from(blob_job_chunk_size).expect("blob_job_chunk_size config overflow");
     let retry_fetch_after_interval_seconds = i32::try_from(retry_fetch_after_interval.as_secs())
         .expect("retry_fetch_after_interval_seconds config overflow");
     // Poll the db for a new work item.
-    let blob_id_rows: Vec<BlobIdRow> = retry_serializable_query(
+    let blob_id_rows: Option<Vec<BlobIdRow>> = retry_serializable_query(
         conn,
         Location::caller(),
         db_config,
@@ -460,9 +463,9 @@ async fn backup_take_task(
         &backup_fetcher_metric_set.db_reconnects,
         |conn| {
             async {
-                // This query will fetch the next blob that is in the waiting state and is ready to
-                // be fetched. It will also update its initiate_fetch_after timestamp to give this
-                // backup_fetcher worker time to conduct the fetch, and the push to GCS.
+                // This query will fetch the next blobs that are in the waiting state and are ready to
+                // be fetched. It will also update their initiate_fetch_after timestamp to give this
+                // backup_fetcher worker time to conduct the fetches, and the pushes to GCS.
                 //
                 // The backoff interval is calculated to be an exponential function of the retry
                 // count, with a maximum of 24 hours. The exponential base is 1.5, which means that
@@ -482,14 +485,14 @@ async fn backup_take_task(
                                                             FROM epoch_change_start_event),
                                     TRUE)
                             ORDER BY blob_state.initiate_fetch_after ASC
-                            LIMIT 1
+                            LIMIT $2
                         ),
                         _updated_count AS (
                             UPDATE blob_state
                             SET
                                 initiate_fetch_after =
                                     NOW()
-                                    + LEAST(86400, ($2 / 1.5) * POW(1.5, retry_count))
+                                    + LEAST(86400, ($3 / 1.5) * POW(1.5, retry_count))
                                         * INTERVAL '1 second',
                                 retry_count = retry_count + 1
                             WHERE blob_id IN (SELECT blob_id FROM ready_blob_ids)
@@ -497,6 +500,7 @@ async fn backup_take_task(
                         SELECT blob_id FROM ready_blob_ids",
                 )
                 .bind::<Int4, _>(max_retries_per_blob)
+                .bind::<Int4, _>(blob_job_chunk_size)
                 .bind::<Int4, _>(retry_fetch_after_interval_seconds)
                 .get_results(conn)
                 .await
@@ -508,18 +512,20 @@ async fn backup_take_task(
     .inspect_err(|error: &Error| {
         tracing::error!(?error, "encountered an error querying for ready blob_ids");
     })
-    .ok()?;
-
+    .ok();
+    let Some(blob_id_rows) = blob_id_rows else {
+        // Something went wrong, or we encountered an error, which we should have logged. So let's
+        // just return an empty list indicating there is no work to do.
+        return Vec::new();
+    };
     tracing::debug!(
         count = blob_id_rows.len(),
         "[backup_delegator] found blobs in waiting state",
     );
-    blob_id_rows.into_iter().next().map(|row| {
-        row.blob_id
-            .as_slice()
-            .try_into()
-            .expect("bad blob_id found in db!")
-    })
+    blob_id_rows
+        .into_iter()
+        .map(|row| BlobId::try_from(row.blob_id.as_slice()).expect("bad blob_id found in db!"))
+        .collect()
 }
 
 async fn backup_fetcher(
@@ -557,33 +563,40 @@ async fn backup_fetcher(
 
     let mut consecutive_fetch_errors = 0;
     loop {
-        if let Some(blob_id) = backup_take_task(
+        // Fetch the next several blobs to work on.
+        let blob_ids = backup_take_tasks(
             &mut conn,
             &backup_metric_set,
             backup_config.retry_fetch_after_interval,
             backup_config.max_retries_per_blob,
+            backup_config.blob_job_chunk_size,
             &backup_config.db_config,
         )
-        .await
-        {
-            match backup_fetch_inner_core(
-                &mut conn,
-                &backup_config,
-                &backup_metric_set,
-                &read_client,
-                blob_id,
-            )
-            .await
-            {
-                Ok(()) => {
-                    consecutive_fetch_errors = 0;
+        .await;
+        if !blob_ids.is_empty() {
+            for blob_id in blob_ids {
+                match backup_fetch_inner_core(
+                    &mut conn,
+                    &backup_config,
+                    &backup_metric_set,
+                    &read_client,
+                    blob_id,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        consecutive_fetch_errors = 0;
+                    }
+                    Err(error) => {
+                        // Handle the error, report it, and continue polling for work to do.
+                        consecutive_fetch_errors += 1;
+                        tracing::error!(?error, consecutive_fetch_errors, "[backup_fetcher] error");
+                        tokio::time::sleep(FETCHER_ERROR_BACKOFF).await;
+                    }
                 }
-                Err(error) => {
-                    // Handle the error, report it, and continue polling for work to do.
-                    consecutive_fetch_errors += 1;
-                    tracing::error!(?error, consecutive_fetch_errors, "[backup_fetcher] error");
-                    tokio::time::sleep(FETCHER_ERROR_BACKOFF).await;
-                }
+                backup_metric_set
+                    .consecutive_blob_fetch_errors
+                    .set(consecutive_fetch_errors as f64);
             }
         } else {
             // Nothing to fetch. We are idle. Let's rest a bit.
@@ -601,25 +614,32 @@ async fn backup_fetch_inner_core(
     blob_id: BlobId,
 ) -> Result<()> {
     tracing::info!(blob_id = %blob_id, "[backup_fetcher] received work item");
+
     // Fetch the blob from Walrus network.
-    let blob: Vec<u8> = read_client
-        .read_blob::<Primary>(&blob_id)
-        .await
-        .inspect_err(|error| {
+    let timer_guard = backup_metric_set.blob_fetch_duration.start_timer();
+    let blob: Vec<u8> = match read_client.read_blob::<Primary>(&blob_id).await {
+        Ok(blob) => {
+            let fetch_time = Duration::from_secs_f64(timer_guard.stop_and_record());
+            backup_metric_set.blobs_fetched.inc();
+            tracing::info!(blob_id = %blob_id, ?fetch_time, "[blob_fetcher] fetched blob from network");
+            blob
+        }
+        Err(error) => {
+            timer_guard.stop_and_discard();
             backup_metric_set
                 .blob_fetch_errors
                 .with_label_values(&[error.kind().label()])
                 .inc();
             tracing::error!(?error, %blob_id, "[backup_fetcher] error reading blob");
-        })?;
-    backup_metric_set.blobs_fetched.inc();
+            return Err(error.into());
+        }
+    };
 
-    tracing::info!(blob_id = %blob_id, "[blob_fetcher] fetched blob from network");
-    let timer_guard = backup_metric_set.blob_upload_duration.start_timer();
     // Store the blob in the backup storage (Google Cloud Storage or fallback to filesystem).
+    let timer_guard = backup_metric_set.blob_upload_duration.start_timer();
     match upload_blob_to_storage(blob_id, blob, backup_config).await {
         Ok(backup_url) => {
-            timer_guard.stop_and_record();
+            let upload_time = Duration::from_secs_f64(timer_guard.stop_and_record());
             let affected_rows: usize = retry_serializable_query(
                 conn,
                 Location::caller(),
@@ -656,6 +676,7 @@ async fn backup_fetch_inner_core(
             tracing::info!(
                 affected_rows,
                 blob_id = %blob_id,
+                ?upload_time,
                 "[backup_fetcher] attempted update to blob_state"
             );
             backup_metric_set.blobs_uploaded.inc();
