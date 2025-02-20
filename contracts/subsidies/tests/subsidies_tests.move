@@ -16,7 +16,7 @@ use walrus::{
     test_utils::mint
 };
 
-const RED_STUFF: u8 = 0;
+const RED_STUFF_RAPTOR: u8 = 0;
 
 const ROOT_HASH: u256 = 0xABC;
 const SIZE: u64 = 5_000_000;
@@ -467,7 +467,11 @@ fun setup_system_and_subsidies_no_funds(): (System, subsidies::Subsidies, subsid
 fun get_storage_resource(system: &mut System, unencoded_size: u64, epochs_ahead: u32): Storage {
     let ctx = &mut tx_context::dummy();
     let mut fake_coin = mint(N_COINS, ctx);
-    let storage_size = encoding::encoded_blob_length(unencoded_size, RED_STUFF, system.n_shards());
+    let storage_size = encoding::encoded_blob_length(
+        unencoded_size,
+        RED_STUFF_RAPTOR,
+        system.n_shards(),
+    );
     let storage = system.reserve_space(
         storage_size,
         epochs_ahead,
@@ -558,13 +562,13 @@ fun register_default_blob(system: &mut System, storage: Storage, deletable: bool
     let ctx = &mut tx_context::dummy();
     let mut fake_coin = mint(N_COINS, ctx);
     // Register a Blob
-    let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
+    let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF_RAPTOR, SIZE);
     let blob = system.register_blob(
         storage,
         blob_id,
         ROOT_HASH,
         SIZE,
-        RED_STUFF,
+        RED_STUFF_RAPTOR,
         deletable,
         &mut fake_coin,
         ctx,

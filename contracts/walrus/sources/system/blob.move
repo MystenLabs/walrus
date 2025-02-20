@@ -133,7 +133,6 @@ public(package) fun new(
     size: u64,
     encoding_type: u8,
     deletable: bool,
-    // TODO: replace with Walrus context
     registered_epoch: u32,
     n_shards: u16,
     ctx: &mut TxContext,
