@@ -196,8 +196,8 @@ pub struct CertifyAndExtendBlobParams<'a> {
     pub blob: &'a Blob,
     /// The certificate for the blob.
     pub certificate: Option<ConfirmationCertificate>,
-    /// The number of epochs ahead to certify the blob.
-    pub epochs_ahead: Option<EpochCount>,
+    /// The number of epochs by which to extend the blob.
+    pub epochs_extended: Option<EpochCount>,
 }
 
 /// Metadata for a blob object on Sui.
@@ -762,16 +762,16 @@ impl SuiContractClient {
             .await
     }
 
-    /// Extends the shared object epoch.
+    /// Extends the shared blob's lifetime by `epochs_extended` epochs.
     pub async fn extend_shared_blob(
         &self,
         shared_blob_obj_id: ObjectID,
-        epochs_ahead: u32,
+        epochs_extended: u32,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+            .extend_shared_blob(shared_blob_obj_id, epochs_extended)
             .await
     }
 
@@ -788,16 +788,16 @@ impl SuiContractClient {
             .await
     }
 
-    /// Extends the owned blob object with given epochs_ahead.
+    /// Extends the owned blob object by `epochs_extended` epochs.
     pub async fn extend_blob(
         &self,
         blob_obj_id: ObjectID,
-        epochs_ahead: EpochCount,
+        epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
             .await
-            .extend_blob(blob_obj_id, epochs_ahead)
+            .extend_blob(blob_obj_id, epochs_extended)
             .await
     }
 
@@ -1753,15 +1753,15 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Extends the shared object epoch.
+    /// Extends the shared blob's lifetime by `epochs_extended` epochs.
     pub async fn extend_shared_blob(
         &mut self,
         shared_blob_obj_id: ObjectID,
-        epochs_ahead: u32,
+        epochs_extended: u32,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .extend_shared_blob(shared_blob_obj_id, epochs_ahead)
+            .extend_shared_blob(shared_blob_obj_id, epochs_extended)
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -1805,11 +1805,11 @@ impl SuiContractClientInner {
         Ok(shared_blob_obj_id[0])
     }
 
-    /// Extends the owned blob object with given epochs_ahead.
+    /// Extends the owned blob object by `epochs_extended` epochs.
     pub async fn extend_blob(
         &mut self,
         blob_obj_id: ObjectID,
-        epochs_ahead: EpochCount,
+        epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
@@ -1818,7 +1818,11 @@ impl SuiContractClientInner {
             .await?;
         let mut pt_builder = self.transaction_builder()?;
         pt_builder
-            .extend_blob(blob_obj_id.into(), epochs_ahead, blob.storage.storage_size)
+            .extend_blob(
+                blob_obj_id.into(),
+                epochs_extended,
+                blob.storage.storage_size,
+            )
             .await?;
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
@@ -1879,11 +1883,11 @@ impl SuiContractClientInner {
                     .await?;
             }
 
-            if let Some(epochs_ahead) = blob_params.epochs_ahead {
+            if let Some(epochs_extended) = blob_params.epochs_extended {
                 pt_builder
                     .extend_blob(
                         blob_params.blob.id.into(),
-                        epochs_ahead,
+                        epochs_extended,
                         blob_params.blob.storage.storage_size,
                     )
                     .await?;

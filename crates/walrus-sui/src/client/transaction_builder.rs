@@ -550,7 +550,7 @@ impl WalrusPtbBuilder {
     pub async fn extend_shared_blob(
         &mut self,
         shared_blob_object_id: ObjectID,
-        epochs_ahead: Epoch,
+        epochs_extended: Epoch,
     ) -> SuiClientResult<()> {
         let shared_blob_arg = self.pt_builder.obj(
             self.read_client
@@ -560,7 +560,7 @@ impl WalrusPtbBuilder {
         let args = vec![
             shared_blob_arg,
             self.system_arg(Mutability::Mutable).await?,
-            self.pt_builder.pure(epochs_ahead)?,
+            self.pt_builder.pure(epochs_extended)?,
         ];
         self.walrus_move_call(contracts::shared_blob::extend, args)?;
         Ok(())
@@ -570,11 +570,11 @@ impl WalrusPtbBuilder {
     pub async fn extend_blob(
         &mut self,
         blob_object: ArgumentOrOwnedObject,
-        epochs_ahead: EpochCount,
+        epochs_extended: EpochCount,
         encoded_size: u64,
     ) -> SuiClientResult<()> {
         let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .storage_price_for_encoded_length(encoded_size, epochs_extended)
             .await?;
 
         self.fill_wal_balance(price).await?;
@@ -582,7 +582,7 @@ impl WalrusPtbBuilder {
         let args = vec![
             self.system_arg(Mutability::Mutable).await?,
             self.argument_from_arg_or_obj(blob_object).await?,
-            self.pt_builder.pure(epochs_ahead)?,
+            self.pt_builder.pure(epochs_extended)?,
             self.wal_coin_arg()?,
         ];
         self.walrus_move_call(contracts::system::extend_blob, args)?;

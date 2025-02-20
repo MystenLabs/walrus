@@ -699,8 +699,7 @@ impl Client<SuiContractClient> {
         let mut noop_results: Vec<BlobStoreResult> = Vec::with_capacity(store_operations.len());
         let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut extended_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
-        let mut certify_and_extend_blobs_and_ops: HashMap<BlobId, (Blob, RegisterBlobOp)> =
-            HashMap::with_capacity(store_operations.len());
+        let mut certify_and_extend_blobs_and_ops = HashMap::with_capacity(store_operations.len());
 
         store_operations
             .into_iter()
@@ -727,28 +726,28 @@ impl Client<SuiContractClient> {
 
         // Get certificates for all new blobs.
         let committees = self.get_committees().await?;
-        let certfiy_blobs = new_blobs_and_ops
+        let certify_blobs = new_blobs_and_ops
             .clone()
             .into_iter()
             .chain(certify_and_extend_blobs_and_ops.values().cloned())
             .collect::<Vec<_>>();
         let blobs_with_certificates = self
-            .get_all_blob_certificates(&certfiy_blobs, &blob_id_to_metadata_with_status)
+            .get_all_blob_certificates(&certify_blobs, &blob_id_to_metadata_with_status)
             .await?;
         let blobs_with_cert_and_extend: Vec<CertifyAndExtendBlobParams> = blobs_with_certificates
             .into_iter()
             .map(|(blob, cert)| CertifyAndExtendBlobParams {
                 blob,
                 certificate: Some(cert),
-                epochs_ahead: certify_and_extend_blobs_and_ops
+                epochs_extended: certify_and_extend_blobs_and_ops
                     .get(&blob.blob_id)
-                    .map(|(..)| epochs_ahead),
+                    .and_then(|(_, op)| op.epochs_extended()),
             })
-            .chain(extended_blobs_and_ops.as_slice().iter().map(|(blob, _)| {
+            .chain(extended_blobs_and_ops.as_slice().iter().map(|(blob, op)| {
                 CertifyAndExtendBlobParams {
                     blob,
                     certificate: None,
-                    epochs_ahead: Some(epochs_ahead),
+                    epochs_extended: op.epochs_extended(),
                 }
             }))
             .collect();
@@ -802,24 +801,24 @@ impl Client<SuiContractClient> {
             })
             .collect();
 
-        let cert_and_extend_results: Vec<_> = certify_and_extend_blobs_and_ops
-            .into_iter()
-            .map(|(_, (mut blob, op))| {
-                blob.storage.end_epoch = write_committee_epoch + epochs_ahead;
-                BlobStoreResult::NewlyCreated {
-                    cost: price_computation.operation_cost(&op),
-                    resource_operation: op,
-                    shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
-                    blob_object: blob,
-                }
-            })
-            .collect();
+        let cert_and_extend_results =
+            certify_and_extend_blobs_and_ops
+                .into_iter()
+                .map(|(_, (mut blob, op))| {
+                    blob.storage.end_epoch = write_committee_epoch + epochs_ahead;
+                    BlobStoreResult::NewlyCreated {
+                        cost: price_computation.operation_cost(&op),
+                        resource_operation: op,
+                        shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                        blob_object: blob,
+                    }
+                });
 
         Ok(newly_created_results
             .into_iter()
             .chain(noop_results.into_iter())
             .chain(extended_results.into_iter())
-            .chain(cert_and_extend_results.into_iter())
+            .chain(cert_and_extend_results)
             .collect())
     }
 

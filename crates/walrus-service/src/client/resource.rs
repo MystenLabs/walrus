@@ -142,6 +142,19 @@ impl RegisterBlobOp {
     pub fn is_certify_and_extend(&self) -> bool {
         matches!(self, RegisterBlobOp::ReuseAndExtendNonCertified { .. })
     }
+
+    /// Returns the number of epochs extended if the operation contains an extension.
+    pub fn epochs_extended(&self) -> Option<EpochCount> {
+        match self {
+            RegisterBlobOp::ReuseAndExtend {
+                epochs_extended, ..
+            }
+            | RegisterBlobOp::ReuseAndExtendNonCertified {
+                epochs_extended, ..
+            } => Some(*epochs_extended),
+            _ => None,
+        }
+    }
 }
 
 /// The result of a store operation.

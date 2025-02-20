@@ -691,7 +691,7 @@ pub struct FundSharedBlobOutput {
 /// The output of the `walrus extend` command.
 pub struct ExtendBlobOutput {
     /// The number of epochs extended by.
-    pub epochs_ahead: u32,
+    pub epochs_extended: u32,
 }
 
 #[derive(Debug, Serialize)]

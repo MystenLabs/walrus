@@ -322,21 +322,21 @@ public(package) fun extend_blob_with_resource(
 }
 
 /// Extend the period of validity of a blob by extending its contained storage
-/// resource.
+/// resource by `extended_epochs` epochs.
 public(package) fun extend_blob(
     self: &mut SystemStateInnerV1,
     blob: &mut Blob,
-    epochs_ahead: u32,
+    extended_epochs: u32,
     payment: &mut Coin<WAL>,
 ) {
     // Check that the blob is certified and not expired.
     blob.assert_certified_not_expired(self.epoch());
 
     let start_offset = blob.storage().end_epoch() - self.epoch();
-    let end_offset = start_offset + epochs_ahead;
+    let end_offset = start_offset + extended_epochs;
 
     // Check the period is within the allowed range.
-    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
+    assert!(extended_epochs > 0, EInvalidEpochsAhead);
     assert!(end_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Pay rewards for each future epoch into the future accounting.
@@ -359,7 +359,7 @@ public(package) fun extend_blob(
         assert!(used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
 
-    blob.storage_mut().extend_end_epoch(epochs_ahead);
+    blob.storage_mut().extend_end_epoch(extended_epochs);
 
     blob.emit_certified(true);
 }

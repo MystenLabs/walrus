@@ -765,7 +765,7 @@ impl CliOutput for ExtendBlobOutput {
         println!(
             "{} The blob has been extended by {} epochs",
             success(),
-            self.epochs_ahead
+            self.epochs_extended
         );
     }
 }

@@ -427,7 +427,6 @@ pub enum CliCommands {
         #[serde(default)]
         yes: bool,
     },
-
     /// Fund a shared blob.
     FundSharedBlob {
         /// The object ID of the shared blob to fund.
@@ -442,18 +441,14 @@ pub enum CliCommands {
         /// The object ID of the blob to extend.
         #[clap(long)]
         blob_obj_id: ObjectID,
-
         /// If the blob_obj_id refers to a shared blob object, this flag must be present.
         #[clap(long)]
         shared: bool,
-
         /// The number of epochs to extend the blob for.
-        ///
-        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
-        /// system object on chain. Otherwise, the blob is stored for the specified number of
-        /// epochs. The number of epochs must be greater than 0.
-        #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
-        epochs_ahead: EpochCountOrMax,
+        // TODO: Offer multiple options similar to the `store` command: `--extended-epochs`,
+        // `--epochs-ahead`, `--max`, `--end-epoch`, `--earliest-expiration-time`.
+        #[clap(long)]
+        epochs_extended: EpochCount,
     },
     /// Share a blob.
     Share {

@@ -275,7 +275,7 @@ impl ClientCommandRunner {
             CliCommands::Extend {
                 blob_obj_id,
                 shared,
-                epochs_ahead,
+                epochs_extended,
             } => {
                 let sui_client = self
                     .config?
@@ -284,20 +284,16 @@ impl ClientCommandRunner {
                 let spinner = styled_spinner();
                 spinner.set_message("extending blob...");
 
-                let fixed_parames = sui_client.fixed_system_parameters().await?;
-                let epochs_ahead =
-                    epochs_ahead.try_into_epoch_count(fixed_parames.max_epochs_ahead)?;
-
                 if shared {
                     sui_client
-                        .extend_shared_blob(blob_obj_id, epochs_ahead)
+                        .extend_shared_blob(blob_obj_id, epochs_extended)
                         .await?;
                 } else {
-                    sui_client.extend_blob(blob_obj_id, epochs_ahead).await?;
+                    sui_client.extend_blob(blob_obj_id, epochs_extended).await?;
                 }
 
                 spinner.finish_with_message("done");
-                ExtendBlobOutput { epochs_ahead }.print_output(self.json)
+                ExtendBlobOutput { epochs_extended }.print_output(self.json)
             }
 
             CliCommands::Share {

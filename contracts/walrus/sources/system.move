@@ -144,14 +144,15 @@ public fun extend_blob_with_resource(self: &System, blob: &mut Blob, extension: 
     self.inner().extend_blob_with_resource(blob, extension);
 }
 
-/// Extend the period of validity of a blob by extending its contained storage resource.
+/// Extend the period of validity of a blob by extending its contained storage resource
+/// by `extended_epochs` epochs.
 public fun extend_blob(
     self: &mut System,
     blob: &mut Blob,
-    epochs_ahead: u32,
+    extended_epochs: u32,
     payment: &mut Coin<WAL>,
 ) {
-    self.inner_mut().extend_blob(blob, epochs_ahead, payment);
+    self.inner_mut().extend_blob(blob, extended_epochs, payment);
 }
 
 /// Adds rewards to the system for the specified number of epochs ahead.
