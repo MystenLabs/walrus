@@ -1078,16 +1078,10 @@ async fn test_extend_owned_blobs() -> TestResult {
             PostStoreAction::Keep,
         )
         .await?;
-    let (end_epoch, blob_object_id) = {
-        let BlobStoreResult::NewlyCreated { blob_object, .. } = result
-            .into_iter()
-            .next()
-            .expect("expect one blob store result")
-        else {
-            panic!("expect newly stored blob")
-        };
-        (blob_object.storage.end_epoch, blob_object.id)
+    let BlobStoreResult::NewlyCreated { blob_object, .. } = result[0].clone() else {
+        panic!("expect newly stored blob")
     };
+    let (end_epoch, blob_object_id) = (blob_object.storage.end_epoch, blob_object.id);
     assert_eq!(end_epoch, current_epoch + 1);
 
     // Extend it by 5 epochs.
@@ -1111,20 +1105,24 @@ async fn test_extend_owned_blobs() -> TestResult {
         .reserve_and_store_blobs(
             &[blob.as_slice()],
             20,
-            StoreWhen::Always,
+            StoreWhen::NotStored,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
         .await?;
     let BlobStoreResult::NewlyCreated {
-        blob_object,
+        blob_object: second_store_blob_object,
         resource_operation,
         ..
     } = result[0].clone()
     else {
         panic!("unexpected result")
     };
-    assert_eq!(blob_object.storage.end_epoch, current_epoch + 20);
+    assert_eq!(second_store_blob_object.id, blob_object_id);
+    assert_eq!(
+        second_store_blob_object.storage.end_epoch,
+        current_epoch + 20
+    );
     assert!(resource_operation.is_extend());
 
     Ok(())
