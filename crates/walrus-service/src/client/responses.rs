@@ -476,8 +476,8 @@ impl InfoCommitteeOutput {
                 .0
                 .to_lowercase()
                 .cmp(&b.network_address.0.to_lowercase()),
-            // Default to sorting by name (when None or NodeSortBy::Name)
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            Some(NodeSortBy::Name) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            None => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
         };
 
         storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
@@ -747,9 +747,9 @@ impl ServiceHealthInfoOutput {
 
         // Sort health_info directly based on sort_by
         health_info.sort_by(|a, b| match sort.sort_by {
-            Some(HealthSortBy::NodeName) => a.cmp_by_name(b),
-            Some(HealthSortBy::NodeId) => a.cmp_by_id(b),
-            Some(HealthSortBy::NodeUrl) => a.cmp_by_url(b),
+            Some(HealthSortBy::Name) => a.cmp_by_name(b),
+            Some(HealthSortBy::Id) => a.cmp_by_id(b),
+            Some(HealthSortBy::Url) => a.cmp_by_url(b),
             Some(HealthSortBy::Status) => a.cmp_by_status(b),
             None => a.cmp_by_status(b),
         });
@@ -761,30 +761,6 @@ impl ServiceHealthInfoOutput {
         Ok(Self { health_info })
     }
 }
-
-impl Ord for NodeHealthOutput {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Default to Status comparison
-        self.cmp_by_status(other)
-    }
-}
-
-// Required for Ord
-impl PartialOrd for NodeHealthOutput {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// Required for Ord/PartialOrd
-impl PartialEq for NodeHealthOutput {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == std::cmp::Ordering::Equal
-    }
-}
-
-// Required for PartialEq
-impl Eq for NodeHealthOutput {}
 
 impl NodeHealthOutput {
     pub fn cmp_by_name(&self, other: &Self) -> std::cmp::Ordering {

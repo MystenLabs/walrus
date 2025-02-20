@@ -1375,11 +1375,11 @@ pub enum HealthSortBy {
     #[default]
     Status,
     /// Sort by node ID
-    NodeId,
+    Id,
     /// Sort by node name
-    NodeName,
+    Name,
     /// Sort by node URL
-    NodeUrl,
+    Url,
 }
 
 /// Generic sort configuration that can be used with any ValueEnum type
