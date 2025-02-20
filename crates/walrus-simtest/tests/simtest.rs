@@ -12,7 +12,12 @@ mod tests {
 
     use anyhow::Context;
     use rand::{Rng, SeedableRng};
-    use sui_macros::{register_fail_point_async, register_fail_points};
+    use sui_macros::{
+        clear_fail_point,
+        register_fail_point,
+        register_fail_point_async,
+        register_fail_points,
+    };
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
@@ -424,6 +429,7 @@ mod tests {
     fn crash_target_node(
         target_node_id: sui_simulator::task::NodeId,
         fail_triggered: Arc<AtomicBool>,
+        crash_duration: Duration,
     ) {
         if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
             // We only need to trigger failure once.
@@ -435,9 +441,9 @@ mod tests {
             return;
         }
 
-        tracing::warn!("crashing node {current_node} for 120 seconds");
+        tracing::warn!("crashing node {current_node} for {:?}", crash_duration);
         fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
-        sui_simulator::task::kill_current_node(Some(Duration::from_secs(120)));
+        sui_simulator::task::kill_current_node(Some(crash_duration));
     }
 
     // This integration test simulates a scenario where a node is lagging behind and recovers.
@@ -481,7 +487,11 @@ mod tests {
 
         // Trigger node crash during some DB access.
         register_fail_points(DB_FAIL_POINTS, move || {
-            crash_target_node(target_fail_node_id, fail_triggered_clone.clone());
+            crash_target_node(
+                target_fail_node_id,
+                fail_triggered_clone.clone(),
+                Duration::from_secs(120),
+            );
         });
 
         // Changes the stake of the crashed node so that it will gain some shards after the next
@@ -794,9 +804,12 @@ mod tests {
         }
     }
 
-    #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
+        register_fail_point("fail_point_shard_sync_recovery", move || {
+            panic!("shard sync should not enter recovery mode in this test");
+        });
+
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
@@ -850,6 +863,21 @@ mod tests {
             )
             .await
             .expect("stake with node pool should not fail");
+
+        if rand::thread_rng().gen_bool(1.0) {
+            let fail_triggered = Arc::new(AtomicBool::new(false));
+            let target_fail_node_id = walrus_cluster.nodes[0]
+                .node_id
+                .expect("node id should be set");
+            let fail_triggered_clone = fail_triggered.clone();
+            register_fail_points(DB_FAIL_POINTS, move || {
+                crash_target_node(
+                    target_fail_node_id,
+                    fail_triggered_clone.clone(),
+                    Duration::from_secs(5),
+                );
+            });
+        }
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
@@ -932,6 +960,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+        clear_fail_point("fail_point_shard_sync_recovery");
     }
 
     #[walrus_simtest]

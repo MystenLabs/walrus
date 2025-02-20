@@ -319,6 +319,8 @@ impl ShardSyncHandler {
             return;
         };
 
+        // TODO(zhewu): cleanup this code.
+
         let node_clone = self.node.clone();
         let shard_sync_handler_clone = self.clone();
         let shard_sync_task = tokio::spawn(async move {
@@ -382,20 +384,38 @@ impl ShardSyncHandler {
                         }
 
                         // Check for invalid epoch error
+
+                        // TODO(zhewu): add a deadline to switch to recovery mode.
                         if let SyncShardClientError::RequestError(node_error) = &error {
-                            if let Some(ServiceError::InvalidEpoch {
-                                request_epoch,
-                                server_epoch,
-                            }) = node_error.service_error()
-                            {
-                                if request_epoch > server_epoch {
-                                    tracing::info!(
-                                        request_epoch,
-                                        server_epoch,
-                                        "source storage node hasn't reached the epoch yet"
-                                    );
-                                    return false; // Retry after backoff
+                            match node_error.service_error() {
+                                Some(ServiceError::InvalidEpoch {
+                                    request_epoch,
+                                    server_epoch,
+                                }) => {
+                                    if request_epoch > server_epoch {
+                                        tracing::info!(
+                                            request_epoch,
+                                            server_epoch,
+                                            "source storage node hasn't reached the epoch yet"
+                                        );
+                                        return false; // Retry after backoff
+                                    }
                                 }
+                                Some(ServiceError::RequestUnauthorized) => {
+                                    tracing::info!(
+                                        ?error,
+                                        "source storage node may not reach to the epoch where the \
+                                        destination storage node is in the committee; retry shard \
+                                        sync"
+                                    );
+                                    return false;
+                                }
+                                _ => {}
+                            }
+
+                            if node_error.is_reqwest() {
+                                tracing::info!(?error, "encounter reqwest error; retry shard sync");
+                                return false;
                             }
                         }
 
@@ -408,8 +428,6 @@ impl ShardSyncHandler {
                             );
                             false // Retry with direct recovery
                         } else {
-                            // TODO(#705): also do retries for other retriable errors. E.g. RPC
-                            // error.
                             true // Exit retry loop if direct recovery also failed
                         }
                     }
