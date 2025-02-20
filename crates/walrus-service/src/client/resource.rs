@@ -588,7 +588,7 @@ mod tests {
     }
     fn test_price_computation(
         encoded_length: u64,
-        epochs_ahead: u32,
+        epochs_ahead: EpochCount,
         storage_and_write_prices: (u64, u64),
         scratch_and_reuse_costs: (u64, u64),
     ) {

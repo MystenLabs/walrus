@@ -65,7 +65,6 @@ use walrus_sui::{
         Blob,
         BlobEvent,
         ContractEvent,
-        StorageResource,
     },
 };
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
@@ -1117,11 +1116,16 @@ async fn test_extend_owned_blobs() -> TestResult {
             PostStoreAction::Keep,
         )
         .await?;
-    assert!(matches!(
-        &result[0],
-        BlobStoreResult::NewlyCreated {
-            blob_object: Blob{storage:StorageResource{end_epoch, ..}, ..}, .. }
-    if *end_epoch == current_epoch + 20));
+    let BlobStoreResult::NewlyCreated {
+        blob_object,
+        resource_operation,
+        ..
+    } = result[0].clone()
+    else {
+        panic!("unexpected result")
+    };
+    assert_eq!(blob_object.storage.end_epoch, current_epoch + 20);
+    assert!(resource_operation.is_extend());
 
     Ok(())
 }

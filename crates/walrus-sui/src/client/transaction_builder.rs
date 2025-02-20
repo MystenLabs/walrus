@@ -550,7 +550,7 @@ impl WalrusPtbBuilder {
     pub async fn extend_shared_blob(
         &mut self,
         shared_blob_object_id: ObjectID,
-        epochs_extended: Epoch,
+        epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         let shared_blob_arg = self.pt_builder.obj(
             self.read_client

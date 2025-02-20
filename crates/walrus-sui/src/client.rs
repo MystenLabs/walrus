@@ -766,7 +766,7 @@ impl SuiContractClient {
     pub async fn extend_shared_blob(
         &self,
         shared_blob_obj_id: ObjectID,
-        epochs_extended: u32,
+        epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         self.inner
             .lock()
@@ -1757,7 +1757,7 @@ impl SuiContractClientInner {
     pub async fn extend_shared_blob(
         &mut self,
         shared_blob_obj_id: ObjectID,
-        epochs_extended: u32,
+        epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder

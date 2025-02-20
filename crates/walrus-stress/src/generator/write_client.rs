@@ -9,7 +9,13 @@ use std::{
 use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
-use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
+use walrus_core::{
+    merkle::Node,
+    metadata::VerifiedBlobMetadataWithId,
+    BlobId,
+    EpochCount,
+    SliverPairIndex,
+};
 use walrus_service::client::{
     Client,
     ClientError,
@@ -76,7 +82,7 @@ impl WriteClient {
     /// elapsed time.
     pub async fn write_fresh_blob_with_epochs(
         &mut self,
-        epochs_to_store: u32,
+        epochs_to_store: EpochCount,
     ) -> Result<(BlobId, Duration), ClientError> {
         let blob = self.blob.refresh_and_get_random_slice();
         let now = Instant::now();

@@ -1034,7 +1034,7 @@ impl ClientCommandRunner {
 
 async fn get_epochs_ahead(
     epoch_arg: EpochArg,
-    max_epochs_ahead: u32,
+    max_epochs_ahead: EpochCount,
     client: &Client<SuiContractClient>,
 ) -> Result<u32, anyhow::Error> {
     let epochs_ahead = match epoch_arg {

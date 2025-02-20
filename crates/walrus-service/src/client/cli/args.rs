@@ -445,8 +445,9 @@ pub enum CliCommands {
         #[clap(long)]
         shared: bool,
         /// The number of epochs to extend the blob for.
-        // TODO: Offer multiple options similar to the `store` command: `--extended-epochs`,
-        // `--epochs-ahead`, `--max`, `--end-epoch`, `--earliest-expiration-time`.
+        // TODO (WAL-614): Offer multiple options similar to the `store` command:
+        // `--extended-epochs`, `--epochs-ahead`, `--max`, `--end-epoch`,
+        // `--earliest-expiration-time`.
         #[clap(long)]
         epochs_extended: EpochCount,
     },
