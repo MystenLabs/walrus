@@ -14,6 +14,9 @@ telemetry::define_metric_set! {
         #[help = "The total count of failed blob fetches"]
         blob_fetch_errors: IntCounterVec["client_error"],
 
+        #[help = "The total count of blob bytes fetched successfully"]
+        blob_bytes_fetched: IntCounter[],
+
         #[help = "The current count of failed blob fetches in a row"]
         consecutive_blob_fetch_errors: Gauge[],
 
@@ -25,6 +28,9 @@ telemetry::define_metric_set! {
 
         #[help = "The time it takes to upload a blob"]
         blob_upload_duration: Histogram[],
+
+        #[help = "The total count of blob bytes uploaded successfully"]
+        blob_bytes_uploaded: IntCounter[],
 
         #[help = "The number of retries due to serializability failures"]
         db_serializability_retries: IntCounterVec["context"],

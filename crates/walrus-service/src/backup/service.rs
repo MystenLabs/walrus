@@ -343,7 +343,8 @@ struct BlobStateStatistic {
 }
 
 fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &BackupConfig) {
-    // Start an infinite loop polling the database for blob state statistics and updating the metrics.
+    // Start an infinite loop polling the database for blob state statistics and updating the
+    // metrics.
     let backup_db_metric_set = BackupDbMetricSet::new(&metrics_runtime.registry);
     let database_url = config.db_config.database_url.clone();
 
@@ -463,9 +464,9 @@ async fn backup_take_tasks(
         &backup_fetcher_metric_set.db_reconnects,
         |conn| {
             async {
-                // This query will fetch the next blobs that are in the waiting state and are ready to
-                // be fetched. It will also update their initiate_fetch_after timestamp to give this
-                // backup_fetcher worker time to conduct the fetches, and the pushes to GCS.
+                // This query will fetch the next blobs that are in the waiting state and are ready
+                // to be fetched. It will also update their initiate_fetch_after timestamp to give
+                // this backup_fetcher worker time to conduct the fetches, and the pushes to GCS.
                 //
                 // The backoff interval is calculated to be an exponential function of the retry
                 // count, with a maximum of 24 hours. The exponential base is 1.5, which means that
@@ -621,7 +622,11 @@ async fn backup_fetch_inner_core(
         Ok(blob) => {
             let fetch_time = Duration::from_secs_f64(timer_guard.stop_and_record());
             backup_metric_set.blobs_fetched.inc();
-            tracing::info!(blob_id = %blob_id, ?fetch_time, "[blob_fetcher] fetched blob from network");
+            backup_metric_set
+                .blob_bytes_fetched
+                .inc_by(blob.len() as u64);
+            tracing::info!(blob_id = %blob_id, ?fetch_time,
+                "[blob_fetcher] fetched blob from network");
             blob
         }
         Err(error) => {
@@ -637,8 +642,12 @@ async fn backup_fetch_inner_core(
 
     // Store the blob in the backup storage (Google Cloud Storage or fallback to filesystem).
     let timer_guard = backup_metric_set.blob_upload_duration.start_timer();
+    let blob_len = blob.len();
     match upload_blob_to_storage(blob_id, blob, backup_config).await {
         Ok(backup_url) => {
+            backup_metric_set
+                .blob_bytes_uploaded
+                .inc_by(blob_len as u64);
             let upload_time = Duration::from_secs_f64(timer_guard.stop_and_record());
             let affected_rows: usize = retry_serializable_query(
                 conn,
