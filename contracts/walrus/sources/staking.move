@@ -315,6 +315,11 @@ public fun withdraw_stake(
     staking.inner_mut().withdraw_stake(staked_wal, ctx)
 }
 
+/// Allows a node to join the active set if it has sufficient stake.
+/// This can be useful if another node in the active had its stake
+/// reduced to be lower than that of the current node.
+/// In that case, the current node will be added to the active set either
+/// the next time stake is added or by calling this function.
 public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
 }
