@@ -29,6 +29,8 @@ impl NodeError {
     }
 
     /// Returns true if the error is related to the request.
+    ///
+    /// This includes all networking related errors.
     pub fn is_reqwest(&self) -> bool {
         matches!(self.kind, Kind::Reqwest(_))
     }

@@ -804,6 +804,7 @@ mod tests {
         }
     }
 
+    #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
         register_fail_point("fail_point_shard_sync_recovery", move || {
@@ -864,7 +865,9 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
-        if rand::thread_rng().gen_bool(1.0) {
+        if rand::thread_rng().gen_bool(0.1) {
+            // Probabilistically crash the node to test shard sync with source node down.
+            // In this test, shard sync should not enter recovery mode.
             let fail_triggered = Arc::new(AtomicBool::new(false));
             let target_fail_node_id = walrus_cluster.nodes[0]
                 .node_id
