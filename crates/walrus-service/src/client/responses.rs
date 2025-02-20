@@ -159,6 +159,15 @@ impl BlobStoreResult {
             } => blob_id,
         }
     }
+
+    /// Returns the end epoch of the blob.
+    pub fn end_epoch(&self) -> Option<Epoch> {
+        match self {
+            Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
+            Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
+            Self::MarkedInvalid { .. } => None,
+        }
+    }
 }
 
 /// The output of the `read` command.

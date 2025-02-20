@@ -240,6 +240,8 @@ pub struct DeployTestbedContractParameters<'a> {
     pub admin_wallet_path: Option<PathBuf>,
     /// Flag to create a WAL exchange.
     pub with_wal_exchange: bool,
+    /// Flag to use an existing WAL token deployment at the address specified in `Move.lock`.
+    pub use_existing_wal_token: bool,
 }
 
 /// Create and deploy a Walrus contract.
@@ -262,6 +264,7 @@ pub async fn deploy_walrus_contract(
         admin_wallet_path,
         do_not_copy_contracts,
         with_wal_exchange,
+        use_existing_wal_token,
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
@@ -375,6 +378,7 @@ pub async fn deploy_walrus_contract(
         gas_budget,
         deploy_directory,
         with_wal_exchange,
+        use_existing_wal_token,
     )
     .await?;
 

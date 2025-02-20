@@ -1,13 +1,13 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{collections::HashSet, str::FromStr, sync::Arc};
 
 use anyhow::anyhow;
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -27,13 +27,18 @@ use reqwest::header::{
     X_CONTENT_TYPE_OPTIONS,
 };
 use serde::Deserialize;
-use sui_types::base_types::SuiAddress;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{BlobId, EpochCount};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
-use walrus_sui::{client::BlobPersistence, SuiAddressSchema};
+use walrus_sui::{
+    client::BlobPersistence,
+    types::move_structs::{BlobAttribute, BlobWithAttribute},
+    ObjectIdSchema,
+    SuiAddressSchema,
+};
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
@@ -56,6 +61,8 @@ pub const STATUS_ENDPOINT: &str = "/status";
 pub const API_DOCS: &str = "/v1/api";
 /// The path to get the blob with the given blob ID.
 pub const BLOB_GET_ENDPOINT: &str = "/v1/blobs/{blob_id}";
+/// The path to get the blob and its attribute with the given object ID.
+pub const BLOB_OBJECT_GET_ENDPOINT: &str = "/v1/blobs/by-object-id/{blob_object_id}";
 /// The path to store a blob.
 pub const BLOB_PUT_ENDPOINT: &str = "/v1/blobs";
 
@@ -118,6 +125,89 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
                     tracing::debug!(?blob_id, "the requested blob ID does not exist")
                 }
                 GetBlobError::Internal(error) => tracing::error!(?error, "error retrieving blob"),
+                _ => (),
+            }
+
+            error.to_response()
+        }
+    }
+}
+
+fn populate_response_headers(
+    headers: &mut HeaderMap,
+    attribute: &BlobAttribute,
+    allowed_headers: &HashSet<String>,
+) {
+    for (key, value) in attribute.iter() {
+        if allowed_headers.contains(key) {
+            if let (Ok(header_name), Ok(header_value)) =
+                (HeaderName::from_str(key), HeaderValue::from_str(value))
+            {
+                headers.insert(header_name, header_value);
+            }
+        }
+    }
+}
+
+/// Retrieve a Walrus blob with its associated attribute.
+///
+/// First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
+/// blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
+/// includes the binary data along with any attribute headers from the metadata that are present in
+/// the configured allowed_headers set.
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
+#[utoipa::path(
+    get,
+    path = BLOB_OBJECT_GET_ENDPOINT,
+    params(("blob_object_id" = ObjectIdSchema,)),
+    responses(
+        (
+            status = 200,
+            description = "The blob was reconstructed successfully. Any attribute headers present \
+                        in the allowed_headers configuration will be included in the response.",
+            body = [u8]
+        ),
+        GetBlobError,
+    ),
+)]
+pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
+    State((client, allowed_headers)): State<(Arc<T>, Arc<HashSet<String>>)>,
+    request_headers: HeaderMap,
+    Path(blob_object_id): Path<ObjectID>,
+) -> Response {
+    tracing::debug!("starting to read blob with attribute");
+    match client.get_blob_by_object_id(&blob_object_id).await {
+        Ok(BlobWithAttribute { blob, attribute }) => {
+            // Get the blob data using the existing get_blob function
+            let mut response = get_blob(
+                request_headers.clone(),
+                State(client),
+                Path(BlobIdString(blob.blob_id)),
+            )
+            .await;
+
+            // If the response was successful, add our additional metadata headers
+            if response.status() == StatusCode::OK {
+                if let Some(attribute) = attribute {
+                    populate_response_headers(response.headers_mut(), &attribute, &allowed_headers);
+                }
+            }
+
+            response
+        }
+        Err(error) => {
+            let error = GetBlobError::from(error);
+
+            match &error {
+                GetBlobError::BlobNotFound => {
+                    tracing::debug!(
+                        ?blob_object_id,
+                        "the requested blob object ID does not exist"
+                    )
+                }
+                GetBlobError::Internal(error) => {
+                    tracing::error!(?error, "error retrieving blob metadata")
+                }
                 _ => (),
             }
 

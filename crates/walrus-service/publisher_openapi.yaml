@@ -330,6 +330,50 @@ components:
                 type: integer
                 format: int64
                 minimum: 0
+      - type: object
+        description: The blob was already certified, but its lifetime is too short.
+        required:
+        - reuseAndExtend
+        properties:
+          reuseAndExtend:
+            type: object
+            description: The blob was already certified, but its lifetime is too short.
+            required:
+            - encoded_length
+            - epochs_extended
+            properties:
+              encoded_length:
+                type: integer
+                format: int64
+                minimum: 0
+              epochs_extended:
+                type: integer
+                format: int32
+                minimum: 0
+      - type: object
+        description: |-
+          The blob was registered, but not certified, and its lifetime is shorter than
+          the desired one.
+        required:
+        - reuseAndExtendNonCertified
+        properties:
+          reuseAndExtendNonCertified:
+            type: object
+            description: |-
+              The blob was registered, but not certified, and its lifetime is shorter than
+              the desired one.
+            required:
+            - encoded_length
+            - epochs_extended
+            properties:
+              encoded_length:
+                type: integer
+                format: int64
+                minimum: 0
+              epochs_extended:
+                type: integer
+                format: int32
+                minimum: 0
       description: The operation performed on blob and storage resources to register a blob.
     Status:
       type: object

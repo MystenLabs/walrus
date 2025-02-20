@@ -27,6 +27,7 @@ mod args;
 mod cli_output;
 mod runner;
 pub use args::{
+    AggregatorArgs,
     App,
     CliCommands,
     Commands,

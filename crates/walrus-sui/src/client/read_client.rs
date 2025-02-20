@@ -179,13 +179,13 @@ pub trait ReadClient: Send + Sync {
     /// Returns the metadata associated with a blob object.
     fn get_blob_attribute(
         &self,
-        blob_id: ObjectID,
+        blob_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
 
     /// Returns the blob object and its associated metadata.
-    fn get_blob_with_attribute(
+    fn get_blob_by_object_id(
         &self,
-        blob_id: ObjectID,
+        blob_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<BlobWithAttribute>> + Send;
 
     /// Returns the current epoch state.
@@ -848,11 +848,11 @@ impl ReadClient for SuiReadClient {
 
     async fn get_blob_attribute(
         &self,
-        blob_id: ObjectID,
+        blob_id: &ObjectID,
     ) -> SuiClientResult<Option<BlobAttribute>> {
         self.sui_client
             .get_dynamic_field::<Vec<u8>, BlobAttribute>(
-                blob_id,
+                *blob_id,
                 TypeTag::Vector(Box::new(TypeTag::U8)),
                 b"metadata".to_vec(),
             )
@@ -861,12 +861,12 @@ impl ReadClient for SuiReadClient {
             .or_else(|_| Ok(None))
     }
 
-    async fn get_blob_with_attribute(
+    async fn get_blob_by_object_id(
         &self,
-        blob_id: ObjectID,
+        blob_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
         Ok(BlobWithAttribute {
-            blob: self.sui_client.get_sui_object::<Blob>(blob_id).await?,
+            blob: self.sui_client.get_sui_object::<Blob>(*blob_id).await?,
             attribute: self.get_blob_attribute(blob_id).await?,
         })
     }

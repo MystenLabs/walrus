@@ -24,7 +24,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::config::AuthConfig;
+use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -566,6 +566,10 @@ pub enum DaemonCommands {
         #[serde(flatten)]
         /// The daemon args.
         daemon_args: DaemonArgs,
+        #[clap(flatten)]
+        #[serde(flatten, default)]
+        /// The aggregator args.
+        aggregator_args: AggregatorArgs,
     },
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
@@ -574,6 +578,10 @@ pub enum DaemonCommands {
         #[serde(flatten)]
         /// The publisher args.
         args: PublisherArgs,
+        #[clap(flatten)]
+        #[serde(flatten, default)]
+        /// The aggregator args.
+        aggregator_args: AggregatorArgs,
     },
 }
 
@@ -583,9 +591,24 @@ impl DaemonCommands {
         match &self {
             DaemonCommands::Publisher { args } => args.daemon_args.metrics_address,
             DaemonCommands::Aggregator { daemon_args, .. } => daemon_args.metrics_address,
-            DaemonCommands::Daemon { args } => args.daemon_args.metrics_address,
+            DaemonCommands::Daemon { args, .. } => args.daemon_args.metrics_address,
         }
     }
+}
+
+/// The arguments for the aggregator service.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregatorArgs {
+    /// Allowed headers for the daemon.
+    ///
+    /// This defines the allow-list of headers. It is currently used for the
+    /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
+    /// allowed headers if the specified header names are present in the BlobAttribute associated
+    /// with the requested blob.
+    #[clap(long, num_args = 1.., default_values_t = default::allowed_headers())]
+    #[serde(default = "default::allowed_headers")]
+    pub(crate) allowed_headers: Vec<String>,
 }
 
 /// The arguments for the publisher service.
@@ -655,6 +678,10 @@ pub struct PublisherArgs {
     /// If not specified, the verification is disabled.
     /// This is useful, e.g., in case the API Gateway has already checked the token.
     /// The secret can be hex string, starting with `0x`.
+    ///
+    /// JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value.
+    /// The JWT creator must ensure that this value is unique among all requests to the publisher.
+    /// We recommend using large nonces to avoid collisions.
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
@@ -669,7 +696,7 @@ pub struct PublisherArgs {
     /// the "issued at" (`iat`) value.
     #[clap(long, default_value_t = 0)]
     #[serde(default)]
-    pub jwt_expiring_sec: u64,
+    pub jwt_expiring_sec: i64,
     /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
     ///
     /// Specifically, the publisher will:
@@ -677,10 +704,15 @@ pub struct PublisherArgs {
     ///   present;
     /// - Verify that the `send_object_to` field in the query is the same as the `send_object_to`
     ///   in the JWT, if present;
-    // TODO: /// - Verify the size/hash of uploaded file
+    /// - Verify the size of uploaded file;
+    /// - Verify the uniqueness of the `jti` claim.
     #[clap(long, action)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
+    #[clap(flatten)]
+    #[serde(flatten)]
+    /// The configuration for the JWT duplicate suppression cache.
+    pub replay_suppression_config: CacheConfig,
 }
 
 impl PublisherArgs {
@@ -707,12 +739,13 @@ impl PublisherArgs {
         );
     }
 
-    pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
+    pub(crate) fn generate_auth_config(&self) -> Result<Option<AuthConfig>> {
         if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
             let mut auth_config = AuthConfig {
                 expiring_sec: self.jwt_expiring_sec,
                 verify_upload: self.jwt_verify_upload,
                 algorithm: self.jwt_algorithm,
+                replay_suppression_config: self.replay_suppression_config.clone(),
                 ..Default::default()
             };
 
@@ -1163,6 +1196,18 @@ pub(crate) mod default {
     pub(crate) fn faucet_timeout() -> Duration {
         Duration::from_secs(60)
     }
+
+    pub(crate) fn allowed_headers() -> Vec<String> {
+        vec![
+            "content-type".to_string(),
+            "authorization".to_string(),
+            "content-disposition".to_string(),
+            "content-encoding".to_string(),
+            "content-language".to_string(),
+            "content-location".to_string(),
+            "link".to_string(),
+        ]
+    }
 }
 
 #[cfg(test)]
@@ -1240,6 +1285,10 @@ mod tests {
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
+                replay_suppression_config: Default::default(),
+            },
+            aggregator_args: AggregatorArgs {
+                allowed_headers: default::allowed_headers(),
             },
         })
     }

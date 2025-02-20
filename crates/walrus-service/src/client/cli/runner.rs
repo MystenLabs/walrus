@@ -41,6 +41,7 @@ use walrus_sui::{
 };
 
 use super::args::{
+    AggregatorArgs,
     BurnSelection,
     CliCommands,
     DaemonArgs,
@@ -330,7 +331,7 @@ impl ClientCommandRunner {
                     self.wallet_path.is_none(),
                 )
                 .await?;
-                let attribute = sui_read_client.get_blob_attribute(blob_obj_id).await?;
+                let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
                 GetBlobAttributeOutput { attribute }.print_output(self.json)
             }
 
@@ -415,12 +416,24 @@ impl ClientCommandRunner {
             DaemonCommands::Aggregator {
                 rpc_arg: RpcArg { rpc_url },
                 daemon_args,
+                aggregator_args,
             } => {
-                self.aggregator(&metrics_runtime.registry, rpc_url, daemon_args)
-                    .await
+                self.aggregator(
+                    &metrics_runtime.registry,
+                    rpc_url,
+                    daemon_args,
+                    aggregator_args,
+                )
+                .await
             }
 
-            DaemonCommands::Daemon { args } => self.daemon(&metrics_runtime.registry, args).await,
+            DaemonCommands::Daemon {
+                args,
+                aggregator_args,
+            } => {
+                self.daemon(&metrics_runtime.registry, args, aggregator_args)
+                    .await
+            }
         }
     }
 
@@ -749,11 +762,7 @@ impl ClientCommandRunner {
         blobs.print_output(self.json)
     }
 
-    pub(crate) async fn publisher(
-        self,
-        registry: &Registry,
-        mut args: PublisherArgs,
-    ) -> Result<()> {
+    pub(crate) async fn publisher(self, registry: &Registry, args: PublisherArgs) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus publisher");
         let client = ClientMultiplexer::new(
             self.wallet?,
@@ -784,6 +793,7 @@ impl ClientCommandRunner {
         registry: &Registry,
         rpc_url: Option<String>,
         daemon_args: DaemonArgs,
+        aggregator_args: AggregatorArgs,
     ) -> Result<()> {
         tracing::debug!(?rpc_url, "attempting to run the Walrus aggregator");
         let client = get_read_client(
@@ -794,13 +804,23 @@ impl ClientCommandRunner {
             &daemon_args.blocklist,
         )
         .await?;
-        ClientDaemon::new_aggregator(client, daemon_args.bind_address, registry)
-            .run()
-            .await?;
+        ClientDaemon::new_aggregator(
+            client,
+            daemon_args.bind_address,
+            registry,
+            aggregator_args.allowed_headers,
+        )
+        .run()
+        .await?;
         Ok(())
     }
 
-    pub(crate) async fn daemon(self, registry: &Registry, mut args: PublisherArgs) -> Result<()> {
+    pub(crate) async fn daemon(
+        self,
+        registry: &Registry,
+        args: PublisherArgs,
+        aggregator_args: AggregatorArgs,
+    ) -> Result<()> {
         args.print_debug_message("attempting to run the Walrus daemon");
         let auth_config = args.generate_auth_config()?;
 
@@ -811,17 +831,9 @@ impl ClientCommandRunner {
             &args.daemon_args.blocklist,
         )
         .await?;
-        ClientDaemon::new_daemon(
-            client,
-            auth_config,
-            args.daemon_args.bind_address,
-            args.max_body_size(),
-            registry,
-            args.max_request_buffer_size,
-            args.max_concurrent_requests,
-        )
-        .run()
-        .await?;
+        ClientDaemon::new_daemon(client, auth_config, registry, &args, &aggregator_args)
+            .run()
+            .await?;
         Ok(())
     }
 

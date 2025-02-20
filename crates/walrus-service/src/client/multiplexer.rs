@@ -17,6 +17,7 @@ use sui_sdk::{
     types::base_types::SuiAddress,
     wallet_context::WalletContext,
 };
+use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EpochCount};
 use walrus_sui::{
     client::{
@@ -26,6 +27,7 @@ use walrus_sui::{
         SuiContractClient,
         SuiReadClient,
     },
+    types::move_structs::BlobWithAttribute,
     utils::create_wallet,
 };
 
@@ -146,6 +148,13 @@ impl ClientMultiplexer {
 impl WalrusReadClient for ClientMultiplexer {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         WalrusReadClient::read_blob(&self.read_client, blob_id).await
+    }
+
+    async fn get_blob_by_object_id(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithAttribute> {
+        self.read_client.get_blob_by_object_id(blob_object_id).await
     }
 }
 

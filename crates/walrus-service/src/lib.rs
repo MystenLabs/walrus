@@ -10,6 +10,10 @@ pub mod client;
 pub mod node;
 #[cfg(feature = "node")]
 pub use node::errors::SyncNodeConfigError;
+#[cfg(feature = "node")]
+pub use node::ConfigLoader;
+#[cfg(feature = "node")]
+pub use node::StorageNodeConfigLoader;
 
 #[cfg(feature = "deploy")]
 pub mod testbed;

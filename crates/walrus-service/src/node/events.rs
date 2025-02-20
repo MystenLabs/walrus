@@ -139,7 +139,6 @@ pub struct PositionedStreamEvent {
 
 impl PositionedStreamEvent {
     /// Creates a new indexed stream element.
-    #[allow(dead_code)]
     pub fn new(
         contract_event: ContractEvent,
         checkpoint_event_position: CheckpointEventPosition,

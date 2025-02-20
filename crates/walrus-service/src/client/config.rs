@@ -28,6 +28,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
+use super::daemon::CacheConfig;
 use crate::{
     client::{error::JwtDecodeError, refresh::CommitteesRefreshConfig},
     common::utils,
@@ -123,11 +124,13 @@ pub struct AuthConfig {
     /// If set to `0`, the publisher will not check that the expiration is correctly set based in
     /// the issued-at time (iat) and expiration time (exp) in the JWT. I.e., if `expiring_sec > 0`,
     /// the publisher will check that `exp - iat == expiring_sec`.
-    pub(crate) expiring_sec: u64,
+    pub(crate) expiring_sec: i64,
     /// Verify the upload epochs and address for `send_object_to` in the request.
     ///
     /// The token expiration is still checked, even if `verify_upload == true`.
     pub(crate) verify_upload: bool,
+    /// The configuration for the replay suppression cache.
+    pub(crate) replay_suppression_config: CacheConfig,
 }
 
 impl fmt::Debug for AuthConfig {

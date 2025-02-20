@@ -177,7 +177,7 @@ where
     }
 }
 
-// TODO(jsmith): Remove once the new code is enabled by default.
+// TODO(jsmith): Remove (WAL-594).
 pub(super) struct LegacyRecoverSliver<'a, T> {
     metadata: Arc<VerifiedBlobMetadataWithId>,
     sliver_id: SliverPairIndex,
