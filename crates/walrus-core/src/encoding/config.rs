@@ -1066,8 +1066,8 @@ mod tests {
     }
 
     param_test! {
-        test_encoded_size: [
-            zero_small_committee: (1, 10, 10*((4+7) + 10*2*32 + 32)),
+        test_encoded_size_raptor: [
+            zero_small_committee: (0, 10, 10*((4+7) + 10*2*32 + 32)),
             one_small_committee: (1, 10, 10*((4+7) + 10*2*32 + 32)),
             #[ignore] one_large_committee:
                 (1, 1000, 1000*((329+662) + 1000*2*32 + 32)),
@@ -1081,9 +1081,9 @@ mod tests {
 
         ]
     }
-    /// These tests replicate the tests for `encoded_blob_length` in
+    /// These tests replicate the tests for `encoded_size_raptor` in
     /// `contracts/walrus/sources/system/redstuff.move` and should be kept in sync.
-    fn test_encoded_size(blob_size: usize, n_shards: u16, expected_encoded_size: u64) {
+    fn test_encoded_size_raptor(blob_size: usize, n_shards: u16, expected_encoded_size: u64) {
         assert_eq!(
             RaptorQEncodingConfig::new(NonZeroU16::new(n_shards).unwrap())
                 .encoded_blob_length_from_usize(blob_size),
@@ -1092,23 +1092,60 @@ mod tests {
     }
 
     param_test! {
+        test_encoded_size_reed_solomon: [
+            zero_small_committee: (0, 10, 10 * (2*(4 + 7) + 10 * 2 * 32 + 32)),
+            one_small_committee: (1, 10, 10 * (2*(4 + 7) + 10 * 2 * 32 + 32)),
+            #[ignore] one_large_committee:
+                (1, 1000, 1000 * (2*(334 + 667) + 1000 * 2 * 32 + 32)),
+            larger_blob_small_committee:
+                ((4*7)*100, 10, 10 * ((4 + 7) * 100 + 10 * 2 * 32 + 32)),
+            #[ignore] larger_blob_large_committee: (
+                (334 * 667) * 100,
+                1000,
+                1000 * ((334 + 667) * 100 + 1000 * 2 * 32 + 32),
+            ),
+
+        ]
+    }
+    /// These tests replicate the tests for `encoded_size_reed_solomon` in
+    /// `contracts/walrus/sources/system/redstuff.move` and should be kept in sync.
+    fn test_encoded_size_reed_solomon(blob_size: usize, n_shards: u16, expected_encoded_size: u64) {
+        assert_eq!(
+            ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap())
+                .encoded_blob_length_from_usize(blob_size),
+            Some(expected_encoded_size),
+        );
+    }
+
+    param_test! {
         test_source_symbols_for_n_shards: [
-            one: (1, 1, 1),
-            three: (3, 3, 3),
-            four: (4, 2, 3),
-            nine: (9, 5, 7),
-            ten: (10, 4, 7),
-            fifty: (51, 16, 32),
-            one_hundred_and_one: (101, 30, 63),
+            // RaptorQ
+            one_raptor: (1, 1, 1, EncodingType::RedStuff),
+            three_raptor: (3, 3, 3, EncodingType::RedStuff),
+            four_raptor: (4, 2, 3, EncodingType::RedStuff),
+            nine_raptor: (9, 5, 7, EncodingType::RedStuff),
+            ten_raptor: (10, 4, 7, EncodingType::RedStuff),
+            fifty_raptor: (51, 16, 32, EncodingType::RedStuff),
+            one_hundred_and_one_raptor: (101, 30, 63, EncodingType::RedStuff),
+            // Reed-Solomon
+            one_rs2: (1, 1, 1, EncodingType::RS2),
+            three_rs2: (3, 3, 3, EncodingType::RS2),
+            seven_rs2: (7, 3, 5, EncodingType::RS2),
+            ten_rs2: (10, 4, 7, EncodingType::RS2),
+            thirty_one_rs2: (31, 11, 21, EncodingType::RS2),
+            hundred_rs2: (100, 34, 67, EncodingType::RS2),
+            three_hundred_and_one_rs2: (301, 101, 201, EncodingType::RS2),
+            thousand_rs2: (1000, 334, 667, EncodingType::RS2),
         ]
     }
     fn test_source_symbols_for_n_shards(
         n_shards: u16,
         expected_primary: u16,
         expected_secondary: u16,
+        encoding_type: EncodingType,
     ) {
         let (actual_primary, actual_secondary) =
-            source_symbols_for_n_shards(n_shards.try_into().unwrap(), EncodingType::RedStuff);
+            source_symbols_for_n_shards(n_shards.try_into().unwrap(), encoding_type);
         assert_eq!(actual_primary.get(), expected_primary);
         assert_eq!(actual_secondary.get(), expected_secondary);
     }
