@@ -68,10 +68,12 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 async fn stream_events(
     event_processor: Arc<EventProcessor>,
     _metrics_registry: Registry,
-    mut pg_connection: AsyncPgConnection,
     db_config: &BackupDbConfig,
     backup_orchestrator_metric_set: BackupOrchestratorMetricSet,
 ) -> Result<()> {
+    let mut pg_connection =
+        establish_connection_async(&db_config.database_url, "db connect for stream_events").await?;
+
     let event_cursor = models::get_backup_node_cursor(&mut pg_connection).await?;
     tracing::info!(?event_cursor, "[stream_events] starting");
     let event_stream = Pin::from(event_processor.events(event_cursor).await?);
@@ -303,6 +305,8 @@ pub async fn start_backup_orchestrator(
 
     let cancel_token = CancellationToken::new();
 
+    start_db_metrics_loop(metrics_runtime, &config);
+
     let event_processor = EventProcessorRuntime::start_async(
         config.sui.clone(),
         config.event_processor_config.clone(),
@@ -314,22 +318,13 @@ pub async fn start_backup_orchestrator(
 
     let metrics_registry = metrics_runtime.registry.clone();
 
-    start_db_metrics_loop(metrics_runtime, &config);
-
     let backup_orchestrator_metric_set =
         BackupOrchestratorMetricSet::new(&metrics_runtime.registry);
     // Connect to the database.
-    let pg_connection = establish_connection_async(
-        &config.db_config.database_url,
-        "db connect for stream_events",
-    )
-    .await?;
-
     // Stream events from Sui and pull them into our main business logic workflow.
     stream_events(
         event_processor,
         metrics_registry,
-        pg_connection,
         &config.db_config,
         backup_orchestrator_metric_set,
     )
