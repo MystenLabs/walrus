@@ -974,7 +974,7 @@ pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
 #[inline]
 pub fn max_blob_size_for_n_shards(n_shards: NonZeroU16, encoding_type: EncodingType) -> u64 {
     u64::from(source_symbols_per_blob_for_n_shards(n_shards, encoding_type).get())
-        * u64::from(MAX_SYMBOL_SIZE)
+        * encoding_type.max_symbol_size()
 }
 
 #[inline]
