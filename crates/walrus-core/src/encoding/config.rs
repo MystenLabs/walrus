@@ -616,7 +616,7 @@ pub struct ReedSolomonEncodingConfig {
     /// the Byzantine parameter.
     pub(crate) source_symbols_primary: NonZeroU16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
-    /// number of symbols per primary sliver.It must be strictly less than `n_shards - f`, where `f`
+    /// number of symbols per primary sliver. It must be at most `n_shards - f`, where `f`
     /// is the Byzantine parameter.
     pub(crate) source_symbols_secondary: NonZeroU16,
     /// The number of shards.
