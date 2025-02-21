@@ -23,7 +23,14 @@ use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, MetricConf, ReadWriteOptions},
     Map,
 };
-use walrus_core::{ensure, metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, Sliver};
+use walrus_core::{
+    encoding::EncodingConfigTrait as _,
+    ensure,
+    metadata::VerifiedBlobMetadataWithId,
+    BlobId,
+    Epoch,
+    Sliver,
+};
 use walrus_sui::{
     client::SuiClientError,
     types::{
@@ -45,6 +52,7 @@ use crate::node::{
         PositionedStreamEvent,
     },
     StorageNodeInner,
+    ENCODING_TYPE,
 };
 
 const CERTIFIED: &str = "certified_blob_store";
@@ -807,8 +815,8 @@ impl EventBlobWriter {
         let (sliver_pairs, blob_metadata) = self
             .node
             .encoding_config()
-            .get_blob_encoder(&content)?
-            .encode_with_metadata();
+            .get_for_type(ENCODING_TYPE)
+            .encode_with_metadata(&content)?;
         self.node
             .storage()
             .put_verified_metadata_without_blob_info(&blob_metadata)

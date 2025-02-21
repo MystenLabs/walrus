@@ -64,8 +64,8 @@ impl<'a> BlobEncoder<'a> {
     /// two cases:
     ///
     /// 1. If the blob is too large to fit into the message matrix with valid symbols. The maximum
-    ///    blob size for a given [`EncodingConfig`] is accessible through the
-    ///    [`EncodingConfig::max_blob_size`] method.
+    ///    blob size for a given [`EncodingConfigEnum`] is accessible through the
+    ///    [`EncodingConfigEnum::max_blob_size`] method.
     /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
     ///    that due to limitations of the address space.
     pub fn new(config: EncodingConfigEnum<'a>, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {

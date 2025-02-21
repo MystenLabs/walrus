@@ -152,8 +152,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// # Errors
     ///
-    /// Returns a [`RecoverySymbolError::EncodeError`] if the `symbols` cannot be encoded. See
-    /// [`RaptorQEncoder::new`] for further details about the returned errors.
+    /// Returns a [`RecoverySymbolError::EncodeError`] if the `symbols` cannot be encoded.
     pub fn recovery_symbols(
         &self,
         config: &EncodingConfigEnum,
@@ -177,8 +176,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// # Errors
     ///
-    /// Returns a [`RecoverySymbolError::EncodeError`] if the sliver cannot be encoded. See
-    /// [`RaptorQEncoder::new`] for further details about the returned errors. Returns a
+    /// Returns a [`RecoverySymbolError::EncodeError`] if the sliver cannot be encoded. Returns a
     /// [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
     pub fn recovery_symbol_for_sliver(
         &self,
@@ -317,8 +315,7 @@ impl<T: EncodingAxis> SliverData<T> {
     ///
     /// # Errors
     ///
-    /// Returns an [`RecoverySymbolError::EncodeError`] if the `symbols` cannot be encoded. See
-    /// [`RaptorQEncoder::new`] for further details about the returned errors.
+    /// Returns an [`RecoverySymbolError::EncodeError`] if the `symbols` cannot be encoded.
     pub fn get_merkle_root<U: HashFunction<DIGEST_LEN>>(
         &self,
         config: &EncodingConfigEnum,
@@ -408,8 +405,7 @@ impl SliverPair {
     /// # Errors
     ///
     /// Returns a [`RecoverySymbolError::EncodeError`] if any of the the slivers cannot be encoded.
-    /// See [`RaptorQEncoder::new`] for further details about the returned errors. Returns a
-    /// [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
+    /// Returns a [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
     pub fn recovery_symbol_pair_for_sliver(
         &self,
         target_pair_index: SliverPairIndex,
@@ -433,7 +429,6 @@ impl SliverPair {
     /// # Errors
     ///
     /// Returns a [`RecoverySymbolError::EncodeError`] if any of the the slivers cannot be encoded.
-    /// See [`RaptorQEncoder::new`] for further details about the returned errors.
     pub fn pair_leaf_input<T: HashFunction<DIGEST_LEN>>(
         &self,
         config: &EncodingConfigEnum,
@@ -522,9 +517,13 @@ mod tests {
         test_create_recovery_symbols -> Result: [
             square_one_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4]),
             square_two_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]),
+            rectangle_two_byte_symbol_raptorq: (
+                EncodingType::RedStuff, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+            ),
             square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]),
+            rectangle_two_byte_symbol_reed_solomon: (
+                EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+            ),
         ]
     }
     fn test_create_recovery_symbols(
@@ -601,14 +600,26 @@ mod tests {
         test_recover_sliver_from_symbols -> Result: [
             square_one_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4]),
             square_two_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_1_raptorq: (EncodingType::RedStuff, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]),
-            rectangle_two_byte_symbol_2_raptorq: (EncodingType::RedStuff, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]),
-            rectangle_two_byte_symbol_3_raptorq: (EncodingType::RedStuff, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]),
+            rectangle_two_byte_symbol_1_raptorq: (
+                EncodingType::RedStuff, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+            ),
+            rectangle_two_byte_symbol_2_raptorq: (
+                EncodingType::RedStuff, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+            ),
+            rectangle_two_byte_symbol_3_raptorq: (
+                EncodingType::RedStuff, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
+            ),
             square_one_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
             square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
-            rectangle_two_byte_symbol_1_reed_solomon: (EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]),
-            rectangle_two_byte_symbol_2_reed_solomon: (EncodingType::RS2, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]),
-            rectangle_two_byte_symbol_3_reed_solomon: (EncodingType::RS2, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]),
+            rectangle_two_byte_symbol_1_reed_solomon: (
+                EncodingType::RS2, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+            ),
+            rectangle_two_byte_symbol_2_reed_solomon: (
+                EncodingType::RS2, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+            ),
+            rectangle_two_byte_symbol_3_reed_solomon: (
+                EncodingType::RS2, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
+            ),
         ]
     }
     fn test_recover_sliver_from_symbols(

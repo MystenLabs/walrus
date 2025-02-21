@@ -22,11 +22,12 @@ use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tokio_stream::StreamExt;
 use walrus_core::{
-    encoding::Primary,
+    encoding::{EncodingConfigTrait as _, Primary},
     merkle::Node,
     messages::BlobPersistenceType,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
+    EncodingType,
     EpochCount,
     SliverPairIndex,
 };
@@ -68,6 +69,10 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
+
+// TODO (WAL-607): Support both encoding types.
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
@@ -221,8 +226,8 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let (pairs, metadata) = client
         .as_ref()
         .encoding_config()
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
+        .get_for_type(ENCODING_TYPE)
+        .encode_with_metadata(&blob)?;
     let mut metadata = metadata.metadata().to_owned();
     let mut i = 0;
     // Change a shard that is not in the failure set. Since the mapping of slivers to shards
@@ -352,9 +357,9 @@ async fn test_store_with_existing_blob_resource(
             let (_, metadata) = client
                 .as_ref()
                 .encoding_config()
-                .get_blob_encoder(blob)
-                .expect("blob encoding should not fail")
-                .encode_with_metadata();
+                .get_for_type(ENCODING_TYPE)
+                .encode_with_metadata(blob)
+                .expect("blob encoding should not fail");
             let metadata = metadata.metadata().to_owned();
             let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
             VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata)
@@ -410,7 +415,7 @@ async fn test_store_with_existing_blob_resource(
     Ok(())
 }
 
-/// Register a blob and return the blob id.
+/// Registers a blob and returns the blob ID.
 async fn register_blob(
     client: &WithTempDir<Client<SuiContractClient>>,
     blob: &[u8],
@@ -420,9 +425,9 @@ async fn register_blob(
     let (_, metadata) = client
         .as_ref()
         .encoding_config()
-        .get_blob_encoder(blob)
-        .expect("blob encoding should not fail")
-        .encode_with_metadata();
+        .get_for_type(ENCODING_TYPE)
+        .encode_with_metadata(blob)
+        .expect("blob encoding should not fail");
     let metadata = metadata.metadata().to_owned();
     let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
     let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);

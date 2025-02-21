@@ -67,6 +67,7 @@ use walrus_core::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
+    EncodingType,
     Epoch,
     InconsistencyProof,
     PublicKey,
@@ -167,6 +168,9 @@ mod storage;
 
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
+
+// TODO (WAL-607): Support both encoding types.
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -1768,12 +1772,13 @@ impl StorageNodeInner {
                 RetrieveSymbolError::Internal(anyhow!(error))
             }
         };
+        let encoding_config = self.encoding_config.get_for_type(ENCODING_TYPE);
 
         match sliver {
             Sliver::Primary(inner) => {
                 let target_index = target_pair_index.to_sliver_index::<Secondary>(n_shards);
                 let recovery_symbol = inner
-                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                    .recovery_symbol_for_sliver(target_pair_index, &encoding_config)
                     .map_err(convert_error)?;
 
                 Ok(GeneralRecoverySymbol::from_recovery_symbol(
@@ -1784,7 +1789,7 @@ impl StorageNodeInner {
             Sliver::Secondary(inner) => {
                 let target_index = target_pair_index.to_sliver_index::<Primary>(n_shards);
                 let recovery_symbol = inner
-                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                    .recovery_symbol_for_sliver(target_pair_index, &encoding_config)
                     .map_err(convert_error)?;
 
                 Ok(GeneralRecoverySymbol::from_recovery_symbol(
@@ -2338,7 +2343,7 @@ mod tests {
     use system_events::SystemEventProvider;
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
-        encoding::{Primary, Secondary, SliverData, SliverPair},
+        encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
@@ -2888,9 +2893,9 @@ mod tests {
     impl EncodedBlob {
         fn new(blob: &[u8], config: EncodingConfig) -> EncodedBlob {
             let (pairs, metadata) = config
-                .get_blob_encoder(blob)
-                .expect("must be able to get encoder")
-                .encode_with_metadata();
+                .get_for_type(ENCODING_TYPE)
+                .encode_with_metadata(blob)
+                .expect("must be able to get encoder");
 
             EncodedBlob {
                 pairs,

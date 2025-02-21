@@ -14,6 +14,9 @@ test-utils = [
   "dep:walrus-test-utils",
   "walrus-core/test-utils",
 ]
+utoipa = [
+  "dep:utoipa",
+]
 
 [dependencies]
 anyhow.workspace = true

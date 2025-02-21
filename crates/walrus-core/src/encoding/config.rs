@@ -24,6 +24,9 @@ use super::{
 };
 use crate::{bft, merkle::DIGEST_LEN, metadata::VerifiedBlobMetadataWithId, BlobId, EncodingType};
 
+// TODO (WAL-621): Maybe rename this module and the structs/enums/traits; these now take on similar
+// roles as "factories".
+
 /// Trait for encoding configurations.
 ///
 /// This trait provides a common interface for encoding configurations for different types of
@@ -52,9 +55,6 @@ pub trait EncodingConfigTrait {
     /// [`DecodingSymbol`s][DecodingSymbol].
     ///
     /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
-    ///
-    /// If decoding failed due to an insufficient number of provided symbols, it can be continued
-    /// by additional calls to [`decode`][Self::decode] providing more symbols.
     fn decode_from_decoding_symbols<T, E>(
         &self,
         symbol_size: NonZeroU16,
@@ -463,10 +463,10 @@ impl RaptorQEncodingConfig {
     }
 
     /// Returns a [`BlobDecoder`] for the given `blob_size`.
-    pub fn get_blob_decoder<'a, T: EncodingAxis>(
-        &'a self,
+    pub fn get_blob_decoder<T: EncodingAxis>(
+        &self,
         blob_size: u64,
-    ) -> Result<BlobDecoder<'a, T>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
     }
 }
@@ -716,7 +716,7 @@ impl ReedSolomonEncodingConfig {
     }
 
     fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> ReedSolomonDecoder {
-        // TODO (WAL-605): Replace this by an error.
+        // TODO (WAL-621): Replace this by an error.
         assert!(symbol_size.get() % 2 == 0, "symbol size must be even");
         ReedSolomonDecoder::new(self.n_source_symbols::<E>(), self.n_shards(), symbol_size)
             .expect("we have checked that the parameters are consistent with Reed-Solomon encoding")
@@ -731,10 +731,10 @@ impl ReedSolomonEncodingConfig {
     }
 
     /// Returns a [`BlobDecoder`] for the given `blob_size`.
-    pub fn get_blob_decoder<'a, T: EncodingAxis>(
-        &'a self,
+    pub fn get_blob_decoder<T: EncodingAxis>(
+        &self,
         _blob_size: u64,
-    ) -> Result<BlobDecoder<'a, T>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
         todo!("WAL-605")
     }
 }

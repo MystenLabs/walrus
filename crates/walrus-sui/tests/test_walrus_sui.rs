@@ -10,7 +10,7 @@ use fastcrypto::traits::ToFromBytes;
 use sui_types::base_types::SuiAddress;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    encoding::EncodingConfig,
+    encoding::{EncodingConfig, EncodingConfigTrait as _},
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::Node,
     BlobId,
@@ -76,9 +76,15 @@ async fn test_initialize_contract() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-#[ignore = "ignore integration tests by default"]
-async fn test_register_certify_blob() -> anyhow::Result<()> {
+async_param_test! {
+    #[tokio::test]
+    #[ignore = "ignore integration tests by default"]
+    test_register_certify_blob -> anyhow::Result<()> : [
+        raptorq: (EncodingType::RedStuff),
+        reed_solomon: (EncodingType::RS2),
+    ]
+}
+async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
 
     let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
@@ -95,7 +101,10 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .await?;
 
     let size = 10_000;
-    let resource_size = encoding_config.encoded_blob_length(size).unwrap();
+    let resource_size = encoding_config
+        .get_for_type(encoding_type)
+        .encoded_blob_length(size)
+        .unwrap();
     let storage_resource = walrus_client
         .as_ref()
         .reserve_space(resource_size, 3)

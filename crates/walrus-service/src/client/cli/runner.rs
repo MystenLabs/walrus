@@ -21,7 +21,12 @@ use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
-    encoding::{encoded_blob_length_for_n_shards, EncodingConfig, Primary},
+    encoding::{
+        encoded_blob_length_for_n_shards,
+        EncodingConfig,
+        EncodingConfigTrait as _,
+        Primary,
+    },
     ensure,
     metadata::BlobMetadataApi as _,
     BlobId,
@@ -741,8 +746,8 @@ impl ClientCommandRunner {
         let spinner = styled_spinner();
         spinner.set_message("computing the blob ID");
         let metadata = EncodingConfig::new(n_shards)
-            .get_blob_encoder(&read_blob_from_file(&file)?)?
-            .compute_metadata();
+            .get_for_type(ENCODING_TYPE)
+            .compute_metadata(&read_blob_from_file(&file)?)?;
         spinner.finish_with_message(format!("blob ID computed: {}", metadata.blob_id()));
 
         BlobIdOutput::new(&file, &metadata).print_output(self.json)

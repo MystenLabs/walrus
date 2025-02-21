@@ -10,9 +10,11 @@ use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{
+    encoding::EncodingConfigTrait as _,
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    EncodingType,
     EpochCount,
     SliverPairIndex,
 };
@@ -38,6 +40,9 @@ use walrus_sui::{
 use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
+
+// TODO (WAL-607): Support both encoding types.
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
 
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
@@ -132,9 +137,9 @@ impl WriteClient {
             .client
             .as_ref()
             .encoding_config()
-            .get_blob_encoder(blob)
-            .map_err(ClientError::other)?
-            .encode_with_metadata();
+            .get_for_type(ENCODING_TYPE)
+            .encode_with_metadata(blob)
+            .map_err(ClientError::other)?;
 
         let mut metadata = metadata.metadata().to_owned();
         let n_members = self

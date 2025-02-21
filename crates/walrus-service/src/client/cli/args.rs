@@ -16,7 +16,13 @@ use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, ensure, BlobId, Epoch, EpochCount};
+use walrus_core::{
+    encoding::{EncodingConfig, EncodingConfigTrait},
+    ensure,
+    BlobId,
+    Epoch,
+    EpochCount,
+};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::StorageNode,
@@ -24,7 +30,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::{config::AuthConfig, daemon::CacheConfig};
+use crate::client::{config::AuthConfig, daemon::CacheConfig, ENCODING_TYPE};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -820,8 +826,8 @@ impl FileOrBlobId {
                     "checking status of blob read from the filesystem"
                 );
                 Ok(*encoding_config
-                    .get_blob_encoder(&read_blob_from_file(&file)?)?
-                    .compute_metadata()
+                    .get_for_type(ENCODING_TYPE)
+                    .compute_metadata(&read_blob_from_file(&file)?)?
                     .blob_id())
             }
             // This case is required for JSON mode where we don't have the clap checking.
@@ -876,8 +882,8 @@ impl FileOrBlobIdOrObjectId {
                 );
                 Ok(Some(
                     *encoding_config
-                        .get_blob_encoder(&read_blob_from_file(file)?)?
-                        .compute_metadata()
+                        .get_for_type(ENCODING_TYPE)
+                        .compute_metadata(&read_blob_from_file(file)?)?
                         .blob_id(),
                 ))
             }
