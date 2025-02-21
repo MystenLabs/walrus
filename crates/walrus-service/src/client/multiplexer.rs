@@ -18,7 +18,7 @@ use sui_sdk::{
     wallet_context::WalletContext,
 };
 use sui_types::base_types::ObjectID;
-use walrus_core::{BlobId, EpochCount};
+use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
@@ -129,6 +129,7 @@ impl ClientMultiplexer {
     pub async fn submit_write(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -138,7 +139,14 @@ impl ClientMultiplexer {
         tracing::debug!("submitting write request to client in pool");
 
         let result = client
-            .write_blob(blob, epochs_ahead, store_when, persistence, post_store)
+            .write_blob(
+                blob,
+                encoding_type,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+            )
             .await?;
 
         Ok(result)
@@ -162,13 +170,21 @@ impl WalrusWriteClient for ClientMultiplexer {
     async fn write_blob(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
-        self.submit_write(blob, epochs_ahead, store_when, persistence, post_store)
-            .await
+        self.submit_write(
+            blob,
+            encoding_type,
+            epochs_ahead,
+            store_when,
+            persistence,
+            post_store,
+        )
+        .await
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {

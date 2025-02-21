@@ -7,6 +7,9 @@ edition.workspace = true
 license.workspace = true
 
 [features]
+raptorq = []
+raptorq-and-rs2 = ["raptorq", "rs2"]
+rs2 = []
 sui-types = ["dep:sui-types"]
 test-utils = ["walrus-test-utils"]
 

@@ -67,7 +67,6 @@ use walrus_core::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    EncodingType,
     Epoch,
     InconsistencyProof,
     PublicKey,
@@ -168,9 +167,6 @@ mod storage;
 
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
-
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -1673,18 +1669,12 @@ impl StorageNodeInner {
 
     pub(crate) fn store_sliver_unchecked(
         &self,
-        blob_id: &BlobId,
+        metadata: &VerifiedBlobMetadataWithId,
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<bool, StoreSliverError> {
-        // Ensure we have received the blob metadata.
-        let metadata = self
-            .storage
-            .get_metadata(blob_id)
-            .context("database error when storing sliver")?
-            .ok_or(StoreSliverError::MissingMetadata)?;
-
-        let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
+        let shard_storage =
+            self.get_shard_for_sliver_pair(sliver_pair_index, metadata.blob_id())?;
 
         let shard_status = shard_storage
             .status()
@@ -1695,7 +1685,7 @@ impl StorageNodeInner {
         }
 
         if shard_storage
-            .is_sliver_type_stored(blob_id, sliver.r#type())
+            .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
             .context("database error when checking sliver existence")?
         {
             return Ok(false);
@@ -1705,7 +1695,7 @@ impl StorageNodeInner {
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage
-            .put_sliver(blob_id, sliver)
+            .put_sliver(metadata.blob_id(), sliver)
             .context("unable to store sliver")?;
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
@@ -1772,7 +1762,16 @@ impl StorageNodeInner {
                 RetrieveSymbolError::Internal(anyhow!(error))
             }
         };
-        let encoding_config = self.encoding_config.get_for_type(ENCODING_TYPE);
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("could not retrieve blob metadata")?
+            .ok_or_else(|| {
+                RetrieveSymbolError::Internal(anyhow!("metadata not found for blob {:?}", blob_id))
+            })?;
+        let encoding_config = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type());
 
         match sliver {
             Sliver::Primary(inner) => {
@@ -2064,7 +2063,20 @@ impl ServiceState for StorageNodeInner {
             StoreSliverError::NotCurrentlyRegistered,
         );
 
-        self.store_sliver_unchecked(blob_id, sliver_pair_index, sliver)
+        // Get metadata first to check encoding type.
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("database error when storing sliver")?
+            .ok_or(StoreSliverError::MissingMetadata)?;
+
+        // Check if encoding type is supported
+        let encoding_type = metadata.metadata().encoding_type();
+        if !encoding_type.is_supported() {
+            return Err(StoreSliverError::UnsupportedEncodingType(encoding_type));
+        }
+
+        self.store_sliver_unchecked(&metadata, sliver_pair_index, sliver)
     }
 
     async fn compute_storage_confirmation(
@@ -2346,6 +2358,7 @@ mod tests {
         encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
@@ -2893,7 +2906,7 @@ mod tests {
     impl EncodedBlob {
         fn new(blob: &[u8], config: EncodingConfig) -> EncodedBlob {
             let (pairs, metadata) = config
-                .get_for_type(ENCODING_TYPE)
+                .get_for_type(DEFAULT_ENCODING)
                 .encode_with_metadata(blob)
                 .expect("must be able to get encoder");
 
@@ -3602,7 +3615,7 @@ mod tests {
     #[tokio::test]
     async fn skip_storing_metadata_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
@@ -3616,7 +3629,7 @@ mod tests {
     #[tokio::test]
     async fn skip_storing_sliver_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
         let is_newly_stored = cluster.nodes[0].storage_node.store_sliver(
@@ -3634,7 +3647,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 2, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3677,7 +3691,8 @@ mod tests {
     async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
         // Note that the blobs are certified in epoch 0.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3703,7 +3718,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_unauthorized_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let error: walrus_sdk::error::NodeError = cluster.nodes[0]
             .client
@@ -3722,7 +3738,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_request_verification_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 1);
         let sync_shard_msg = SyncShardMsg::new(1, request);
@@ -3763,7 +3780,7 @@ mod tests {
     ) -> TestResult {
         // Creates a cluster with initial epoch set to 3.
         let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blob(
-            &[&[0], &[1]],
+            &[&[0, 1], &[2, 3]],
             &[BLOB],
             cluster_epoch,
             None,
@@ -3796,7 +3813,7 @@ mod tests {
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
         let (cluster, events, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
@@ -3809,10 +3826,14 @@ mod tests {
             .lock_shard_for_epoch_change()
             .expect("Lock shard failed.");
 
+        assert_eq!(
+            blob.assigned_sliver_pair(ShardIndex(0)).index(),
+            SliverPairIndex(3)
+        );
         let sliver = retry_until_success_or_timeout(TIMEOUT, || async {
             cluster.nodes[0].storage_node.retrieve_sliver(
                 blob.blob_id(),
-                SliverPairIndex(0),
+                SliverPairIndex(3),
                 SliverType::Primary,
             )
         })
@@ -3830,7 +3851,7 @@ mod tests {
     #[tokio::test]
     async fn reject_writes_if_shard_is_locked_in_node() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         cluster.nodes[0]
             .storage_node
@@ -3857,7 +3878,7 @@ mod tests {
     #[tokio::test]
     async fn compute_storage_confirmation_ignore_not_owned_shard() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0, 1, 2]], BLOB, |index, _| index.get() != 0)
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |index, _| index.get() != 0)
                 .await?;
 
         assert!(matches!(
@@ -3919,7 +3940,7 @@ mod tests {
         assignment: Option<&[&[u16]]>,
         shard_sync_config: Option<ShardSyncConfig>,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
-        let assignment = assignment.unwrap_or(&[&[0], &[1]]);
+        let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
@@ -4447,7 +4468,8 @@ mod tests {
             let blobs_expired: Vec<_> = blobs_expired.iter().map(|b| &b[..]).collect();
 
             // Generates a cluster with two nodes and one shard each.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]], None).await?;
+            let (cluster, events) =
+                cluster_at_epoch1_without_blobs(&[&[0, 1], &[2, 3]], None).await?;
 
             // Uses fail point to track whether shard sync recovery is triggered.
             let shard_sync_recovery_triggered = Arc::new(AtomicBool::new(false));
@@ -4697,7 +4719,8 @@ mod tests {
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
             let (cluster, events, _blob_detail) =
-                cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[BLOB], 2, None).await?;
+                cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[BLOB], 2, None)
+                    .await?;
             cluster.nodes[0]
                 .storage_node
                 .start_epoch_change_finisher
@@ -5309,7 +5332,7 @@ mod tests {
         let _ = tracing_subscriber::fmt::try_init();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
         events.send(

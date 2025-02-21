@@ -27,9 +27,9 @@ use walrus_core::{
     messages::BlobPersistenceType,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
-    EncodingType,
     EpochCount,
     SliverPairIndex,
+    DEFAULT_ENCODING,
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::api::BlobStatus;
@@ -75,9 +75,6 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
-
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -170,11 +167,11 @@ async fn run_store_and_read_with_crash_failures(
         .iter()
         .map(|(path, blob)| (path.clone(), blob.clone()))
         .collect();
-
     let store_result = client
         .as_ref()
         .reserve_and_store_blobs_retry_committees_with_path(
             &blobs_with_paths,
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -232,7 +229,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let (pairs, metadata) = client
         .as_ref()
         .encoding_config()
-        .get_for_type(ENCODING_TYPE)
+        .get_for_type(DEFAULT_ENCODING)
         .encode_with_metadata(&blob)?;
     let mut metadata = metadata.metadata().to_owned();
     let mut i = 0;
@@ -367,7 +364,7 @@ async fn test_store_with_existing_blob_resource(
             let (_, metadata) = client
                 .as_ref()
                 .encoding_config()
-                .get_for_type(ENCODING_TYPE)
+                .get_for_type(DEFAULT_ENCODING)
                 .encode_with_metadata(blob)
                 .expect("blob encoding should not fail");
             let metadata = metadata.metadata().to_owned();
@@ -403,6 +400,7 @@ async fn test_store_with_existing_blob_resource(
         .inner
         .reserve_and_store_blobs(
             &blobs,
+            DEFAULT_ENCODING,
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
@@ -435,7 +433,7 @@ async fn register_blob(
     let (_, metadata) = client
         .as_ref()
         .encoding_config()
-        .get_for_type(ENCODING_TYPE)
+        .get_for_type(DEFAULT_ENCODING)
         .encode_with_metadata(blob)
         .expect("blob encoding should not fail");
     let metadata = metadata.metadata().to_owned();
@@ -477,6 +475,7 @@ async fn store_blob(
         .inner
         .reserve_and_store_blobs(
             &[blob],
+            DEFAULT_ENCODING,
             epochs_ahead,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
@@ -516,6 +515,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
         .inner
         .reserve_and_store_blobs(
             &blobs,
+            DEFAULT_ENCODING,
             epochs_ahead,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
@@ -622,7 +622,7 @@ async fn test_store_with_existing_storage_resource(
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let pairs_and_metadata = client
         .as_ref()
-        .encode_blobs_to_pairs_and_metadata(&blobs)
+        .encode_blobs_to_pairs_and_metadata(&blobs, DEFAULT_ENCODING)
         .await?;
     let encoded_sizes = pairs_and_metadata
         .iter()
@@ -650,6 +650,7 @@ async fn test_store_with_existing_storage_resource(
         .inner
         .reserve_and_store_blobs(
             &blobs,
+            DEFAULT_ENCODING,
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
@@ -690,6 +691,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
             .as_ref()
             .reserve_and_store_blobs(
                 &blobs,
+                DEFAULT_ENCODING,
                 idx,
                 StoreWhen::Always,
                 BlobPersistence::Deletable,
@@ -703,6 +705,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
         .as_ref()
         .reserve_and_store_blobs(
             &blobs,
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -748,6 +751,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let results = client
         .reserve_and_store_blobs(
             &blobs,
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
@@ -807,6 +811,7 @@ async fn test_blocklist() -> TestResult {
     let store_results = client
         .reserve_and_store_blobs(
             &[&blob],
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
@@ -973,6 +978,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
         let results = client
             .reserve_and_store_blobs(
                 &blobs,
+                DEFAULT_ENCODING,
                 epochs,
                 store_when,
                 persistence,
@@ -1098,6 +1104,7 @@ async fn test_burn_blobs() -> TestResult {
             .as_ref()
             .reserve_and_store_blobs(
                 &[blob.as_slice()],
+                DEFAULT_ENCODING,
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -1151,6 +1158,7 @@ async fn test_extend_owned_blobs() -> TestResult {
         .as_ref()
         .reserve_and_store_blobs(
             &[blob.as_slice()],
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -1183,6 +1191,7 @@ async fn test_extend_owned_blobs() -> TestResult {
         .as_ref()
         .reserve_and_store_blobs(
             &[blob.as_slice()],
+            DEFAULT_ENCODING,
             20,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
@@ -1219,6 +1228,7 @@ async fn test_share_blobs() -> TestResult {
         .as_ref()
         .reserve_and_store_blobs(
             &[blob.as_slice()],
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -1313,6 +1323,7 @@ async fn test_post_store_action(
         .as_ref()
         .reserve_and_store_blobs_retry_committees(
             &blobs,
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -1501,6 +1512,7 @@ impl<'a> BlobAttributeTestContext<'a> {
                 .as_mut()
                 .reserve_and_store_blobs(
                     &blobs,
+                    DEFAULT_ENCODING,
                     idx,
                     StoreWhen::Always,
                     BlobPersistence::Permanent,

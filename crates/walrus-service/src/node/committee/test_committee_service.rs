@@ -30,7 +30,7 @@ use walrus_core::{
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
     messages::InvalidBlobIdMsg,
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::VerifiedBlobMetadataWithId,
     Epoch,
     InconsistencyProof,
     PublicKey,
@@ -38,6 +38,7 @@ use walrus_core::{
     SliverIndex,
     SliverPairIndex,
     SliverType,
+    DEFAULT_ENCODING,
 };
 use walrus_sdk::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
@@ -55,7 +56,6 @@ use crate::{
             NodeServiceFactory,
         },
         config::CommitteeServiceConfig,
-        ENCODING_TYPE,
     },
     test_utils,
 };
@@ -454,7 +454,7 @@ fn recovery_symbols_by_shard(
 
     let encoding_config = EncodingConfig::new(n_shards);
     let (sliver_pairs, metadata) = encoding_config
-        .get_for_type(ENCODING_TYPE)
+        .get_for_type(DEFAULT_ENCODING)
         .encode_with_metadata(&blob)?;
 
     let recovery_symbols = sliver_pairs

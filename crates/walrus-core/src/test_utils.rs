@@ -27,14 +27,12 @@ use crate::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    EncodingType,
     RecoverySymbol,
     Sliver,
     SliverIndex,
     SliverPairIndex,
+    DEFAULT_ENCODING,
 };
-
-const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
 /// Returns a deterministic fixed protocol key pair for testing.
 ///
@@ -100,7 +98,7 @@ pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
     primary_sliver()
         .recovery_symbol_for_sliver(
             SliverPairIndex(1),
-            &encoding_config().get_for_type(ENCODING_TYPE),
+            &encoding_config().get_for_type(DEFAULT_ENCODING),
         )
         .map(RecoverySymbol::Secondary)
         .unwrap()
@@ -111,7 +109,7 @@ pub fn primary_recovery_symbol() -> RecoverySymbol<MerkleProof> {
     secondary_sliver()
         .recovery_symbol_for_sliver(
             SliverPairIndex(2),
-            &encoding_config().get_for_type(ENCODING_TYPE),
+            &encoding_config().get_for_type(DEFAULT_ENCODING),
         )
         .map(RecoverySymbol::Primary)
         .unwrap()
@@ -151,7 +149,7 @@ pub fn blob_metadata() -> BlobMetadata {
             secondary_hash: Node::Digest([(i % 256) as u8; 32]),
         })
         .collect();
-    BlobMetadata::new(ENCODING_TYPE, 62_831, hashes)
+    BlobMetadata::new(DEFAULT_ENCODING, 62_831, hashes)
 }
 
 /// Returns an arbitrary unverified metadata object with blob ID.
@@ -184,7 +182,7 @@ pub fn generate_config_metadata_and_valid_recovery_symbols(
 ) -> walrus_test_utils::Result<RecoverySymbolsWithConfigAndMetadata> {
     let blob = walrus_test_utils::random_data(314);
     let encoding_config = encoding_config();
-    let config_enum = encoding_config.get_for_type(ENCODING_TYPE);
+    let config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
     let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
     let target_sliver_index = SliverIndex(0);
     let recovery_symbols = walrus_test_utils::random_subset(
@@ -193,7 +191,7 @@ pub fn generate_config_metadata_and_valid_recovery_symbols(
                 .secondary
                 .recovery_symbol_for_sliver(
                     target_sliver_index.into(),
-                    &encoding_config.get_for_type(ENCODING_TYPE),
+                    &encoding_config.get_for_type(DEFAULT_ENCODING),
                 )
                 .unwrap()
         }),

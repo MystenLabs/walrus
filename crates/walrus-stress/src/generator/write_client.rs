@@ -14,9 +14,9 @@ use walrus_core::{
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    EncodingType,
     EpochCount,
     SliverPairIndex,
+    DEFAULT_ENCODING,
 };
 use walrus_service::client::{
     Client,
@@ -41,9 +41,7 @@ use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
 
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
-
+/// Client for writing test blobs to storage nodes
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
@@ -97,6 +95,7 @@ impl WriteClient {
             // TODO(giac): add also some deletable blobs in the mix (#800).
             .reserve_and_store_blobs_retry_committees(
                 &[blob],
+                DEFAULT_ENCODING,
                 epochs_to_store,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -137,7 +136,7 @@ impl WriteClient {
             .client
             .as_ref()
             .encoding_config()
-            .get_for_type(ENCODING_TYPE)
+            .get_for_type(DEFAULT_ENCODING)
             .encode_with_metadata(blob)
             .map_err(ClientError::other)?;
 

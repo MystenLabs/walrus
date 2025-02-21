@@ -30,6 +30,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     Sliver,
+    DEFAULT_ENCODING,
 };
 use walrus_sui::{
     client::SuiClientError,
@@ -52,7 +53,6 @@ use crate::node::{
         PositionedStreamEvent,
     },
     StorageNodeInner,
-    ENCODING_TYPE,
 };
 
 const CERTIFIED: &str = "certified_blob_store";
@@ -815,7 +815,7 @@ impl EventBlobWriter {
         let (sliver_pairs, blob_metadata) = self
             .node
             .encoding_config()
-            .get_for_type(ENCODING_TYPE)
+            .get_for_type(DEFAULT_ENCODING)
             .encode_with_metadata(&content)?;
         self.node
             .storage()
@@ -827,7 +827,7 @@ impl EventBlobWriter {
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    blob_metadata.blob_id(),
+                    &blob_metadata,
                     sliver_pair.index(),
                     &Sliver::Primary(sliver_pair.primary.clone()),
                 )
@@ -847,7 +847,7 @@ impl EventBlobWriter {
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    blob_metadata.blob_id(),
+                    &blob_metadata,
                     sliver_pair.index(),
                     &Sliver::Secondary(sliver_pair.secondary.clone()),
                 )

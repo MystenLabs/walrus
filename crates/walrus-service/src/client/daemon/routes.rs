@@ -30,7 +30,7 @@ use serde::Deserialize;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EpochCount};
+use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
@@ -269,6 +269,7 @@ impl From<ClientError> for GetBlobError {
 pub(super) async fn put_blob<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
     Query(PublisherQuery {
+        encoding_type,
         epochs,
         deletable,
         send_object_to,
@@ -293,6 +294,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     let mut response = match client
         .write_blob(
             &blob[..],
+            encoding_type,
             epochs,
             StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
@@ -409,6 +411,9 @@ pub(super) async fn status() -> Response {
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub(crate) struct PublisherQuery {
+    /// The encoding type to use for the blob.
+    #[serde(default)]
+    pub encoding_type: EncodingType,
     /// The number of epochs, ahead of the current one, for which to store the blob.
     ///
     /// The default is 1 epoch.

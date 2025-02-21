@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
-use walrus_core::encoding::{EncodingConfig, EncodingConfigTrait as _, Primary};
+use walrus_core::{
+    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
+    EncodingType,
+};
 use walrus_sui::client::{
     contract_config::ContractConfig,
     retry_client::RetriableSuiClient,
@@ -28,7 +31,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{daemon::CacheConfig, ENCODING_TYPE};
+use super::daemon::CacheConfig;
 use crate::{
     client::{error::JwtDecodeError, refresh::CommitteesRefreshConfig},
     common::utils,
@@ -324,9 +327,10 @@ impl CommunicationLimits {
         &self,
         blob_size: u64,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> NonZeroUsize {
         encoding_config
-            .get_for_type(ENCODING_TYPE)
+            .get_for_type(encoding_type)
             .sliver_size_for_blob::<Primary>(blob_size)
             .expect("blob must not be too large to be encoded")
             .try_into()
@@ -349,9 +353,10 @@ impl CommunicationLimits {
         &self,
         blob_size: u64,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> usize {
         self.max_connections_for_request_and_blob_size(
-            self.sliver_size_for_blob(blob_size, encoding_config),
+            self.sliver_size_for_blob(blob_size, encoding_config, encoding_type),
             self.max_concurrent_writes,
         )
     }
@@ -373,9 +378,10 @@ impl CommunicationLimits {
         &self,
         blob_size: u64,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> usize {
         self.max_connections_for_request_and_blob_size(
-            self.sliver_size_for_blob(blob_size, encoding_config),
+            self.sliver_size_for_blob(blob_size, encoding_config, encoding_type),
             self.max_concurrent_sliver_reads,
         )
     }

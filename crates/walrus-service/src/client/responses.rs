@@ -33,11 +33,13 @@ use walrus_core::{
     },
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
+    EncodingType,
     Epoch,
     EpochCount,
     NetworkPublicKey,
     PublicKey,
     ShardIndex,
+    DEFAULT_ENCODING,
 };
 use walrus_sdk::{
     api::{BlobStatus, ServiceHealthInfo},
@@ -60,7 +62,6 @@ use walrus_sui::{
 use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
-    ENCODING_TYPE,
 };
 use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
 
@@ -205,6 +206,7 @@ pub(crate) struct BlobIdOutput {
     pub(crate) blob_id: BlobId,
     pub(crate) file: PathBuf,
     pub(crate) unencoded_length: u64,
+    pub(crate) encoding_type: EncodingType,
 }
 
 impl BlobIdOutput {
@@ -214,6 +216,7 @@ impl BlobIdOutput {
             blob_id: *metadata.blob_id(),
             file: file.to_owned(),
             unencoded_length: metadata.metadata().unencoded_length(),
+            encoding_type: metadata.metadata().encoding_type(),
         }
     }
 }
@@ -246,6 +249,8 @@ pub(crate) struct DryRunOutput {
     pub encoded_size: u64,
     /// The storage cost (in MIST).
     pub storage_cost: u64,
+    /// The encoding type used for the blob.
+    pub encoding_type: EncodingType,
 }
 
 /// The output of the `blob-status` command.
@@ -285,11 +290,12 @@ impl InfoOutput {
         sui_read_client: &impl ReadClient,
         dev: bool,
         sort: SortBy<NodeSortBy>,
+        encoding_types: &[EncodingType],
     ) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
-        let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
+        let price_info = InfoPriceOutput::get_price_info(sui_read_client, encoding_types).await?;
         let committee_info = if dev {
             Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort).await?)
         } else {
@@ -367,9 +373,19 @@ impl InfoSizeOutput {
 
         Ok(Self {
             storage_unit_size: BYTES_PER_UNIT_SIZE,
-            max_blob_size: max_blob_size_for_n_shards(committee.n_shards(), ENCODING_TYPE),
+            max_blob_size: max_blob_size_for_n_shards(committee.n_shards(), DEFAULT_ENCODING),
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EncodingDependentPriceInfo {
+    pub(crate) marginal_size: u64,
+    pub(crate) metadata_price: u64,
+    pub(crate) marginal_price: u64,
+    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+    pub(crate) encoding_type: EncodingType,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -377,23 +393,18 @@ impl InfoSizeOutput {
 pub(crate) struct InfoPriceOutput {
     pub(crate) storage_price_per_unit_size: u64,
     pub(crate) write_price_per_unit_size: u64,
-    pub(crate) marginal_size: u64,
-    pub(crate) metadata_price: u64,
-    pub(crate) marginal_price: u64,
-    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+    pub(crate) encoding_dependent_price_info: Vec<EncodingDependentPriceInfo>,
 }
 
-impl InfoPriceOutput {
-    pub async fn get_price_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
-        let committee = sui_read_client.current_committee().await?;
-        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
-            .storage_and_write_price_per_unit_size()
-            .await?;
-        let n_shards = committee.n_shards();
-
+impl EncodingDependentPriceInfo {
+    pub(crate) fn new(
+        n_shards: NonZeroU16,
+        storage_price_per_unit_size: u64,
+        encoding_type: EncodingType,
+    ) -> Self {
         // Calculate marginal size and price
         let mut marginal_size = 1024 * 1024; // Start with 1 MiB
-        while marginal_size > max_blob_size_for_n_shards(n_shards, ENCODING_TYPE) {
+        while marginal_size > max_blob_size_for_n_shards(n_shards, encoding_type) {
             marginal_size /= 4;
         }
 
@@ -403,33 +414,67 @@ impl InfoPriceOutput {
             storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
 
         let marginal_price = storage_units_from_size(
-            encoded_slivers_length_for_n_shards(n_shards, marginal_size, ENCODING_TYPE)
+            encoded_slivers_length_for_n_shards(n_shards, marginal_size, encoding_type)
                 .expect("we can encode 1 MiB"),
         ) * storage_price_per_unit_size;
 
         // Calculate example blobs
         let example_blob_0 =
-            max_blob_size_for_n_shards(n_shards, ENCODING_TYPE).next_power_of_two() / 1024;
+            max_blob_size_for_n_shards(n_shards, encoding_type).next_power_of_two() / 1024;
         let example_blob_1 = example_blob_0 * 32;
         let example_blobs = [
             example_blob_0,
             example_blob_1,
-            max_blob_size_for_n_shards(n_shards, ENCODING_TYPE),
+            max_blob_size_for_n_shards(n_shards, encoding_type),
         ]
         .into_iter()
         .map(|unencoded_size| {
-            ExampleBlobInfo::new(unencoded_size, n_shards, storage_price_per_unit_size)
-                .expect("we can encode the given examples")
+            ExampleBlobInfo::new(
+                unencoded_size,
+                n_shards,
+                storage_price_per_unit_size,
+                encoding_type,
+            )
+            .expect("we can encode the given examples")
         })
         .collect();
 
-        Ok(Self {
-            storage_price_per_unit_size,
-            write_price_per_unit_size,
+        Self {
             marginal_size,
             metadata_price,
             marginal_price,
             example_blobs,
+            encoding_type,
+        }
+    }
+}
+
+impl InfoPriceOutput {
+    pub async fn get_price_info(
+        sui_read_client: &impl ReadClient,
+        encoding_types: &[EncodingType],
+    ) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
+        let n_shards = committee.n_shards();
+
+        let encoding_dependent_price_info = encoding_types
+            .iter()
+            .map(|&encoding_type| {
+                EncodingDependentPriceInfo::new(
+                    n_shards,
+                    storage_price_per_unit_size,
+                    encoding_type,
+                )
+            })
+            .collect();
+
+        Ok(Self {
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
+            encoding_dependent_price_info,
         })
     }
 }
@@ -459,13 +504,13 @@ impl InfoCommitteeOutput {
 
         let n_shards = committee.n_shards();
         let (n_primary_source_symbols, n_secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards, ENCODING_TYPE);
+            source_symbols_for_n_shards(n_shards, DEFAULT_ENCODING);
 
         let max_sliver_size =
-            max_sliver_size_for_n_secondary(n_secondary_source_symbols, ENCODING_TYPE);
-        let max_blob_size = max_blob_size_for_n_shards(n_shards, ENCODING_TYPE);
+            max_sliver_size_for_n_secondary(n_secondary_source_symbols, DEFAULT_ENCODING);
+        let max_blob_size = max_blob_size_for_n_shards(n_shards, DEFAULT_ENCODING);
         let max_encoded_blob_size =
-            encoded_blob_length_for_n_shards(n_shards, max_blob_size, ENCODING_TYPE)
+            encoded_blob_length_for_n_shards(n_shards, max_blob_size, DEFAULT_ENCODING)
                 .expect("we can compute the encoded length of the max blob size");
 
         let mut storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
@@ -600,6 +645,7 @@ pub(crate) struct ExampleBlobInfo {
     unencoded_size: u64,
     encoded_size: u64,
     price: u64,
+    encoding_type: EncodingType,
 }
 
 impl ExampleBlobInfo {
@@ -607,20 +653,22 @@ impl ExampleBlobInfo {
         unencoded_size: u64,
         n_shards: NonZeroU16,
         price_per_unit_size: u64,
+        encoding_type: EncodingType,
     ) -> Option<Self> {
         let encoded_size =
-            encoded_blob_length_for_n_shards(n_shards, unencoded_size, ENCODING_TYPE)?;
+            encoded_blob_length_for_n_shards(n_shards, unencoded_size, encoding_type)?;
         let price = price_for_encoded_length(encoded_size, price_per_unit_size, 1);
         Some(Self {
             unencoded_size,
             encoded_size,
             price,
+            encoding_type,
         })
     }
 
     pub(crate) fn cli_output(&self) -> String {
         format!(
-            "{} unencoded ({} encoded): {} per epoch",
+            "  - {} unencoded ({} encoded): {} per epoch",
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
             HumanReadableFrost::from(self.price)

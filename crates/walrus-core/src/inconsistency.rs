@@ -174,7 +174,6 @@ mod tests {
     use crate::{
         encoding::EncodingConfigTrait as _,
         merkle::Node,
-        metadata::BlobMetadataApi as _,
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
     };
 

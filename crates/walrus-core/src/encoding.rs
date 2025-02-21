@@ -13,7 +13,7 @@ pub use basic_encoding::{
 };
 
 mod blob_encoding;
-pub use blob_encoding::{BlobDecoder, BlobEncoder};
+pub use blob_encoding::{BlobDecoder, BlobDecoderEnum, BlobEncoder};
 
 mod common;
 pub use common::{EncodingAxis, Primary, Secondary, MAX_SOURCE_SYMBOLS_PER_BLOCK, MAX_SYMBOL_SIZE};

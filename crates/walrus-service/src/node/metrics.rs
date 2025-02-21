@@ -239,6 +239,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::NoCompatibleGasCoins => "no-compatible-gas-coins",
             ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
             ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
+            ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",
             ClientErrorKind::Other(_) => "unknown",
         }
     }

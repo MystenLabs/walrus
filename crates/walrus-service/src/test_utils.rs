@@ -1097,11 +1097,11 @@ async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
 /// with the provided node, if necessary.
 ///
 /// The number of shards in the system inferred from the shards assigned in the provided config.
-/// It is at least 3 and is defined as `n = max(max(shard_ids) + 1, 3)`. If the shards `0..n` are
+/// It is at least 4 and is defined as `n = max(max(shard_ids) + 1, 4)`. If the shards `0..n` are
 /// assigned to the existing node, then this function returns `None`. Otherwise, there must be a
 /// second node in the committee with the shards not managed by the provided node.
 fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeTestConfig> {
-    const MIN_SHARDS: u16 = 3;
+    const MIN_SHARDS: u16 = 4;
     let n_shards = node_config
         .shards
         .iter()

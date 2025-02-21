@@ -76,6 +76,42 @@ pub type Epoch = u32;
 /// The number of epochs.
 pub type EpochCount = u32;
 
+/// A tuple containing the list of supported encodings, and the default encoding type.
+const SUPPORTED_AND_DEFAULT_ENCODING: (&[EncodingType], EncodingType) = {
+    #[cfg(all(feature = "rs2", feature = "raptorq"))]
+    {
+        (
+            &[EncodingType::RS2, EncodingType::RedStuffRaptorQ],
+            EncodingType::RS2,
+        )
+    }
+
+    #[cfg(all(feature = "raptorq", not(feature = "rs2")))]
+    {
+        (
+            &[EncodingType::RedStuffRaptorQ],
+            EncodingType::RedStuffRaptorQ,
+        )
+    }
+
+    #[cfg(all(feature = "rs2", not(feature = "raptorq")))]
+    {
+        (&[EncodingType::RS2], EncodingType::RS2)
+    }
+
+    #[cfg(not(any(feature = "raptorq", feature = "rs2")))]
+    {
+        // If nothing is specified, default to RS2.
+        (&[EncodingType::RS2], EncodingType::RS2)
+    }
+};
+
+/// The encoding types supported for this build.
+pub const SUPPORTED_ENCODING_TYPES: &[EncodingType] = SUPPORTED_AND_DEFAULT_ENCODING.0;
+
+/// The default encoding type to use.
+pub const DEFAULT_ENCODING: EncodingType = SUPPORTED_AND_DEFAULT_ENCODING.1;
+
 /// Walrus epoch.
 // Schema definition for the type alias used in OpenAPI schemas.
 #[derive(Debug)]
@@ -801,14 +837,13 @@ impl<U: MerkleAuth> TryFrom<RecoverySymbol<U>> for SecondaryRecoverySymbol<U> {
 pub struct InvalidEncodingType;
 
 /// Supported Walrus encoding types.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 #[repr(u8)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum EncodingType {
     /// Original RedStuff encoding using the RaptorQ erasure code.
     RedStuffRaptorQ = 0,
     /// RedStuff using the Reed-Solomon erasure code.
-    #[default]
     RS2 = 1,
 }
 
@@ -830,6 +865,18 @@ impl TryFrom<u8> for EncodingType {
     }
 }
 
+impl FromStr for EncodingType {
+    type Err = InvalidEncodingType;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "redstuff/raptorq" | "raptorq" | "redstuffraptorq" => Ok(Self::RedStuffRaptorQ),
+            "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
+            _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
 impl EncodingType {
     /// Returns the required alignment of symbols for the encoding type.
     pub fn required_alignment(&self) -> u64 {
@@ -846,6 +893,26 @@ impl EncodingType {
             // TODO (WAL-611): Probably we can support larger symbols for Reed-Solomon.
             EncodingType::RS2 => (u16::MAX - 1).into(),
         }
+    }
+
+    /// Returns `true` if the current build supports the encoding type.
+    pub fn is_supported(&self) -> bool {
+        SUPPORTED_ENCODING_TYPES.contains(self)
+    }
+}
+
+impl Display for EncodingType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EncodingType::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
+            EncodingType::RS2 => write!(f, "RedStuff/Reed-Solomon"),
+        }
+    }
+}
+
+impl Default for EncodingType {
+    fn default() -> Self {
+        DEFAULT_ENCODING
     }
 }
 

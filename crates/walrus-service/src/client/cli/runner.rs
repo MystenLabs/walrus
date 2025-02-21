@@ -30,7 +30,9 @@ use walrus_core::{
     ensure,
     metadata::BlobMetadataApi as _,
     BlobId,
+    EncodingType,
     EpochCount,
+    SUPPORTED_ENCODING_TYPES,
 };
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
@@ -76,6 +78,7 @@ use crate::{
             CliOutput,
             HumanReadableMist,
         },
+        error::ClientErrorKind,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -105,7 +108,6 @@ use crate::{
         ClientDaemon,
         Config,
         StoreWhen,
-        ENCODING_TYPE,
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };
@@ -169,6 +171,7 @@ impl ClientCommandRunner {
                 ignore_resources,
                 deletable,
                 share,
+                encoding_type,
             } => {
                 self.store(
                     files,
@@ -177,6 +180,7 @@ impl ClientCommandRunner {
                     StoreWhen::from_flags(force, ignore_resources),
                     BlobPersistence::from_deletable(deletable),
                     PostStoreAction::from_share(share),
+                    encoding_type,
                 )
                 .await
             }
@@ -185,7 +189,11 @@ impl ClientCommandRunner {
                 file_or_blob_id,
                 timeout,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.blob_status(file_or_blob_id, timeout, rpc_url).await,
+                encoding_type,
+            } => {
+                self.blob_status(file_or_blob_id, timeout, rpc_url, encoding_type)
+                    .await
+            }
 
             CliCommands::Info {
                 rpc_arg: RpcArg { rpc_url },
@@ -202,8 +210,9 @@ impl ClientCommandRunner {
             CliCommands::BlobId {
                 file,
                 n_shards,
+                encoding_type,
                 rpc_arg: RpcArg { rpc_url },
-            } => self.blob_id(file, n_shards, rpc_url).await,
+            } => self.blob_id(file, n_shards, rpc_url, encoding_type).await,
 
             CliCommands::ConvertBlobId { blob_id_decimal } => self.convert_blob_id(blob_id_decimal),
 
@@ -213,7 +222,11 @@ impl ClientCommandRunner {
                 target,
                 yes,
                 no_status_check,
-            } => self.delete(target, yes.into(), no_status_check).await,
+                encoding_type,
+            } => {
+                self.delete(target, yes.into(), no_status_check, encoding_type)
+                    .await
+            }
 
             CliCommands::Stake { node_ids, amounts } => {
                 self.stake_with_node_pools(node_ids, amounts).await
@@ -497,8 +510,12 @@ impl ClientCommandRunner {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        encoding_type: EncodingType,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
+        if !encoding_type.is_supported() {
+            anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(encoding_type));
+        }
 
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
@@ -511,7 +528,8 @@ impl ClientCommandRunner {
         }
 
         if dry_run {
-            return Self::store_dry_run(client, files, epochs_ahead, self.json).await;
+            return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
+                .await;
         }
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
@@ -523,6 +541,7 @@ impl ClientCommandRunner {
         let results = client
             .reserve_and_store_blobs_retry_committees_with_path(
                 &blobs,
+                encoding_type,
                 epochs_ahead,
                 store_when,
                 persistence,
@@ -554,6 +573,7 @@ impl ClientCommandRunner {
     async fn store_dry_run(
         client: Client<SuiContractClient>,
         files: Vec<PathBuf>,
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         json: bool,
     ) -> Result<()> {
@@ -564,13 +584,13 @@ impl ClientCommandRunner {
         for file in files {
             let blob = read_blob_from_file(&file)?;
             let (_, metadata) = client
-                .encode_pairs_and_metadata(&blob, &MultiProgress::new())
+                .encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())
                 .await?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size = encoded_blob_length_for_n_shards(
                 encoding_config.n_shards(),
                 unencoded_size,
-                ENCODING_TYPE,
+                encoding_type,
             )
             .expect("must be valid as the encoding succeeded");
             let storage_cost = client.get_price_computation().await?.operation_cost(
@@ -583,6 +603,7 @@ impl ClientCommandRunner {
             outputs.push(DryRunOutput {
                 path: file,
                 blob_id: *metadata.blob_id(),
+                encoding_type: metadata.metadata().encoding_type(),
                 unencoded_size,
                 encoded_size,
                 storage_cost,
@@ -596,6 +617,7 @@ impl ClientCommandRunner {
         file_or_blob_id: FileOrBlobId,
         timeout: Duration,
         rpc_url: Option<String>,
+        encoding_type: EncodingType,
     ) -> Result<()> {
         tracing::debug!(?file_or_blob_id, "getting blob status");
         let config = self.config?;
@@ -614,7 +636,8 @@ impl ClientCommandRunner {
         let client = Client::new(config, refresher_handle).await?;
 
         let file = file_or_blob_id.file.clone();
-        let blob_id = file_or_blob_id.get_or_compute_blob_id(client.encoding_config())?;
+        let blob_id =
+            file_or_blob_id.get_or_compute_blob_id(client.encoding_config(), encoding_type)?;
 
         let status = client
             .get_verified_blob_status(&blob_id, &sui_read_client, timeout)
@@ -664,11 +687,16 @@ impl ClientCommandRunner {
         .await?;
 
         match command {
-            None => InfoOutput::get_system_info(&sui_read_client, false, SortBy::default())
-                .await?
-                .print_output(self.json),
+            None => InfoOutput::get_system_info(
+                &sui_read_client,
+                false,
+                SortBy::default(),
+                SUPPORTED_ENCODING_TYPES,
+            )
+            .await?
+            .print_output(self.json),
             Some(InfoCommands::All { sort }) => {
-                InfoOutput::get_system_info(&sui_read_client, true, sort)
+                InfoOutput::get_system_info(&sui_read_client, true, sort, SUPPORTED_ENCODING_TYPES)
                     .await?
                     .print_output(self.json)
             }
@@ -681,9 +709,11 @@ impl ClientCommandRunner {
             Some(InfoCommands::Size) => InfoSizeOutput::get_size_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
-                .await?
-                .print_output(self.json),
+            Some(InfoCommands::Price) => {
+                InfoPriceOutput::get_price_info(&sui_read_client, SUPPORTED_ENCODING_TYPES)
+                    .await?
+                    .print_output(self.json)
+            }
             Some(InfoCommands::Committee { sort }) => {
                 InfoCommitteeOutput::get_committee_info(&sui_read_client, sort)
                     .await?
@@ -726,6 +756,7 @@ impl ClientCommandRunner {
         file: PathBuf,
         n_shards: Option<NonZeroU16>,
         rpc_url: Option<String>,
+        encoding_type: EncodingType,
     ) -> Result<()> {
         let n_shards = if let Some(n) = n_shards {
             n
@@ -746,7 +777,7 @@ impl ClientCommandRunner {
         let spinner = styled_spinner();
         spinner.set_message("computing the blob ID");
         let metadata = EncodingConfig::new(n_shards)
-            .get_for_type(ENCODING_TYPE)
+            .get_for_type(encoding_type)
             .compute_metadata(&read_blob_from_file(&file)?)?;
         spinner.finish_with_message(format!("blob ID computed: {}", metadata.blob_id()));
 
@@ -851,6 +882,7 @@ impl ClientCommandRunner {
         target: FileOrBlobIdOrObjectId,
         confirmation: UserConfirmation,
         no_status_check: bool,
+        encoding_type: EncodingType,
     ) -> Result<()> {
         // Check that the target is valid.
         target.exactly_one_is_some()?;
@@ -859,50 +891,51 @@ impl ClientCommandRunner {
         let file = target.file.clone();
         let object_id = target.object_id;
 
-        let (blob_id, deleted_blobs) =
-            if let Some(blob_id) = target.get_or_compute_blob_id(client.encoding_config())? {
-                let to_delete = client
-                    .deletable_blobs_by_id(&blob_id)
-                    .await?
-                    .collect::<Vec<_>>();
+        let (blob_id, deleted_blobs) = if let Some(blob_id) =
+            target.get_or_compute_blob_id(client.encoding_config(), encoding_type)?
+        {
+            let to_delete = client
+                .deletable_blobs_by_id(&blob_id)
+                .await?
+                .collect::<Vec<_>>();
 
-                if !self.json {
-                    if to_delete.is_empty() {
-                        println!("No owned deletable blobs found for blob ID {blob_id}.");
+            if !self.json {
+                if to_delete.is_empty() {
+                    println!("No owned deletable blobs found for blob ID {blob_id}.");
+                    return Ok(());
+                }
+                if confirmation.is_required() {
+                    println!("The following blobs with blob ID {blob_id} are deletable:");
+                    to_delete.print_output(self.json)?;
+                    if !ask_for_confirmation()? {
+                        println!("{} Aborting. No blobs were deleted.", success());
                         return Ok(());
                     }
-                    if confirmation.is_required() {
-                        println!("The following blobs with blob ID {blob_id} are deletable:");
-                        to_delete.print_output(self.json)?;
-                        if !ask_for_confirmation()? {
-                            println!("{} Aborting. No blobs were deleted.", success());
-                            return Ok(());
-                        }
-                    }
-                    println!("Deleting blobs...");
                 }
+                println!("Deleting blobs...");
+            }
 
-                for blob in to_delete.iter() {
-                    client.delete_owned_blob_by_object(blob.id).await?;
-                }
+            for blob in to_delete.iter() {
+                client.delete_owned_blob_by_object(blob.id).await?;
+            }
 
-                (Some(blob_id), to_delete)
-            } else if let Some(object_id) = object_id {
-                if let Some(to_delete) = client
-                    .sui_client()
-                    .owned_blobs(None, ExpirySelectionPolicy::Valid)
-                    .await?
-                    .into_iter()
-                    .find(|blob| blob.id == object_id)
-                {
-                    client.delete_owned_blob_by_object(object_id).await?;
-                    (Some(to_delete.blob_id), vec![to_delete])
-                } else {
-                    (None, vec![])
-                }
+            (Some(blob_id), to_delete)
+        } else if let Some(object_id) = object_id {
+            if let Some(to_delete) = client
+                .sui_client()
+                .owned_blobs(None, ExpirySelectionPolicy::Valid)
+                .await?
+                .into_iter()
+                .find(|blob| blob.id == object_id)
+            {
+                client.delete_owned_blob_by_object(object_id).await?;
+                (Some(to_delete.blob_id), vec![to_delete])
             } else {
-                unreachable!("we checked that either file, blob ID or object ID are be provided");
-            };
+                (None, vec![])
+            }
+        } else {
+            unreachable!("we checked that either file, blob ID or object ID are be provided");
+        };
 
         let post_deletion_status = match (no_status_check, blob_id) {
             (false, Some(deleted_blob_id)) => {

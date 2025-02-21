@@ -22,7 +22,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
         test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
             TestNodesConfig {
-                node_weights: vec![1, 1],
+                node_weights: vec![2, 2],
                 ..Default::default()
             },
             Some(10),

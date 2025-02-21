@@ -20,6 +20,7 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
     BlobId,
+    EncodingType,
     Epoch,
     EpochCount,
 };
@@ -30,7 +31,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::{config::AuthConfig, daemon::CacheConfig, ENCODING_TYPE};
+use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -223,6 +224,10 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         share: bool,
+        /// The encoding type to use for encoding the files.
+        #[clap(long, default_value_t = Default::default())]
+        #[serde(default)]
+        encoding_type: EncodingType,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -260,6 +265,10 @@ pub enum CliCommands {
         #[clap(long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
+        /// The encoding type to use for encoding the file.
+        #[clap(long, default_value_t = Default::default())]
+        #[serde(default)]
+        encoding_type: EncodingType,
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
@@ -321,6 +330,10 @@ pub enum CliCommands {
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
+        /// The encoding type to use for computing the blob ID.
+        #[clap(long, default_value_t = Default::default())]
+        #[serde(default)]
+        encoding_type: EncodingType,
     },
     /// Convert a decimal value to the Walrus blob ID (using URL-safe base64 encoding).
     ConvertBlobId {
@@ -353,6 +366,12 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         no_status_check: bool,
+        /// The encoding type to use for computing the blob ID.
+        ///
+        /// This is only used when running the command with the `--file` target.
+        #[clap(long)]
+        #[serde(default)]
+        encoding_type: EncodingType,
     },
     /// Stake with storage node.
     Stake {
@@ -812,7 +831,11 @@ pub struct FileOrBlobId {
 }
 
 impl FileOrBlobId {
-    pub(crate) fn get_or_compute_blob_id(self, encoding_config: &EncodingConfig) -> Result<BlobId> {
+    pub(crate) fn get_or_compute_blob_id(
+        self,
+        encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
+    ) -> Result<BlobId> {
         match self {
             FileOrBlobId {
                 blob_id: Some(blob_id),
@@ -826,7 +849,7 @@ impl FileOrBlobId {
                     "checking status of blob read from the filesystem"
                 );
                 Ok(*encoding_config
-                    .get_for_type(ENCODING_TYPE)
+                    .get_for_type(encoding_type)
                     .compute_metadata(&read_blob_from_file(&file)?)?
                     .blob_id())
             }
@@ -867,6 +890,7 @@ impl FileOrBlobIdOrObjectId {
     pub(crate) fn get_or_compute_blob_id(
         &self,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> Result<Option<BlobId>> {
         match self {
             FileOrBlobIdOrObjectId {
@@ -882,7 +906,7 @@ impl FileOrBlobIdOrObjectId {
                 );
                 Ok(Some(
                     *encoding_config
-                        .get_for_type(ENCODING_TYPE)
+                        .get_for_type(encoding_type)
                         .compute_metadata(&read_blob_from_file(file)?)?
                         .blob_id(),
                 ))
@@ -1252,6 +1276,7 @@ mod tests {
             ignore_resources: false,
             deletable: false,
             share: false,
+            encoding_type: Default::default(),
         })
     }
 

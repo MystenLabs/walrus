@@ -20,11 +20,10 @@ use utils::WeightedResult;
 use walrus_core::{
     bft,
     encoding::{
-        BlobDecoder,
+        BlobDecoderEnum,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
-        RaptorQDecoder,
         SliverData,
         SliverPair,
     },
@@ -92,9 +91,6 @@ pub mod metrics;
 mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
-
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 /// The maximum number of retries for an operation that is stopped because of a committee change.
 // TODO: make this configurable.
@@ -451,12 +447,15 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
+            .await?;
 
         self.retry_if_committees_change(|| {
             self.reserve_and_store_encoded_blobs(
@@ -477,6 +476,7 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -486,7 +486,7 @@ impl Client<SuiContractClient> {
             pairs_and_metadata,
             id_to_path,
         } = self
-            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
+            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths, encoding_type)
             .await?;
 
         let store_results = self
@@ -518,12 +518,15 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
+            .await?;
 
         self.reserve_and_store_encoded_blobs(
             &pairs_and_metadata,
@@ -538,9 +541,12 @@ impl Client<SuiContractClient> {
     async fn encode_blobs_to_pairs_and_metadata_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        encoding_type: EncodingType,
     ) -> ClientResult<EncodedResult> {
         let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)
+            .await?;
 
         // Build the id_to_path mapping.
         let id_to_path: HashMap<BlobId, PathBuf> = pairs_and_metadata
@@ -569,6 +575,7 @@ impl Client<SuiContractClient> {
     pub async fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
         if blobs.is_empty() {
             return Ok(Vec::new());
@@ -597,7 +604,7 @@ impl Client<SuiContractClient> {
             let multi_pb_clone = multi_pb.clone();
             async move {
                 match self
-                    .encode_pairs_and_metadata(blob, multi_pb_clone.as_ref())
+                    .encode_pairs_and_metadata(blob, encoding_type, multi_pb_clone.as_ref())
                     .await
                 {
                     Ok(result) => (idx, Ok(result)),
@@ -636,6 +643,7 @@ impl Client<SuiContractClient> {
     async fn encode_pairs_and_metadata(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
         let spinner = multi_pb.add(styled_spinner());
@@ -645,7 +653,7 @@ impl Client<SuiContractClient> {
 
         let (pairs, metadata) = self
             .encoding_config
-            .get_for_type(ENCODING_TYPE)
+            .get_for_type(encoding_type)
             .encode_with_metadata(blob)
             .map_err(ClientError::other)?;
 
@@ -1129,6 +1137,7 @@ impl<T> Client<T> {
             .max_concurrent_sliver_writes_for_blob_size(
                 metadata.metadata().unencoded_length(),
                 &self.encoding_config,
+                metadata.metadata().encoding_type(),
             );
         tracing::debug!(
             blob_id = %metadata.blob_id(),
@@ -1336,9 +1345,9 @@ impl<T> Client<T> {
     {
         let committees = self.get_committees().await?;
         // Create a progress bar to track the progress of the sliver retrieval.
-        let progress_bar = styled_progress_bar(
+        let progress_bar: indicatif::ProgressBar = styled_progress_bar(
             self.encoding_config
-                .get_for_type(ENCODING_TYPE)
+                .get_for_type(metadata.metadata().encoding_type())
                 .n_source_symbols::<U>()
                 .get()
                 .into(),
@@ -1368,8 +1377,7 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
-            // TODO (WAL-607): Support Reed-Solomon here as well.
-            .raptorq
+            .get_for_type(metadata.metadata().encoding_type())
             .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
             .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
@@ -1378,7 +1386,7 @@ impl<T> Client<T> {
             weight
                 >= self
                     .encoding_config
-                    .get_for_type(ENCODING_TYPE)
+                    .get_for_type(metadata.metadata().encoding_type())
                     .n_source_symbols::<U>()
                     .get()
                     .into()
@@ -1390,6 +1398,7 @@ impl<T> Client<T> {
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
                         &self.encoding_config,
+                        metadata.metadata().encoding_type(),
                     ),
             )
             .await;
@@ -1452,7 +1461,7 @@ impl<T> Client<T> {
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
         requests: &mut WeightedFutures<I, Fut, NodeResult<SliverData<U>, NodeError>>,
-        decoder: &mut BlobDecoder<'a, RaptorQDecoder, U>,
+        decoder: &mut BlobDecoderEnum<'a, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
         mut n_forbidden: usize,
@@ -1468,6 +1477,7 @@ impl<T> Client<T> {
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
                         &self.encoding_config,
+                        metadata.metadata().encoding_type(),
                     ),
             )
             .await
