@@ -35,7 +35,7 @@ enum SyncShardResult {
     /// The bool indicates whether to directly recover the shard instead of using shard sync.
     RetryAfterBackoff(bool),
     /// The shard sync contains errors and should be stopped.
-    StopRetry,
+    Failed,
 }
 
 /// Manages tasks for syncing shards during epoch change.
@@ -364,7 +364,7 @@ impl ShardSyncHandler {
                         shard_sync_success = true;
                         break;
                     }
-                    SyncShardResult::StopRetry => {
+                    SyncShardResult::Failed => {
                         tracing::warn!(
                             shard_index=%shard_index,
                             "shard sync stopped due to errors; restart node to retry shard sync"
@@ -527,7 +527,7 @@ impl ShardSyncHandler {
                 ?error,
                 "shard recovery also failed; stop shard sync"
             );
-            SyncShardResult::StopRetry
+            SyncShardResult::Failed
         }
     }
 

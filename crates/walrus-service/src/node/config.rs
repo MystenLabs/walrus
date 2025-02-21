@@ -537,7 +537,7 @@ impl Default for ShardSyncConfig {
             blob_certified_check_interval: Duration::from_secs(60),
             max_concurrent_metadata_fetch: 10,
             shard_sync_concurrency: 10,
-            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(1800),
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
         }
     }
 }
