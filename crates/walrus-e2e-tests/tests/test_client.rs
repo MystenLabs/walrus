@@ -49,7 +49,7 @@ use walrus_service::{
         },
         StoreWhen,
     },
-    test_utils::{test_cluster, StorageNodeHandle, TestNodesConfig},
+    test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait, TestNodesConfig},
 };
 use walrus_sui::{
     client::{
@@ -305,6 +305,10 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         panic!("should be infinite stream")
     })
     .await?;
+
+    // Cancel the nodes and wait to prevent event handles being dropped.
+    cluster.nodes.iter().for_each(|node| node.cancel());
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
     Ok(())
 }
