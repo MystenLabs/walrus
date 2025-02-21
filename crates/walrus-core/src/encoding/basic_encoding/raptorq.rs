@@ -7,8 +7,9 @@ use core::num::NonZeroU16;
 use raptorq::{SourceBlockDecoder, SourceBlockEncoder, SourceBlockEncodingPlan};
 use tracing::Level;
 
+use super::Decoder;
 use crate::{
-    encoding::{utils, DecodingSymbol, EncodeError, InvalidDataSizeError},
+    encoding::{utils, DecodingSymbol, EncodeError, InvalidDataSizeError, RaptorQEncodingConfig},
     EncodingAxis,
     EncodingType,
 };
@@ -148,13 +149,11 @@ pub struct RaptorQDecoder {
     symbol_size: NonZeroU16,
 }
 
-impl RaptorQDecoder {
-    /// Creates a new `Decoder`.
-    ///
-    /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
-    /// `symbol_size`.
+impl Decoder for RaptorQDecoder {
+    type Config = RaptorQEncodingConfig;
+
     #[tracing::instrument]
-    pub fn new(n_source_symbols: NonZeroU16, symbol_size: NonZeroU16) -> Self {
+    fn new(n_source_symbols: NonZeroU16, _n_shards: NonZeroU16, symbol_size: NonZeroU16) -> Self {
         tracing::trace!("creating a new Decoder");
         Self {
             raptorq_decoder: SourceBlockDecoder::new(
@@ -166,14 +165,7 @@ impl RaptorQDecoder {
         }
     }
 
-    /// Attempts to decode the source data from the provided iterator over
-    /// [`DecodingSymbol`s][DecodingSymbol].
-    ///
-    /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
-    ///
-    /// If decoding failed due to an insufficient number of provided symbols, it can be continued
-    /// by additional calls to [`decode`][Self::decode] providing more symbols.
-    pub fn decode<T, U>(&mut self, symbols: T) -> Option<Vec<u8>>
+    fn decode<T, U>(&mut self, symbols: T) -> Option<Vec<u8>>
     where
         T: IntoIterator,
         T::IntoIter: Iterator<Item = DecodingSymbol<U>>,
@@ -259,18 +251,15 @@ mod tests {
         let n_source_symbols = n_source_symbols.try_into().unwrap();
         let start = encoded_symbols_range.start;
         let end = encoded_symbols_range.end;
+        let n_shards = end.try_into().unwrap();
 
-        let encoder = RaptorQEncoder::new_with_new_encoding_plan(
-            data,
-            n_source_symbols,
-            end.try_into().unwrap(),
-        )?;
+        let encoder = RaptorQEncoder::new_with_new_encoding_plan(data, n_source_symbols, n_shards)?;
         let encoded_symbols = encoder
             .encode_all()
             .skip(start.into())
             .enumerate()
             .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u16 + start, symbol));
-        let mut decoder = RaptorQDecoder::new(n_source_symbols, encoder.symbol_size());
+        let mut decoder = RaptorQDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
 
         if should_succeed {
@@ -299,7 +288,7 @@ mod tests {
                         symbol,
                     )]
                 });
-        let mut decoder = RaptorQDecoder::new(n_source_symbols, encoder.symbol_size());
+        let mut decoder = RaptorQDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
 
         assert_eq!(
             decoder.decode(encoded_symbols.next().unwrap().clone()),

@@ -7,7 +7,13 @@ use core::time::Duration;
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
 use raptorq::SourceBlockEncodingPlan;
-use walrus_core::encoding::{DecodingSymbol, Primary, RaptorQDecoder, RaptorQEncoder};
+use walrus_core::encoding::{
+    Decoder as _,
+    DecodingSymbol,
+    Primary,
+    RaptorQDecoder,
+    RaptorQEncoder,
+};
 use walrus_test_utils::{random_data, random_subset};
 
 // TODO (WAL-610): Support both encoding types.
@@ -100,6 +106,7 @@ fn basic_decoding(c: &mut Criterion) {
                         |symbols| {
                             let mut decoder = RaptorQDecoder::new(
                                 (*symbol_count).try_into().unwrap(),
+                                N_SHARDS.try_into().unwrap(),
                                 (*symbol_size).try_into().unwrap(),
                             );
                             let decoded_data = &decoder.decode(symbols).unwrap();

@@ -9,6 +9,7 @@ mod basic_encoding;
 pub use basic_encoding::{
     raptorq::{RaptorQDecoder, RaptorQEncoder},
     reed_solomon::{ReedSolomonDecoder, ReedSolomonEncoder},
+    Decoder,
 };
 
 mod blob_encoding;

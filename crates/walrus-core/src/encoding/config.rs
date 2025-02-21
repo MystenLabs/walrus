@@ -8,7 +8,10 @@ use enum_dispatch::enum_dispatch;
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
-    basic_encoding::raptorq::{RaptorQDecoder, RaptorQEncoder},
+    basic_encoding::{
+        raptorq::{RaptorQDecoder, RaptorQEncoder},
+        Decoder as _,
+    },
     utils,
     BlobDecoder,
     BlobEncoder,
@@ -459,14 +462,14 @@ impl RaptorQEncodingConfig {
     }
 
     pub(crate) fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> RaptorQDecoder {
-        RaptorQDecoder::new(self.n_source_symbols::<E>(), symbol_size)
+        RaptorQDecoder::new(self.n_source_symbols::<E>(), self.n_shards(), symbol_size)
     }
 
     /// Returns a [`BlobDecoder`] for the given `blob_size`.
-    pub fn get_blob_decoder<T: EncodingAxis>(
+    pub fn get_blob_decoder<E: EncodingAxis>(
         &self,
         blob_size: u64,
-    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<RaptorQDecoder, E>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
     }
 }
@@ -716,10 +719,7 @@ impl ReedSolomonEncodingConfig {
     }
 
     fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> ReedSolomonDecoder {
-        // TODO (WAL-621): Replace this by an error.
-        assert!(symbol_size.get() % 2 == 0, "symbol size must be even");
         ReedSolomonDecoder::new(self.n_source_symbols::<E>(), self.n_shards(), symbol_size)
-            .expect("we have checked that the parameters are consistent with Reed-Solomon encoding")
     }
 
     /// Returns a [`BlobEncoder`] for the given blob.
@@ -731,11 +731,11 @@ impl ReedSolomonEncodingConfig {
     }
 
     /// Returns a [`BlobDecoder`] for the given `blob_size`.
-    pub fn get_blob_decoder<T: EncodingAxis>(
+    pub fn get_blob_decoder<E: EncodingAxis>(
         &self,
-        _blob_size: u64,
-    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
-        todo!("WAL-605")
+        blob_size: u64,
+    ) -> Result<BlobDecoder<ReedSolomonDecoder, E>, DataTooLargeError> {
+        BlobDecoder::new(self, blob_size)
     }
 }
 

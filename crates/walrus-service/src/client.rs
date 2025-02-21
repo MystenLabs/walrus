@@ -24,6 +24,7 @@ use walrus_core::{
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
+        RaptorQDecoder,
         SliverData,
         SliverPair,
     },
@@ -1451,7 +1452,7 @@ impl<T> Client<T> {
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
         requests: &mut WeightedFutures<I, Fut, NodeResult<SliverData<U>, NodeError>>,
-        decoder: &mut BlobDecoder<'a, U>,
+        decoder: &mut BlobDecoder<'a, RaptorQDecoder, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
         mut n_forbidden: usize,

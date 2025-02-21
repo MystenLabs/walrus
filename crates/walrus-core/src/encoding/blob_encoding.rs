@@ -8,6 +8,7 @@ use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
 
 use super::{
+    basic_encoding::Decoder,
     utils,
     DataTooLargeError,
     DecodingSymbol,
@@ -15,8 +16,6 @@ use super::{
     EncodingAxis,
     EncodingConfigEnum,
     Primary,
-    RaptorQDecoder,
-    RaptorQEncodingConfig,
     Secondary,
     SliverData,
     SliverPair,
@@ -454,41 +453,46 @@ impl<'a> ExpandedMessageMatrix<'a> {
 /// Struct to reconstruct a blob from either [`Primary`] (default) or [`Secondary`]
 /// [`Sliver`s][SliverData].
 #[derive(Debug)]
-pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
-    _decoding_axis: PhantomData<T>,
-    decoders: Vec<RaptorQDecoder>,
+pub struct BlobDecoder<'a, D: Decoder, E: EncodingAxis = Primary> {
+    _decoding_axis: PhantomData<E>,
+    decoders: Vec<D>,
     blob_size: usize,
     symbol_size: NonZeroU16,
-    config: &'a RaptorQEncodingConfig,
+    config: &'a D::Config,
     /// A tracing span associated with this blob decoder.
     span: Span,
 }
 
-impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
+impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     /// Creates a new `BlobDecoder` to decode a blob of size `blob_size` using the provided
     /// configuration.
     ///
     /// The generic parameter specifies from which type of slivers the decoding will be performed.
     ///
-    /// This function creates the necessary [`RaptorQDecoder`s][RaptorQDecoder] for the decoding;
-    /// actual decoding can be performed with the [`decode()`][Self::decode] method.
+    /// This function creates the necessary decoders for the decoding; actual decoding can be
+    /// performed with the [`decode()`][Self::decode] method.
     ///
     /// # Errors
     ///
     /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
-    pub fn new(
-        config: &'a RaptorQEncodingConfig,
-        blob_size: u64,
-    ) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: &'a D::Config, blob_size: u64) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size)?;
         let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
+
+        let decoders = (0..config.n_source_symbols::<E::OrthogonalAxis>().get())
+            .map(|_| {
+                D::new(
+                    config.n_source_symbols::<E>(),
+                    config.n_shards(),
+                    symbol_size,
+                )
+            })
+            .collect();
+
         Ok(Self {
             _decoding_axis: PhantomData,
-            decoders: vec![
-                RaptorQDecoder::new(config.n_source_symbols::<T>(), symbol_size,);
-                config.n_source_symbols::<T::OrthogonalAxis>().get().into()
-            ],
+            decoders,
             blob_size,
             symbol_size,
             config,
@@ -511,11 +515,11 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     /// addition to the slivers, notably on 32-bit architectures.
     pub fn decode<S>(&mut self, slivers: S) -> Option<Vec<u8>>
     where
-        S: IntoIterator<Item = SliverData<T>>,
-        T: EncodingAxis,
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis,
     {
         let _guard = self.span.enter();
-        tracing::debug!(axis = T::NAME, "starting to decode");
+        tracing::debug!(axis = E::NAME, "starting to decode");
         // Depending on the decoding axis, this represents the message matrix's columns (primary)
         // or rows (secondary).
         let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
@@ -540,7 +544,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                 if let Some(decoded_data) = decoder
                     // NOTE: The encoding axis of the following symbol is irrelevant, but since we
                     // are reconstructing from slivers of type `T`, it should be of type `T`.
-                    .decode([DecodingSymbol::<T>::new(sliver.index.0, symbol.into())])
+                    .decode([DecodingSymbol::<E>::new(sliver.index.0, symbol.into())])
                 {
                     // If one decoding succeeds, all succeed as they have identical
                     // encoding/decoding matrices.
@@ -560,13 +564,13 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             return None;
         }
 
-        let mut blob: Vec<_> = if T::IS_PRIMARY {
+        let mut blob: Vec<_> = if E::IS_PRIMARY {
             // Primary decoding: transpose columns to get to the original blob.
             let mut columns: Vec<_> = columns_or_rows
                 .into_iter()
                 .map(|col_index| col_index.into_iter())
                 .collect();
-            (0..self.config.n_source_symbols::<T>().get())
+            (0..self.config.n_source_symbols::<E>().get())
                 .flat_map(|_| {
                     {
                         columns
@@ -615,7 +619,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     pub fn decode_and_verify(
         &mut self,
         blob_id: &BlobId,
-        slivers: impl IntoIterator<Item = SliverData<T>>,
+        slivers: impl IntoIterator<Item = SliverData<E>>,
     ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
         let Some(decoded_blob) = self.decode(slivers) else {
             return Ok(None);
@@ -638,7 +642,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        encoding::EncodingConfig,
+        encoding::{EncodingConfig, RaptorQEncodingConfig},
         metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId},
         EncodingType,
     };

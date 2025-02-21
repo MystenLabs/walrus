@@ -7,8 +7,16 @@ use core::{fmt, num::NonZeroU16};
 use reed_solomon_simd;
 use tracing::Level;
 
+use super::Decoder;
 use crate::{
-    encoding::{utils, DecodingSymbol, EncodeError, EncodingAxis, InvalidDataSizeError},
+    encoding::{
+        utils,
+        DecodingSymbol,
+        EncodeError,
+        EncodingAxis,
+        InvalidDataSizeError,
+        ReedSolomonEncodingConfig,
+    },
     EncodingType,
 };
 
@@ -147,38 +155,27 @@ impl fmt::Debug for ReedSolomonDecoder {
     }
 }
 
-impl ReedSolomonDecoder {
-    /// Creates a new `Decoder`.
-    ///
-    /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
-    /// `symbol_size`.
+impl Decoder for ReedSolomonDecoder {
+    type Config = ReedSolomonEncodingConfig;
+
     #[tracing::instrument]
-    pub fn new(
-        n_source_symbols: NonZeroU16,
-        n_shards: NonZeroU16,
-        symbol_size: NonZeroU16,
-    ) -> Result<Self, reed_solomon_simd::Error> {
+    fn new(n_source_symbols: NonZeroU16, n_shards: NonZeroU16, symbol_size: NonZeroU16) -> Self {
         tracing::trace!("creating a new Decoder");
-        Ok(Self {
+        Self {
             decoder: reed_solomon_simd::ReedSolomonDecoder::new(
                 n_source_symbols.get().into(),
                 (n_shards.get() - n_source_symbols.get()).into(),
                 symbol_size.get().into(),
-            )?,
+            )
+            // TODO (WAL-621): Replace this by an error.
+            .expect("parameters must be consistent with the Reed-Solomon decoder"),
             n_source_symbols,
             symbol_size,
             source_symbols: alloc::vec![alloc::vec![]; n_source_symbols.get().into()],
-        })
+        }
     }
 
-    /// Attempts to decode the source data from the provided iterator over
-    /// [`DecodingSymbol`s][DecodingSymbol].
-    ///
-    /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
-    ///
-    /// If decoding failed due to an insufficient number of provided symbols, it can be continued
-    /// by additional calls to [`decode`][Self::decode] providing more symbols.
-    pub fn decode<T, U>(&mut self, symbols: T) -> Option<Vec<u8>>
+    fn decode<T, U>(&mut self, symbols: T) -> Option<Vec<u8>>
     where
         T: IntoIterator,
         T::IntoIter: Iterator<Item = DecodingSymbol<U>>,
@@ -275,7 +272,7 @@ mod tests {
             .enumerate()
             .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u16 + start, symbol));
         let mut decoder =
-            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size())?;
+            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
         let decoding_result = decoder.decode(encoded_symbols);
 
         if should_succeed {
@@ -304,7 +301,7 @@ mod tests {
                 )]
             });
         let mut decoder =
-            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size())?;
+            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size());
 
         assert_eq!(
             decoder.decode(encoded_symbols.next().unwrap().clone()),
