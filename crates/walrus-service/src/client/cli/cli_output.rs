@@ -33,6 +33,7 @@ use crate::client::{
         BlobStoreResultWithPath,
         DeleteOutput,
         DryRunOutput,
+        EncodingDependentPriceInfo,
         ExampleBlobInfo,
         ExchangeOutput,
         ExtendBlobOutput,
@@ -156,7 +157,8 @@ impl CliOutput for BlobStoreResultWithPath {
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
                     Cost (excluding gas): {} {} \n\
-                    Expiry epoch (exclusive): {}{}\n",
+                    Expiry epoch (exclusive): {}{}\n\
+                    Encoding type: {}\n",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
@@ -173,6 +175,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     blob_object.storage.end_epoch,
                     shared_blob_object
                         .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id)),
+                    blob_object.encoding_type,
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
@@ -206,11 +209,14 @@ impl CliOutput for BlobIdOutput {
     fn print_cli_output(&self) {
         println!(
             "{} Blob from file '{}' encoded successfully.\n\
-                Unencoded size: {}\nBlob ID: {}",
+                Unencoded size: {}\n\
+                Blob ID: {}\n\
+                Encoding type: {}",
             success(),
             self.file.display(),
             self.unencoded_length,
             self.blob_id,
+            self.encoding_type,
         )
     }
 }
@@ -221,12 +227,14 @@ impl CliOutput for DryRunOutput {
             "{} Store dry-run succeeded.\n\
                 Path: {}\n\
                 Blob ID: {}\n\
+                Encoding type: {}\n\
                 Unencoded size: {}\n\
                 Encoded size (including replicated metadata): {}\n\
                 Cost to store as new blob (excluding gas): {}\n",
             success(),
             self.path.display(),
             self.blob_id,
+            self.encoding_type,
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
             HumanReadableFrost::from(self.storage_cost),
@@ -423,10 +431,7 @@ impl CliOutput for InfoPriceOutput {
         let Self {
             storage_price_per_unit_size,
             write_price_per_unit_size,
-            marginal_size,
-            metadata_price,
-            marginal_price,
-            example_blobs,
+            encoding_dependent_price_info,
         } = self;
 
         printdoc!(
@@ -436,19 +441,44 @@ impl CliOutput for InfoPriceOutput {
             (Conversion rate: 1 WAL = 1,000,000,000 FROST)
             Price per encoded storage unit: {hr_storage_price_per_unit_size}
             Additional price for each write: {hr_write_price_per_unit_size}
-            Price to store metadata: {metadata_price}
-            Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
-
-            {price_examples_heading}
-            {example_blob_output}
             ",
-            price_heading = "Approximate storage prices per epoch".bold().walrus_teal(),
+            price_heading = "Storage prices per epoch".bold().walrus_teal(),
             hr_storage_price_per_unit_size = HumanReadableFrost::from(*storage_price_per_unit_size),
             hr_write_price_per_unit_size = HumanReadableFrost::from(*write_price_per_unit_size),
+        );
+
+        for encoding_type in encoding_dependent_price_info {
+            encoding_type.print_cli_output();
+        }
+    }
+}
+
+impl CliOutput for EncodingDependentPriceInfo {
+    fn print_cli_output(&self) {
+        let Self {
+            marginal_size,
+            metadata_price,
+            marginal_price,
+            example_blobs,
+            encoding_type,
+        } = self;
+
+        printdoc!(
+            "
+
+            {price_heading}
+            Price to store metadata: {metadata_price}
+            Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
+            Total price for example blob sizes:
+            {example_blob_output}
+            ",
+            price_heading =
+                format!("Approximate prices to store with the {encoding_type} encoding")
+                    .bold()
+                    .walrus_teal(),
             metadata_price = HumanReadableFrost::from(*metadata_price),
             marginal_size = HumanReadableBytes(*marginal_size),
             marginal_price = HumanReadableFrost::from(*marginal_price),
-            price_examples_heading = "Total price for example blob sizes".bold().walrus_teal(),
             example_blob_output = example_blobs
                 .iter()
                 .map(ExampleBlobInfo::cli_output)

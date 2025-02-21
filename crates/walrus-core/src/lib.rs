@@ -849,6 +849,16 @@ impl EncodingType {
     }
 }
 
+impl Display for EncodingType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // TODO: Ensure consistent naming (esp. with the CLI flags).
+            EncodingType::RedStuffRaptorQ => write!(f, "RedStuff/RaptorQ"),
+            EncodingType::RS2 => write!(f, "RedStuff/Reed-Solomon"),
+        }
+    }
+}
+
 // Inconsistency Proofs
 
 /// An inconsistency proof for a blob.

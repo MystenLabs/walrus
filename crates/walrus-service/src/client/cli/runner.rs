@@ -30,6 +30,7 @@ use walrus_core::{
     ensure,
     metadata::BlobMetadataApi as _,
     BlobId,
+    EncodingType,
     EpochCount,
 };
 use walrus_sdk::api::BlobStatus;
@@ -109,6 +110,10 @@ use crate::{
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };
+
+// TODO: Make this configurable based on the network.
+const SUPPORTED_ENCODING_TYPES: [EncodingType; 2] =
+    [EncodingType::RedStuffRaptorQ, EncodingType::RS2];
 
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
@@ -583,6 +588,7 @@ impl ClientCommandRunner {
             outputs.push(DryRunOutput {
                 path: file,
                 blob_id: *metadata.blob_id(),
+                encoding_type: metadata.metadata().encoding_type(),
                 unencoded_size,
                 encoded_size,
                 storage_cost,
@@ -664,11 +670,16 @@ impl ClientCommandRunner {
         .await?;
 
         match command {
-            None => InfoOutput::get_system_info(&sui_read_client, false, SortBy::default())
-                .await?
-                .print_output(self.json),
+            None => InfoOutput::get_system_info(
+                &sui_read_client,
+                false,
+                SortBy::default(),
+                &SUPPORTED_ENCODING_TYPES,
+            )
+            .await?
+            .print_output(self.json),
             Some(InfoCommands::All { sort }) => {
-                InfoOutput::get_system_info(&sui_read_client, true, sort)
+                InfoOutput::get_system_info(&sui_read_client, true, sort, &SUPPORTED_ENCODING_TYPES)
                     .await?
                     .print_output(self.json)
             }
@@ -681,9 +692,11 @@ impl ClientCommandRunner {
             Some(InfoCommands::Size) => InfoSizeOutput::get_size_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
-            Some(InfoCommands::Price) => InfoPriceOutput::get_price_info(&sui_read_client)
-                .await?
-                .print_output(self.json),
+            Some(InfoCommands::Price) => {
+                InfoPriceOutput::get_price_info(&sui_read_client, &SUPPORTED_ENCODING_TYPES)
+                    .await?
+                    .print_output(self.json)
+            }
             Some(InfoCommands::Committee { sort }) => {
                 InfoCommitteeOutput::get_committee_info(&sui_read_client, sort)
                     .await?
