@@ -1120,13 +1120,13 @@ mod tests {
     param_test! {
         test_source_symbols_for_n_shards: [
             // RaptorQ
-            one_raptor: (1, 1, 1, EncodingType::RedStuff),
-            three_raptor: (3, 3, 3, EncodingType::RedStuff),
-            four_raptor: (4, 2, 3, EncodingType::RedStuff),
-            nine_raptor: (9, 5, 7, EncodingType::RedStuff),
-            ten_raptor: (10, 4, 7, EncodingType::RedStuff),
-            fifty_raptor: (51, 16, 32, EncodingType::RedStuff),
-            one_hundred_and_one_raptor: (101, 30, 63, EncodingType::RedStuff),
+            one_raptor: (1, 1, 1, EncodingType::RedStuffRaptorQ),
+            three_raptor: (3, 3, 3, EncodingType::RedStuffRaptorQ),
+            four_raptor: (4, 2, 3, EncodingType::RedStuffRaptorQ),
+            nine_raptor: (9, 5, 7, EncodingType::RedStuffRaptorQ),
+            ten_raptor: (10, 4, 7, EncodingType::RedStuffRaptorQ),
+            fifty_raptor: (51, 16, 32, EncodingType::RedStuffRaptorQ),
+            one_hundred_and_one_raptor: (101, 30, 63, EncodingType::RedStuffRaptorQ),
             // Reed-Solomon
             one_rs2: (1, 1, 1, EncodingType::RS2),
             three_rs2: (3, 3, 3, EncodingType::RS2),
