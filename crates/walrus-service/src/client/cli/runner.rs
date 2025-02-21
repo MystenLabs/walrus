@@ -77,6 +77,7 @@ use crate::{
             CliOutput,
             HumanReadableMist,
         },
+        error::ClientErrorKind,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -174,6 +175,7 @@ impl ClientCommandRunner {
                 ignore_resources,
                 deletable,
                 share,
+                encoding_type,
             } => {
                 self.store(
                     files,
@@ -182,6 +184,7 @@ impl ClientCommandRunner {
                     StoreWhen::from_flags(force, ignore_resources),
                     BlobPersistence::from_deletable(deletable),
                     PostStoreAction::from_share(share),
+                    encoding_type,
                 )
                 .await
             }
@@ -502,9 +505,12 @@ impl ClientCommandRunner {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        encoding_type: EncodingType,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
-
+        if !SUPPORTED_ENCODING_TYPES.contains(&encoding_type) {
+            anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(encoding_type));
+        }
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
 
         let system_object = client.sui_client().read_client.get_system_object().await?;
@@ -516,7 +522,8 @@ impl ClientCommandRunner {
         }
 
         if dry_run {
-            return Self::store_dry_run(client, files, epochs_ahead, self.json).await;
+            return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
+                .await;
         }
 
         tracing::info!("storing {} files as blobs on Walrus", files.len());
@@ -528,6 +535,7 @@ impl ClientCommandRunner {
         let results = client
             .reserve_and_store_blobs_retry_committees_with_path(
                 &blobs,
+                encoding_type,
                 epochs_ahead,
                 store_when,
                 persistence,
@@ -559,6 +567,7 @@ impl ClientCommandRunner {
     async fn store_dry_run(
         client: Client<SuiContractClient>,
         files: Vec<PathBuf>,
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         json: bool,
     ) -> Result<()> {
@@ -569,13 +578,13 @@ impl ClientCommandRunner {
         for file in files {
             let blob = read_blob_from_file(&file)?;
             let (_, metadata) = client
-                .encode_pairs_and_metadata(&blob, &MultiProgress::new())
+                .encode_pairs_and_metadata(&blob, encoding_type, &MultiProgress::new())
                 .await?;
             let unencoded_size = metadata.metadata().unencoded_length();
             let encoded_size = encoded_blob_length_for_n_shards(
                 encoding_config.n_shards(),
                 unencoded_size,
-                ENCODING_TYPE,
+                encoding_type,
             )
             .expect("must be valid as the encoding succeeded");
             let storage_cost = client.get_price_computation().await?.operation_cost(

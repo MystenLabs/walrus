@@ -240,6 +240,13 @@ impl BlobMetadata {
         })
     }
 
+    /// Returns the encoding type of the blob.
+    pub fn encoding_type(&self) -> EncodingType {
+        match self {
+            BlobMetadata::V1(inner) => inner.encoding_type,
+        }
+    }
+
     /// Returns a mutable reference to the inner [`BlobMetadataV1`].
     ///
     /// This is only available in tests.

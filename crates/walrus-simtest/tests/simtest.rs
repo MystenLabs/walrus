@@ -16,7 +16,10 @@ mod tests {
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
-    use walrus_core::encoding::{Primary, Secondary};
+    use walrus_core::{
+        encoding::{Primary, Secondary},
+        EncodingType,
+    };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
@@ -39,6 +42,8 @@ mod tests {
         "delete-cf-after",
         "create-cf-before",
     ];
+
+    const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
     /// Returns a simulator configuration that adds random network latency between nodes.
     ///
@@ -70,6 +75,7 @@ mod tests {
             .as_ref()
             .reserve_and_store_blobs_retry_committees(
                 &[blob.as_slice()],
+                ENCODING_TYPE,
                 5,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,

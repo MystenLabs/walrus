@@ -20,6 +20,12 @@ paths:
         object can be sent to a specified Sui address.
       operationId: put_blob
       parameters:
+      - name: encoding_type
+        in: query
+        description: The encoding type to use for the blob.
+        required: false
+        schema:
+          $ref: '#/components/schemas/EncodingType'
       - name: epochs
         in: query
         description: |-

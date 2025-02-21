@@ -451,12 +451,15 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
+            .await?;
 
         self.retry_if_committees_change(|| {
             self.reserve_and_store_encoded_blobs(
@@ -477,6 +480,7 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -486,7 +490,7 @@ impl Client<SuiContractClient> {
             pairs_and_metadata,
             id_to_path,
         } = self
-            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
+            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths, encoding_type)
             .await?;
 
         let store_results = self
@@ -518,12 +522,15 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
+            .await?;
 
         self.reserve_and_store_encoded_blobs(
             &pairs_and_metadata,
@@ -538,9 +545,12 @@ impl Client<SuiContractClient> {
     async fn encode_blobs_to_pairs_and_metadata_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        encoding_type: EncodingType,
     ) -> ClientResult<EncodedResult> {
         let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)
+            .await?;
 
         // Build the id_to_path mapping.
         let id_to_path: HashMap<BlobId, PathBuf> = pairs_and_metadata
@@ -569,6 +579,7 @@ impl Client<SuiContractClient> {
     pub async fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
         if blobs.is_empty() {
             return Ok(Vec::new());
@@ -597,7 +608,7 @@ impl Client<SuiContractClient> {
             let multi_pb_clone = multi_pb.clone();
             async move {
                 match self
-                    .encode_pairs_and_metadata(blob, multi_pb_clone.as_ref())
+                    .encode_pairs_and_metadata(blob, encoding_type, multi_pb_clone.as_ref())
                     .await
                 {
                     Ok(result) => (idx, Ok(result)),
@@ -636,6 +647,7 @@ impl Client<SuiContractClient> {
     async fn encode_pairs_and_metadata(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
         let spinner = multi_pb.add(styled_spinner());
@@ -645,7 +657,7 @@ impl Client<SuiContractClient> {
 
         let (pairs, metadata) = self
             .encoding_config
-            .get_for_type(ENCODING_TYPE)
+            .get_for_type(encoding_type)
             .encode_with_metadata(blob)
             .map_err(ClientError::other)?;
 
@@ -1338,7 +1350,7 @@ impl<T> Client<T> {
         // Create a progress bar to track the progress of the sliver retrieval.
         let progress_bar = styled_progress_bar(
             self.encoding_config
-                .get_for_type(ENCODING_TYPE)
+                .get_for_type(metadata.metadata().encoding_type())
                 .n_source_symbols::<U>()
                 .get()
                 .into(),
@@ -1378,7 +1390,7 @@ impl<T> Client<T> {
             weight
                 >= self
                     .encoding_config
-                    .get_for_type(ENCODING_TYPE)
+                    .get_for_type(metadata.metadata().encoding_type())
                     .n_source_symbols::<U>()
                     .get()
                     .into()

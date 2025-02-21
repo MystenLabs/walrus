@@ -1772,7 +1772,16 @@ impl StorageNodeInner {
                 RetrieveSymbolError::Internal(anyhow!(error))
             }
         };
-        let encoding_config = self.encoding_config.get_for_type(ENCODING_TYPE);
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("could not retrieve blob metadata")?
+            .ok_or_else(|| {
+                RetrieveSymbolError::Internal(anyhow!("metadata not found for blob {:?}", blob_id))
+            })?;
+        let encoding_config = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type());
 
         match sliver {
             Sliver::Primary(inner) => {

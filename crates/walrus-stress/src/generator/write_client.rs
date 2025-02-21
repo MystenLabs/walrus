@@ -97,6 +97,7 @@ impl WriteClient {
             // TODO(giac): add also some deletable blobs in the mix (#800).
             .reserve_and_store_blobs_retry_committees(
                 &[blob],
+                ENCODING_TYPE,
                 epochs_to_store,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,

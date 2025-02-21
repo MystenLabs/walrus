@@ -20,6 +20,7 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
     BlobId,
+    EncodingType,
     Epoch,
     EpochCount,
 };
@@ -223,6 +224,10 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         share: bool,
+        /// The encoding type to use for the blob.
+        #[clap(long)]
+        #[serde(default = "default::encoding_type")]
+        encoding_type: EncodingType,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -1126,6 +1131,7 @@ impl EpochArg {
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
+    use walrus_core::EncodingType;
     use walrus_sui::utils::SuiNetwork;
 
     pub(crate) fn max_body_size_kib() -> usize {
@@ -1210,6 +1216,10 @@ pub(crate) mod default {
             "link".to_string(),
         ]
     }
+
+    pub(crate) fn encoding_type() -> EncodingType {
+        EncodingType::RS2
+    }
 }
 
 #[cfg(test)]
@@ -1252,6 +1262,7 @@ mod tests {
             ignore_resources: false,
             deletable: false,
             share: false,
+            encoding_type: default::encoding_type(),
         })
     }
 

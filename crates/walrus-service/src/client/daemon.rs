@@ -39,7 +39,7 @@ use tower::{
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{encoding::Primary, BlobId, EpochCount};
+use walrus_core::{encoding::Primary, BlobId, EncodingType, EpochCount};
 use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::move_structs::BlobWithAttribute,
@@ -79,6 +79,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     fn write_blob(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -106,6 +107,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
     async fn write_blob(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -114,6 +116,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         let result = self
             .reserve_and_store_blobs_retry_committees(
                 &[blob],
+                encoding_type,
                 epochs_ahead,
                 store_when,
                 persistence,

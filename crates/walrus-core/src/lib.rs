@@ -830,6 +830,19 @@ impl TryFrom<u8> for EncodingType {
     }
 }
 
+impl FromStr for EncodingType {
+    type Err = InvalidEncodingType;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Convert to lowercase and remove whitespace for more flexible parsing
+        match s.trim().to_lowercase().as_str() {
+            "redstuff/raptorq" | "raptorq" | "redstuffraptorq" => Ok(Self::RedStuffRaptorQ),
+            "redstuff/reed-solomon" | "rs2" | "reed-solomon" => Ok(Self::RS2),
+            _ => Err(InvalidEncodingType),
+        }
+    }
+}
+
 impl EncodingType {
     /// Returns the required alignment of symbols for the encoding type.
     pub fn required_alignment(&self) -> u64 {
