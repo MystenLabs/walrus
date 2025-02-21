@@ -171,7 +171,12 @@ mod tests {
     use walrus_test_utils::Result;
 
     use super::*;
-    use crate::{merkle::Node, test_utils::generate_config_metadata_and_valid_recovery_symbols};
+    use crate::{
+        encoding::EncodingConfigTrait as _,
+        merkle::Node,
+        metadata::BlobMetadataApi as _,
+        test_utils::generate_config_metadata_and_valid_recovery_symbols,
+    };
 
     #[test]
     fn valid_inconsistency_proof() -> Result<()> {
@@ -216,8 +221,14 @@ mod tests {
     fn invalid_inconsistency_proof_because_sliver_cannot_be_decoded() -> Result<()> {
         let (encoding_config, metadata, target_sliver_index, mut recovery_symbols) =
             generate_config_metadata_and_valid_recovery_symbols()?;
-        recovery_symbols
-            .truncate(usize::from(encoding_config.n_secondary_source_symbols().get()) - 1);
+        recovery_symbols.truncate(
+            usize::from(
+                encoding_config
+                    .get_for_type(metadata.metadata().encoding_type())
+                    .n_secondary_source_symbols()
+                    .get(),
+            ) - 1,
+        );
         let inconsistency_proof = InconsistencyProof::new(target_sliver_index, recovery_symbols);
 
         assert!(matches!(

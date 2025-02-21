@@ -6,7 +6,7 @@
 use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use walrus_core::encoding::{EncodingConfig, Primary};
+use walrus_core::encoding::{EncodingConfigTrait as _, Primary, RaptorQEncodingConfig};
 use walrus_test_utils::{random_data, random_subset};
 
 // TODO (WAL-610): Support both encoding types.
@@ -24,8 +24,8 @@ const BLOB_SIZES: [(u64, &str); 6] = [
     (1 << 30, "1GiB"),
 ];
 
-fn encoding_config() -> EncodingConfig {
-    EncodingConfig::new(NonZeroU16::new(N_SHARDS).unwrap())
+fn encoding_config() -> RaptorQEncodingConfig {
+    RaptorQEncodingConfig::new(NonZeroU16::new(N_SHARDS).unwrap())
 }
 
 fn blob_encoding(c: &mut Criterion) {

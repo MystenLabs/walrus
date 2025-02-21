@@ -1,8 +1,10 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::vec::Vec;
 use core::num::{NonZeroU16, NonZeroU32};
 
+use enum_dispatch::enum_dispatch;
 use raptorq::SourceBlockEncodingPlan;
 
 use super::{
@@ -11,19 +13,307 @@ use super::{
     BlobDecoder,
     BlobEncoder,
     DataTooLargeError,
+    DecodingSymbol,
     EncodeError,
     EncodingAxis,
+    ReedSolomonDecoder,
+    ReedSolomonEncoder,
+    SliverPair,
     MAX_SOURCE_SYMBOLS_PER_BLOCK,
     MAX_SYMBOL_SIZE,
 };
-use crate::{bft, merkle::DIGEST_LEN, BlobId, EncodingType};
+use crate::{bft, merkle::DIGEST_LEN, metadata::VerifiedBlobMetadataWithId, BlobId, EncodingType};
 
-/// Configuration of the Walrus encoding.
+/// Trait for encoding configurations.
+///
+/// This trait provides a common interface for encoding configurations for different types of
+/// encodings.
+#[enum_dispatch]
+pub trait EncodingConfigTrait {
+    /// The encoding type associated with this encoding config.
+    fn encoding_type(&self) -> EncodingType;
+
+    /// The maximum symbol size associated with this encoding config.
+    fn max_symbol_size(&self) -> u16 {
+        MAX_SYMBOL_SIZE
+    }
+
+    /// Returns a vector of all `n_shards` source and repair symbols for a single 1D encoding.
+    fn encode_all_symbols<E: EncodingAxis>(&self, data: &[u8])
+        -> Result<Vec<Vec<u8>>, EncodeError>;
+
+    /// Returns a vector of all repair symbols for a single 1D encoding.
+    fn encode_all_repair_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError>;
+
+    /// Attempts to decode the source data from the provided iterator over
+    /// [`DecodingSymbol`s][DecodingSymbol].
+    ///
+    /// Returns the source data as a byte vector if decoding succeeds or `None` if decoding fails.
+    ///
+    /// If decoding failed due to an insufficient number of provided symbols, it can be continued
+    /// by additional calls to [`decode`][Self::decode] providing more symbols.
+    fn decode_from_decoding_symbols<T, E>(
+        &self,
+        symbol_size: NonZeroU16,
+        symbols: T,
+    ) -> Option<Vec<u8>>
+    where
+        T: IntoIterator,
+        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
+        E: EncodingAxis;
+
+    /// Encodes the blob with which `self` was created to a vector of [`SliverPair`s][SliverPair],
+    /// and provides the relative [`VerifiedBlobMetadataWithId`].
+    ///
+    /// This function operates on the fully expanded message matrix for the blob. This matrix is
+    /// used to compute the Merkle trees for the metadata, and to extract the sliver pairs. The
+    /// returned blob metadata is considered to be verified as it is directly built from the data.
+    ///
+    /// # Panics
+    ///
+    /// This function can panic if there is insufficient virtual memory for the encoded data,
+    /// notably on 32-bit architectures. As there is an expansion factor of approximately 4.5, blobs
+    /// larger than roughly 800 MiB cannot be encoded on 32-bit architectures.
+    fn encode_with_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError>;
+
+    /// Computes the metadata (blob ID, hashes) for the blob, without returning the slivers.
+    fn compute_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError>;
+
+    /// Returns the number of primary source symbols as a `NonZeroU16`.
+    fn n_primary_source_symbols(&self) -> NonZeroU16;
+
+    /// Returns the number of secondary source symbols as a `NonZeroU16`.
+    fn n_secondary_source_symbols(&self) -> NonZeroU16;
+
+    /// Returns the number of shards as a `NonZeroU16`.
+    fn n_shards(&self) -> NonZeroU16;
+
+    /// Returns the number of source symbols configured for this type.
+    #[inline]
+    fn n_source_symbols<T: EncodingAxis>(&self) -> NonZeroU16 {
+        if T::IS_PRIMARY {
+            self.n_primary_source_symbols()
+        } else {
+            self.n_secondary_source_symbols()
+        }
+    }
+
+    /// Returns the number of shards as a `usize`.
+    #[inline]
+    fn n_shards_as_usize(&self) -> usize {
+        self.n_shards().get().into()
+    }
+
+    /// The maximum size in bytes of data that can be encoded with this encoding.
+    #[inline]
+    fn max_data_size<T: EncodingAxis>(&self) -> u32 {
+        u32::from(self.n_source_symbols::<T>().get()) * u32::from(self.max_symbol_size())
+    }
+
+    /// The maximum size in bytes of a blob that can be encoded.
+    ///
+    /// See [`max_blob_size_for_n_shards`] for additional documentation.
+    #[inline]
+    fn max_blob_size(&self) -> u64 {
+        max_blob_size_for_n_shards(self.n_shards(), self.encoding_type())
+    }
+
+    /// The number of symbols a blob is split into.
+    #[inline]
+    fn source_symbols_per_blob(&self) -> NonZeroU32 {
+        utils::source_symbols_per_blob(
+            self.n_primary_source_symbols(),
+            self.n_secondary_source_symbols(),
+        )
+    }
+
+    /// The symbol size when encoding a blob of size `blob_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than the maximum
+    /// symbol size.
+    #[inline]
+    fn symbol_size_for_blob(&self, blob_size: u64) -> Result<NonZeroU16, DataTooLargeError> {
+        utils::compute_symbol_size(
+            blob_size,
+            self.source_symbols_per_blob(),
+            self.encoding_type().required_alignment(),
+        )
+    }
+
+    /// The symbol size when encoding a blob of size `blob_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than the maximum
+    /// symbol size.
+    #[inline]
+    fn symbol_size_for_blob_from_nonzero(
+        &self,
+        blob_size: u64,
+    ) -> Result<NonZeroU16, DataTooLargeError> {
+        utils::compute_symbol_size(
+            blob_size,
+            self.source_symbols_per_blob(),
+            self.encoding_type().required_alignment(),
+        )
+    }
+
+    /// The symbol size when encoding a blob of size `blob_size`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a[`DataTooLargeError`] if the data_length cannot be converted to a `u64` or
+    /// the computed symbol size is larger than the maximum symbol size.
+    #[inline]
+    fn symbol_size_for_blob_from_usize(
+        &self,
+        blob_size: usize,
+    ) -> Result<NonZeroU16, DataTooLargeError> {
+        utils::compute_symbol_size_from_usize(
+            blob_size,
+            self.source_symbols_per_blob(),
+            self.encoding_type().required_alignment(),
+        )
+    }
+
+    /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
+    ///
+    /// Returns a [`DataTooLargeError`] `blob_size > self.max_blob_size()`.
+    #[inline]
+    fn sliver_size_for_blob<T: EncodingAxis>(
+        &self,
+        blob_size: u64,
+    ) -> Result<NonZeroU32, DataTooLargeError> {
+        NonZeroU32::from(self.n_source_symbols::<T::OrthogonalAxis>())
+            .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
+            .ok_or(DataTooLargeError)
+    }
+
+    /// Computes the length of a blob of given `unencoded_length`, once encoded.
+    ///
+    /// See [`encoded_blob_length_for_n_shards`] for additional documentation.
+    #[inline]
+    fn encoded_blob_length(&self, unencoded_length: u64) -> Option<u64> {
+        encoded_blob_length_for_n_shards(self.n_shards(), unencoded_length, self.encoding_type())
+    }
+
+    /// Computes the length of a blob of given `unencoded_length`, once encoded.
+    ///
+    /// Same as [`Self::encoded_blob_length`], but taking a `usize` as input.
+    #[inline]
+    fn encoded_blob_length_from_usize(&self, unencoded_length: usize) -> Option<u64> {
+        self.encoded_blob_length(unencoded_length.try_into().ok()?)
+    }
+
+    /// Computes the length of the metadata produced by this encoding config.
+    ///
+    /// This is independent of the blob size.
+    #[inline]
+    fn metadata_length(&self) -> u64 {
+        metadata_length_for_n_shards(self.n_shards())
+    }
+
+    /// Returns the maximum size of a sliver for the current configuration.
+    ///
+    /// This is the size of a primary sliver with `u16::MAX` symbol size.
+    #[inline]
+    fn max_sliver_size(&self) -> u64 {
+        max_sliver_size_for_n_secondary(self.n_secondary_source_symbols(), self.encoding_type())
+    }
+}
+
+/// Configuration parameters for the encoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EncodingConfig {
+    /// The number of shards.
+    pub(crate) n_shards: NonZeroU16,
+    /// The RaptorQ encoding config.
+    pub raptorq: RaptorQEncodingConfig,
+    /// The Reed-Solomon encoding config.
+    pub reed_solomon: ReedSolomonEncodingConfig,
+}
+
+impl EncodingConfig {
+    /// Creates a new encoding config, given the number of shards.
+    ///
+    /// The number of shards determines the the appropriate number of primary and secondary source
+    /// symbols.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of shards causes the number of primary or secondary source symbols
+    /// to be larger than [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+    pub fn new(n_shards: NonZeroU16) -> Self {
+        Self {
+            n_shards,
+            raptorq: RaptorQEncodingConfig::new(n_shards),
+            reed_solomon: ReedSolomonEncodingConfig::new(n_shards),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        source_symbols_primary: u16,
+        source_symbols_secondary: u16,
+        n_shards: u16,
+    ) -> Self {
+        Self {
+            n_shards: NonZeroU16::new(n_shards).expect("n_shards must be non-zero"),
+            raptorq: RaptorQEncodingConfig::new_for_test(
+                source_symbols_primary,
+                source_symbols_secondary,
+                n_shards,
+            ),
+            reed_solomon: ReedSolomonEncodingConfig::new_for_test(
+                source_symbols_primary,
+                source_symbols_secondary,
+                n_shards,
+            ),
+        }
+    }
+
+    /// Returns the encoding config for the given encoding type wrapped as an
+    /// [`EncodingConfigEnum`].
+    pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum {
+        match encoding_type {
+            EncodingType::RedStuff => EncodingConfigEnum::RaptorQ(&self.raptorq),
+            EncodingType::RS2 => EncodingConfigEnum::ReedSolomon(&self.reed_solomon),
+        }
+    }
+
+    /// Returns the number of shards.
+    pub fn n_shards(&self) -> NonZeroU16 {
+        self.n_shards
+    }
+}
+
+#[enum_dispatch(EncodingConfigTrait)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// A wrapper around the encoding config for different encoding types.
+pub enum EncodingConfigEnum<'a> {
+    /// Configuration of the RaptorQ encoding.
+    RaptorQ(&'a RaptorQEncodingConfig),
+    /// Configuration of the Reed-Solomon encoding.
+    ReedSolomon(&'a ReedSolomonEncodingConfig),
+}
+
+/// Configuration of the RaptorQ encoding.
 ///
 /// This consists of the number of source symbols for the two encodings, the total number of shards,
 /// and contains pre-generated encoding plans to speed up encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EncodingConfig {
+pub struct RaptorQEncodingConfig {
     /// The number of source symbols for the primary encoding, which is, simultaneously, the number
     /// of symbols per secondary sliver. It must be strictly less than `n_shards - 2f`, where `f` is
     /// the Byzantine parameter.
@@ -40,8 +330,7 @@ pub struct EncodingConfig {
     encoding_plan_secondary: SourceBlockEncodingPlan,
 }
 
-impl EncodingConfig {
-    // TODO (WAL-605): Support both encoding types.
+impl RaptorQEncodingConfig {
     const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
 
     /// Creates a new encoding config, given the number of shards.
@@ -139,40 +428,6 @@ impl EncodingConfig {
         )
     }
 
-    /// Returns the number of source symbols configured for this type.
-    #[inline]
-    pub fn n_source_symbols<T: EncodingAxis>(&self) -> NonZeroU16 {
-        if T::IS_PRIMARY {
-            self.source_symbols_primary
-        } else {
-            self.source_symbols_secondary
-        }
-    }
-
-    /// Returns the number of primary source symbols as a `NonZeroU16`.
-    #[inline]
-    pub fn n_primary_source_symbols(&self) -> NonZeroU16 {
-        self.source_symbols_primary
-    }
-
-    /// Returns the number of secondary source symbols as a `NonZeroU16`.
-    #[inline]
-    pub fn n_secondary_source_symbols(&self) -> NonZeroU16 {
-        self.source_symbols_secondary
-    }
-
-    /// Returns the number of shards as a `NonZeroU16`.
-    #[inline]
-    pub fn n_shards(&self) -> NonZeroU16 {
-        self.n_shards
-    }
-
-    /// Returns the number of shards as a `usize`.
-    #[inline]
-    pub fn n_shards_as_usize(&self) -> usize {
-        self.n_shards.get().into()
-    }
-
     /// Returns the pre-generated encoding plan this type.
     #[inline]
     pub fn encoding_plan<T: EncodingAxis>(&self) -> &SourceBlockEncodingPlan {
@@ -183,135 +438,10 @@ impl EncodingConfig {
         }
     }
 
-    /// The maximum size in bytes of data that can be encoded with this encoding.
-    #[inline]
-    pub fn max_data_size<T: EncodingAxis>(&self) -> u32 {
-        u32::from(self.n_source_symbols::<T>().get()) * u32::from(MAX_SYMBOL_SIZE)
-    }
-
-    /// The maximum size in bytes of a blob that can be encoded.
-    ///
-    /// See [`max_blob_size_for_n_shards`] for additional documentation.
-    #[inline]
-    pub fn max_blob_size(&self) -> u64 {
-        max_blob_size_for_n_shards(self.n_shards(), Self::ENCODING_TYPE)
-    }
-
-    /// The number of symbols a blob is split into.
-    #[inline]
-    pub fn source_symbols_per_blob(&self) -> NonZeroU32 {
-        utils::source_symbols_per_blob(self.source_symbols_primary, self.source_symbols_secondary)
-    }
-
-    /// The symbol size when encoding a blob of size `blob_size`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than
-    /// [`MAX_SYMBOL_SIZE`].
-    #[inline]
-    pub fn symbol_size_for_blob(&self, blob_size: u64) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size(
-            blob_size,
-            self.source_symbols_per_blob(),
-            Self::ENCODING_TYPE.required_alignment(),
-        )
-    }
-
-    /// The symbol size when encoding a blob of size `blob_size`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`DataTooLargeError`] if the computed symbol size is larger than
-    /// [`MAX_SYMBOL_SIZE`].
-    #[inline]
-    pub fn symbol_size_for_blob_from_nonzero(
+    pub(crate) fn get_encoder<E: EncodingAxis>(
         &self,
-        blob_size: u64,
-        required_alignment: u64,
-    ) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size(
-            blob_size,
-            self.source_symbols_per_blob(),
-            required_alignment,
-        )
-    }
-
-    /// The symbol size when encoding a blob of size `blob_size`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a[`DataTooLargeError`] if the data_length cannot be converted to a `u64` or
-    /// the computed symbol size is larger than [`MAX_SYMBOL_SIZE`].
-    #[inline]
-    pub fn symbol_size_for_blob_from_usize(
-        &self,
-        blob_size: usize,
-        required_alignment: u64,
-    ) -> Result<NonZeroU16, DataTooLargeError> {
-        utils::compute_symbol_size_from_usize(
-            blob_size,
-            self.source_symbols_per_blob(),
-            required_alignment,
-        )
-    }
-
-    /// The size (in bytes) of a sliver corresponding to a blob of size `blob_size`.
-    ///
-    /// Returns a [`DataTooLargeError`] `blob_size > self.max_blob_size()`.
-    #[inline]
-    pub fn sliver_size_for_blob<T: EncodingAxis>(
-        &self,
-        blob_size: u64,
-    ) -> Result<NonZeroU32, DataTooLargeError> {
-        NonZeroU32::from(self.n_source_symbols::<T::OrthogonalAxis>())
-            .checked_mul(self.symbol_size_for_blob(blob_size)?.into())
-            .ok_or(DataTooLargeError)
-    }
-
-    /// Computes the length of a blob of given `unencoded_length`, once encoded.
-    ///
-    /// See [`encoded_blob_length_for_n_shards`] for additional documentation.
-    #[inline]
-    pub fn encoded_blob_length(&self, unencoded_length: u64) -> Option<u64> {
-        encoded_blob_length_for_n_shards(self.n_shards(), unencoded_length, Self::ENCODING_TYPE)
-    }
-
-    /// Computes the length of a blob of given `unencoded_length`, once encoded.
-    ///
-    /// Same as [`Self::encoded_blob_length`], but taking a `usize` as input.
-    #[inline]
-    pub fn encoded_blob_length_from_usize(&self, unencoded_length: usize) -> Option<u64> {
-        self.encoded_blob_length(unencoded_length.try_into().ok()?)
-    }
-
-    /// Computes the length of the metadata produced by this encoding config.
-    ///
-    /// This is independent of the blob size.
-    #[inline]
-    pub fn metadata_length(&self) -> u64 {
-        metadata_length_for_n_shards(self.n_shards())
-    }
-
-    /// Returns the maximum size of a sliver for the current configuration.
-    ///
-    /// This is the size of a primary sliver with `u16::MAX` symbol size.
-    #[inline]
-    pub fn max_sliver_size(&self) -> u64 {
-        max_sliver_size_for_n_secondary(self.n_secondary_source_symbols(), Self::ENCODING_TYPE)
-    }
-
-    /// Returns a [`RaptorQEncoder`] to perform a single primary or secondary encoding of the data.
-    ///
-    /// The `data` to be encoded _does not_ have to be aligned/padded. The `encoding_axis` specifies
-    /// which encoding parameters the encoder uses, i.e., the parameters for either the primary or
-    /// the secondary encoding.
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`EncodeError`] if the `data` cannot be encoded. See [`RaptorQEncoder::new`] for
-    /// further details about the returned errors.
-    pub fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<RaptorQEncoder, EncodeError> {
+        data: &[u8],
+    ) -> Result<RaptorQEncoder, EncodeError> {
         RaptorQEncoder::new(
             data,
             self.n_source_symbols::<E>(),
@@ -320,39 +450,421 @@ impl EncodingConfig {
         )
     }
 
-    /// Returns a [`RaptorQDecoder`] to perform a single primary or secondary decoding for the
-    /// provided `symbol_size`.
-    pub fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> RaptorQDecoder {
-        RaptorQDecoder::new(self.n_source_symbols::<E>(), symbol_size)
-    }
-
-    /// Returns a [`BlobEncoder`] to encode a blob into [`SliverPair`s][super::SliverPair].
-    ///
-    /// The `blob` to be encoded does not have to be padded.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`DataTooLargeError`] if the `blob` is too large to be encoded.
+    /// Returns a [`BlobEncoder`] for the given blob.
     pub fn get_blob_encoder<'a>(
         &'a self,
         blob: &'a [u8],
     ) -> Result<BlobEncoder<'a>, DataTooLargeError> {
-        BlobEncoder::new(self, blob)
+        BlobEncoder::new(self.into(), blob)
     }
 
-    /// Returns a [`BlobDecoder`] to reconstruct a blob of provided size from either
-    /// [`Primary`][super::PrimarySliver] or [`Secondary`][super::SecondarySliver] slivers.
-    ///
-    /// `blob_size` is the _unencoded_ size (i.e., before encoding) of the blob to be decoded.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
-    pub fn get_blob_decoder<T: EncodingAxis>(
-        &self,
+    pub(crate) fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> RaptorQDecoder {
+        RaptorQDecoder::new(self.n_source_symbols::<E>(), symbol_size)
+    }
+
+    /// Returns a [`BlobDecoder`] for the given `blob_size`.
+    pub fn get_blob_decoder<'a, T: EncodingAxis>(
+        &'a self,
         blob_size: u64,
-    ) -> Result<BlobDecoder<T>, DataTooLargeError> {
+    ) -> Result<BlobDecoder<'a, T>, DataTooLargeError> {
         BlobDecoder::new(self, blob_size)
+    }
+}
+
+impl EncodingConfigTrait for &RaptorQEncodingConfig {
+    #[inline]
+    fn encoding_type(&self) -> EncodingType {
+        RaptorQEncodingConfig::ENCODING_TYPE
+    }
+
+    fn encode_with_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        Ok(self.get_blob_encoder(blob)?.encode_with_metadata())
+    }
+
+    fn compute_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
+        Ok(self.get_blob_encoder(blob)?.compute_metadata())
+    }
+
+    #[inline]
+    fn n_primary_source_symbols(&self) -> NonZeroU16 {
+        self.source_symbols_primary
+    }
+
+    #[inline]
+    fn n_secondary_source_symbols(&self) -> NonZeroU16 {
+        self.source_symbols_secondary
+    }
+
+    #[inline]
+    fn n_shards(&self) -> NonZeroU16 {
+        self.n_shards
+    }
+
+    fn encode_all_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self.get_encoder::<E>(data)?.encode_all().collect())
+    }
+
+    fn encode_all_repair_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self
+            .get_encoder::<E>(data)?
+            .encode_all_repair_symbols()
+            .collect())
+    }
+
+    fn decode_from_decoding_symbols<T, E>(
+        &self,
+        symbol_size: NonZeroU16,
+        symbols: T,
+    ) -> Option<Vec<u8>>
+    where
+        T: IntoIterator,
+        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
+        E: EncodingAxis,
+    {
+        self.get_decoder::<E::OrthogonalAxis>(symbol_size)
+            .decode(symbols)
+    }
+}
+
+impl EncodingConfigTrait for RaptorQEncodingConfig {
+    fn encoding_type(&self) -> EncodingType {
+        (&self).encoding_type()
+    }
+
+    fn encode_with_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        (&self).encode_with_metadata(blob)
+    }
+
+    fn compute_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
+        (&self).compute_metadata(blob)
+    }
+
+    fn n_primary_source_symbols(&self) -> NonZeroU16 {
+        (&self).n_primary_source_symbols()
+    }
+
+    fn n_secondary_source_symbols(&self) -> NonZeroU16 {
+        (&self).n_secondary_source_symbols()
+    }
+
+    fn n_shards(&self) -> NonZeroU16 {
+        (&self).n_shards()
+    }
+
+    // TODO (WAL-621): Can we also delegate the following methods to the implementations for
+    // `&RaptorQEncodingConfig`?
+    fn encode_all_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self.get_encoder::<E>(data)?.encode_all().collect())
+    }
+
+    fn encode_all_repair_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self
+            .get_encoder::<E>(data)?
+            .encode_all_repair_symbols()
+            .collect())
+    }
+
+    fn decode_from_decoding_symbols<T, E>(
+        &self,
+        symbol_size: NonZeroU16,
+        symbols: T,
+    ) -> Option<Vec<u8>>
+    where
+        T: IntoIterator,
+        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
+        E: EncodingAxis,
+    {
+        self.get_decoder::<E::OrthogonalAxis>(symbol_size)
+            .decode(symbols)
+    }
+}
+/// Configuration of the Reed-Solomon encoding.
+///
+/// This consists of the number of source symbols for the two encodings and the total number of
+/// shards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReedSolomonEncodingConfig {
+    /// The number of source symbols for the primary encoding, which is, simultaneously, the number
+    /// of symbols per secondary sliver. It must be strictly less than `n_shards - 2f`, where `f` is
+    /// the Byzantine parameter.
+    pub(crate) source_symbols_primary: NonZeroU16,
+    /// The number of source symbols for the secondary encoding, which is, simultaneously, the
+    /// number of symbols per primary sliver.It must be strictly less than `n_shards - f`, where `f`
+    /// is the Byzantine parameter.
+    pub(crate) source_symbols_secondary: NonZeroU16,
+    /// The number of shards.
+    pub(crate) n_shards: NonZeroU16,
+}
+
+impl ReedSolomonEncodingConfig {
+    const ENCODING_TYPE: EncodingType = EncodingType::RS2;
+
+    /// Creates a new encoding config, given the number of shards.
+    ///
+    /// The number of shards determines the the appropriate number of primary and secondary source
+    /// symbols.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of shards causes the number of primary or secondary source symbols
+    /// to be larger than [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+    pub fn new(n_shards: NonZeroU16) -> Self {
+        let (primary_source_symbols, secondary_source_symbols) =
+            source_symbols_for_n_shards(n_shards, Self::ENCODING_TYPE);
+        tracing::debug!(
+            n_shards,
+            primary_source_symbols,
+            secondary_source_symbols,
+            "creating new encoding config"
+        );
+        Self::new_from_nonzero_parameters(
+            primary_source_symbols,
+            secondary_source_symbols,
+            n_shards,
+        )
+    }
+
+    /// Creates a new encoding configuration for the provided system parameters.
+    ///
+    /// In a setup with `n_shards` total shards -- among which `f` are Byzantine, and
+    /// `f < n_shards / 3` -- `source_symbols_primary` is the number of source symbols for the
+    /// primary encoding (must be equal to or below `n_shards - 2f`), and `source_symbols_secondary`
+    /// is the number of source symbols for the secondary encoding (must be equal to or below
+    /// `n_shards - f`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the parameters are inconsistent with Byzantine fault tolerance; i.e., if the
+    /// number of source symbols of the primary encoding is equal to or greater than `n_shards -
+    /// 2f`, or if the number of source symbols of the secondary encoding equal to or greater than
+    /// `n_shards - f` of the number of shards.
+    ///
+    /// Panics if the number of primary or secondary source symbols is larger than
+    /// [`MAX_SOURCE_SYMBOLS_PER_BLOCK`].
+    pub(crate) fn new_from_nonzero_parameters(
+        source_symbols_primary: NonZeroU16,
+        source_symbols_secondary: NonZeroU16,
+        n_shards: NonZeroU16,
+    ) -> Self {
+        let f = bft::max_n_faulty(n_shards);
+        assert!(
+            source_symbols_primary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK
+                && source_symbols_secondary.get() < MAX_SOURCE_SYMBOLS_PER_BLOCK,
+            "the number of source symbols can be at most `MAX_SOURCE_SYMBOLS_PER_BLOCK`"
+        );
+        assert!(
+            source_symbols_secondary.get() <= n_shards.get() - f,
+            "the secondary encoding can be at most a n-f encoding"
+        );
+        assert!(
+            source_symbols_primary.get() <= n_shards.get() - 2 * f,
+            "the primary encoding can be at most an n-2f encoding"
+        );
+
+        Self {
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        source_symbols_primary: u16,
+        source_symbols_secondary: u16,
+        n_shards: u16,
+    ) -> Self {
+        let source_symbols_primary = NonZeroU16::new(source_symbols_primary)
+            .expect("the number of source symbols must not be 0");
+        let source_symbols_secondary = NonZeroU16::new(source_symbols_secondary)
+            .expect("the number of source symbols must not be 0");
+        let n_shards = NonZeroU16::new(n_shards).expect("implied by previous checks");
+
+        Self::new_from_nonzero_parameters(
+            source_symbols_primary,
+            source_symbols_secondary,
+            n_shards,
+        )
+    }
+
+    fn get_encoder<E: EncodingAxis>(&self, data: &[u8]) -> Result<ReedSolomonEncoder, EncodeError> {
+        ReedSolomonEncoder::new(data, self.n_source_symbols::<E>(), self.n_shards())
+    }
+
+    fn get_decoder<E: EncodingAxis>(&self, symbol_size: NonZeroU16) -> ReedSolomonDecoder {
+        // TODO (WAL-605): Replace this by an error.
+        assert!(symbol_size.get() % 2 == 0, "symbol size must be even");
+        ReedSolomonDecoder::new(self.n_source_symbols::<E>(), self.n_shards(), symbol_size)
+            .expect("we have checked that the parameters are consistent with Reed-Solomon encoding")
+    }
+
+    /// Returns a [`BlobEncoder`] for the given blob.
+    pub fn get_blob_encoder<'a>(
+        &'a self,
+        blob: &'a [u8],
+    ) -> Result<BlobEncoder<'a>, DataTooLargeError> {
+        BlobEncoder::new(self.into(), blob)
+    }
+
+    /// Returns a [`BlobDecoder`] for the given `blob_size`.
+    pub fn get_blob_decoder<'a, T: EncodingAxis>(
+        &'a self,
+        _blob_size: u64,
+    ) -> Result<BlobDecoder<'a, T>, DataTooLargeError> {
+        todo!("WAL-605")
+    }
+}
+
+impl EncodingConfigTrait for &ReedSolomonEncodingConfig {
+    #[inline]
+    fn n_primary_source_symbols(&self) -> NonZeroU16 {
+        self.source_symbols_primary
+    }
+
+    #[inline]
+    fn n_secondary_source_symbols(&self) -> NonZeroU16 {
+        self.source_symbols_secondary
+    }
+
+    #[inline]
+    fn n_shards(&self) -> NonZeroU16 {
+        self.n_shards
+    }
+
+    #[inline]
+    fn encoding_type(&self) -> EncodingType {
+        ReedSolomonEncodingConfig::ENCODING_TYPE
+    }
+
+    fn encode_with_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        Ok(self.get_blob_encoder(blob)?.encode_with_metadata())
+    }
+
+    fn compute_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
+        Ok(self.get_blob_encoder(blob)?.compute_metadata())
+    }
+
+    fn encode_all_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self.get_encoder::<E>(data)?.encode_all())
+    }
+
+    fn encode_all_repair_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        // TODO (WAL-621): Can we delegate this to the implementation for
+        // `&ReedSolomonEncodingConfig`?
+        Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
+    }
+
+    fn decode_from_decoding_symbols<T, E>(
+        &self,
+        symbol_size: NonZeroU16,
+        symbols: T,
+    ) -> Option<Vec<u8>>
+    where
+        T: IntoIterator,
+        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
+        E: EncodingAxis,
+    {
+        self.get_decoder::<E::OrthogonalAxis>(symbol_size)
+            .decode(symbols)
+    }
+}
+
+impl EncodingConfigTrait for ReedSolomonEncodingConfig {
+    fn encoding_type(&self) -> EncodingType {
+        (&self).encoding_type()
+    }
+
+    fn encode_with_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        (&self).encode_with_metadata(blob)
+    }
+
+    fn compute_metadata(
+        &self,
+        blob: &[u8],
+    ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
+        (&self).compute_metadata(blob)
+    }
+
+    fn n_primary_source_symbols(&self) -> NonZeroU16 {
+        (&self).n_primary_source_symbols()
+    }
+
+    fn n_secondary_source_symbols(&self) -> NonZeroU16 {
+        (&self).n_secondary_source_symbols()
+    }
+
+    fn n_shards(&self) -> NonZeroU16 {
+        (&self).n_shards()
+    }
+
+    // TODO (WAL-621): Can we also delegate the following methods to the implementations for
+    // `&ReedSolomonEncodingConfig`?
+
+    fn encode_all_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self.get_encoder::<E>(data)?.encode_all())
+    }
+
+    fn encode_all_repair_symbols<E: EncodingAxis>(
+        &self,
+        data: &[u8],
+    ) -> Result<Vec<Vec<u8>>, EncodeError> {
+        Ok(self.get_encoder::<E>(data)?.encode_all_repair_symbols())
+    }
+
+    fn decode_from_decoding_symbols<T, E>(
+        &self,
+        symbol_size: NonZeroU16,
+        symbols: T,
+    ) -> Option<Vec<u8>>
+    where
+        T: IntoIterator,
+        T::IntoIter: Iterator<Item = DecodingSymbol<E>>,
+        E: EncodingAxis,
+    {
+        self.get_decoder::<E::OrthogonalAxis>(symbol_size)
+            .decode(symbols)
     }
 }
 
@@ -547,7 +1059,8 @@ mod tests {
         expected_primary_sliver_size: Result<u32, DataTooLargeError>,
     ) {
         assert_eq!(
-            EncodingConfig::new_for_test(3, 5, 10).sliver_size_for_blob::<Primary>(blob_size),
+            RaptorQEncodingConfig::new_for_test(3, 5, 10)
+                .sliver_size_for_blob::<Primary>(blob_size),
             expected_primary_sliver_size.map(|e| NonZeroU32::new(e).unwrap())
         );
     }
@@ -572,7 +1085,7 @@ mod tests {
     /// `contracts/walrus/sources/system/redstuff.move` and should be kept in sync.
     fn test_encoded_size(blob_size: usize, n_shards: u16, expected_encoded_size: u64) {
         assert_eq!(
-            EncodingConfig::new(NonZeroU16::new(n_shards).unwrap())
+            RaptorQEncodingConfig::new(NonZeroU16::new(n_shards).unwrap())
                 .encoded_blob_length_from_usize(blob_size),
             Some(expected_encoded_size),
         );
@@ -612,7 +1125,7 @@ mod tests {
         ]
     }
     fn test_new_for_n_shards(n_shards: u16, primary: u16, secondary: u16) {
-        let config = EncodingConfig::new(n_shards.try_into().unwrap());
+        let config = RaptorQEncodingConfig::new(n_shards.try_into().unwrap());
         assert_eq!(config.source_symbols_primary.get(), primary);
         assert_eq!(config.source_symbols_secondary.get(), secondary);
     }

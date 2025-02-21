@@ -17,6 +17,7 @@ use crate::{
         DataTooLargeError,
         EncodingAxis,
         EncodingConfig,
+        EncodingConfigTrait as _,
     },
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
@@ -123,11 +124,11 @@ impl VerifiedBlobMetadataWithId {
     /// Returns true if the number of symbols and number of shards in the provided encoding config,
     /// matches that which was used to verify the metadata.
     pub fn is_encoding_config_applicable(&self, config: &EncodingConfig) -> bool {
-        let (n_primary, n_secondary) =
-            source_symbols_for_n_shards(self.n_shards(), self.metadata.encoding_type());
+        let encoding_type = self.metadata.encoding_type();
+        let (n_primary, n_secondary) = source_symbols_for_n_shards(self.n_shards(), encoding_type);
+        let config = config.get_for_type(encoding_type);
 
-        self.metadata.encoding_type() == EncodingType::RedStuff
-            && self.n_shards() == config.n_shards()
+        self.n_shards() == config.n_shards()
             && n_primary == config.n_primary_source_symbols()
             && n_secondary == config.n_secondary_source_symbols()
     }
@@ -160,7 +161,10 @@ impl UnverifiedBlobMetadataWithId {
             }
         );
         crate::ensure!(
-            self.metadata.unencoded_length() <= config.max_blob_size(),
+            self.metadata.unencoded_length()
+                <= config
+                    .get_for_type(self.metadata.encoding_type())
+                    .max_blob_size(),
             VerificationError::UnencodedLengthTooLarge
         );
         let computed_blob_id = BlobId::from_sliver_pair_metadata(&self.metadata);
@@ -288,8 +292,9 @@ impl BlobMetadataApi for BlobMetadataV1 {
         &self,
         encoding_config: &EncodingConfig,
     ) -> Result<NonZeroU16, DataTooLargeError> {
-        // TODO (WAL-605): use self.encoding_type to select the correct config.
-        encoding_config.symbol_size_for_blob(self.unencoded_length)
+        encoding_config
+            .get_for_type(self.encoding_type)
+            .symbol_size_for_blob(self.unencoded_length)
     }
 
     /// Returns the encoded size of the blob.
@@ -432,9 +437,20 @@ mod tests {
         fn fails_for_unencoded_length_too_large() {
             let config = test_utils::encoding_config();
             let mut metadata = test_utils::unverified_blob_metadata();
+            let encoding_type = metadata.metadata().encoding_type();
             metadata.metadata.mut_inner().unencoded_length = u64::from(u16::MAX)
-                * u64::from(config.source_symbols_primary.get())
-                * u64::from(config.source_symbols_secondary.get())
+                * u64::from(
+                    config
+                        .get_for_type(encoding_type)
+                        .n_primary_source_symbols()
+                        .get(),
+                )
+                * u64::from(
+                    config
+                        .get_for_type(encoding_type)
+                        .n_secondary_source_symbols()
+                        .get(),
+                )
                 + 1;
 
             let err = metadata

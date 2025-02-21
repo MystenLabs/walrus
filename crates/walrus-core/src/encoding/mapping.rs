@@ -140,14 +140,18 @@ mod tests {
     use walrus_test_utils::param_test;
 
     use super::*;
-    use crate::{encoding::EncodingConfig, test_utils};
+    use crate::{encoding::RaptorQEncodingConfig, test_utils};
 
     // Fixture
     fn sliver_pairs(num: u16) -> Vec<SliverPair> {
-        let encoding_config = EncodingConfig::new_for_test(1, 1, num);
+        let encoding_config = RaptorQEncodingConfig::new_for_test(1, 1, num);
         (0..num)
             .map(|n| {
-                SliverPair::new_empty(&encoding_config, 1.try_into().unwrap(), SliverPairIndex(n))
+                SliverPair::new_empty(
+                    &(&encoding_config).into(),
+                    1.try_into().unwrap(),
+                    SliverPairIndex(n),
+                )
             })
             .collect()
     }

@@ -24,6 +24,7 @@ use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, E
 use encoding::{
     EncodingAxis,
     EncodingConfig,
+    EncodingConfigEnum,
     PrimaryRecoverySymbol,
     PrimarySliver,
     RecoverySymbolError,
@@ -474,7 +475,7 @@ impl Sliver {
     }
 
     /// Returns the hash of the sliver, i.e., the Merkle root of the tree computed over the symbols.
-    pub fn hash(&self, config: &EncodingConfig) -> Result<Node, RecoverySymbolError> {
+    pub fn hash(&self, config: &EncodingConfigEnum) -> Result<Node, RecoverySymbolError> {
         match self {
             Sliver::Primary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),
             Sliver::Secondary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),

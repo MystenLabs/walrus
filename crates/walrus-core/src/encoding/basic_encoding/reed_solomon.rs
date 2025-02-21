@@ -4,7 +4,7 @@
 use alloc::vec::Vec;
 use core::{fmt, num::NonZeroU16};
 
-use reed_solomon_simd::{ReedSolomonDecoder, ReedSolomonEncoder};
+use reed_solomon_simd;
 use tracing::Level;
 
 use crate::{
@@ -12,11 +12,11 @@ use crate::{
     EncodingType,
 };
 
-// TODO (WAL-605): Reduce code duplication with the RaptorQ encoding.
+// TODO (WAL-621): Reduce code duplication with the RaptorQ encoding.
 
 /// Wrapper to perform a single encoding with Reed-Solomon for the provided parameters.
-pub struct RSEncoder {
-    encoder: ReedSolomonEncoder,
+pub struct ReedSolomonEncoder {
+    encoder: reed_solomon_simd::ReedSolomonEncoder,
     n_source_symbols: NonZeroU16,
     // INV: n_source_symbols <= n_shards.
     n_shards: NonZeroU16,
@@ -24,7 +24,7 @@ pub struct RSEncoder {
     source_symbols: Vec<Vec<u8>>,
 }
 
-impl fmt::Debug for RSEncoder {
+impl fmt::Debug for ReedSolomonEncoder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RSEncoder")
             .field("n_source_symbols", &self.n_source_symbols)
@@ -34,7 +34,7 @@ impl fmt::Debug for RSEncoder {
     }
 }
 
-impl RSEncoder {
+impl ReedSolomonEncoder {
     const ASSOCIATED_ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
@@ -77,7 +77,7 @@ impl RSEncoder {
             .collect();
         assert_eq!(source_symbols.len(), usize::from(n_source_symbols.get()));
 
-        let mut encoder = ReedSolomonEncoder::new(
+        let mut encoder = reed_solomon_simd::ReedSolomonEncoder::new(
             n_source_symbols.get().into(),
             (n_shards.get() - n_source_symbols.get()).into(),
             symbol_size.get().into(),
@@ -103,6 +103,7 @@ impl RSEncoder {
     }
 
     /// Returns an iterator over all `n_shards` source and repair symbols.
+    // TODO (WAL-611): Return an iterator over all symbols.
     pub fn encode_all(&mut self) -> Vec<Vec<u8>> {
         tracing::trace!("encoding all symbols");
         self.source_symbols
@@ -131,14 +132,14 @@ impl RSEncoder {
 }
 
 /// Wrapper to perform a single decoding with Reed-Solomon for the provided parameters.
-pub struct RSDecoder {
-    decoder: ReedSolomonDecoder,
+pub struct ReedSolomonDecoder {
+    decoder: reed_solomon_simd::ReedSolomonDecoder,
     n_source_symbols: NonZeroU16,
     symbol_size: NonZeroU16,
     source_symbols: Vec<Vec<u8>>,
 }
 
-impl fmt::Debug for RSDecoder {
+impl fmt::Debug for ReedSolomonDecoder {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RSDecoder")
             .field("symbol_size", &self.symbol_size)
@@ -146,7 +147,7 @@ impl fmt::Debug for RSDecoder {
     }
 }
 
-impl RSDecoder {
+impl ReedSolomonDecoder {
     /// Creates a new `Decoder`.
     ///
     /// Assumes that the length of the data to be decoded is the product of `n_source_symbols` and
@@ -159,7 +160,7 @@ impl RSDecoder {
     ) -> Result<Self, reed_solomon_simd::Error> {
         tracing::trace!("creating a new Decoder");
         Ok(Self {
-            decoder: ReedSolomonDecoder::new(
+            decoder: reed_solomon_simd::ReedSolomonDecoder::new(
                 n_source_symbols.get().into(),
                 (n_shards.get() - n_source_symbols.get()).into(),
                 symbol_size.get().into(),
@@ -221,7 +222,7 @@ mod tests {
     #[test]
     fn encoding_empty_data_fails() {
         assert!(matches!(
-            RSEncoder::new(
+            ReedSolomonEncoder::new(
                 &[],
                 NonZeroU16::new(42).unwrap(),
                 NonZeroU16::new(314).unwrap()
@@ -236,7 +237,7 @@ mod tests {
     fn encoding_misaligned_data_fails() {
         let n_source_symbols = NonZeroU16::new(3).unwrap();
         assert!(matches!(
-            RSEncoder::new(&[1, 2], n_source_symbols, NonZeroU16::new(314).unwrap()),
+            ReedSolomonEncoder::new(&[1, 2], n_source_symbols, NonZeroU16::new(314).unwrap()),
             Err(EncodeError::MisalignedData(_n_source_symbols))
         ));
     }
@@ -265,7 +266,7 @@ mod tests {
         let end = encoded_symbols_range.end;
         let n_shards = end.max(n_source_symbols.get() + 1).try_into().unwrap();
 
-        let mut encoder = RSEncoder::new(data, n_source_symbols, n_shards)?;
+        let mut encoder = ReedSolomonEncoder::new(data, n_source_symbols, n_shards)?;
         let encoded_symbols = encoder
             .encode_all()
             .into_iter()
@@ -273,7 +274,8 @@ mod tests {
             .take((end - start).into())
             .enumerate()
             .map(|(i, symbol)| DecodingSymbol::<Primary>::new(i as u16 + start, symbol));
-        let mut decoder = RSDecoder::new(n_source_symbols, n_shards, encoder.symbol_size())?;
+        let mut decoder =
+            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size())?;
         let decoding_result = decoder.decode(encoded_symbols);
 
         if should_succeed {
@@ -290,7 +292,7 @@ mod tests {
         let n_source_symbols = NonZeroU16::new(3).unwrap();
         let n_shards = NonZeroU16::new(10).unwrap();
         let data = [1, 2, 3, 4, 5, 6];
-        let mut encoder = RSEncoder::new(&data, n_source_symbols, n_shards)?;
+        let mut encoder = ReedSolomonEncoder::new(&data, n_source_symbols, n_shards)?;
         let mut encoded_symbols = encoder
             .encode_all_repair_symbols()
             .into_iter()
@@ -301,7 +303,8 @@ mod tests {
                     symbol,
                 )]
             });
-        let mut decoder = RSDecoder::new(n_source_symbols, n_shards, encoder.symbol_size())?;
+        let mut decoder =
+            ReedSolomonDecoder::new(n_source_symbols, n_shards, encoder.symbol_size())?;
 
         assert_eq!(
             decoder.decode(encoded_symbols.next().unwrap().clone()),

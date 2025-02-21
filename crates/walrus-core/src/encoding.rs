@@ -8,7 +8,7 @@
 mod basic_encoding;
 pub use basic_encoding::{
     raptorq::{RaptorQDecoder, RaptorQEncoder},
-    reed_solomon::{RSDecoder, RSEncoder},
+    reed_solomon::{ReedSolomonDecoder, ReedSolomonEncoder},
 };
 
 mod blob_encoding;
@@ -28,6 +28,10 @@ pub use config::{
     metadata_length_for_n_shards,
     source_symbols_for_n_shards,
     EncodingConfig,
+    EncodingConfigEnum,
+    EncodingConfigTrait,
+    RaptorQEncodingConfig,
+    ReedSolomonEncodingConfig,
 };
 
 mod errors;
