@@ -42,7 +42,7 @@ use walrus_test_utils::WithTempDir;
 use super::blob::BlobData;
 
 // TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]

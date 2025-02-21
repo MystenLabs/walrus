@@ -80,7 +80,7 @@ async_param_test! {
     #[tokio::test]
     #[ignore = "ignore integration tests by default"]
     test_register_certify_blob -> anyhow::Result<()> : [
-        raptorq: (EncodingType::RedStuff),
+        raptorq: (EncodingType::RedStuffRaptorQ),
         reed_solomon: (EncodingType::RS2),
     ]
 }
@@ -121,13 +121,13 @@ async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Resu
         1, 2, 3, 4, 5, 6, 7, 8,
     ];
 
-    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuffRaptorQ, size);
     let blob_metadata = BlobObjectMetadata {
         blob_id,
         root_hash: Node::from(root_hash),
         unencoded_size: size,
         encoded_size: resource_size,
-        encoding_type: EncodingType::RedStuff,
+        encoding_type: EncodingType::RedStuffRaptorQ,
     };
 
     let blob_obj = walrus_client
@@ -208,13 +208,13 @@ async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Resu
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
     ];
-    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuff, size);
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuffRaptorQ, size);
     let blob_metadata = BlobObjectMetadata {
         blob_id,
         root_hash: Node::from(root_hash),
         unencoded_size: size,
         encoded_size: resource_size,
-        encoding_type: EncodingType::RedStuff,
+        encoding_type: EncodingType::RedStuffRaptorQ,
     };
 
     let blob_obj = walrus_client

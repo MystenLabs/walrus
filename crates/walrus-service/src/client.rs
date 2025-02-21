@@ -94,7 +94,7 @@ pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
 // TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 /// The maximum number of retries for an operation that is stopped because of a committee change.
 // TODO: make this configurable.

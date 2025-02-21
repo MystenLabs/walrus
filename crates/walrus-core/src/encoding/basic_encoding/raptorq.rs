@@ -25,7 +25,7 @@ pub struct RaptorQEncoder {
 }
 
 impl RaptorQEncoder {
-    const ASSOCIATED_ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+    const ASSOCIATED_ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
     /// Creates a new `Encoder` for the provided `data` with the specified arguments.
     ///

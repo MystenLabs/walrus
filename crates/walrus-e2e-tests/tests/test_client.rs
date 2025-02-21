@@ -71,7 +71,7 @@ use walrus_sui::{
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
 
 // TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]

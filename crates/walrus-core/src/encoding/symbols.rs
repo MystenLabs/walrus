@@ -825,7 +825,7 @@ mod tests {
     param_test! {
         test_recovery_symbol_proof -> TestResult: [
             raptorq: (
-                EncodingType::RedStuff,
+                EncodingType::RedStuffRaptorQ,
             ),
             reed_solomon: (
                 EncodingType::RS2,

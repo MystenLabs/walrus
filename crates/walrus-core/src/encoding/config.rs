@@ -290,7 +290,7 @@ impl EncodingConfig {
     /// [`EncodingConfigEnum`].
     pub fn get_for_type(&self, encoding_type: EncodingType) -> EncodingConfigEnum {
         match encoding_type {
-            EncodingType::RedStuff => EncodingConfigEnum::RaptorQ(&self.raptorq),
+            EncodingType::RedStuffRaptorQ => EncodingConfigEnum::RaptorQ(&self.raptorq),
             EncodingType::RS2 => EncodingConfigEnum::ReedSolomon(&self.reed_solomon),
         }
     }
@@ -334,7 +334,7 @@ pub struct RaptorQEncodingConfig {
 }
 
 impl RaptorQEncodingConfig {
-    const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+    const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
     /// Creates a new encoding config, given the number of shards.
     ///
@@ -886,7 +886,7 @@ impl EncodingConfigTrait for ReedSolomonEncodingConfig {
 #[inline]
 pub fn decoding_safety_limit(n_shards: NonZeroU16, encoding_type: EncodingType) -> u16 {
     match encoding_type {
-        EncodingType::RedStuff => {
+        EncodingType::RedStuffRaptorQ => {
             // These ranges are chosen to ensure that the safety limit is at most 20% of f, up to a
             // safety limit of 5.
             match n_shards.get() {
@@ -953,7 +953,7 @@ pub fn max_sliver_size_for_n_secondary(
 /// This is the size of a primary sliver with `u16::MAX` symbol size.
 #[inline]
 pub fn max_sliver_size_for_n_shards(n_shards: NonZeroU16) -> u64 {
-    [EncodingType::RedStuff, EncodingType::RS2]
+    [EncodingType::RedStuffRaptorQ, EncodingType::RS2]
         .iter()
         .map(|encoding_type| {
             let (_, secondary) = source_symbols_for_n_shards(n_shards, *encoding_type);

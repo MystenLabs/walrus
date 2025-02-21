@@ -170,7 +170,7 @@ mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
 // TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuff;
+const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -3252,7 +3252,7 @@ mod tests {
                 object_id,
                 event_id,
                 size: 0,
-                encoding_type: walrus_core::EncodingType::RedStuff,
+                encoding_type: walrus_core::EncodingType::RedStuffRaptorQ,
             }
             .into(),
         )?;

@@ -515,10 +515,12 @@ mod tests {
 
     param_test! {
         test_create_recovery_symbols -> Result: [
-            square_one_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4,5,6,7,8]),
+            square_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4]),
+            square_two_byte_symbol_raptorq: (
+                EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4,5,6,7,8]
+            ),
             rectangle_two_byte_symbol_raptorq: (
-                EncodingType::RedStuff, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+                EncodingType::RedStuffRaptorQ, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
             ),
             square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
             rectangle_two_byte_symbol_reed_solomon: (
@@ -598,16 +600,18 @@ mod tests {
 
     param_test! {
         test_recover_sliver_from_symbols -> Result: [
-            square_one_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4]),
-            square_two_byte_symbol_raptorq: (EncodingType::RedStuff, 2, 2, &[1,2,3,4,5,6,7,8]),
+            square_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4]),
+            square_two_byte_symbol_raptorq: (
+                EncodingType::RedStuffRaptorQ, 2, 2, &[1,2,3,4,5,6,7,8]
+            ),
             rectangle_two_byte_symbol_1_raptorq: (
-                EncodingType::RedStuff, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
+                EncodingType::RedStuffRaptorQ, 2, 3, &[1,2,3,4,5,6,7,8,9,10,11,12]
             ),
             rectangle_two_byte_symbol_2_raptorq: (
-                EncodingType::RedStuff, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
+                EncodingType::RedStuffRaptorQ, 4, 2, &[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]
             ),
             rectangle_two_byte_symbol_3_raptorq: (
-                EncodingType::RedStuff, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
+                EncodingType::RedStuffRaptorQ, 4, 2, &[11,20,3,13,5,110,77,17,111,56,11,0,0,14,15,1]
             ),
             square_one_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4]),
             square_two_byte_symbol_reed_solomon: (EncodingType::RS2, 2, 2, &[1,2,3,4,5,6,7,8]),
@@ -677,8 +681,8 @@ mod tests {
 
     param_test! {
         test_recovery_symbols_empty_sliver: [
-            primary_raptorq: <Primary>(EncodingType::RedStuff),
-            secondary_raptorq: <Secondary>(EncodingType::RedStuff),
+            primary_raptorq: <Primary>(EncodingType::RedStuffRaptorQ),
+            secondary_raptorq: <Secondary>(EncodingType::RedStuffRaptorQ),
             primary_reed_solomon: <Primary>(EncodingType::RS2),
             secondary_reed_solomon: <Secondary>(EncodingType::RS2),
         ]
@@ -694,13 +698,13 @@ mod tests {
 
     param_test! {
         test_recover_all_slivers_from_f_plus_1: [
-            recover_empty_raptorq: (EncodingType::RedStuff, 3, &[]),
-            recover_single_byte_raptorq: (EncodingType::RedStuff, 3, &[1]),
-            recover_one_byte_symbol_raptorq: (EncodingType::RedStuff, 3, &[
+            recover_empty_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[]),
+            recover_single_byte_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[1]),
+            recover_one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
             ]),
-            recover_two_byte_symbol_raptorq: (EncodingType::RedStuff, 3, &[
+            recover_two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, 3, &[
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
                 1,2,3,4,5,6,7,8,9,
@@ -780,8 +784,8 @@ mod tests {
 
     param_test! {
         test_recovery_symbol_proof: [
-            one_byte_symbol_raptorq: (EncodingType::RedStuff, &[1,2,3,4], 4, 1),
-            two_byte_symbol_raptorq: (EncodingType::RedStuff, &[1,2,3,4], 2, 2),
+            one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 4, 1),
+            two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 2, 2),
             two_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4], 2, 2),
             four_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 2),
         ]

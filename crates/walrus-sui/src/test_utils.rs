@@ -516,7 +516,7 @@ impl EventForTesting for BlobRegistered {
             epoch: 1,
             blob_id,
             size: 10000,
-            encoding_type: EncodingType::RedStuff,
+            encoding_type: EncodingType::RedStuffRaptorQ,
             end_epoch: 42,
             deletable: false,
             object_id: ObjectID::random(),

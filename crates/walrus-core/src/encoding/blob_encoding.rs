@@ -787,7 +787,7 @@ mod tests {
 
     param_test! {
         test_encode_with_metadata: [
-            raptorq: (EncodingType::RedStuff),
+            raptorq: (EncodingType::RedStuffRaptorQ),
             reed_solomon: (EncodingType::RS2),
         ]
     }
@@ -808,7 +808,7 @@ mod tests {
 
         // Check that the encoding with and without metadata are identical.
         let blob_encoder = match encoding_type {
-            EncodingType::RedStuff => config.raptorq.get_blob_encoder(&blob).unwrap(),
+            EncodingType::RedStuffRaptorQ => config.raptorq.get_blob_encoder(&blob).unwrap(),
             EncodingType::RS2 => config.reed_solomon.get_blob_encoder(&blob).unwrap(),
         };
         let sliver_pairs_1 = blob_encoder.encode();
