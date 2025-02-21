@@ -612,7 +612,7 @@ impl EncodingConfigTrait for RaptorQEncodingConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReedSolomonEncodingConfig {
     /// The number of source symbols for the primary encoding, which is, simultaneously, the number
-    /// of symbols per secondary sliver. It must be strictly less than `n_shards - 2f`, where `f` is
+    /// of symbols per secondary sliver. It must be at most `n_shards - 2f`, where `f` is
     /// the Byzantine parameter.
     pub(crate) source_symbols_primary: NonZeroU16,
     /// The number of source symbols for the secondary encoding, which is, simultaneously, the
