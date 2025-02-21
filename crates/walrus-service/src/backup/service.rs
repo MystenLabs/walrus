@@ -21,7 +21,10 @@ use diesel_async::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use futures::{stream, StreamExt};
 use object_store::{gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, ObjectStore};
-use prometheus::Registry;
+use prometheus::{
+    core::{AtomicU64, GenericCounter},
+    Registry,
+};
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
 use walrus_core::{encoding::Primary, BlobId};
@@ -75,10 +78,9 @@ async fn stream_events(
     let next_event_index = event_cursor.element_index;
     let index_stream = stream::iter(next_event_index..);
     let mut indexed_element_stream = index_stream.zip(event_stream);
-    let counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64> =
-        &backup_orchestrator_metric_set
-            .db_serializability_retries
-            .with_label_values(&["record_event"]);
+    let counter: &GenericCounter<AtomicU64> = &backup_orchestrator_metric_set
+        .db_serializability_retries
+        .with_label_values(&["record_event"]);
     while let Some((
         element_index,
         PositionedStreamEvent {
@@ -121,8 +123,8 @@ async fn record_event(
     element_index: u64,
     contract_event: &ContractEvent,
     db_config: &BackupDbConfig,
-    retry_counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
-    db_reconnects: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
+    retry_counter: &GenericCounter<AtomicU64>,
+    db_reconnects: &GenericCounter<AtomicU64>,
 ) -> Result<(), Error> {
     let event_id: EventID = element.event_id().unwrap();
     retry_serializable_query(
@@ -766,8 +768,8 @@ async fn retry_serializable_query<'a, 'b, T, F>(
     conn: &mut AsyncPgConnection,
     callsite: &'static Location<'static>,
     db_config: &BackupDbConfig,
-    retry_counter: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
-    db_reconnects: &prometheus::core::GenericCounter<prometheus::core::AtomicU64>,
+    retry_counter: &GenericCounter<AtomicU64>,
+    db_reconnects: &GenericCounter<AtomicU64>,
     f: F,
 ) -> std::result::Result<T, Error>
 where

@@ -21,13 +21,17 @@ telemetry::define_metric_set! {
         consecutive_blob_fetch_errors: Gauge[],
 
         #[help = "The time it takes to fetch a blob from the network"]
-        blob_fetch_duration: Histogram[],
+        blob_fetch_duration: Histogram {
+            buckets: buckets_for_blob_durations(),
+        },
 
         #[help = "The total count of blobs uploaded"]
         blobs_uploaded: IntCounter[],
 
         #[help = "The time it takes to upload a blob"]
-        blob_upload_duration: Histogram[],
+        blob_upload_duration: Histogram {
+            buckets: buckets_for_blob_durations(),
+        },
 
         #[help = "The total count of blob bytes uploaded successfully"]
         blob_bytes_uploaded: IntCounter[],
@@ -39,6 +43,11 @@ telemetry::define_metric_set! {
         db_reconnects: IntCounter[],
     }
 }
+
+fn buckets_for_blob_durations() -> Vec<f64> {
+    prometheus::exponential_buckets(0.02, 2.7, 12).unwrap()
+}
+
 telemetry::define_metric_set! {
     /// Metrics exported by the backup orchestrator node.
     struct BackupOrchestratorMetricSet {
