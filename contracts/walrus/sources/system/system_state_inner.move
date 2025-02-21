@@ -29,17 +29,30 @@ const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The system parameter for the maximum number of epochs ahead is invalid.
 const EInvalidMaxEpochsAhead: u64 = 0;
+/// The storage capacity of the system is exceeded.
 const EStorageExceeded: u64 = 1;
+/// The number of epochs in the future to reserve storage for exceeds the maximum.
 const EInvalidEpochsAhead: u64 = 2;
+/// Invalid epoch in the certificate.
 const EInvalidIdEpoch: u64 = 3;
+/// Trying to set an incorrect committee for the next epoch.
 const EIncorrectCommittee: u64 = 4;
+/// Incorrect epoch in the storage accounting.
 const EInvalidAccountingEpoch: u64 = 5;
+/// Incorrect event blob attestation.
 const EIncorrectAttestation: u64 = 6;
+/// Repeated attestation for an event blob.
 const ERepeatedAttestation: u64 = 7;
+/// The node is not a member of the committee.
 const ENotCommitteeMember: u64 = 8;
+/// Incorrect deny list sequence number.
 const EIncorrectDenyListSequence: u64 = 9;
+/// Deny list certificate contains the wrong node ID.
 const EIncorrectDenyListNode: u64 = 10;
+/// Trying to obtain a resource with an invalid size.
+const EInvalidResourceSize: u64 = 11;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -198,6 +211,9 @@ fun reserve_space_without_payment(
     // Check the period is within the allowed range.
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
     assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
+
+    // Check that the storage has a non-zero size.
+    assert!(storage_amount > 0, EInvalidResourceSize);
 
     // Account the space to reclaim in the future.
     epochs_ahead.do!(|i| {

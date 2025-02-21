@@ -20,11 +20,13 @@ use walrus::{
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// Error during the migration of the staking object to the new package version.
 const EInvalidMigration: u64 = 0;
+/// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 0;
+const VERSION: u64 = 1;
 
 /// The one and only staking object.
 public struct Staking has key {
@@ -257,21 +259,6 @@ public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clo
     );
 
     staking_inner.initiate_epoch_change(clock, rewards);
-}
-
-/// Checks if the node should either have received the specified shards from the specified node
-/// or vice-versa.
-///
-/// - also checks that for the provided shards, this function has not been called before
-/// - if so, slashes both nodes and emits an event that allows the receiving node to start
-///     shard recovery
-public fun shard_transfer_failed(
-    staking: &mut Staking,
-    cap: &StorageNodeCap,
-    other_node_id: ID,
-    shard_ids: vector<u16>,
-) {
-    staking.inner_mut().shard_transfer_failed(cap, other_node_id, shard_ids);
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.

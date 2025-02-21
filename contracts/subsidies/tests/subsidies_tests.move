@@ -401,24 +401,6 @@ fun test_reserve_space_funds_with_subsidies(): (System, Coin<WAL>, Storage) {
 }
 
 #[test]
-fun test_reserve_space_no_funds_no_subsidies_zero_storage(): (System, Coin<WAL>, Storage) {
-    let ctx = &mut tx_context::dummy();
-    let mut system = system::new_for_testing(ctx);
-    let (mut subsidies, admin_cap) = subsidies::new_for_testing(ctx);
-
-    let mut payment = mint(1000, ctx);
-
-    let storage = subsidies.reserve_space(&mut system, 0, 3, &mut payment, ctx);
-
-    assert!(payment.value() == 1000);
-    assert!(subsidies.subsidy_pool_value() == 0);
-
-    subsidies::destroy_admin_cap(admin_cap);
-    subsidies::destroy_subsidies(subsidies);
-    (system, payment, storage)
-}
-
-#[test]
 fun test_reserve_space_funds_with_subsidies_full_pool_consumption(): (System, Coin<WAL>, Storage) {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);

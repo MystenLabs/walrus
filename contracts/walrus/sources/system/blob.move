@@ -15,16 +15,26 @@ use walrus::{
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The blob is not certified.
 const ENotCertified: u64 = 0;
+/// The blob is not deletable.
 const EBlobNotDeletable: u64 = 1;
+/// The bounds of the storage resource are exceeded.
 const EResourceBounds: u64 = 2;
+/// The storage resource size is insufficient.
 const EResourceSize: u64 = 3;
-// const EWrongEpoch: u64 = 4;
+// Error code 4 is available
+/// The blob was already certified.
 const EAlreadyCertified: u64 = 5;
+/// The blob ID is incorrect.
 const EInvalidBlobId: u64 = 6;
+/// The metadata field already exists.
 const EDuplicateMetadata: u64 = 7;
+/// The blob does not have any metadata.
 const EMissingMetadata: u64 = 8;
+/// The blob persistence type of the blob does not match the certificate.
 const EInvalidBlobPersistenceType: u64 = 9;
+/// The blob object ID of a deletable blob does not match the ID in the certificate.
 const EInvalidBlobObject: u64 = 10;
 
 // The fixed dynamic filed name for metadata

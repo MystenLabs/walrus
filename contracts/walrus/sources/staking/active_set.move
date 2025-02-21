@@ -13,7 +13,9 @@ module walrus::active_set;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The maximum size of an ActiveSet must be strictly larger than zero.
 const EZeroMaxSize: u64 = 0;
+/// The node is already part of the active set.
 const EDuplicateInsertion: u64 = 1;
 
 public struct ActiveSetEntry has copy, drop, store {

@@ -18,11 +18,13 @@ use walrus::{
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// Error during the migration of the system object to the new package version.
 const EInvalidMigration: u64 = 0;
+/// The package version is not compatible with the system object.
 const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 0;
+const VERSION: u64 = 1;
 
 /// The one and only system object.
 public struct System has key {

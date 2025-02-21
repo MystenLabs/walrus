@@ -16,13 +16,15 @@ use wal::wal::WAL;
 use walrus::{blob::Blob, storage_resource::Storage, system::System};
 
 /// Track the current version of the module
-const VERSION: u64 = 0;
+const VERSION: u64 = 1;
 
 /// Subsidy rate is in basis points (1/100 of a percent).
 const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%
 
 // === Errors ===
+/// The provided subsidy rate is invalid.
 const EInvalidSubsidyRate: u64 = 0;
+/// The admin cap is not authorized for the `Subsidies` object.
 const EUnauthorizedAdminCap: u64 = 1;
 const EWrongVersion: u64 = 2;
 

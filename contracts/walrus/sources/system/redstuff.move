@@ -16,7 +16,8 @@ const RS2: u8 = 1;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
-const EInvalidEncoding: u64 = 0;
+/// The encoding type is invalid.
+const EInvalidEncodingType: u64 = 0;
 
 /// Computes the encoded length of a blob for the Red Stuff encoding using either
 /// RaptorQ or Reed-Solomon, given its unencoded size and the number of shards.
@@ -82,7 +83,7 @@ fun decoding_safety_limit(n_shards: u16, encoding_type: u8): u16 {
         // up to a safety limit of 5.
         RED_STUFF_RAPTOR => (max_byzantine(n_shards) / 5).min(5),
         RS2 => 0,
-        _ => abort EInvalidEncoding,
+        _ => abort EInvalidEncodingType,
     }
 }
 

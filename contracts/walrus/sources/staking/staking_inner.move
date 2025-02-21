@@ -53,18 +53,28 @@ const SHARDS_LIMIT_DENOMINATOR: u8 = 10; // 10%
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The system is in the wrong epoch state for the operation.
 const EWrongEpochState: u64 = 0;
+/// Trying to signal that the sync is done for the wrong Epoch.
 const EInvalidSyncEpoch: u64 = 1;
+/// The node already signaled that the sync is done for the current Epoch.
 const EDuplicateSyncDone: u64 = 2;
+/// There is no stake in the system, no apportionment can be performed.
 const ENoStake: u64 = 3;
+/// The node is not in the committee.
 const ENotInCommittee: u64 = 4;
+/// The committee for the next epoch has already been selected.
 const ECommitteeSelected: u64 = 5;
+/// The committee for the next epoch has not been set yet.
 const ENextCommitteeIsEmpty: u64 = 6;
+/// The number of shards assigned to a node is invalid.
 const EInvalidNodeWeight: u64 = 7;
+/// The staking pool with the provided ID was not found.
 const EPoolNotFound: u64 = 8;
+/// A node in the committee has no shards assigned.
 const EZeroNodeWeight: u64 = 9;
-// TODO: remove this once the module is implemented.
-const ENotImplemented: u64 = 264;
+/// The list of nodes is not sorted.
+const EIncorrectNodeOrder: u64 = 10;
 
 /// The epoch state.
 public enum EpochState has copy, drop, store {
@@ -703,21 +713,6 @@ public(package) fun epoch_sync_done(
     events::emit_shards_received(self.epoch, *node_shards);
 }
 
-/// Checks if the node should either have received the specified shards from the specified node
-/// or vice-versa.
-///
-/// - also checks that for the provided shards, this function has not been called before
-/// - if so, slashes both nodes and emits an event that allows the receiving node to start
-///     shard recovery
-public(package) fun shard_transfer_failed(
-    _staking: &mut StakingInnerV1,
-    _cap: &StorageNodeCap,
-    _other_node_id: ID,
-    _shard_ids: vector<u16>,
-) {
-    abort ENotImplemented
-}
-
 // === Accessors ===
 
 /// Returns the metadata of the node with the given `ID`.
@@ -767,7 +762,7 @@ public(package) fun next_bls_committee(self: &mut StakingInnerV1): BlsCommittee 
         let pk = public_keys[i];
 
         // sanity check that the keys are in the same order
-        assert!(node_id == pk_node_id);
+        assert!(node_id == pk_node_id, EIncorrectNodeOrder);
         bls_aggregate::new_bls_committee_member(pk, shards, *node_id)
     });
 

@@ -11,6 +11,7 @@ use walrus::sort;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The shard assignment is invalid.
 const EInvalidShardAssignment: u64 = 0;
 
 /// Represents the current committee in the system. Each node in the committee
