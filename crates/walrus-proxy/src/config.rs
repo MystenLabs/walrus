@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 use core::time::Duration;
-use std::{collections::HashMap, net::SocketAddr};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -59,6 +59,8 @@ pub struct DynamicPeerValidationConfig {
     pub system_object_id: String,
     /// staking object id to query for current nodes
     pub staking_object_id: String,
+    /// path to the allow list file
+    pub allowlist_path: Option<PathBuf>,
 }
 
 /// the default idle worker per host (reqwest to remote write url call)

@@ -1,0 +1,6 @@
+- name: Mysten Labs K8s
+  network_address: uc1-tnt-sto-00.walrus-testnet.walrus.space:9185
+  network_public_key: Ant1DDlh4WuwfvKdx9lzqoL0NeeUdThbN9F64EnA7oL6
+- name: Mysten Labs Baremetal
+  network_address: mia-tnt-sto-00.walrus-testnet.walrus.space:9185
+  network_public_key: Aj8JerPMpxcOypmtqrudZivZb70TpC18j0Og6vF7MlsE

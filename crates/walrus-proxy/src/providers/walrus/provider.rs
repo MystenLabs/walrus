@@ -4,20 +4,18 @@
 use std::{
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
+    path::PathBuf,
     sync::{Arc, RwLock},
     time::Duration,
 };
 
-use fastcrypto::{
-    secp256r1::Secp256r1PublicKey,
-    traits::{EncodeDecodeBase64, ToFromBytes},
-};
+use fastcrypto::traits::EncodeDecodeBase64;
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use tracing::{debug, error, info};
 
 use super::query::{get_walrus_nodes, NodeInfo};
-use crate::{register_metric, Allower};
+use crate::{register_metric, Allower, NetworkPublicKey};
 
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
@@ -57,10 +55,12 @@ pub struct WalrusNodeProvider {
     rpc_poll_interval: Duration,
     system_object_id: String,
     staking_object_id: String,
+    /// path of the allow list file
+    allowlist_path: Option<PathBuf>,
 }
 
-impl Allower<Secp256r1PublicKey> for WalrusNodeProvider {
-    fn allowed(&self, key: &Secp256r1PublicKey) -> bool {
+impl Allower<NetworkPublicKey> for WalrusNodeProvider {
+    fn allowed(&self, key: &NetworkPublicKey) -> bool {
         self.nodes
             .read()
             .unwrap()
@@ -75,6 +75,7 @@ impl WalrusNodeProvider {
         rpc_poll_interval: &Duration,
         system_object_id: &str,
         staking_object_id: &str,
+        allowlist_path: Option<PathBuf>,
     ) -> Self {
         Self {
             nodes: Arc::new(RwLock::new(HashMap::new())),
@@ -82,6 +83,7 @@ impl WalrusNodeProvider {
             rpc_poll_interval: rpc_poll_interval.to_owned(),
             system_object_id: system_object_id.to_string(),
             staking_object_id: staking_object_id.to_string(),
+            allowlist_path,
         }
     }
     /// poll_peer_list will act as a refresh interval for our cache
@@ -109,6 +111,7 @@ impl WalrusNodeProvider {
             &self.rpc_url,
             &self.system_object_id,
             &self.staking_object_id,
+            &self.allowlist_path,
         )
         .await
         {
@@ -123,13 +126,23 @@ impl WalrusNodeProvider {
             }
         };
 
+        // // Serialize the committee to a file
+        // let file = File::create(
+        //     "/Users/zhewu/work/walrus/crates/walrus-proxy/src/fixtures/allowlist.yaml",
+        // )
+        // .unwrap();
+        // serde_yaml::to_writer(file, &committee).unwrap();
+
         for NodeInfo {
             name,
             network_address,
-            ..
+            network_public_key,
         } in &committee
         {
-            info!("loaded node:[{name}] network_address: [{network_address}]");
+            info!(
+                "loaded node:[{name}] network_address: [{network_address}]\
+                network_public_key: [{network_public_key}]"
+            );
         }
         if committee.is_empty() {
             error!("walrus committee is empty? refusing to attempt to update cache");
@@ -138,9 +151,7 @@ impl WalrusNodeProvider {
         let nodes: HashMap<u64, NodeInfo> = committee
             .into_iter()
             .filter_map(|v| {
-                let Ok(pub_key) = Secp256r1PublicKey::from_bytes(&v.network_public_key) else {
-                    return None;
-                };
+                let pub_key = v.network_public_key.clone();
                 let encoded_pub_key = pub_key.encode_base64();
                 let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
                 debug!("add {} {}", encoded_pub_key, cache_key);
@@ -156,7 +167,7 @@ impl WalrusNodeProvider {
         );
     }
     /// get is used to retrieve peer info in our handlers
-    pub fn get(&self, key: &Secp256r1PublicKey) -> Option<NodeInfo> {
+    pub fn get(&self, key: &NetworkPublicKey) -> Option<NodeInfo> {
         let encoded_pub_key = key.encode_base64();
         let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
         debug!("look for {} {}", &encoded_pub_key, &cache_key);
