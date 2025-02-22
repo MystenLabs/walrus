@@ -126,13 +126,6 @@ impl WalrusNodeProvider {
             }
         };
 
-        // // Serialize the committee to a file
-        // let file = File::create(
-        //     "/Users/zhewu/work/walrus/crates/walrus-proxy/src/fixtures/allowlist.yaml",
-        // )
-        // .unwrap();
-        // serde_yaml::to_writer(file, &committee).unwrap();
-
         for NodeInfo {
             name,
             network_address,
