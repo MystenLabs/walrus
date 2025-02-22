@@ -110,9 +110,9 @@ impl ClientMultiplexer {
         // If the user has specified `burn_after_store == true`, the default post store action is to
         // burn the created objects after storing. Otherwise, they are sent to the main wallet.
         let default_post_store_action = if args.burn_after_store {
-            PostStoreAction::Burn
+            PostStoreAction::Burn(None)
         } else {
-            PostStoreAction::TransferTo(main_address)
+            PostStoreAction::TransferTo(main_address, None)
         };
 
         tracing::info!(?default_post_store_action, "client multiplexer initialized");
@@ -188,8 +188,8 @@ impl WalrusWriteClient for ClientMultiplexer {
         .await
     }
 
-    fn default_post_store_action(&self) -> PostStoreAction {
-        self.default_post_store_action
+    fn default_post_store_action(&self, size_limit: Option<u64>) -> PostStoreAction {
+        self.default_post_store_action.set_size(size_limit)
     }
 }
 

@@ -82,7 +82,7 @@ mod tests {
                 5,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
-                PostStoreAction::Keep,
+                PostStoreAction::Keep(None),
             )
             .await
             .context("store blob should not fail")?;

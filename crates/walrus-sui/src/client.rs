@@ -316,17 +316,17 @@ impl BlobPersistence {
     }
 }
 
-/// The action to be performed for newly-created blobs.
+/// The action to be performed for newly-created blobs with an optional size restriction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostStoreAction {
     /// Burn the blob object.
-    Burn,
+    Burn(Option<u64>),
     /// Transfer the blob object to the given address.
-    TransferTo(SuiAddress),
+    TransferTo(SuiAddress, Option<u64>),
     /// Keep the blob object in the wallet that created it.
-    Keep,
+    Keep(Option<u64>),
     /// Put the blob into a shared blob object.
-    Share,
+    Share(Option<u64>),
 }
 
 impl PostStoreAction {
@@ -335,9 +335,30 @@ impl PostStoreAction {
     /// If `share` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
     pub fn from_share(share: bool) -> Self {
         if share {
-            Self::Share
+            Self::Share(None)
         } else {
-            Self::Keep
+            Self::Keep(None)
+        }
+    }
+
+    /// Set size expectation on a postaction.
+    pub fn set_size(self, expected: Option<u64>) -> Self {
+        match self {
+            PostStoreAction::Burn(_) => PostStoreAction::Burn(expected),
+            PostStoreAction::TransferTo(addr, _) => PostStoreAction::TransferTo(addr, expected),
+            PostStoreAction::Keep(_) => PostStoreAction::Keep(expected),
+            PostStoreAction::Share(_) => PostStoreAction::Keep(expected),
+        }
+    }
+
+    /// Check file size meet the limit in postaction.
+    pub fn check_size(self, size: u64) -> bool {
+        match self {
+            PostStoreAction::Burn(Some(expected)) => size == expected,
+            PostStoreAction::TransferTo(_addr, Some(expected)) => size == expected,
+            PostStoreAction::Keep(Some(expected)) => size == expected,
+            PostStoreAction::Share(Some(expected)) => size == expected,
+            _ => true,
         }
     }
 }
@@ -1420,20 +1441,21 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
         }
 
-        if post_store != PostStoreAction::Share {
-            return Ok(HashMap::new());
+        match post_store {
+            PostStoreAction::Share(_) => {
+                // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+                self.create_blob_id_to_shared_mapping(
+                    &res,
+                    blobs_with_certificates
+                        .iter()
+                        .map(|(blob, _)| blob.blob_id)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .await
+            }
+            _ => Ok(HashMap::new()),
         }
-
-        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-        self.create_blob_id_to_shared_mapping(
-            &res,
-            blobs_with_certificates
-                .iter()
-                .map(|(blob, _)| blob.blob_id)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-        .await
     }
 
     /// Certifies the specified event blob on Sui, with the given metadata and epoch.
@@ -2246,20 +2268,21 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not certify/extend blob: {:?}", res.errors).into());
         }
 
-        if post_store != PostStoreAction::Share {
-            return Ok(HashMap::new());
+        match post_store {
+            PostStoreAction::Share(_) => {
+                // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+                self.create_blob_id_to_shared_mapping(
+                    &res,
+                    blobs_with_certificates
+                        .iter()
+                        .map(|blob_params| blob_params.blob.blob_id)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .await
+            }
+            _ => Ok(HashMap::new()),
         }
-
-        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-        self.create_blob_id_to_shared_mapping(
-            &res,
-            blobs_with_certificates
-                .iter()
-                .map(|blob_params| blob_params.blob.blob_id)
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-        .await
     }
 
     /// Helper function to create a mapping from blob IDs to shared blob object IDs.
@@ -2304,16 +2327,16 @@ impl SuiContractClientInner {
         post_store: PostStoreAction,
     ) -> SuiClientResult<()> {
         match post_store {
-            PostStoreAction::TransferTo(address) => {
+            PostStoreAction::TransferTo(address, _) => {
                 pt_builder
                     .transfer(Some(address), vec![blob_id.into()])
                     .await?;
             }
-            PostStoreAction::Burn => {
+            PostStoreAction::Burn(_) => {
                 pt_builder.burn_blob(blob_id.into()).await?;
             }
-            PostStoreAction::Keep => (),
-            PostStoreAction::Share => {
+            PostStoreAction::Keep(_) => (),
+            PostStoreAction::Share(_) => {
                 pt_builder.new_shared_blob(blob_id.into()).await?;
             }
         }

@@ -497,6 +497,15 @@ impl Client<SuiContractClient> {
         let pairs_and_metadata = self
             .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
             .await?;
+        let mut size = 0;
+        for pair_and_metadata in pairs_and_metadata.iter() {
+            size += pair_and_metadata.1.size();
+        }
+        if !post_store.check_size(size) {
+            return Err(ClientError::from(
+                ClientErrorKind::PayloadVerificationFailed,
+            ));
+        }
 
         self.retry_if_error_epoch_change(|| {
             self.reserve_and_store_encoded_blobs(

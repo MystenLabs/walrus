@@ -539,7 +539,7 @@ impl ClientCommandRunner {
         let epochs_ahead =
             get_epochs_ahead(epoch_arg, system_object.max_epochs_ahead(), &client).await?;
 
-        if persistence.is_deletable() && post_store == PostStoreAction::Share {
+        if persistence.is_deletable() && matches!(post_store, PostStoreAction::Share(_)) {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 

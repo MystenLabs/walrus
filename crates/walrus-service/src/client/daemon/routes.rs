@@ -278,16 +278,18 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     blob: Bytes,
 ) -> Response {
     // Check if there is an authorization claim, and use it to check the size.
+    let mut size_limit = None;
     if let Some(TypedHeader(header)) = bearer_header {
-        if let Err(error) = check_blob_size(header, blob.len()) {
-            return error.into_response();
+        match check_blob_size(header, blob.len()) {
+            Ok(limit) => size_limit = limit,
+            Err(error) => return error.into_response(),
         }
     }
 
     let post_store_action = if let Some(address) = send_object_to {
-        PostStoreAction::TransferTo(address)
+        PostStoreAction::TransferTo(address, size_limit)
     } else {
-        client.default_post_store_action()
+        client.default_post_store_action(size_limit)
     };
     tracing::debug!(?post_store_action, "starting to store received blob");
 
@@ -334,7 +336,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
 fn check_blob_size(
     bearer_header: Authorization<Bearer>,
     blob_size: usize,
-) -> Result<(), PublisherAuthError> {
+) -> Result<Option<u64>, PublisherAuthError> {
     // Note: We disable validation and use a default key because, if the authorization
     // header is present, it must have been checked by a previous middleware.
     let mut validation = Validation::default();
@@ -346,13 +348,13 @@ fn check_blob_size(
             if blob_size as u64 > claim.max_size.expect("just checked") {
                 Err(PublisherAuthError::MaxSizeExceeded)
             } else {
-                Ok(())
+                Ok(claim.size)
             }
         }
         // We return an internal error here, because the claim should have been checked by a
         // previous middleware, and therefore we should be able to decode it.
         Err(error) => Err(PublisherAuthError::Internal(error.into())),
-        Ok(_) => Ok(()), // No need to check the size.
+        Ok(_) => Ok(None),
     }
 }
 

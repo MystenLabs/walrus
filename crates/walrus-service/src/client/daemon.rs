@@ -93,7 +93,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
 
     /// Returns the default [`PostStoreAction`] for this client.
-    fn default_post_store_action(&self) -> PostStoreAction;
+    fn default_post_store_action(&self, expect_size: Option<u64>) -> PostStoreAction;
 }
 
 impl<T: ReadClient> WalrusReadClient for Client<T> {
@@ -141,8 +141,8 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .expect("there is only one blob, as store was called with one blob"))
     }
 
-    fn default_post_store_action(&self) -> PostStoreAction {
-        PostStoreAction::Keep
+    fn default_post_store_action(&self, expect_size: Option<u64>) -> PostStoreAction {
+        PostStoreAction::Keep(expect_size)
     }
 }
 
@@ -334,15 +334,14 @@ pub(crate) async fn auth_layer(
     // Note: Try to get a body hint to reject a oversize payload as fast as possible.
     // It is fine to use this imprecise hint, because we will check again the size when storing to
     // Walrus.
-    let body_size_hint = request.body().size_hint().upper().unwrap_or(0);
-    tracing::debug!(%body_size_hint, query = ?query.0, "authenticating a request to store a blob");
+    tracing::debug!(query = ?query.0, "authenticating a request to store a blob");
 
     if let Err(resp) = verify_jwt_claim(
         query,
         bearer_header,
         &auth_config,
         token_cache.as_ref(),
-        body_size_hint,
+        request.body().size_hint(),
     )
     .await
     {

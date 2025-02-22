@@ -60,6 +60,10 @@ pub struct Claim {
     /// The maximum size of the blob that can be stored, in bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_size: Option<u64>,
+
+    /// The exact size of the blob that can be stored, in bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
 }
 
 impl Claim {
@@ -108,7 +112,7 @@ impl Claim {
         &self,
         query: &PublisherQuery,
         auth_config: &AuthConfig,
-        body_size_hint: u64,
+        body_size_hint: http_body::SizeHint,
     ) -> Result<(), PublisherAuthError> {
         // The expiration check is always performed.
         if self.check_expiring_sec(auth_config) {
@@ -120,14 +124,38 @@ impl Claim {
             return Ok(());
         }
 
-        if let Some(max_size) = self.max_size {
-            if body_size_hint > max_size {
+        if let Some(body_size_upper_hint) = body_size_hint.upper() {
+            if let Some(max_size) = self.max_size {
+                if body_size_upper_hint > max_size {
+                    tracing::debug!(
+                        max_size = max_size,
+                        body_size_upper_hint = body_size_upper_hint,
+                        "upload with body size greater than max_size"
+                    );
+                    return Err(PublisherAuthError::MaxSizeExceeded);
+                }
+            }
+            if let Some(size) = self.size {
+                if body_size_upper_hint < size {
+                    tracing::debug!(
+                        size = size,
+                        body_size_upper_hint = body_size_upper_hint,
+                        "upload with body size do not the same as size (upper hint unmacth)"
+                    );
+                    return Err(PublisherAuthError::SizeIncorrect);
+                }
+            }
+        }
+
+        if let Some(size) = self.size {
+            let body_size_lower_hint = body_size_hint.lower();
+            if body_size_lower_hint > size {
                 tracing::debug!(
-                    max_size = max_size,
-                    body_size_hint = body_size_hint,
-                    "upload with body size greater than max_size"
+                    size = size,
+                    body_size_lower_hint = body_size_lower_hint,
+                    "upload with body size do not the same as size (lower hint unmatch)"
                 );
-                return Err(PublisherAuthError::MaxSizeExceeded);
+                return Err(PublisherAuthError::SizeIncorrect);
             }
         }
 
@@ -224,7 +252,7 @@ pub async fn verify_jwt_claim(
     bearer: Authorization<Bearer>,
     auth_config: &AuthConfig,
     token_cache: &CacheHandle<String>,
-    body_size_hint: u64,
+    body_size_hint: http_body::SizeHint,
 ) -> Result<(), Response<Body>> {
     let mut validation = if auth_config.decoding_key.is_some() {
         auth_config
@@ -317,6 +345,11 @@ pub enum PublisherAuthError {
     #[error("the size of the body is above the maximum allowed.")]
     #[rest_api_error(reason = "MAX_SIZE_EXCEEDED", status = ApiStatusCode::FailedPrecondition)]
     MaxSizeExceeded,
+
+    /// The size of the body is incorrect.
+    #[error("the size of the body is incorrect")]
+    #[rest_api_error(reason = "SIZE_INCORRECT", status = ApiStatusCode::FailedPrecondition)]
+    SizeIncorrect,
 
     /// The signature on the token has expired.
     #[error("the signature on the token has expired: {0}")]

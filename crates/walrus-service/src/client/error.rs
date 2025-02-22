@@ -170,6 +170,9 @@ pub enum ClientErrorKind {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
+    /// The payload client provided do not pass the verification.
+    #[error("The payload did not pass the verification")]
+    PayloadVerificationFailed,
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

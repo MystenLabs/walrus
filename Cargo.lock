@@ -11832,6 +11832,7 @@ dependencies = [
  "hex",
  "home",
  "hostname",
+ "http-body 1.0.1",
  "http-body-util",
  "humantime",
  "indicatif",

@@ -141,7 +141,7 @@ where
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
-                PostStoreAction::Keep,
+                PostStoreAction::Keep(None),
             )
             .await?;
 
@@ -354,7 +354,10 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     client
         .as_mut()
         .sui_client()
-        .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Keep)
+        .certify_blobs(
+            &[(&blob_sui_object, certificate)],
+            PostStoreAction::Keep(None),
+        )
         .await?;
 
     // Wait to receive an inconsistent blob event.
@@ -471,7 +474,7 @@ async fn test_store_with_existing_blob_resource(
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?
         .into_iter()
@@ -548,7 +551,7 @@ async fn store_blob(
             epochs_ahead,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
 
@@ -589,7 +592,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
             epochs_ahead,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     for result in store_results {
@@ -725,7 +728,7 @@ async fn test_store_with_existing_storage_resource(
             epochs_ahead_required,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?
         .into_iter()
@@ -767,7 +770,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
                 idx,
                 StoreWhen::Always,
                 BlobPersistence::Deletable,
-                PostStoreAction::Keep,
+                PostStoreAction::Keep(None),
             )
             .await?;
     }
@@ -781,7 +784,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     let blob_id = result.first().unwrap().blob_id();
@@ -827,7 +830,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     let store_result = results.first().expect("should have one blob store result");
@@ -887,7 +890,7 @@ async fn test_blocklist() -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     let store_result = store_results[0].clone();
@@ -965,7 +968,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
 
@@ -1056,7 +1059,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 epochs,
                 store_when,
                 persistence,
-                PostStoreAction::Keep,
+                PostStoreAction::Keep(None),
             )
             .await?;
         let store_result = results.first().expect("should have one blob store result");
@@ -1188,7 +1191,7 @@ async fn test_burn_blobs() -> TestResult {
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
-                PostStoreAction::Keep,
+                PostStoreAction::Keep(None),
             )
             .await?;
         blob_object_ids.push({
@@ -1243,7 +1246,7 @@ async fn test_extend_owned_blobs() -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     let BlobStoreResult::NewlyCreated { blob_object, .. } = result[0].clone() else {
@@ -1276,7 +1279,7 @@ async fn test_extend_owned_blobs() -> TestResult {
             20,
             StoreWhen::NotStored,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     let BlobStoreResult::NewlyCreated {
@@ -1313,7 +1316,7 @@ async fn test_share_blobs() -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
     let (end_epoch, blob_object_id) = {
@@ -1377,16 +1380,17 @@ async_param_test! {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     test_post_store_action -> TestResult : [
-        keep: (PostStoreAction::Keep, 4, 0),
+        keep: (PostStoreAction::Keep(None), 4, 0),
         transfer: (
             PostStoreAction::TransferTo(
-                SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address")
+                SuiAddress::from_bytes(TARGET_ADDRESS).expect("valid address"),
+                None
             ),
             0,
             4
         ),
-        burn: (PostStoreAction::Burn, 0, 0),
-        share: (PostStoreAction::Share, 0, 0)
+        burn: (PostStoreAction::Burn(None), 0, 0),
+        share: (PostStoreAction::Share(None), 0, 0)
     ]
 }
 async fn test_post_store_action(
@@ -1428,7 +1432,7 @@ async fn test_post_store_action(
         println!("test_post_store_action result: {:?}", result);
     }
 
-    if post_store == PostStoreAction::Share {
+    if matches!(post_store, PostStoreAction::Share(_)) {
         for result in results {
             match result {
                 BlobStoreResult::NewlyCreated {
@@ -1557,7 +1561,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
-            PostStoreAction::Keep,
+            PostStoreAction::Keep(None),
         )
         .await?;
 
@@ -1705,7 +1709,7 @@ impl<'a> BlobAttributeTestContext<'a> {
                     idx,
                     StoreWhen::Always,
                     BlobPersistence::Permanent,
-                    PostStoreAction::Keep,
+                    PostStoreAction::Keep(None),
                 )
                 .await
                 .expect("reserve_and_store_blobs should succeed.");

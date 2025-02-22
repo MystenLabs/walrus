@@ -59,6 +59,16 @@ pub type VerifiedBlobMetadataWithId = BlobMetadataWithId<true>;
 /// This is the default type of [`BlobMetadataWithId`].
 pub type UnverifiedBlobMetadataWithId = BlobMetadataWithId<false>;
 
+impl VerifiedBlobMetadataWithId {
+    /// Show the original size from blob metadata.
+    pub fn size(&self) -> u64 {
+        let BlobMetadata::V1(BlobMetadataV1 {
+            unencoded_length, ..
+        }) = self.metadata;
+        unencoded_length
+    }
+}
+
 /// Metadata associated with a blob.
 ///
 /// Stores the [`BlobId`] as well as additional details such as the encoding type,
