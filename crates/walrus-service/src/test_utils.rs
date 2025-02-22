@@ -1094,7 +1094,7 @@ async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
 /// assigned to the existing node, then this function returns `None`. Otherwise, there must be a
 /// second node in the committee with the shards not managed by the provided node.
 fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeTestConfig> {
-    const MIN_SHARDS: u16 = 3;
+    const MIN_SHARDS: u16 = 4;
     let n_shards = node_config
         .shards
         .iter()

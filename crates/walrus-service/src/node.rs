@@ -3643,7 +3643,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 2, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3686,7 +3687,8 @@ mod tests {
     async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
         // Note that the blobs are certified in epoch 0.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3712,7 +3714,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_unauthorized_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let error: walrus_sdk::error::NodeError = cluster.nodes[0]
             .client
@@ -3731,7 +3734,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_request_verification_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 1);
         let sync_shard_msg = SyncShardMsg::new(1, request);
@@ -3772,7 +3776,7 @@ mod tests {
     ) -> TestResult {
         // Creates a cluster with initial epoch set to 3.
         let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blob(
-            &[&[0], &[1]],
+            &[&[0, 1], &[2, 3]],
             &[BLOB],
             cluster_epoch,
             None,
@@ -3805,7 +3809,7 @@ mod tests {
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
         let (cluster, events, blob) =
-            cluster_with_partially_stored_blob(&[&[0], &[1], &[2], &[3]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
@@ -3818,10 +3822,14 @@ mod tests {
             .lock_shard_for_epoch_change()
             .expect("Lock shard failed.");
 
+        assert_eq!(
+            blob.assigned_sliver_pair(ShardIndex(0)).index(),
+            SliverPairIndex(3)
+        );
         let sliver = retry_until_success_or_timeout(TIMEOUT, || async {
             cluster.nodes[0].storage_node.retrieve_sliver(
                 blob.blob_id(),
-                SliverPairIndex(0),
+                SliverPairIndex(3),
                 SliverType::Primary,
             )
         })
@@ -3866,7 +3874,7 @@ mod tests {
     #[tokio::test]
     async fn compute_storage_confirmation_ignore_not_owned_shard() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0, 1, 2]], BLOB, |index, _| index.get() != 0)
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |index, _| index.get() != 0)
                 .await?;
 
         assert!(matches!(
@@ -5318,7 +5326,7 @@ mod tests {
         let _ = tracing_subscriber::fmt::try_init();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
         events.send(
