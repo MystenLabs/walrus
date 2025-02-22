@@ -1,12 +1,17 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, hash::Hash, path::PathBuf, vec};
+use std::{
+    collections::HashSet,
+    fmt::{self, Display},
+    hash::Hash,
+    path::PathBuf,
+    vec,
+};
 
 use anyhow::{Context, Error};
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
-use tracing::error;
 use walrus_sui::{
     client::{contract_config::ContractConfig, CommitteesAndState, ReadClient},
     types::Committee,
@@ -25,6 +30,16 @@ pub struct NodeInfo {
     pub network_address: String,
     /// the pubkey stored on chain
     pub network_public_key: NetworkPublicKey,
+}
+
+impl Display for NodeInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "NodeInfo{{name: {}, network_address: {}, network_public_key: {}}}",
+            self.name, self.network_address, self.network_public_key
+        )
+    }
 }
 
 /// Merges the Committee types into a hashset of NodeInfo and then returns a vec of it.
@@ -52,16 +67,17 @@ pub fn merge_committee_nodes_across_epochs(committees_state: &CommitteesAndState
         .collect()
 }
 
+/// Loads the allowlist from a file and returns a vec of NodeInfo.
 pub fn load_allowlist_from_file(allowlist_path: &Option<PathBuf>) -> Result<Vec<NodeInfo>, Error> {
-    tracing::info!("loading allowlist from file: {:?}", allowlist_path);
     if let Some(path) = allowlist_path {
+        tracing::info!("loading allowlist from file: {:?}", path);
         // Read file in yaml format which stores a list of name, network_address, network_public_key
         let nodes: Vec<NodeInfo> = serde_yaml::from_reader(
             std::fs::File::open(path).context(format!("cannot open {:?}", path))?,
         )?;
         for node in nodes.iter() {
             tracing::info!(
-                "loaded node from file: {:?} {:?} {:?}",
+                "loaded node info from file: {:} {:} {:}",
                 node.name,
                 node.network_address,
                 node.network_public_key
@@ -93,11 +109,11 @@ pub async fn get_walrus_nodes(
     )
     .await
     .map_err(|e| {
-        error!("unable to create walrus-sui client");
+        tracing::error!("unable to create walrus-sui client");
         dbg!(e)
     })?;
     let cas = c.get_committees_and_state().await.map_err(|e| {
-        error!("unable to get committees and state data via rpc");
+        tracing::error!("unable to get committees and state data via rpc");
         dbg!(e)
     })?;
 

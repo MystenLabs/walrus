@@ -12,7 +12,6 @@ use std::{
 use fastcrypto::traits::EncodeDecodeBase64;
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
-use tracing::{debug, error, info};
 
 use super::query::{get_walrus_nodes, NodeInfo};
 use crate::{register_metric, Allower, NetworkPublicKey};
@@ -88,7 +87,7 @@ impl WalrusNodeProvider {
     }
     /// poll_peer_list will act as a refresh interval for our cache
     pub fn poll_peer_list(&self) {
-        info!("Started polling for peers using rpc: {}", self.rpc_url);
+        tracing::info!("Started polling for peers using rpc: {}", self.rpc_url);
 
         let rpc_poll_interval = self.rpc_poll_interval;
         let cloned_self = self.clone();
@@ -115,12 +114,12 @@ impl WalrusNodeProvider {
         )
         .await
         {
-            Ok(v) => {
+            Ok(node_infos) => {
                 walrus_utils::with_label!(JSON_RPC_STATE, "update_peer_count", "success").inc();
-                v
+                node_infos
             }
             Err(e) => {
-                error!("unable to perform committee update; {e}");
+                tracing::error!("unable to perform committee update; {e}");
                 walrus_utils::with_label!(JSON_RPC_STATE, "update_peer_count", "failed").inc();
                 return;
             }
@@ -132,29 +131,33 @@ impl WalrusNodeProvider {
             network_public_key,
         } in &committee
         {
-            info!(
-                "loaded node:[{name}] network_address: [{network_address}]\
+            tracing::info!(
+                "loaded node:[{name}] network_address: [{network_address}] \
                 network_public_key: [{network_public_key}]"
             );
         }
         if committee.is_empty() {
-            error!("walrus committee is empty? refusing to attempt to update cache");
+            tracing::error!("walrus committee is empty? refusing to attempt to update cache");
             return;
         }
-        let nodes: HashMap<u64, NodeInfo> = committee
-            .into_iter()
-            .filter_map(|v| {
-                let pub_key = v.network_public_key.clone();
-                let encoded_pub_key = pub_key.encode_base64();
-                let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
-                debug!("add {} {}", encoded_pub_key, cache_key);
-                Some((cache_key, v))
-            })
-            .collect();
+        let mut nodes: HashMap<u64, NodeInfo> = HashMap::new();
+        committee.into_iter().for_each(|node_info| {
+            let pub_key = node_info.network_public_key.clone();
+            let encoded_pub_key = pub_key.encode_base64();
+            let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
+            tracing::debug!("add {} {}", encoded_pub_key, cache_key);
+            if nodes.insert(cache_key, node_info.clone()).is_some() {
+                tracing::info!(
+                    "node {} already in cache. Overwriting with new node info {:}",
+                    encoded_pub_key,
+                    node_info,
+                );
+            }
+        });
         let mut allow = self.nodes.write().unwrap();
         allow.clear();
         allow.extend(nodes);
-        info!(
+        tracing::info!(
             "{} walrus nodes managed to make it on the allow list",
             allow.len()
         );
@@ -163,11 +166,11 @@ impl WalrusNodeProvider {
     pub fn get(&self, key: &NetworkPublicKey) -> Option<NodeInfo> {
         let encoded_pub_key = key.encode_base64();
         let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
-        debug!("look for {} {}", &encoded_pub_key, &cache_key);
+        tracing::debug!("look for {} {}", &encoded_pub_key, &cache_key);
         if let Some(v) = self.nodes.read().unwrap().get(&cache_key) {
             return Some(v.to_owned());
         }
-        debug!("not found {} {}", &encoded_pub_key, &cache_key);
+        tracing::debug!("not found {} {}", &encoded_pub_key, &cache_key);
         None
     }
 }
