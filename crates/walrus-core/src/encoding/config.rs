@@ -14,6 +14,7 @@ use super::{
     },
     utils,
     BlobDecoder,
+    BlobDecoderEnum,
     BlobEncoder,
     DataTooLargeError,
     DecodingSymbol,
@@ -309,6 +310,23 @@ pub enum EncodingConfigEnum<'a> {
     RaptorQ(&'a RaptorQEncodingConfig),
     /// Configuration of the Reed-Solomon encoding.
     ReedSolomon(&'a ReedSolomonEncodingConfig),
+}
+
+impl<'a> EncodingConfigEnum<'a> {
+    /// Returns a decoder for the given blob size and encoding axis.
+    pub fn get_blob_decoder<E: EncodingAxis>(
+        &self,
+        blob_size: u64,
+    ) -> Result<BlobDecoderEnum<'a, E>, DataTooLargeError> {
+        match self {
+            Self::RaptorQ(config) => {
+                BlobDecoder::new(*config, blob_size).map(BlobDecoderEnum::RaptorQ)
+            }
+            Self::ReedSolomon(config) => {
+                BlobDecoder::new(*config, blob_size).map(BlobDecoderEnum::ReedSolomon)
+            }
+        }
+    }
 }
 
 /// Configuration of the RaptorQ encoding.

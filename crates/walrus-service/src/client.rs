@@ -20,11 +20,10 @@ use utils::WeightedResult;
 use walrus_core::{
     bft,
     encoding::{
-        BlobDecoder,
+        BlobDecoderEnum,
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
-        RaptorQDecoder,
         SliverData,
         SliverPair,
     },
@@ -94,7 +93,7 @@ pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
 // TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
+const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
 /// The maximum number of retries for an operation that is stopped because of a committee change.
 // TODO: make this configurable.
@@ -1380,8 +1379,7 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
-            // TODO (WAL-607): Support Reed-Solomon here as well.
-            .raptorq
+            .get_for_type(metadata.metadata().encoding_type())
             .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
             .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
@@ -1464,7 +1462,7 @@ impl<T> Client<T> {
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
         requests: &mut WeightedFutures<I, Fut, NodeResult<SliverData<U>, NodeError>>,
-        decoder: &mut BlobDecoder<'a, RaptorQDecoder, U>,
+        decoder: &mut BlobDecoderEnum<'a, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
         mut n_forbidden: usize,

@@ -170,7 +170,7 @@ mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
 // TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RedStuffRaptorQ;
+const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -3611,7 +3611,7 @@ mod tests {
     #[tokio::test]
     async fn skip_storing_metadata_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
@@ -3625,7 +3625,7 @@ mod tests {
     #[tokio::test]
     async fn skip_storing_sliver_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
         let is_newly_stored = cluster.nodes[0].storage_node.store_sliver(
@@ -3805,7 +3805,7 @@ mod tests {
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
         let (cluster, events, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0], &[1], &[2], &[3]], BLOB, |_, _| true).await?;
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
@@ -3839,7 +3839,7 @@ mod tests {
     #[tokio::test]
     async fn reject_writes_if_shard_is_locked_in_node() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         cluster.nodes[0]
             .storage_node
