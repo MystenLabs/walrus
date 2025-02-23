@@ -30,7 +30,7 @@ use serde::Deserialize;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tracing::Level;
 use utoipa::IntoParams;
-use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_core::{BlobId, EncodingType, EpochCount, ENCODING_TYPE};
 use walrus_proc_macros::RestApiError;
 use walrus_sdk::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
@@ -434,5 +434,5 @@ pub(super) fn default_epochs() -> EpochCount {
 }
 
 pub(super) fn default_encoding_type() -> EncodingType {
-    EncodingType::RS2
+    ENCODING_TYPE
 }

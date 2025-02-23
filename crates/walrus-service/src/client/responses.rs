@@ -39,6 +39,7 @@ use walrus_core::{
     NetworkPublicKey,
     PublicKey,
     ShardIndex,
+    ENCODING_TYPE,
 };
 use walrus_sdk::{
     api::{BlobStatus, ServiceHealthInfo},
@@ -61,7 +62,6 @@ use walrus_sui::{
 use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
-    ENCODING_TYPE,
 };
 use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
 

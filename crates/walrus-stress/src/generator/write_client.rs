@@ -14,9 +14,9 @@ use walrus_core::{
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
-    EncodingType,
     EpochCount,
     SliverPairIndex,
+    ENCODING_TYPE,
 };
 use walrus_service::client::{
     Client,
@@ -41,9 +41,7 @@ use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
 
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RS2;
-
+/// Client for writing test blobs to storage nodes
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {

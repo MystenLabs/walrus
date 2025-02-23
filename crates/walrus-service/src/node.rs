@@ -67,7 +67,6 @@ use walrus_core::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    EncodingType,
     Epoch,
     InconsistencyProof,
     PublicKey,
@@ -76,6 +75,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
     SymbolId,
+    SUPPORTED_ENCODING_TYPES,
 };
 use walrus_sdk::{
     api::{
@@ -168,9 +168,6 @@ mod storage;
 
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
-
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -2073,6 +2070,19 @@ impl ServiceState for StorageNodeInner {
             StoreSliverError::NotCurrentlyRegistered,
         );
 
+        // Get metadata first to check encoding type
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("database error when storing sliver")?
+            .ok_or(StoreSliverError::MissingMetadata)?;
+
+        // Check if encoding type is supported
+        let encoding_type = metadata.metadata().encoding_type();
+        if !SUPPORTED_ENCODING_TYPES.contains(&encoding_type) {
+            return Err(StoreSliverError::UnsupportedEncodingType(encoding_type));
+        }
+
         self.store_sliver_unchecked(blob_id, sliver_pair_index, sliver)
     }
 
@@ -2355,6 +2365,7 @@ mod tests {
         encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        ENCODING_TYPE,
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};

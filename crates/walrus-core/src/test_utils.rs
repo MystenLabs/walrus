@@ -27,15 +27,14 @@ use crate::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    EncodingType,
     RecoverySymbol,
     Sliver,
     SliverIndex,
     SliverPairIndex,
+    ENCODING_TYPE,
 };
 
-const ENCODING_TYPE: EncodingType = EncodingType::RS2;
-
+/// Returns a deterministic fixed protocol key pair for testing.
 /// Returns a deterministic fixed protocol key pair for testing.
 ///
 /// Various testing facilities can use this key and unit-test can re-generate it to verify the

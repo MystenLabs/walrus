@@ -76,6 +76,47 @@ pub type Epoch = u32;
 /// The number of epochs.
 pub type EpochCount = u32;
 
+/// The supported encoding types and default encoding type for this build.
+const ENCODING_CONFIG: (&[EncodingType], EncodingType) = {
+    // Default to RS2 if no specific encoding feature is enabled
+    #[cfg(not(any(
+        feature = "encoding=rs2",
+        feature = "encoding=raptorq",
+        feature = "encoding=raptor-and-rs2"
+    )))]
+    {
+        (&[EncodingType::RS2], EncodingType::RS2)
+    }
+
+    // Single encoding configurations
+    #[cfg(feature = "encoding=rs2")]
+    {
+        (&[EncodingType::RS2], EncodingType::RS2)
+    }
+    #[cfg(feature = "encoding=raptorq")]
+    {
+        (
+            &[EncodingType::RedStuffRaptorQ],
+            EncodingType::RedStuffRaptorQ,
+        )
+    }
+
+    // Multiple encoding configuration
+    #[cfg(feature = "encoding=raptor-and-rs2")]
+    {
+        (
+            &[EncodingType::RS2, EncodingType::RedStuffRaptorQ],
+            EncodingType::RS2,
+        )
+    }
+};
+
+/// The encoding types supported for this build.
+pub const SUPPORTED_ENCODING_TYPES: &[EncodingType] = ENCODING_CONFIG.0;
+
+/// The default encoding type to use.
+pub const ENCODING_TYPE: EncodingType = ENCODING_CONFIG.1;
+
 /// Walrus epoch.
 // Schema definition for the type alias used in OpenAPI schemas.
 #[derive(Debug)]

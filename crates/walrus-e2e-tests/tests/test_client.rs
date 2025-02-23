@@ -27,9 +27,9 @@ use walrus_core::{
     messages::BlobPersistenceType,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
-    EncodingType,
     EpochCount,
     SliverPairIndex,
+    ENCODING_TYPE,
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::api::BlobStatus;
@@ -69,9 +69,6 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
-
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -164,7 +161,7 @@ async fn run_store_and_read_with_crash_failures(
         .iter()
         .map(|(path, blob)| (path.clone(), blob.clone()))
         .collect();
-
+    println!("encoding type: {:?}", ENCODING_TYPE);
     let store_result = client
         .as_ref()
         .reserve_and_store_blobs_retry_committees_with_path(

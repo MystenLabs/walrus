@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
-use walrus_core::encoding::{EncodingConfig, EncodingConfigTrait as _, Primary};
+use walrus_core::{
+    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
+    ENCODING_TYPE,
+};
 use walrus_sui::client::{
     contract_config::ContractConfig,
     retry_client::RetriableSuiClient,
@@ -28,7 +31,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{daemon::CacheConfig, ENCODING_TYPE};
+use super::daemon::CacheConfig;
 use crate::{
     client::{error::JwtDecodeError, refresh::CommitteesRefreshConfig},
     common::utils,

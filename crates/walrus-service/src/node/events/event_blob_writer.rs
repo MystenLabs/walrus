@@ -30,6 +30,7 @@ use walrus_core::{
     BlobId,
     Epoch,
     Sliver,
+    ENCODING_TYPE,
 };
 use walrus_sui::{
     client::SuiClientError,
@@ -52,7 +53,6 @@ use crate::node::{
         PositionedStreamEvent,
     },
     StorageNodeInner,
-    ENCODING_TYPE,
 };
 
 const CERTIFIED: &str = "certified_blob_store";

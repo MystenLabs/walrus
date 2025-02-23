@@ -143,3 +143,7 @@ inherits = "test"
 opt-level = 1
 overflow-checks = true
 panic = 'abort'
+
+[workspace.features]
+# Define encoding feature with possible values
+encoding = ["raptor-and-rs2", "raptorq", "rs2"]

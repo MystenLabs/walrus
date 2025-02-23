@@ -19,6 +19,7 @@ mod tests {
     use walrus_core::{
         encoding::{Primary, Secondary},
         EncodingType,
+        ENCODING_TYPE,
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
@@ -42,8 +43,6 @@ mod tests {
         "delete-cf-after",
         "create-cf-before",
     ];
-
-    const ENCODING_TYPE: EncodingType = EncodingType::RS2;
 
     /// Returns a simulator configuration that adds random network latency between nodes.
     ///

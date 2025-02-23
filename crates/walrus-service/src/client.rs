@@ -92,9 +92,6 @@ mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
-// TODO (WAL-607): Support both encoding types.
-const ENCODING_TYPE: EncodingType = EncodingType::RS2;
-
 /// The maximum number of retries for an operation that is stopped because of a committee change.
 // TODO: make this configurable.
 const MAX_COMMITTEE_CHANGE_RETRIES: u32 = 3;

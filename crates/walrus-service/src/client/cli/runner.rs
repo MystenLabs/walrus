@@ -32,6 +32,8 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
+    ENCODING_TYPE,
+    SUPPORTED_ENCODING_TYPES,
 };
 use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
@@ -107,14 +109,9 @@ use crate::{
         ClientDaemon,
         Config,
         StoreWhen,
-        ENCODING_TYPE,
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };
-
-// TODO: Make this configurable based on the network.
-const SUPPORTED_ENCODING_TYPES: [EncodingType; 2] =
-    [EncodingType::RedStuffRaptorQ, EncodingType::RS2];
 
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
@@ -683,12 +680,12 @@ impl ClientCommandRunner {
                 &sui_read_client,
                 false,
                 SortBy::default(),
-                &SUPPORTED_ENCODING_TYPES,
+                SUPPORTED_ENCODING_TYPES,
             )
             .await?
             .print_output(self.json),
             Some(InfoCommands::All { sort }) => {
-                InfoOutput::get_system_info(&sui_read_client, true, sort, &SUPPORTED_ENCODING_TYPES)
+                InfoOutput::get_system_info(&sui_read_client, true, sort, SUPPORTED_ENCODING_TYPES)
                     .await?
                     .print_output(self.json)
             }
@@ -702,7 +699,7 @@ impl ClientCommandRunner {
                 .await?
                 .print_output(self.json),
             Some(InfoCommands::Price) => {
-                InfoPriceOutput::get_price_info(&sui_read_client, &SUPPORTED_ENCODING_TYPES)
+                InfoPriceOutput::get_price_info(&sui_read_client, SUPPORTED_ENCODING_TYPES)
                     .await?
                     .print_output(self.json)
             }

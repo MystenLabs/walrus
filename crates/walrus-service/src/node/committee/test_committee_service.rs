@@ -38,6 +38,7 @@ use walrus_core::{
     SliverIndex,
     SliverPairIndex,
     SliverType,
+    ENCODING_TYPE,
 };
 use walrus_sdk::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
@@ -55,7 +56,6 @@ use crate::{
             NodeServiceFactory,
         },
         config::CommitteeServiceConfig,
-        ENCODING_TYPE,
     },
     test_utils,
 };

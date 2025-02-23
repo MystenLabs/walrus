@@ -23,6 +23,7 @@ use walrus_core::{
     EncodingType,
     Epoch,
     EpochCount,
+    ENCODING_TYPE,
 };
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
@@ -31,7 +32,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::{config::AuthConfig, daemon::CacheConfig, ENCODING_TYPE};
+use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -1131,7 +1132,7 @@ impl EpochArg {
 pub(crate) mod default {
     use std::{net::SocketAddr, time::Duration};
 
-    use walrus_core::EncodingType;
+    use walrus_core::{EncodingType, ENCODING_TYPE};
     use walrus_sui::utils::SuiNetwork;
 
     pub(crate) fn max_body_size_kib() -> usize {
@@ -1218,7 +1219,7 @@ pub(crate) mod default {
     }
 
     pub(crate) fn encoding_type() -> EncodingType {
-        EncodingType::RS2
+        ENCODING_TYPE
     }
 }
 
