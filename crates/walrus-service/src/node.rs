@@ -3936,7 +3936,7 @@ mod tests {
         assignment: Option<&[&[u16]]>,
         shard_sync_config: Option<ShardSyncConfig>,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
-        let assignment = assignment.unwrap_or(&[&[0], &[1]]);
+        let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
@@ -4464,7 +4464,8 @@ mod tests {
             let blobs_expired: Vec<_> = blobs_expired.iter().map(|b| &b[..]).collect();
 
             // Generates a cluster with two nodes and one shard each.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]], None).await?;
+            let (cluster, events) =
+                cluster_at_epoch1_without_blobs(&[&[0, 1], &[2, 3]], None).await?;
 
             // Uses fail point to track whether shard sync recovery is triggered.
             let shard_sync_recovery_triggered = Arc::new(AtomicBool::new(false));
@@ -4714,7 +4715,8 @@ mod tests {
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
             let (cluster, events, _blob_detail) =
-                cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[BLOB], 2, None).await?;
+                cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[BLOB], 2, None)
+                    .await?;
             cluster.nodes[0]
                 .storage_node
                 .start_epoch_change_finisher
