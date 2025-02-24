@@ -598,7 +598,9 @@ async fn backup_fetcher(
             }
         } else {
             // Nothing to fetch. We are idle. Let's rest a bit.
+            backup_metric_set.idle_state.set(1.0);
             tokio::time::sleep(backup_config.idle_fetcher_sleep_time).await;
+            backup_metric_set.idle_state.set(0.0);
         }
     }
 }

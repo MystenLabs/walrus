@@ -41,6 +41,9 @@ telemetry::define_metric_set! {
 
         #[help = "The count of database reconnects"]
         db_reconnects: IntCounter[],
+
+        #[help = "Idle"]
+        idle_state: Gauge[],
     }
 }
 
