@@ -99,12 +99,11 @@ async fn test_store_and_read_blob_without_failures(blob_size: usize) {
 
 /// Basic read and write test for the client.
 ///
-/// This test generates random blobs and stores them using different encoding types.
+/// It generates random blobs and stores them using different encoding types.
 /// It then reads the blobs back and verifies that the data is correct.
 ///
 /// The test uses a random number of encoding types for each blob.
-///
-pub async fn basic_read_write<F>(
+pub async fn basic_store_and_read<F>(
     client: &WithTempDir<Client<SuiContractClient>>,
     num_blobs: usize,
     data_length: usize,
@@ -113,27 +112,19 @@ pub async fn basic_read_write<F>(
 where
     F: FnOnce() -> TestResult,
 {
-    // Generate random blobs
+    // Generate random blobs.
     let blob_data = walrus_test_utils::random_data_list(data_length, num_blobs);
-
-    // Create mappings to track blobs
     let mut path_to_data: HashMap<PathBuf, Vec<u8>> = HashMap::new();
     let mut blobs_by_encoding: HashMap<EncodingType, Vec<(PathBuf, Vec<u8>)>> = HashMap::new();
     let mut path_to_blob_id: HashMap<PathBuf, BlobId> = HashMap::new();
 
     // For each blob, create multiple encodings and paths
     for (i, data) in blob_data.iter().enumerate() {
-        // Randomly decide how many encodings to use (1 to 3)
         let encodings = random_encodings(None);
 
-        // For each encoding type, create a path and store mappings
         for encoding in encodings {
             let path = PathBuf::from(format!("blob_{}_{}", i, encoding));
-
-            // Store path -> data mapping
             path_to_data.insert(path.clone(), data.to_vec());
-
-            // Group by encoding type for storage
             blobs_by_encoding
                 .entry(encoding)
                 .or_default()
@@ -141,7 +132,7 @@ where
         }
     }
 
-    // Store blobs grouped by encoding type
+    // Store blobs grouped by encoding type.
     for (encoding_type, blobs_with_paths) in blobs_by_encoding {
         let store_result = client
             .as_ref()
@@ -155,7 +146,6 @@ where
             )
             .await?;
 
-        // Record blob IDs with their paths
         for result in store_result {
             match result.blob_store_result {
                 BlobStoreResult::NewlyCreated { blob_object, .. } => {
@@ -173,10 +163,10 @@ where
         }
     }
 
-    // Call the pre-read hook before reading data
+    // Call the pre-read hook before reading data.
     pre_read_hook()?;
 
-    // Read back and verify all blobs
+    // Read back and verify all blobs.
     for (path, blob_id) in path_to_blob_id {
         let read_data = client.as_ref().read_blob::<Primary>(&blob_id).await?;
 
@@ -267,8 +257,8 @@ async fn run_store_and_read_with_crash_failures(
         }
     };
 
-    // Use basic_read_write with our pre_read_hook.
-    basic_read_write(&client, 4, data_length, pre_read_hook).await
+    // Use basic_store_and_read with our pre_read_hook.
+    basic_store_and_read(&client, 4, data_length, pre_read_hook).await
 }
 
 async_param_test! {

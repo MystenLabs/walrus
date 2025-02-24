@@ -2598,9 +2598,8 @@ fn committee_from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Ep
         .expect("valid members to be provided for tests")
 }
 
-/// Randomly selects multiple encoding types from the supported encoding types.
+/// Randomly selects up to `n` encoding types from the supported encoding types.
 ///
-/// The number of selected encoding types is up to `n`.
 /// If `n` is `None`, it defaults to the number of supported encoding types.
 pub fn random_encodings(n: Option<usize>) -> Vec<EncodingType> {
     let max_count = n.unwrap_or(SUPPORTED_ENCODING_TYPES.len());
