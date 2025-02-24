@@ -386,7 +386,7 @@ impl<T: ReadClient> Client<T> {
                         Ok(result) => return Ok(result),
                         // Operation failed but may be retryable due to committee change
                         Err(error) if error.may_be_caused_by_epoch_change() => {
-                            tracing::info!(?attempts,
+                            tracing::debug!(?attempts,
                                 "operation failed; epoch change detected; \
                                 forcing committee refresh");
                             self.force_refresh_committees().await?;
