@@ -407,7 +407,15 @@ impl<T: ReadClient> Client<T> {
         self.sui_client
             .get_blob_by_object_id(blob_object_id)
             .await
-            .map_err(ClientError::other)
+            .map_err(|e| {
+                if e.to_string()
+                    .contains("response does not contain object data")
+                {
+                    ClientError::from(ClientErrorKind::BlobIdDoesNotExist)
+                } else {
+                    ClientError::other(e)
+                }
+            })
     }
 }
 
