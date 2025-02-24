@@ -26,6 +26,7 @@ const MAX_SUBSIDY_RATE: u16 = 10_000; // 100%
 const EInvalidSubsidyRate: u64 = 0;
 /// The admin cap is not authorized for the `Subsidies` object.
 const EUnauthorizedAdminCap: u64 = 1;
+/// The package version is not compatible with the `Subsidies` object.
 const EWrongVersion: u64 = 2;
 
 // === Structs ===

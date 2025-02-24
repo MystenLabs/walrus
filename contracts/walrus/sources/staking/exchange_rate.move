@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// A utility module which implements an `ExchangeRate` struct and its methods.
-/// It stores a fixed point exchange rate between the Wal token and pool shares.
+/// It stores a fixed point exchange rate between the WAL token and pool shares.
 module walrus::pool_exchange_rate;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
-/// The exchange rate between the shares and the Wal token is invalid.
+/// The exchange rate between the shares and the WAL token is invalid.
 const EInvalidRate: u64 = 0;
 
 /// Represents the exchange rate for the staking pool.
