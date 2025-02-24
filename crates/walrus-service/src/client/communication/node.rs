@@ -301,19 +301,25 @@ impl NodeWriteCommunication<'_> {
         pairs: impl IntoIterator<Item = &SliverPair>,
         blob_persistence_type: &BlobPersistenceType,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
-        tracing::debug!("storing metadata and sliver pairs");
+        tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let result = async {
             let metadata_status = self
                 .store_metadata_with_retries(metadata)
                 .await
                 .map_err(StoreError::Metadata)?;
-            tracing::debug!(node = %self.node.public_key, ?metadata_status,
+            tracing::debug!(
+                node = %self.node.public_key,
+                ?metadata_status,
+                blob_id = %metadata.blob_id(),
                 "finished storing metadata on node");
 
             let n_stored_slivers = self
                 .store_pairs(metadata.blob_id(), &metadata_status, pairs)
                 .await?;
-            tracing::debug!(node = %self.node.public_key, n_stored_slivers,
+            tracing::debug!(
+                node = %self.node.public_key,
+                n_stored_slivers,
+                blob_id = %metadata.blob_id(),
                 "finished storing slivers on node");
 
             self.get_confirmation_with_retries_inner(
@@ -325,8 +331,12 @@ impl NodeWriteCommunication<'_> {
             .map_err(StoreError::Confirmation)
         }
         .await;
-        tracing::debug!(node = %self.node.public_key, ?result,
-            "storing metadata and sliver pairs finished");
+        tracing::debug!(
+            blob_id = %metadata.blob_id(),
+            node = %self.node.public_key,
+            ?result,
+            "storing metadata and sliver pairs finished"
+        );
         self.to_node_result_with_n_shards(result)
     }
 

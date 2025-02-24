@@ -49,6 +49,7 @@ use walrus_sui::{
     },
     types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
 };
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use self::{
     communication::NodeResult,
@@ -94,7 +95,9 @@ mod multiplexer;
 
 /// The maximum number of retries for an operation that is stopped because of a committee change.
 // TODO: make this configurable.
-const MAX_COMMITTEE_CHANGE_RETRIES: u32 = 3;
+const MAX_COMMITTEE_CHANGE_RETRIES: u32 = 5;
+const COMMITTEE_CHANGE_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
+const COMMITTEE_CHANGE_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
 
 type ClientResult<T> = Result<T, ClientError>;
 
@@ -360,43 +363,55 @@ impl<T: ReadClient> Client<T> {
     {
         let mut attempts = 0;
 
+        debug_assert!(MAX_COMMITTEE_CHANGE_RETRIES > 0);
+        let mut backoff = ExponentialBackoff::new_with_seed(
+            COMMITTEE_CHANGE_RETRY_MIN_DELAY,
+            COMMITTEE_CHANGE_RETRY_MAX_DELAY,
+            Some(MAX_COMMITTEE_CHANGE_RETRIES - 1),
+            123,
+        );
+
         // Retry the given function if the client gets notified that the committees have changed for
         // N-1 times; if it does not succeed after N-1 times, then the last try is made outside the
         // loop.
-        while attempts < MAX_COMMITTEE_CHANGE_RETRIES - 1 {
+        while let Some(delay) = backoff.next_delay() {
             tokio::select! {
                 _ = self.committees_handle.change_notified() => {
                     tracing::warn!(
                         "notified that committees have changed; \
                         stopping the current operation and retrying"
                     );
-                    attempts += 1;
-                    continue;
                 }
                 result = func() => {
                     match result {
                         Ok(result) => return Ok(result),
-                        Err(error) => {
-                            if error.may_be_caused_by_epoch_change() {
-                                tracing::warn!(
-                                    %error,
-                                    "operation failed; maybe because of epoch change; \
-                                    forcing committee refresh and retrying"
-                                );
-                                self.force_refresh_committees().await?;
-                                attempts += 1;
-                                continue;
-                            } else {
-                                tracing::warn!(%error, "operation failed; not retrying");
-                                return Err(error);
-                            }
+                        // Operation failed but may be retryable due to committee change
+                        Err(error) if error.may_be_caused_by_epoch_change() => {
+                            tracing::info!(?attempts,
+                                "operation failed; epoch change detected; \
+                                forcing committee refresh");
+                            self.force_refresh_committees().await?;
                         },
-                    };
+                        // Operation failed with non-retryable error
+                        Err(error) => {
+                            tracing::warn!(%error, "operation failed; not retrying");
+                            return Err(error);
+                        },
+                    }
                 },
             };
+
+            attempts += 1;
+            tracing::info!(
+                ?attempts,
+                "committee change detected; retrying after {:?}",
+                delay
+            );
+            tokio::time::sleep(delay).await;
         }
 
         // The last try.
+        tracing::warn!(?attempts, "retries exhausted; conduct one last try");
         func().await
     }
 
@@ -695,6 +710,7 @@ impl Client<SuiContractClient> {
         );
 
         let store_op_timer = Instant::now();
+        // Register blobs if they are not registered, and get the store operations.
         let store_operations = self
             .resource_manager(&committees)
             .await
