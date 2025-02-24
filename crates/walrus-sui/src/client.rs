@@ -30,6 +30,7 @@ use sui_types::{
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
+use tracing::Level;
 use transaction_builder::{WalrusPtbBuilder, MAX_BURNS_PER_PTB};
 use walrus_core::{
     ensure,
@@ -426,11 +427,8 @@ impl SuiContractClient {
         .await
     }
 
-    /// Registers a blob with the specified [`BlobId`] using the provided [`StorageResource`],
-    /// and returns the created blob object.
-    ///
-    /// `blob_size` is the size of the unencoded blob. The encoded size of the blob must be
-    /// less than or equal to the size reserved in `storage`.
+    /// Registers blobs with the specified [`BlobObjectMetadata`] and [`StorageResource`]s,
+    /// and returns the created blob objects.
     pub async fn register_blobs(
         &self,
         blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
@@ -1241,14 +1239,21 @@ impl SuiContractClientInner {
     ///
     /// `blob_size` is the size of the unencoded blob. The encoded size of the blob must be
     /// less than or equal to the size reserved in `storage`.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn register_blobs(
         &mut self,
         blob_metadata_and_storage: Vec<(BlobObjectMetadata, StorageResource)>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
+        if blob_metadata_and_storage.is_empty() {
+            tracing::debug!("no blobs to register");
+            return Ok(vec![]);
+        }
+
+        let expected_num_blobs = blob_metadata_and_storage.len();
+        tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all register blob commands for all blobs.
-        let expected_num_blobs = blob_metadata_and_storage.len();
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
             pt_builder
                 .register_blob(storage.id.into(), blob_metadata, persistence)
@@ -1276,20 +1281,25 @@ impl SuiContractClientInner {
     ///
     /// This combines the [`reserve_space`][Self::reserve_space] and
     /// [`register_blobs`][Self::register_blobs] functions in one atomic transaction.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn reserve_and_register_blobs(
         &mut self,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
+        if blob_metadata_list.is_empty() {
+            tracing::debug!("no blobs to register");
+            return Ok(vec![]);
+        }
+        let expected_num_blobs = blob_metadata_list.len();
         tracing::debug!(
-            size = blob_metadata_list.len(),
+            num_blobs = expected_num_blobs,
             "starting to reserve and register blobs"
         );
 
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all reserve space and register blob commands for all blobs.
-        let expected_num_blobs = blob_metadata_list.len();
         for blob_metadata in blob_metadata_list.into_iter() {
             let storage_arg = pt_builder
                 .reserve_space(blob_metadata.encoded_size, epochs_ahead)
@@ -1429,6 +1439,7 @@ impl SuiContractClientInner {
 
     /// Registers candidate nodes, sending the resulting capability objects to the specified
     /// addresses.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn register_candidates(
         &mut self,
         registration_params_with_stake_amounts: Vec<(
@@ -1438,6 +1449,10 @@ impl SuiContractClientInner {
         )>,
     ) -> SuiClientResult<Vec<StorageNodeCap>> {
         let count = registration_params_with_stake_amounts.len();
+        if count == 0 {
+            tracing::debug!("no candidates to register");
+            return Ok(vec![]);
+        }
 
         let mut pt_builder = self.transaction_builder()?;
         for (node_parameters, proof_of_possession, address) in
@@ -1469,11 +1484,16 @@ impl SuiContractClientInner {
     /// For each entry in `node_ids_with_amounts`, stakes the amount of WAL specified by the second
     /// element of the pair with the node represented by the first element of the pair in a single
     /// PTB.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn stake_with_pools(
         &mut self,
         node_ids_with_amounts: &[(ObjectID, u64)],
     ) -> SuiClientResult<Vec<StakedWal>> {
         let count = node_ids_with_amounts.len();
+        if count == 0 {
+            tracing::debug!("no nodes to stake with provided");
+            return Ok(vec![]);
+        }
         let mut pt_builder = self.transaction_builder()?;
         for (node_id, amount) in node_ids_with_amounts.iter() {
             pt_builder.stake_with_pool(*amount, *node_id).await?;
@@ -1783,6 +1803,8 @@ impl SuiContractClientInner {
         // Get the current gas price from the network
         let gas_price = self.wallet.get_reference_gas_price().await?;
         let wallet_address = self.wallet.active_address()?;
+
+        tracing::debug!(?programmable_transaction, "sending PTB");
 
         // Estimate the gas budget unless explicitly set.
         let gas_budget = if let Some(budget) = self.gas_budget {

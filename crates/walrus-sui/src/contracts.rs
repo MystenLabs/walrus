@@ -51,7 +51,7 @@ pub trait AssociatedContractStruct: DeserializeOwned {
     /// Converts a [`SuiObjectData`] to [`Self`].
     #[tracing::instrument(err(Debug), skip_all, fields(object_id = %sui_object_data.object_id))]
     fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, MoveConversionError> {
-        tracing::debug!(
+        tracing::trace!(
             target_struct = %Self::CONTRACT_STRUCT,
             "converting Move object to Rust struct",
         );

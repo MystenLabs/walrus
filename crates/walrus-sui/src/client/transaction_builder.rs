@@ -236,7 +236,7 @@ impl WalrusPtbBuilder {
         function: FunctionTag<'_>,
         arguments: Vec<Argument>,
     ) -> SuiClientResult<Argument> {
-        tracing::debug!(
+        tracing::trace!(
             package_id = package_id.to_canonical_string(true),
             ?function,
             ?arguments,

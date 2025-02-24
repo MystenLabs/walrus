@@ -1055,6 +1055,7 @@ impl ReadClient for SuiReadClient {
             .await?;
         self.refresh_package_id_with_id(walrus_package_id).await
     }
+
     async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
         let subsidies = self
             .subsidies

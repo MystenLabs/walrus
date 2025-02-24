@@ -800,10 +800,10 @@ pub struct Subsidies {
     pub system_subsidy_rate: u16,
     /// The total amount of WAL available for subsidies
     pub subsidy_pool: u64,
-    /// The version of the subsidies object
-    pub version: u64,
     /// The package ID of the subsidies contract
     pub package_id: ObjectID,
+    /// The version of the subsidies object
+    pub version: u64,
 }
 
 impl AssociatedContractStruct for Subsidies {
