@@ -118,7 +118,7 @@ where
     let mut blobs_by_encoding: HashMap<EncodingType, Vec<(PathBuf, Vec<u8>)>> = HashMap::new();
     let mut path_to_blob_id: HashMap<PathBuf, BlobId> = HashMap::new();
 
-    // For each blob, create multiple encodings and paths
+    // For each blob, create multiple encodings and paths.
     for (i, data) in blob_data.iter().enumerate() {
         let encodings = random_encodings(None);
 
