@@ -363,7 +363,6 @@ impl<T: ReadClient> Client<T> {
     {
         let mut attempts = 0;
 
-        debug_assert!(MAX_COMMITTEE_CHANGE_RETRIES > 0);
         let mut backoff = ExponentialBackoff::new_with_seed(
             COMMITTEE_CHANGE_RETRY_MIN_DELAY,
             COMMITTEE_CHANGE_RETRY_MAX_DELAY,

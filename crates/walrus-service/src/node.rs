@@ -880,7 +880,6 @@ impl StorageNode {
                     stream_element.element.event_id(),
                     self.inner.clone(),
                 );
-                tracing::debug!("processing event {:?}: {:?}", element_index, stream_element);
                 self.process_event(event_handle, stream_element.clone())
                     .inspect_err(|err| {
                         let span = tracing::Span::current();
@@ -893,13 +892,7 @@ impl StorageNode {
 
             if should_write {
                 if let Some(writer) = &mut event_blob_writer {
-                    let event_blob_writer_start = Instant::now();
                     writer.write(stream_element.clone(), element_index).await?;
-                    tracing::trace!(
-                        "event blob writer took {:?} for event {:?}",
-                        event_blob_writer_start.elapsed(),
-                        element_index
-                    );
                 }
             }
         }
