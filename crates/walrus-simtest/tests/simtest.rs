@@ -18,7 +18,6 @@ mod tests {
     use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
     use walrus_core::{
         encoding::{Primary, Secondary},
-        EncodingType,
         DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;

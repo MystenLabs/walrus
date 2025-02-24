@@ -889,6 +889,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
     let store_result = client
         .reserve_and_store_blobs(
             &blobs,
+            DEFAULT_ENCODING,
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
