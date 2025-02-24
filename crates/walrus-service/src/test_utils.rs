@@ -21,6 +21,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::{stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
+use rand::{seq::SliceRandom, Rng};
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
@@ -38,6 +39,7 @@ use walrus_core::{
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    EncodingType,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
     NetworkPublicKey,
@@ -46,6 +48,7 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    SUPPORTED_ENCODING_TYPES,
 };
 use walrus_sdk::client::Client;
 use walrus_sui::{
@@ -2593,6 +2596,20 @@ fn committee_from_members(members: Vec<SuiStorageNode>, initial_epoch: Option<Ep
         .expect("committee cannot have zero shards");
     Committee::new(members, initial_epoch.unwrap_or(1), n_shards)
         .expect("valid members to be provided for tests")
+}
+
+/// Randomly selects multiple encoding types from the supported encoding types.
+///
+/// The number of selected encoding types is up to `n`.
+/// If `n` is `None`, it defaults to the number of supported encoding types.
+pub fn random_encodings(n: Option<usize>) -> Vec<EncodingType> {
+    let max_count = n.unwrap_or(SUPPORTED_ENCODING_TYPES.len());
+    let count = rand::thread_rng().gen_range(1..=max_count.min(SUPPORTED_ENCODING_TYPES.len()));
+
+    SUPPORTED_ENCODING_TYPES
+        .choose_multiple(&mut rand::thread_rng(), count)
+        .copied()
+        .collect()
 }
 
 #[cfg(test)]

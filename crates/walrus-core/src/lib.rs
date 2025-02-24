@@ -837,7 +837,7 @@ impl<U: MerkleAuth> TryFrom<RecoverySymbol<U>> for SecondaryRecoverySymbol<U> {
 pub struct InvalidEncodingType;
 
 /// Supported Walrus encoding types.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum EncodingType {
