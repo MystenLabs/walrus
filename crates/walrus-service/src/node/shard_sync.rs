@@ -333,7 +333,6 @@ impl ShardSyncHandler {
             return;
         };
 
-        let node_clone = self.node.clone();
         let shard_sync_handler_clone = self.clone();
         let shard_sync_task = tokio::spawn(async move {
             let shard_index = shard_storage.id();
@@ -351,13 +350,7 @@ impl ShardSyncHandler {
             let mut shard_sync_success = false;
             loop {
                 match shard_sync_handler_clone
-                    .sync_shard_impl(
-                        node_clone.clone(),
-                        &shard_sync_handler_clone,
-                        shard_storage.clone(),
-                        current_epoch,
-                        directly_recover_shard,
-                    )
+                    .sync_shard_impl(shard_storage.clone(), current_epoch, directly_recover_shard)
                     .await
                 {
                     SyncShardResult::Success => {
@@ -373,16 +366,15 @@ impl ShardSyncHandler {
                     }
                     SyncShardResult::RetryAfterBackoff(force_recovery) => {
                         let backoff_duration = backoff.next_delay();
-                        if backoff_duration.is_none() {
+                        let Some(backoff_duration) = backoff_duration else {
                             tracing::warn!(
                                 shard_index=%shard_index,
                                 "maximum number of retries reached; stop shard sync; \
                                 restart node to retry shard sync"
                             );
                             break;
-                        }
-                        tokio::time::sleep(backoff_duration.expect("backoff duration is None"))
-                            .await;
+                        };
+                        tokio::time::sleep(backoff_duration).await;
                         if start_time.elapsed()
                             > shard_sync_handler_clone
                                 .config
@@ -396,13 +388,14 @@ impl ShardSyncHandler {
             }
 
             // Remove the task from the shard_sync_in_progress map upon completion.
-            let mut epoch_sync_done = false;
-            if shard_sync_success {
+            let epoch_sync_done = if shard_sync_success {
                 let mut shard_sync_map =
                     shard_sync_handler_clone.shard_sync_in_progress.lock().await;
                 shard_sync_map.remove(&shard_index);
-                epoch_sync_done = shard_sync_map.is_empty();
-            }
+                shard_sync_map.is_empty()
+            } else {
+                false
+            };
 
             if epoch_sync_done {
                 shard_sync_handler_clone
@@ -422,32 +415,30 @@ impl ShardSyncHandler {
     /// directly recovered instead of using shard sync.
     async fn sync_shard_impl(
         &self,
-        node: Arc<StorageNodeInner>,
-        shard_sync_handler: &ShardSyncHandler,
         shard_storage: Arc<ShardStorage>,
         current_epoch: Epoch,
         directly_recover_shard: bool,
     ) -> SyncShardResult {
         // The rate limit is enforced by the semaphore, without considering
         // the priority of the syncs.
-        let Ok(_permit) = shard_sync_handler.shard_sync_semaphore.acquire().await else {
+        let Ok(_permit) = self.shard_sync_semaphore.acquire().await else {
             tracing::error!("failed to acquire shard sync semaphore.");
             return SyncShardResult::RetryAfterBackoff(false);
         };
 
-        walrus_utils::with_label!(node.metrics.shard_sync_total, "start").inc();
+        walrus_utils::with_label!(self.node.metrics.shard_sync_total, "start").inc();
         let shard_index = shard_storage.id();
         let sync_result = shard_storage
             .start_sync_shard_before_epoch(
                 current_epoch,
-                node.clone(),
-                &shard_sync_handler.config,
+                self.node.clone(),
+                &self.config,
                 directly_recover_shard,
             )
             .await;
         match sync_result {
             Ok(_) => {
-                walrus_utils::with_label!(node.metrics.shard_sync_total, "complete").inc();
+                walrus_utils::with_label!(self.node.metrics.shard_sync_total, "complete").inc();
                 tracing::info!(
                     walrus.shard_index = %shard_index,
                     "successfully synced shard to before epoch {}",
@@ -456,7 +447,7 @@ impl ShardSyncHandler {
                 SyncShardResult::Success
             }
             Err(error) => {
-                walrus_utils::with_label!(node.metrics.shard_sync_total, "error").inc();
+                walrus_utils::with_label!(self.node.metrics.shard_sync_total, "error").inc();
                 tracing::error!(
                     ?error,
                     "failed to sync {shard_index} to before epoch {current_epoch}"
