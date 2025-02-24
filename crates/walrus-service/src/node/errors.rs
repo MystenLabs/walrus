@@ -184,6 +184,10 @@ pub enum StoreMetadataError {
     #[rest_api_error(reason = "INVALID_BLOB", status = ApiStatusCode::FailedPrecondition)]
     InvalidBlob(EventID),
 
+    #[error("unsupported encoding type {0}, supported types are: {SUPPORTED_ENCODING_TYPES:?}")]
+    #[rest_api_error(reason = "UNSUPPORTED_ENCODING_TYPE", status = ApiStatusCode::InvalidArgument)]
+    UnsupportedEncodingType(EncodingType),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] InternalError),

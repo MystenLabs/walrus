@@ -121,13 +121,13 @@ async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Resu
         1, 2, 3, 4, 5, 6, 7, 8,
     ];
 
-    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuffRaptorQ, size);
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), encoding_type, size);
     let blob_metadata = BlobObjectMetadata {
         blob_id,
         root_hash: Node::from(root_hash),
         unencoded_size: size,
         encoded_size: resource_size,
-        encoding_type: EncodingType::RedStuffRaptorQ,
+        encoding_type,
     };
 
     let blob_obj = walrus_client
@@ -208,13 +208,13 @@ async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Resu
         1, 2, 3, 4, 5, 6, 7, 0,
         1, 2, 3, 4, 5, 6, 7, 0,
     ];
-    let blob_id = BlobId::from_metadata(Node::from(root_hash), EncodingType::RedStuffRaptorQ, size);
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), encoding_type, size);
     let blob_metadata = BlobObjectMetadata {
         blob_id,
         root_hash: Node::from(root_hash),
         unencoded_size: size,
         encoded_size: resource_size,
-        encoding_type: EncodingType::RedStuffRaptorQ,
+        encoding_type,
     };
 
     let blob_obj = walrus_client

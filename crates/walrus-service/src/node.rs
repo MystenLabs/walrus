@@ -1999,6 +1999,12 @@ impl ServiceState for StorageNodeInner {
             return Ok(false);
         }
 
+        // Check if encoding type is supported
+        let encoding_type = metadata.metadata().encoding_type();
+        if !encoding_type.is_supported() {
+            return Err(StoreMetadataError::UnsupportedEncodingType(encoding_type));
+        }
+
         let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
@@ -3265,7 +3271,7 @@ mod tests {
                 object_id,
                 event_id,
                 size: 0,
-                encoding_type: walrus_core::EncodingType::RedStuffRaptorQ,
+                encoding_type: DEFAULT_ENCODING,
             }
             .into(),
         )?;
