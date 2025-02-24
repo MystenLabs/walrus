@@ -510,7 +510,7 @@ impl SuiReadClient {
     }
 
     /// Returns a mutable reference to the subsidies object.
-    pub fn subsidies_mut(&self) -> RwLockWriteGuard<Option<Subsidies>> {
+    fn subsidies_mut(&self) -> RwLockWriteGuard<Option<Subsidies>> {
         self.subsidies.write().expect("lock should not be poisoned")
     }
 
@@ -742,6 +742,20 @@ impl SuiReadClient {
             inner,
         };
         Ok(staking_object)
+    }
+
+    /// Sets a subsidies object to be used by the client.
+    pub async fn set_subsidies_object(&self, subsidies_object_id: ObjectID) -> SuiClientResult<()> {
+        let subsidies_package_id = self
+            .sui_client
+            .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
+            .await?;
+        *self.subsidies_mut() = Some(Subsidies {
+            package_id: subsidies_package_id,
+            object_id: subsidies_object_id,
+            subsidies_obj_initial_version: OnceCell::new(),
+        });
+        Ok(())
     }
 
     async fn refresh_package_id_with_id(&self, walrus_package_id: ObjectID) -> SuiClientResult<()> {

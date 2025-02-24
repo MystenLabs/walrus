@@ -2139,7 +2139,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{Subsidies as ClientSubsidies, SuiContractClient, SuiReadClient},
+        client::{SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -2333,7 +2333,7 @@ pub mod test_cluster {
             .await?;
 
         if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
-            let (subsidies_id, _) = admin_contract_client
+            let (subsidies_object_id, _) = admin_contract_client
                 .as_ref()
                 .create_and_fund_subsidies(
                     subsidies_pkg_id,
@@ -2342,8 +2342,12 @@ pub mod test_cluster {
                     DEFAULT_SUBSIDY_FUNDS,
                 )
                 .await?;
-            let subsidies = ClientSubsidies::new(subsidies_pkg_id, subsidies_id);
-            *admin_contract_client.inner.read_client().subsidies_mut() = Some(subsidies);
+
+            admin_contract_client
+                .inner
+                .read_client()
+                .set_subsidies_object(subsidies_object_id)
+                .await?;
         }
 
         let amounts_to_stake = test_nodes_config
