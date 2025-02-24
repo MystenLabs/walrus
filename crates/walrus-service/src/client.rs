@@ -11,6 +11,7 @@ use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use rand::{rngs::ThreadRng, RngCore as _};
+use refresh::are_current_previous_different;
 use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
 use responses::BlobStoreResultWithPath;
 use sui_types::base_types::ObjectID;
@@ -269,7 +270,7 @@ impl<T: ReadClient> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        self.retry_if_committees_change(|| self.read_blob::<U>(blob_id))
+        self.retry_if_notified_epoch_change(|| self.read_blob::<U>(blob_id))
             .await
     }
 
@@ -356,7 +357,18 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Retries the given function if the client gets notified that the committees have changed.
-    async fn retry_if_committees_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
+    async fn retry_if_notified_epoch_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = ClientResult<R>>,
+    {
+        let func_check_notify = || self.await_while_checking_notification(func());
+        self.retry_if_error_epoch_change(func_check_notify).await
+    }
+
+    /// Retries the given function if the function returns with an error that may be related to
+    /// epoch change.
+    async fn retry_if_error_epoch_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
     where
         F: Fn() -> Fut,
         Fut: Future<Output = ClientResult<R>>,
@@ -370,41 +382,35 @@ impl<T: ReadClient> Client<T> {
             123,
         );
 
-        // Retry the given function if the client gets notified that the committees have changed for
-        // N-1 times; if it does not succeed after N-1 times, then the last try is made outside the
-        // loop.
+        // Retry the given function N-1 times; if it does not succeed after N-1 times, then the
+        // last try is made outside the loop.
         while let Some(delay) = backoff.next_delay() {
-            tokio::select! {
-                _ = self.committees_handle.change_notified() => {
-                    tracing::warn!(
-                        "notified that committees have changed; \
-                        stopping the current operation and retrying"
-                    );
-                }
-                result = func() => {
-                    match result {
-                        Ok(result) => return Ok(result),
-                        // Operation failed but may be retryable due to committee change
-                        Err(error) if error.may_be_caused_by_epoch_change() => {
-                            tracing::debug!(?attempts,
-                                "operation failed; epoch change detected; \
-                                forcing committee refresh");
+            match func().await {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    if error.may_be_caused_by_epoch_change() {
+                        tracing::warn!(
+                            %error,
+                            "operation aborted; maybe because of epoch change; retrying"
+                        );
+                        if !matches!(*error.kind(), ClientErrorKind::CommitteeChangeNotified) {
+                            // If the error is CommitteeChangeNotified, we do not need to refresh
+                            // the committees.
+                            tracing::warn!("forcing committee refresh before retrying");
                             self.force_refresh_committees().await?;
-                        },
-                        // Operation failed with non-retryable error
-                        Err(error) => {
-                            tracing::warn!(%error, "operation failed; not retrying");
-                            return Err(error);
-                        },
+                        }
+                    } else {
+                        tracing::warn!(%error, "operation failed; not retrying");
+                        return Err(error);
                     }
-                },
+                }
             };
 
             attempts += 1;
             tracing::info!(
                 ?attempts,
-                "committee change detected; retrying after {:?}",
-                delay
+                ?delay,
+                "committee change detected; retrying after a delay",
             );
             tokio::time::sleep(delay).await;
         }
@@ -422,6 +428,22 @@ impl<T: ReadClient> Client<T> {
             .get_blob_by_object_id(blob_object_id)
             .await
             .map_err(ClientError::other)
+    }
+
+    /// Executes the function while also awaiiting on the change notification.
+    ///
+    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if the client is notified that
+    /// the committee has changed.
+    async fn await_while_checking_notification<Fut, R>(&self, func: Fut) -> ClientResult<R>
+    where
+        Fut: Future<Output = ClientResult<R>>,
+    {
+        tokio::select! {
+            _ = self.committees_handle.change_notified() => {
+                Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified))
+            },
+            result = func => result,
+        }
     }
 }
 
@@ -471,7 +493,7 @@ impl Client<SuiContractClient> {
             .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
             .await?;
 
-        self.retry_if_committees_change(|| {
+        self.retry_if_error_epoch_change(|| {
             self.reserve_and_store_encoded_blobs(
                 &pairs_and_metadata,
                 epochs_ahead,
@@ -504,7 +526,7 @@ impl Client<SuiContractClient> {
             .await?;
 
         let store_results = self
-            .retry_if_committees_change(|| {
+            .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(
                     &pairs_and_metadata,
                     epochs_ahead,
@@ -686,6 +708,10 @@ impl Client<SuiContractClient> {
         Ok((pairs, metadata))
     }
 
+    /// Stores the blobs on Walrus, reserving space or extending registered blobs, if necessary.
+    ///
+    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if, during the registration or
+    /// store operations, the client is notified that the committee has changed.
     async fn reserve_and_store_encoded_blobs(
         &self,
         pairs_and_metadata: &[(Vec<SliverPair>, VerifiedBlobMetadataWithId)],
@@ -701,7 +727,12 @@ impl Client<SuiContractClient> {
         let status_start_timer = Instant::now();
         let committees = self.get_committees().await?;
 
-        let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
+        // Retrieve the blob status, checking if the committee has changed in the meantime.
+        // This operation can be safely interrupted as it does not require a wallet.
+        let blob_id_to_metadata_with_status = self
+            .await_while_checking_notification(self.get_blob_statuses(pairs_and_metadata))
+            .await?;
+
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
             "retrieved {} blob statuses",
@@ -760,15 +791,30 @@ impl Client<SuiContractClient> {
         }
 
         // Get certificates for all new blobs.
-        let committees = self.get_committees().await?;
         let certify_blobs = new_blobs_and_ops
             .clone()
             .into_iter()
             .chain(certify_and_extend_blobs_and_ops.values().cloned())
             .collect::<Vec<_>>();
+
+        // Check if the committee has changed while registering the blobs.
+        if are_current_previous_different(
+            committees.as_ref(),
+            self.get_committees().await?.as_ref(),
+        ) {
+            tracing::warn!("committees have changed while registering blobs");
+            return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
+        }
+
+        // Get the blob certificates, possibly storing slivers, while checking if the committee has
+        // changed in the meantime.
+        // This operation can be safely interrupted as it does not require a wallet.
         let blobs_with_certificates = self
-            .get_all_blob_certificates(&certify_blobs, &blob_id_to_metadata_with_status)
+            .await_while_checking_notification(
+                self.get_all_blob_certificates(&certify_blobs, &blob_id_to_metadata_with_status),
+            )
             .await?;
+
         let blobs_with_cert_and_extend: Vec<CertifyAndExtendBlobParams> = blobs_with_certificates
             .into_iter()
             .map(|(blob, cert)| CertifyAndExtendBlobParams {
@@ -981,7 +1027,6 @@ impl Client<SuiContractClient> {
         Ok(blobs_with_certificates)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn get_blob_certificate(
         &self,
         blob_object: &Blob,

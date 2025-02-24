@@ -82,6 +82,8 @@ impl ClientError {
                 | ClientErrorKind::NoMetadataReceived
                 // Cannot get slivers because we are behind by several epochs.
                 | ClientErrorKind::NotEnoughSlivers
+                // The client was notified that the committee has changed.
+                | ClientErrorKind::CommitteeChangeNotified
         )
     }
 }
@@ -156,6 +158,9 @@ pub enum ClientErrorKind {
     /// The encoding type is not supported.
     #[error("unsupported encoding type: {0}")]
     UnsupportedEncodingType(EncodingType),
+    /// The client was notified that the committee has changed.
+    #[error("the client was notified that the committee has changed")]
+    CommitteeChangeNotified,
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

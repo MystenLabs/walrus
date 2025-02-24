@@ -240,6 +240,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
             ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
             ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",
+            ClientErrorKind::CommitteeChangeNotified => "committee-change-notified",
             ClientErrorKind::Other(_) => "unknown",
         }
     }
