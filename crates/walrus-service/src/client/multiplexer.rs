@@ -106,12 +106,12 @@ impl ClientMultiplexer {
             sui_client,
         );
 
-        // If the user has specified `keep == true`, the default post store action is to transfer
-        // the created objects to the main wallet after storing. Otherwise, they are burnt.
-        let default_post_store_action = if args.keep {
-            PostStoreAction::TransferTo(main_address)
-        } else {
+        // If the user has specified `burn_after_store == true`, the default post store action is to
+        // burn the created objects after storing. Otherwise, they are sent to the main wallet.
+        let default_post_store_action = if args.burn_after_store {
             PostStoreAction::Burn
+        } else {
+            PostStoreAction::TransferTo(main_address)
         };
 
         tracing::info!(?default_post_store_action, "client multiplexer initialized");

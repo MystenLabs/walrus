@@ -685,15 +685,15 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
-    /// If set, the publisher will keep the created Blob objects in its _main_ wallet.
+    /// If set, the publisher will burn the created Blob objects after they are created.
     ///
-    /// If unset, the publisher will immediately burn all created blob objects by default. However,
-    /// note that this flag _does not affect_ the use of the `send_object_to` query parameter:
-    /// Regardless of this flag's status, the publisher will send created objects to the address in
-    /// the `send_object_to` query parameter, if it is specified in the PUT request.
+    /// If unset, the publisher will keep all created blob objects in its _main wallet_ by default.
+    /// However, note that this flag _does not affect_ the use of the `send_object_to` query
+    /// parameter: Regardless of this flag's status, the publisher will send created objects to the
+    /// address in the `send_object_to` query parameter, if it is specified in the PUT request.
     #[clap(long, action)]
     #[serde(default)]
-    pub keep: bool,
+    pub burn_after_store: bool,
     /// If set, the publisher will verify the JWT token.
     ///
     /// If not specified, the verification is disabled.
@@ -1307,7 +1307,7 @@ mod tests {
                 gas_refill_amount: default::gas_refill_amount(),
                 wal_refill_amount: default::wal_refill_amount(),
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
-                keep: false,
+                burn_after_store: false,
                 jwt_decode_secret: None,
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
