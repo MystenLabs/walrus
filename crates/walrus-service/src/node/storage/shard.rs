@@ -500,6 +500,15 @@ impl ShardStorage {
         directly_recover_shard: bool,
     ) -> Result<(), SyncShardClientError> {
         tracing::info!(walrus.epoch = epoch, %directly_recover_shard, "syncing shard");
+
+        #[cfg(msim)]
+        {
+            // This fail point is used to signal that direct shard sync recovery is triggered.
+            if directly_recover_shard {
+                fail_point!("fail_point_direct_shard_sync_recovery");
+            }
+        }
+
         if self.status()? == ShardStatus::None {
             self.shard_status.insert(&(), &ShardStatus::ActiveSync)?
         }

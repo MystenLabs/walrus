@@ -807,7 +807,7 @@ mod tests {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
-        register_fail_point("fail_point_shard_sync_recovery", move || {
+        register_fail_point("fail_point_direct_shard_sync_recovery", move || {
             panic!("shard sync should not enter recovery mode in this test");
         });
 
@@ -963,7 +963,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
-        clear_fail_point("fail_point_shard_sync_recovery");
+        clear_fail_point("fail_point_direct_shard_sync_recovery");
     }
 
     #[walrus_simtest]
