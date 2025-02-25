@@ -26,6 +26,7 @@ use walrus_core::{
     merkle::Node,
     messages::BlobPersistenceType,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    test_utils::{random_encoding_type, random_encoding_types},
     BlobId,
     EncodingType,
     EpochCount,
@@ -50,7 +51,6 @@ use walrus_service::{
         StoreWhen,
     },
     test_utils::{
-        random_encodings,
         test_cluster,
         StorageNodeHandle,
         StorageNodeHandleTrait,
@@ -76,10 +76,6 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
-
-fn random_encoding() -> EncodingType {
-    random_encodings(Some(1))[0]
-}
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -120,7 +116,7 @@ where
 
     // For each blob, create multiple encodings and paths.
     for (i, data) in blob_data.iter().enumerate() {
-        let encodings = random_encodings(None);
+        let encodings = random_encoding_types();
 
         for encoding in encodings {
             let path = PathBuf::from(format!("blob_{}_{}", i, encoding));
@@ -296,7 +292,7 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     let (pairs, metadata) = client
         .as_ref()
         .encoding_config()
-        .get_for_type(random_encoding())
+        .get_for_type(random_encoding_type())
         .encode_with_metadata(&blob)?;
     let mut metadata = metadata.metadata().to_owned();
     let mut i = 0;
@@ -425,7 +421,7 @@ async fn test_store_with_existing_blob_resource(
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
-    let encoding_type = random_encoding();
+    let encoding_type = random_encoding_type();
     let metatdatum = blobs
         .iter()
         .map(|blob| {
@@ -574,7 +570,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
 
     // Initial setup, with blobs in different states, the names indicate the later outcome
     // of a following store operation.
-    let encoding_type = random_encoding();
+    let encoding_type = random_encoding_type();
     let reuse_blob = register_blob(&client, blobs[0], encoding_type, 40).await?;
     let certify_and_extend_blob = register_blob(&client, blobs[1], encoding_type, 10).await?;
     let already_certified_blob = store_blob(&client, blobs[2], encoding_type, 50).await?;
@@ -691,7 +687,7 @@ async fn test_store_with_existing_storage_resource(
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
-    let encoding_type = random_encoding();
+    let encoding_type = random_encoding_type();
     let pairs_and_metadata = client
         .as_ref()
         .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)
@@ -758,7 +754,7 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     let blobs = vec![blob.as_slice()];
     // Store the blob multiple times, using separate end times to obtain multiple blob objects
     // with the same blob ID.
-    let encoding_type = random_encoding();
+    let encoding_type = random_encoding_type();
     for idx in 1..blobs_to_create + 1 {
         client
             .as_ref()
@@ -824,7 +820,7 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let results = client
         .reserve_and_store_blobs(
             &blobs,
-            random_encoding(),
+            random_encoding_type(),
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
@@ -884,7 +880,7 @@ async fn test_blocklist() -> TestResult {
     let store_results = client
         .reserve_and_store_blobs(
             &[&blob],
-            random_encoding(),
+            random_encoding_type(),
             1,
             StoreWhen::Always,
             BlobPersistence::Deletable,
@@ -962,7 +958,7 @@ async fn test_blob_operations_with_subsidies() -> TestResult {
     let store_result = client
         .reserve_and_store_blobs(
             &blobs,
-            random_encoding(),
+            random_encoding_type(),
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -1021,7 +1017,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
     let client = client.as_ref();
     let blob = walrus_test_utils::random_data(314);
     let blobs = vec![blob.as_slice()];
-    let encoding_type = random_encoding();
+    let encoding_type = random_encoding_type();
 
     // NOTE: not in a param_test, because we want to test these store operations in sequence.
     // If the last `bool` parameter is `true`, the store operation should return a
@@ -1179,7 +1175,7 @@ async fn test_burn_blobs() -> TestResult {
             .as_ref()
             .reserve_and_store_blobs(
                 &[blob.as_slice()],
-                random_encoding(),
+                random_encoding_type(),
                 1,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -1229,7 +1225,7 @@ async fn test_extend_owned_blobs() -> TestResult {
 
     let current_epoch = client.as_ref().sui_client().current_epoch().await?;
     let blob = walrus_test_utils::random_data(314);
-    let encoding_type = random_encoding();
+    let encoding_type = random_encoding_type();
     let result = client
         .as_ref()
         .reserve_and_store_blobs(
@@ -1304,7 +1300,7 @@ async fn test_share_blobs() -> TestResult {
         .as_ref()
         .reserve_and_store_blobs(
             &[blob.as_slice()],
-            random_encoding(),
+            random_encoding_type(),
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -1399,7 +1395,7 @@ async fn test_post_store_action(
         .as_ref()
         .reserve_and_store_blobs_retry_committees(
             &blobs,
-            random_encoding(),
+            random_encoding_type(),
             1,
             StoreWhen::Always,
             BlobPersistence::Permanent,
@@ -1588,7 +1584,7 @@ impl<'a> BlobAttributeTestContext<'a> {
                 .as_mut()
                 .reserve_and_store_blobs(
                     &blobs,
-                    random_encoding(),
+                    random_encoding_type(),
                     idx,
                     StoreWhen::Always,
                     BlobPersistence::Permanent,

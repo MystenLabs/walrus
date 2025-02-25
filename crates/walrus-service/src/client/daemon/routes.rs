@@ -179,7 +179,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
     match client.get_blob_by_object_id(&blob_object_id).await {
         Ok(BlobWithAttribute { blob, attribute }) => {
             // Get the blob data using the existing get_blob function
-            let mut response = get_blob(
+            let mut response: axum::http::Response<axum::body::Body> = get_blob(
                 request_headers.clone(),
                 State(client),
                 Path(BlobIdString(blob.blob_id)),
