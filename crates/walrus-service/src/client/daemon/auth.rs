@@ -146,10 +146,9 @@ impl Claim {
                 }
             }
         }
-
+        let body_size_lower_hint = body_size_hint.lower();
         if let Some(size) = self.size {
-            let body_size_lower_hint = body_size_hint.lower();
-            if body_size_lower_hint > size {
+            if body_size_lower_hint > 0 && body_size_lower_hint > size {
                 tracing::debug!(
                     size = size,
                     body_size_lower_hint = body_size_lower_hint,
@@ -758,7 +757,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn verify_body_size() {
+    async fn verify_body_size_with_max_size() {
         let claim = Claim {
             jti: "test".to_string(),
             iat: None,
@@ -804,7 +803,88 @@ mod tests {
                     ),
                     correct_auth_header(token),
                     // Small body is ok.
-                    Some(Body::from(vec![42; 10])),
+                    Some(Body::from(vec![42; 5])),
+                ),
+                StatusCode::OK,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(other_token),
+                    // No body is ok.
+                    None,
+                ),
+                StatusCode::OK,
+            ),
+        ];
+
+        execute_requests(&router, requests).await;
+    }
+
+    #[tokio::test]
+    async fn verify_body_size_with_exact_size() {
+        let claim = Claim {
+            jti: "test".to_string(),
+            iat: None,
+            exp: FAR_EXP,
+            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
+            epochs: Some(1),
+            max_size: None,
+            size: Some(1000),
+            ..Default::default()
+        };
+        let (router, token, encode_key) = setup_router_and_token(
+            // Expiring sec.
+            0,
+            // Verify upload.
+            true,
+            // Use secret.
+            true,
+            claim.clone(),
+        );
+
+        let mut other_claim = claim;
+        // Need to change the JTI to avoid the replay suppression.
+        other_claim.jti = "other".to_string();
+        other_claim.size = None;
+        let other_token = encode(&Header::default(), &other_claim, &encode_key).unwrap();
+
+        let requests = vec![
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token.clone()),
+                    // Big body fails.
+                    Some(Body::from(vec![42; 1001])),
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token.clone()),
+                    // Small body fails.
+                    Some(Body::from(vec![42; 999])),
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        "/v1/blobs?epochs=1&send_object_to={}",
+                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token),
+                    Some(Body::from(vec![42; 1000])),
                 ),
                 StatusCode::OK,
             ),
