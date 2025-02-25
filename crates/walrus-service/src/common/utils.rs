@@ -9,7 +9,7 @@ use std::{
     fmt::Debug,
     future::Future,
     mem,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::Path,
     pin::Pin,
     str::FromStr,
@@ -240,8 +240,7 @@ impl MetricsAndLoggingRuntime {
     }
 
     /// Create a new runtime for metrics and logging.
-    pub fn new(mut metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
-        metrics_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    pub fn new(metrics_address: SocketAddr, runtime: Option<Runtime>) -> anyhow::Result<Self> {
         let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
         let walrus_registry = registry_service.default_registry();
 

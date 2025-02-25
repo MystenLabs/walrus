@@ -7,7 +7,7 @@ use std::{
     fmt::Display,
     fs,
     io::{self, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -1188,8 +1188,6 @@ impl StorageNodeRuntime {
             RestApiConfig::from(node_config),
             &metrics_runtime.registry,
         );
-        let mut rest_api_address = node_config.rest_api_address;
-        rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api
                 .run()
