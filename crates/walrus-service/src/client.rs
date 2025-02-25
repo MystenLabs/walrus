@@ -351,6 +351,10 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Retries the given function if the client gets notified that the committees have changed.
+    ///
+    /// This function should not be used to retry function `func` that cannot be interrupted at
+    /// arbitrary await points. Most importantly, functions that use the wallet to sign and execute
+    /// transactions on Sui.
     async fn retry_if_notified_epoch_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
     where
         F: Fn() -> Fut,
@@ -427,7 +431,7 @@ impl<T: ReadClient> Client<T> {
     ///
     /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if the client is notified that
     /// the committee has changed.
-    async fn await_while_checking_notification<Fut, R>(&self, func: Fut) -> ClientResult<R>
+    async fn await_while_checking_notification<Fut, R>(&self, future: Fut) -> ClientResult<R>
     where
         Fut: Future<Output = ClientResult<R>>,
     {
@@ -435,7 +439,7 @@ impl<T: ReadClient> Client<T> {
             _ = self.committees_handle.change_notified() => {
                 Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified))
             },
-            result = func => result,
+            result = future => result,
         }
     }
 }
