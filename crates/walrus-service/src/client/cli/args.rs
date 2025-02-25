@@ -685,7 +685,7 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
-    /// If set, the publisher will burn the created Blob objects after they are created.
+    /// If set, the publisher will burn the created Blob objects immediately.
     ///
     /// If unset, the publisher will keep all created blob objects in its _main wallet_ by default.
     /// However, note that this flag _does not affect_ the use of the `send_object_to` query
