@@ -30,6 +30,10 @@ communication_config:
     base_millis: 500
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
+  committee_change_backoff:
+    min_backoff_millis: 1000
+    max_backoff_millis: 5000
+    max_retries: 5
 refresh_config:
   refresh_grace_period_secs: 10
   max_auto_refresh_interval_secs: 30

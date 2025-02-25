@@ -50,7 +50,7 @@ use walrus_sui::{
     },
     types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
 };
-use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
+use walrus_utils::backoff::BackoffStrategy;
 
 use self::{
     communication::NodeResult,
@@ -93,12 +93,6 @@ pub mod metrics;
 mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
-
-/// The maximum number of retries for an operation that is stopped because of a committee change.
-// TODO: make this configurable.
-const MAX_COMMITTEE_CHANGE_RETRIES: u32 = 5;
-const COMMITTEE_CHANGE_RETRY_MIN_DELAY: Duration = Duration::from_secs(1);
-const COMMITTEE_CHANGE_RETRY_MAX_DELAY: Duration = Duration::from_secs(5);
 
 type ClientResult<T> = Result<T, ClientError>;
 
@@ -375,12 +369,11 @@ impl<T: ReadClient> Client<T> {
     {
         let mut attempts = 0;
 
-        let mut backoff = ExponentialBackoff::new_with_seed(
-            COMMITTEE_CHANGE_RETRY_MIN_DELAY,
-            COMMITTEE_CHANGE_RETRY_MAX_DELAY,
-            Some(MAX_COMMITTEE_CHANGE_RETRIES - 1),
-            123,
-        );
+        let mut backoff = self
+            .config
+            .communication_config
+            .committee_change_backoff
+            .get_strategy(ThreadRng::default().next_u64());
 
         // Retry the given function N-1 times; if it does not succeed after N-1 times, then the
         // last try is made outside the loop.
