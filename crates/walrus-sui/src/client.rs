@@ -4,7 +4,14 @@
 //! Client to call Walrus move functions from rust.
 
 use core::fmt;
-use std::{collections::HashMap, future::Future, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    future::Future,
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
@@ -27,6 +34,7 @@ use sui_types::{
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{ProgrammableTransaction, TransactionData, TransactionKind},
+    TypeTag,
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
@@ -341,6 +349,22 @@ enum PoolOperationWithAuthorization {
     Commission,
     /// The operation relates to the governance.
     Governance,
+}
+
+/// Enum to select between an emergency upgrade authorized with an EmergencyUpgradeCap
+/// or a normal quorum-based upgrade that has been voted for by a quorum of nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpgradeType {
+    /// Authorize and execute an emergency upgrade.
+    Emergency,
+    /// Execute a quorum-based upgrade.
+    Quorum,
+}
+
+impl UpgradeType {
+    fn is_emergency_upgrade(&self) -> bool {
+        *self == UpgradeType::Emergency
+    }
 }
 
 /// Result alias for functions returning a `SuiClientError`.
@@ -661,19 +685,40 @@ impl SuiContractClient {
         .await
     }
 
-    /// Performs an emergency upgrade.
+    /// Vote as node `node_id` for upgrading the walrus package to the package at
+    /// `package_path`.
+    /// Returns the digest of the package.
+    pub async fn vote_for_upgrade(
+        &self,
+        upgrade_manager: ObjectID,
+        node_id: ObjectID,
+        package_path: PathBuf,
+    ) -> SuiClientResult<[u8; 32]> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .vote_for_upgrade(upgrade_manager, node_id, package_path.clone())
+                .await
+        })
+        .await
+    }
+
+    /// Performs an upgrade, either executing a quorum-based upgrade or authorizing
+    /// and executing an emergency upgrade, depending on the `upgrade_type`.
     ///
     /// Returns the new package ID.
-    pub async fn emergency_upgrade(
+    pub async fn upgrade(
         &self,
         upgrade_manager: ObjectID,
         package_path: PathBuf,
+        upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
         self.retry_on_wrong_version(|| async {
             self.inner
                 .lock()
                 .await
-                .emergency_upgrade(upgrade_manager, package_path.clone())
+                .upgrade(upgrade_manager, package_path.clone(), upgrade_type)
                 .await
         })
         .await
@@ -909,6 +954,15 @@ impl SuiContractClient {
                 .await
                 .update_node_params(node_parameters.clone(), node_capability_object_id)
                 .await
+        })
+        .await
+    }
+
+    /// Collects the commission for the pool with id `node_id` and returns the
+    /// withdrawn amount in FROST.
+    pub async fn collect_commission(&self, node_id: ObjectID) -> SuiClientResult<u64> {
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.collect_commission(node_id).await
         })
         .await
     }
@@ -1581,13 +1635,39 @@ impl SuiContractClientInner {
         Ok(())
     }
 
+    /// Vote as node `node_id` for upgrading the walrus package to the package at
+    /// `package_path`.
+    /// Returns the digest of the package.
+    pub async fn vote_for_upgrade(
+        &mut self,
+        upgrade_manager: ObjectID,
+        node_id: ObjectID,
+        package_path: PathBuf,
+    ) -> SuiClientResult<[u8; 32]> {
+        // Compile package to get the digest.
+        let chain_id = self.sui_client().get_chain_identifier().await.ok();
+        let (_dependencies, compiled_package, _build_config) =
+            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
+        let digest = compiled_package.get_package_digest(false);
+
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder
+            .vote_for_upgrade(upgrade_manager, node_id, &digest)
+            .await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+
+        Ok(digest)
+    }
+
     /// Performs an emergency upgrade.
     ///
     /// Returns the new package ID.
-    pub async fn emergency_upgrade(
+    pub async fn upgrade(
         &mut self,
         upgrade_manager: ObjectID,
         package_path: PathBuf,
+        upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
         // Compile package
         let chain_id = self.sui_client().get_chain_identifier().await.ok();
@@ -1595,19 +1675,29 @@ impl SuiContractClientInner {
             compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
 
         let digest = compiled_package.get_package_digest(false);
-
-        let emergency_upgrade_cap: EmergencyUpgradeCap = self
-            .read_client
-            .get_owned_objects(self.wallet.active_address()?, &[])
-            .await?
-            .next()
-            .ok_or_else(|| anyhow!("no emergency upgrade capability found"))?;
         let mut pt_builder = self.transaction_builder()?;
 
-        // Authorize the upgrade.
-        let upgrade_ticket_arg = pt_builder
-            .authorize_emergency_upgrade(upgrade_manager, emergency_upgrade_cap.id.into(), &digest)
-            .await?;
+        let upgrade_ticket_arg = if upgrade_type.is_emergency_upgrade() {
+            let emergency_upgrade_cap: EmergencyUpgradeCap = self
+                .read_client
+                .get_owned_objects(self.wallet.active_address()?, &[])
+                .await?
+                .next()
+                .ok_or_else(|| anyhow!("no emergency upgrade capability found"))?;
+
+            // Authorize the upgrade.
+            pt_builder
+                .authorize_emergency_upgrade(
+                    upgrade_manager,
+                    emergency_upgrade_cap.id.into(),
+                    &digest,
+                )
+                .await?
+        } else {
+            pt_builder
+                .authorize_upgrade(upgrade_manager, &digest)
+                .await?
+        };
 
         // Execute the upgrade.
         let modules = compiled_package.get_package_bytes(false);
@@ -2070,6 +2160,38 @@ impl SuiContractClientInner {
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb).await?;
         Ok(())
+    }
+
+    /// Withdraws the commission for the pool with id `node_id` and returns the
+    /// withdrawn amount in FROST.
+    pub async fn collect_commission(&mut self, node_id: ObjectID) -> SuiClientResult<u64> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.collect_commission(node_id).await?;
+        let (ptb, _) = pt_builder.finish().await?;
+        let response = self.sign_and_send_ptb(ptb).await?;
+        let wal_type_tag = TypeTag::from_str(self.read_client.wal_coin_type())?;
+        let sender_address = self.wallet.active_address()?;
+        let Some(balance_change) = response
+            .balance_changes
+            .ok_or_else(|| anyhow!("transaction response does not contain balance changes"))?
+            .into_iter()
+            .find(|change| {
+                change.coin_type == wal_type_tag
+                    && change
+                        .owner
+                        .get_address_owner_address()
+                        .is_ok_and(|address| address == sender_address)
+            })
+        else {
+            return Err(anyhow!("no balance change for sender in transaction response").into());
+        };
+        let balance_change = u64::try_from(balance_change.amount).map_err(|e| {
+            anyhow!(
+                "balance change should be positive and fit into a u64: {}",
+                e
+            )
+        })?;
+        Ok(balance_change)
     }
 
     #[cfg(any(test, feature = "test-utils"))]

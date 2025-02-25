@@ -85,8 +85,7 @@ use crate::{
             EndCommitteeChangeError,
             NodeCommitteeService,
         },
-        config,
-        config::{ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
+        config::{self, ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
         contract_service::SystemContractService,
         errors::{SyncNodeConfigError, SyncShardClientError},
         events::{
@@ -2156,6 +2155,7 @@ pub mod test_cluster {
             },
             TestClusterHandle,
         },
+        types::move_structs::Authorized,
     };
 
     use super::*;
@@ -2211,34 +2211,11 @@ pub mod test_cluster {
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
         };
-        default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             epoch_duration,
             test_nodes_config,
             Some(10),
             ClientCommunicationConfig::default_for_test(),
-            with_subsidies,
-        )
-        .await
-    }
-
-    /// Performs the default setup with the input epoch duration for the test cluster with the
-    /// specified storage node handle.
-    pub async fn default_setup_with_epoch_duration_generic<T: StorageNodeHandleTrait>(
-        epoch_duration: Duration,
-        test_nodes_config: TestNodesConfig,
-        num_checkpoints_per_blob: Option<u32>,
-        communication_config: ClientCommunicationConfig,
-        with_subsidies: bool,
-    ) -> anyhow::Result<(
-        Arc<TestClusterHandle>,
-        TestCluster<T>,
-        WithTempDir<client::Client<SuiContractClient>>,
-    )> {
-        default_setup_with_num_checkpoints_generic(
-            epoch_duration,
-            test_nodes_config,
-            num_checkpoints_per_blob,
-            communication_config,
             with_subsidies,
         )
         .await
@@ -2256,6 +2233,36 @@ pub mod test_cluster {
         Arc<TestClusterHandle>,
         TestCluster<T>,
         WithTempDir<client::Client<SuiContractClient>>,
+    )> {
+        let (handle, cluster, client, _) = default_setup_with_deploy_directory_generic(
+            epoch_duration,
+            test_nodes_config,
+            num_checkpoints_per_blob,
+            communication_config,
+            with_subsidies,
+            None,
+            false,
+        )
+        .await?;
+        Ok((handle, cluster, client))
+    }
+
+    // TODO(WAL-653): Refactor with builder pattern to make selecting different options cleaner.
+    /// Performs the default setup with the input epoch duration for the test cluster with the
+    /// specified storage node handle.
+    pub async fn default_setup_with_deploy_directory_generic<T: StorageNodeHandleTrait>(
+        epoch_duration: Duration,
+        test_nodes_config: TestNodesConfig,
+        num_checkpoints_per_blob: Option<u32>,
+        communication_config: ClientCommunicationConfig,
+        with_subsidies: bool,
+        deploy_directory: Option<PathBuf>,
+        delegate_governance_to_admin_wallet: bool,
+    ) -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster<T>,
+        WithTempDir<client::Client<SuiContractClient>>,
+        SystemContext,
     )> {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
@@ -2293,6 +2300,7 @@ pub mod test_cluster {
             epoch_duration,
             None,
             with_subsidies,
+            deploy_directory,
         )
         .await?;
 
@@ -2370,6 +2378,18 @@ pub mod test_cluster {
             &amounts_to_stake,
         )
         .await?;
+
+        if delegate_governance_to_admin_wallet {
+            let authorized = Authorized::Address(admin_contract_client.as_ref().address());
+            for (cap, client) in storage_capabilities
+                .iter()
+                .zip(contract_clients_refs.iter())
+            {
+                client
+                    .set_governance_authorized(cap.node_id, authorized.clone())
+                    .await?;
+            }
+        }
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
@@ -2458,7 +2478,7 @@ pub mod test_cluster {
             })
             .await?;
 
-        Ok((sui_cluster, cluster, client))
+        Ok((sui_cluster, cluster, client, system_ctx))
     }
 
     async fn setup_checkpoint_based_event_processors(

@@ -11,7 +11,7 @@ use std::sync::{
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
@@ -20,6 +20,7 @@ use rand::random;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
 use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
+use tempfile::TempDir;
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::{EncodingConfigTrait as _, Primary},
@@ -31,6 +32,7 @@ use walrus_core::{
     EncodingType,
     EpochCount,
     SliverPairIndex,
+    DEFAULT_ENCODING,
     SUPPORTED_ENCODING_TYPES,
 };
 use walrus_proc_macros::walrus_simtest;
@@ -67,6 +69,7 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
+        UpgradeType,
     },
     types::{
         move_errors::{MoveExecutionError, RawMoveError},
@@ -859,7 +862,7 @@ async fn test_blocklist() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let blocklist_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
     let (_sui_cluster_handle, _cluster, client) =
-        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(60 * 60),
             TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
@@ -1096,7 +1099,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
 async fn test_repeated_shard_move() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, walrus_cluster, client) =
-        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
             TestNodesConfig {
                 node_weights: vec![1, 1],
@@ -1450,6 +1453,114 @@ async fn test_post_store_action(
             }
         }
     }
+    Ok(())
+}
+
+// Tests upgrading the walrus contracts.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_quorum_contract_upgrade() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let contract_dir = TempDir::new()?;
+    let (_sui_cluster_handle, walrus_cluster, client, system_ctx) =
+        test_cluster::default_setup_with_deploy_directory_generic::<StorageNodeHandle>(
+            Duration::from_secs(60 * 60), // The voting & upgrade has to complete within one epoch
+            TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            },
+            None,
+            ClientCommunicationConfig::default_for_test(),
+            false,
+            Some(contract_dir.path().to_path_buf()),
+            true,
+        )
+        .await?;
+
+    // TODO(WAL-654): once mainnet upgrades follow testnet, upgrade from testnet-contracts instead
+    // Change the version in the contracts
+    let walrus_package_path = contract_dir.path().join("walrus");
+    let staking_path = walrus_package_path.join("sources/staking.move");
+    let system_path = walrus_package_path.join("sources/system.move");
+    replace_version(&staking_path).await?;
+    replace_version(&system_path).await?;
+
+    // Vote for the upgrade
+    // We can vote on behalf of all nodes from the client wallet since the client
+    // wallet address was authorized for all nodes in the setup.
+    for node in walrus_cluster.nodes.iter() {
+        let node_id = node
+            .storage_node_capability
+            .as_ref()
+            .expect("capability should be set")
+            .node_id;
+        client
+            .as_ref()
+            .sui_client()
+            .vote_for_upgrade(
+                system_ctx.upgrade_manager_object,
+                node_id,
+                walrus_package_path.clone(),
+            )
+            .await?;
+    }
+
+    // Commit the upgrade
+    let new_package_id = client
+        .as_ref()
+        .sui_client()
+        .upgrade(
+            system_ctx.upgrade_manager_object,
+            walrus_package_path,
+            UpgradeType::Quorum,
+        )
+        .await?;
+
+    tracing::info!("after upgrade");
+
+    // Migrate the objects
+    client
+        .as_ref()
+        .sui_client()
+        .migrate_contracts(new_package_id)
+        .await?;
+
+    // Check the version
+    assert_eq!(
+        client
+            .as_ref()
+            .sui_client()
+            .read_client()
+            .system_object_version()
+            .await?,
+        2
+    );
+
+    // Store a blob after the upgrade to check if everything works after the upgrade.
+    let blob_data = walrus_test_utils::random_data_list(314, 1);
+    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let _results = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees(
+            &blobs,
+            DEFAULT_ENCODING,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+
+    Ok(())
+}
+
+async fn replace_version(contract_file: &Path) -> anyhow::Result<()> {
+    let contents = tokio::fs::read_to_string(contract_file).await?;
+    let contents = contents.replace("const VERSION: u64 = 1;", "const VERSION: u64 = 2;");
+    tokio::fs::write(contract_file, contents).await?;
     Ok(())
 }
 

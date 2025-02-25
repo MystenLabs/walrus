@@ -15,7 +15,7 @@ use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use sui_types::base_types::ObjectID;
+use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
@@ -26,7 +26,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
-    types::StorageNode,
+    types::{move_structs::Authorized, StorageNode},
     utils::SuiNetwork,
 };
 
@@ -528,6 +528,15 @@ pub enum CliCommands {
         #[clap(index = 1)]
         blob_obj_id: ObjectID,
     },
+    /// Administration subcommands for storage node operators.
+    NodeAdmin {
+        #[clap(long, global = true)]
+        /// The ID of the node for which the operation should be performed.
+        node_id: ObjectID,
+        /// The specific node admin command to run.
+        #[command(subcommand)]
+        command: NodeAdminCommands,
+    },
 }
 
 /// Subcommands for the `info` command.
@@ -559,6 +568,65 @@ pub enum InfoCommands {
         #[serde(flatten)]
         sort: SortBy<NodeSortBy>,
     },
+}
+
+/// Subcommands for the `node-admin` command.
+#[derive(Subcommand, Debug, Clone, Deserialize, PartialEq, Eq)]
+#[clap(rename_all = "kebab-case")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum NodeAdminCommands {
+    /// Collect the commission.
+    CollectCommission,
+    /// Vote for a contract upgrade.
+    VoteForUpgrade {
+        /// The upgrade manager object ID.
+        #[clap(long)]
+        upgrade_manager_object_id: ObjectID,
+        /// The path to the walrus package directory.
+        #[clap(long)]
+        package_path: PathBuf,
+    },
+    /// Set the authorized entity for governance operations.
+    SetGovernanceAuthorized {
+        #[clap(flatten)]
+        /// The object or address to set as authorized entity.
+        object_or_address: ObjectOrAddress,
+    },
+    /// Set the authorized entity for commission operations.
+    SetCommissionAuthorized {
+        #[clap(flatten)]
+        /// The object or address to set as authorized entity.
+        object_or_address: ObjectOrAddress,
+    },
+}
+
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
+#[group(required = true, multiple = false)]
+pub struct ObjectOrAddress {
+    #[clap(long, global = true)]
+    /// Set an address as authorized entity.
+    address: Option<SuiAddress>,
+    #[clap(long, global = true)]
+    /// Set an object as capability to authorize operations.
+    object: Option<ObjectID>,
+}
+
+impl TryFrom<ObjectOrAddress> for Authorized {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ObjectOrAddress) -> std::result::Result<Self, Self::Error> {
+        match value {
+            ObjectOrAddress {
+                address: Some(address),
+                object: None,
+            } => Ok(Authorized::Address(address)),
+            ObjectOrAddress {
+                address: None,
+                object: Some(object),
+            } => Ok(Authorized::Object(object)),
+            _ => Err(anyhow!("exactly one of `address` or `object` must be set")),
+        }
+    }
 }
 
 /// The daemon commands for the Walrus client.

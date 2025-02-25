@@ -407,6 +407,15 @@ pub enum Authorized {
     Object(ObjectID),
 }
 
+impl Display for Authorized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Address(address) => write!(f, "sui address {}", address),
+            Self::Object(object) => write!(f, "object id {}", object),
+        }
+    }
+}
+
 /// Represents a single staking pool.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct StakingPool {
@@ -441,7 +450,7 @@ pub struct StakingPool {
     /// The rewards that the pool has received.
     rewards: u64,
     /// Collected commission.
-    commission: u64,
+    pub commission: u64,
     /// The receiver of the commission.
     pub commission_receiver: Authorized,
     /// The authorization object to vote for governance actions, e.g. upgrade the contract.

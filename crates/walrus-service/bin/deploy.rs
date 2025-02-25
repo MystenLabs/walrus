@@ -23,7 +23,7 @@ use walrus_service::{
     testbed,
     utils::version,
 };
-use walrus_sui::utils::SuiNetwork;
+use walrus_sui::{client::UpgradeType, utils::SuiNetwork};
 
 const VERSION: &str = version!();
 #[derive(Parser)]
@@ -47,7 +47,10 @@ enum Commands {
     /// Generate the configuration files to run a testbed of storage nodes.
     GenerateDryRunConfigs(GenerateDryRunConfigsArgs),
     /// Upgrades the system contract with an Emergency Upgrade.
-    EmergencyUpgrade(EmergencyUpgradeArgs),
+    EmergencyUpgrade(UpgradeArgs),
+    /// Upgrades the system contract with a quorum-based upgrade that has been voted for by
+    /// a quorum of storage nodes by shard weight.
+    Upgrade(UpgradeArgs),
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -198,11 +201,11 @@ struct GenerateDryRunConfigsArgs {
 }
 
 #[derive(Debug, Clone, clap::Args)]
-struct EmergencyUpgradeArgs {
-    /// The path to the admin wallet. If not provided, the default wallet path in the
-    /// working directory is used.
+struct UpgradeArgs {
+    /// The path to the wallet used to perform the upgrade. If not provided, the default
+    /// wallet path is used.
     #[clap(long)]
-    admin_wallet_path: Option<PathBuf>,
+    wallet_path: Option<PathBuf>,
     /// The path to the contract directory.
     #[clap(long)]
     contract_dir: PathBuf,
@@ -224,7 +227,8 @@ fn main() -> anyhow::Result<()> {
         Commands::RegisterNodes(args) => commands::register_nodes(args)?,
         Commands::DeploySystemContract(args) => commands::deploy_system_contract(args)?,
         Commands::GenerateDryRunConfigs(args) => commands::generate_dry_run_configs(args)?,
-        Commands::EmergencyUpgrade(args) => commands::emergency_upgrade(args)?,
+        Commands::EmergencyUpgrade(args) => commands::upgrade(args, UpgradeType::Emergency)?,
+        Commands::Upgrade(args) => commands::upgrade(args, UpgradeType::Quorum)?,
     }
     Ok(())
 }
@@ -246,7 +250,7 @@ mod commands {
         utils::{self, load_from_yaml},
     };
     use walrus_sui::{
-        client::{contract_config::ContractConfig, SuiContractClient},
+        client::{contract_config::ContractConfig, SuiContractClient, UpgradeType},
         utils::load_wallet,
     };
     use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -487,29 +491,29 @@ mod commands {
     }
 
     #[tokio::main]
-    pub(super) async fn emergency_upgrade(
-        EmergencyUpgradeArgs {
-            admin_wallet_path,
+    pub(super) async fn upgrade(
+        UpgradeArgs {
+            wallet_path,
             contract_dir,
             staking_object_id,
             system_object_id,
             upgrade_manager_object_id,
-        }: EmergencyUpgradeArgs,
+        }: UpgradeArgs,
+        upgrade_type: UpgradeType,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
 
-        let admin_wallet = load_wallet(admin_wallet_path).context("unable to load admin wallet")?;
+        let wallet = load_wallet(wallet_path).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
-        let admin_contract_client =
-            SuiContractClient::new(admin_wallet, &contract_config, Default::default(), None)
-                .await?;
-        let new_package_id = admin_contract_client
-            .emergency_upgrade(upgrade_manager_object_id, contract_dir)
+        let contract_client =
+            SuiContractClient::new(wallet, &contract_config, Default::default(), None).await?;
+
+        let new_package_id = contract_client
+            .upgrade(upgrade_manager_object_id, contract_dir, upgrade_type)
             .await?;
-        admin_contract_client
-            .migrate_contracts(new_package_id)
-            .await?;
+
+        contract_client.migrate_contracts(new_package_id).await?;
         println!("Successfully upgraded the system contract:\npackage_id: {new_package_id}");
         Ok(())
     }

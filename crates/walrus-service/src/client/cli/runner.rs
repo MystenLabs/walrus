@@ -43,7 +43,7 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::move_structs::{BlobAttribute, EpochState},
+    types::move_structs::{Authorized, BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
 
@@ -58,6 +58,7 @@ use super::args::{
     FileOrBlobIdOrObjectId,
     HealthSortBy,
     InfoCommands,
+    NodeAdminCommands,
     NodeSelection,
     PublisherArgs,
     RpcArg,
@@ -76,6 +77,7 @@ use crate::{
             warning,
             BlobIdDecimal,
             CliOutput,
+            HumanReadableFrost,
             HumanReadableMist,
         },
         error::ClientErrorKind,
@@ -409,6 +411,10 @@ impl ClientCommandRunner {
                     );
                 }
                 Ok(())
+            }
+
+            CliCommands::NodeAdmin { node_id, command } => {
+                self.run_admin_command(node_id, command).await
             }
         }
     }
@@ -1095,6 +1101,62 @@ impl ClientCommandRunner {
         spinner.finish_with_message("done");
 
         println!("{} The specified blob objects have been burned", success());
+        Ok(())
+    }
+
+    pub(crate) async fn run_admin_command(
+        self,
+        node_id: ObjectID,
+        command: NodeAdminCommands,
+    ) -> Result<()> {
+        let sui_client = self
+            .config?
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+        match command {
+            NodeAdminCommands::VoteForUpgrade {
+                upgrade_manager_object_id,
+                package_path,
+            } => {
+                let digest = sui_client
+                    .vote_for_upgrade(upgrade_manager_object_id, node_id, package_path)
+                    .await?;
+                println!(
+                    "{} Voted for package upgrade with digest 0x{}",
+                    success(),
+                    digest.iter().map(|b| format!("{:02x}", b)).join("")
+                );
+            }
+            NodeAdminCommands::SetCommissionAuthorized { object_or_address } => {
+                let authorized: Authorized = object_or_address.try_into()?;
+                sui_client
+                    .set_commission_receiver(node_id, authorized.clone())
+                    .await?;
+                println!(
+                    "{} Commission receiver for node id {} has been set to {}",
+                    success(),
+                    node_id,
+                    authorized
+                );
+            }
+            NodeAdminCommands::SetGovernanceAuthorized { object_or_address } => {
+                let authorized: Authorized = object_or_address.try_into()?;
+                sui_client
+                    .set_governance_authorized(node_id, authorized.clone())
+                    .await?;
+                println!(
+                    "{} Governance authorization for node id {} has been set to {}",
+                    success(),
+                    node_id,
+                    authorized
+                );
+            }
+            NodeAdminCommands::CollectCommission => {
+                let amount =
+                    HumanReadableFrost::from(sui_client.collect_commission(node_id).await?);
+                println!("{} Collected {} as commission", success(), amount);
+            }
+        }
         Ok(())
     }
 }

@@ -7,16 +7,11 @@ use std::{collections::HashMap, num::NonZeroU16, path::PathBuf, str::FromStr, ti
 
 use anyhow::Result;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
-use rand::{rngs::StdRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
-use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
-    EpochCount,
-};
+use walrus_core::{keys::ProtocolKeyPair, EpochCount};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::default_protocol_keypair;
 use crate::{
     client::{
         contract_config::ContractConfig,
@@ -39,61 +34,6 @@ pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
         .parent()
         .unwrap()
         .join("contracts"))
-}
-
-/// Publishes the package with a default system object.
-///
-/// The system object has the default e2e test setup (compatible with the current tests), and
-/// returns the IDs of the system and staking objects. The default test setup currently uses a
-/// single storage node with sk = 117.
-pub async fn publish_with_default_system(
-    mut admin_wallet: WalletContext,
-    node_wallet: WalletContext,
-) -> Result<(SystemContext, SuiContractClient)> {
-    // Default system config, compatible with current tests
-
-    // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
-    let system_context = create_and_init_system_for_test(
-        &mut admin_wallet,
-        NonZeroU16::new(100).expect("100 is not 0"),
-        Duration::from_secs(0),
-        Duration::from_secs(3600),
-        None,
-        false,
-    )
-    .await?;
-
-    // Set up node params.
-    // Pk corresponding to secret key scalar(117)
-    let network_key_pair = NetworkKeyPair::generate_with_rng(&mut StdRng::seed_from_u64(0));
-    let protocol_keypair = default_protocol_keypair();
-
-    let storage_node_params =
-        NodeRegistrationParams::new_for_test(protocol_keypair.public(), network_key_pair.public());
-
-    // Create admin contract client
-    let admin_contract_client = system_context
-        .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
-        .await?;
-
-    // Initialize node contract client
-    let contract_client = system_context
-        .new_contract_client(node_wallet, ExponentialBackoffConfig::default(), None)
-        .await?;
-
-    register_committee_and_stake(
-        &admin_contract_client,
-        &[storage_node_params],
-        &[protocol_keypair],
-        &[&contract_client],
-        &[1_000_000_000],
-    )
-    .await?;
-
-    // call vote end
-    end_epoch_zero(&contract_client).await?;
-
-    Ok((system_context, admin_contract_client))
 }
 
 /// Helper struct to pass around all needed object IDs when setting up the system.
@@ -137,7 +77,8 @@ impl SystemContext {
     }
 }
 
-/// Publishes the test contracts and initializes the system.
+/// Publishes the test contracts and initializes the system allowing to specify the
+/// deploy directory. If not specified a fresh temp directory is used.
 ///
 /// Returns the package id and the object IDs of the system object and the staking object.
 pub async fn create_and_init_system_for_test(
@@ -147,9 +88,15 @@ pub async fn create_and_init_system_for_test(
     epoch_duration: Duration,
     max_epochs_ahead: Option<EpochCount>,
     with_subsidies: bool,
+    deploy_directory: Option<PathBuf>,
 ) -> Result<SystemContext> {
-    let temp_dir = tempfile::tempdir()?;
-    let deploy_directory = Some(temp_dir.path().to_path_buf());
+    let temp_dir; // make sure the temp_dir is in scope until the end of the function
+    let deploy_directory = if deploy_directory.is_none() {
+        temp_dir = tempfile::tempdir()?;
+        Some(temp_dir.path().to_path_buf())
+    } else {
+        deploy_directory
+    };
     create_and_init_system(
         admin_wallet,
         InitSystemParams {
