@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Contains dedicated Walrus simulation tests.
+#![recursion_limit = "256"]
+
 #[cfg(msim)]
 mod tests {
     use std::{
