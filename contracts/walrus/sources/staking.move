@@ -11,6 +11,7 @@ use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
     committee::Committee,
+    display,
     node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
@@ -36,6 +37,9 @@ public struct Staking has key {
     new_package_id: Option<ID>,
 }
 
+/// Dynamic field key to attach `ObjectDisplay`.
+public struct ObjectDisplayKey() has copy, drop, store;
+
 /// Creates and shares a new staking object.
 /// Must only be called by the initialization function.
 public(package) fun create(
@@ -55,9 +59,13 @@ public(package) fun create(
     };
     df::add(
         &mut staking.id,
+        ObjectDisplayKey(),
+        display::new(publisher, ctx),
+    );
+    df::add(
+        &mut staking.id,
         VERSION,
         staking_inner::new(
-            publisher,
             epoch_zero_duration,
             epoch_duration,
             n_shards,

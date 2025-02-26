@@ -125,13 +125,10 @@ public struct StakingInnerV1 has store {
     /// the order of the nodes in the `next_committee`. The value is set in the `select_committee`
     /// function and consumed in the `next_bls_committee` function.
     next_epoch_public_keys: ExtendedField<VecMap<ID, Element<UncompressedG1>>>,
-    /// Stores `Publisher` and `Display` objects.
-    object_display: ObjectDisplay,
 }
 
 /// Creates a new `StakingInnerV1` object with default values.
 public(package) fun new(
-    publisher: Publisher,
     epoch_zero_duration: u64,
     epoch_duration: u64,
     n_shards: u16,
@@ -154,7 +151,6 @@ public(package) fun new(
         next_epoch_params: option::none(),
         epoch_state: EpochState::EpochChangeDone(clock.timestamp_ms()),
         next_epoch_public_keys: extended_field::new(vec_map::empty(), ctx),
-        object_display: display::new(publisher, ctx),
     }
 }
 
