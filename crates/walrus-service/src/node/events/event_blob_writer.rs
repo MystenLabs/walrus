@@ -28,9 +28,9 @@ use walrus_core::{
     ensure,
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    EncodingType,
     Epoch,
     Sliver,
-    DEFAULT_ENCODING,
 };
 use walrus_sui::{
     client::SuiClientError,
@@ -812,10 +812,11 @@ impl EventBlobWriter {
             self.blob_dir()
                 .join(metadata.event_cursor.element_index.to_string()),
         )?;
+        let encoding_type = self.default_encoding_for_system_object_version().await?;
         let (sliver_pairs, blob_metadata) = self
             .node
             .encoding_config()
-            .get_for_type(DEFAULT_ENCODING)
+            .get_for_type(encoding_type)
             .encode_with_metadata(&content)?;
         self.node
             .storage()
@@ -1330,6 +1331,20 @@ impl EventBlobWriter {
     /// Returns the number of checkpoints per blob.
     pub fn num_checkpoints_per_blob(&self) -> u32 {
         self.num_checkpoints_per_blob
+    }
+
+    async fn default_encoding_for_system_object_version(&self) -> Result<EncodingType> {
+        if self
+            .node
+            .contract_service
+            .get_system_object_version()
+            .await?
+            >= 2
+        {
+            Ok(EncodingType::RS2)
+        } else {
+            Ok(EncodingType::RedStuffRaptorQ)
+        }
     }
 }
 

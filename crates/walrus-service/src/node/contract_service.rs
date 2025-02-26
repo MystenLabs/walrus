@@ -100,6 +100,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         &self,
         node_capability_object_id: Option<ObjectID>,
     ) -> Result<StorageNodeCap, SuiClientError>;
+
+    /// Returns the system object version.
+    async fn get_system_object_version(&self) -> Result<u64, SuiClientError>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -373,6 +376,14 @@ impl SystemContractService for SuiSystemContractService {
         };
 
         Ok(node_capability)
+    }
+
+    async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
+        self.contract_client
+            .lock()
+            .await
+            .system_object_version()
+            .await
     }
 }
 
