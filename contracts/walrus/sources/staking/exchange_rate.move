@@ -31,14 +31,13 @@ public(package) fun flat(): PoolExchangeRate {
 public(package) fun new(wal_amount: u64, share_amount: u64): PoolExchangeRate {
     // pool_token_amount <= wal_amount as long as slashing is not implemented.
     assert!(share_amount <= wal_amount, EInvalidRate);
-    match (wal_amount) {
-        0 => PoolExchangeRate::Flat,
-        _ => {
-            PoolExchangeRate::Variable {
-                wal_amount: (wal_amount as u128),
-                share_amount: (share_amount as u128),
-            }
-        },
+    if (wal_amount == 0 || share_amount == 0) {
+        PoolExchangeRate::Flat
+    } else {
+        PoolExchangeRate::Variable {
+            wal_amount: (wal_amount as u128),
+            share_amount: (share_amount as u128),
+        }
     }
 }
 

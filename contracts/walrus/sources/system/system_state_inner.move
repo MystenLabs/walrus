@@ -164,10 +164,14 @@ public(package) fun advance_epoch(
 
     node_ids.zip_do!(weights, |node_id, weight| {
         let deny_list_size = deny_list_sizes.try_get(&node_id).destroy_or!(0);
-        let stored = (weight as u128) * ((old_epoch_used_capacity - deny_list_size) as u128);
+        // The deny list size cannot exceed the used capacity.
+        let deny_list_size = deny_list_size.min(old_epoch_used_capacity);
+        // The total encoded size of all blobs excluding the ones on the nodes deny list.
+        let stored = old_epoch_used_capacity - deny_list_size;
+        let stored_weighted = (weight as u128) * (stored as u128);
 
-        total_stored = total_stored + stored;
-        stored_vec.push_back(stored);
+        total_stored = total_stored + stored_weighted;
+        stored_vec.push_back(stored_weighted);
     });
 
     let total_stored = total_stored.max(1); // avoid division by zero

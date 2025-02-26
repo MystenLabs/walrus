@@ -188,13 +188,6 @@ public(package) fun create_pool(
     node_id
 }
 
-/// Blocks staking for the pool, marks it as "withdrawing".
-#[allow(unused_mut_parameter)]
-public(package) fun withdraw_node(self: &mut StakingInnerV1, cap: &mut StorageNodeCap) {
-    let wctx = &self.new_walrus_context();
-    self.pools[cap.node_id()].set_withdrawing(wctx);
-}
-
 /// Sets the commission receiver for the pool.
 public(package) fun set_commission_receiver(
     self: &mut StakingInnerV1,
@@ -272,7 +265,10 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
         // Perform calculation of the votes.
         write_prices.insert(pool.write_price(), weight);
         storage_prices.insert(pool.storage_price(), weight);
-        let capacity_vote = (pool.node_capacity() * (self.n_shards as u64)) / weight;
+        // Perform calculation for the capacity vote on u128 to prevent overflows.
+        let capacity_vote =
+            (pool.node_capacity() as u128 * (self.n_shards as u128)) / (weight as u128);
+        let capacity_vote = capacity_vote.min(std::u64::max_value!() as u128) as u64;
         capacity_votes.insert(capacity_vote, weight);
     });
 
@@ -434,13 +430,6 @@ public(package) fun set_node_metadata(
 }
 
 // === Staking ===
-
-/// Blocks staking for the pool, marks it as "withdrawing".
-/// TODO: Is this action instant or should it be processed in the next epoch?
-public(package) fun set_withdrawing(self: &mut StakingInnerV1, node_id: ID) {
-    let wctx = &self.new_walrus_context();
-    self.pools[node_id].set_withdrawing(wctx);
-}
 
 /// Destroys the pool if it is empty, after the last stake has been withdrawn.
 public(package) fun destroy_empty_pool(
@@ -669,14 +658,14 @@ public(package) fun advance_epoch(self: &mut StakingInnerV1, rewards: VecMap<ID,
     rewards.zip_do!(node_ids, |node_reward, node_id| {
         let pool = &mut self.pools[node_id];
         pool.advance_epoch(node_reward, wctx);
-        active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
+        active_set.insert_or_update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
     // fill-in the nodes that just joined and don't have rewards yet
     new_ids.do!(|node_id| {
         let pool = &mut self.pools[node_id];
         pool.advance_epoch(balance::zero(), wctx);
-        active_set.update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
+        active_set.insert_or_update(node_id, pool.wal_balance_at_epoch(wctx.epoch() + 1));
     });
 
     // Emit epoch change start event.
