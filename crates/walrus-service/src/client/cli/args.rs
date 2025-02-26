@@ -685,6 +685,17 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
+    /// Deprecated flag for backwards compatibility.
+    ///
+    /// By default, the publisher already keeps created Blob objects in its main wallet. This flag
+    /// is only available for backwards-compatibility reasons. Therefore _specifying this flag has
+    /// no effect_.
+    ///
+    /// To burn the created Blob objects immediately after storing, use the `--burn-after-store`
+    /// flag.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub keep: bool,
     /// If set, the publisher will burn the created Blob objects immediately.
     ///
     /// If unset, the publisher will keep all created blob objects in its _main wallet_ by default.
@@ -1307,6 +1318,7 @@ mod tests {
                 gas_refill_amount: default::gas_refill_amount(),
                 wal_refill_amount: default::wal_refill_amount(),
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
+                keep: false,
                 burn_after_store: false,
                 jwt_decode_secret: None,
                 jwt_algorithm: None,
