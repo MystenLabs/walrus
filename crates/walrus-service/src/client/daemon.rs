@@ -22,13 +22,8 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use prometheus::Registry;
 use reqwest::StatusCode;
-use routes::{
-    PublisherQuery,
-    BLOB_GET_ENDPOINT,
-    BLOB_OBJECT_GET_ENDPOINT,
-    BLOB_PUT_ENDPOINT,
-    STATUS_ENDPOINT,
-};
+pub use routes::PublisherQuery;
+use routes::{BLOB_GET_ENDPOINT, BLOB_OBJECT_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
 use sui_types::base_types::ObjectID;
 use tower::{
     buffer::BufferLayer,

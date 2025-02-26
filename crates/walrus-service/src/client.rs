@@ -71,7 +71,7 @@ pub(crate) mod config;
 pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
 
 mod daemon;
-pub use daemon::{ClientDaemon, WalrusWriteClient};
+pub use daemon::{auth::Claim, ClientDaemon, PublisherQuery, WalrusWriteClient};
 
 mod error;
 pub use error::{ClientError, ClientErrorKind};
