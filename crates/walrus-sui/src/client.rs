@@ -2310,6 +2310,10 @@ impl ReadClient for SuiContractClient {
     async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
         self.read_client.refresh_subsidies_package_id().await
     }
+
+    async fn system_object_version(&self) -> SuiClientResult<u64> {
+        self.read_client.system_object_version().await
+    }
 }
 
 impl fmt::Debug for SuiContractClient {
