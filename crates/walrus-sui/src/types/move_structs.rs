@@ -513,7 +513,7 @@ pub struct EventBlobCertificationState {
     /// Latest certified blob
     pub latest_certified_blob: Option<EventBlob>,
     /// Total weight of the blobs undergoing certification.
-    pub aggregate_weight_per_blob: Vec<(BlobId, u16)>,
+    pub aggregate_weight_per_blob: Vec<(EventBlob, u16)>,
 }
 
 /// Sui type for staking object
