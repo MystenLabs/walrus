@@ -69,11 +69,11 @@ pub fn event_id_for_testing() -> EventID {
     }
 }
 
-/// Returns an arbitrary (fixed) `EventID` for testing.
-pub fn fixed_event_id_for_testing() -> EventID {
+/// Returns an arbitrary (fixed) `EventID` for testing with a variable sequence number.
+pub fn fixed_event_id_for_testing(event_seq: u64) -> EventID {
     EventID {
         tx_digest: TransactionDigest::new([42; 32]),
-        event_seq: 314,
+        event_seq,
     }
 }
 
