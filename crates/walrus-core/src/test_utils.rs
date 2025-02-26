@@ -6,7 +6,7 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU16;
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{rngs::StdRng, seq::SliceRandom, Rng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
 
 use crate::{
     encoding::{
@@ -36,20 +36,9 @@ use crate::{
     SUPPORTED_ENCODING_TYPES,
 };
 
-/// Randomly selects up to `SUPPORTED_ENCODING_TYPES.len()` encoding types from the supported
-/// encoding types.
-pub fn random_encoding_types() -> Vec<EncodingType> {
-    let count = rand::thread_rng().gen_range(1..=SUPPORTED_ENCODING_TYPES.len());
-
-    SUPPORTED_ENCODING_TYPES
-        .choose_multiple(&mut rand::thread_rng(), count)
-        .copied()
-        .collect()
-}
-
 /// Randomly selects an encoding type from the supported encoding types.
 pub fn random_encoding_type() -> EncodingType {
-    random_encoding_types()[0]
+    SUPPORTED_ENCODING_TYPES[rand::thread_rng().gen_range(0..SUPPORTED_ENCODING_TYPES.len())]
 }
 
 /// Returns a deterministic fixed protocol key pair for testing.

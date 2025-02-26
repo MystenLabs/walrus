@@ -26,11 +26,12 @@ use walrus_core::{
     merkle::Node,
     messages::BlobPersistenceType,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    test_utils::{random_encoding_type, random_encoding_types},
+    test_utils::random_encoding_type,
     BlobId,
     EncodingType,
     EpochCount,
     SliverPairIndex,
+    SUPPORTED_ENCODING_TYPES,
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::api::BlobStatus;
@@ -116,13 +117,11 @@ where
 
     // For each blob, create multiple encodings and paths.
     for (i, data) in blob_data.iter().enumerate() {
-        let encodings = random_encoding_types();
-
-        for encoding in encodings {
+        for encoding in SUPPORTED_ENCODING_TYPES {
             let path = PathBuf::from(format!("blob_{}_{}", i, encoding));
             path_to_data.insert(path.clone(), data.to_vec());
             blobs_by_encoding
-                .entry(encoding)
+                .entry(*encoding)
                 .or_default()
                 .push((path, data.to_vec()));
         }
