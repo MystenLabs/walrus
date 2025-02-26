@@ -66,6 +66,8 @@ const EAuthorizationFailure: u64 = 15;
 const EInvalidNetworkAddressLength: u64 = 16;
 /// Invalid name length.
 const EInvalidNameLength: u64 = 17;
+/// The number of shares for the staked wal are zero.
+const EZeroShares: u64 = 18;
 
 /// Represents the state of the staking pool.
 public enum PoolState has copy, drop, store {
@@ -335,6 +337,8 @@ public(package) fun request_withdraw_stake(
     let share_amount = pool
         .exchange_rate_at_epoch(staked_wal.activation_epoch())
         .convert_to_share_amount(principal_amount);
+
+    assert!(share_amount != 0, EZeroShares);
 
     pool.pending_shares_withdraw.insert_or_add(withdraw_epoch, share_amount);
     staked_wal.set_withdrawing(withdraw_epoch);

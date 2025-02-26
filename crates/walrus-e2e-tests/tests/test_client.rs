@@ -52,7 +52,7 @@ use walrus_service::{
         StoreWhen,
     },
     test_utils::{
-        test_cluster,
+        test_cluster::{self, FROST_PER_NODE_WEIGHT},
         StorageNodeHandle,
         StorageNodeHandleTrait,
         TestNodesConfig,
@@ -1119,7 +1119,7 @@ async fn test_repeated_shard_move() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            1_000_000_000,
+            1_000 * FROST_PER_NODE_WEIGHT,
         )
         .await?;
 
@@ -1141,7 +1141,7 @@ async fn test_repeated_shard_move() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            500_000_000_000,
+            500_000 * FROST_PER_NODE_WEIGHT,
         )
         .await?;
 
@@ -1810,7 +1810,7 @@ async fn test_ptb_retriable_error() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            1234567, // Stake amount
+            1_234_567_000, // Stake amount
         )
         .await;
 

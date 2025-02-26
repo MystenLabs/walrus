@@ -2172,7 +2172,7 @@ pub mod test_cluster {
     };
 
     /// The weight of each storage node in the test cluster.
-    pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000;
+    pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000_000_000;
 
     /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
     /// node handle.

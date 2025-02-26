@@ -5,7 +5,7 @@
 module walrus::system_state_inner_tests;
 
 use std::unit_test::assert_eq;
-use walrus::{storage_accounting as sa, system_state_inner, test_utils::mint};
+use walrus::{storage_accounting as sa, system_state_inner, test_utils::mint_frost};
 
 #[test]
 fun test_add_subsidy_zero_rewards() {
@@ -31,7 +31,7 @@ fun test_add_subsidy_uneven_distribution() {
     let reward_per_epoch = rewards / (epochs_ahead as u64);
 
     // Test adding rewards 1,001 WAL for 3 epochs ahead.
-    let subsidy = mint(rewards, ctx);
+    let subsidy = mint_frost(rewards, ctx);
     system.add_subsidy(subsidy, epochs_ahead);
 
     // Check rewards for the epochs ahead
@@ -52,7 +52,7 @@ fun test_add_subsidy_zero_epochs_ahead_fail() {
     let ctx = &mut tx_context::dummy();
     let mut system = system_state_inner::new_for_testing();
 
-    let subsidy = mint(1000, ctx);
+    let subsidy = mint_frost(1000, ctx);
 
     // Test adding rewards for 0 epochs ahead (should fail)
     system.add_subsidy(subsidy, 0);
@@ -67,7 +67,7 @@ fun add_subsidy_test(rewards: u64, epochs_ahead: u32) {
     let leftovers = rewards % (epochs_ahead as u64);
 
     // Mint the subsidy and add it to the system.
-    let subsidy = mint(rewards, ctx);
+    let subsidy = mint_frost(rewards, ctx);
     system.add_subsidy(subsidy, epochs_ahead);
 
     // Distribute the rewards across epochs.

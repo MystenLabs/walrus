@@ -112,7 +112,7 @@ public fun test_fuse_incompatible_epochs() {
 fun storage_capacity_at_epochs() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
-    let mut payment = test_utils::mint(10_000_000_000, ctx);
+    let mut payment = test_utils::mint_frost(10_000_000_000, ctx);
 
     // initial state, no storage reserved
     assert_eq!(system.used_capacity_size(), 0);
@@ -170,7 +170,7 @@ fun storage_capacity_at_epochs() {
 fun exceed_storage_capacity() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
-    let mut payment = test_utils::mint(10_000_000_000, ctx);
+    let mut payment = test_utils::mint_frost(10_000_000_000, ctx);
 
     // initial state, no storage reserved
     assert_eq!(system.used_capacity_size(), 0);
@@ -185,7 +185,7 @@ fun exceed_storage_capacity() {
 fun test_reserve_space_zero_size() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
-    let mut payment = test_utils::mint(10_000_000_000, ctx);
+    let mut payment = test_utils::mint_frost(10_000_000_000, ctx);
 
     // half of the available space for current and next epoch
     let _storage = system.reserve_space(0, 2, &mut payment, ctx);

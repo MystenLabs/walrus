@@ -322,7 +322,7 @@ fun direct_extend_happy() {
     blob.certify_with_certified_msg(system.epoch(), certify_message);
 
     // Now extend the blob with another 3 epochs
-    let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
+    let mut fake_coin = test_utils::mint_frost(N_COINS, &mut tx_context::dummy());
     system.extend_blob(&mut blob, extension, &mut fake_coin);
 
     // Assert end epoch
@@ -340,7 +340,7 @@ fun extend_blob_created_from_split_storage() {
 
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
-    let mut payment = test_utils::mint(N_COINS, ctx);
+    let mut payment = test_utils::mint_frost(N_COINS, ctx);
     let mut storage = get_storage_resource(&mut system, SIZE, 3, ctx);
     let new_storage = storage.split_by_epoch(2, ctx);
 
@@ -386,7 +386,7 @@ fun direct_extend_not_certified() {
     // Don't certify the blob
 
     // Now try to extend the blob with another 3 epochs
-    let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
+    let mut fake_coin = test_utils::mint_frost(N_COINS, &mut tx_context::dummy());
     system.extend_blob(&mut blob, extension, &mut fake_coin);
     abort
 }
@@ -415,7 +415,7 @@ fun direct_extend_expired() {
 
     balances.do!(|b| { b.destroy_for_testing(); });
 
-    let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
+    let mut fake_coin = test_utils::mint_frost(N_COINS, &mut tx_context::dummy());
     // Now extend the blob with another 3 epochs. Test fails here.
     system.extend_blob(&mut blob, extension, &mut fake_coin);
 
@@ -438,7 +438,7 @@ fun direct_extend_too_long() {
     // Set certify
     blob.certify_with_certified_msg(system.epoch(), certify_message);
 
-    let mut fake_coin = test_utils::mint(N_COINS, &mut tx_context::dummy());
+    let mut fake_coin = test_utils::mint_frost(N_COINS, &mut tx_context::dummy());
     // Try to extend the blob with max epochs. Test fails here.
     system.extend_blob(&mut blob, extension, &mut fake_coin);
 
@@ -555,7 +555,7 @@ fun get_storage_resource(
     epochs_ahead: u32,
     ctx: &mut TxContext,
 ): Storage {
-    let mut fake_coin = test_utils::mint(N_COINS, ctx);
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
     let storage_size = encoding::encoded_blob_length(
         unencoded_size,
         RED_STUFF_RAPTOR,
@@ -577,7 +577,7 @@ fun register_default_blob(
     deletable: bool,
     ctx: &mut TxContext,
 ): Blob {
-    let mut fake_coin = test_utils::mint(N_COINS, ctx);
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
     // Register a Blob
     let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF_RAPTOR, SIZE);
     let blob = system.register_blob(
