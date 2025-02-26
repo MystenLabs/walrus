@@ -6,12 +6,11 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df, package::Publisher};
+use sui::{clock::Clock, coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
     committee::Committee,
-    display,
     node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},

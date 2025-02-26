@@ -9,10 +9,8 @@ use sui::{
     bls12381::UncompressedG1,
     clock::Clock,
     coin::Coin,
-    display::Display,
     group_ops::Element,
     object_table::{Self, ObjectTable},
-    package::Publisher,
     priority_queue::{Self, PriorityQueue},
     vec_map::{Self, VecMap}
 };
@@ -26,7 +24,6 @@ use walrus::{
     events,
     extended_field::{Self, ExtendedField},
     node_metadata::NodeMetadata,
-    display::{Self, ObjectDisplay},
     staked_wal::StakedWal,
     staking_pool::{Self, StakingPool},
     storage_node::StorageNodeCap,
