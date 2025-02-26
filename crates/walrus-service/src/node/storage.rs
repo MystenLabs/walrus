@@ -621,7 +621,9 @@ impl Storage {
     /// Clears the metadata in the storage for testing purposes.
     #[cfg(test)]
     pub fn clear_metadata_in_test(&self) -> Result<(), TypedStoreError> {
+        tracing::info!("clear metadata in test");
         self.metadata.schedule_delete_all()?;
+        self.metadata.flush()?;
         self.metadata
             .compact_range(&BlobId([0; 32]), &BlobId([255; 32]))?;
         Ok(())

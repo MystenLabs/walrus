@@ -3,7 +3,7 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{BlobId, Epoch, SliverPairIndex, SliverType};
+use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
 use walrus_sdk::error::{ClientBuildError, NodeError};
 use walrus_sui::client::SuiClientError;
 
@@ -82,6 +82,8 @@ impl ClientError {
                 | ClientErrorKind::NoMetadataReceived
                 // Cannot get slivers because we are behind by several epochs.
                 | ClientErrorKind::NotEnoughSlivers
+                // The client was notified that the committee has changed.
+                | ClientErrorKind::CommitteeChangeNotified
         )
     }
 }
@@ -153,6 +155,12 @@ pub enum ClientErrorKind {
         /// The epoch the blob was certified in.
         certified_epoch: Epoch,
     },
+    /// The encoding type is not supported.
+    #[error("unsupported encoding type: {0}")]
+    UnsupportedEncodingType(EncodingType),
+    /// The client was notified that the committee has changed.
+    #[error("the client was notified that the committee has changed")]
+    CommitteeChangeNotified,
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

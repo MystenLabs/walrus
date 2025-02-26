@@ -6,10 +6,17 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU16;
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
 
 use crate::{
-    encoding::{self, EncodingConfig, PrimaryRecoverySymbol, PrimarySliver, SecondarySliver},
+    encoding::{
+        self,
+        EncodingConfig,
+        EncodingConfigTrait as _,
+        PrimaryRecoverySymbol,
+        PrimarySliver,
+        SecondarySliver,
+    },
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::{MerkleProof, Node},
     messages::SignedMessage,
@@ -25,7 +32,14 @@ use crate::{
     Sliver,
     SliverIndex,
     SliverPairIndex,
+    DEFAULT_ENCODING,
+    SUPPORTED_ENCODING_TYPES,
 };
+
+/// Randomly selects an encoding type from the supported encoding types.
+pub fn random_encoding_type() -> EncodingType {
+    SUPPORTED_ENCODING_TYPES[rand::thread_rng().gen_range(0..SUPPORTED_ENCODING_TYPES.len())]
+}
 
 /// Returns a deterministic fixed protocol key pair for testing.
 ///
@@ -89,7 +103,10 @@ pub fn encoding_config() -> EncodingConfig {
 /// Returns an arbitrary recovery symbol for testing.
 pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
     primary_sliver()
-        .recovery_symbol_for_sliver(SliverPairIndex(1), &encoding_config())
+        .recovery_symbol_for_sliver(
+            SliverPairIndex(1),
+            &encoding_config().get_for_type(DEFAULT_ENCODING),
+        )
         .map(RecoverySymbol::Secondary)
         .unwrap()
 }
@@ -97,7 +114,10 @@ pub fn recovery_symbol() -> RecoverySymbol<MerkleProof> {
 /// Returns an arbitrary secondary recovery symbol for testing.
 pub fn primary_recovery_symbol() -> RecoverySymbol<MerkleProof> {
     secondary_sliver()
-        .recovery_symbol_for_sliver(SliverPairIndex(2), &encoding_config())
+        .recovery_symbol_for_sliver(
+            SliverPairIndex(2),
+            &encoding_config().get_for_type(DEFAULT_ENCODING),
+        )
         .map(RecoverySymbol::Primary)
         .unwrap()
 }
@@ -136,7 +156,7 @@ pub fn blob_metadata() -> BlobMetadata {
             secondary_hash: Node::Digest([(i % 256) as u8; 32]),
         })
         .collect();
-    BlobMetadata::new(EncodingType::RedStuff, 62_831, hashes)
+    BlobMetadata::new(DEFAULT_ENCODING, 62_831, hashes)
 }
 
 /// Returns an arbitrary unverified metadata object with blob ID.
@@ -169,18 +189,20 @@ pub fn generate_config_metadata_and_valid_recovery_symbols(
 ) -> walrus_test_utils::Result<RecoverySymbolsWithConfigAndMetadata> {
     let blob = walrus_test_utils::random_data(314);
     let encoding_config = encoding_config();
-    let (sliver_pairs, metadata) = encoding_config
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
+    let config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
+    let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
     let target_sliver_index = SliverIndex(0);
     let recovery_symbols = walrus_test_utils::random_subset(
         (1..encoding_config.n_shards.get()).map(|i| {
             sliver_pairs[i as usize]
                 .secondary
-                .recovery_symbol_for_sliver(target_sliver_index.into(), &encoding_config)
+                .recovery_symbol_for_sliver(
+                    target_sliver_index.into(),
+                    &encoding_config.get_for_type(DEFAULT_ENCODING),
+                )
                 .unwrap()
         }),
-        encoding_config.n_secondary_source_symbols().get().into(),
+        config_enum.n_secondary_source_symbols().get().into(),
     )
     .collect();
     Ok((

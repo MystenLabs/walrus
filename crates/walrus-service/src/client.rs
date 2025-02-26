@@ -11,6 +11,7 @@ use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use rand::{rngs::ThreadRng, RngCore as _};
+use refresh::are_current_previous_different;
 use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
 use responses::BlobStoreResultWithPath;
 use sui_types::base_types::ObjectID;
@@ -19,11 +20,19 @@ use tracing::{Instrument as _, Level};
 use utils::WeightedResult;
 use walrus_core::{
     bft,
-    encoding::{BlobDecoder, EncodingAxis, EncodingConfig, SliverData, SliverPair},
+    encoding::{
+        BlobDecoderEnum,
+        EncodingAxis,
+        EncodingConfig,
+        EncodingConfigTrait as _,
+        SliverData,
+        SliverPair,
+    },
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
+    EncodingType,
     Epoch,
     EpochCount,
     ShardIndex,
@@ -33,13 +42,15 @@ use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
         BlobPersistence,
+        CertifyAndExtendBlobParams,
         ExpirySelectionPolicy,
         PostStoreAction,
         ReadClient,
         SuiContractClient,
     },
-    types::{Blob, BlobEvent, StakedWal},
+    types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
 };
+use walrus_utils::backoff::BackoffStrategy;
 
 use self::{
     communication::NodeResult,
@@ -82,10 +93,6 @@ pub mod metrics;
 mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
-
-/// The maximum number of retries for an operation that is stopped because of a committee change.
-// TODO: make this configurable.
-const MAX_COMMITTEE_CHANGE_RETRIES: u32 = 3;
 
 type ClientResult<T> = Result<T, ClientError>;
 
@@ -257,7 +264,7 @@ impl<T: ReadClient> Client<T> {
         U: EncodingAxis,
         SliverData<U>: TryFrom<Sliver>,
     {
-        self.retry_if_committees_change(|| self.read_blob::<U>(blob_id))
+        self.retry_if_notified_epoch_change(|| self.read_blob::<U>(blob_id))
             .await
     }
 
@@ -344,51 +351,104 @@ impl<T: ReadClient> Client<T> {
     }
 
     /// Retries the given function if the client gets notified that the committees have changed.
-    async fn retry_if_committees_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
+    ///
+    /// This function should not be used to retry function `func` that cannot be interrupted at
+    /// arbitrary await points. Most importantly, functions that use the wallet to sign and execute
+    /// transactions on Sui.
+    async fn retry_if_notified_epoch_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = ClientResult<R>>,
+    {
+        let func_check_notify = || self.await_while_checking_notification(func());
+        self.retry_if_error_epoch_change(func_check_notify).await
+    }
+
+    /// Retries the given function if the function returns with an error that may be related to
+    /// epoch change.
+    async fn retry_if_error_epoch_change<F, R, Fut>(&self, func: F) -> ClientResult<R>
     where
         F: Fn() -> Fut,
         Fut: Future<Output = ClientResult<R>>,
     {
         let mut attempts = 0;
 
-        // Retry the given function if the client gets notified that the committees have changed for
-        // N-1 times; if it does not succeed after N-1 times, then the last try is made outside the
-        // loop.
-        while attempts < MAX_COMMITTEE_CHANGE_RETRIES - 1 {
-            tokio::select! {
-                _ = self.committees_handle.change_notified() => {
-                    tracing::warn!(
-                        "notified that committees have changed; \
-                        stopping the current operation and retrying"
-                    );
-                    attempts += 1;
-                    continue;
+        let mut backoff = self
+            .config
+            .communication_config
+            .committee_change_backoff
+            .get_strategy(ThreadRng::default().next_u64());
+
+        // Retry the given function N-1 times; if it does not succeed after N-1 times, then the
+        // last try is made outside the loop.
+        while let Some(delay) = backoff.next_delay() {
+            match func().await {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    if error.may_be_caused_by_epoch_change() {
+                        tracing::warn!(
+                            %error,
+                            "operation aborted; maybe because of epoch change; retrying"
+                        );
+                        if !matches!(*error.kind(), ClientErrorKind::CommitteeChangeNotified) {
+                            // If the error is CommitteeChangeNotified, we do not need to refresh
+                            // the committees.
+                            tracing::warn!("forcing committee refresh before retrying");
+                            self.force_refresh_committees().await?;
+                        }
+                    } else {
+                        tracing::warn!(%error, "operation failed; not retrying");
+                        return Err(error);
+                    }
                 }
-                result = func() => {
-                    match result {
-                        Ok(result) => return Ok(result),
-                        Err(error) => {
-                            if error.may_be_caused_by_epoch_change() {
-                                tracing::warn!(
-                                    %error,
-                                    "operation failed; maybe because of epoch change; \
-                                    forcing committee refresh and retrying"
-                                );
-                                self.force_refresh_committees().await?;
-                                attempts += 1;
-                                continue;
-                            } else {
-                                tracing::warn!(%error, "operation failed; not retrying");
-                                return Err(error);
-                            }
-                        },
-                    };
-                },
             };
+
+            attempts += 1;
+            tracing::info!(
+                ?attempts,
+                ?delay,
+                "committee change detected; retrying after a delay",
+            );
+            tokio::time::sleep(delay).await;
         }
 
         // The last try.
+        tracing::warn!(?attempts, "retries exhausted; conduct one last try");
         func().await
+    }
+
+    async fn get_blob_by_object_id(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithAttribute> {
+        self.sui_client
+            .get_blob_by_object_id(blob_object_id)
+            .await
+            .map_err(|e| {
+                if e.to_string()
+                    .contains("response does not contain object data")
+                {
+                    ClientError::from(ClientErrorKind::BlobIdDoesNotExist)
+                } else {
+                    ClientError::other(e)
+                }
+            })
+    }
+
+    /// Executes the function while also awaiiting on the change notification.
+    ///
+    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if the client is notified that
+    /// the committee has changed.
+    async fn await_while_checking_notification<Fut, R>(&self, future: Fut) -> ClientResult<R>
+    where
+        Fut: Future<Output = ClientResult<R>>,
+    {
+        tokio::select! {
+            _ = self.committees_handle.change_notified() => {
+                Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified))
+            },
+            result = future => result,
+        }
     }
 }
 
@@ -428,14 +488,17 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
+            .await?;
 
-        self.retry_if_committees_change(|| {
+        self.retry_if_error_epoch_change(|| {
             self.reserve_and_store_encoded_blobs(
                 &pairs_and_metadata,
                 epochs_ahead,
@@ -454,6 +517,7 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -463,11 +527,11 @@ impl Client<SuiContractClient> {
             pairs_and_metadata,
             id_to_path,
         } = self
-            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths)
+            .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths, encoding_type)
             .await?;
 
         let store_results = self
-            .retry_if_committees_change(|| {
+            .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(
                     &pairs_and_metadata,
                     epochs_ahead,
@@ -495,12 +559,15 @@ impl Client<SuiContractClient> {
     pub async fn reserve_and_store_blobs(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
+            .await?;
 
         self.reserve_and_store_encoded_blobs(
             &pairs_and_metadata,
@@ -515,9 +582,12 @@ impl Client<SuiContractClient> {
     async fn encode_blobs_to_pairs_and_metadata_with_path(
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
+        encoding_type: EncodingType,
     ) -> ClientResult<EncodedResult> {
         let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs).await?;
+        let pairs_and_metadata = self
+            .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)
+            .await?;
 
         // Build the id_to_path mapping.
         let id_to_path: HashMap<BlobId, PathBuf> = pairs_and_metadata
@@ -546,6 +616,7 @@ impl Client<SuiContractClient> {
     pub async fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[&[u8]],
+        encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
         if blobs.is_empty() {
             return Ok(Vec::new());
@@ -574,7 +645,7 @@ impl Client<SuiContractClient> {
             let multi_pb_clone = multi_pb.clone();
             async move {
                 match self
-                    .encode_pairs_and_metadata(blob, multi_pb_clone.as_ref())
+                    .encode_pairs_and_metadata(blob, encoding_type, multi_pb_clone.as_ref())
                     .await
                 {
                     Ok(result) => (idx, Ok(result)),
@@ -613,6 +684,7 @@ impl Client<SuiContractClient> {
     async fn encode_pairs_and_metadata(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
         let spinner = multi_pb.add(styled_spinner());
@@ -622,9 +694,9 @@ impl Client<SuiContractClient> {
 
         let (pairs, metadata) = self
             .encoding_config
-            .get_blob_encoder(blob)
-            .map_err(ClientError::other)?
-            .encode_with_metadata();
+            .get_for_type(encoding_type)
+            .encode_with_metadata(blob)
+            .map_err(ClientError::other)?;
 
         let duration = encode_start_timer.elapsed();
         let pair = pairs.first().expect("the encoding produces sliver pairs");
@@ -641,6 +713,10 @@ impl Client<SuiContractClient> {
         Ok((pairs, metadata))
     }
 
+    /// Stores the blobs on Walrus, reserving space or extending registered blobs, if necessary.
+    ///
+    /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if, during the registration or
+    /// store operations, the client is notified that the committee has changed.
     async fn reserve_and_store_encoded_blobs(
         &self,
         pairs_and_metadata: &[(Vec<SliverPair>, VerifiedBlobMetadataWithId)],
@@ -656,7 +732,12 @@ impl Client<SuiContractClient> {
         let status_start_timer = Instant::now();
         let committees = self.get_committees().await?;
 
-        let blob_id_to_metadata_with_status = self.get_blob_statuses(pairs_and_metadata).await?;
+        // Retrieve the blob status, checking if the committee has changed in the meantime.
+        // This operation can be safely interrupted as it does not require a wallet.
+        let blob_id_to_metadata_with_status = self
+            .await_while_checking_notification(self.get_blob_statuses(pairs_and_metadata))
+            .await?;
+
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
             "retrieved {} blob statuses",
@@ -664,6 +745,7 @@ impl Client<SuiContractClient> {
         );
 
         let store_op_timer = Instant::now();
+        // Register blobs if they are not registered, and get the store operations.
         let store_operations = self
             .resource_manager(&committees)
             .await
@@ -679,36 +761,88 @@ impl Client<SuiContractClient> {
             .await?;
         tracing::info!(
             duration = ?store_op_timer.elapsed(),
-            "{} blob resources obtained",
-            store_operations.len()
+            "{} blob resources obtained\n{}",
+            store_operations.len(),
+            store_operations.iter().map(|op| format!("{:?}", op)).collect::<Vec<_>>().join("\n")
         );
 
-        // Collect store ops for noops and new blobs.
-        let mut noop_results: Vec<_> = Vec::with_capacity(store_operations.len());
+        // Collect store ops for noops, new blobs, extended blobs, and certify and extend blobs.
+        let mut noop_results: Vec<BlobStoreResult> = Vec::with_capacity(store_operations.len());
         let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
+        let mut extended_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
+        let mut certify_and_extend_blobs_and_ops = HashMap::with_capacity(store_operations.len());
+
         store_operations
             .into_iter()
             .for_each(|store_op| match store_op {
                 StoreOp::NoOp(result) => noop_results.push(result),
                 StoreOp::RegisterNew { blob, operation } => {
-                    new_blobs_and_ops.push((blob, operation))
+                    if operation.is_certify_and_extend() {
+                        certify_and_extend_blobs_and_ops.insert(blob.blob_id, (blob, operation));
+                    } else if operation.is_extend() {
+                        extended_blobs_and_ops.push((blob, operation));
+                    } else {
+                        new_blobs_and_ops.push((blob, operation));
+                    }
                 }
             });
 
         // Return early if all operations are noops.
-        if new_blobs_and_ops.is_empty() {
+        if new_blobs_and_ops.is_empty()
+            && certify_and_extend_blobs_and_ops.is_empty()
+            && extended_blobs_and_ops.is_empty()
+        {
             return Ok(noop_results);
         }
 
         // Get certificates for all new blobs.
+        let certify_blobs = new_blobs_and_ops
+            .clone()
+            .into_iter()
+            .chain(certify_and_extend_blobs_and_ops.values().cloned())
+            .collect::<Vec<_>>();
+
+        // Check if the committee has changed while registering the blobs.
+        if are_current_previous_different(
+            committees.as_ref(),
+            self.get_committees().await?.as_ref(),
+        ) {
+            tracing::warn!("committees have changed while registering blobs");
+            return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
+        }
+
+        // Get the blob certificates, possibly storing slivers, while checking if the committee has
+        // changed in the meantime.
+        // This operation can be safely interrupted as it does not require a wallet.
         let blobs_with_certificates = self
-            .get_all_blob_certificates(&new_blobs_and_ops, &blob_id_to_metadata_with_status)
+            .await_while_checking_notification(
+                self.get_all_blob_certificates(&certify_blobs, &blob_id_to_metadata_with_status),
+            )
             .await?;
+
+        let blobs_with_cert_and_extend: Vec<CertifyAndExtendBlobParams> = blobs_with_certificates
+            .into_iter()
+            .map(|(blob, cert)| CertifyAndExtendBlobParams {
+                blob,
+                certificate: Some(cert),
+                epochs_extended: certify_and_extend_blobs_and_ops
+                    .get(&blob.blob_id)
+                    .and_then(|(_, op)| op.epochs_extended()),
+            })
+            .chain(extended_blobs_and_ops.as_slice().iter().map(|(blob, op)| {
+                CertifyAndExtendBlobParams {
+                    blob,
+                    certificate: None,
+                    epochs_extended: op.epochs_extended(),
+                }
+            }))
+            .collect();
+
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
         let shared_blob_object_map = self
             .sui_client
-            .certify_blobs(&blobs_with_certificates, post_store)
+            .certify_and_extend_blobs(&blobs_with_cert_and_extend, post_store)
             .await
             .map_err(|e| {
                 tracing::warn!(error = %e, "failed to certify blobs on Sui");
@@ -717,7 +851,7 @@ impl Client<SuiContractClient> {
         tracing::info!(
             duration = ?sui_cert_timer.elapsed(),
             "certified {} blobs on Sui",
-            blobs_with_certificates.len()
+            blobs_with_cert_and_extend.len()
         );
 
         // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
@@ -740,9 +874,37 @@ impl Client<SuiContractClient> {
             })
             .collect();
 
+        let extended_results: Vec<_> = extended_blobs_and_ops
+            .into_iter()
+            .map(|(mut blob, op)| {
+                blob.storage.end_epoch = write_committee_epoch + epochs_ahead;
+                BlobStoreResult::NewlyCreated {
+                    shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                    blob_object: blob,
+                    cost: price_computation.operation_cost(&op),
+                    resource_operation: op,
+                }
+            })
+            .collect();
+
+        let cert_and_extend_results =
+            certify_and_extend_blobs_and_ops
+                .into_iter()
+                .map(|(_, (mut blob, op))| {
+                    blob.storage.end_epoch = write_committee_epoch + epochs_ahead;
+                    BlobStoreResult::NewlyCreated {
+                        cost: price_computation.operation_cost(&op),
+                        resource_operation: op,
+                        shared_blob_object: shared_blob_object_map.get(&blob.blob_id).copied(),
+                        blob_object: blob,
+                    }
+                });
+
         Ok(newly_created_results
             .into_iter()
             .chain(noop_results.into_iter())
+            .chain(extended_results.into_iter())
+            .chain(cert_and_extend_results)
             .collect())
     }
 
@@ -809,6 +971,10 @@ impl Client<SuiContractClient> {
             ),
         >,
     ) -> ClientResult<Vec<(&'a Blob, ConfirmationCertificate)>> {
+        if new_blobs_and_ops.is_empty() {
+            return Ok(vec![]);
+        }
+
         let get_cert_timer = Instant::now();
         let mut failed_indices = Vec::with_capacity(new_blobs_and_ops.len());
         let mut blobs_with_certificates = Vec::with_capacity(new_blobs_and_ops.len());
@@ -866,7 +1032,6 @@ impl Client<SuiContractClient> {
         Ok(blobs_with_certificates)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn get_blob_certificate(
         &self,
         blob_object: &Blob,
@@ -893,7 +1058,9 @@ impl Client<SuiContractClient> {
                 // If the blob is not certified, we need to store the slivers. Also, during
                 // epoch change we may need to store the slivers again for an already certified
                 // blob, as the current committee may not have synced them yet.
-                if resource_operation.is_registration() && !blob_status.is_registered() {
+                if (resource_operation.is_registration() || resource_operation.is_reuse_storage())
+                    && !blob_status.is_registered()
+                {
                     tracing::debug!(
                         delay=?self.config.communication_config.registration_delay,
                         "waiting to ensure that all storage nodes have seen the registration"
@@ -1035,6 +1202,7 @@ impl<T> Client<T> {
             .max_concurrent_sliver_writes_for_blob_size(
                 metadata.metadata().unencoded_length(),
                 &self.encoding_config,
+                metadata.metadata().encoding_type(),
             );
         tracing::debug!(
             blob_id = %metadata.blob_id(),
@@ -1242,8 +1410,13 @@ impl<T> Client<T> {
     {
         let committees = self.get_committees().await?;
         // Create a progress bar to track the progress of the sliver retrieval.
-        let progress_bar =
-            styled_progress_bar(self.encoding_config.n_source_symbols::<U>().get().into());
+        let progress_bar: indicatif::ProgressBar = styled_progress_bar(
+            self.encoding_config
+                .get_for_type(metadata.metadata().encoding_type())
+                .n_source_symbols::<U>()
+                .get()
+                .into(),
+        );
         progress_bar.set_message("requesting slivers");
 
         let comms = self
@@ -1269,12 +1442,20 @@ impl<T> Client<T> {
         });
         let mut decoder = self
             .encoding_config
+            .get_for_type(metadata.metadata().encoding_type())
             .get_blob_decoder::<U>(metadata.metadata().unencoded_length())
             .map_err(ClientError::other)?;
         // Get the first ~1/3 or ~2/3 of slivers directly, and decode with these.
         let mut requests = WeightedFutures::new(futures);
-        let enough_source_symbols =
-            |weight| weight >= self.encoding_config.n_source_symbols::<U>().get().into();
+        let enough_source_symbols = |weight| {
+            weight
+                >= self
+                    .encoding_config
+                    .get_for_type(metadata.metadata().encoding_type())
+                    .n_source_symbols::<U>()
+                    .get()
+                    .into()
+        };
         requests
             .execute_weight(
                 &enough_source_symbols,
@@ -1282,6 +1463,7 @@ impl<T> Client<T> {
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
                         &self.encoding_config,
+                        metadata.metadata().encoding_type(),
                     ),
             )
             .await;
@@ -1344,7 +1526,7 @@ impl<T> Client<T> {
     async fn decode_sliver_by_sliver<'a, I, Fut, U>(
         &self,
         requests: &mut WeightedFutures<I, Fut, NodeResult<SliverData<U>, NodeError>>,
-        decoder: &mut BlobDecoder<'a, U>,
+        decoder: &mut BlobDecoderEnum<'a, U>,
         metadata: &VerifiedBlobMetadataWithId,
         mut n_not_found: usize,
         mut n_forbidden: usize,
@@ -1360,6 +1542,7 @@ impl<T> Client<T> {
                     .max_concurrent_sliver_reads_for_blob_size(
                         metadata.metadata().unencoded_length(),
                         &self.encoding_config,
+                        metadata.metadata().encoding_type(),
                     ),
             )
             .await

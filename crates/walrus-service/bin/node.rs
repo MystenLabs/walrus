@@ -38,7 +38,9 @@ use walrus_service::{
         events::event_processor_runtime::EventProcessorRuntime,
         server::{RestApiConfig, RestApiServer},
         system_events::EventManager,
+        ConfigLoader,
         StorageNode,
+        StorageNodeConfigLoader,
     },
     utils::{
         self,
@@ -49,6 +51,7 @@ use walrus_service::{
         EnableMetricsPush,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
+        MAX_NODE_NAME_LENGTH,
     },
     SyncNodeConfigError,
 };
@@ -359,6 +362,7 @@ fn main() -> anyhow::Result<()> {
             let result = commands::run(
                 load_from_yaml(&config_path)?,
                 cleanup_storage,
+                Arc::new(StorageNodeConfigLoader::new(config_path.clone())),
                 ignore_sync_failures,
             );
 
@@ -462,6 +466,7 @@ mod commands {
     pub(super) fn run(
         mut config: StorageNodeConfig,
         cleanup_storage: bool,
+        config_loader: Arc<dyn ConfigLoader>,
         ignore_sync_failures: bool,
     ) -> anyhow::Result<()> {
         if cleanup_storage {
@@ -561,6 +566,7 @@ mod commands {
             exit_notifier,
             event_manager,
             cancel_token.child_token(),
+            Some(config_loader),
             ignore_sync_failures,
         )?;
 
@@ -823,6 +829,13 @@ mod commands {
             !public_host.contains(':'),
             "DNS names must not contain ':'; to specify a port different from the default, use the \
                 '--public-port' option."
+        );
+
+        // Check that the name does not exceed the maximum length.
+        ensure!(
+            name.len() <= MAX_NODE_NAME_LENGTH,
+            "name must not exceed {} characters",
+            MAX_NODE_NAME_LENGTH
         );
 
         let system_object = system_object.unwrap_or_else(|| {
@@ -1111,6 +1124,7 @@ impl StorageNodeRuntime {
         exit_notifier: oneshot::Sender<()>,
         event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
+        config_loader: Option<Arc<dyn ConfigLoader>>,
         ignore_sync_failures: bool,
     ) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
@@ -1125,6 +1139,7 @@ impl StorageNodeRuntime {
                 StorageNode::builder()
                     .with_system_event_manager(event_manager)
                     .with_ignore_sync_failures(ignore_sync_failures)
+                    .with_config_loader(config_loader)
                     .build(node_config, metrics_runtime.registry.clone()),
             )?,
         );

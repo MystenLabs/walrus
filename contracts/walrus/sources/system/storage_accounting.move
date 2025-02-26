@@ -8,6 +8,7 @@ use wal::wal::WAL;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// Trying to access an epoch that is too far in the future.
 const ETooFarInFuture: u64 = 0;
 
 /// Holds information about a future epoch, namely how much

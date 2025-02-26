@@ -675,6 +675,9 @@ mod tests {
                     EpochState::EpochChangeDone(epoch_change_completed_at),
                 ))
             });
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id| Ok(()));
 
             let driver = driver_under_test(service, /*seed=*/ 0, start);
 
@@ -719,6 +722,9 @@ mod tests {
                     EpochState::EpochChangeDone(epoch_change_completed_at),
                 ))
             });
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id| Ok(()));
 
             let driver = driver_under_test_with_epoch_zero_end(
                 service,
@@ -770,6 +776,10 @@ mod tests {
             // End voting should not be called since epoch has already advanced.
             service.expect_end_voting().never();
 
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id| Ok(()));
+
             let driver = driver_under_test(service, /*seed=*/ 2, UtcInstant::now());
 
             // Schedule voting end for the epoch.
@@ -802,6 +812,9 @@ mod tests {
 
             let mut service = MockSystemContractService::new();
 
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id| Ok(()));
             service
                 .expect_initiate_epoch_change()
                 .once()
@@ -850,6 +863,9 @@ mod tests {
 
             let mut service = MockSystemContractService::new();
 
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id| Ok(()));
             service
                 .expect_initiate_epoch_change()
                 .once()
@@ -912,6 +928,9 @@ mod tests {
         ) -> TestResult {
             let mut service = MockSystemContractService::new();
 
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id| Ok(()));
             // Return the configured system epoch and state.
             service
                 .expect_get_epoch_and_state()

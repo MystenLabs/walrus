@@ -8,13 +8,13 @@ use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
 
 use super::{
+    basic_encoding::{raptorq::RaptorQDecoder, reed_solomon::ReedSolomonDecoder, Decoder},
     utils,
     DataTooLargeError,
-    Decoder,
     DecodingSymbol,
     DecodingVerificationError,
     EncodingAxis,
-    EncodingConfig,
+    EncodingConfigEnum,
     Primary,
     Secondary,
     SliverData,
@@ -22,10 +22,10 @@ use super::{
     Symbols,
 };
 use crate::{
+    encoding::config::EncodingConfigTrait as _,
     merkle::{leaf_hash, MerkleTree},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
     BlobId,
-    EncodingType,
     SliverIndex,
     SliverPairIndex,
 };
@@ -47,7 +47,7 @@ pub struct BlobEncoder<'a> {
     /// Stored as a `usize` for convenience, but guaranteed to be non-zero.
     n_columns: usize,
     /// Reference to the encoding configuration of this encoder.
-    config: &'a EncodingConfig,
+    config: EncodingConfigEnum<'a>,
     /// A tracing span associated with this blob encoder.
     span: Span,
 }
@@ -63,14 +63,17 @@ impl<'a> BlobEncoder<'a> {
     /// two cases:
     ///
     /// 1. If the blob is too large to fit into the message matrix with valid symbols. The maximum
-    ///    blob size for a given [`EncodingConfig`] is accessible through the
-    ///    [`EncodingConfig::max_blob_size`] method.
+    ///    blob size for a given [`EncodingConfigEnum`] is accessible through the
+    ///    [`EncodingConfigEnum::max_blob_size`] method.
     /// 2. On 32-bit architectures, the maximally supported blob size can actually be smaller than
     ///    that due to limitations of the address space.
-    pub fn new(config: &'a EncodingConfig, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: EncodingConfigEnum<'a>, blob: &'a [u8]) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob encoder");
-        let symbol_size =
-            utils::compute_symbol_size_from_usize(blob.len(), config.source_symbols_per_blob())?;
+        let symbol_size = utils::compute_symbol_size_from_usize(
+            blob.len(),
+            config.source_symbols_per_blob(),
+            config.encoding_type().required_alignment(),
+        )?;
         let n_rows = config.n_source_symbols::<Primary>().get().into();
         let n_columns = config.n_source_symbols::<Secondary>().get().into();
 
@@ -118,9 +121,9 @@ impl<'a> BlobEncoder<'a> {
         for (col_index, column) in secondary_slivers.iter().take(self.n_columns).enumerate() {
             for (symbol, sliver) in self
                 .config
-                .get_encoder::<Primary>(column.symbols.data())
+                .encode_all_repair_symbols::<Primary>(column.symbols.data())
                 .expect("size has already been checked")
-                .encode_all_repair_symbols()
+                .into_iter()
                 .zip(primary_slivers.iter_mut().skip(self.n_rows))
             {
                 sliver.copy_symbol_to(col_index, &symbol);
@@ -131,9 +134,9 @@ impl<'a> BlobEncoder<'a> {
         for (r, row) in primary_slivers.iter().take(self.n_rows).enumerate() {
             for (symbol, sliver) in self
                 .config
-                .get_encoder::<Secondary>(row.symbols.data())
+                .encode_all_repair_symbols::<Secondary>(row.symbols.data())
                 .expect("size has already been checked")
-                .encode_all_repair_symbols()
+                .into_iter()
                 .zip(secondary_slivers.iter_mut().skip(self.n_columns))
             {
                 sliver.copy_symbol_to(r, &symbol);
@@ -232,14 +235,14 @@ impl<'a> BlobEncoder<'a> {
     /// are initialized with the appropriate `symbol_size` and `length`.
     fn empty_sliver_pairs(&self) -> Vec<SliverPair> {
         (0..self.config.n_shards().get())
-            .map(|i| SliverPair::new_empty(self.config, self.symbol_size, SliverPairIndex(i)))
+            .map(|i| SliverPair::new_empty(&self.config, self.symbol_size, SliverPairIndex(i)))
             .collect()
     }
 
     /// Computes the fully expanded message matrix by encoding rows and columns.
     fn get_expanded_matrix(&self) -> ExpandedMessageMatrix {
         self.span
-            .in_scope(|| ExpandedMessageMatrix::new(self.config, self.symbol_size, self.blob))
+            .in_scope(|| ExpandedMessageMatrix::new(&self.config, self.symbol_size, self.blob))
     }
 }
 
@@ -252,7 +255,7 @@ struct ExpandedMessageMatrix<'a> {
     matrix: Vec<Symbols>,
     // INV: `blob.len() > 0`
     blob: &'a [u8],
-    config: &'a EncodingConfig,
+    config: &'a EncodingConfigEnum<'a>,
     /// The number of rows in the non-expanded message matrix.
     n_rows: usize,
     /// The number of columns in the non-expanded message matrix.
@@ -261,7 +264,7 @@ struct ExpandedMessageMatrix<'a> {
 }
 
 impl<'a> ExpandedMessageMatrix<'a> {
-    fn new(config: &'a EncodingConfig, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
+    fn new(config: &'a EncodingConfigEnum<'a>, symbol_size: NonZeroU16, blob: &'a [u8]) -> Self {
         tracing::debug!("computing expanded message matrix");
         let matrix = vec![
             Symbols::zeros(config.n_shards_as_usize(), symbol_size);
@@ -301,7 +304,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
                 .map(move |row| {
                     row[SliverPairIndex::try_from(col_index)
                         .expect("size has already been checked")
-                        .to_sliver_index::<Secondary>(self.config.n_shards)
+                        .to_sliver_index::<Secondary>(self.config.n_shards())
                         .as_usize()]
                     .as_ref()
                 })
@@ -318,9 +321,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
 
             for (row_index, symbol) in self
                 .config
-                .get_encoder::<Primary>(column.data())
+                .encode_all_repair_symbols::<Primary>(column.data())
                 .expect("size has already been checked")
-                .encode_all_repair_symbols()
+                .into_iter()
                 .enumerate()
             {
                 self.matrix[self.n_rows + row_index][col_index].copy_from_slice(&symbol);
@@ -334,9 +337,9 @@ impl<'a> ExpandedMessageMatrix<'a> {
         for row in self.matrix.iter_mut().take(self.n_rows) {
             for (col_index, symbol) in self
                 .config
-                .get_encoder::<Secondary>(&row[0..self.n_columns])
+                .encode_all_repair_symbols::<Secondary>(&row[0..self.n_columns])
                 .expect("size has already been checked")
-                .encode_all_repair_symbols()
+                .into_iter()
                 .enumerate()
             {
                 row[self.n_columns + col_index].copy_from_slice(&symbol)
@@ -378,7 +381,7 @@ impl<'a> ExpandedMessageMatrix<'a> {
 
         VerifiedBlobMetadataWithId::new_verified_from_metadata(
             metadata,
-            EncodingType::RedStuff,
+            self.config.encoding_type(),
             u64::try_from(self.blob.len()).expect("any valid blob size fits into a `u64`"),
         )
     }
@@ -447,41 +450,74 @@ impl<'a> ExpandedMessageMatrix<'a> {
     }
 }
 
+/// A wrapper around the blob decoder for different encoding types.
+#[derive(Debug)]
+pub enum BlobDecoderEnum<'a, E: EncodingAxis> {
+    /// The RaptorQ decoder.
+    RaptorQ(BlobDecoder<'a, RaptorQDecoder, E>),
+    /// The Reed-Solomon decoder.
+    ReedSolomon(BlobDecoder<'a, ReedSolomonDecoder, E>),
+}
+
+impl<E: EncodingAxis> BlobDecoderEnum<'_, E> {
+    /// Attempts to decode the source blob from the provided slivers.
+    ///
+    /// Returns the source blob as a byte vector if decoding succeeds or `None` if decoding fails.
+    pub fn decode_and_verify(
+        &mut self,
+        blob_id: &BlobId,
+        slivers: impl IntoIterator<Item = SliverData<E>>,
+    ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
+        match self {
+            Self::RaptorQ(d) => d.decode_and_verify(blob_id, slivers),
+            Self::ReedSolomon(d) => d.decode_and_verify(blob_id, slivers),
+        }
+    }
+}
+
 /// Struct to reconstruct a blob from either [`Primary`] (default) or [`Secondary`]
 /// [`Sliver`s][SliverData].
 #[derive(Debug)]
-pub struct BlobDecoder<'a, T: EncodingAxis = Primary> {
-    _decoding_axis: PhantomData<T>,
-    decoders: Vec<Decoder>,
+pub struct BlobDecoder<'a, D: Decoder, E: EncodingAxis = Primary> {
+    _decoding_axis: PhantomData<E>,
+    decoders: Vec<D>,
     blob_size: usize,
     symbol_size: NonZeroU16,
-    config: &'a EncodingConfig,
+    config: &'a D::Config,
     /// A tracing span associated with this blob decoder.
     span: Span,
 }
 
-impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
+impl<'a, D: Decoder, E: EncodingAxis> BlobDecoder<'a, D, E> {
     /// Creates a new `BlobDecoder` to decode a blob of size `blob_size` using the provided
     /// configuration.
     ///
     /// The generic parameter specifies from which type of slivers the decoding will be performed.
     ///
-    /// This function creates the necessary [`Decoder`s][Decoder] for the decoding; actual decoding
-    /// can be performed with the [`decode()`][Self::decode] method.
+    /// This function creates the necessary decoders for the decoding; actual decoding can be
+    /// performed with the [`decode()`][Self::decode] method.
     ///
     /// # Errors
     ///
     /// Returns a [`DataTooLargeError`] if the `blob_size` is too large to be decoded.
-    pub fn new(config: &'a EncodingConfig, blob_size: u64) -> Result<Self, DataTooLargeError> {
+    pub fn new(config: &'a D::Config, blob_size: u64) -> Result<Self, DataTooLargeError> {
         tracing::debug!("creating new blob decoder");
         let symbol_size = config.symbol_size_for_blob(blob_size)?;
         let blob_size = blob_size.try_into().map_err(|_| DataTooLargeError)?;
+
+        let decoders = (0..config.n_source_symbols::<E::OrthogonalAxis>().get())
+            .map(|_| {
+                D::new(
+                    config.n_source_symbols::<E>(),
+                    config.n_shards(),
+                    symbol_size,
+                )
+            })
+            .collect();
+
         Ok(Self {
             _decoding_axis: PhantomData,
-            decoders: vec![
-                Decoder::new(config.n_source_symbols::<T>(), symbol_size);
-                config.n_source_symbols::<T::OrthogonalAxis>().get().into()
-            ],
+            decoders,
             blob_size,
             symbol_size,
             config,
@@ -504,11 +540,11 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     /// addition to the slivers, notably on 32-bit architectures.
     pub fn decode<S>(&mut self, slivers: S) -> Option<Vec<u8>>
     where
-        S: IntoIterator<Item = SliverData<T>>,
-        T: EncodingAxis,
+        S: IntoIterator<Item = SliverData<E>>,
+        E: EncodingAxis,
     {
         let _guard = self.span.enter();
-        tracing::debug!(axis = T::NAME, "starting to decode");
+        tracing::debug!(axis = E::NAME, "starting to decode");
         // Depending on the decoding axis, this represents the message matrix's columns (primary)
         // or rows (secondary).
         let mut columns_or_rows = Vec::with_capacity(self.decoders.len());
@@ -533,7 +569,7 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
                 if let Some(decoded_data) = decoder
                     // NOTE: The encoding axis of the following symbol is irrelevant, but since we
                     // are reconstructing from slivers of type `T`, it should be of type `T`.
-                    .decode([DecodingSymbol::<T>::new(sliver.index.0, symbol.into())])
+                    .decode([DecodingSymbol::<E>::new(sliver.index.0, symbol.into())])
                 {
                     // If one decoding succeeds, all succeed as they have identical
                     // encoding/decoding matrices.
@@ -553,13 +589,13 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
             return None;
         }
 
-        let mut blob: Vec<_> = if T::IS_PRIMARY {
+        let mut blob: Vec<_> = if E::IS_PRIMARY {
             // Primary decoding: transpose columns to get to the original blob.
             let mut columns: Vec<_> = columns_or_rows
                 .into_iter()
                 .map(|col_index| col_index.into_iter())
                 .collect();
-            (0..self.config.n_source_symbols::<T>().get())
+            (0..self.config.n_source_symbols::<E>().get())
                 .flat_map(|_| {
                     {
                         columns
@@ -608,16 +644,15 @@ impl<'a, T: EncodingAxis> BlobDecoder<'a, T> {
     pub fn decode_and_verify(
         &mut self,
         blob_id: &BlobId,
-        slivers: impl IntoIterator<Item = SliverData<T>>,
+        slivers: impl IntoIterator<Item = SliverData<E>>,
     ) -> Result<Option<(Vec<u8>, VerifiedBlobMetadataWithId)>, DecodingVerificationError> {
         let Some(decoded_blob) = self.decode(slivers) else {
             return Ok(None);
         };
         let blob_metadata = self
             .config
-            .get_blob_encoder(&decoded_blob)
-            .expect("the blob size cannot be too large since we were able to decode")
-            .compute_metadata();
+            .compute_metadata(&decoded_blob)
+            .expect("the blob size cannot be too large since we were able to decode");
         if blob_metadata.blob_id() == blob_id {
             Ok(Some((decoded_blob, blob_metadata)))
         } else {
@@ -631,7 +666,11 @@ mod tests {
     use walrus_test_utils::{param_test, random_data, random_subset};
 
     use super::*;
-    use crate::metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId};
+    use crate::{
+        encoding::{EncodingConfig, RaptorQEncodingConfig},
+        metadata::{BlobMetadataApi as _, UnverifiedBlobMetadataWithId},
+        EncodingType,
+    };
 
     param_test! {
         test_matrix_construction: [
@@ -686,7 +725,7 @@ mod tests {
         expected_rows: &[&[u8]],
         expected_columns: &[&[u8]],
     ) {
-        let config = EncodingConfig::new_for_test(
+        let config = RaptorQEncodingConfig::new_for_test(
             source_symbols_primary,
             source_symbols_secondary,
             3 * (source_symbols_primary + source_symbols_secondary),
@@ -712,7 +751,7 @@ mod tests {
     #[test]
     fn test_metadata_computations_are_equal() {
         let blob = random_data(1000);
-        let config = EncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let config = RaptorQEncodingConfig::new(NonZeroU16::new(10).unwrap());
         let encoder = config.get_blob_encoder(&blob).unwrap();
         let matrix = encoder.get_expanded_matrix();
 
@@ -731,7 +770,7 @@ mod tests {
         let blob = random_data(31415);
         let blob_size = blob.len().try_into().unwrap();
 
-        let config = EncodingConfig::new(NonZeroU16::new(102).unwrap());
+        let config = RaptorQEncodingConfig::new(NonZeroU16::new(102).unwrap());
 
         let slivers_for_decoding: Vec<_> = random_subset(
             config.get_blob_encoder(&blob).unwrap().encode(),
@@ -771,8 +810,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_encode_with_metadata() {
+    param_test! {
+        test_encode_with_metadata: [
+            raptorq: (EncodingType::RedStuffRaptorQ),
+            reed_solomon: (EncodingType::RS2),
+        ]
+    }
+    fn test_encode_with_metadata(encoding_type: EncodingType) {
         // A big test checking that:
         // 1. The sliver pairs produced by `encode_with_metadata` are the same as the ones produced
         //    by `encode`;
@@ -785,14 +829,17 @@ mod tests {
         let n_shards = 102;
 
         let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+        let config_enum = config.get_for_type(encoding_type);
 
         // Check that the encoding with and without metadata are identical.
-        let sliver_pairs_1 = config.get_blob_encoder(&blob).unwrap().encode();
-        let blob_metadata_1 = config.get_blob_encoder(&blob).unwrap().compute_metadata();
-        let (sliver_pairs_2, blob_metadata_2) = config
-            .get_blob_encoder(&blob)
-            .unwrap()
-            .encode_with_metadata();
+        let blob_encoder = match encoding_type {
+            EncodingType::RedStuffRaptorQ => config.raptorq.get_blob_encoder(&blob).unwrap(),
+            EncodingType::RS2 => config.reed_solomon.get_blob_encoder(&blob).unwrap(),
+        };
+        let sliver_pairs_1 = blob_encoder.encode();
+        let blob_metadata_1 = blob_encoder.compute_metadata();
+
+        let (sliver_pairs_2, blob_metadata_2) = config_enum.encode_with_metadata(&blob).unwrap();
         assert_eq!(sliver_pairs_1, sliver_pairs_2);
         assert_eq!(blob_metadata_1, blob_metadata_2);
 
@@ -803,7 +850,7 @@ mod tests {
             .zip(blob_metadata_2.metadata().hashes().iter())
         {
             let pair_hash = sliver_pair
-                .pair_leaf_input::<Blake2b256>(&config)
+                .pair_leaf_input::<Blake2b256>(&config_enum)
                 .expect("should be able to encode");
             let meta_hash = pair_meta.pair_leaf_input::<Blake2b256>();
             assert_eq!(pair_hash, meta_hash);
@@ -823,7 +870,7 @@ mod tests {
         let blob_size = blob.len().try_into().unwrap();
         let n_shards = 102;
 
-        let config = EncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+        let config = RaptorQEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
 
         let (slivers, metadata_enc) = config
             .get_blob_encoder(&blob)

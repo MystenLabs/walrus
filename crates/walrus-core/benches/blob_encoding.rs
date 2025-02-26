@@ -6,8 +6,10 @@
 use core::{num::NonZeroU16, time::Duration};
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use walrus_core::encoding::{EncodingConfig, Primary};
+use walrus_core::encoding::{EncodingConfigTrait as _, Primary, RaptorQEncodingConfig};
 use walrus_test_utils::{random_data, random_subset};
+
+// TODO (WAL-610): Support both encoding types.
 
 const N_SHARDS: u16 = 1000;
 
@@ -22,8 +24,8 @@ const BLOB_SIZES: [(u64, &str); 6] = [
     (1 << 30, "1GiB"),
 ];
 
-fn encoding_config() -> EncodingConfig {
-    EncodingConfig::new(NonZeroU16::new(N_SHARDS).unwrap())
+fn encoding_config() -> RaptorQEncodingConfig {
+    RaptorQEncodingConfig::new(NonZeroU16::new(N_SHARDS).unwrap())
 }
 
 fn blob_encoding(c: &mut Criterion) {
@@ -82,7 +84,9 @@ fn blob_decoding(c: &mut Criterion) {
                     || slivers.clone(),
                     |slivers| {
                         let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
-                        let _blob = decoder.decode(slivers).unwrap();
+                        let decoded_blob = decoder.decode(slivers).unwrap();
+                        assert_eq!(blob.len(), decoded_blob.len());
+                        assert_eq!(blob, decoded_blob);
                     },
                     BatchSize::SmallInput,
                 );
@@ -97,10 +101,12 @@ fn blob_decoding(c: &mut Criterion) {
                     || slivers.clone(),
                     |slivers| {
                         let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
-                        let _blob = decoder
+                        let (decoded_blob, _metadata) = decoder
                             .decode_and_verify(blob_id, slivers)
                             .unwrap()
                             .unwrap();
+                        assert_eq!(blob.len(), decoded_blob.len());
+                        assert_eq!(blob, decoded_blob);
                     },
                     BatchSize::SmallInput,
                 );

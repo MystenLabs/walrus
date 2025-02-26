@@ -15,7 +15,7 @@ use tokio::{
     sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
     time::{Interval, MissedTickBehavior},
 };
-use walrus_core::{encoding::Primary, BlobId};
+use walrus_core::{encoding::Primary, BlobId, EpochCount};
 use walrus_service::client::{
     metrics::{self, ClientMetrics},
     Client,
@@ -325,7 +325,7 @@ impl LoadGenerator {
         Ok(())
     }
 
-    async fn single_write(&mut self, epochs_to_store: u32) -> Result<BlobId, ClientError> {
+    async fn single_write(&mut self, epochs_to_store: EpochCount) -> Result<BlobId, ClientError> {
         let mut client = self
             .write_client_pool
             .recv()

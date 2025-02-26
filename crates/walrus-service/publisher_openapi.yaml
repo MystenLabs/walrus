@@ -20,6 +20,12 @@ paths:
         object can be sent to a specified Sui address.
       operationId: put_blob
       parameters:
+      - name: encoding_type
+        in: query
+        description: The encoding type to use for the blob.
+        required: false
+        schema:
+          $ref: '#/components/schemas/EncodingType'
       - name: epochs
         in: query
         description: |-
@@ -228,7 +234,8 @@ components:
       type: string
       description: Supported Walrus encoding types.
       enum:
-      - RedStuff
+      - RedStuffRaptorQ
+      - RS2
     Epoch:
       type: integer
       format: int32
@@ -329,6 +336,50 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                minimum: 0
+      - type: object
+        description: The blob was already certified, but its lifetime is too short.
+        required:
+        - reuseAndExtend
+        properties:
+          reuseAndExtend:
+            type: object
+            description: The blob was already certified, but its lifetime is too short.
+            required:
+            - encoded_length
+            - epochs_extended
+            properties:
+              encoded_length:
+                type: integer
+                format: int64
+                minimum: 0
+              epochs_extended:
+                type: integer
+                format: int32
+                minimum: 0
+      - type: object
+        description: |-
+          The blob was registered, but not certified, and its lifetime is shorter than
+          the desired one.
+        required:
+        - reuseAndExtendNonCertified
+        properties:
+          reuseAndExtendNonCertified:
+            type: object
+            description: |-
+              The blob was registered, but not certified, and its lifetime is shorter than
+              the desired one.
+            required:
+            - encoded_length
+            - epochs_extended
+            properties:
+              encoded_length:
+                type: integer
+                format: int64
+                minimum: 0
+              epochs_extended:
+                type: integer
+                format: int32
                 minimum: 0
       description: The operation performed on blob and storage resources to register a blob.
     Status:

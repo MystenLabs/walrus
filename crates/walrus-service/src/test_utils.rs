@@ -72,6 +72,8 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
+#[cfg(msim)]
+use crate::node::ConfigLoader;
 use crate::{
     common::active_committees::ActiveCommittees,
     node::{
@@ -101,6 +103,13 @@ use crate::{
         StorageNode,
     },
 };
+
+/// Default buyer subsidy rate (5%)
+const DEFAULT_BUYER_SUBSIDY_RATE: u16 = 500;
+/// Default system subsidy rate (6%)
+const DEFAULT_SYSTEM_SUBSIDY_RATE: u16 = 600;
+/// Default initial subsidy funds amount
+pub const DEFAULT_SUBSIDY_FUNDS: u64 = 1_000_000;
 
 /// A system event manager that provides events from a stream. It does not support dropping events.
 #[derive(Debug)]
@@ -271,6 +280,27 @@ impl AsRef<StorageNode> for StorageNodeHandle {
     }
 }
 
+#[cfg(msim)]
+#[derive(Debug)]
+struct SimStorageNodeConfigLoader {
+    config: Arc<RwLock<StorageNodeConfig>>,
+}
+
+#[cfg(msim)]
+impl SimStorageNodeConfigLoader {
+    pub fn new(config: Arc<RwLock<StorageNodeConfig>>) -> Self {
+        Self { config }
+    }
+}
+
+#[cfg(msim)]
+#[async_trait]
+impl ConfigLoader for SimStorageNodeConfigLoader {
+    async fn load_storage_node_config(&self) -> anyhow::Result<StorageNodeConfig> {
+        Ok(self.config.read().await.clone())
+    }
+}
+
 /// A storage node handle for simulation tests. Comparing to StorageNodeHandle, this struct
 /// removes any storage node internal state, and adds a simulator node id for node management.
 #[cfg(msim)]
@@ -313,6 +343,8 @@ impl SimStorageNodeHandle {
             _ => panic!("unsupported protocol"),
         };
 
+        let config_loader = Arc::new(SimStorageNodeConfigLoader::new(config.clone()));
+
         let startup_sender = Arc::new(startup_sender);
         let handle = sui_simulator::runtime::Handle::current();
         let builder = handle.create_node();
@@ -336,13 +368,14 @@ impl SimStorageNodeHandle {
                 let config = config.clone();
                 let cancel_token = cancel_token.clone();
                 let startup_sender = startup_sender.clone();
-
+                let config_loader = config_loader.clone();
                 async move {
                     let result = async {
                         let (rest_api_handle, node_handle, event_processor_handle) =
                             Self::build_and_run_node(
                                 config.clone(),
                                 num_checkpoints_per_blob,
+                                config_loader,
                                 cancel_token.clone(),
                             )
                             .await?;
@@ -422,6 +455,7 @@ impl SimStorageNodeHandle {
     async fn build_and_run_node(
         config: Arc<RwLock<StorageNodeConfig>>,
         num_checkpoints_per_blob: Option<u32>,
+        config_loader: Arc<dyn ConfigLoader>,
         cancel_token: CancellationToken,
     ) -> anyhow::Result<(
         tokio::task::JoinHandle<Result<(), anyhow::Error>>,
@@ -494,6 +528,7 @@ impl SimStorageNodeHandle {
         if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
             builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
         };
+        builder = builder.with_config_loader(Some(config_loader));
         let node = builder
             .with_system_event_manager(event_provider)
             .build(&config, metrics_registry.clone())
@@ -1061,11 +1096,11 @@ async fn wait_for_rest_api_ready(client: &Client) -> anyhow::Result<()> {
 /// with the provided node, if necessary.
 ///
 /// The number of shards in the system inferred from the shards assigned in the provided config.
-/// It is at least 3 and is defined as `n = max(max(shard_ids) + 1, 3)`. If the shards `0..n` are
+/// It is at least 4 and is defined as `n = max(max(shard_ids) + 1, 4)`. If the shards `0..n` are
 /// assigned to the existing node, then this function returns `None`. Otherwise, there must be a
 /// second node in the committee with the shards not managed by the provided node.
 fn committee_partner(node_config: &StorageNodeTestConfig) -> Option<StorageNodeTestConfig> {
-    const MIN_SHARDS: u16 = 3;
+    const MIN_SHARDS: u16 = 4;
     let n_shards = node_config
         .shards
         .iter()
@@ -1355,9 +1390,7 @@ impl SystemContractService for StubContractService {
         _config: &StorageNodeConfig,
         _node_capability_object_id: ObjectID,
     ) -> Result<(), SyncNodeConfigError> {
-        Err(SyncNodeConfigError::Other(anyhow::anyhow!(
-            "stub service does not sync node params"
-        )))
+        Ok(())
     }
 
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
@@ -2105,7 +2138,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex;
     use walrus_sui::{
-        client::{contract_config::ContractConfig, SuiContractClient, SuiReadClient},
+        client::{SuiContractClient, SuiReadClient},
         test_utils::{
             self,
             system_setup::{
@@ -2140,13 +2173,24 @@ pub mod test_cluster {
         TestCluster,
         WithTempDir<client::Client<SuiContractClient>>,
     )> {
-        default_setup_with_epoch_duration(Duration::from_secs(60 * 60)).await
+        default_setup_with_epoch_duration(Duration::from_secs(60 * 60), false).await
+    }
+
+    /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
+    /// node handle.
+    pub async fn default_setup_with_subsidies() -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster,
+        WithTempDir<client::Client<SuiContractClient>>,
+    )> {
+        default_setup_with_epoch_duration(Duration::from_secs(60 * 60), true).await
     }
 
     /// Performs the default setup with the input epoch duration for the test cluster using
     /// StorageNodeHandle as default storage node handle.
     pub async fn default_setup_with_epoch_duration(
         epoch_duration: Duration,
+        with_subsidies: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster,
@@ -2164,6 +2208,7 @@ pub mod test_cluster {
             test_nodes_config,
             Some(10),
             ClientCommunicationConfig::default_for_test(),
+            with_subsidies,
         )
         .await
     }
@@ -2175,6 +2220,7 @@ pub mod test_cluster {
         test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
+        with_subsidies: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2185,6 +2231,7 @@ pub mod test_cluster {
             test_nodes_config,
             num_checkpoints_per_blob,
             communication_config,
+            with_subsidies,
         )
         .await
     }
@@ -2196,6 +2243,7 @@ pub mod test_cluster {
         test_nodes_config: TestNodesConfig,
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
+        with_subsidies: bool,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2236,6 +2284,7 @@ pub mod test_cluster {
             Duration::from_secs(0),
             epoch_duration,
             None,
+            with_subsidies,
         )
         .await?;
 
@@ -2269,8 +2318,7 @@ pub mod test_cluster {
         }
         let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
 
-        let contract_config =
-            ContractConfig::new(system_ctx.system_object, system_ctx.staking_object);
+        let contract_config = system_ctx.contract_config();
 
         let admin_contract_client = admin_wallet
             .and_then_async(|wallet| {
@@ -2282,6 +2330,24 @@ pub mod test_cluster {
                 )
             })
             .await?;
+
+        if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
+            let (subsidies_object_id, _) = admin_contract_client
+                .as_ref()
+                .create_and_fund_subsidies(
+                    subsidies_pkg_id,
+                    DEFAULT_BUYER_SUBSIDY_RATE,
+                    DEFAULT_SYSTEM_SUBSIDY_RATE,
+                    DEFAULT_SUBSIDY_FUNDS,
+                )
+                .await?;
+
+            admin_contract_client
+                .inner
+                .read_client()
+                .set_subsidies_object(subsidies_object_id)
+                .await?;
+        }
 
         let amounts_to_stake = test_nodes_config
             .node_weights
@@ -2464,7 +2530,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_graceful_shutdown_period_secs: Some(Some(0)),
             shard_sync_config: config::ShardSyncConfig {
                 shard_sync_retry_min_backoff: Duration::from_secs(1),
-                shard_sync_retry_max_backoff: Duration::from_secs(10),
+                shard_sync_retry_max_backoff: Duration::from_secs(3),
                 ..Default::default()
             },
             event_processor_config: Default::default(),

@@ -15,9 +15,13 @@ use walrus::walrus_context::WalrusContext;
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The `StakedWal` is not in `Withdrawing` state.
 const ENotWithdrawing: u64 = 0;
+/// The metadata of two `StakedWal` objects does not match.
 const EMetadataMismatch: u64 = 1;
+/// The amount for the split is invalid.
 const EInvalidAmount: u64 = 2;
+/// The principal of the `StakedWal` has a non-zero balance.
 const ENonZeroPrincipal: u64 = 3;
 /// Trying to mark stake as withdrawing when it is already marked as withdrawing.
 const EAlreadyWithdrawing: u64 = 6;

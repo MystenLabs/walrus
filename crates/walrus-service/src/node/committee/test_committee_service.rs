@@ -18,7 +18,14 @@ use tokio::time;
 use tower::{util::BoxCloneService, ServiceExt as _};
 use walrus_core::{
     bft,
-    encoding::{self, EncodingConfig, GeneralRecoverySymbol, Primary, PrimaryRecoverySymbol},
+    encoding::{
+        self,
+        EncodingConfig,
+        EncodingConfigTrait as _,
+        GeneralRecoverySymbol,
+        Primary,
+        PrimaryRecoverySymbol,
+    },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
     merkle::MerkleProof,
@@ -31,6 +38,7 @@ use walrus_core::{
     SliverIndex,
     SliverPairIndex,
     SliverType,
+    DEFAULT_ENCODING,
 };
 use walrus_sdk::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
@@ -446,15 +454,18 @@ fn recovery_symbols_by_shard(
 
     let encoding_config = EncodingConfig::new(n_shards);
     let (sliver_pairs, metadata) = encoding_config
-        .get_blob_encoder(&blob)?
-        .encode_with_metadata();
+        .get_for_type(DEFAULT_ENCODING)
+        .encode_with_metadata(&blob)?;
 
     let recovery_symbols = sliver_pairs
         .iter()
         .map(|pair| {
             let symbol = pair
                 .secondary
-                .recovery_symbol_for_sliver(target_sliver_pair_index, &encoding_config)
+                .recovery_symbol_for_sliver(
+                    target_sliver_pair_index,
+                    &encoding_config.get_for_type(metadata.metadata().encoding_type()),
+                )
                 .unwrap();
             (pair.index(), symbol)
         })

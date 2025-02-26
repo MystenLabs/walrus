@@ -9,7 +9,15 @@ use std::{
 use indicatif::MultiProgress;
 use rand::{rngs::StdRng, thread_rng, SeedableRng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
-use walrus_core::{merkle::Node, metadata::VerifiedBlobMetadataWithId, BlobId, SliverPairIndex};
+use walrus_core::{
+    encoding::EncodingConfigTrait as _,
+    merkle::Node,
+    metadata::VerifiedBlobMetadataWithId,
+    test_utils::random_encoding_type,
+    BlobId,
+    EpochCount,
+    SliverPairIndex,
+};
 use walrus_service::client::{
     Client,
     ClientError,
@@ -33,6 +41,7 @@ use walrus_test_utils::WithTempDir;
 
 use super::blob::BlobData;
 
+/// Client for writing test blobs to storage nodes
 /// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
@@ -76,7 +85,7 @@ impl WriteClient {
     /// elapsed time.
     pub async fn write_fresh_blob_with_epochs(
         &mut self,
-        epochs_to_store: u32,
+        epochs_to_store: EpochCount,
     ) -> Result<(BlobId, Duration), ClientError> {
         let blob = self.blob.refresh_and_get_random_slice();
         let now = Instant::now();
@@ -86,6 +95,7 @@ impl WriteClient {
             // TODO(giac): add also some deletable blobs in the mix (#800).
             .reserve_and_store_blobs_retry_committees(
                 &[blob],
+                random_encoding_type(),
                 epochs_to_store,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -126,9 +136,9 @@ impl WriteClient {
             .client
             .as_ref()
             .encoding_config()
-            .get_blob_encoder(blob)
-            .map_err(ClientError::other)?
-            .encode_with_metadata();
+            .get_for_type(random_encoding_type())
+            .encode_with_metadata(blob)
+            .map_err(ClientError::other)?;
 
         let mut metadata = metadata.metadata().to_owned();
         let n_members = self

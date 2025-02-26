@@ -14,6 +14,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context};
+use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
 use errors::ListSymbolsError;
@@ -28,6 +29,8 @@ use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
+#[cfg(msim)]
+use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
@@ -152,6 +155,7 @@ pub mod system_events;
 
 pub(crate) mod metrics;
 
+mod blob_retirement_notifier;
 mod blob_sync;
 mod epoch_change_driver;
 mod node_recovery;
@@ -162,7 +166,7 @@ pub(crate) mod errors;
 mod storage;
 
 mod config_synchronizer;
-use config_synchronizer::ConfigSynchronizer;
+pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -271,12 +275,19 @@ pub struct StorageNodeBuilder {
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
     ignore_sync_failures: bool,
+    config_loader: Option<Arc<dyn ConfigLoader>>,
 }
 
 impl StorageNodeBuilder {
     /// Creates a new builder.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets the config loader for the node.
+    pub fn with_config_loader(mut self, config_loader: Option<Arc<dyn ConfigLoader>>) -> Self {
+        self.config_loader = config_loader;
+        self
     }
 
     /// Sets the underlying storage for the node, instead of constructing one from the config.
@@ -427,11 +438,11 @@ impl StorageNodeBuilder {
 
         StorageNode::new(
             config,
-            protocol_key_pair,
             event_manager,
             committee_service,
             contract_service,
             &metrics_registry,
+            self.config_loader,
             node_params,
         )
         .await
@@ -472,6 +483,7 @@ pub struct StorageNodeInner {
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
     node_capability: ObjectID,
+    blob_retirement_notifier: Arc<BlobRetirementNotifier>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -492,11 +504,11 @@ pub struct NodeParameters {
 impl StorageNode {
     async fn new(
         config: &StorageNodeConfig,
-        key_pair: ProtocolKeyPair,
         event_manager: Box<dyn EventManager>,
         committee_service: Arc<dyn CommitteeService>,
         contract_service: Arc<dyn SystemContractService>,
         registry: &Registry,
+        config_loader: Option<Arc<dyn ConfigLoader>>,
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
@@ -508,33 +520,31 @@ impl StorageNode {
                 .config_synchronizer
                 .enabled
                 .then_some(Arc::new(ConfigSynchronizer::new(
-                    config.clone(),
                     contract_service.clone(),
                     committee_service.clone(),
                     config.config_synchronizer.interval,
                     node_capability.id,
+                    config_loader,
                 )));
 
-        if let Some(config_synchronizer) = config_synchronizer.as_ref() {
-            config_synchronizer
-                .sync_node_params()
-                .await
-                .or_else(|e| match e {
-                    SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
-                    SyncNodeConfigError::NodeNeedsReboot => {
-                        tracing::info!("ignore the error since we are booting");
+        contract_service
+            .sync_node_params(config, node_capability.id)
+            .await
+            .or_else(|e| match e {
+                SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
+                SyncNodeConfigError::NodeNeedsReboot => {
+                    tracing::info!("ignore the error since we are booting");
+                    Ok(())
+                }
+                _ => {
+                    if node_params.ignore_sync_failures {
+                        tracing::warn!(error = ?e, "failed to sync node params");
                         Ok(())
+                    } else {
+                        Err(e)
                     }
-                    _ => {
-                        if node_params.ignore_sync_failures {
-                            tracing::warn!(error = ?e, "failed to sync node params");
-                            Ok(())
-                        } else {
-                            Err(e)
-                        }
-                    }
-                })?;
-        }
+                }
+            })?;
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -551,7 +561,11 @@ impl StorageNode {
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
 
         let inner = Arc::new(StorageNodeInner {
-            protocol_key_pair: key_pair,
+            protocol_key_pair: config
+                .protocol_key_pair
+                .get()
+                .expect("protocol key pair must already be loaded")
+                .clone(),
             storage,
             event_manager,
             encoding_config,
@@ -563,6 +577,7 @@ impl StorageNode {
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
             node_capability: node_capability.id,
+            blob_retirement_notifier: Arc::new(BlobRetirementNotifier::new()),
         });
 
         blocklist.start_refresh_task();
@@ -1069,6 +1084,9 @@ impl StorageNode {
 
         if let Some(blob_info) = self.inner.storage.get_blob_info(&blob_id)? {
             if !blob_info.is_certified(self.inner.current_epoch()) {
+                self.inner
+                    .blob_retirement_notifier
+                    .notify_blob_retirement(&blob_id);
                 self.blob_sync_handler
                     .cancel_sync_and_mark_event_complete(&blob_id)
                     .await?;
@@ -1103,6 +1121,9 @@ impl StorageNode {
         event_handle: EventHandle,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
+        self.inner
+            .blob_retirement_notifier
+            .notify_blob_retirement(&event.blob_id);
         self.blob_sync_handler
             .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;
@@ -1118,6 +1139,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        // #[cfg(not(test))]
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }
@@ -1150,6 +1172,12 @@ impl StorageNode {
             .committee_service
             .begin_committee_change_to_latest_committee()
             .await?;
+
+        // For blobs that are expired in the new epoch, sends a notification to all the tasks
+        // that may be affected by the blob expiration.
+        self.inner
+            .blob_retirement_notifier
+            .epoch_change_notify_all_pending_blob_retirement(self.inner.clone())?;
 
         if event.epoch < self.inner.current_epoch() {
             // We have not caught up to the latest epoch yet, so we can skip the event.
@@ -1203,6 +1231,12 @@ impl StorageNode {
             event_handle.mark_as_complete();
             return Ok(());
         }
+
+        // For blobs that are expired in the new epoch, sends a notification to all the tasks
+        // that may be affected by the blob expiration.
+        self.inner
+            .blob_retirement_notifier
+            .epoch_change_notify_all_pending_blob_retirement(self.inner.clone())?;
 
         // Cancel all blob syncs for blobs that are expired in the *current epoch*.
         self.blob_sync_handler
@@ -1635,18 +1669,12 @@ impl StorageNodeInner {
 
     pub(crate) fn store_sliver_unchecked(
         &self,
-        blob_id: &BlobId,
+        metadata: &VerifiedBlobMetadataWithId,
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<bool, StoreSliverError> {
-        // Ensure we have received the blob metadata.
-        let metadata = self
-            .storage
-            .get_metadata(blob_id)
-            .context("database error when storing sliver")?
-            .ok_or(StoreSliverError::MissingMetadata)?;
-
-        let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
+        let shard_storage =
+            self.get_shard_for_sliver_pair(sliver_pair_index, metadata.blob_id())?;
 
         let shard_status = shard_storage
             .status()
@@ -1657,7 +1685,7 @@ impl StorageNodeInner {
         }
 
         if shard_storage
-            .is_sliver_type_stored(blob_id, sliver.r#type())
+            .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
             .context("database error when checking sliver existence")?
         {
             return Ok(false);
@@ -1667,7 +1695,7 @@ impl StorageNodeInner {
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage
-            .put_sliver(blob_id, sliver)
+            .put_sliver(metadata.blob_id(), sliver)
             .context("unable to store sliver")?;
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
@@ -1734,12 +1762,22 @@ impl StorageNodeInner {
                 RetrieveSymbolError::Internal(anyhow!(error))
             }
         };
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("could not retrieve blob metadata")?
+            .ok_or_else(|| {
+                RetrieveSymbolError::Internal(anyhow!("metadata not found for blob {:?}", blob_id))
+            })?;
+        let encoding_config = self
+            .encoding_config
+            .get_for_type(metadata.metadata().encoding_type());
 
         match sliver {
             Sliver::Primary(inner) => {
                 let target_index = target_pair_index.to_sliver_index::<Secondary>(n_shards);
                 let recovery_symbol = inner
-                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                    .recovery_symbol_for_sliver(target_pair_index, &encoding_config)
                     .map_err(convert_error)?;
 
                 Ok(GeneralRecoverySymbol::from_recovery_symbol(
@@ -1750,7 +1788,7 @@ impl StorageNodeInner {
             Sliver::Secondary(inner) => {
                 let target_index = target_pair_index.to_sliver_index::<Primary>(n_shards);
                 let recovery_symbol = inner
-                    .recovery_symbol_for_sliver(target_pair_index, &self.encoding_config)
+                    .recovery_symbol_for_sliver(target_pair_index, &encoding_config)
                     .map_err(convert_error)?;
 
                 Ok(GeneralRecoverySymbol::from_recovery_symbol(
@@ -1910,6 +1948,18 @@ impl ServiceState for StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
+        #[cfg(msim)]
+        {
+            // Register a fail point to inject an unavailable error.
+            let mut return_unavailable = false;
+            fail_point_if!("get_metadata_return_unavailable", || {
+                return_unavailable = true;
+            });
+            if return_unavailable {
+                return Err(RetrieveMetadataError::Unavailable);
+            }
+        }
+
         ensure!(!self.is_blocked(blob_id), RetrieveMetadataError::Forbidden);
 
         ensure!(
@@ -1947,6 +1997,12 @@ impl ServiceState for StorageNodeInner {
 
         if blob_info.is_metadata_stored() {
             return Ok(false);
+        }
+
+        // Check if encoding type is supported
+        let encoding_type = metadata.metadata().encoding_type();
+        if !encoding_type.is_supported() {
+            return Err(StoreMetadataError::UnsupportedEncodingType(encoding_type));
         }
 
         let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
@@ -2013,7 +2069,20 @@ impl ServiceState for StorageNodeInner {
             StoreSliverError::NotCurrentlyRegistered,
         );
 
-        self.store_sliver_unchecked(blob_id, sliver_pair_index, sliver)
+        // Get metadata first to check encoding type.
+        let metadata = self
+            .storage
+            .get_metadata(blob_id)
+            .context("database error when storing sliver")?
+            .ok_or(StoreSliverError::MissingMetadata)?;
+
+        // Check if encoding type is supported
+        let encoding_type = metadata.metadata().encoding_type();
+        if !encoding_type.is_supported() {
+            return Err(StoreSliverError::UnsupportedEncodingType(encoding_type));
+        }
+
+        self.store_sliver_unchecked(&metadata, sliver_pair_index, sliver)
     }
 
     async fn compute_storage_confirmation(
@@ -2292,9 +2361,10 @@ mod tests {
     use system_events::SystemEventProvider;
     use tokio::sync::{broadcast::Sender, Mutex};
     use walrus_core::{
-        encoding::{Primary, Secondary, SliverData, SliverPair},
+        encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
+        DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
@@ -2579,60 +2649,6 @@ mod tests {
         Ok(())
     }
 
-    // TODO: Remove the following test as soon as we fixed the certification vulnerability with
-    // deletable blobs (#1147).
-    async_param_test! {
-        does_not_delete_blob_data_on_deletion -> TestResult: [
-            registered: (
-                BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
-                false
-            ),
-            certified: (BlobDeleted::for_testing(BLOB_ID).into(), true),
-        ]
-    }
-    async fn does_not_delete_blob_data_on_deletion(
-        event: BlobEvent,
-        is_certified: bool,
-    ) -> TestResult {
-        let events = Sender::new(48);
-        let node = StorageNodeHandle::builder()
-            .with_storage(populated_storage(&[
-                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            ])?)
-            .with_system_event_provider(events.clone())
-            .with_node_started(true)
-            .build()
-            .await?;
-        let inner = &node.as_ref().inner.clone();
-
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        assert!(inner.is_stored_at_all_shards(&BLOB_ID)?);
-        events.send(
-            BlobRegistered {
-                deletable: true,
-                ..BlobRegistered::for_testing(BLOB_ID)
-            }
-            .into(),
-        )?;
-        if is_certified {
-            events.send(
-                BlobCertified {
-                    deletable: true,
-                    ..BlobCertified::for_testing(BLOB_ID)
-                }
-                .into(),
-            )?;
-        }
-
-        events.send(event.into())?;
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(inner.is_stored_at_all_shards(&BLOB_ID)?);
-        Ok(())
-    }
-
     async_param_test! {
         correctly_handles_blob_deletions_with_concurrent_instances -> TestResult: [
             same_epoch: (1),
@@ -2896,9 +2912,9 @@ mod tests {
     impl EncodedBlob {
         fn new(blob: &[u8], config: EncodingConfig) -> EncodedBlob {
             let (pairs, metadata) = config
-                .get_blob_encoder(blob)
-                .expect("must be able to get encoder")
-                .encode_with_metadata();
+                .get_for_type(DEFAULT_ENCODING)
+                .encode_with_metadata(blob)
+                .expect("must be able to get encoder");
 
             EncodedBlob {
                 pairs,
@@ -3255,7 +3271,7 @@ mod tests {
                 object_id,
                 event_id,
                 size: 0,
-                encoding_type: walrus_core::EncodingType::RedStuff,
+                encoding_type: DEFAULT_ENCODING,
             }
             .into(),
         )?;
@@ -3605,7 +3621,7 @@ mod tests {
     #[tokio::test]
     async fn skip_storing_metadata_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
@@ -3619,7 +3635,7 @@ mod tests {
     #[tokio::test]
     async fn skip_storing_sliver_if_already_stored() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
         let is_newly_stored = cluster.nodes[0].storage_node.store_sliver(
@@ -3637,7 +3653,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_success() -> TestResult {
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 2, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3680,7 +3697,8 @@ mod tests {
     async fn sync_shard_do_not_send_certified_after_requested_epoch() -> TestResult {
         // Note that the blobs are certified in epoch 0.
         let (cluster, _, blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let blob_id = *blob_detail[0].blob_id();
 
@@ -3706,7 +3724,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_unauthorized_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let error: walrus_sdk::error::NodeError = cluster.nodes[0]
             .client
@@ -3725,7 +3744,8 @@ mod tests {
     #[tokio::test]
     async fn sync_shard_node_api_request_verification_error() -> TestResult {
         let (cluster, _, _) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0], &[1]], &[BLOB], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
+                .await?;
 
         let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 1);
         let sync_shard_msg = SyncShardMsg::new(1, request);
@@ -3766,7 +3786,7 @@ mod tests {
     ) -> TestResult {
         // Creates a cluster with initial epoch set to 3.
         let (cluster, _, blob_detail) = cluster_with_initial_epoch_and_certified_blob(
-            &[&[0], &[1]],
+            &[&[0, 1], &[2, 3]],
             &[BLOB],
             cluster_epoch,
             None,
@@ -3799,7 +3819,7 @@ mod tests {
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
         let (cluster, events, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
 
@@ -3812,10 +3832,14 @@ mod tests {
             .lock_shard_for_epoch_change()
             .expect("Lock shard failed.");
 
+        assert_eq!(
+            blob.assigned_sliver_pair(ShardIndex(0)).index(),
+            SliverPairIndex(3)
+        );
         let sliver = retry_until_success_or_timeout(TIMEOUT, || async {
             cluster.nodes[0].storage_node.retrieve_sliver(
                 blob.blob_id(),
-                SliverPairIndex(0),
+                SliverPairIndex(3),
                 SliverType::Primary,
             )
         })
@@ -3833,7 +3857,7 @@ mod tests {
     #[tokio::test]
     async fn reject_writes_if_shard_is_locked_in_node() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0]], BLOB, |_, _| true).await?;
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         cluster.nodes[0]
             .storage_node
@@ -3860,7 +3884,7 @@ mod tests {
     #[tokio::test]
     async fn compute_storage_confirmation_ignore_not_owned_shard() -> TestResult {
         let (cluster, _, blob) =
-            cluster_with_partially_stored_blob(&[&[0, 1, 2]], BLOB, |index, _| index.get() != 0)
+            cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |index, _| index.get() != 0)
                 .await?;
 
         assert!(matches!(
@@ -3922,7 +3946,7 @@ mod tests {
         assignment: Option<&[&[u16]]>,
         shard_sync_config: Option<ShardSyncConfig>,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
-        let assignment = assignment.unwrap_or(&[&[0], &[1]]);
+        let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, _, blob_details) =
@@ -4123,7 +4147,8 @@ mod tests {
     }
 
     /// Sets up a test cluster for shard recovery tests.
-    async fn setup_shard_recovery_test_cluster<F, G, H>(
+    async fn setup_shard_recovery_test_cluster_with_blob_count<F, G, H>(
+        blob_count: u8,
         blob_index_store_at_shard_0: F,
         blob_index_to_end_epoch: G,
         blob_index_to_deletable: H,
@@ -4133,7 +4158,7 @@ mod tests {
         G: FnMut(usize) -> Epoch,
         H: FnMut(usize) -> bool,
     {
-        let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
+        let blobs: Vec<[u8; 32]> = (1..=blob_count).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
         let (cluster, blob_details, event_senders) =
             cluster_with_partially_stored_blobs_in_shard_0(
@@ -4147,6 +4172,25 @@ mod tests {
             .await?;
 
         Ok((cluster, blob_details, event_senders))
+    }
+
+    async fn setup_shard_recovery_test_cluster<F, G, H>(
+        blob_index_store_at_shard_0: F,
+        blob_index_to_end_epoch: G,
+        blob_index_to_deletable: H,
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, ClusterEventSenders)>
+    where
+        F: FnMut(usize) -> bool,
+        G: FnMut(usize) -> Epoch,
+        H: FnMut(usize) -> bool,
+    {
+        setup_shard_recovery_test_cluster_with_blob_count(
+            23,
+            blob_index_store_at_shard_0,
+            blob_index_to_end_epoch,
+            blob_index_to_deletable,
+        )
+        .await
     }
 
     // Tests shard transfer completely using shard recovery functionality.
@@ -4303,110 +4347,6 @@ mod tests {
             Ok(())
         }
 
-        // Tests shard recovery with expired, invalid, and deleted blobs.
-        //
-        // When `skip_blob_certification_at_recovery_beginning` is true, it simulates the case where
-        // the shard recovery of the blob is already in progress, and then the blob becomes expired,
-        // invalid, or deleted.
-        //
-        // Although both tests can run under `cargo nextest`, `check_certification_during_recovery`
-        // only works when running in simtest, since it uses failpoints to skip initial blob
-        // certification check.
-        simtest_param_test! {
-            shard_recovery_blob_not_recover_expired_invalid_deleted_blobs -> TestResult: [
-                check_certification_at_beginning: (false),
-                check_certification_during_recovery: (true),
-            ]
-        }
-        async fn shard_recovery_blob_not_recover_expired_invalid_deleted_blobs(
-            skip_blob_certification_at_recovery_beginning: bool,
-        ) -> TestResult {
-            register_fail_point_if(
-                "shard_recovery_skip_initial_blob_certification_check",
-                move || skip_blob_certification_at_recovery_beginning,
-            );
-
-            let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
-
-            // Blob 3 expires at epoch 2, which is the current epoch when
-            // `setup_shard_recovery_test_cluster` returns.
-            let blob_end_epoch = |blob_index| if blob_index == 3 { 2 } else { 42 };
-            // Blob 9 is a deletable blob.
-            let deletable_blob_index: [usize; 1] = [9];
-            let (cluster, blob_details, event_senders) = setup_shard_recovery_test_cluster(
-                |blob_index| !skip_stored_blob_index.contains(&blob_index),
-                blob_end_epoch,
-                |blob_index| deletable_blob_index.contains(&blob_index),
-            )
-            .await?;
-
-            // Delete blob 9 and invalidate blob 19.
-            event_senders
-                .all_other_node_events
-                .send(BlobDeleted::for_testing(*blob_details[9].blob_id()).into())?;
-
-            event_senders
-                .all_other_node_events
-                .send(InvalidBlobId::for_testing(*blob_details[19].blob_id()).into())?;
-
-            // Make sure that blobs in `sync_shard_partial_recovery` are not certified in node 0.
-            for i in skip_stored_blob_index {
-                let blob_info = cluster.nodes[0]
-                    .storage_node
-                    .inner
-                    .storage
-                    .get_blob_info(blob_details[i].blob_id());
-                if deletable_blob_index.contains(&i) {
-                    assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(1),
-                        BlobStatus::Deletable {
-                            deletable_counts: walrus_sdk::api::DeletableCounts {
-                                count_deletable_total: 1,
-                                count_deletable_certified: 0,
-                            },
-                            ..
-                        }
-                    ));
-                } else {
-                    assert!(matches!(
-                        blob_info.unwrap().unwrap().to_blob_status(1),
-                        BlobStatus::Permanent {
-                            is_certified: false,
-                            ..
-                        }
-                    ));
-                }
-            }
-
-            let node_inner = unsafe {
-                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
-            };
-            node_inner
-                .storage
-                .create_storage_for_shards(&[ShardIndex(0)])?;
-            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
-            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
-
-            cluster.nodes[1]
-                .storage_node
-                .shard_sync_handler
-                .start_sync_shards(vec![ShardIndex(0)], false)
-                .await?;
-
-            // Shard recovery should be completed, and all the data should be synced.
-            wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
-            check_all_blobs_are_synced(
-                &blob_details,
-                &node_inner.storage,
-                shard_storage_dst.as_ref(),
-                &[3, 9, 19],
-            )?;
-
-            clear_fail_point("shard_recovery_skip_initial_blob_certification_check");
-
-            Ok(())
-        }
-
         // Tests that shard sync can be resumed from a specific progress point.
         // `break_index` is the index of the blob to break the sync process.
         // Note that currently, each sync batch contains 10 blobs. So testing various interesting
@@ -4534,7 +4474,8 @@ mod tests {
             let blobs_expired: Vec<_> = blobs_expired.iter().map(|b| &b[..]).collect();
 
             // Generates a cluster with two nodes and one shard each.
-            let (cluster, events) = cluster_at_epoch1_without_blobs(&[&[0], &[1]], None).await?;
+            let (cluster, events) =
+                cluster_at_epoch1_without_blobs(&[&[0, 1], &[2, 3]], None).await?;
 
             // Uses fail point to track whether shard sync recovery is triggered.
             let shard_sync_recovery_triggered = Arc::new(AtomicBool::new(false));
@@ -4706,7 +4647,7 @@ mod tests {
             Ok(())
         }
 
-        // Tests that shard sync can be resumed from a specific progress point.
+        // Tests shard metadata recovery with failure injection.
         simtest_param_test! {
             sync_shard_recovery_metadata_restart -> TestResult: [
                 fail_before_start_fetching: (true),
@@ -4729,10 +4670,12 @@ mod tests {
             } else {
                 let total_blobs = blob_details.len() as u64;
                 // Randomly pick a blob index to inject failure.
-                let break_index = rand::thread_rng().gen_range(0..total_blobs);
+                // Note that the scan count starts from 1.
+                let break_scan_count = rand::thread_rng().gen_range(1..=total_blobs);
+
                 register_fail_point_arg(
                     "fail_point_shard_sync_recovery_metadata_error_during_fetch",
-                    move || -> Option<u64> { Some(break_index) },
+                    move || -> Option<u64> { Some(break_scan_count) },
                 );
             }
 
@@ -4782,7 +4725,8 @@ mod tests {
             // It is important to only use one node in this test, so that no other node would
             // drive epoch change on chain, and send events to the nodes.
             let (cluster, events, _blob_detail) =
-                cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[BLOB], 2, None).await?;
+                cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[BLOB], 2, None)
+                    .await?;
             cluster.nodes[0]
                 .storage_node
                 .start_epoch_change_finisher
@@ -4901,6 +4845,217 @@ mod tests {
                 NodeStatus::RecoveryCatchUp
             );
 
+            Ok(())
+        }
+
+        // Tests shard recovery with expired, invalid, and deleted blobs.
+        //
+        // When `skip_blob_certification_at_recovery_beginning` is true, it simulates the case where
+        // the shard recovery of the blob is already in progress, and then the blob becomes expired,
+        // invalid, or deleted.
+        //
+        // Although both tests can run under `cargo nextest`, `check_certification_during_recovery`
+        // only works when running in simtest, since it uses failpoints to skip initial blob
+        // certification check.
+        simtest_param_test! {
+            shard_recovery_blob_not_recover_expired_invalid_deleted_blobs -> TestResult: [
+                check_certification_at_beginning: (false),
+                check_certification_during_recovery: (true),
+            ]
+        }
+        async fn shard_recovery_blob_not_recover_expired_invalid_deleted_blobs(
+            skip_blob_certification_at_recovery_beginning: bool,
+        ) -> TestResult {
+            register_fail_point_if(
+                "shard_recovery_skip_initial_blob_certification_check",
+                move || skip_blob_certification_at_recovery_beginning,
+            );
+
+            let skip_stored_blob_index: [usize; 12] = [3, 4, 5, 9, 10, 11, 15, 18, 19, 20, 21, 22];
+            // Blob 9 is a deletable blob.
+            let deletable_blob_index: [usize; 1] = [9];
+
+            let (cluster, blob_details, event_senders) = setup_shard_recovery_test_cluster(
+                |blob_index| !skip_stored_blob_index.contains(&blob_index),
+                // Blob 3 expires at epoch 2, which is the current epoch when
+                // `setup_shard_recovery_test_cluster` returns.
+                |blob_index| if blob_index == 3 { 2 } else { 42 },
+                |blob_index| deletable_blob_index.contains(&blob_index),
+            )
+            .await?;
+
+            // Delete blob 9 and invalidate blob 19.
+            event_senders
+                .all_other_node_events
+                .send(BlobDeleted::for_testing(*blob_details[9].blob_id()).into())?;
+
+            event_senders
+                .all_other_node_events
+                .send(InvalidBlobId::for_testing(*blob_details[19].blob_id()).into())?;
+
+            // Make sure that blobs in `skip_stored_blob_index` are not certified in node 0.
+            for i in skip_stored_blob_index {
+                let blob_info = cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .get_blob_info(blob_details[i].blob_id());
+                if deletable_blob_index.contains(&i) {
+                    assert!(matches!(
+                        blob_info.unwrap().unwrap().to_blob_status(1),
+                        BlobStatus::Deletable {
+                            deletable_counts: walrus_sdk::api::DeletableCounts {
+                                count_deletable_total: 1,
+                                count_deletable_certified: 0,
+                            },
+                            ..
+                        }
+                    ));
+                } else {
+                    assert!(matches!(
+                        blob_info.unwrap().unwrap().to_blob_status(1),
+                        BlobStatus::Permanent {
+                            is_certified: false,
+                            ..
+                        }
+                    ));
+                }
+            }
+
+            let node_inner = unsafe {
+                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            };
+            node_inner
+                .storage
+                .create_storage_for_shards(&[ShardIndex(0)])?;
+            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)], false)
+                .await?;
+
+            // Shard recovery should be completed, and all the data should be synced.
+            wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+            check_all_blobs_are_synced(
+                &blob_details,
+                &node_inner.storage,
+                shard_storage_dst.as_ref(),
+                &[3, 9, 19],
+            )?;
+
+            clear_fail_point("shard_recovery_skip_initial_blob_certification_check");
+
+            Ok(())
+        }
+
+        // Tests that blob metadata sync can be cancelled when the blob is expired, deleted, or
+        //invalidated.
+        #[walrus_simtest]
+        async fn shard_recovery_cancel_metadata_sync_when_blob_expired_deleted_invalidated(
+        ) -> TestResult {
+            register_fail_point_if("get_metadata_return_unavailable", move || true);
+
+            // The test creates 3 blobs:
+            //  - Blob 0 expires at epoch 3.
+            //  - Blob 1 is a deletable blob.
+            //  - Blob 2 is an invalid blob.
+
+            let deletable_blob_index: [usize; 1] = [1];
+            let (cluster, blob_details, event_senders) =
+                setup_shard_recovery_test_cluster_with_blob_count(
+                    3,
+                    |_blob_index| true,
+                    // Blob 0 expires at epoch 3, which is the next epoch when
+                    // `setup_shard_recovery_test_cluster` returns.
+                    |blob_index| if blob_index == 0 { 3 } else { 42 },
+                    |blob_index| deletable_blob_index.contains(&blob_index),
+                )
+                .await?;
+
+            // Setup node 1 to sync recovery shard 0 from node 0.
+            let node_inner = unsafe {
+                &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+            };
+            node_inner
+                .storage
+                .create_storage_for_shards(&[ShardIndex(0)])?;
+            node_inner.storage.clear_metadata_in_test()?;
+            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
+
+            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            shard_storage_dst.update_status_in_test(ShardStatus::None)?;
+
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)], true)
+                .await?;
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            // After the sync starts, the node status should stay at `RecoverMetadata`.
+            assert_eq!(
+                node_inner.storage.node_status().unwrap(),
+                NodeStatus::RecoverMetadata
+            );
+            // Setup complete, now we can start the test.
+
+            let unblock = Arc::new(Notify::new());
+
+            // Send blob deletion event for blob 1.
+            {
+                tracing::info!(
+                    "send blob deletion event for blob {:?}",
+                    blob_details[1].blob_id()
+                );
+                // Delete blob 1 and invalidate blob 2.
+                event_senders
+                    .all_other_node_events
+                    .send(BlobDeleted::for_testing(*blob_details[1].blob_id()).into())?;
+            }
+
+            // Send invalid blob event for blob 2.
+            {
+                tracing::info!(
+                    "send invalid blob evnt for blob {:?}",
+                    blob_details[2].blob_id()
+                );
+                event_senders
+                    .all_other_node_events
+                    .send(InvalidBlobId::for_testing(*blob_details[2].blob_id()).into())?;
+            }
+
+            // Advance to epoch 3, so that blob 0 expires.
+            {
+                let unblock_clone = unblock.clone();
+                register_fail_point_async("blocking_finishing_epoch_change_start", move || {
+                    let unblock_clone = unblock_clone.clone();
+                    async move {
+                        unblock_clone.notified().await;
+                    }
+                });
+
+                tracing::info!("advance to epoch 3");
+                advance_cluster_to_epoch(
+                    &cluster,
+                    &[
+                        &event_senders.node_0_events,
+                        &event_senders.all_other_node_events,
+                    ],
+                    3,
+                )
+                .await?;
+            }
+
+            // Shard recovery should be completed, and all the data should be synced.
+            wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+
+            // Cleanup the test environment.
+            unblock.notify_one();
+            clear_fail_point("get_metadata_return_unavailable");
+            clear_fail_point("blocking_finishing_epoch_change_start");
             Ok(())
         }
     }
@@ -5037,6 +5192,9 @@ mod tests {
         shard_assignment: &[ShardIndex],
     ) -> TestResult {
         let mut contract_service = MockSystemContractService::new();
+        contract_service
+            .expect_sync_node_params()
+            .returning(|_config, _node_cap_id| Ok(()));
         contract_service.expect_epoch_sync_done().never();
         contract_service
             .expect_fixed_system_parameters()
@@ -5180,7 +5338,7 @@ mod tests {
         let _ = tracing_subscriber::fmt::try_init();
 
         let (cluster, events, _blob_detail) =
-            cluster_with_initial_epoch_and_certified_blob(&[&[0]], &[], 1, None).await?;
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
         events.send(

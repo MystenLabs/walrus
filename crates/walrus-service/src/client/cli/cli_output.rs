@@ -33,6 +33,7 @@ use crate::client::{
         BlobStoreResultWithPath,
         DeleteOutput,
         DryRunOutput,
+        EncodingDependentPriceInfo,
         ExampleBlobInfo,
         ExchangeOutput,
         ExtendBlobOutput,
@@ -143,6 +144,10 @@ impl CliOutput for BlobStoreResultWithPath {
                     RegisterBlobOp::ReuseRegistration { .. } => {
                         "(an existing registration was reused)"
                     }
+                    RegisterBlobOp::ReuseAndExtend { .. } => "(the blob was extended in lifetime)",
+                    RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
+                        "(an existing registration was reused and extended)"
+                    }
                 };
                 println!(
                     "{} {} blob stored successfully.\n\
@@ -152,7 +157,8 @@ impl CliOutput for BlobStoreResultWithPath {
                     Unencoded size: {}\n\
                     Encoded size (including replicated metadata): {}\n\
                     Cost (excluding gas): {} {} \n\
-                    Expiry epoch (exclusive): {}{}\n",
+                    Expiry epoch (exclusive): {}{}\n\
+                    Encoding type: {}\n",
                     success(),
                     if blob_object.deletable {
                         "Deletable"
@@ -169,6 +175,7 @@ impl CliOutput for BlobStoreResultWithPath {
                     blob_object.storage.end_epoch,
                     shared_blob_object
                         .map_or_else(String::new, |id| format!("\nShared blob object ID: {}", id)),
+                    blob_object.encoding_type,
                 )
             }
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
@@ -202,11 +209,14 @@ impl CliOutput for BlobIdOutput {
     fn print_cli_output(&self) {
         println!(
             "{} Blob from file '{}' encoded successfully.\n\
-                Unencoded size: {}\nBlob ID: {}",
+                Unencoded size: {}\n\
+                Blob ID: {}\n\
+                Encoding type: {}",
             success(),
             self.file.display(),
             self.unencoded_length,
             self.blob_id,
+            self.encoding_type,
         )
     }
 }
@@ -217,12 +227,14 @@ impl CliOutput for DryRunOutput {
             "{} Store dry-run succeeded.\n\
                 Path: {}\n\
                 Blob ID: {}\n\
+                Encoding type: {}\n\
                 Unencoded size: {}\n\
                 Encoded size (including replicated metadata): {}\n\
                 Cost to store as new blob (excluding gas): {}\n",
             success(),
             self.path.display(),
             self.blob_id,
+            self.encoding_type,
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
             HumanReadableFrost::from(self.storage_cost),
@@ -419,10 +431,7 @@ impl CliOutput for InfoPriceOutput {
         let Self {
             storage_price_per_unit_size,
             write_price_per_unit_size,
-            marginal_size,
-            metadata_price,
-            marginal_price,
-            example_blobs,
+            encoding_dependent_price_info,
         } = self;
 
         printdoc!(
@@ -432,19 +441,44 @@ impl CliOutput for InfoPriceOutput {
             (Conversion rate: 1 WAL = 1,000,000,000 FROST)
             Price per encoded storage unit: {hr_storage_price_per_unit_size}
             Additional price for each write: {hr_write_price_per_unit_size}
-            Price to store metadata: {metadata_price}
-            Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
-
-            {price_examples_heading}
-            {example_blob_output}
             ",
-            price_heading = "Approximate storage prices per epoch".bold().walrus_teal(),
+            price_heading = "Storage prices per epoch".bold().walrus_teal(),
             hr_storage_price_per_unit_size = HumanReadableFrost::from(*storage_price_per_unit_size),
             hr_write_price_per_unit_size = HumanReadableFrost::from(*write_price_per_unit_size),
+        );
+
+        for encoding_type in encoding_dependent_price_info {
+            encoding_type.print_cli_output();
+        }
+    }
+}
+
+impl CliOutput for EncodingDependentPriceInfo {
+    fn print_cli_output(&self) {
+        let Self {
+            marginal_size,
+            metadata_price,
+            marginal_price,
+            example_blobs,
+            encoding_type,
+        } = self;
+
+        printdoc!(
+            "
+
+            {price_heading}
+            Price to store metadata: {metadata_price}
+            Marginal price per additional {marginal_size:.0} (w/o metadata): {marginal_price}
+            Total price for example blob sizes:
+            {example_blob_output}
+            ",
+            price_heading =
+                format!("Approximate prices to store with the {encoding_type} encoding")
+                    .bold()
+                    .walrus_teal(),
             metadata_price = HumanReadableFrost::from(*metadata_price),
             marginal_size = HumanReadableBytes(*marginal_size),
             marginal_price = HumanReadableFrost::from(*marginal_price),
-            price_examples_heading = "Total price for example blob sizes".bold().walrus_teal(),
             example_blob_output = example_blobs
                 .iter()
                 .map(ExampleBlobInfo::cli_output)
@@ -761,7 +795,7 @@ impl CliOutput for ExtendBlobOutput {
         println!(
             "{} The blob has been extended by {} epochs",
             success(),
-            self.epochs_ahead
+            self.epochs_extended
         );
     }
 }
@@ -861,18 +895,15 @@ impl CliOutput for ServiceHealthInfoOutput {
         let mut owned_shards = 0;
         let mut read_only_shards = 0;
         let mut node_statuses = std::collections::HashMap::new();
-        let mut error_nodes = Vec::new();
-
         let mut table = create_node_health_table();
+
         // Collect summary information while building the table
-        for (node_idx, node) in self.health_info.iter().enumerate() {
+        for (idx, node) in self.health_info.iter().enumerate() {
             match &node.health_info {
                 Err(_) => {
                     *node_statuses.entry("Error".to_string()).or_insert(0) += 1;
-                    error_nodes.push(node);
                 }
                 Ok(health_info) => {
-                    node.print_cli_output();
                     owned_shards += health_info.shard_summary.owned;
                     read_only_shards += health_info.shard_summary.read_only;
                     *node_statuses
@@ -880,7 +911,8 @@ impl CliOutput for ServiceHealthInfoOutput {
                         .or_insert(0) += 1;
                 }
             }
-            add_node_health_to_table(&mut table, node, node_idx);
+            node.print_cli_output();
+            add_node_health_to_table(&mut table, node, idx);
         }
         if table.len() > 3 {
             println!("\n{}\n", "Summary".bold().walrus_purple());
@@ -892,14 +924,6 @@ impl CliOutput for ServiceHealthInfoOutput {
             println!("\n{}", "Node Status Breakdown".bold().walrus_purple());
             for (status, count) in &node_statuses {
                 println!("{}: {}", status, count);
-            }
-        }
-
-        // Print error nodes summary if there are any errors
-        if !error_nodes.is_empty() {
-            println!("\n{}", "Nodes with Errors".bold().walrus_purple());
-            for node in error_nodes {
-                node.print_cli_output();
             }
         }
     }

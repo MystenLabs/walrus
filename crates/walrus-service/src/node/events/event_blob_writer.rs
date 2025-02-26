@@ -1,6 +1,5 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-#![allow(dead_code)]
 
 //! Event blob writer.
 
@@ -24,7 +23,15 @@ use typed_store::{
     rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, MetricConf, ReadWriteOptions},
     Map,
 };
-use walrus_core::{ensure, metadata::VerifiedBlobMetadataWithId, BlobId, Epoch, Sliver};
+use walrus_core::{
+    encoding::EncodingConfigTrait as _,
+    ensure,
+    metadata::VerifiedBlobMetadataWithId,
+    BlobId,
+    Epoch,
+    Sliver,
+    DEFAULT_ENCODING,
+};
 use walrus_sui::{
     client::SuiClientError,
     types::{
@@ -808,8 +815,8 @@ impl EventBlobWriter {
         let (sliver_pairs, blob_metadata) = self
             .node
             .encoding_config()
-            .get_blob_encoder(&content)?
-            .encode_with_metadata();
+            .get_for_type(DEFAULT_ENCODING)
+            .encode_with_metadata(&content)?;
         self.node
             .storage()
             .put_verified_metadata_without_blob_info(&blob_metadata)
@@ -820,7 +827,7 @@ impl EventBlobWriter {
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    blob_metadata.blob_id(),
+                    &blob_metadata,
                     sliver_pair.index(),
                     &Sliver::Primary(sliver_pair.primary.clone()),
                 )
@@ -840,7 +847,7 @@ impl EventBlobWriter {
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    blob_metadata.blob_id(),
+                    &blob_metadata,
                     sliver_pair.index(),
                     &Sliver::Secondary(sliver_pair.secondary.clone()),
                 )

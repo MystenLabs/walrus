@@ -14,9 +14,13 @@ test-utils = [
   "dep:walrus-test-utils",
   "walrus-core/test-utils",
 ]
+utoipa = [
+  "dep:utoipa",
+]
 
 [dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 bcs.workspace = true
 chrono.workspace = true
 fastcrypto.workspace = true

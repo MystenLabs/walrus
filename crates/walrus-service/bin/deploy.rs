@@ -138,6 +138,13 @@ struct DeploySystemContractArgs {
     /// If set, creates a WAL exchange.
     #[arg(long, action)]
     with_wal_exchange: bool,
+    /// If set, the deployment reuses the token deployed at the address specified in the `Move.lock`
+    /// file of the WAL contract. Otherwise, a new WAL token is created.
+    #[arg(long, action)]
+    use_existing_wal_token: bool,
+    /// If set, creates a subsidies package.
+    #[arg(long, action)]
+    with_subsidies: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -329,6 +336,8 @@ mod commands {
             admin_wallet_path,
             do_not_copy_contracts,
             with_wal_exchange,
+            use_existing_wal_token,
+            with_subsidies,
         }: DeploySystemContractArgs,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
@@ -359,6 +368,8 @@ mod commands {
             admin_wallet_path,
             do_not_copy_contracts,
             with_wal_exchange,
+            use_existing_wal_token,
+            with_subsidies,
         })
         .await
         .context("Failed to deploy system contract")?;

@@ -69,7 +69,7 @@ impl Default for ParallelDownloaderConfig {
         // fully caught up client:
         // - Not retrying too quickly (which could waste network resources)
         // - Not waiting too long (which would cause us to fall behind)
-        // TODO: Use adaptive retry delay based on RTT and error type (issue-1123)
+        // TODO: Use adaptive retry delay based on RTT and error type (#1123)
         Self {
             min_retries: 10,
             initial_delay: Duration::from_millis(150),

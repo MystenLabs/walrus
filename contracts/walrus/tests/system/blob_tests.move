@@ -18,7 +18,7 @@ use walrus::{
     test_utils::{Self, bls_min_pk_sign, signers_to_bitmap}
 };
 
-const RED_STUFF: u8 = 0;
+const RED_STUFF_RAPTOR: u8 = 0;
 const MAX_EPOCHS_AHEAD: u32 = 104;
 
 const ROOT_HASH: u256 = 0xABC;
@@ -556,7 +556,11 @@ fun get_storage_resource(
     ctx: &mut TxContext,
 ): Storage {
     let mut fake_coin = test_utils::mint(N_COINS, ctx);
-    let storage_size = encoding::encoded_blob_length(unencoded_size, RED_STUFF, system.n_shards());
+    let storage_size = encoding::encoded_blob_length(
+        unencoded_size,
+        RED_STUFF_RAPTOR,
+        system.n_shards(),
+    );
     let storage = system.reserve_space(
         storage_size,
         epochs_ahead,
@@ -575,13 +579,13 @@ fun register_default_blob(
 ): Blob {
     let mut fake_coin = test_utils::mint(N_COINS, ctx);
     // Register a Blob
-    let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE);
+    let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF_RAPTOR, SIZE);
     let blob = system.register_blob(
         storage,
         blob_id,
         ROOT_HASH,
         SIZE,
-        RED_STUFF,
+        RED_STUFF_RAPTOR,
         deletable,
         &mut fake_coin,
         ctx,
@@ -592,7 +596,7 @@ fun register_default_blob(
 }
 
 fun default_blob_id(): u256 {
-    blob::derive_blob_id(ROOT_HASH, RED_STUFF, SIZE)
+    blob::derive_blob_id(ROOT_HASH, RED_STUFF_RAPTOR, SIZE)
 }
 
 /// Utiliy macro that calls the given function on a new Blob.

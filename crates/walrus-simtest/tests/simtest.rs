@@ -12,11 +12,19 @@ mod tests {
 
     use anyhow::Context;
     use rand::{Rng, SeedableRng};
-    use sui_macros::{register_fail_point_async, register_fail_points};
+    use sui_macros::{
+        clear_fail_point,
+        register_fail_point,
+        register_fail_point_async,
+        register_fail_points,
+    };
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
-    use walrus_core::encoding::{Primary, Secondary};
+    use walrus_core::{
+        encoding::{Primary, Secondary},
+        DEFAULT_ENCODING,
+    };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
@@ -70,6 +78,7 @@ mod tests {
             .as_ref()
             .reserve_and_store_blobs_retry_committees(
                 &[blob.as_slice()],
+                DEFAULT_ENCODING,
                 5,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
@@ -78,7 +87,11 @@ mod tests {
             .await
             .context("store blob should not fail")?;
 
-        tracing::info!("got store results with {} items", store_results.len());
+        tracing::info!(
+            "got store results with {} items\n{:?}",
+            store_results.len(),
+            store_results
+        );
         let store_result = &store_results
             .first()
             .expect("should have exactly one result");
@@ -203,6 +216,7 @@ mod tests {
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
+                false,
             )
             .await
             .unwrap();
@@ -246,6 +260,7 @@ mod tests {
                 },
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
+                false,
             )
             .await
             .unwrap();
@@ -414,6 +429,7 @@ mod tests {
     fn crash_target_node(
         target_node_id: sui_simulator::task::NodeId,
         fail_triggered: Arc<AtomicBool>,
+        crash_duration: Duration,
     ) {
         if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
             // We only need to trigger failure once.
@@ -425,9 +441,9 @@ mod tests {
             return;
         }
 
-        tracing::warn!("crashing node {current_node} for 120 seconds");
+        tracing::warn!("crashing node {current_node} for {:?}", crash_duration);
         fail_triggered.store(true, std::sync::atomic::Ordering::SeqCst);
-        sui_simulator::task::kill_current_node(Some(Duration::from_secs(120)));
+        sui_simulator::task::kill_current_node(Some(crash_duration));
     }
 
     // This integration test simulates a scenario where a node is lagging behind and recovers.
@@ -448,6 +464,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -470,7 +487,11 @@ mod tests {
 
         // Trigger node crash during some DB access.
         register_fail_points(DB_FAIL_POINTS, move || {
-            crash_target_node(target_fail_node_id, fail_triggered_clone.clone());
+            crash_target_node(
+                target_fail_node_id,
+                fail_triggered_clone.clone(),
+                Duration::from_secs(120),
+            );
         });
 
         // Changes the stake of the crashed node so that it will gain some shards after the next
@@ -595,6 +616,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -729,6 +751,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -784,6 +807,10 @@ mod tests {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
+        register_fail_point("fail_point_direct_shard_sync_recovery", move || {
+            panic!("shard sync should not enter recovery mode in this test");
+        });
+
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
@@ -795,6 +822,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -836,6 +864,23 @@ mod tests {
             )
             .await
             .expect("stake with node pool should not fail");
+
+        if rand::thread_rng().gen_bool(0.1) {
+            // Probabilistically crash the node to test shard sync with source node down.
+            // In this test, shard sync should not enter recovery mode.
+            let fail_triggered = Arc::new(AtomicBool::new(false));
+            let target_fail_node_id = walrus_cluster.nodes[0]
+                .node_id
+                .expect("node id should be set");
+            let fail_triggered_clone = fail_triggered.clone();
+            register_fail_points(DB_FAIL_POINTS, move || {
+                crash_target_node(
+                    target_fail_node_id,
+                    fail_triggered_clone.clone(),
+                    Duration::from_secs(5),
+                );
+            });
+        }
 
         tokio::time::sleep(Duration::from_secs(150)).await;
 
@@ -918,6 +963,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+        clear_fail_point("fail_point_direct_shard_sync_recovery");
     }
 
     #[walrus_simtest]
@@ -937,6 +983,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -1120,6 +1167,7 @@ mod tests {
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
+                false,
             )
             .await
             .unwrap();
@@ -1233,5 +1281,149 @@ mod tests {
         wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
             .await
             .expect("Node should be active");
+    }
+
+    #[walrus_simtest]
+    #[ignore = "ignore simtests by default"]
+    async fn test_node_config_synchronizer() {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: true,
+                },
+                Some(10),
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+        let client_arc = Arc::new(client);
+
+        // Get current committee and verify node[5] is in it
+        let committees = client_arc
+            .inner
+            .get_latest_committees_in_test()
+            .await
+            .expect("Should get committees");
+
+        assert!(committees
+            .current_committee()
+            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
+            .is_none());
+
+        let config = Arc::new(RwLock::new(
+            walrus_cluster.nodes[5].storage_node_config.clone(),
+        ));
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                config.clone(),
+                None,
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+
+        // Adding stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
+            .await
+            .expect("Node should be active");
+
+        // Generate new protocol key pair
+        let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
+        // Update the next protocol key pair in the node's config,
+        // The config will be loaded by the config synchronizer.
+        config.write().await.next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
+        tracing::debug!(
+            "current protocol key: {:?}, next protocol key: {:?}",
+            config.read().await.protocol_key_pair().public(),
+            config
+                .read()
+                .await
+                .next_protocol_key_pair()
+                .as_ref()
+                .map(|kp| kp.public())
+        );
+
+        wait_for_public_key_change(
+            &config,
+            new_protocol_key_pair.public(),
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Protocol key should be updated");
+
+        // Check that the protocol key in StakePool is updated to the new one
+        let pool = client_arc
+            .as_ref()
+            .as_ref()
+            .sui_client()
+            .read_client
+            .get_staking_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+            )
+            .await
+            .expect("Failed to get staking pool");
+
+        assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
+        let public_key = config.read().await.protocol_key_pair().public().clone();
+        assert_eq!(&public_key, new_protocol_key_pair.public());
+        assert_eq!(
+            new_protocol_key_pair.public(),
+            config.read().await.protocol_key_pair().public()
+        );
+    }
+
+    /// Waits until the node's protocol key pair in the config matches the target public key.
+    /// Returns Ok(()) if the key matches within the timeout duration, or an error if it times out.
+    async fn wait_for_public_key_change(
+        config: &Arc<RwLock<walrus_service::node::config::StorageNodeConfig>>,
+        target_public_key: &walrus_core::PublicKey,
+        timeout: Duration,
+    ) -> anyhow::Result<()> {
+        let start = tokio::time::Instant::now();
+
+        loop {
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timed out waiting for public key change after {:?}",
+                    timeout
+                );
+            }
+
+            let current_public_key = config.read().await.protocol_key_pair().public().clone();
+            if &current_public_key == target_public_key {
+                return Ok(());
+            }
+
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 }

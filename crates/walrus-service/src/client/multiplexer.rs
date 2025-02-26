@@ -17,7 +17,8 @@ use sui_sdk::{
     types::base_types::SuiAddress,
     wallet_context::WalletContext,
 };
-use walrus_core::{BlobId, EpochCount};
+use sui_types::base_types::ObjectID;
+use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
@@ -26,6 +27,7 @@ use walrus_sui::{
         SuiContractClient,
         SuiReadClient,
     },
+    types::move_structs::BlobWithAttribute,
     utils::create_wallet,
 };
 
@@ -104,12 +106,12 @@ impl ClientMultiplexer {
             sui_client,
         );
 
-        // If the user has specified `keep == true`, the default post store action is to transfer
-        // the created objects to the main wallet after storing. Otherwise, they are burnt.
-        let default_post_store_action = if args.keep {
-            PostStoreAction::TransferTo(main_address)
-        } else {
+        // If the user has specified `burn_after_store == true`, the default post store action is to
+        // burn the created objects after storing. Otherwise, they are sent to the main wallet.
+        let default_post_store_action = if args.burn_after_store {
             PostStoreAction::Burn
+        } else {
+            PostStoreAction::TransferTo(main_address)
         };
 
         tracing::info!(?default_post_store_action, "client multiplexer initialized");
@@ -127,6 +129,7 @@ impl ClientMultiplexer {
     pub async fn submit_write(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -136,7 +139,14 @@ impl ClientMultiplexer {
         tracing::debug!("submitting write request to client in pool");
 
         let result = client
-            .write_blob(blob, epochs_ahead, store_when, persistence, post_store)
+            .write_blob(
+                blob,
+                encoding_type,
+                epochs_ahead,
+                store_when,
+                persistence,
+                post_store,
+            )
             .await?;
 
         Ok(result)
@@ -147,19 +157,34 @@ impl WalrusReadClient for ClientMultiplexer {
     async fn read_blob(&self, blob_id: &BlobId) -> ClientResult<Vec<u8>> {
         WalrusReadClient::read_blob(&self.read_client, blob_id).await
     }
+
+    async fn get_blob_by_object_id(
+        &self,
+        blob_object_id: &ObjectID,
+    ) -> ClientResult<BlobWithAttribute> {
+        self.read_client.get_blob_by_object_id(blob_object_id).await
+    }
 }
 
 impl WalrusWriteClient for ClientMultiplexer {
     async fn write_blob(
         &self,
         blob: &[u8],
+        encoding_type: EncodingType,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
-        self.submit_write(blob, epochs_ahead, store_when, persistence, post_store)
-            .await
+        self.submit_write(
+            blob,
+            encoding_type,
+            epochs_ahead,
+            store_when,
+            persistence,
+            post_store,
+        )
+        .await
     }
 
     fn default_post_store_action(&self) -> PostStoreAction {

@@ -180,13 +180,13 @@ pub trait ReadClient: Send + Sync {
     /// Returns the metadata associated with a blob object.
     fn get_blob_attribute(
         &self,
-        blob_id: ObjectID,
+        blob_object_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
 
     /// Returns the blob object and its associated metadata.
-    fn get_blob_with_attribute(
+    fn get_blob_by_object_id(
         &self,
-        blob_id: ObjectID,
+        blob_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<BlobWithAttribute>> + Send;
 
     /// Returns the current epoch state.
@@ -224,6 +224,14 @@ pub trait ReadClient: Send + Sync {
     ///
     /// Should be called after the contract is upgraded.
     fn refresh_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Refreshes the subsidies package ID.
+    ///
+    /// Should be called after the subsidies contract is upgraded.
+    fn refresh_subsidies_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Returns the version of the system object.
+    fn system_object_version(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 }
 
 /// The mutability of a shared object.
@@ -251,6 +259,28 @@ impl From<Mutability> for bool {
     }
 }
 
+/// Subsidies configuration and state
+#[derive(Clone, Debug)]
+pub struct Subsidies {
+    /// The package ID of the subsidies contract
+    pub package_id: ObjectID,
+    /// The object ID of the subsidies object
+    pub object_id: ObjectID,
+    /// The initial version of the subsidies object when it was created
+    subsidies_obj_initial_version: OnceCell<SequenceNumber>,
+}
+
+impl Subsidies {
+    /// Creates a new Subsidies instance with the given package and object IDs
+    pub fn new(package_id: ObjectID, object_id: ObjectID) -> Self {
+        Self {
+            package_id,
+            object_id,
+            subsidies_obj_initial_version: OnceCell::new(),
+        }
+    }
+}
+
 /// Client implementation for interacting with the Walrus smart contracts.
 #[derive(Clone)]
 pub struct SuiReadClient {
@@ -261,6 +291,7 @@ pub struct SuiReadClient {
     type_origin_map: Arc<RwLock<TypeOriginMap>>,
     sys_obj_initial_version: OnceCell<SequenceNumber>,
     staking_obj_initial_version: OnceCell<SequenceNumber>,
+    subsidies: Arc<RwLock<Option<Subsidies>>>,
     wal_type: String,
 }
 
@@ -280,6 +311,18 @@ impl SuiReadClient {
             .type_origin_map_for_package(walrus_package_id)
             .await?;
         let wal_type = sui_client.wal_type_from_package(walrus_package_id).await?;
+        let subsidies = if let Some(subsidies_object_id) = contract_config.subsidies_object {
+            let subsidies_package_id = sui_client
+                .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
+                .await?;
+            Some(Subsidies {
+                package_id: subsidies_package_id,
+                object_id: subsidies_object_id,
+                subsidies_obj_initial_version: OnceCell::new(),
+            })
+        } else {
+            None
+        };
         Ok(Self {
             walrus_package_id: Arc::new(RwLock::new(walrus_package_id)),
             sui_client,
@@ -288,6 +331,7 @@ impl SuiReadClient {
             type_origin_map: Arc::new(RwLock::new(type_origin_map)),
             sys_obj_initial_version: OnceCell::new(),
             staking_obj_initial_version: OnceCell::new(),
+            subsidies: Arc::new(RwLock::new(subsidies)),
             wal_type,
         })
     }
@@ -353,6 +397,30 @@ impl SuiReadClient {
         })
     }
 
+    pub(crate) async fn object_arg_for_subsidies_obj(
+        &self,
+        mutable: Mutability,
+    ) -> SuiClientResult<ObjectArg> {
+        let subsidies = self
+            .subsidies
+            .read()
+            .expect("lock should not be poisoned")
+            .as_ref()
+            .ok_or_else(|| SuiClientError::Internal(anyhow!("subsidies object ID not found")))?
+            .clone();
+
+        let initial_shared_version = subsidies
+            .subsidies_obj_initial_version
+            .get_or_try_init(|| self.get_shared_object_initial_version(subsidies.object_id))
+            .await?;
+
+        Ok(ObjectArg::SharedObject {
+            id: subsidies.object_id,
+            initial_shared_version: *initial_shared_version,
+            mutable: mutable.into(),
+        })
+    }
+
     async fn staking_object_initial_version(&self) -> SuiClientResult<SequenceNumber> {
         let initial_shared_version = self
             .staking_obj_initial_version
@@ -387,6 +455,15 @@ impl SuiReadClient {
         *self.walrus_package_id()
     }
 
+    /// Returns the subsidies package ID.
+    pub fn get_subsidies_package_id(&self) -> Option<ObjectID> {
+        self.subsidies
+            .read()
+            .expect("lock should not be poisoned")
+            .as_ref()
+            .map(|s| s.package_id)
+    }
+
     /// Returns the system object ID.
     pub fn get_system_object_id(&self) -> ObjectID {
         self.system_object_id
@@ -397,9 +474,26 @@ impl SuiReadClient {
         self.staking_object_id
     }
 
+    /// Returns the subsidies object ID.
+    pub fn get_subsidies_object_id(&self) -> Option<ObjectID> {
+        self.subsidies
+            .read()
+            .expect("lock should not be poisoned")
+            .as_ref()
+            .map(|s| s.object_id)
+    }
+
     /// Returns the contract config.
     pub fn contract_config(&self) -> ContractConfig {
-        ContractConfig::new(self.system_object_id, self.staking_object_id)
+        ContractConfig::new_with_subsidies(
+            self.system_object_id,
+            self.staking_object_id,
+            self.subsidies
+                .read()
+                .expect("lock should not be poisoned")
+                .as_ref()
+                .map(|s| s.object_id),
+        )
     }
 
     /// Returns the staking pool for the given node ID.
@@ -417,6 +511,11 @@ impl SuiReadClient {
         self.walrus_package_id
             .write()
             .expect("lock should not be poisoned")
+    }
+
+    /// Returns a mutable reference to the subsidies object.
+    fn subsidies_mut(&self) -> RwLockWriteGuard<Option<Subsidies>> {
+        self.subsidies.write().expect("lock should not be poisoned")
     }
 
     pub(crate) fn type_origin_map(&self) -> RwLockReadGuard<TypeOriginMap> {
@@ -595,10 +694,7 @@ impl SuiReadClient {
             version,
             package_id,
             new_package_id,
-        } = self
-            .sui_client
-            .get_sui_object(self.system_object_id)
-            .await?;
+        } = self.system_object_for_deserialization().await?;
         // Refresh the package ID if it is different from the current package ID.
         if package_id != *self.walrus_package_id() {
             self.refresh_package_id_with_id(package_id).await?;
@@ -647,6 +743,20 @@ impl SuiReadClient {
             inner,
         };
         Ok(staking_object)
+    }
+
+    /// Sets a subsidies object to be used by the client.
+    pub async fn set_subsidies_object(&self, subsidies_object_id: ObjectID) -> SuiClientResult<()> {
+        let subsidies_package_id = self
+            .sui_client
+            .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
+            .await?;
+        *self.subsidies_mut() = Some(Subsidies {
+            package_id: subsidies_package_id,
+            object_id: subsidies_object_id,
+            subsidies_obj_initial_version: OnceCell::new(),
+        });
+        Ok(())
     }
 
     async fn refresh_package_id_with_id(&self, walrus_package_id: ObjectID) -> SuiClientResult<()> {
@@ -735,6 +845,13 @@ impl SuiReadClient {
             .get_extended_field::<NodeMetadata>(metadata_id, &type_map)
             .await?;
         Ok(metadata)
+    }
+
+    /// Returns the system object for deserialization without querying the dynamic inner field.
+    async fn system_object_for_deserialization(
+        &self,
+    ) -> SuiClientResult<SystemObjectForDeserialization> {
+        self.sui_client.get_sui_object(self.system_object_id).await
     }
 }
 
@@ -859,11 +976,11 @@ impl ReadClient for SuiReadClient {
 
     async fn get_blob_attribute(
         &self,
-        blob_id: ObjectID,
+        blob_object_id: &ObjectID,
     ) -> SuiClientResult<Option<BlobAttribute>> {
         self.sui_client
             .get_dynamic_field::<Vec<u8>, BlobAttribute>(
-                blob_id,
+                *blob_object_id,
                 TypeTag::Vector(Box::new(TypeTag::U8)),
                 b"metadata".to_vec(),
             )
@@ -872,13 +989,16 @@ impl ReadClient for SuiReadClient {
             .or_else(|_| Ok(None))
     }
 
-    async fn get_blob_with_attribute(
+    async fn get_blob_by_object_id(
         &self,
-        blob_id: ObjectID,
+        blob_object_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
         Ok(BlobWithAttribute {
-            blob: self.sui_client.get_sui_object::<Blob>(blob_id).await?,
-            attribute: self.get_blob_attribute(blob_id).await?,
+            blob: self
+                .sui_client
+                .get_sui_object::<Blob>(*blob_object_id)
+                .await?,
+            attribute: self.get_blob_attribute(blob_object_id).await?,
         })
     }
 
@@ -969,6 +1089,34 @@ impl ReadClient for SuiReadClient {
             .get_system_package_id_from_system_object(self.system_object_id)
             .await?;
         self.refresh_package_id_with_id(walrus_package_id).await
+    }
+
+    async fn refresh_subsidies_package_id(&self) -> SuiClientResult<()> {
+        let subsidies = self
+            .subsidies
+            .read()
+            .expect("lock should not be poisoned")
+            .clone();
+        if let Some(subsidies) = subsidies {
+            let new_package_id = self
+                .sui_client
+                .get_subsidies_package_id_from_subsidies_object(subsidies.object_id)
+                .await?;
+
+            // Update the package_id if it has changed
+            if new_package_id != subsidies.package_id {
+                let mut subsidies_guard =
+                    self.subsidies.write().expect("lock should not be poisoned");
+                if let Some(subsidies) = subsidies_guard.as_mut() {
+                    subsidies.package_id = new_package_id;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn system_object_version(&self) -> SuiClientResult<u64> {
+        Ok(self.system_object_for_deserialization().await?.version)
     }
 }
 

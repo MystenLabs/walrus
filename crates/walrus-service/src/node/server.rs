@@ -26,11 +26,11 @@ use tower_http::trace::TraceLayer;
 use tracing::Instrument as _;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
-use walrus_core::{encoding::max_sliver_size_for_n_shards, keys::NetworkKeyPair};
+use walrus_core::{encoding, keys::NetworkKeyPair};
 
 use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
 use crate::{
-    common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
+    common::telemetry::{self, HttpMetrics, MakeHttpSpan},
     node::ServiceState,
 };
 
@@ -163,7 +163,7 @@ where
     ) -> Self {
         Self {
             state,
-            metrics: register_http_metrics(registry),
+            metrics: telemetry::register_http_metrics(registry),
             cancel_token,
             handle: Default::default(),
             config,
@@ -180,7 +180,7 @@ where
         let request_layers = ServiceBuilder::new()
             .layer(middleware::from_fn_with_state(
                 self.metrics.clone(),
-                metrics_middleware,
+                telemetry::metrics_middleware,
             ))
             .layer(
                 TraceLayer::new_for_http()
@@ -339,8 +339,10 @@ where
                 routes::SLIVER_ENDPOINT,
                 put(routes::put_sliver)
                     .route_layer(DefaultBodyLimit::max(
-                        usize::try_from(max_sliver_size_for_n_shards(self.state.n_shards()))
-                            .expect("running on 64bit arch (see hardware requirements)")
+                        usize::try_from(encoding::max_sliver_size_for_n_shards(
+                            self.state.n_shards(),
+                        ))
+                        .expect("running on 64bit arch (see hardware requirements)")
                             + HEADROOM,
                     ))
                     .get(routes::get_sliver),

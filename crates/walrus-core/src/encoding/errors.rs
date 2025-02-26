@@ -28,7 +28,7 @@ impl From<DataTooLargeError> for InvalidDataSizeError {
 }
 
 /// Error type returned when encoding fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum EncodeError {
     /// The data size is invalid for this encoder.
     #[error(transparent)]
@@ -37,15 +37,18 @@ pub enum EncodeError {
     /// count.
     #[error("the data is not properly aligned (must be a multiple of {0})")]
     MisalignedData(NonZeroU16),
+    /// The parameters are incompatible with the Reed-Solomon encoder.
+    #[error("the parameters are incompatible with the Reed-Solomon encoder: {0}")]
+    IncompatibleParameters(#[from] reed_solomon_simd::Error),
 }
 
 /// Error type returned when computing recovery symbols fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum RecoverySymbolError {
     /// The index of the recovery symbol can be at most `n_shards`.
     #[error("the index of the recovery symbol can be at most `n_shards`")]
     IndexTooLarge,
-    /// The underlying [`Encoder`][super::Encoder] returned an error.
+    /// The underlying basic encoder returned an error.
     #[error(transparent)]
     EncodeError(#[from] EncodeError),
 }
@@ -69,7 +72,7 @@ pub enum SliverRecoveryError {
 
 /// Error type returned when attempting to recover a sliver from recovery symbols fails or the
 /// resulting sliver cannot be verified.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum SliverRecoveryOrVerificationError {
     /// Recovery of the sliver failed.
     #[error(transparent)]
@@ -103,7 +106,7 @@ pub struct DecodingVerificationError;
 pub struct WrongSliverVariantError;
 
 /// Error returned when sliver verification fails.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum SliverVerificationError {
     /// The sliver index is too large for the number of shards in the metadata.
     #[error("the sliver index is too large for the number of shards in the metadata")]

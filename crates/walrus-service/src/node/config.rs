@@ -70,6 +70,7 @@ impl Default for ConfigSynchronizerConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct StorageNodeConfig {
     /// The name of the storage node that is set in the staking pool on chain.
+    #[serde(deserialize_with = "utils::deserialize_node_name")]
     pub name: String,
     /// Directory in which to persist the database.
     #[serde(deserialize_with = "utils::resolve_home_dir")]
@@ -501,6 +502,7 @@ pub struct CommitteeServiceConfig {
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
     /// Use the experimental batch recovery service endpoint.
+    // TODO: Remove (WAL-594).
     pub experimental_batch_symbol_recovery: bool,
 }
 
@@ -544,6 +546,10 @@ pub struct ShardSyncConfig {
     pub max_concurrent_metadata_fetch: usize,
     /// Maximum number of concurrent shard syncs allowed per node.
     pub shard_sync_concurrency: usize,
+    /// The interval to switch to recovery mode if the shard sync retries continue to fail.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "shard_sync_retry_switch_to_recovery_interval_secs")]
+    pub shard_sync_retry_switch_to_recovery_interval: Duration,
 }
 
 impl Default for ShardSyncConfig {
@@ -556,6 +562,7 @@ impl Default for ShardSyncConfig {
             blob_certified_check_interval: Duration::from_secs(60),
             max_concurrent_metadata_fetch: 10,
             shard_sync_concurrency: 10,
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
         }
     }
 }
@@ -913,6 +920,7 @@ mod tests {
         let contract_config = ContractConfig {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
+            subsidies_object: None,
         };
         let config = StorageNodeConfig {
             sui: Some(SuiConfig {

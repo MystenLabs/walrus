@@ -62,6 +62,10 @@ use walrus_sui::{
 use super::active_committees::ActiveCommittees;
 use crate::node::config::MetricsPushConfig;
 
+/// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
+/// `contracts/walrus/sources/staking/staking_pool.move`.
+pub const MAX_NODE_NAME_LENGTH: usize = 100;
+
 /// Defines a constant containing the version consisting of the package version and git revision.
 ///
 /// We are using a macro as placing this logic into a library can result in unnecessary builds.
@@ -110,7 +114,6 @@ pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::R
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
     /// Limits the number of simultaneously executing futures.
-    #[allow(dead_code)]
     async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
     where
         Self: Future,
@@ -224,6 +227,22 @@ where
             self.observe(None);
         }
     }
+}
+
+/// Deserializes the storage node name and checks that it does not exceed the maximum length
+/// `MAX_NODE_NAME_LENGTH`.
+pub fn deserialize_node_name<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let name: String = Deserialize::deserialize(deserializer)?;
+    if name.len() > MAX_NODE_NAME_LENGTH {
+        return Err(D::Error::custom(format!(
+            "Node name must not exceed {} characters",
+            MAX_NODE_NAME_LENGTH
+        )));
+    }
+    Ok(name)
 }
 
 /// Can be used to deserialize optional paths such that the `~` is resolved to the user's home

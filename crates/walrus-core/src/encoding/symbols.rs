@@ -479,7 +479,7 @@ impl<U: MerkleAuth> GeneralRecoverySymbol<U> {
         target_index: SliverIndex,
         target_type: SliverType,
     ) -> Result<(), SymbolVerificationError> {
-        let n_shards = encoding_config.n_shards();
+        let n_shards = encoding_config.n_shards;
 
         ensure!(
             self.symbol.index() < n_shards.get(),
@@ -673,7 +673,7 @@ pub struct RecoverySymbolPair<U: MerkleAuth> {
     pub secondary: SecondaryRecoverySymbol<U>,
 }
 
-/// Filters an iterator of [`DecodingSymbol`s][Self], dropping and logging any that
+/// Filters an iterator of [`DecodingSymbol`s][DecodingSymbol], dropping and logging any that
 /// don't have a valid Merkle proof.
 pub(crate) fn filter_recovery_symbols_and_log_invalid<'a, T, I, V>(
     recovery_symbols: I,
@@ -721,7 +721,13 @@ mod tests {
     use walrus_test_utils::{param_test, Result as TestResult};
 
     use super::*;
-    use crate::{test_utils, SliverPairIndex, SliverType};
+    use crate::{
+        encoding::EncodingConfigTrait as _,
+        test_utils,
+        EncodingType,
+        SliverPairIndex,
+        SliverType,
+    };
 
     param_test! {
         get_correct_symbol: [
@@ -816,21 +822,31 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_recovery_symbol_proof() -> TestResult {
+    param_test! {
+        test_recovery_symbol_proof -> TestResult: [
+            raptorq: (
+                EncodingType::RedStuffRaptorQ,
+            ),
+            reed_solomon: (
+                EncodingType::RS2,
+            ),
+        ]
+    }
+    fn test_recovery_symbol_proof(encoding_type: EncodingType) -> TestResult {
         let f = 2;
         let n_shards = 3 * f + 1;
         let config = EncodingConfig::new_for_test(f, 2 * f, n_shards);
         let blob = walrus_test_utils::random_data(257);
-        let (sliver_pairs, metadata) = config.get_blob_encoder(&blob)?.encode_with_metadata();
+        let config_enum = config.get_for_type(encoding_type);
+        let (sliver_pairs, metadata) = config_enum.encode_with_metadata(&blob)?;
 
         let sliver = sliver_pairs[0].secondary.clone();
-        let source_index = SliverPairIndex(0).to_sliver_index::<Secondary>(config.n_shards());
+        let source_index = SliverPairIndex(0).to_sliver_index::<Secondary>(config.n_shards);
 
         for index in 0..n_shards {
             let target_index = SliverIndex(index);
             let shard_pair_index = SliverPairIndex(index);
-            let symbol = sliver.recovery_symbol_for_sliver(shard_pair_index, &config)?;
+            let symbol = sliver.recovery_symbol_for_sliver(shard_pair_index, &config_enum)?;
             let general_symbol = GeneralRecoverySymbol::from_recovery_symbol(symbol, target_index);
 
             general_symbol

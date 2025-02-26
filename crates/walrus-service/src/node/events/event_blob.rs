@@ -161,7 +161,6 @@ impl SerializedEventID {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 /// An iterator over events in a blob file.
 pub struct EventBlob<'a> {
@@ -172,6 +171,7 @@ pub struct EventBlob<'a> {
     prev_event_id: Option<EventID>,
     start: CheckpointSequenceNumber,
     end: CheckpointSequenceNumber,
+    #[allow(dead_code)]
     blob_format_version: u32,
     epoch: Epoch,
 }
@@ -332,13 +332,11 @@ impl<'a> EventBlob<'a> {
     }
 
     /// Checkpoint sequence number of first event in the blob.
-    #[allow(dead_code)]
     pub fn start_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
         self.start
     }
 
     /// Checkpoint sequence number of last event in the blob.
-    #[allow(dead_code)]
     pub fn end_checkpoint_sequence_number(&self) -> CheckpointSequenceNumber {
         self.end
     }

@@ -29,17 +29,30 @@ const BYTES_PER_UNIT_SIZE: u64 = 1_024 * 1_024; // 1 MiB
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The system parameter for the maximum number of epochs ahead is invalid.
 const EInvalidMaxEpochsAhead: u64 = 0;
+/// The storage capacity of the system is exceeded.
 const EStorageExceeded: u64 = 1;
+/// The number of epochs in the future to reserve storage for exceeds the maximum.
 const EInvalidEpochsAhead: u64 = 2;
+/// Invalid epoch in the certificate.
 const EInvalidIdEpoch: u64 = 3;
+/// Trying to set an incorrect committee for the next epoch.
 const EIncorrectCommittee: u64 = 4;
+/// Incorrect epoch in the storage accounting.
 const EInvalidAccountingEpoch: u64 = 5;
+/// Incorrect event blob attestation.
 const EIncorrectAttestation: u64 = 6;
+/// Repeated attestation for an event blob.
 const ERepeatedAttestation: u64 = 7;
+/// The node is not a member of the committee.
 const ENotCommitteeMember: u64 = 8;
+/// Incorrect deny list sequence number.
 const EIncorrectDenyListSequence: u64 = 9;
+/// Deny list certificate contains the wrong node ID.
 const EIncorrectDenyListNode: u64 = 10;
+/// Trying to obtain a resource with an invalid size.
+const EInvalidResourceSize: u64 = 11;
 
 /// The inner object that is not present in signatures and can be versioned.
 #[allow(unused_field)]
@@ -107,12 +120,9 @@ public(package) fun advance_epoch(
     let old_committee = self.committee;
 
     assert!(new_committee.epoch() == new_epoch, EIncorrectCommittee);
-    self.committee = new_committee;
 
-    // Update the system object.
-    self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
-    self.storage_price_per_unit_size = new_epoch_params.storage_price();
-    self.write_price_per_unit_size = new_epoch_params.write_price();
+    // === Update the system object ===
+    self.committee = new_committee;
 
     let accounts_old_epoch = self.future_accounting.ring_pop_expand();
 
@@ -127,6 +137,11 @@ public(package) fun advance_epoch(
 
     // Update used capacity size to the new epoch without popping the ring buffer.
     self.used_capacity_size = self.future_accounting.ring_lookup_mut(0).used_capacity();
+
+    // Update capacity and prices.
+    self.total_capacity_size = new_epoch_params.capacity().max(self.used_capacity_size);
+    self.storage_price_per_unit_size = new_epoch_params.storage_price();
+    self.write_price_per_unit_size = new_epoch_params.write_price();
 
     // === Rewards distribution ===
 
@@ -196,6 +211,9 @@ fun reserve_space_without_payment(
     // Check the period is within the allowed range.
     assert!(epochs_ahead > 0, EInvalidEpochsAhead);
     assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
+
+    // Check that the storage has a non-zero size.
+    assert!(storage_amount > 0, EInvalidResourceSize);
 
     // Account the space to reclaim in the future.
     epochs_ahead.do!(|i| {
@@ -320,21 +338,21 @@ public(package) fun extend_blob_with_resource(
 }
 
 /// Extend the period of validity of a blob by extending its contained storage
-/// resource.
+/// resource by `extended_epochs` epochs.
 public(package) fun extend_blob(
     self: &mut SystemStateInnerV1,
     blob: &mut Blob,
-    epochs_ahead: u32,
+    extended_epochs: u32,
     payment: &mut Coin<WAL>,
 ) {
     // Check that the blob is certified and not expired.
     blob.assert_certified_not_expired(self.epoch());
 
     let start_offset = blob.storage().end_epoch() - self.epoch();
-    let end_offset = start_offset + epochs_ahead;
+    let end_offset = start_offset + extended_epochs;
 
     // Check the period is within the allowed range.
-    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
+    assert!(extended_epochs > 0, EInvalidEpochsAhead);
     assert!(end_offset <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
 
     // Pay rewards for each future epoch into the future accounting.
@@ -357,7 +375,7 @@ public(package) fun extend_blob(
         assert!(used_capacity <= self.total_capacity_size, EStorageExceeded);
     });
 
-    blob.storage_mut().extend_end_epoch(epochs_ahead);
+    blob.storage_mut().extend_end_epoch(extended_epochs);
 
     blob.emit_certified(true);
 }

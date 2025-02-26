@@ -84,6 +84,7 @@ shard_sync_config:
   blob_certified_check_interval_secs: 60
   max_concurrent_metadata_fetch: 10
   shard_sync_concurrency: 10
+  shard_sync_retry_switch_to_recovery_interval_secs: 7200
 event_processor_config:
   pruning_interval_secs: 3600
   adaptive_downloader_config:

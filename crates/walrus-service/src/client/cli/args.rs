@@ -13,10 +13,17 @@ use std::{
 use anyhow::{anyhow, Context as _, Result};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sui_types::base_types::ObjectID;
-use walrus_core::{encoding::EncodingConfig, ensure, BlobId, Epoch, EpochCount};
+use walrus_core::{
+    encoding::{EncodingConfig, EncodingConfigTrait},
+    ensure,
+    BlobId,
+    EncodingType,
+    Epoch,
+    EpochCount,
+};
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::StorageNode,
@@ -24,7 +31,7 @@ use walrus_sui::{
 };
 
 use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
-use crate::client::config::AuthConfig;
+use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -217,6 +224,10 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         share: bool,
+        /// The encoding type to use for encoding the files.
+        #[clap(long)]
+        #[serde(default)]
+        encoding_type: Option<EncodingType>,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -254,6 +265,10 @@ pub enum CliCommands {
         #[clap(long, value_parser = humantime::parse_duration, default_value = "1s")]
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
+        /// The encoding type to use for encoding the file.
+        #[clap(long)]
+        #[serde(default)]
+        encoding_type: Option<EncodingType>,
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
@@ -295,6 +310,10 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         detail: bool,
+        /// Sort configuration
+        #[clap(flatten)]
+        #[serde(flatten)]
+        sort: SortBy<HealthSortBy>,
     },
     /// Encode the specified file to obtain its blob ID.
     BlobId {
@@ -311,6 +330,10 @@ pub enum CliCommands {
         #[clap(flatten)]
         #[serde(flatten)]
         rpc_arg: RpcArg,
+        /// The encoding type to use for computing the blob ID.
+        #[clap(long)]
+        #[serde(default)]
+        encoding_type: Option<EncodingType>,
     },
     /// Convert a decimal value to the Walrus blob ID (using URL-safe base64 encoding).
     ConvertBlobId {
@@ -343,6 +366,12 @@ pub enum CliCommands {
         #[clap(long, action)]
         #[serde(default)]
         no_status_check: bool,
+        /// The encoding type to use for computing the blob ID.
+        ///
+        /// This is only used when running the command with the `--file` target.
+        #[clap(long)]
+        #[serde(default)]
+        encoding_type: Option<EncodingType>,
     },
     /// Stake with storage node.
     Stake {
@@ -423,7 +452,6 @@ pub enum CliCommands {
         #[serde(default)]
         yes: bool,
     },
-
     /// Fund a shared blob.
     FundSharedBlob {
         /// The object ID of the shared blob to fund.
@@ -438,18 +466,15 @@ pub enum CliCommands {
         /// The object ID of the blob to extend.
         #[clap(long)]
         blob_obj_id: ObjectID,
-
         /// If the blob_obj_id refers to a shared blob object, this flag must be present.
         #[clap(long)]
         shared: bool,
-
         /// The number of epochs to extend the blob for.
-        ///
-        /// If set to `max`, the blob is stored for the maximum number of epochs allowed by the
-        /// system object on chain. Otherwise, the blob is stored for the specified number of
-        /// epochs. The number of epochs must be greater than 0.
-        #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
-        epochs_ahead: EpochCountOrMax,
+        // TODO (WAL-614): Offer multiple options similar to the `store` command:
+        // `--extended-epochs`, `--epochs-ahead`, `--max`, `--end-epoch`,
+        // `--earliest-expiration-time`.
+        #[clap(long)]
+        epochs_extended: EpochCount,
     },
     /// Share a blob.
     Share {
@@ -511,7 +536,12 @@ pub enum CliCommands {
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InfoCommands {
     /// Print all information listed below.
-    All,
+    All {
+        /// Sort configuration for committee information
+        #[clap(flatten)]
+        #[serde(flatten)]
+        sort: SortBy<NodeSortBy>,
+    },
     /// Print epoch information.
     Epoch,
     /// Print storage information.
@@ -523,7 +553,12 @@ pub enum InfoCommands {
     /// Print byzantine fault tolerance (BFT) information.
     Bft,
     /// Print committee information.
-    Committee,
+    Committee {
+        /// Sort configuration
+        #[clap(flatten)]
+        #[serde(flatten)]
+        sort: SortBy<NodeSortBy>,
+    },
 }
 
 /// The daemon commands for the Walrus client.
@@ -552,6 +587,10 @@ pub enum DaemonCommands {
         #[serde(flatten)]
         /// The daemon args.
         daemon_args: DaemonArgs,
+        #[clap(flatten)]
+        #[serde(flatten, default)]
+        /// The aggregator args.
+        aggregator_args: AggregatorArgs,
     },
     /// Run a client daemon at the provided network address, combining the functionality of an
     /// aggregator and a publisher.
@@ -560,6 +599,10 @@ pub enum DaemonCommands {
         #[serde(flatten)]
         /// The publisher args.
         args: PublisherArgs,
+        #[clap(flatten)]
+        #[serde(flatten, default)]
+        /// The aggregator args.
+        aggregator_args: AggregatorArgs,
     },
 }
 
@@ -569,9 +612,24 @@ impl DaemonCommands {
         match &self {
             DaemonCommands::Publisher { args } => args.daemon_args.metrics_address,
             DaemonCommands::Aggregator { daemon_args, .. } => daemon_args.metrics_address,
-            DaemonCommands::Daemon { args } => args.daemon_args.metrics_address,
+            DaemonCommands::Daemon { args, .. } => args.daemon_args.metrics_address,
         }
     }
+}
+
+/// The arguments for the aggregator service.
+#[derive(Debug, Clone, Args, Deserialize, PartialEq, Default, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AggregatorArgs {
+    /// Allowed headers for the daemon.
+    ///
+    /// This defines the allow-list of headers. It is currently used for the
+    /// /v1/blobs/by-object-id/{blob_object_id} aggregator endpoint. The response will include the
+    /// allowed headers if the specified header names are present in the BlobAttribute associated
+    /// with the requested blob.
+    #[clap(long, num_args = 1.., default_values_t = default::allowed_headers())]
+    #[serde(default = "default::allowed_headers")]
+    pub(crate) allowed_headers: Vec<String>,
 }
 
 /// The arguments for the publisher service.
@@ -627,20 +685,35 @@ pub struct PublisherArgs {
     #[clap(long, default_value_t = default::sub_wallets_min_balance())]
     #[serde(default = "default::sub_wallets_min_balance")]
     pub sub_wallets_min_balance: u64,
-    /// If set, the publisher will keep the created Blob objects in its _main_ wallet.
+    /// Deprecated flag for backwards compatibility.
     ///
-    /// If unset, the publisher will immediately burn all created blob objects by default. However,
-    /// note that this flag _does not affect_ the use of the `send_object_to` query parameter:
-    /// Regardless of this flag's status, the publisher will send created objects to the address in
-    /// the `send_object_to` query parameter, if it is specified in the PUT request.
+    /// By default, the publisher already keeps created Blob objects in its main wallet. This flag
+    /// is only available for backwards-compatibility reasons. Therefore _specifying this flag has
+    /// no effect_.
+    ///
+    /// To burn the created Blob objects immediately after storing, use the `--burn-after-store`
+    /// flag.
     #[clap(long, action)]
     #[serde(default)]
     pub keep: bool,
+    /// If set, the publisher will burn the created Blob objects immediately.
+    ///
+    /// If unset, the publisher will keep all created blob objects in its _main wallet_ by default.
+    /// However, note that this flag _does not affect_ the use of the `send_object_to` query
+    /// parameter: Regardless of this flag's status, the publisher will send created objects to the
+    /// address in the `send_object_to` query parameter, if it is specified in the PUT request.
+    #[clap(long, action)]
+    #[serde(default)]
+    pub burn_after_store: bool,
     /// If set, the publisher will verify the JWT token.
     ///
     /// If not specified, the verification is disabled.
     /// This is useful, e.g., in case the API Gateway has already checked the token.
     /// The secret can be hex string, starting with `0x`.
+    ///
+    /// JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value.
+    /// The JWT creator must ensure that this value is unique among all requests to the publisher.
+    /// We recommend using large nonces to avoid collisions.
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
@@ -655,7 +728,7 @@ pub struct PublisherArgs {
     /// the "issued at" (`iat`) value.
     #[clap(long, default_value_t = 0)]
     #[serde(default)]
-    pub jwt_expiring_sec: u64,
+    pub jwt_expiring_sec: i64,
     /// If set, the publisher will verify that the requested upload matches the claims in the JWT.
     ///
     /// Specifically, the publisher will:
@@ -663,10 +736,15 @@ pub struct PublisherArgs {
     ///   present;
     /// - Verify that the `send_object_to` field in the query is the same as the `send_object_to`
     ///   in the JWT, if present;
-    // TODO: /// - Verify the size/hash of uploaded file
+    /// - Verify the size of uploaded file;
+    /// - Verify the uniqueness of the `jti` claim.
     #[clap(long, action)]
     #[serde(default)]
     pub jwt_verify_upload: bool,
+    #[clap(flatten)]
+    #[serde(flatten)]
+    /// The configuration for the JWT duplicate suppression cache.
+    pub replay_suppression_config: CacheConfig,
 }
 
 impl PublisherArgs {
@@ -693,12 +771,13 @@ impl PublisherArgs {
         );
     }
 
-    pub(crate) fn generate_auth_config(&mut self) -> Result<Option<AuthConfig>> {
+    pub(crate) fn generate_auth_config(&self) -> Result<Option<AuthConfig>> {
         if self.jwt_decode_secret.is_some() || self.jwt_expiring_sec > 0 || self.jwt_verify_upload {
             let mut auth_config = AuthConfig {
                 expiring_sec: self.jwt_expiring_sec,
                 verify_upload: self.jwt_verify_upload,
                 algorithm: self.jwt_algorithm,
+                replay_suppression_config: self.replay_suppression_config.clone(),
                 ..Default::default()
             };
 
@@ -763,7 +842,11 @@ pub struct FileOrBlobId {
 }
 
 impl FileOrBlobId {
-    pub(crate) fn get_or_compute_blob_id(self, encoding_config: &EncodingConfig) -> Result<BlobId> {
+    pub(crate) fn get_or_compute_blob_id(
+        self,
+        encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
+    ) -> Result<BlobId> {
         match self {
             FileOrBlobId {
                 blob_id: Some(blob_id),
@@ -777,8 +860,8 @@ impl FileOrBlobId {
                     "checking status of blob read from the filesystem"
                 );
                 Ok(*encoding_config
-                    .get_blob_encoder(&read_blob_from_file(&file)?)?
-                    .compute_metadata()
+                    .get_for_type(encoding_type)
+                    .compute_metadata(&read_blob_from_file(&file)?)?
                     .blob_id())
             }
             // This case is required for JSON mode where we don't have the clap checking.
@@ -818,6 +901,7 @@ impl FileOrBlobIdOrObjectId {
     pub(crate) fn get_or_compute_blob_id(
         &self,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> Result<Option<BlobId>> {
         match self {
             FileOrBlobIdOrObjectId {
@@ -833,8 +917,8 @@ impl FileOrBlobIdOrObjectId {
                 );
                 Ok(Some(
                     *encoding_config
-                        .get_blob_encoder(&read_blob_from_file(file)?)?
-                        .compute_metadata()
+                        .get_for_type(encoding_type)
+                        .compute_metadata(&read_blob_from_file(file)?)?
                         .blob_id(),
                 ))
             }
@@ -1149,6 +1233,18 @@ pub(crate) mod default {
     pub(crate) fn faucet_timeout() -> Duration {
         Duration::from_secs(60)
     }
+
+    pub(crate) fn allowed_headers() -> Vec<String> {
+        vec![
+            "content-type".to_string(),
+            "authorization".to_string(),
+            "content-disposition".to_string(),
+            "content-encoding".to_string(),
+            "content-language".to_string(),
+            "content-location".to_string(),
+            "link".to_string(),
+        ]
+    }
 }
 
 #[cfg(test)]
@@ -1191,6 +1287,7 @@ mod tests {
             ignore_resources: false,
             deletable: false,
             share: false,
+            encoding_type: Default::default(),
         })
     }
 
@@ -1222,10 +1319,15 @@ mod tests {
                 wal_refill_amount: default::wal_refill_amount(),
                 sub_wallets_min_balance: default::sub_wallets_min_balance(),
                 keep: false,
+                burn_after_store: false,
                 jwt_decode_secret: None,
                 jwt_algorithm: None,
                 jwt_expiring_sec: 0,
                 jwt_verify_upload: false,
+                replay_suppression_config: Default::default(),
+            },
+            aggregator_args: AggregatorArgs {
+                allowed_headers: default::allowed_headers(),
             },
         })
     }
@@ -1288,5 +1390,57 @@ impl UserConfirmation {
     /// Checks if the user confirmation is required.
     pub fn is_required(&self) -> bool {
         matches!(self, UserConfirmation::Required)
+    }
+}
+
+/// Sort options for node information display
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NodeSortBy {
+    /// Sort by node ID
+    Id,
+    /// Sort by node name
+    #[default]
+    Name,
+    /// Sort by node URL
+    Url,
+}
+
+/// Sort options for health information display
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum HealthSortBy {
+    /// Sort by node status
+    #[default]
+    Status,
+    /// Sort by node ID
+    Id,
+    /// Sort by node name
+    Name,
+    /// Sort by node URL
+    Url,
+}
+
+/// Generic sort configuration that can be used with any ValueEnum type
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, clap::Args)]
+#[serde(rename_all = "camelCase")]
+pub struct SortBy<T: clap::ValueEnum + Send + Sync + Default + 'static> {
+    /// Field to sort by
+    #[clap(long, value_enum)]
+    #[serde(default)]
+    pub sort_by: Option<T>,
+
+    /// Sort in descending order
+    #[clap(long, action)]
+    #[serde(default)]
+    pub desc: bool,
+}
+
+impl<T: clap::ValueEnum + Send + Sync + Default + 'static> Default for SortBy<T> {
+    fn default() -> Self {
+        Self {
+            sort_by: Some(T::default()),
+            desc: false,
+        }
     }
 }

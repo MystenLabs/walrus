@@ -53,17 +53,28 @@ const SHARDS_LIMIT_DENOMINATOR: u8 = 10; // 10%
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
+/// The system is in the wrong epoch state for the operation.
 const EWrongEpochState: u64 = 0;
+/// Trying to signal that the sync is done for the wrong Epoch.
 const EInvalidSyncEpoch: u64 = 1;
+/// The node already signaled that the sync is done for the current Epoch.
 const EDuplicateSyncDone: u64 = 2;
+/// There is no stake in the system, no apportionment can be performed.
 const ENoStake: u64 = 3;
+/// The node is not in the committee.
 const ENotInCommittee: u64 = 4;
+/// The committee for the next epoch has already been selected.
 const ECommitteeSelected: u64 = 5;
+/// The committee for the next epoch has not been set yet.
 const ENextCommitteeIsEmpty: u64 = 6;
+/// The number of shards assigned to a node is invalid.
 const EInvalidNodeWeight: u64 = 7;
+/// The staking pool with the provided ID was not found.
 const EPoolNotFound: u64 = 8;
-// TODO: remove this once the module is implemented.
-const ENotImplemented: u64 = 264;
+/// A node in the committee has no shards assigned.
+const EZeroNodeWeight: u64 = 9;
+/// The list of nodes is not sorted.
+const EIncorrectNodeOrder: u64 = 10;
 
 /// The epoch state.
 public enum EpochState has copy, drop, store {
@@ -234,17 +245,17 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
 public(package) fun select_committee_and_calculate_votes(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 
-    // prepare next epoch public_keys collection
+    // Prepare the next epoch public keys collection.
     let committee = self.compute_next_committee();
     let mut public_keys = vector[];
     let (node_ids, shard_assignments) = (*committee.inner()).into_keys_values();
 
-    // prepare voting parameters
+    // Prepare voting parameters.
     let mut write_prices = priority_queue::new(vector[]);
     let mut storage_prices = priority_queue::new(vector[]);
     let mut capacity_votes = priority_queue::new(vector[]);
 
-    // perform iteration over the next committee to do the following:
+    // Iterate over the next committee to do the following:
     // - store the next epoch public keys for the nodes
     // - calculate the votes for the next epoch parameters
     node_ids.length().do!(|idx| {
@@ -252,17 +263,20 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
         let pool = &self.pools[id];
         let weight = shard_assignments[idx].length();
 
-        // store the public key for the node
+        // Sanity check, every committee member must have at least 1 shard.
+        assert!(weight > 0, EZeroNodeWeight);
+
+        // Store the public key for the node.
         public_keys.push_back(*pool.node_info().next_epoch_public_key());
 
-        // perform calculation of the votes
+        // Perform calculation of the votes.
         write_prices.insert(pool.write_price(), weight);
         storage_prices.insert(pool.storage_price(), weight);
         let capacity_vote = (pool.node_capacity() * (self.n_shards as u64)) / weight;
         capacity_votes.insert(capacity_vote, weight);
     });
 
-    // public keys are inherently sorted by the Node ID
+    // Public keys are inherently sorted by the Node ID.
     let public_keys = vec_map::from_keys_values(node_ids, public_keys);
 
     self.next_epoch_public_keys.swap(public_keys);
@@ -279,23 +293,25 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
 
 /// Take the highest value, s.t. a quorum (2f + 1) voted for a value larger or equal to this.
 fun quorum_above(vote_queue: &mut PriorityQueue<u64>, n_shards: u16): u64 {
-    let threshold_weight = (n_shards - (n_shards - 1) / 3) as u64;
-    take_threshold_value(vote_queue, threshold_weight)
+    let mut sum_weight = 0;
+    loop {
+        let (value, weight) = vote_queue.pop_max();
+        sum_weight = sum_weight + weight;
+        if (is_quorum_for_n_shards(sum_weight, n_shards as u64)) {
+            return value
+        };
+    }
 }
 
 /// Take the lowest value, s.t. a quorum  (2f + 1) voted for a value lower or equal to this.
 fun quorum_below(vote_queue: &mut PriorityQueue<u64>, n_shards: u16): u64 {
-    let threshold_weight = ((n_shards - 1) / 3 + 1) as u64;
-    take_threshold_value(vote_queue, threshold_weight)
-}
-
-fun take_threshold_value(vote_queue: &mut PriorityQueue<u64>, threshold_weight: u64): u64 {
-    let mut sum_weight = 0;
-    // The loop will always succeed if `threshold_weight` is smaller than the total weight.
+    let mut sum_weight = n_shards as u64;
+    // We have a quorum initially, so we remove nodes until doing so breaks the quorum.
+    // The value at that point is the minimum value with support from a quorum.
     loop {
         let (value, weight) = vote_queue.pop_max();
-        sum_weight = sum_weight + weight;
-        if (sum_weight >= threshold_weight) {
+        sum_weight = sum_weight - weight;
+        if (!is_quorum_for_n_shards(sum_weight, n_shards as u64)) {
             return value
         };
     }
@@ -508,12 +524,25 @@ public(package) fun withdraw_stake(
     wal_balance.into_coin(ctx)
 }
 
+public(package) fun try_join_active_set(self: &mut StakingInnerV1, cap: &StorageNodeCap) {
+    let node_id = cap.node_id();
+    let wctx = &self.new_walrus_context();
+    let pool = &self.pools[node_id];
+
+    // Active set only tracks the stake for the next vote, which either happens for the committee
+    // in wctx.epoch() + 1, or in wctx.epoch() + 2, depending on whether the vote already happened.
+    let balance = match (self.epoch_state) {
+        EpochState::NextParamsSelected(_) => pool.wal_balance_at_epoch(wctx.epoch() + 2),
+        _ => pool.wal_balance_at_epoch(wctx.epoch() + 1),
+    };
+    self.active_set.borrow_mut().insert_or_update(node_id, balance);
+}
+
 // === System ===
 
 /// Computes the committee for the next epoch.
 public(package) fun compute_next_committee(self: &StakingInnerV1): Committee {
-    let (active_ids, shards) = self.apportionment();
-    let distribution = vec_map::from_keys_values(active_ids, shards);
+    let distribution = self.apportionment();
 
     // if we are dealing with the first epoch, we need to assign the shards to the
     // nodes in a sequential manner. Assuming there is at least 1 node in the set.
@@ -521,13 +550,16 @@ public(package) fun compute_next_committee(self: &StakingInnerV1): Committee {
     else self.committee.transition(distribution)
 }
 
-fun apportionment(self: &StakingInnerV1): (vector<ID>, vector<u16>) {
+fun apportionment(self: &StakingInnerV1): VecMap<ID, u16> {
     let (active_ids, stake) = self.active_set.borrow().active_ids_and_stake();
     let n_nodes = stake.length();
     // TODO better ranking (#943)
     let priorities = vector::tabulate!(n_nodes, |i| n_nodes - i);
     let shards = dhondt(priorities, self.n_shards, stake);
-    (active_ids, shards)
+    let mut distribution = vec_map::empty();
+    // Filter out nodes with 0 shards.
+    active_ids.zip_do!(shards, |id, shards| if (shards > 0) distribution.insert(id, shards));
+    distribution
 }
 
 // Implementation of the D'Hondt method (aka Jefferson method) for apportionment.
@@ -681,21 +713,6 @@ public(package) fun epoch_sync_done(
     events::emit_shards_received(self.epoch, *node_shards);
 }
 
-/// Checks if the node should either have received the specified shards from the specified node
-/// or vice-versa.
-///
-/// - also checks that for the provided shards, this function has not been called before
-/// - if so, slashes both nodes and emits an event that allows the receiving node to start
-///     shard recovery
-public(package) fun shard_transfer_failed(
-    _staking: &mut StakingInnerV1,
-    _cap: &StorageNodeCap,
-    _other_node_id: ID,
-    _shard_ids: vector<u16>,
-) {
-    abort ENotImplemented
-}
-
 // === Accessors ===
 
 /// Returns the metadata of the node with the given `ID`.
@@ -745,7 +762,7 @@ public(package) fun next_bls_committee(self: &mut StakingInnerV1): BlsCommittee 
         let pk = public_keys[i];
 
         // sanity check that the keys are in the same order
-        assert!(node_id == pk_node_id);
+        assert!(node_id == pk_node_id, EIncorrectNodeOrder);
         bls_aggregate::new_bls_committee_member(pk, shards, *node_id)
     });
 
@@ -788,7 +805,11 @@ fun new_walrus_context(self: &StakingInnerV1): WalrusContext {
 }
 
 public(package) fun is_quorum(self: &StakingInnerV1, weight: u16): bool {
-    3 * (weight as u64) >= 2 * (self.n_shards as u64) + 1
+    is_quorum_for_n_shards(weight as u64, self.n_shards as u64)
+}
+
+fun is_quorum_for_n_shards(weight: u64, n_shards: u64): bool {
+    3 * weight >= 2 * n_shards + 1
 }
 
 // ==== Tests ===

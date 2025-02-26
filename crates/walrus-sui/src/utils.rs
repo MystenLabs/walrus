@@ -35,6 +35,7 @@ use walrus_core::{
     encoding::encoded_blob_length_for_n_shards,
     keys::ProtocolKeyPair,
     messages::{ProofOfPossessionMsg, SignedMessage},
+    EncodingType,
     Epoch,
     EpochCount,
 };
@@ -64,8 +65,9 @@ pub fn price_for_unencoded_length(
     n_shards: NonZeroU16,
     price_per_unit_size: u64,
     epochs: EpochCount,
+    encoding_type: EncodingType,
 ) -> Option<u64> {
-    encoded_blob_length_for_n_shards(n_shards, unencoded_length)
+    encoded_blob_length_for_n_shards(n_shards, unencoded_length, encoding_type)
         .map(|encoded_length| price_for_encoded_length(encoded_length, price_per_unit_size, epochs))
 }
 
@@ -383,7 +385,6 @@ pub async fn request_sui_from_faucet(
 
 /// Gets 1 SUI for `address` from the provided wallet if the wallet has at least 2 SUI, otherwise
 /// request SUI from the faucet.
-// TODO(WAL-529): Refactor and completely remove the faucet from the deployment flow.
 pub async fn get_sui_from_wallet_or_faucet(
     address: SuiAddress,
     wallet: &mut WalletContext,

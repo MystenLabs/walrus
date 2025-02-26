@@ -20,6 +20,8 @@
 //! - `middleware`: Middleware we use to validate incoming client connections.
 //! - `providers`: Implements the provider functionality for the proxy.
 
+use fastcrypto::secp256r1::Secp256r1PublicKey;
+
 /// Handles administrative actions for the proxy.
 pub mod admin;
 
@@ -50,6 +52,11 @@ pub mod prom_to_mimir;
 #[allow(clippy::all)]
 // Implements remote write details, generated from protobufs.
 pub mod remote_write;
+
+/// The public key type for the storage node. This should be the same type as the network public
+/// key defined in the walrus-core crate. Defining it here to avoid depending on the walrus-core
+/// crate.
+pub type NetworkPublicKey = Secp256r1PublicKey;
 
 /// The Allower trait provides an interface for callers to decide if a generic
 /// key type should be allowed

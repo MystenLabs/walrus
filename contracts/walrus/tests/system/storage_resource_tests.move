@@ -180,3 +180,14 @@ fun exceed_storage_capacity() {
     let _storage = system.reserve_space(1_000_000_001, 2, &mut payment, ctx);
     abort
 }
+
+#[test, expected_failure(abort_code = walrus::system_state_inner::EInvalidResourceSize)]
+fun test_reserve_space_zero_size() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut payment = test_utils::mint(10_000_000_000, ctx);
+
+    // half of the available space for current and next epoch
+    let _storage = system.reserve_space(0, 2, &mut payment, ctx);
+    abort
+}

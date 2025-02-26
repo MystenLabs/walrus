@@ -33,10 +33,13 @@ use walrus_core::{
     },
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
+    EncodingType,
     Epoch,
+    EpochCount,
     NetworkPublicKey,
     PublicKey,
     ShardIndex,
+    DEFAULT_ENCODING,
 };
 use walrus_sdk::{
     api::{BlobStatus, ServiceHealthInfo},
@@ -60,7 +63,7 @@ use super::{
     cli::{BlobIdDecimal, HumanReadableBytes},
     resource::RegisterBlobOp,
 };
-use crate::client::cli::{format_event_id, HumanReadableFrost};
+use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -159,6 +162,15 @@ impl BlobStoreResult {
             } => blob_id,
         }
     }
+
+    /// Returns the end epoch of the blob.
+    pub fn end_epoch(&self) -> Option<Epoch> {
+        match self {
+            Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
+            Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
+            Self::MarkedInvalid { .. } => None,
+        }
+    }
 }
 
 /// The output of the `read` command.
@@ -194,6 +206,7 @@ pub(crate) struct BlobIdOutput {
     pub(crate) blob_id: BlobId,
     pub(crate) file: PathBuf,
     pub(crate) unencoded_length: u64,
+    pub(crate) encoding_type: EncodingType,
 }
 
 impl BlobIdOutput {
@@ -203,6 +216,7 @@ impl BlobIdOutput {
             blob_id: *metadata.blob_id(),
             file: file.to_owned(),
             unencoded_length: metadata.metadata().unencoded_length(),
+            encoding_type: metadata.metadata().encoding_type(),
         }
     }
 }
@@ -235,6 +249,8 @@ pub(crate) struct DryRunOutput {
     pub encoded_size: u64,
     /// The storage cost (in MIST).
     pub storage_cost: u64,
+    /// The encoding type used for the blob.
+    pub encoding_type: EncodingType,
 }
 
 /// The output of the `blob-status` command.
@@ -273,13 +289,15 @@ impl InfoOutput {
     pub async fn get_system_info(
         sui_read_client: &impl ReadClient,
         dev: bool,
+        sort: SortBy<NodeSortBy>,
+        encoding_types: &[EncodingType],
     ) -> anyhow::Result<Self> {
         let epoch_info = InfoEpochOutput::get_epoch_info(sui_read_client).await?;
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
-        let price_info = InfoPriceOutput::get_price_info(sui_read_client).await?;
+        let price_info = InfoPriceOutput::get_price_info(sui_read_client, encoding_types).await?;
         let committee_info = if dev {
-            Some(InfoCommitteeOutput::get_committee_info(sui_read_client).await?)
+            Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort).await?)
         } else {
             None
         };
@@ -306,7 +324,7 @@ impl InfoOutput {
 pub(crate) struct InfoEpochOutput {
     pub(crate) current_epoch: Epoch,
     pub(crate) epoch_duration: Duration,
-    pub(crate) max_epochs_ahead: u32,
+    pub(crate) max_epochs_ahead: EpochCount,
 }
 
 impl InfoEpochOutput {
@@ -355,9 +373,19 @@ impl InfoSizeOutput {
 
         Ok(Self {
             storage_unit_size: BYTES_PER_UNIT_SIZE,
-            max_blob_size: max_blob_size_for_n_shards(committee.n_shards()),
+            max_blob_size: max_blob_size_for_n_shards(committee.n_shards(), DEFAULT_ENCODING),
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EncodingDependentPriceInfo {
+    pub(crate) marginal_size: u64,
+    pub(crate) metadata_price: u64,
+    pub(crate) marginal_price: u64,
+    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+    pub(crate) encoding_type: EncodingType,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -365,23 +393,18 @@ impl InfoSizeOutput {
 pub(crate) struct InfoPriceOutput {
     pub(crate) storage_price_per_unit_size: u64,
     pub(crate) write_price_per_unit_size: u64,
-    pub(crate) marginal_size: u64,
-    pub(crate) metadata_price: u64,
-    pub(crate) marginal_price: u64,
-    pub(crate) example_blobs: Vec<ExampleBlobInfo>,
+    pub(crate) encoding_dependent_price_info: Vec<EncodingDependentPriceInfo>,
 }
 
-impl InfoPriceOutput {
-    pub async fn get_price_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
-        let committee = sui_read_client.current_committee().await?;
-        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
-            .storage_and_write_price_per_unit_size()
-            .await?;
-        let n_shards = committee.n_shards();
-
+impl EncodingDependentPriceInfo {
+    pub(crate) fn new(
+        n_shards: NonZeroU16,
+        storage_price_per_unit_size: u64,
+        encoding_type: EncodingType,
+    ) -> Self {
         // Calculate marginal size and price
         let mut marginal_size = 1024 * 1024; // Start with 1 MiB
-        while marginal_size > max_blob_size_for_n_shards(n_shards) {
+        while marginal_size > max_blob_size_for_n_shards(n_shards, encoding_type) {
             marginal_size /= 4;
         }
 
@@ -391,32 +414,67 @@ impl InfoPriceOutput {
             storage_units_from_size(metadata_storage_size) * storage_price_per_unit_size;
 
         let marginal_price = storage_units_from_size(
-            encoded_slivers_length_for_n_shards(n_shards, marginal_size)
+            encoded_slivers_length_for_n_shards(n_shards, marginal_size, encoding_type)
                 .expect("we can encode 1 MiB"),
         ) * storage_price_per_unit_size;
 
         // Calculate example blobs
-        let example_blob_0 = max_blob_size_for_n_shards(n_shards).next_power_of_two() / 1024;
+        let example_blob_0 =
+            max_blob_size_for_n_shards(n_shards, encoding_type).next_power_of_two() / 1024;
         let example_blob_1 = example_blob_0 * 32;
         let example_blobs = [
             example_blob_0,
             example_blob_1,
-            max_blob_size_for_n_shards(n_shards),
+            max_blob_size_for_n_shards(n_shards, encoding_type),
         ]
         .into_iter()
         .map(|unencoded_size| {
-            ExampleBlobInfo::new(unencoded_size, n_shards, storage_price_per_unit_size)
-                .expect("we can encode the given examples")
+            ExampleBlobInfo::new(
+                unencoded_size,
+                n_shards,
+                storage_price_per_unit_size,
+                encoding_type,
+            )
+            .expect("we can encode the given examples")
         })
         .collect();
 
-        Ok(Self {
-            storage_price_per_unit_size,
-            write_price_per_unit_size,
+        Self {
             marginal_size,
             metadata_price,
             marginal_price,
             example_blobs,
+            encoding_type,
+        }
+    }
+}
+
+impl InfoPriceOutput {
+    pub async fn get_price_info(
+        sui_read_client: &impl ReadClient,
+        encoding_types: &[EncodingType],
+    ) -> anyhow::Result<Self> {
+        let committee = sui_read_client.current_committee().await?;
+        let (storage_price_per_unit_size, write_price_per_unit_size) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
+        let n_shards = committee.n_shards();
+
+        let encoding_dependent_price_info = encoding_types
+            .iter()
+            .map(|&encoding_type| {
+                EncodingDependentPriceInfo::new(
+                    n_shards,
+                    storage_price_per_unit_size,
+                    encoding_type,
+                )
+            })
+            .collect();
+
+        Ok(Self {
+            storage_price_per_unit_size,
+            write_price_per_unit_size,
+            encoding_dependent_price_info,
         })
     }
 }
@@ -436,24 +494,47 @@ pub(crate) struct InfoCommitteeOutput {
 }
 
 impl InfoCommitteeOutput {
-    pub async fn get_committee_info(sui_read_client: &impl ReadClient) -> anyhow::Result<Self> {
+    pub async fn get_committee_info(
+        sui_read_client: &impl ReadClient,
+        sort: SortBy<NodeSortBy>,
+    ) -> anyhow::Result<Self> {
         let committee = sui_read_client.current_committee().await?;
         let next_committee = sui_read_client.next_committee().await?;
         let stake_assignment = sui_read_client.stake_assignment().await?;
 
         let n_shards = committee.n_shards();
         let (n_primary_source_symbols, n_secondary_source_symbols) =
-            source_symbols_for_n_shards(n_shards);
+            source_symbols_for_n_shards(n_shards, DEFAULT_ENCODING);
 
-        let max_sliver_size = max_sliver_size_for_n_secondary(n_secondary_source_symbols);
-        let max_blob_size = max_blob_size_for_n_shards(n_shards);
-        let max_encoded_blob_size = encoded_blob_length_for_n_shards(n_shards, max_blob_size)
-            .expect("we can compute the encoded length of the max blob size");
+        let max_sliver_size =
+            max_sliver_size_for_n_secondary(n_secondary_source_symbols, DEFAULT_ENCODING);
+        let max_blob_size = max_blob_size_for_n_shards(n_shards, DEFAULT_ENCODING);
+        let max_encoded_blob_size =
+            encoded_blob_length_for_n_shards(n_shards, max_blob_size, DEFAULT_ENCODING)
+                .expect("we can compute the encoded length of the max blob size");
 
-        let storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
-        let next_storage_nodes = next_committee
+        let mut storage_nodes = merge_nodes_and_stake(&committee, &stake_assignment);
+        let mut next_storage_nodes = next_committee
             .as_ref()
             .map(|next_committee| merge_nodes_and_stake(next_committee, &stake_assignment));
+
+        // Sort nodes if sort_by is specified
+        let cmp = |a: &StorageNodeInfo, b: &StorageNodeInfo| match sort.sort_by {
+            Some(NodeSortBy::Id) => a.node_id.cmp(&b.node_id),
+            Some(NodeSortBy::Url) => a
+                .network_address
+                .0
+                .to_lowercase()
+                .cmp(&b.network_address.0.to_lowercase()),
+            Some(NodeSortBy::Name) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            None => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        };
+
+        storage_nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
+
+        if let Some(ref mut nodes) = next_storage_nodes {
+            nodes.sort_by(|a, b| if sort.desc { cmp(b, a) } else { cmp(a, b) });
+        }
 
         let metadata_storage_size =
             (n_shards.get() as u64) * metadata_length_for_n_shards(n_shards);
@@ -564,6 +645,7 @@ pub(crate) struct ExampleBlobInfo {
     unencoded_size: u64,
     encoded_size: u64,
     price: u64,
+    encoding_type: EncodingType,
 }
 
 impl ExampleBlobInfo {
@@ -571,19 +653,22 @@ impl ExampleBlobInfo {
         unencoded_size: u64,
         n_shards: NonZeroU16,
         price_per_unit_size: u64,
+        encoding_type: EncodingType,
     ) -> Option<Self> {
-        let encoded_size = encoded_blob_length_for_n_shards(n_shards, unencoded_size)?;
+        let encoded_size =
+            encoded_blob_length_for_n_shards(n_shards, unencoded_size, encoding_type)?;
         let price = price_for_encoded_length(encoded_size, price_per_unit_size, 1);
         Some(Self {
             unencoded_size,
             encoded_size,
             price,
+            encoding_type,
         })
     }
 
     pub(crate) fn cli_output(&self) -> String {
         format!(
-            "{} unencoded ({} encoded): {} per epoch",
+            "  - {} unencoded ({} encoded): {} per epoch",
             HumanReadableBytes(self.unencoded_size),
             HumanReadableBytes(self.encoded_size),
             HumanReadableFrost::from(self.price)
@@ -660,7 +745,7 @@ pub struct FundSharedBlobOutput {
 /// The output of the `walrus extend` command.
 pub struct ExtendBlobOutput {
     /// The number of epochs extended by.
-    pub epochs_ahead: u32,
+    pub epochs_extended: EpochCount,
 }
 
 #[derive(Debug, Serialize)]
@@ -706,13 +791,58 @@ impl ServiceHealthInfoOutput {
     pub async fn new_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         detail: bool,
+        sort: SortBy<HealthSortBy>,
     ) -> anyhow::Result<Self> {
-        let health_info = stream::iter(nodes)
+        let mut health_info = stream::iter(nodes)
             .map(|node| NodeHealthOutput::new(node, detail))
             .buffer_unordered(10)
             .collect::<Vec<_>>()
             .await;
 
+        // Sort health_info directly based on sort_by
+        health_info.sort_by(|a, b| match sort.sort_by {
+            Some(HealthSortBy::Name) => a.cmp_by_name(b),
+            Some(HealthSortBy::Id) => a.cmp_by_id(b),
+            Some(HealthSortBy::Url) => a.cmp_by_url(b),
+            Some(HealthSortBy::Status) => a.cmp_by_status(b),
+            None => a.cmp_by_status(b),
+        });
+
+        if sort.desc {
+            health_info.reverse();
+        }
+
         Ok(Self { health_info })
+    }
+}
+
+impl NodeHealthOutput {
+    pub fn cmp_by_name(&self, other: &Self) -> std::cmp::Ordering {
+        self.node_name
+            .to_lowercase()
+            .cmp(&other.node_name.to_lowercase())
+    }
+
+    pub fn cmp_by_id(&self, other: &Self) -> std::cmp::Ordering {
+        self.node_id.cmp(&other.node_id)
+    }
+
+    pub fn cmp_by_url(&self, other: &Self) -> std::cmp::Ordering {
+        self.node_url
+            .to_lowercase()
+            .cmp(&other.node_url.to_lowercase())
+    }
+
+    pub fn cmp_by_status(&self, other: &Self) -> std::cmp::Ordering {
+        match (&self.health_info, &other.health_info) {
+            (Ok(info_a), Ok(info_b)) => info_a
+                .node_status
+                .to_lowercase()
+                .cmp(&info_b.node_status.to_lowercase())
+                .then_with(|| self.cmp_by_name(other)),
+            (Err(err_a), Err(err_b)) => err_a.cmp(err_b).then_with(|| self.cmp_by_name(other)),
+            (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+            (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        }
     }
 }

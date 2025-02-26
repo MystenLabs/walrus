@@ -51,7 +51,7 @@ pub trait AssociatedContractStruct: DeserializeOwned {
     /// Converts a [`SuiObjectData`] to [`Self`].
     #[tracing::instrument(err(Debug), skip_all, fields(object_id = %sui_object_data.object_id))]
     fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, MoveConversionError> {
-        tracing::debug!(
+        tracing::trace!(
             target_struct = %Self::CONTRACT_STRUCT,
             "converting Move object to Rust struct",
         );
@@ -396,6 +396,21 @@ pub mod wal_exchange {
     contract_ident!(fn wal_exchange::exchange_for_wal);
     contract_ident!(fn wal_exchange::exchange_all_for_sui);
     contract_ident!(fn wal_exchange::exchange_for_sui);
+}
+
+/// Module for tags corresponding to the Move module `subsidies`.
+pub mod subsidies {
+    use super::*;
+
+    contract_ident!(struct subsidies::Subsidies);
+    contract_ident!(struct subsidies::AdminCap);
+    contract_ident!(fn subsidies::new);
+    contract_ident!(fn subsidies::new_with_initial_rates_and_funds);
+    contract_ident!(fn subsidies::add_funds);
+    contract_ident!(fn subsidies::set_buyer_subsidy_rate);
+    contract_ident!(fn subsidies::set_system_subsidy_rate);
+    contract_ident!(fn subsidies::extend_blob);
+    contract_ident!(fn subsidies::reserve_space);
 }
 
 /// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.

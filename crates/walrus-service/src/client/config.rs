@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
-use walrus_core::encoding::{EncodingConfig, Primary};
+use walrus_core::{
+    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
+    EncodingType,
+};
 use walrus_sui::client::{
     contract_config::ContractConfig,
     retry_client::RetriableSuiClient,
@@ -28,6 +31,7 @@ use walrus_sui::client::{
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
+use super::daemon::CacheConfig;
 use crate::{
     client::{error::JwtDecodeError, refresh::CommitteesRefreshConfig},
     common::utils,
@@ -123,11 +127,13 @@ pub struct AuthConfig {
     /// If set to `0`, the publisher will not check that the expiration is correctly set based in
     /// the issued-at time (iat) and expiration time (exp) in the JWT. I.e., if `expiring_sec > 0`,
     /// the publisher will check that `exp - iat == expiring_sec`.
-    pub(crate) expiring_sec: u64,
+    pub(crate) expiring_sec: i64,
     /// Verify the upload epochs and address for `send_object_to` in the request.
     ///
     /// The token expiration is still checked, even if `verify_upload == true`.
     pub(crate) verify_upload: bool,
+    /// The configuration for the replay suppression cache.
+    pub(crate) replay_suppression_config: CacheConfig,
 }
 
 impl fmt::Debug for AuthConfig {
@@ -216,6 +222,8 @@ pub struct ClientCommunicationConfig {
     pub registration_delay: Duration,
     /// The maximum total blob size allowed to store if multiple blobs are uploaded.
     pub max_total_blob_size: usize,
+    /// The configuration for the backoff after committee change is detected.
+    pub committee_change_backoff: ExponentialBackoffConfig,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -233,6 +241,11 @@ impl Default for ClientCommunicationConfig {
             sliver_write_extra_time: Default::default(),
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
+            committee_change_backoff: ExponentialBackoffConfig::new(
+                Duration::from_secs(1),
+                Duration::from_secs(5),
+                Some(5),
+            ),
         }
     }
 }
@@ -321,8 +334,10 @@ impl CommunicationLimits {
         &self,
         blob_size: u64,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> NonZeroUsize {
         encoding_config
+            .get_for_type(encoding_type)
             .sliver_size_for_blob::<Primary>(blob_size)
             .expect("blob must not be too large to be encoded")
             .try_into()
@@ -345,9 +360,10 @@ impl CommunicationLimits {
         &self,
         blob_size: u64,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> usize {
         self.max_connections_for_request_and_blob_size(
-            self.sliver_size_for_blob(blob_size, encoding_config),
+            self.sliver_size_for_blob(blob_size, encoding_config, encoding_type),
             self.max_concurrent_writes,
         )
     }
@@ -369,9 +385,10 @@ impl CommunicationLimits {
         &self,
         blob_size: u64,
         encoding_config: &EncodingConfig,
+        encoding_type: EncodingType,
     ) -> usize {
         self.max_connections_for_request_and_blob_size(
-            self.sliver_size_for_blob(blob_size, encoding_config),
+            self.sliver_size_for_blob(blob_size, encoding_config, encoding_type),
             self.max_concurrent_sliver_reads,
         )
     }
@@ -572,6 +589,7 @@ mod tests {
         let contract_config = ContractConfig {
             system_object: ObjectID::random_from_rng(&mut rng),
             staking_object: ObjectID::random_from_rng(&mut rng),
+            subsidies_object: Some(ObjectID::random_from_rng(&mut rng)),
         };
         let config = Config {
             contract_config,
@@ -610,6 +628,7 @@ mod tests {
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects: []
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
         "};
 
         let config: Config = serde_yaml::from_str(yaml)?;
@@ -619,10 +638,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_no_subsidies_object_config_file() -> TestResult {
+        let yaml = indoc! {"
+            system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
+            staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            exchange_objects:
+                - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
+        "};
+
+        let config: Config = serde_yaml::from_str(yaml)?;
+        assert!(config.contract_config.subsidies_object.is_none());
+
+        Ok(())
+    }
+
+    #[test]
     fn parses_single_exchange_object_config_file() -> TestResult {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects:
                 - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
         "};
@@ -638,6 +673,7 @@ mod tests {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects:
                 - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
                 - 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
@@ -654,6 +690,7 @@ mod tests {
         let yaml = indoc! {"
             system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb
             staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
+            subsidies_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00
             exchange_objects:
                 - 0xa9b00f69d3b033e7b64acff2672b54fbb7c31361954251e235395dea8bd6dcac
             wallet_config: path/to/wallet

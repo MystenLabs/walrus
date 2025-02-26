@@ -235,7 +235,7 @@ impl WalrusPtbBuilder {
         function: FunctionTag<'_>,
         arguments: Vec<Argument>,
     ) -> SuiClientResult<Argument> {
-        tracing::debug!(
+        tracing::trace!(
             package_id = package_id.to_canonical_string(true),
             ?function,
             ?arguments,
@@ -256,6 +256,25 @@ impl WalrusPtbBuilder {
         encoded_size: u64,
         epochs_ahead: EpochCount,
     ) -> SuiClientResult<Argument> {
+        let subsidies_package_id = self.read_client.get_subsidies_package_id();
+        match subsidies_package_id {
+            Some(pkg_id) => {
+                self.reserve_space_with_subsidies(encoded_size, epochs_ahead, pkg_id)
+                    .await
+            }
+            None => {
+                self.reserve_space_without_subsidies(encoded_size, epochs_ahead)
+                    .await
+            }
+        }
+    }
+
+    /// Adds a call to `reserve_space` to the `pt_builder` and returns the result [`Argument`].
+    async fn reserve_space_without_subsidies(
+        &mut self,
+        encoded_size: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<Argument> {
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_ahead)
             .await?;
@@ -269,6 +288,34 @@ impl WalrusPtbBuilder {
         ];
         let result_arg =
             self.walrus_move_call(contracts::system::reserve_space, reserve_arguments)?;
+        self.reduce_wal_balance(price)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `reserve_space` to the `pt_builder` and returns the result [`Argument`].
+    async fn reserve_space_with_subsidies(
+        &mut self,
+        encoded_size: u64,
+        epochs_ahead: EpochCount,
+        subsidies_package_id: ObjectID,
+    ) -> SuiClientResult<Argument> {
+        let price = self
+            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
+            .await?;
+        self.fill_wal_balance(price).await?;
+        let reserve_arguments = vec![
+            self.subsidies_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            self.pt_builder.pure(encoded_size)?,
+            self.pt_builder.pure(epochs_ahead)?,
+            self.wal_coin_arg()?,
+        ];
+        let result_arg = self.move_call(
+            subsidies_package_id,
+            contracts::subsidies::reserve_space,
+            reserve_arguments,
+        )?;
         self.reduce_wal_balance(price)?;
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
@@ -549,7 +596,7 @@ impl WalrusPtbBuilder {
     pub async fn extend_shared_blob(
         &mut self,
         shared_blob_object_id: ObjectID,
-        epochs_ahead: Epoch,
+        epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
         let shared_blob_arg = self.pt_builder.obj(
             self.read_client
@@ -559,9 +606,33 @@ impl WalrusPtbBuilder {
         let args = vec![
             shared_blob_arg,
             self.system_arg(Mutability::Mutable).await?,
-            self.pt_builder.pure(epochs_ahead)?,
+            self.pt_builder.pure(epochs_extended)?,
         ];
         self.walrus_move_call(contracts::shared_blob::extend, args)?;
+        Ok(())
+    }
+
+    /// Adds a call to extend an owned blob without subsidies.
+    async fn extend_blob_without_subsidies(
+        &mut self,
+        blob_object: ArgumentOrOwnedObject,
+        epochs_extended: EpochCount,
+        encoded_size: u64,
+    ) -> SuiClientResult<()> {
+        let price = self
+            .storage_price_for_encoded_length(encoded_size, epochs_extended)
+            .await?;
+
+        self.fill_wal_balance(price).await?;
+
+        let args = vec![
+            self.system_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(blob_object).await?,
+            self.pt_builder.pure(epochs_extended)?,
+            self.wal_coin_arg()?,
+        ];
+        self.walrus_move_call(contracts::system::extend_blob, args)?;
+        self.reduce_wal_balance(price)?;
         Ok(())
     }
 
@@ -572,6 +643,27 @@ impl WalrusPtbBuilder {
         epochs_ahead: EpochCount,
         encoded_size: u64,
     ) -> SuiClientResult<()> {
+        let subsidies_package_id = self.read_client.get_subsidies_package_id();
+        match subsidies_package_id {
+            Some(pkg_id) => {
+                self.extend_blob_with_subsidies(blob_object, epochs_ahead, encoded_size, pkg_id)
+                    .await
+            }
+            None => {
+                self.extend_blob_without_subsidies(blob_object, epochs_ahead, encoded_size)
+                    .await
+            }
+        }
+    }
+
+    /// Adds a call to extend an owned blob with subsidies.
+    async fn extend_blob_with_subsidies(
+        &mut self,
+        blob_object: ArgumentOrOwnedObject,
+        epochs_ahead: EpochCount,
+        encoded_size: u64,
+        subsidies_package_id: ObjectID,
+    ) -> SuiClientResult<()> {
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_ahead)
             .await?;
@@ -579,12 +671,17 @@ impl WalrusPtbBuilder {
         self.fill_wal_balance(price).await?;
 
         let args = vec![
+            self.subsidies_arg(Mutability::Mutable).await?,
             self.system_arg(Mutability::Mutable).await?,
             self.argument_from_arg_or_obj(blob_object).await?,
             self.pt_builder.pure(epochs_ahead)?,
             self.wal_coin_arg()?,
         ];
-        self.walrus_move_call(contracts::system::extend_blob, args)?;
+        self.move_call(
+            subsidies_package_id,
+            contracts::subsidies::extend_blob,
+            args,
+        )?;
         self.reduce_wal_balance(price)?;
         Ok(())
     }
@@ -681,6 +778,37 @@ impl WalrusPtbBuilder {
         let args = vec![self.wal_coin_arg()?, self.pt_builder.pure(amount)?];
         let result_arg =
             self.move_call(exchange_package, contracts::wal_exchange::new_funded, args)?;
+        self.reduce_wal_balance(amount)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to create a new subsidies object, funded with `amount` WAL, to the PTB.
+    pub async fn create_and_fund_subsidies(
+        &mut self,
+        subsidies_package: ObjectID,
+        initial_buyer_subsidy_rate: u16,
+        initial_system_subsidy_rate: u16,
+        amount: u64,
+    ) -> SuiClientResult<Argument> {
+        self.fill_wal_balance(amount).await?;
+        let split_main_coin_arg = self.wal_coin_arg()?;
+        let split_amount_arg = self.pt_builder.pure(amount)?;
+        let split_coin = self.pt_builder.command(Command::SplitCoins(
+            split_main_coin_arg,
+            vec![split_amount_arg],
+        ));
+        let args = vec![
+            self.pt_builder.pure(subsidies_package)?,
+            self.pt_builder.pure(initial_buyer_subsidy_rate)?,
+            self.pt_builder.pure(initial_system_subsidy_rate)?,
+            split_coin,
+        ];
+        let result_arg = self.move_call(
+            subsidies_package,
+            contracts::subsidies::new_with_initial_rates_and_funds,
+            args,
+        )?;
         self.reduce_wal_balance(amount)?;
         self.add_result_to_be_consumed(result_arg);
         Ok(result_arg)
@@ -1303,6 +1431,14 @@ impl WalrusPtbBuilder {
         Ok(self
             .pt_builder
             .obj(self.read_client.object_arg_for_staking_obj(mutable).await?)?)
+    }
+
+    async fn subsidies_arg(&mut self, mutable: Mutability) -> SuiClientResult<Argument> {
+        Ok(self.pt_builder.obj(
+            self.read_client
+                .object_arg_for_subsidies_obj(mutable)
+                .await?,
+        )?)
     }
 
     fn wal_coin_arg(&mut self) -> SuiClientResult<Argument> {
