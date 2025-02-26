@@ -159,7 +159,8 @@ jobs:
   simtests-build:
     name: Build all simtests
     needs: diff
-    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    # if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    if: false
     runs-on: ubuntu-ghcloud
     steps:
       - uses: taiki-e/install-action@v2.48.0
@@ -282,6 +283,7 @@ jobs:
       - build
       - test
       - simtests-build
+      - simtests
       - test-move
     runs-on: ubuntu-latest
     steps:

@@ -222,6 +222,8 @@ pub struct ClientCommunicationConfig {
     pub registration_delay: Duration,
     /// The maximum total blob size allowed to store if multiple blobs are uploaded.
     pub max_total_blob_size: usize,
+    /// The configuration for the backoff after committee change is detected.
+    pub committee_change_backoff: ExponentialBackoffConfig,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -239,6 +241,11 @@ impl Default for ClientCommunicationConfig {
             sliver_write_extra_time: Default::default(),
             registration_delay: Duration::from_millis(200),
             max_total_blob_size: 1024 * 1024 * 1024, // 1GiB
+            committee_change_backoff: ExponentialBackoffConfig::new(
+                Duration::from_secs(1),
+                Duration::from_secs(5),
+                Some(5),
+            ),
         }
     }
 }

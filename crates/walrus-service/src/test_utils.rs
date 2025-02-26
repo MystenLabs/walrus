@@ -2531,7 +2531,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             rest_graceful_shutdown_period_secs: Some(Some(0)),
             shard_sync_config: config::ShardSyncConfig {
                 shard_sync_retry_min_backoff: Duration::from_secs(1),
-                shard_sync_retry_max_backoff: Duration::from_secs(10),
+                shard_sync_retry_max_backoff: Duration::from_secs(3),
                 ..Default::default()
             },
             event_processor_config: Default::default(),

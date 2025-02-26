@@ -28,6 +28,13 @@ impl NodeError {
         err.is_connect()
     }
 
+    /// Returns true if the error is related to the request.
+    ///
+    /// This includes all networking related errors.
+    pub fn is_reqwest(&self) -> bool {
+        matches!(self.kind, Kind::Reqwest(_))
+    }
+
     /// Returns the HTTP error status code associated with the error, if any.
     pub fn http_status_code(&self) -> Option<StatusCode> {
         if let Kind::Reqwest(inner) | Kind::Status { inner, .. } = &self.kind {
@@ -182,6 +189,8 @@ pub enum ServiceError {
         /// The epoch server is in.
         server_epoch: Epoch,
     },
+    /// The request is unauthorized.
+    RequestUnauthorized,
 }
 
 /// Returning the status as a service error is unsupported.
@@ -195,16 +204,19 @@ impl TryFrom<&Status> for ServiceError {
     fn try_from(status: &Status) -> Result<Self, Self::Error> {
         let info = status.error_info().ok_or(UnsupportedErrorStatus)?;
 
-        if (info.reason(), info.domain()) == ("INVALID_EPOCH", STORAGE_NODE_ERROR_DOMAIN) {
-            info.field::<Epoch>("request_epoch")
+        match (info.reason(), info.domain()) {
+            ("INVALID_EPOCH", STORAGE_NODE_ERROR_DOMAIN) => info
+                .field::<Epoch>("request_epoch")
                 .zip(info.field::<Epoch>("server_epoch"))
                 .map(|(request_epoch, server_epoch)| ServiceError::InvalidEpoch {
                     request_epoch,
                     server_epoch,
                 })
-                .ok_or(UnsupportedErrorStatus)
-        } else {
-            Err(UnsupportedErrorStatus)
+                .ok_or(UnsupportedErrorStatus),
+            ("REQUEST_UNAUTHORIZED", STORAGE_NODE_ERROR_DOMAIN) => {
+                Ok(ServiceError::RequestUnauthorized)
+            }
+            _ => Err(UnsupportedErrorStatus),
         }
     }
 }

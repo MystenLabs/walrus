@@ -521,6 +521,10 @@ pub struct ShardSyncConfig {
     pub max_concurrent_metadata_fetch: usize,
     /// Maximum number of concurrent shard syncs allowed per node.
     pub shard_sync_concurrency: usize,
+    /// The interval to switch to recovery mode if the shard sync retries continue to fail.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "shard_sync_retry_switch_to_recovery_interval_secs")]
+    pub shard_sync_retry_switch_to_recovery_interval: Duration,
 }
 
 impl Default for ShardSyncConfig {
@@ -533,6 +537,7 @@ impl Default for ShardSyncConfig {
             blob_certified_check_interval: Duration::from_secs(60),
             max_concurrent_metadata_fetch: 10,
             shard_sync_concurrency: 10,
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
         }
     }
 }
