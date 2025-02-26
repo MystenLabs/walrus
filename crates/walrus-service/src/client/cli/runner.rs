@@ -510,11 +510,13 @@ impl ClientCommandRunner {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
-        if !encoding_type.is_supported() {
-            anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(encoding_type));
+        if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
+            anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(
+                encoding_type.expect("just checked that option is Some")
+            ));
         }
 
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
@@ -526,6 +528,9 @@ impl ClientCommandRunner {
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
         }
+
+        let encoding_type =
+            encoding_type_or_default_for_version(encoding_type, system_object.version);
 
         if dry_run {
             return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
@@ -617,7 +622,7 @@ impl ClientCommandRunner {
         file_or_blob_id: FileOrBlobId,
         timeout: Duration,
         rpc_url: Option<String>,
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         tracing::debug!(?file_or_blob_id, "getting blob status");
         let config = self.config?;
@@ -628,6 +633,11 @@ impl ClientCommandRunner {
             self.wallet_path.is_none(),
         )
         .await?;
+
+        let encoding_type = encoding_type_or_default_for_version(
+            encoding_type,
+            sui_read_client.system_object_version().await?,
+        );
 
         let refresher_handle = config
             .refresh_config
@@ -756,22 +766,32 @@ impl ClientCommandRunner {
         file: PathBuf,
         n_shards: Option<NonZeroU16>,
         rpc_url: Option<String>,
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     ) -> Result<()> {
-        let n_shards = if let Some(n) = n_shards {
-            n
-        } else {
-            let config = self.config?;
-            tracing::debug!("reading `n_shards` from chain");
-            let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
-                &config,
-                rpc_url,
-                self.wallet,
-                self.wallet_path.is_none(),
-            )
-            .await?;
-            sui_read_client.current_committee().await?.n_shards()
-        };
+        let (n_shards, encoding_type) =
+            if let (Some(n_shards), Some(encoding_type)) = (n_shards, encoding_type) {
+                (n_shards, encoding_type)
+            } else {
+                let config = self.config?;
+                let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
+                    &config,
+                    rpc_url,
+                    self.wallet,
+                    self.wallet_path.is_none(),
+                )
+                .await?;
+                let n_shards = if let Some(n_shards) = n_shards {
+                    n_shards
+                } else {
+                    tracing::debug!("reading `n_shards` from chain");
+                    sui_read_client.current_committee().await?.n_shards()
+                };
+                let encoding_type = encoding_type_or_default_for_version(
+                    encoding_type,
+                    sui_read_client.system_object_version().await?,
+                );
+                (n_shards, encoding_type)
+            };
 
         tracing::debug!(%n_shards, "encoding the blob");
         let spinner = styled_spinner();
@@ -882,7 +902,7 @@ impl ClientCommandRunner {
         target: FileOrBlobIdOrObjectId,
         confirmation: UserConfirmation,
         no_status_check: bool,
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         // Check that the target is valid.
         target.exactly_one_is_some()?;
@@ -890,6 +910,10 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
         let file = target.file.clone();
         let object_id = target.object_id;
+        let encoding_type = encoding_type_or_default_for_version(
+            encoding_type,
+            client.sui_client().system_object_version().await?,
+        );
 
         let (blob_id, deleted_blobs) = if let Some(blob_id) =
             target.get_or_compute_blob_id(client.encoding_config(), encoding_type)?
@@ -1139,4 +1163,26 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
+}
+
+// TODO(WAL-647): Remove for mainnet
+fn encoding_type_or_default_for_version(
+    encoding_type: Option<EncodingType>,
+    system_version: u64,
+) -> EncodingType {
+    if let Some(encoding_type) = encoding_type {
+        encoding_type
+    } else {
+        let encoding_type = if system_version >= 2 {
+            EncodingType::RS2
+        } else {
+            EncodingType::RedStuffRaptorQ
+        };
+        tracing::debug!(
+            system_version,
+            ?encoding_type,
+            "choosing default encoding based on system version"
+        );
+        encoding_type
+    }
 }

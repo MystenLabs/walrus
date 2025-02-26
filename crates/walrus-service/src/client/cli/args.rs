@@ -225,9 +225,9 @@ pub enum CliCommands {
         #[serde(default)]
         share: bool,
         /// The encoding type to use for encoding the files.
-        #[clap(long, default_value_t = Default::default())]
+        #[clap(long)]
         #[serde(default)]
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     },
     /// Read a blob from Walrus, given the blob ID.
     Read {
@@ -266,9 +266,9 @@ pub enum CliCommands {
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
         /// The encoding type to use for encoding the file.
-        #[clap(long, default_value_t = Default::default())]
+        #[clap(long)]
         #[serde(default)]
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
         /// The URL of the Sui RPC node to use.
         #[clap(flatten)]
         #[serde(flatten)]
@@ -331,9 +331,9 @@ pub enum CliCommands {
         #[serde(flatten)]
         rpc_arg: RpcArg,
         /// The encoding type to use for computing the blob ID.
-        #[clap(long, default_value_t = Default::default())]
+        #[clap(long)]
         #[serde(default)]
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     },
     /// Convert a decimal value to the Walrus blob ID (using URL-safe base64 encoding).
     ConvertBlobId {
@@ -371,7 +371,7 @@ pub enum CliCommands {
         /// This is only used when running the command with the `--file` target.
         #[clap(long)]
         #[serde(default)]
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
     },
     /// Stake with storage node.
     Stake {

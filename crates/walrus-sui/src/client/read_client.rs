@@ -228,6 +228,9 @@ pub trait ReadClient: Send + Sync {
     ///
     /// Should be called after the subsidies contract is upgraded.
     fn refresh_subsidies_package_id(&self) -> impl Future<Output = SuiClientResult<()>> + Send;
+
+    /// Returns the version of the system object.
+    fn system_object_version(&self) -> impl Future<Output = SuiClientResult<u64>> + Send;
 }
 
 /// The mutability of a shared object.
@@ -690,10 +693,7 @@ impl SuiReadClient {
             version,
             package_id,
             new_package_id,
-        } = self
-            .sui_client
-            .get_sui_object(self.system_object_id)
-            .await?;
+        } = self.system_object_for_deserialization().await?;
         // Refresh the package ID if it is different from the current package ID.
         if package_id != *self.walrus_package_id() {
             self.refresh_package_id_with_id(package_id).await?;
@@ -834,6 +834,13 @@ impl SuiReadClient {
     /// Returns the backoff configuration for the inner client.
     pub(crate) fn backoff_config(&self) -> &ExponentialBackoffConfig {
         self.sui_client.backoff_config()
+    }
+
+    /// Returns the system object for deserialization without querying the dynamic inner field.
+    async fn system_object_for_deserialization(
+        &self,
+    ) -> SuiClientResult<SystemObjectForDeserialization> {
+        self.sui_client.get_sui_object(self.system_object_id).await
     }
 }
 
@@ -1092,6 +1099,10 @@ impl ReadClient for SuiReadClient {
             }
         }
         Ok(())
+    }
+
+    async fn system_object_version(&self) -> SuiClientResult<u64> {
+        Ok(self.system_object_for_deserialization().await?.version)
     }
 }
 
