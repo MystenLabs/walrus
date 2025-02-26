@@ -773,7 +773,6 @@ impl ClientCommandRunner {
                 (n_shards, encoding_type)
             } else {
                 let config = self.config?;
-                tracing::debug!("reading `n_shards` from chain");
                 let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
                     &config,
                     rpc_url,
@@ -784,6 +783,7 @@ impl ClientCommandRunner {
                 let n_shards = if let Some(n_shards) = n_shards {
                     n_shards
                 } else {
+                    tracing::debug!("reading `n_shards` from chain");
                     sui_read_client.current_committee().await?.n_shards()
                 };
                 let encoding_type = encoding_type_or_default_for_version(
@@ -1165,16 +1165,24 @@ pub fn ask_for_confirmation() -> Result<bool> {
     Ok(input.trim().to_lowercase().starts_with('y'))
 }
 
-// TODO(WAL-621): Remove in refactor for mainnet
+// TODO(WAL-647): Remove for mainnet
 fn encoding_type_or_default_for_version(
     encoding_type: Option<EncodingType>,
     system_version: u64,
 ) -> EncodingType {
     if let Some(encoding_type) = encoding_type {
         encoding_type
-    } else if system_version >= 2 {
-        EncodingType::RS2
     } else {
-        EncodingType::RedStuffRaptorQ
+        let encoding_type = if system_version >= 2 {
+            EncodingType::RS2
+        } else {
+            EncodingType::RedStuffRaptorQ
+        };
+        tracing::debug!(
+            system_version,
+            ?encoding_type,
+            "choosing default encoding based on system version"
+        );
+        encoding_type
     }
 }
