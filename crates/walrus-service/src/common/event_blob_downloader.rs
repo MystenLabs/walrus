@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use prometheus::core::{AtomicU64, GenericCounter};
 use walrus_core::BlobId;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
@@ -39,6 +40,7 @@ impl EventBlobDownloader {
         upto_checkpoint: Option<u64>,
         from_blob: Option<BlobId>,
         path: &Path,
+        progress_counter: Option<&GenericCounter<AtomicU64>>,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
         let mut prev_event_blob = match from_blob {
@@ -89,6 +91,8 @@ impl EventBlobDownloader {
             };
 
             tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");
+            progress_counter.inspect(|&c| c.inc());
+
             let mut event_blob = LocalEventBlob::new(&blob)?;
 
             let should_store = match upto_checkpoint {

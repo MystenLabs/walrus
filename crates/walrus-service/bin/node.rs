@@ -941,6 +941,7 @@ mod commands {
             system_config,
             stores.clone(),
             &recovery_path,
+            None,
         )
         .await
         {

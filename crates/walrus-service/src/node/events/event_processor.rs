@@ -20,6 +20,7 @@ use move_core_types::{
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
 use prometheus::{
+    core::{AtomicU64, GenericCounter},
     register_int_counter_with_registry,
     register_int_gauge_with_registry,
     IntCounter,
@@ -645,11 +646,18 @@ impl EventProcessor {
                 client: retry_client.clone(),
             };
             let recovery_path = runtime_config.db_path.join("recovery");
+            let catchup_counter = IntCounter::new(
+                "event_processor_catchup_event_blobs",
+                "Number of event blobs processed during catchup",
+            )
+            .expect("this is a valid metrics registration");
+            registry.register(Box::new(catchup_counter.clone()))?;
             if let Err(e) = Self::catchup_using_event_blobs(
                 clients,
                 system_config.clone(),
                 stores.clone(),
                 &recovery_path,
+                Some(&catchup_counter),
             )
             .await
             {
@@ -859,6 +867,7 @@ impl EventProcessor {
         system_objects: SystemConfig,
         stores: EventProcessorStores,
         recovery_path: &Path,
+        catchup_counter: Option<&GenericCounter<AtomicU64>>,
     ) -> Result<()> {
         tracing::info!("Starting event catchup using event blobs");
         let next_checkpoint = stores
@@ -878,6 +887,7 @@ impl EventProcessor {
             system_objects.system_object_id,
             next_checkpoint,
             recovery_path,
+            catchup_counter,
         )
         .await?;
 

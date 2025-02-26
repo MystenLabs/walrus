@@ -25,7 +25,12 @@ use fastcrypto::{
 };
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-use prometheus::{Encoder, HistogramVec, Registry};
+use prometheus::{
+    core::{AtomicU64, GenericCounter},
+    Encoder,
+    HistogramVec,
+    Registry,
+};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -792,6 +797,7 @@ pub async fn collect_event_blobs_for_catchup(
     system_object_id: ObjectID,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
+    catchup_counter: Option<&GenericCounter<AtomicU64>>,
 ) -> Result<Vec<BlobId>> {
     use walrus_sui::client::contract_config::ContractConfig;
 
@@ -811,7 +817,7 @@ pub async fn collect_event_blobs_for_catchup(
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
     let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path)
+        .download(upto_checkpoint, None, recovery_path, catchup_counter)
         .await?;
     Ok(blob_ids)
 }
@@ -825,6 +831,7 @@ pub async fn collect_event_blobs_for_catchup(
     package_id: Option<ObjectID>,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
+    _catchup_counter: Option<&GenericCounter<AtomicU64>>,
 ) -> Result<Vec<BlobId>> {
     Ok(vec![])
 }
