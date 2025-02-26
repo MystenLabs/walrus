@@ -37,13 +37,9 @@ public struct Staking has key {
     new_package_id: Option<ID>,
 }
 
-/// Dynamic field key to attach `ObjectDisplay`.
-public struct ObjectDisplayKey() has copy, drop, store;
-
 /// Creates and shares a new staking object.
 /// Must only be called by the initialization function.
 public(package) fun create(
-    publisher: Publisher,
     epoch_zero_duration: u64,
     epoch_duration: u64,
     n_shards: u16,
@@ -57,11 +53,6 @@ public(package) fun create(
         package_id,
         new_package_id: option::none(),
     };
-    df::add(
-        &mut staking.id,
-        ObjectDisplayKey(),
-        display::new(publisher, ctx),
-    );
     df::add(
         &mut staking.id,
         VERSION,

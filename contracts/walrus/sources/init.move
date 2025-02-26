@@ -5,7 +5,7 @@ module walrus::init;
 
 use std::type_name;
 use sui::{clock::Clock, package::{Self, Publisher, UpgradeCap}};
-use walrus::{events, staking::{Self, Staking}, system::{Self, System}, upgrade};
+use walrus::{display, events, staking::{Self, Staking}, system::{Self, System}, upgrade};
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -46,15 +46,17 @@ public fun initialize_walrus(
     clock: &Clock,
     ctx: &mut TxContext,
 ): upgrade::EmergencyUpgradeCap {
+    let InitCap { id, publisher } = init_cap;
+    id.delete();
     let package_id = upgrade_cap.package();
     assert!(
         type_name::get<InitCap>().get_address() == package_id.to_address().to_ascii_string(),
         EInvalidUpgradeCap,
     );
     system::create_empty(max_epochs_ahead, package_id, ctx);
-    staking::create(publisher, epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
+    staking::create(epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
+    display::create(publisher, ctx);
     let emergency_upgrade_cap = upgrade::new(upgrade_cap, ctx);
-    init_cap.destroy();
     emergency_upgrade_cap
 }
 
@@ -77,16 +79,11 @@ public fun migrate(staking: &mut Staking, system: &mut System) {
     );
 }
 
-fun destroy(cap: InitCap) {
-    let InitCap { id } = cap;
-    id.delete();
-}
-
 // === Test only ===
 
 #[test_only]
 public fun init_for_testing(ctx: &mut TxContext) {
-    init(ctx);
+    init(INIT {}, ctx);
 }
 
 #[test_only]
@@ -104,10 +101,12 @@ public fun initialize_for_testing(
     clock: &Clock,
     ctx: &mut TxContext,
 ): upgrade::EmergencyUpgradeCap {
+    let InitCap { id, publisher } = init_cap;
+    id.delete();
     let package_id = upgrade_cap.package();
     system::create_empty(max_epochs_ahead, package_id, ctx);
     staking::create(epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
+    display::create(publisher, ctx);
     let emergency_upgrade_cap = upgrade::new(upgrade_cap, ctx);
-    init_cap.destroy();
     emergency_upgrade_cap
 }
