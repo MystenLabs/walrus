@@ -309,6 +309,19 @@ public fun add_metadata(self: &mut Blob, metadata: Metadata) {
     dynamic_field::add(&mut self.id, METADATA_DF, metadata)
 }
 
+/// Adds the metadata dynamic field to the Blob, replacing the existing metadata if present.
+///
+/// Optionally returns the replaced metadata.
+public fun add_or_replace_metadata(self: &mut Blob, metadata: Metadata): option::Option<Metadata> {
+    let old_metadata = if (dynamic_field::exists_(&self.id, METADATA_DF)) {
+        option::some(self.take_metadata())
+    } else {
+        option::none()
+    };
+    self.add_metadata(metadata);
+    old_metadata
+}
+
 /// Removes the metadata dynamic field from the Blob, returning the contained `Metadata`.
 ///
 /// Aborts if the metadata does not exist.
@@ -337,6 +350,13 @@ public fun insert_or_update_metadata_pair(self: &mut Blob, key: String, value: S
 /// Aborts if the metadata does not exist.
 public fun remove_metadata_pair(self: &mut Blob, key: &String): (String, String) {
     self.metadata().remove(key)
+}
+
+/// Removes the metadata associated with the given key, if it exists.
+///
+/// Optionally returns the previous value associated with the key.
+public fun remove_metadata_pair_if_exists(self: &mut Blob, key: &String): option::Option<String> {
+    self.metadata().remove_if_exists(key)
 }
 
 #[test_only]
