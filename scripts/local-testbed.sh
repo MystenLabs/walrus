@@ -132,7 +132,6 @@ fi
 
 
 features=( deploy )
-features+=( raptorq-and-rs2 )
 binaries=( walrus walrus-node walrus-deploy )
 if [[ -n "$backup_database_url" ]]; then
   features+=( backup )
