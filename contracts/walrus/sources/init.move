@@ -4,7 +4,7 @@
 module walrus::init;
 
 use std::type_name;
-use sui::{clock::Clock, package::UpgradeCap};
+use sui::{clock::Clock, package::{Self, Publisher, UpgradeCap}};
 use walrus::{events, staking::{Self, Staking}, system::{Self, System}, upgrade};
 
 // Error codes
@@ -14,17 +14,22 @@ const EInvalidMigration: u64 = 0;
 /// The provided upgrade cap does not belong to this package.
 const EInvalidUpgradeCap: u64 = 1;
 
+/// The OTW to create `Publisher` and `Display` objects.
+public struct INIT has drop {}
+
 /// Must only be created by `init`.
 public struct InitCap has key, store {
     id: UID,
+    publisher: Publisher,
 }
 
 /// Init function, creates an init cap and transfers it to the sender.
 /// This allows the sender to call the function to actually initialize the system
 /// with the corresponding parameters. Once that function is called, the cap is destroyed.
-fun init(ctx: &mut TxContext) {
+fun init(otw: INIT, ctx: &mut TxContext) {
     let id = object::new(ctx);
-    let init_cap = InitCap { id };
+    let publisher = package::claim(otw, ctx);
+    let init_cap = InitCap { id, publisher };
     transfer::transfer(init_cap, ctx.sender());
 }
 
@@ -47,7 +52,7 @@ public fun initialize_walrus(
         EInvalidUpgradeCap,
     );
     system::create_empty(max_epochs_ahead, package_id, ctx);
-    staking::create(epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
+    staking::create(publisher, epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
     let emergency_upgrade_cap = upgrade::new(upgrade_cap, ctx);
     init_cap.destroy();
     emergency_upgrade_cap

@@ -6,7 +6,7 @@
 module walrus::staking;
 
 use std::string::String;
-use sui::{clock::Clock, coin::Coin, dynamic_field as df};
+use sui::{clock::Clock, coin::Coin, dynamic_field as df, package::Publisher};
 use wal::wal::WAL;
 use walrus::{
     auth::{Self, Authenticated, Authorized},
@@ -39,6 +39,7 @@ public struct Staking has key {
 /// Creates and shares a new staking object.
 /// Must only be called by the initialization function.
 public(package) fun create(
+    publisher: Publisher,
     epoch_zero_duration: u64,
     epoch_duration: u64,
     n_shards: u16,
@@ -56,6 +57,7 @@ public(package) fun create(
         &mut staking.id,
         VERSION,
         staking_inner::new(
+            publisher,
             epoch_zero_duration,
             epoch_duration,
             n_shards,
