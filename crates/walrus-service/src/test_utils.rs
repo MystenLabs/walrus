@@ -1438,6 +1438,10 @@ impl SystemContractService for StubContractService {
     ) -> Result<StorageNodeCap, SuiClientError> {
         Ok(self.node_capability_object.clone())
     }
+
+    async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
+        Ok(1)
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -2093,6 +2097,10 @@ where
             .inner
             .get_node_capability_object(node_capability_object_id)
             .await
+    }
+
+    async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
+        self.as_ref().inner.get_system_object_version().await
     }
 }
 
