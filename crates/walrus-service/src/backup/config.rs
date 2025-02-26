@@ -53,6 +53,10 @@ pub struct BackupConfig {
     /// If this is `None`, the backup blobs will not be uploaded to GCS, they will be placed in the
     /// `backup_storage_path` under the `archive` subdir.
     pub backup_bucket: Option<String>,
+    /// Time allowed to spend deleting a blob before timing out.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(default = "defaults::blob_delete_timeout")]
+    pub blob_delete_timeout: Duration,
     /// Time allowed to spend uploading a blob before timing out.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(default = "defaults::blob_upload_timeout")]
@@ -84,14 +88,20 @@ pub struct BackupConfig {
         default = "defaults::retry_fetch_after_interval"
     )]
     pub retry_fetch_after_interval: Duration,
-    /// How long to sleep between fetcher job polling. Note that workers will not sleep after
-    /// successful fetches in order to ensure a rapid recovery if there is a queue building up.
+    /// How long to sleep after realizing the fetcher has no work to do.
     #[serde_as(as = "DurationMilliSeconds<u64>")]
     #[serde(
         rename = "idle_fetcher_sleep_time_milliseconds",
         default = "defaults::idle_fetcher_sleep_time"
     )]
     pub idle_fetcher_sleep_time: Duration,
+    /// How long to sleep after realizing the garbage collector has no work to do.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(
+        rename = "idle_garbage_collector_sleep_time_seconds",
+        default = "defaults::idle_garbage_collector_sleep_time"
+    )]
+    pub idle_garbage_collector_sleep_time: Duration,
 }
 
 impl BackupConfig {
@@ -105,6 +115,7 @@ impl BackupConfig {
             backup_storage_path,
             backup_bucket: None,
             blob_upload_timeout: defaults::blob_upload_timeout(),
+            blob_delete_timeout: defaults::blob_delete_timeout(),
             metrics_address: defaults::metrics_address(),
             sui,
             event_processor_config: Default::default(),
@@ -117,6 +128,7 @@ impl BackupConfig {
             blob_job_chunk_size: defaults::blob_job_chunk_size(),
             retry_fetch_after_interval: defaults::retry_fetch_after_interval(),
             idle_fetcher_sleep_time: defaults::idle_fetcher_sleep_time(),
+            idle_garbage_collector_sleep_time: defaults::idle_garbage_collector_sleep_time(),
         }
     }
 }
@@ -167,6 +179,12 @@ pub mod defaults {
     pub fn idle_fetcher_sleep_time() -> Duration {
         Duration::from_secs(1)
     }
+    /// The default interval between the garbage collector polling the database when there is no
+    /// work to do.
+    pub fn idle_garbage_collector_sleep_time() -> Duration {
+        Duration::from_secs(10)
+    }
+
     /// Returns the database URL from the `DATABASE_URL` environment variable. Fails hard if it
     /// can't find it to ensure there is always a database_url.
     pub fn database_url_from_env_var() -> String {
@@ -182,6 +200,10 @@ pub mod defaults {
     }
     /// Default time to allow blob uploads to take before timing out.
     pub fn blob_upload_timeout() -> Duration {
+        Duration::from_secs(60)
+    }
+    /// Default time to allow blob deletions to take before timing out.
+    pub fn blob_delete_timeout() -> Duration {
         Duration::from_secs(60)
     }
     pub fn blob_job_chunk_size() -> u32 {

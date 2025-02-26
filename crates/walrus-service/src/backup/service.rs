@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Backup service implementation.
-
 use std::{panic::Location, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context, Result};
 use diesel::{
     result::{DatabaseErrorKind, Error},
-    sql_types::{Bytea, Int4, Text},
+    sql_types::{Bytea, Int4, Int8, Text},
     Connection as _,
     QueryableByName,
 };
@@ -25,6 +24,7 @@ use prometheus::{
     core::{AtomicU64, GenericCounter},
     Registry,
 };
+use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
 use walrus_core::{encoding::Primary, BlobId};
@@ -41,10 +41,7 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    client::{
-        config::{ClientCommunicationConfig, Config as ClientConfig},
-        Client,
-    },
+    client::{config::Config as ClientConfig, Client, ClientCommunicationConfig},
     common::utils::{self, version, MetricsAndLoggingRuntime},
     node::{
         events::{
@@ -166,6 +163,10 @@ async fn dispatch_contract_event(
         // automatically gives the re-certified blob another chance to be backed up without human
         // intervention.
         ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) => {
+            tracing::info!(
+                blob_id = ?blob_certified.blob_id,
+                incoming_end_epoch = blob_certified.end_epoch,
+                "writing blob state to database");
             diesel::dsl::sql_query(
                 "
                 INSERT INTO blob_state (
@@ -173,28 +174,42 @@ async fn dispatch_contract_event(
                     state,
                     end_epoch,
                     orchestrator_version,
-                    retry_count
+                    retry_count,
+                    initiate_fetch_after
                 )
-                VALUES ($1, 'waiting', $2, $3, 1)
+                VALUES ($1, 'waiting', $2, $3, 1, NOW())
                 ON CONFLICT (blob_id)
                 DO UPDATE SET
                     end_epoch = GREATEST(EXCLUDED.end_epoch, blob_state.end_epoch),
+                    retry_count = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            NULL
+                        ELSE
+                            1
+                        END,
                     state = CASE WHEN
                         blob_state.state = 'archived' THEN
                             blob_state.state
                         ELSE
                             'waiting'
                         END,
-                    retry_count = CASE WHEN
-                        blob_state.state = 'waiting' THEN
-                            1
+                    backup_url = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            blob_state.backup_url
                         ELSE
                             NULL
                         END,
+                    initiate_fetch_after = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            NULL
+                        ELSE
+                            NOW()
+                        END,
+                    initiate_gc_after = NULL,
                     orchestrator_version = $3",
             )
             .bind::<Bytea, _>(blob_certified.blob_id.0.to_vec())
-            .bind::<diesel::sql_types::Int8, _>(i64::from(blob_certified.end_epoch))
+            .bind::<Int8, _>(i64::from(blob_certified.end_epoch))
             .bind::<Text, _>(VERSION)
             .execute(conn)
             .await?;
@@ -213,12 +228,14 @@ async fn dispatch_contract_event(
                 INSERT INTO epoch_change_start_event (epoch) VALUES ($1)
                 ON CONFLICT DO NOTHING",
             )
-            .bind::<diesel::sql_types::Int8, _>(i64::from(*epoch))
+            .bind::<Int8, _>(i64::from(*epoch))
             .execute(conn)
             .await?;
             tracing::info!(epoch, "a new walrus epoch has begun");
         }
-        _ => {}
+        event => {
+            tracing::info!(?event, "ignoring event");
+        }
     }
     Ok(())
 }
@@ -236,7 +253,7 @@ fn establish_connection(database_url: &str, context: &str) -> Result<diesel::PgC
         }
     }
 }
-async fn establish_connection_async(
+pub async fn establish_connection_async(
     database_url: &str,
     context: &str,
 ) -> Result<AsyncPgConnection> {
@@ -332,11 +349,11 @@ pub async fn start_backup_orchestrator(
 }
 
 #[derive(Debug, QueryableByName)]
-struct BlobStateStatistic {
+struct DbStatistic {
     #[diesel(sql_type = diesel::sql_types::Text)]
-    state: String,
+    name: String,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
-    count: i64,
+    value: i64,
 }
 
 fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &BackupConfig) {
@@ -352,41 +369,71 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                 .expect("failed to connect to postgres for db metrics polling");
 
         loop {
-            let stats: Vec<BlobStateStatistic> = diesel::sql_query(
+            // TODO: add documentation for the stats fetched here.
+            let stats: Vec<DbStatistic> = diesel::sql_query(
                 "
                     SELECT
-                        state,
-                        COUNT(*)
+                        state AS name,
+                        COUNT(*)::bigint AS value
                     FROM blob_state
                     WHERE
+                        state = 'archived' AND
                         COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
                                     FALSE)
                     GROUP BY 1
                     UNION
                     SELECT
-                        'expired' AS state,
-                        COUNT(*)
+                        state AS name,
+                        COUNT(*)::bigint AS value
                     FROM blob_state
                     WHERE
+                        state = 'deleted' OR
+                        (state = 'waiting' AND
+                            COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
+                                    TRUE))
+
+                    GROUP BY 1
+                    UNION
+                    SELECT
+                        'garbage' AS name,
+                        COUNT(*)::bigint AS value
+                    FROM blob_state
+                    WHERE
+                        state = 'archived' AND
                         COALESCE(end_epoch <= (SELECT MAX(epoch) FROM epoch_change_start_event),
                                     TRUE)
+                    UNION
+                    SELECT
+                        'total_bytes_archived' AS name,
+                        SUM(coalesce(size, 0))::bigint AS value
+                    FROM blob_state
+                    WHERE state = 'archived';
                     ",
             )
             .get_results(&mut conn)
             .await
-            .inspect_err(|error| {
-                tracing::warn!(?error, "failed to query blob_state table for stats");
-            })
-            .inspect(|stats| {
-                tracing::info!(?stats, "fetched blob state statistics");
+            .inspect_err(|error: &Error| {
+                tracing::error!(
+                    ?error,
+                    "encountered an error querying for blob state statistics"
+                );
             })
             .unwrap_or_default();
 
+            tracing::info!(?stats, "fetched blob state statistics");
             for stat in stats {
-                backup_db_metric_set
-                    .blob_states
-                    .with_label_values(&[&stat.state])
-                    .set(stat.count as f64);
+                // Note that the above query is a bit overloaded in order to reduce the number of
+                // roundtrips to the db.
+                if stat.name == "total_bytes_archived" {
+                    backup_db_metric_set
+                        .total_bytes_archived
+                        .set(stat.value as f64);
+                } else {
+                    backup_db_metric_set
+                        .blob_states
+                        .with_label_values(&[&stat.name])
+                        .set(stat.value as f64);
+                }
             }
             tokio::time::sleep(Duration::from_secs(30)).await;
         }
@@ -642,6 +689,8 @@ async fn backup_fetch_inner_core(
     // Store the blob in the backup storage (Google Cloud Storage or fallback to filesystem).
     let timer_guard = backup_metric_set.blob_upload_duration.start_timer();
     let blob_len = blob.len();
+    let md5 = md5::compute(&blob).0;
+    let sha256 = sha2::Sha256::digest(&blob).to_vec();
     match upload_blob_to_storage(blob_id, blob, backup_config).await {
         Ok(backup_url) => {
             backup_metric_set
@@ -665,13 +714,19 @@ async fn backup_fetch_inner_core(
                                     initiate_fetch_after = NULL,
                                     retry_count = NULL,
                                     last_error = NULL,
-                                    fetcher_version = $2
+                                    size = $2,
+                                    md5 = $3,
+                                    sha256 = $4,
+                                    fetcher_version = $5
                                 WHERE
-                                    blob_id = $3
+                                    blob_id = $6
                                     AND backup_url IS NULL
                                     AND state = 'waiting'",
                         )
                         .bind::<Text, _>(&backup_url)
+                        .bind::<Int8, _>(blob_len as i64)
+                        .bind::<Bytea, _>(md5)
+                        .bind::<Bytea, _>(&sha256)
                         .bind::<Text, _>(VERSION)
                         .bind::<Bytea, _>(blob_id.as_ref().to_vec())
                         .execute(conn)
@@ -761,7 +816,7 @@ async fn upload_blob_to_storage(
     Ok(blob_url)
 }
 
-async fn retry_serializable_query<'a, 'b, T, F>(
+pub(crate) async fn retry_serializable_query<'a, 'b, T, F>(
     conn: &mut AsyncPgConnection,
     callsite: &'static Location<'static>,
     db_config: &BackupDbConfig,

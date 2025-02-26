@@ -10,6 +10,7 @@ use walrus_service::{
     backup::{
         run_backup_database_migrations,
         start_backup_fetcher,
+        start_backup_garbage_collector,
         start_backup_orchestrator,
         BackupConfig,
         VERSION,
@@ -41,9 +42,11 @@ struct Args {
 #[clap(rename_all = "kebab-case")]
 enum BackupCommands {
     /// Run a backup orchestrator with the provided configuration.
-    RunOrchestrator,
+    Orchestrator,
     /// Run a backup fetcher with the provided configuration.
-    RunFetcher,
+    Fetcher,
+    /// Run a backup garbage collector that cleans out old backups from Cloud Storage.
+    GarbageCollector,
 }
 
 fn exit_process_on_return(result: anyhow::Result<()>, context: &str) {
@@ -73,10 +76,13 @@ fn main() {
     rt.block_on(async move {
         exit_process_on_return(
             match args.command {
-                BackupCommands::RunOrchestrator => {
+                BackupCommands::Orchestrator => {
                     start_backup_orchestrator(config, &metrics_runtime).await
                 }
-                BackupCommands::RunFetcher => start_backup_fetcher(config, &metrics_runtime).await,
+                BackupCommands::Fetcher => start_backup_fetcher(config, &metrics_runtime).await,
+                BackupCommands::GarbageCollector => {
+                    start_backup_garbage_collector(config, &metrics_runtime).await
+                }
             },
             "backup node",
         )

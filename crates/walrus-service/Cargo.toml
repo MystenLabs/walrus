@@ -32,8 +32,10 @@ backup = [
   "dep:diesel",
   "dep:diesel-async",
   "dep:diesel_migrations",
+  "dep:md5",
   "dep:object_store",
   "dep:scoped-futures",
+  "dep:sha2",
 ]
 client = [
   "dep:colored",
@@ -99,6 +101,7 @@ indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
 jsonwebtoken = "9.3.1"
+md5 = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
@@ -121,6 +124,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
+sha2 = { workspace = true, optional = true }
 snap.workspace = true
 sui-config.workspace = true
 sui-macros.workspace = true

@@ -15,6 +15,10 @@ diesel::table! {
         initiate_fetch_after -> Nullable<Timestamptz>,
         retry_count -> Nullable<Int4>,
         last_error -> Nullable<Text>,
+        initiate_gc_after -> Nullable<Timestamptz>,
+        size -> Nullable<Int8>,
+        sha256 -> Nullable<Bytea>,
+        md5 -> Nullable<Bytea>,
     }
 }
 

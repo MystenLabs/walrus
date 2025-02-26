@@ -67,10 +67,30 @@ telemetry::define_metric_set! {
         db_serializability_retries: IntCounterVec["context"],
     }
 }
+
 telemetry::define_metric_set! {
     /// Metrics exported by the backup orchestrator node.
     pub(crate) struct BackupDbMetricSet {
         #[help = "The states of the blobs in the db"]
         blob_states: GaugeVec["state"],
+        #[help = "The total amount of archived blob data"]
+        total_bytes_archived: Gauge[],
+    }
+}
+
+telemetry::define_metric_set! {
+    /// Metrics exported by the backup orchestrator node.
+    pub(crate) struct BackupGarbageCollectorMetricSet {
+        #[help = "The count of blobs deleted from cloud storage"]
+        blobs_deleted: IntCounter[],
+
+        #[help = "The count of database reconnects"]
+        db_reconnects: IntCounter[],
+
+        #[help = "The number of retries due to serializability failures"]
+        db_serializability_retries: IntCounterVec["context"],
+
+        #[help = "Idle"]
+        idle_state: Gauge[],
     }
 }

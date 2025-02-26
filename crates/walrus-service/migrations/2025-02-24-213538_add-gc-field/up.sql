@@ -1,0 +1,8 @@
+ALTER TABLE blob_state
+    ADD COLUMN initiate_gc_after TIMESTAMP WITH TIME ZONE NULL;
+ALTER TABLE blob_state
+    ADD COLUMN size BIGINT NULL;
+ALTER TABLE blob_state
+    ADD COLUMN sha256 BYTEA NULL;
+ALTER TABLE blob_state
+    ADD COLUMN md5 BYTEA NULL;
