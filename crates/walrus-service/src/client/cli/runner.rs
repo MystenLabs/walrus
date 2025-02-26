@@ -49,6 +49,7 @@ use walrus_sui::{
 
 use super::args::{
     AggregatorArgs,
+    BlobIdentity,
     BurnSelection,
     CliCommands,
     DaemonArgs,
@@ -67,6 +68,7 @@ use super::args::{
 use crate::{
     client::{
         cli::{
+            error,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -219,12 +221,12 @@ impl ClientCommandRunner {
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
             CliCommands::Delete {
-                target,
+                targets,
                 yes,
                 no_status_check,
                 encoding_type,
             } => {
-                self.delete(target, yes.into(), no_status_check, encoding_type)
+                self.delete(targets, yes.into(), no_status_check, encoding_type)
                     .await
             }
 
@@ -899,89 +901,87 @@ impl ClientCommandRunner {
 
     pub(crate) async fn delete(
         self,
-        target: FileOrBlobIdOrObjectId,
+        targets: FileOrBlobIdOrObjectId,
         confirmation: UserConfirmation,
         no_status_check: bool,
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
-        // Check that the target is valid.
-        target.exactly_one_is_some()?;
-
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let file = target.file.clone();
-        let object_id = target.object_id;
-        let encoding_type = encoding_type_or_default_for_version(
-            encoding_type,
-            client.sui_client().system_object_version().await?,
-        );
-
-        let (blob_id, deleted_blobs) = if let Some(blob_id) =
-            target.get_or_compute_blob_id(client.encoding_config(), encoding_type)?
-        {
-            let to_delete = client
-                .deletable_blobs_by_id(&blob_id)
-                .await?
-                .collect::<Vec<_>>();
-
-            if !self.json {
-                if to_delete.is_empty() {
-                    println!("No owned deletable blobs found for blob ID {blob_id}.");
-                    return Ok(());
-                }
-                if confirmation.is_required() {
-                    println!("The following blobs with blob ID {blob_id} are deletable:");
-                    to_delete.print_output(self.json)?;
-                    if !ask_for_confirmation()? {
-                        println!("{} Aborting. No blobs were deleted.", success());
-                        return Ok(());
+        // Create client once to be reused
+        let client =
+            match get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await {
+                Ok(client) => client,
+                Err(e) => {
+                    if !self.json {
+                        eprintln!("Error connecting to client: {}", e);
                     }
+                    return Err(e);
                 }
-                println!("Deleting blobs...");
-            }
+            };
 
-            for blob in to_delete.iter() {
-                client.delete_owned_blob_by_object(blob.id).await?;
-            }
+        let mut delete_outputs = Vec::new();
 
-            (Some(blob_id), to_delete)
-        } else if let Some(object_id) = object_id {
-            if let Some(to_delete) = client
-                .sui_client()
-                .owned_blobs(None, ExpirySelectionPolicy::Valid)
-                .await?
-                .into_iter()
-                .find(|blob| blob.id == object_id)
-            {
-                client.delete_owned_blob_by_object(object_id).await?;
-                (Some(to_delete.blob_id), vec![to_delete])
-            } else {
-                (None, vec![])
-            }
-        } else {
-            unreachable!("we checked that either file, blob ID or object ID are be provided");
-        };
+        let system_version = client.sui_client().system_object_version().await?;
+        let encoding_type = encoding_type_or_default_for_version(encoding_type, system_version);
+        let targets = targets.get_blob_identities(client.encoding_config(), encoding_type)?;
 
-        let post_deletion_status = match (no_status_check, blob_id) {
-            (false, Some(deleted_blob_id)) => {
-                // Wait to ensure that the deletion information is propagated.
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                Some(
-                    client
-                        .get_blob_status_with_retries(&deleted_blob_id, client.sui_client())
-                        .await?,
-                )
-            }
-            _ => None,
-        };
-
-        DeleteOutput {
-            blob_id,
-            file,
-            object_id,
-            deleted_blobs,
-            post_deletion_status,
+        // Process each target
+        for target in targets {
+            let output = delete_blob(
+                &client,
+                target,
+                confirmation.clone(),
+                no_status_check,
+                self.json,
+            )
+            .await;
+            delete_outputs.push(output);
         }
-        .print_output(self.json)
+
+        // Check if any operations were performed
+        if delete_outputs.is_empty() {
+            if !self.json {
+                println!("No operations were performed.");
+            }
+            return Ok(());
+        }
+
+        // Print results
+        if self.json {
+            println!("{}", serde_json::to_string(&delete_outputs)?);
+        } else {
+            // In CLI mode, print each result individually
+            for output in &delete_outputs {
+                output.print_cli_output();
+            }
+
+            // Print summary
+            let success_count = delete_outputs
+                .iter()
+                .filter(|output| output.error.is_none() && !output.aborted && !output.no_blob_found)
+                .count();
+            let total_count = delete_outputs.len();
+
+            if success_count == total_count {
+                println!(
+                    "{} All {} deletion operations completed successfully.",
+                    success(),
+                    total_count
+                );
+            } else {
+                println!(
+                    "{} {}/{} deletion operations completed successfully.",
+                    if success_count > 0 {
+                        warning()
+                    } else {
+                        error()
+                    },
+                    success_count,
+                    total_count
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn stake_with_node_pools(
@@ -1096,6 +1096,112 @@ impl ClientCommandRunner {
         println!("{} The specified blob objects have been burned", success());
         Ok(())
     }
+}
+
+async fn delete_blob(
+    client: &Client<SuiContractClient>,
+    target: BlobIdentity,
+    confirmation: UserConfirmation,
+    no_status_check: bool,
+    json: bool,
+) -> DeleteOutput {
+    // Initialize result with default values
+    let mut result = DeleteOutput {
+        blob_identity: target.clone(),
+        deleted_blobs: Vec::new(),
+        post_deletion_status: None,
+        no_blob_found: false,
+        error: None,
+        aborted: false,
+    };
+
+    if let Some(blob_id) = target.blob_id {
+        let to_delete = match client.deletable_blobs_by_id(&blob_id).await {
+            Ok(blobs) => blobs.collect::<Vec<_>>(),
+            Err(e) => {
+                result.error = Some(e.to_string());
+                return result;
+            }
+        };
+
+        if to_delete.is_empty() {
+            result.no_blob_found = true;
+            return result;
+        }
+
+        if confirmation.is_required() && !json {
+            println!(
+                "The following blobs with blob ID {blob_id} are deletable:\n{}",
+                to_delete.iter().map(|blob| blob.id.to_string()).join("\n")
+            );
+            match ask_for_confirmation() {
+                Ok(confirmed) => {
+                    if !confirmed {
+                        println!("{} Aborting. No blobs were deleted.", success());
+                        result.aborted = true;
+                        return result;
+                    }
+                }
+                Err(e) => {
+                    result.error = Some(e.to_string());
+                    return result;
+                }
+            }
+        }
+
+        if !json {
+            println!("Deleting blobs...");
+        }
+
+        for blob in to_delete.iter() {
+            if let Err(e) = client.delete_owned_blob_by_object(blob.id).await {
+                result.error = Some(e.to_string());
+                return result;
+            }
+            result.deleted_blobs.push(blob.clone());
+        }
+
+        if !no_status_check {
+            // Wait to ensure that the deletion information is propagated.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            result.post_deletion_status = match client
+                .get_blob_status_with_retries(&blob_id, client.sui_client())
+                .await
+            {
+                Ok(status) => Some(status),
+                Err(e) => {
+                    result.error = Some(format!("Failed to get post-deletion status: {}", e));
+                    None
+                }
+            };
+        }
+    } else if let Some(object_id) = target.object_id {
+        let to_delete = match client
+            .sui_client()
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
+            .await
+        {
+            Ok(blobs) => blobs.into_iter().find(|blob| blob.id == object_id),
+            Err(e) => {
+                result.error = Some(e.to_string());
+                return result;
+            }
+        };
+
+        if let Some(blob) = to_delete {
+            if let Err(e) = client.delete_owned_blob_by_object(object_id).await {
+                result.error = Some(e.to_string());
+                return result;
+            }
+            result.deleted_blobs = vec![blob];
+        } else {
+            result.no_blob_found = true;
+        }
+    } else {
+        result.error = Some("No valid target provided".to_string());
+    }
+
+    result
 }
 
 async fn get_epochs_ahead(

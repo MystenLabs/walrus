@@ -29,6 +29,7 @@ mod runner;
 pub use args::{
     AggregatorArgs,
     App,
+    BlobIdentity,
     CliCommands,
     Commands,
     DaemonCommands,

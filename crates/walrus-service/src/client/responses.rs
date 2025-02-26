@@ -60,7 +60,7 @@ use walrus_sui::{
 };
 
 use super::{
-    cli::{BlobIdDecimal, HumanReadableBytes},
+    cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes},
     resource::RegisterBlobOp,
 };
 use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
@@ -681,13 +681,12 @@ impl ExampleBlobInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DeleteOutput {
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub(crate) blob_id: Option<BlobId>,
-    pub(crate) file: Option<PathBuf>,
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    pub(crate) object_id: Option<ObjectID>,
+    pub(crate) blob_identity: BlobIdentity,
     pub(crate) deleted_blobs: Vec<Blob>,
     pub(crate) post_deletion_status: Option<BlobStatus>,
+    pub(crate) no_blob_found: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) aborted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
