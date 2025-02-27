@@ -529,19 +529,6 @@ mod commands {
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
 
-        let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
-            config
-                .sui
-                .as_ref()
-                .map(|config| config.into())
-                .expect("SUI configuration must be present"),
-            config.event_processor_config.clone(),
-            config.use_legacy_event_provider,
-            &config.storage_path,
-            &metrics_runtime.registry,
-            cancel_token.child_token(),
-        )?;
-
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
         let metrics_push_runtime = match config.metrics_push.take() {
             Some(mut mc) => {
@@ -559,6 +546,19 @@ mod commands {
             }
             None => None,
         };
+
+        let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
+            config
+                .sui
+                .as_ref()
+                .map(|config| config.into())
+                .expect("SUI configuration must be present"),
+            config.event_processor_config.clone(),
+            config.use_legacy_event_provider,
+            &config.storage_path,
+            &metrics_runtime.registry,
+            cancel_token.child_token(),
+        )?;
 
         let node_runtime = StorageNodeRuntime::start(
             &config,
