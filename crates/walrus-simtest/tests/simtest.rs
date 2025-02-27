@@ -606,7 +606,7 @@ mod tests {
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(10),
                 TestNodesConfig {
-                    node_weights: vec![2, 2, 3, 3, 4],
+                    node_weights: vec![1, 2, 3, 3, 4],
                     use_legacy_event_processor: true,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
