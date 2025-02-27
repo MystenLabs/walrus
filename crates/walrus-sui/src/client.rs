@@ -87,6 +87,11 @@ use crate::types::move_structs::EventBlob;
 
 pub mod contract_config;
 
+// Keep in sync with the corresponding value in
+// `contracts/walrus/sources/staking/staked_wal.move`
+/// The minimum threshold for staking.
+pub const MIN_STAKING_THRESHOLD: u64 = 1_000_000_000; // 1 WAL
+
 #[derive(Debug, thiserror::Error)]
 /// Error returned by the [`SuiContractClient`] and the [`SuiReadClient`].
 pub enum SuiClientError {
@@ -163,6 +168,12 @@ pub enum SuiClientError {
     /// The attribute already exists on the blob.
     #[error("the attribute already exists on the blob")]
     AttributeAlreadyExists,
+    /// The amount of stake is below the threshold for staking.
+    #[error(
+        "the stake amount {0} FROST is below the minimum threshold of {MIN_STAKING_THRESHOLD} \
+        FROST for staking"
+    )]
+    StakeBelowThreshold(u64),
 }
 
 impl SuiClientError {
@@ -1495,8 +1506,11 @@ impl SuiContractClientInner {
             return Ok(vec![]);
         }
         let mut pt_builder = self.transaction_builder()?;
-        for (node_id, amount) in node_ids_with_amounts.iter() {
-            pt_builder.stake_with_pool(*amount, *node_id).await?;
+        for &(node_id, amount) in node_ids_with_amounts.iter() {
+            if amount < MIN_STAKING_THRESHOLD {
+                return Err(SuiClientError::StakeBelowThreshold(amount));
+            }
+            pt_builder.stake_with_pool(amount, node_id).await?;
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(ptb).await?;

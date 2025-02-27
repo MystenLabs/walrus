@@ -13,6 +13,8 @@ use sui::balance::Balance;
 use wal::wal::WAL;
 use walrus::walrus_context::WalrusContext;
 
+// Keep in sync with corresponding value in
+// `crates/walrus-sui/src/client.rs`
 /// StakedWal objects must have a principal with at least this amount.
 const MIN_STAKING_THRESHOLD: u64 = 1_000_000_000; // 1 WAL
 
