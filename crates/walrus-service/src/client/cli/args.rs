@@ -354,6 +354,7 @@ pub enum CliCommands {
     Delete {
         /// The filename(s), or the blob ID(s), or the object ID(s) of the blob(s) to delete.
         #[clap(flatten)]
+        #[serde(flatten)]
         target: BlobIdentifiers,
         /// Proceed to delete the blob without confirmation.
         #[clap(long, action)]
@@ -871,7 +872,7 @@ impl FileOrBlobId {
 
 /// Represents a blob.
 #[serde_as]
-#[derive(Debug, Clone, Args, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Args, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobIdentity {
     #[serde_as(as = "Option<DisplayFromStr>")]

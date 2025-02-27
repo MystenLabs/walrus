@@ -1100,14 +1100,9 @@ async fn delete_blob(
     no_status_check: bool,
     json: bool,
 ) -> DeleteOutput {
-    // Initialize result with default values
     let mut result = DeleteOutput {
         blob_identity: target.clone(),
-        deleted_blobs: Vec::new(),
-        post_deletion_status: None,
-        no_blob_found: false,
-        error: None,
-        aborted: false,
+        ..Default::default()
     };
 
     if let Some(blob_id) = target.blob_id {

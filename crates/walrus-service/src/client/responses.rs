@@ -678,7 +678,7 @@ impl ExampleBlobInfo {
 
 #[serde_as]
 #[serde_with::skip_serializing_none]
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DeleteOutput {
     pub(crate) blob_identity: BlobIdentity,
