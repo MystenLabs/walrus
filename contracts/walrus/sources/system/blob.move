@@ -311,7 +311,7 @@ public fun add_metadata(self: &mut Blob, metadata: Metadata) {
 
 /// Adds the metadata dynamic field to the Blob, replacing the existing metadata if present.
 ///
-/// Optionally returns the replaced metadata.
+/// Returns the replaced metadata if present.
 public fun add_or_replace_metadata(self: &mut Blob, metadata: Metadata): option::Option<Metadata> {
     let old_metadata = if (dynamic_field::exists_(&self.id, METADATA_DF)) {
         option::some(self.take_metadata())
