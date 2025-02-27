@@ -1402,7 +1402,7 @@ impl SystemContractService for StubContractService {
     }
 
     fn current_epoch(&self) -> Epoch {
-        unimplemented!("stub service does not store the epoch")
+        1
     }
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
