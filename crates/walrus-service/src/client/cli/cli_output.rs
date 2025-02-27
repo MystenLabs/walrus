@@ -651,32 +651,23 @@ impl CliOutput for Vec<Blob> {
 impl CliOutput for DeleteOutput {
     fn print_cli_output(&self) {
         let identity = self.blob_identity.to_string();
+        println!(
+            "\n{}{}",
+            "Delete result for: ".bold().walrus_purple(),
+            identity
+        );
 
         if let Some(error_msg) = &self.error {
-            println!("{} Error with {}: {}", error(), identity, error_msg);
+            println!("{} Error: {}", error(), error_msg);
         } else if self.aborted {
             println!("{} Operation aborted. No blobs were deleted.", warning());
-        }
-
-        // Handle no blob found case
-        if self.no_blob_found {
-            println!(
-                "{} No owned deletable blobs found for {}",
-                warning(),
-                identity
-            );
+        } else if self.no_blob_found {
+            println!("{} No owned deletable blobs found.", warning());
             return;
         }
 
-        // Normal case - show deleted blobs
-        if self.deleted_blobs.is_empty() {
-            println!("{} No objects were deleted for {}.", success(), identity);
-        } else {
-            println!(
-                "{} The following objects were deleted for {}:",
-                success(),
-                identity
-            );
+        if !self.deleted_blobs.is_empty() {
+            println!("{} The following objects were deleted:", success());
             self.deleted_blobs.print_cli_output();
             if let Some(post_deletion_status) = &self.post_deletion_status {
                 let status_output = removed_instance_string(post_deletion_status);

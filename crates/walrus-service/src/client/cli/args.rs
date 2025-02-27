@@ -834,7 +834,12 @@ pub struct FileOrBlobId {
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
+    #[clap(
+        long,
+        allow_hyphen_values = true,
+        value_parser = parse_blob_id,
+        action = clap::ArgAction::Append
+    )]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
@@ -888,10 +893,16 @@ impl std::fmt::Display for BlobIdentity {
             identity = format!("blob ID: {}", blob_id);
         }
         if let Some(file) = &self.file {
-            identity.push_str(&format!(" file: {}", file.display()));
+            if !identity.is_empty() {
+                identity.push(' ');
+            }
+            identity.push_str(&format!("file: {}", file.display()));
         }
         if let Some(object_id) = &self.object_id {
-            identity.push_str(&format!(" object ID: {}", object_id));
+            if !identity.is_empty() {
+                identity.push(' ');
+            }
+            identity.push_str(&format!("object ID: {}", object_id));
         }
         write!(f, "{}", identity)
     }
@@ -910,7 +921,12 @@ pub struct FileOrBlobIdOrObjectId {
     /// The blob ID to be deleted.
     ///
     /// This command deletes _all_ owned blob objects matching the provided blob ID.
-    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id, num_args = 0..)]
+    #[clap(
+        long,
+        allow_hyphen_values = true,
+        value_parser = parse_blob_id,
+        action = clap::ArgAction::Append
+    )]
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Vec<BlobId>,

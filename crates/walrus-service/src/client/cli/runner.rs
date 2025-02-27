@@ -963,13 +963,13 @@ impl ClientCommandRunner {
 
             if success_count == total_count {
                 println!(
-                    "{} All {} deletion operations completed successfully.",
+                    "\n{} All {} deletion operations completed successfully.",
                     success(),
                     total_count
                 );
             } else {
                 println!(
-                    "{} {}/{} deletion operations completed successfully.",
+                    "\n{} {}/{} deletion operations completed successfully.",
                     if success_count > 0 {
                         warning()
                     } else {
