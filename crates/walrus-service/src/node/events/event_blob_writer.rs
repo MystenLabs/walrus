@@ -1333,14 +1333,16 @@ impl EventBlobWriter {
         self.num_checkpoints_per_blob
     }
 
+    // TODO(WAL-647): remove/update for mainnet
     async fn default_encoding_for_system_object_version(&self) -> Result<EncodingType> {
-        if self
+        let version = self
             .node
             .contract_service
             .get_system_object_version()
-            .await?
-            >= 2
-        {
+            .await?;
+        let epoch = self.node.contract_service.current_epoch();
+
+        if version >= 2 && epoch >= 24 {
             Ok(EncodingType::RS2)
         } else {
             Ok(EncodingType::RedStuffRaptorQ)
