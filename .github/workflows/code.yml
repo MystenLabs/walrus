@@ -146,7 +146,7 @@ jobs:
     env:
       MSIM_TEST_NUM: 5
       # Turn off Sui logging since it can be very distractive in CI
-      RUST_LOG: error,sui_=off
+      RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
     steps:
       - uses: taiki-e/install-action@v2.48.0
         with:

@@ -726,6 +726,8 @@ mod tests {
     #[ignore = "ignore E2E tests by default"]
     #[walrus_simtest(config = "latency_config()")]
     async fn test_repeated_shard_move_with_workload() {
+        const MAX_NODE_WEIGHT: u16 = 6;
+
         // Adding jitter in the epoch change start event so that different nodes don't start the
         // epoch change at the exact same time.
         register_fail_point_async("epoch_change_start_entry", || async move {
@@ -737,11 +739,12 @@ mod tests {
 
         // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
+        let mut node_weights = vec![2, 2, 3, 3, 3];
         let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4],
+                    node_weights: node_weights.clone(),
                     use_legacy_event_processor: true,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
@@ -764,8 +767,16 @@ mod tests {
 
         // Repeatedly move shards among storage nodes.
         for _i in 0..3 {
-            let node_to_move_shard_into = rand::thread_rng().gen_range(0..=4);
-            let shard_move_weight = rand::thread_rng().gen_range(1..=5);
+            let (node_to_move_shard_into, shard_move_weight) = loop {
+                let node_to_move_shard_into = rand::thread_rng().gen_range(0..=4);
+                let shard_move_weight = rand::thread_rng().gen_range(1..=3);
+                let node_weight = node_weights[node_to_move_shard_into] + shard_move_weight;
+                if node_weight <= MAX_NODE_WEIGHT {
+                    node_weights[node_to_move_shard_into] = node_weight;
+                    break (node_to_move_shard_into, shard_move_weight);
+                }
+            };
+
             tracing::info!(
                 "triggering shard move with stake weight {shard_move_weight} to node \
                 {node_to_move_shard_into}"
@@ -779,7 +790,7 @@ mod tests {
                         .as_ref()
                         .unwrap()
                         .node_id,
-                    test_cluster::FROST_PER_NODE_WEIGHT * shard_move_weight,
+                    test_cluster::FROST_PER_NODE_WEIGHT * u64::from(shard_move_weight),
                 )
                 .await
                 .expect("stake with node pool should not fail");
