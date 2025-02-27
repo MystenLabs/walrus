@@ -68,7 +68,6 @@ use super::args::{
 use crate::{
     client::{
         cli::{
-            error,
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -970,11 +969,7 @@ impl ClientCommandRunner {
             } else {
                 println!(
                     "\n{} {}/{} deletion operations completed successfully.",
-                    if success_count > 0 {
-                        warning()
-                    } else {
-                        error()
-                    },
+                    warning(),
                     success_count,
                     total_count
                 );

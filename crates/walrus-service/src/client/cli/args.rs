@@ -834,7 +834,7 @@ pub struct FileOrBlobId {
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap( long, allow_hyphen_values = true, value_parser = parse_blob_id,)]
+    #[clap(long, allow_hyphen_values = true, value_parser = parse_blob_id)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
@@ -943,7 +943,6 @@ impl BlobIdentifiers {
     ) -> Result<Vec<BlobIdentity>> {
         let mut result = Vec::new();
 
-        // Process all files
         for file in &self.files {
             tracing::debug!(
                 file = %file.display(),
@@ -961,7 +960,6 @@ impl BlobIdentifiers {
             });
         }
 
-        // Process all blob IDs
         for blob_id in &self.blob_ids {
             result.push(BlobIdentity {
                 blob_id: Some(*blob_id),
@@ -970,7 +968,6 @@ impl BlobIdentifiers {
             });
         }
 
-        // Process all object IDs
         for object_id in &self.object_ids {
             result.push(BlobIdentity {
                 blob_id: None,
