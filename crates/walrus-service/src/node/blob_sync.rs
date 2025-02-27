@@ -16,6 +16,7 @@ use futures::{
     TryFutureExt,
 };
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
+use rayon::prelude::*;
 use tokio::{
     sync::{Notify, Semaphore},
     task::{JoinHandle, JoinSet},
@@ -194,7 +195,7 @@ impl BlobSyncHandler {
             tracing::info!("acquired lock on the in-progress blob recoveries");
 
             in_progress_guard
-                .iter_mut()
+                .par_iter_mut()
                 .filter_map(|(blob_id, sync)| {
                     self.node
                         .is_blob_certified(blob_id)
