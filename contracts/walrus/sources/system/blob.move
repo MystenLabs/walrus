@@ -363,9 +363,7 @@ public fun remove_metadata_pair(self: &mut Blob, key: &String): (String, String)
     self.metadata().remove(key)
 }
 
-/// Removes the metadata associated with the given key, if it exists.
-///
-/// Optionally returns the previous value associated with the key.
+/// Removes and returns the metadata associated with the given key, if it exists.
 public fun remove_metadata_pair_if_exists(self: &mut Blob, key: &String): option::Option<String> {
     if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
         option::none()
