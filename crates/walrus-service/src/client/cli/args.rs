@@ -354,7 +354,7 @@ pub enum CliCommands {
     Delete {
         /// The filename(s), or the blob ID(s), or the object ID(s) of the blob(s) to delete.
         #[clap(flatten)]
-        targets: FileOrBlobIdOrObjectId,
+        target: BlobIdentifiers,
         /// Proceed to delete the blob without confirmation.
         #[clap(long, action)]
         #[serde(default)]
@@ -834,12 +834,7 @@ pub struct FileOrBlobId {
     #[serde(default)]
     pub(crate) file: Option<PathBuf>,
     /// The blob ID to be checked.
-    #[clap(
-        long,
-        allow_hyphen_values = true,
-        value_parser = parse_blob_id,
-        action = clap::ArgAction::Append
-    )]
+    #[clap( long, allow_hyphen_values = true, value_parser = parse_blob_id,)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(default)]
     pub(crate) blob_id: Option<BlobId>,
@@ -911,13 +906,13 @@ impl std::fmt::Display for BlobIdentity {
 #[serde_as]
 #[derive(Debug, Clone, Args, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct FileOrBlobIdOrObjectId {
+pub struct BlobIdentifiers {
     /// The file containing the blob to be deleted.
     ///
     /// This is equivalent to calling `blob-id` on the file, and then deleting with `--blob-id`.
-    #[clap(long, num_args = 0..)]
+    #[clap(long, num_args = 0.., alias = "file")]
     #[serde(default)]
-    pub(crate) file: Vec<PathBuf>,
+    pub(crate) files: Vec<PathBuf>,
     /// The blob ID to be deleted.
     ///
     /// This command deletes _all_ owned blob objects matching the provided blob ID.
@@ -925,21 +920,22 @@ pub struct FileOrBlobIdOrObjectId {
         long,
         allow_hyphen_values = true,
         value_parser = parse_blob_id,
+        alias = "blob-id",
         action = clap::ArgAction::Append
     )]
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
-    pub(crate) blob_id: Vec<BlobId>,
+    pub(crate) blob_ids: Vec<BlobId>,
     /// The object ID of the blob object to be deleted.
     ///
     /// This command deletes only the blob object with the given object ID.
-    #[clap(long, num_args = 0..)]
+    #[clap(long, num_args = 0.., alias = "object-id")]
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[serde(default)]
-    pub(crate) object_id: Vec<ObjectID>,
+    pub(crate) object_ids: Vec<ObjectID>,
 }
 
-impl FileOrBlobIdOrObjectId {
+impl BlobIdentifiers {
     pub(crate) fn get_blob_identities(
         &self,
         encoding_config: &EncodingConfig,
@@ -948,7 +944,7 @@ impl FileOrBlobIdOrObjectId {
         let mut result = Vec::new();
 
         // Process all files
-        for file in &self.file {
+        for file in &self.files {
             tracing::debug!(
                 file = %file.display(),
                 "computing blob ID for file from the filesystem"
@@ -966,7 +962,7 @@ impl FileOrBlobIdOrObjectId {
         }
 
         // Process all blob IDs
-        for blob_id in &self.blob_id {
+        for blob_id in &self.blob_ids {
             result.push(BlobIdentity {
                 blob_id: Some(*blob_id),
                 file: None,
@@ -975,7 +971,7 @@ impl FileOrBlobIdOrObjectId {
         }
 
         // Process all object IDs
-        for object_id in &self.object_id {
+        for object_id in &self.object_ids {
             result.push(BlobIdentity {
                 blob_id: None,
                 file: None,
@@ -989,20 +985,6 @@ impl FileOrBlobIdOrObjectId {
 
         Ok(result)
     }
-
-    // Checks that the file, blob ID, and object ID are mutually exclusive.
-    // pub(crate) fn exactly_one_is_some(&self) -> Result<()> {
-    //     match (
-    //         self.file.is_some(),
-    //         self.blob_id.is_some(),
-    //         self.object_id.is_some(),
-    //     ) {
-    //         (true, false, false) | (false, true, false) | (false, false, true) => Ok(()),
-    //         _ => Err(anyhow!(
-    //             "exactly one of `file`, `blob-id`, or `object-id` must be specified"
-    //         )),
-    //     }
-    // }
 }
 
 /// Selector for the blob object IDs to burn.

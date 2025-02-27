@@ -49,6 +49,7 @@ use walrus_sui::{
 
 use super::args::{
     AggregatorArgs,
+    BlobIdentifiers,
     BlobIdentity,
     BurnSelection,
     CliCommands,
@@ -56,7 +57,6 @@ use super::args::{
     DaemonCommands,
     EpochArg,
     FileOrBlobId,
-    FileOrBlobIdOrObjectId,
     HealthSortBy,
     InfoCommands,
     NodeSelection,
@@ -221,12 +221,12 @@ impl ClientCommandRunner {
             CliCommands::ListBlobs { include_expired } => self.list_blobs(include_expired).await,
 
             CliCommands::Delete {
-                targets,
+                target,
                 yes,
                 no_status_check,
                 encoding_type,
             } => {
-                self.delete(targets, yes.into(), no_status_check, encoding_type)
+                self.delete(target, yes.into(), no_status_check, encoding_type)
                     .await
             }
 
@@ -901,7 +901,7 @@ impl ClientCommandRunner {
 
     pub(crate) async fn delete(
         self,
-        targets: FileOrBlobIdOrObjectId,
+        target: BlobIdentifiers,
         confirmation: UserConfirmation,
         no_status_check: bool,
         encoding_type: Option<EncodingType>,
@@ -922,13 +922,13 @@ impl ClientCommandRunner {
 
         let system_version = client.sui_client().system_object_version().await?;
         let encoding_type = encoding_type_or_default_for_version(encoding_type, system_version);
-        let targets = targets.get_blob_identities(client.encoding_config(), encoding_type)?;
+        let blobs = target.get_blob_identities(client.encoding_config(), encoding_type)?;
 
         // Process each target
-        for target in targets {
+        for blob in blobs {
             let output = delete_blob(
                 &client,
-                target,
+                blob,
                 confirmation.clone(),
                 no_status_check,
                 self.json,
