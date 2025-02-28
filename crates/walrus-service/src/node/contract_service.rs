@@ -159,6 +159,7 @@ impl SuiSystemContractService {
             .await?;
         let contract_client: tokio::sync::MutexGuard<'_, SuiContractClient> =
             self.contract_client.lock().await;
+        tracing::info!("ZZZZZ get synced node config set acquire lock");
         let pool = contract_client
             .read_client
             .get_staking_pool(node_capability.node_id)
@@ -210,6 +211,7 @@ impl SystemContractService for SuiSystemContractService {
         )?;
         let contract_client: tokio::sync::MutexGuard<'_, SuiContractClient> =
             self.contract_client.lock().await;
+        tracing::info!("ZZZZZ sync node params acquire lock");
         match action {
             ProtocolKeyAction::UpdateRemoteNextPublicKey(next_public_key) => {
                 tracing::info!(
@@ -259,6 +261,7 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
         let client = self.contract_client.lock().await;
+        tracing::info!("ZZZZZ get epoch and state acquire lock");
         let committees = client.get_committees_and_state().await?;
         Ok((committees.current.epoch, committees.epoch_state))
     }
@@ -269,6 +272,7 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
         let contract_client = self.contract_client.lock().await;
+        tracing::info!("ZZZZZ get fixed system parameters acquire lock");
         contract_client
             .fixed_system_parameters()
             .await
@@ -277,6 +281,7 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
         let contract_client = self.contract_client.lock().await;
+        tracing::info!("ZZZZZ end voting acquire lock");
         contract_client
             .voting_end()
             .await
@@ -291,6 +296,7 @@ impl SystemContractService for SuiSystemContractService {
             self.rng.lock().unwrap().gen(),
         );
         backoff::retry(backoff, || async {
+            tracing::info!("ZZZZZ invalidate blob id acquire lock");
             self.contract_client
                 .lock()
                 .await
@@ -308,6 +314,7 @@ impl SystemContractService for SuiSystemContractService {
     }
 
     async fn epoch_sync_done(&self, epoch: Epoch, node_capability_object_id: ObjectID) {
+        tracing::info!("ZZZZZ preparing epoch sync done");
         let backoff = ExponentialBackoff::new_with_seed(
             MIN_BACKOFF,
             MAX_BACKOFF,
@@ -317,6 +324,7 @@ impl SystemContractService for SuiSystemContractService {
 
         backoff::retry(backoff, || async {
             let current_epoch = self.current_epoch();
+            tracing::info!("ZZZZZ current epoch: {}", current_epoch);
             if epoch < current_epoch {
                 tracing::info!(
                     epoch,
@@ -325,6 +333,8 @@ impl SystemContractService for SuiSystemContractService {
                 );
                 return Some(());
             }
+            tracing::info!("ZZZZZ submitting epoch sync done");
+            tracing::info!("ZZZZZ epoch sync done acquire lock");
             match self
                 .contract_client
                 .lock()
@@ -348,7 +358,9 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn initiate_epoch_change(&self) -> Result<(), anyhow::Error> {
         let client = self.contract_client.lock().await;
+        tracing::info!("ZZZZZ initiate epoch change acquire lock");
         client.initiate_epoch_change().await?;
+        tracing::info!("ZZZZZ initiate epoch change release lock");
         Ok(())
     }
 
@@ -360,6 +372,7 @@ impl SystemContractService for SuiSystemContractService {
         node_capability_object_id: ObjectID,
     ) -> Result<(), SuiClientError> {
         let blob_metadata = blob_metadata.clone();
+        tracing::info!("ZZZZZ certify event blob acquire lock");
         self.contract_client
             .lock()
             .await
@@ -374,6 +387,7 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn refresh_contract_package(&self) -> Result<(), anyhow::Error> {
         let client = self.contract_client.lock().await;
+        tracing::info!("ZZZZZ refresh contract package acquire lock");
         client.refresh_package_id().await?;
         Ok(())
     }
@@ -383,6 +397,7 @@ impl SystemContractService for SuiSystemContractService {
         node_capability_object_id: Option<ObjectID>,
     ) -> Result<StorageNodeCap, SuiClientError> {
         let node_capability = if let Some(node_cap) = node_capability_object_id {
+            tracing::info!("ZZZZZ get node capability object acquire lock");
             self.contract_client
                 .lock()
                 .await
@@ -391,6 +406,7 @@ impl SystemContractService for SuiSystemContractService {
                 .await?
         } else {
             let contract_client = self.contract_client.lock().await;
+            tracing::info!("ZZZZZ get node capability object acquire lock");
             let address = contract_client.address();
             contract_client
                 .read_client
@@ -403,6 +419,7 @@ impl SystemContractService for SuiSystemContractService {
     }
 
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
+        tracing::info!("ZZZZZ get system object version acquire lock");
         self.contract_client
             .lock()
             .await

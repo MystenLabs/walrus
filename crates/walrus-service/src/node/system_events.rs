@@ -82,7 +82,7 @@ impl EventHandle {
     }
 
     fn mark_as_complete(mut self) {
-        tracing::trace!(
+        tracing::info!(
             index = self.index,
             event_id = ?self.event_id,
             "marking event as complete",

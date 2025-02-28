@@ -167,6 +167,8 @@ impl EpochChangeDriver {
     pub fn cancel_scheduled_voting_end(&self, epoch: Epoch) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
 
+        tracing::info!("ZZZZZ cancel scheduled voting end");
+
         if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
             if epoch == *epoch_of_scheduled_future {
                 inner.end_voting_future = None;
@@ -224,6 +226,8 @@ impl EpochChangeDriver {
     /// [`schedule_initiate_epoch_change()`][Self::schedule_initiate_epoch_change].
     pub fn cancel_scheduled_epoch_change_initiation(&self, epoch: Epoch) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
+
+        tracing::info!("ZZZZZ cancel scheduled epoch change initiation");
 
         if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
             if epoch == *epoch_of_scheduled_future {
@@ -359,7 +363,7 @@ trait EpochOperation {
     ) -> Option<Duration>;
 
     /// Invokes the operation with the provided contract service.
-    async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error>;
+    async fn invoke(&self, contract: Arc<dyn SystemContractService>) -> Result<(), anyhow::Error>;
 }
 
 /// An [`EpochOperation`] scheduled to be called.
@@ -432,7 +436,7 @@ impl<T: EpochOperation> ScheduledEpochOperation<T> {
         tokio::time::sleep(wait_duration + schedule_jitter).await;
 
         tracing::debug!("invoking scheduled operation");
-        self.operation.invoke(self.contract_service.as_ref()).await
+        self.operation.invoke(self.contract_service.clone()).await
     }
 }
 
@@ -491,7 +495,7 @@ impl EpochOperation for VotingEndOperation {
         Some(duration_until_vote_ends)
     }
 
-    async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error> {
+    async fn invoke(&self, contract: Arc<dyn SystemContractService>) -> Result<(), anyhow::Error> {
         let epoch_under_vote = self.epoch_under_vote.get();
         let (current_epoch, state) = contract.get_epoch_and_state().await?;
         if current_epoch >= epoch_under_vote
@@ -502,7 +506,12 @@ impl EpochOperation for VotingEndOperation {
             return Ok(());
         }
         tracing::info!(epoch_under_vote, "attempting to end voting");
-        contract.end_voting().await?;
+        tokio::spawn({
+            let contract = contract.clone();
+            async move { contract.end_voting().await }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("end voting panicked: {:?}", e))??;
         tracing::debug!("voting successfully ended");
         Ok(())
     }
@@ -559,14 +568,19 @@ impl EpochOperation for InitiateEpochChangeOperation {
         Some(duration_until_epoch_ends)
     }
 
-    async fn invoke(&self, contract: &dyn SystemContractService) -> Result<(), anyhow::Error> {
+    async fn invoke(&self, contract: Arc<dyn SystemContractService>) -> Result<(), anyhow::Error> {
         let next_epoch = self.next_epoch.get();
         if contract.current_epoch() >= next_epoch {
             tracing::debug!("epoch change already started");
             return Ok(());
         }
         tracing::info!(next_epoch, "attempting to start epoch change");
-        contract.initiate_epoch_change().await?;
+        tokio::spawn({
+            let contract = contract.clone();
+            async move { contract.initiate_epoch_change().await }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("initiate epoch change panicked: {:?}", e))??;
         tracing::debug!("epoch change successfully started");
         Ok(())
     }

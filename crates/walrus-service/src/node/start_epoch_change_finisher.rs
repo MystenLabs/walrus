@@ -66,7 +66,9 @@ impl StartEpochChangeFinisher {
 
             if let Err(error) = backoff::retry(backoff, || async {
                 if !ongoing_shard_sync {
+                    tracing::info!("ZZZZZ signal epoch sync done");
                     self_clone.epoch_sync_done(&committees, &event_clone).await;
+                    tracing::info!("ZZZZZ signal epoch sync finished");
                 }
                 self_clone
                     .remove_storage_for_shards(event_clone.clone(), &shards.clone())
