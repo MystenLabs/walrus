@@ -46,14 +46,12 @@ fun init_blob_display(p: &Publisher, ctx: &mut TxContext): Display<Blob> {
 
     d.add(b"name".to_string(), b"Walrus Blob ({size}b)".to_string());
     d.add(
-        b"description".to_string(),
-        // editorconfig-checker-disable-next-line
+        b"description".to_string(), // editorconfig-checker-disable-next-line
         b"Registered: {registered_epoch}; certified: {certified_epoch}; deletable: {deletable}".to_string(),
     );
-    d.add(b"image_url".to_string(), b"".to_string());
-    d.add(b"link".to_string(), b"".to_string());
-
+    d.add(b"image_url".to_string(), b"https://www.walrus.xyz/walrus-blob.svg".to_string());
     d.add(b"project_url".to_string(), b"https://walrus.xyz/".to_string());
+    d.add(b"link".to_string(), b"".to_string());
     d.update_version();
     d
 }
@@ -62,12 +60,11 @@ fun init_blob_display(p: &Publisher, ctx: &mut TxContext): Display<Blob> {
 fun init_storage_display(p: &Publisher, ctx: &mut TxContext): Display<Storage> {
     let mut d = display::new(p, ctx);
 
-    d.add(b"name".to_string(), b"Reserved Walrus Storage ({storage_size}b)".to_string());
+    d.add(b"name".to_string(), b"Walrus Storage Resource ({storage_size}b)".to_string());
     d.add(b"description".to_string(), b"Start: {start_epoch}; end: {end_epoch}".to_string());
-    d.add(b"image_url".to_string(), b"".to_string());
-    d.add(b"link".to_string(), b"".to_string());
-
+    d.add(b"image_url".to_string(), b"https://www.walrus.xyz/walrus-storage.svg".to_string());
     d.add(b"project_url".to_string(), b"https://walrus.xyz/".to_string());
+    d.add(b"link".to_string(), b"".to_string());
     d.update_version();
     d
 }
@@ -76,15 +73,14 @@ fun init_storage_display(p: &Publisher, ctx: &mut TxContext): Display<Storage> {
 fun init_staked_wal_display(p: &Publisher, ctx: &mut TxContext): Display<StakedWal> {
     let mut d = display::new(p, ctx);
 
-    d.add(b"name".to_string(), b"Staked WAL ({principal})".to_string());
+    d.add(b"name".to_string(), b"Staked WAL ({principal} FROST)".to_string());
     d.add(
         b"description".to_string(),
         b"Staked for node: {node_id}, activates at: {activation_epoch}".to_string(),
     );
-    d.add(b"image_url".to_string(), b"".to_string());
-    d.add(b"link".to_string(), b"".to_string());
-
+    d.add(b"image_url".to_string(), b"https://www.walrus.xyz/walrus-stakedwal.svg".to_string());
     d.add(b"project_url".to_string(), b"https://walrus.xyz/".to_string());
+    d.add(b"link".to_string(), b"".to_string());
     d.update_version();
     d
 }
