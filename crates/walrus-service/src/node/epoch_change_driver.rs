@@ -167,8 +167,6 @@ impl EpochChangeDriver {
     pub fn cancel_scheduled_voting_end(&self, epoch: Epoch) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
 
-        tracing::info!("ZZZZZ cancel scheduled voting end");
-
         if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
             if epoch == *epoch_of_scheduled_future {
                 inner.end_voting_future = None;
@@ -226,8 +224,6 @@ impl EpochChangeDriver {
     /// [`schedule_initiate_epoch_change()`][Self::schedule_initiate_epoch_change].
     pub fn cancel_scheduled_epoch_change_initiation(&self, epoch: Epoch) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
-
-        tracing::info!("ZZZZZ cancel scheduled epoch change initiation");
 
         if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
             if epoch == *epoch_of_scheduled_future {

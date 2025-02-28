@@ -623,19 +623,10 @@ impl SuiContractClient {
     ///
     /// Can be called once the epoch duration is over.
     pub async fn initiate_epoch_change(&self) -> SuiClientResult<()> {
-        let x = self
-            .retry_on_wrong_version(|| async {
-                tracing::info!("ZZZZZ inside contract client initiating epoch change");
-                let xx = self.inner.lock().await.initiate_epoch_change().await;
-                tracing::info!(
-                    "ZZZZZ inside contract client initiating epoch change result: {:?}",
-                    xx
-                );
-                xx
-            })
-            .await;
-        tracing::info!("ZZZZZ initiate epoch change result: {:?}", x);
-        x
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.initiate_epoch_change().await
+        })
+        .await
     }
 
     /// Call to notify the contract that this node is done syncing the specified epoch.
@@ -644,16 +635,13 @@ impl SuiContractClient {
         epoch: Epoch,
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
-        tracing::info!("ZZZZZ inside contract clientsending epoch sync done");
         self.retry_on_wrong_version(|| async {
-            tracing::info!("ZZZZZ sending epoch sync done");
             let r = self
                 .inner
                 .lock()
                 .await
                 .epoch_sync_done(epoch, node_capability_object_id)
                 .await;
-            tracing::info!("ZZZZZ epoch sync done result: {:?}", r);
             r
         })
         .await
@@ -1165,8 +1153,6 @@ impl SuiContractClient {
                 | MoveExecutionError::Staking(StakingError::EWrongVersion(_))
                 | MoveExecutionError::System(SystemError::EWrongVersion(_)),
             )) => {
-                tracing::info!("ZZZZZ retry on wrong version");
-
                 // Store old package IDs
                 let old_package_id = self.read_client.get_system_package_id();
                 let old_subsidies_package_id = self.read_client.get_subsidies_package_id();
@@ -1615,15 +1601,10 @@ impl SuiContractClientInner {
     ///
     /// Can be called once the epoch duration is over.
     pub async fn initiate_epoch_change(&mut self) -> SuiClientResult<()> {
-        tracing::info!("ZZZZZ initiate epoch change");
         let mut pt_builder = self.transaction_builder()?;
-        tracing::info!("ZZZZZ initiate epoch change 2");
         pt_builder.initiate_epoch_change().await?;
-        tracing::info!("ZZZZZ initiate epoch change 3");
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        tracing::info!("ZZZZZ initiate epoch change 4");
         let r = self.sign_and_send_ptb(ptb).await;
-        tracing::info!("ZZZZZ initiate epoch change done result: {:?}", r);
         r?;
         Ok(())
     }
