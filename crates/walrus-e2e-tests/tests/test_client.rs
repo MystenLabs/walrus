@@ -1485,8 +1485,8 @@ async fn test_quorum_contract_upgrade() -> TestResult {
     let walrus_package_path = contract_dir.path().join("walrus");
     let staking_path = walrus_package_path.join("sources/staking.move");
     let system_path = walrus_package_path.join("sources/system.move");
-    replace_version(&staking_path).await?;
-    replace_version(&system_path).await?;
+    replace_version(&staking_path)?;
+    replace_version(&system_path)?;
 
     // Vote for the upgrade
     // We can vote on behalf of all nodes from the client wallet since the client
@@ -1557,10 +1557,10 @@ async fn test_quorum_contract_upgrade() -> TestResult {
     Ok(())
 }
 
-async fn replace_version(contract_file: &Path) -> anyhow::Result<()> {
-    let contents = tokio::fs::read_to_string(contract_file).await?;
+fn replace_version(contract_file: &Path) -> anyhow::Result<()> {
+    let contents = std::fs::read_to_string(contract_file)?;
     let contents = contents.replace("const VERSION: u64 = 1;", "const VERSION: u64 = 2;");
-    tokio::fs::write(contract_file, contents).await?;
+    std::fs::write(contract_file, contents)?;
     Ok(())
 }
 
