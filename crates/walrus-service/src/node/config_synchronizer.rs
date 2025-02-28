@@ -131,7 +131,7 @@ mod tests {
     use crate::node::config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet};
 
     #[tokio::test]
-    async fn test_storage_node_config_loading_and_params() -> anyhow::Result<()> {
+    async fn test_load_config_and_generate_update_params() -> anyhow::Result<()> {
         let temp_dir = TempDir::new()?;
         let config_path = temp_dir.path().join("config.yaml");
         let key_path = temp_dir.path().join("protocol_key.key");
