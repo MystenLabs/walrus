@@ -910,12 +910,6 @@ impl Display for EncodingType {
     }
 }
 
-impl Default for EncodingType {
-    fn default() -> Self {
-        DEFAULT_ENCODING
-    }
-}
-
 // Inconsistency Proofs
 
 /// An inconsistency proof for a blob.

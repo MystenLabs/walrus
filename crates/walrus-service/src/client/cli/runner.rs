@@ -104,6 +104,7 @@ use crate::{
             WalletOutput,
         },
         styled_spinner,
+        utils::encoding_type_or_default_for_version,
         Client,
         ClientDaemon,
         Config,
@@ -1163,26 +1164,4 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
-}
-
-// TODO(WAL-647): Remove for mainnet
-fn encoding_type_or_default_for_version(
-    encoding_type: Option<EncodingType>,
-    system_version: u64,
-) -> EncodingType {
-    if let Some(encoding_type) = encoding_type {
-        encoding_type
-    } else {
-        let encoding_type = if system_version >= 2 {
-            EncodingType::RS2
-        } else {
-            EncodingType::RedStuffRaptorQ
-        };
-        tracing::debug!(
-            system_version,
-            ?encoding_type,
-            "choosing default encoding based on system version"
-        );
-        encoding_type
-    }
 }

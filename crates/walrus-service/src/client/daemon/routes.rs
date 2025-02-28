@@ -413,7 +413,7 @@ pub(super) async fn status() -> Response {
 pub(crate) struct PublisherQuery {
     /// The encoding type to use for the blob.
     #[serde(default)]
-    pub encoding_type: EncodingType,
+    pub encoding_type: Option<EncodingType>,
     /// The number of epochs, ahead of the current one, for which to store the blob.
     ///
     /// The default is 1 epoch.

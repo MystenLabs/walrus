@@ -45,7 +45,13 @@ use walrus_sui::{
     types::move_structs::BlobWithAttribute,
 };
 
-use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
+use super::{
+    responses::BlobStoreResult,
+    utils::encoding_type_or_default_for_version,
+    Client,
+    ClientResult,
+    StoreWhen,
+};
 use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},
@@ -79,7 +85,7 @@ pub trait WalrusWriteClient: WalrusReadClient {
     fn write_blob(
         &self,
         blob: &[u8],
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -107,12 +113,17 @@ impl WalrusWriteClient for Client<SuiContractClient> {
     async fn write_blob(
         &self,
         blob: &[u8],
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
+        let encoding_type = encoding_type_or_default_for_version(
+            encoding_type,
+            self.sui_client().system_object_version().await?,
+        );
+
         let result = self
             .reserve_and_store_blobs_retry_committees(
                 &[blob],
