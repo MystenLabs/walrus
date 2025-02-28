@@ -19,7 +19,7 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
     telemetry_subscribers::init_for_testing();
     let epoch_duration = Duration::from_secs(5);
     let (_sui, storage_nodes, _) =
-        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             epoch_duration,
             TestNodesConfig {
                 node_weights: vec![1, 1],

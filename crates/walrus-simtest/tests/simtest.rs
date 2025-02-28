@@ -208,7 +208,7 @@ mod tests {
         });
 
         let (_sui_cluster, _cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4],
@@ -252,7 +252,7 @@ mod tests {
         });
 
         let (sui_cluster, _walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(60 * 60),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4],
@@ -451,7 +451,7 @@ mod tests {
     #[walrus_simtest]
     async fn test_lagging_node_recovery() {
         let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4],
@@ -603,7 +603,7 @@ mod tests {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
         // changes in the test.
         let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(10),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4],
@@ -741,7 +741,7 @@ mod tests {
         // changes in the test.
         let mut node_weights = vec![2, 2, 3, 3, 3];
         let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
                     node_weights: node_weights.clone(),
@@ -823,7 +823,7 @@ mod tests {
         });
 
         let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
@@ -981,7 +981,7 @@ mod tests {
     #[ignore = "ignore simtests by default"]
     async fn test_sync_node_config_params_basic() {
         let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
@@ -1165,7 +1165,7 @@ mod tests {
     #[ignore = "ignore simtests by default"]
     async fn test_registered_node_update_protocol_key() {
         let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
@@ -1298,7 +1298,7 @@ mod tests {
     #[ignore = "ignore simtests by default"]
     async fn test_node_config_synchronizer() {
         let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_epoch_duration_generic::<SimStorageNodeHandle>(
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(30),
                 TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],

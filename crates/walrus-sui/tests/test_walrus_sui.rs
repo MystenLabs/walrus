@@ -486,7 +486,7 @@ async fn test_collect_commission() -> anyhow::Result<()> {
         .reserve_space(resource_size, 1)
         .await?;
 
-    // Change epoch to allow collecting commission
+    // Change epoch to allow collecting commission.
     walrus_client.as_ref().voting_end().await?;
     walrus_client.as_ref().initiate_epoch_change().await?;
 
@@ -657,8 +657,6 @@ async fn publish_with_default_system_with_epoch_duration(
     epoch_duration: Duration,
 ) -> Result<(SystemContext, SuiContractClient)> {
     // Default system config, compatible with current tests
-
-    // TODO(#814): make epoch duration in test configurable. Currently hardcoded to 1 hour.
     let system_context = create_and_init_system_for_test(
         &mut admin_wallet,
         NonZeroU16::new(100).expect("100 is not 0"),
