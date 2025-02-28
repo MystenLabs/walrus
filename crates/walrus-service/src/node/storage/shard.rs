@@ -433,8 +433,15 @@ impl ShardStorage {
             .map(|s| s.unwrap_or(ShardStatus::None))
     }
 
-    pub(crate) fn set_start_sync_status(&self) -> Result<(), TypedStoreError> {
-        self.shard_status.insert(&(), &ShardStatus::ActiveSync)
+    /// Sets the shard db to prepare for a new shard sync.
+    ///
+    /// This function will delete the existing sync progress for the shard and reset the shard
+    /// sync from scratch.
+    pub(crate) fn record_start_shard_sync(&self) -> Result<(), TypedStoreError> {
+        let mut batch = self.shard_status.batch();
+        batch.delete_batch(&self.shard_sync_progress, [()])?;
+        batch.insert_batch(&self.shard_status, [((), ShardStatus::ActiveSync)])?;
+        batch.write()
     }
 
     pub(crate) fn set_active_status(&self) -> Result<(), TypedStoreError> {

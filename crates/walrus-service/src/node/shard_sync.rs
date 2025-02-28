@@ -259,17 +259,9 @@ impl ShardSyncHandler {
             return Ok(());
         }
 
-        // Validate shard status
-        if shard_status != ShardStatus::None {
-            return Err(SyncShardClientError::InvalidShardStatusToSync(
-                shard_index,
-                shard_status,
-            ));
-        }
-
         // Update status and start sync. After this function returns, we can always restart
         // the sync upon node restart.
-        shard_storage.set_start_sync_status()?;
+        shard_storage.record_start_shard_sync()?;
         self.start_shard_sync_impl(shard_storage.clone()).await;
         Ok(())
     }
@@ -644,20 +636,6 @@ mod tests {
             cluster.nodes[0].storage_node.inner.clone(),
             ShardSyncConfig::default(),
         );
-
-        cluster.nodes[0]
-            .storage_node
-            .inner
-            .storage
-            .shard_storage(ShardIndex(0))
-            .expect("Failed to get shard storage")
-            .update_status_in_test(ShardStatus::LockedToMove)
-            .expect("Failed to update shard status");
-
-        assert!(matches!(
-            shard_sync_handler.start_new_shard_sync(ShardIndex(0)).await,
-            Err(SyncShardClientError::InvalidShardStatusToSync(..))
-        ));
 
         cluster.nodes[0]
             .storage_node

@@ -31,6 +31,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
+    ShardIndex,
     SliverPairIndex,
     DEFAULT_ENCODING,
     SUPPORTED_ENCODING_TYPES,
@@ -79,7 +80,7 @@ use walrus_sui::{
         ContractEvent,
     },
 };
-use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
+use walrus_test_utils::{assert_unordered_eq, async_param_test, Result as TestResult, WithTempDir};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]
@@ -1128,11 +1129,17 @@ async fn test_repeated_shard_move() -> TestResult {
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(4).await;
     assert_eq!(
-        walrus_cluster.nodes[0].storage_node.existing_shards().len(),
+        walrus_cluster.nodes[0]
+            .storage_node()
+            .existing_shards()
+            .len(),
         0
     );
     assert_eq!(
-        walrus_cluster.nodes[1].storage_node.existing_shards().len(),
+        walrus_cluster.nodes[1]
+            .storage_node()
+            .existing_shards()
+            .len(),
         2
     );
 
@@ -1891,6 +1898,109 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
             })
         ) if function.as_str() == "get_idx" && module.as_str() == "vec_map" && *error_code == 1
     ));
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (_sui_cluster_handle, walrus_cluster, client) =
+        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+            Duration::from_secs(20),
+            TestNodesConfig {
+                node_weights: vec![1, 1],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            },
+            None,
+            ClientCommunicationConfig::default_for_test(),
+            false,
+        )
+        .await?;
+
+    walrus_cluster.wait_for_nodes_to_reach_epoch(2).await;
+
+    // In epoch 2, move all the shards to node 1.
+    client
+        .as_ref()
+        .stake_with_node_pool(
+            walrus_cluster.nodes[1]
+                .storage_node_capability
+                .as_ref()
+                .unwrap()
+                .node_id,
+            FROST_PER_NODE_WEIGHT * 5,
+        )
+        .await?;
+
+    walrus_cluster.wait_for_nodes_to_reach_epoch(3).await;
+
+    // In epoch 3, move all the shards to node 0.
+    client
+        .as_ref()
+        .stake_with_node_pool(
+            walrus_cluster.nodes[0]
+                .storage_node_capability
+                .as_ref()
+                .unwrap()
+                .node_id,
+            FROST_PER_NODE_WEIGHT * 30,
+        )
+        .await?;
+
+    walrus_cluster.wait_for_nodes_to_reach_epoch(4).await;
+    // Wait for a little bit to make sure the shard sync task starts and shard status is updated.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // In epoch 4, all the shards are locked in node 1, and live in node 0.
+    assert_eq!(
+        walrus_cluster.nodes[1]
+            .storage_node()
+            .existing_shards()
+            .len(),
+        2
+    );
+    assert_eq!(
+        walrus_cluster.nodes[0]
+            .storage_node()
+            .existing_shards()
+            .len(),
+        2
+    );
+    assert_unordered_eq!(
+        walrus_cluster.nodes[1]
+            .storage_node()
+            .existing_shards_live(),
+        vec![]
+    );
+    assert_unordered_eq!(
+        walrus_cluster.nodes[0]
+            .storage_node()
+            .existing_shards_live(),
+        vec![ShardIndex(0), ShardIndex(1)]
+    );
+
+    walrus_cluster.wait_for_nodes_to_reach_epoch(6).await;
+
+    // In epoch 6, shards should be removed from node 1.
+    assert_eq!(
+        walrus_cluster.nodes[1]
+            .storage_node()
+            .existing_shards()
+            .len(),
+        0
+    );
+    assert_eq!(
+        walrus_cluster.nodes[0]
+            .storage_node()
+            .existing_shards()
+            .len(),
+        2
+    );
 
     Ok(())
 }
