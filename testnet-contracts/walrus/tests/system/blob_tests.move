@@ -531,10 +531,11 @@ fun blob_take_metadata_nonexistent() {
     })
 }
 
-#[test, expected_failure(abort_code = blob::EMissingMetadata)]
+#[test]
 fun blob_insert_metadata_pair_nonexistent() {
     call_function_with_default_blob!(|blob| {
-        // Try to insert metadata into a blob without metadata. Test fails here.
+        // Try to insert metadata into a blob without metadata.
+        // This should not fail, as new metadata is created if it doesn't exist.
         blob.insert_or_update_metadata_pair(b"key1".to_string(), b"value1".to_string());
     })
 }
@@ -544,6 +545,15 @@ fun blob_remove_metadata_pair_nonexistent() {
     call_function_with_default_blob!(|blob| {
         // Try to remove metadata from a blob without metadata. Test fails here.
         blob.remove_metadata_pair(&b"key1".to_string());
+    })
+}
+
+#[test]
+fun blob_remove_metadata_pair_if_exists_nonexistent() {
+    call_function_with_default_blob!(|blob| {
+        // Try to remove metadata from a blob without metadata.
+        // Should not fail, as the function checks if the metadata exists.
+        blob.remove_metadata_pair_if_exists(&b"key1".to_string());
     })
 }
 
