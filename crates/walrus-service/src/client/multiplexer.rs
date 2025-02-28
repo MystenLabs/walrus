@@ -129,7 +129,7 @@ impl ClientMultiplexer {
     pub async fn submit_write(
         &self,
         blob: &[u8],
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
@@ -170,7 +170,7 @@ impl WalrusWriteClient for ClientMultiplexer {
     async fn write_blob(
         &self,
         blob: &[u8],
-        encoding_type: EncodingType,
+        encoding_type: Option<EncodingType>,
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
