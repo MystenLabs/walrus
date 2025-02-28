@@ -46,7 +46,8 @@ fun init_blob_display(p: &Publisher, ctx: &mut TxContext): Display<Blob> {
 
     d.add(b"name".to_string(), b"Walrus Blob ({size}b)".to_string());
     d.add(
-        b"description".to_string(), // editorconfig-checker-disable-next-line
+        b"description".to_string(),
+        // editorconfig-checker-disable-next-line
         b"Registered: {registered_epoch}; certified: {certified_epoch}; deletable: {deletable}".to_string(),
     );
     d.add(b"image_url".to_string(), b"https://www.walrus.xyz/walrus-blob.svg".to_string());
