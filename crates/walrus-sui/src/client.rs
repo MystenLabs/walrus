@@ -636,13 +636,11 @@ impl SuiContractClient {
         node_capability_object_id: ObjectID,
     ) -> SuiClientResult<()> {
         self.retry_on_wrong_version(|| async {
-            let r = self
-                .inner
+            self.inner
                 .lock()
                 .await
                 .epoch_sync_done(epoch, node_capability_object_id)
-                .await;
-            r
+                .await
         })
         .await
     }
@@ -1604,8 +1602,7 @@ impl SuiContractClientInner {
         let mut pt_builder = self.transaction_builder()?;
         pt_builder.initiate_epoch_change().await?;
         let (ptb, _sui_cost) = pt_builder.finish().await?;
-        let r = self.sign_and_send_ptb(ptb).await;
-        r?;
+        self.sign_and_send_ptb(ptb).await?;
         Ok(())
     }
 

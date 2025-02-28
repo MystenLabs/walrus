@@ -502,6 +502,9 @@ impl EpochOperation for VotingEndOperation {
             return Ok(());
         }
         tracing::info!(epoch_under_vote, "attempting to end voting");
+        // Move transaction execution to a separate task so that it cannot be cancelled when
+        // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
+        // conflicts.
         tokio::spawn({
             let contract = contract.clone();
             async move { contract.end_voting().await }
@@ -571,6 +574,9 @@ impl EpochOperation for InitiateEpochChangeOperation {
             return Ok(());
         }
         tracing::info!(next_epoch, "attempting to start epoch change");
+        // Move transaction execution to a separate task so that it cannot be cancelled when
+        // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
+        // conflicts.
         tokio::spawn({
             let contract = contract.clone();
             async move { contract.initiate_epoch_change().await }
