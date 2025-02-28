@@ -127,7 +127,7 @@ mod tests {
     use walrus_sui::types::{move_structs::VotingParams, NetworkAddress};
 
     use super::*;
-    use crate::node::config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet};
+    use crate::node::config::{PathOrInPlace, StorageNodeConfig};
 
     #[tokio::test]
     async fn test_load_config_and_generate_update_params() -> anyhow::Result<()> {
@@ -160,23 +160,17 @@ mod tests {
         // Load the configuration.
         let loaded_config = config_loader.load_storage_node_config().await?;
 
-        // Create a SyncedNodeConfigSet with different values.
-        let synced_config = SyncedNodeConfigSet {
-            name: "old-name".to_string(),
-            network_address: NetworkAddress("old-host:8080".to_string()),
-            network_public_key: loaded_config.network_key_pair().public().clone(),
-            public_key: loaded_config.protocol_key_pair().public().clone(),
-            next_public_key: None,
-            voting_params: VotingParams {
+        // Call generate_update_params() with the synced config.
+        let update_params = loaded_config.generate_update_params(
+            "old-name",
+            "old-host:8080",
+            loaded_config.network_key_pair().public(),
+            &VotingParams {
                 storage_price: 150,
                 write_price: 2300,
                 node_capacity: 251_000_000,
             },
-            metadata: Default::default(),
-        };
-
-        // Call generate_update_params() with the synced config.
-        let update_params = loaded_config.generate_update_params(&synced_config);
+        );
 
         // Verify expected updates are generated.
         assert_eq!(update_params.name, Some("test-node".to_string()));
