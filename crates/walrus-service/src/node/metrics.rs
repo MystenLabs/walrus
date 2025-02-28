@@ -44,7 +44,7 @@ type U64Gauge = GenericGauge<AtomicU64>;
 
 telemetry::define_metric_set! {
     /// Metrics exported by the storage node.
-    struct NodeMetricSet {
+    pub(crate) struct NodeMetricSet {
         #[help = "The total number of metadata stored"]
         metadata_stored_total: IntCounter[],
 
@@ -141,7 +141,7 @@ fn default_buckets_for_slow_operations() -> Vec<f64> {
 
 telemetry::define_metric_set! {
     /// Metrics exported by the default committee service.
-    struct CommitteeServiceMetricSet {
+    pub(crate) struct CommitteeServiceMetricSet {
         current_epoch: CurrentEpochMetric,
         current_epoch_state: CurrentEpochStateMetric,
 

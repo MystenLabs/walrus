@@ -6,13 +6,15 @@
 use std::path::Path;
 
 use anyhow::Result;
-use prometheus::core::{AtomicU64, GenericCounter};
 use walrus_core::BlobId;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
 use crate::{
     client::{Client as WalrusClient, ClientErrorKind::BlobIdDoesNotExist},
-    node::events::event_blob::EventBlob as LocalEventBlob,
+    node::events::{
+        event_blob::EventBlob as LocalEventBlob,
+        event_processor::EventProcessorMetrics,
+    },
 };
 
 /// Responsible for downloading and managing event blobs
@@ -40,7 +42,7 @@ impl EventBlobDownloader {
         upto_checkpoint: Option<u64>,
         from_blob: Option<BlobId>,
         path: &Path,
-        progress_counter: Option<&GenericCounter<AtomicU64>>,
+        metrics: Option<&EventProcessorMetrics>,
     ) -> Result<Vec<BlobId>> {
         let mut blobs = Vec::new();
         let mut prev_event_blob = match from_blob {
@@ -73,8 +75,8 @@ impl EventBlobDownloader {
                 }
             };
             let blob_path = path.join(prev_event_blob.to_string());
-            let blob = if blob_path.exists() {
-                std::fs::read(blob_path.as_path())?
+            let (blob, blob_source) = if blob_path.exists() {
+                (std::fs::read(blob_path.as_path())?, "local")
             } else {
                 let result = self
                     .walrus_client
@@ -85,13 +87,23 @@ impl EventBlobDownloader {
                     .await;
                 let Ok(blob) = result else {
                     let err = result.err().unwrap();
+                    metrics.inspect(|&m| {
+                        m.event_processor_event_blob_fetched
+                            .with_label_values(&["network"])
+                            .inc()
+                    });
                     return Err(err.into());
                 };
-                blob
+                (blob, "network")
             };
 
+            metrics.inspect(|&m| {
+                m.event_processor_event_blob_fetched
+                    .with_label_values(&[blob_source])
+                    .inc()
+            });
+
             tracing::info!(blob_id = %prev_event_blob, "finished reading event blob");
-            progress_counter.inspect(|&c| c.inc());
 
             let mut event_blob = LocalEventBlob::new(&blob)?;
 

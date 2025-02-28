@@ -7,7 +7,7 @@ use crate::common::telemetry;
 
 telemetry::define_metric_set! {
     /// Metrics exported by the backup fetcher node.
-    struct BackupFetcherMetricSet {
+    pub(crate) struct BackupFetcherMetricSet {
         #[help = "The total count of blobs fetched from Walrus"]
         blobs_fetched: IntCounter[],
 
@@ -53,7 +53,7 @@ fn buckets_for_blob_durations() -> Vec<f64> {
 
 telemetry::define_metric_set! {
     /// Metrics exported by the backup orchestrator node.
-    struct BackupOrchestratorMetricSet {
+    pub(crate) struct BackupOrchestratorMetricSet {
         #[help = "The count of all Sui stream events seen"]
         sui_events_seen: IntCounter[],
 
@@ -69,7 +69,7 @@ telemetry::define_metric_set! {
 }
 telemetry::define_metric_set! {
     /// Metrics exported by the backup orchestrator node.
-    struct BackupDbMetricSet {
+    pub(crate) struct BackupDbMetricSet {
         #[help = "The states of the blobs in the db"]
         blob_states: GaugeVec["state"],
     }

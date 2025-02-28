@@ -25,12 +25,7 @@ use fastcrypto::{
 };
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-use prometheus::{
-    core::{AtomicU64, GenericCounter},
-    Encoder,
-    HistogramVec,
-    Registry,
-};
+use prometheus::{Encoder, HistogramVec, Registry};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -65,7 +60,7 @@ use walrus_sui::{
 };
 
 use super::active_committees::ActiveCommittees;
-use crate::node::config::MetricsPushConfig;
+use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -797,7 +792,7 @@ pub async fn collect_event_blobs_for_catchup(
     system_object_id: ObjectID,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
-    catchup_counter: Option<&GenericCounter<AtomicU64>>,
+    metrics: Option<&EventProcessorMetrics>,
 ) -> Result<Vec<BlobId>> {
     use walrus_sui::client::contract_config::ContractConfig;
 
@@ -817,7 +812,7 @@ pub async fn collect_event_blobs_for_catchup(
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
     let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path, catchup_counter)
+        .download(upto_checkpoint, None, recovery_path, metrics)
         .await?;
     Ok(blob_ids)
 }
@@ -831,7 +826,7 @@ pub async fn collect_event_blobs_for_catchup(
     package_id: Option<ObjectID>,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
-    _catchup_counter: Option<&GenericCounter<AtomicU64>>,
+    _metrics: Option<&EventProcessorMetrics>,
 ) -> Result<Vec<BlobId>> {
     Ok(vec![])
 }
