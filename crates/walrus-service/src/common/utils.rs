@@ -512,65 +512,82 @@ async fn push_metrics(
 /// as well as to local existing shards (for shard removal and recovery).
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub(crate) struct ShardDiffCalculator {
-    /// The list of shards that are assigned to the node in previous epoch.
-    shards_assigned_prev_epoch: Vec<ShardIndex>,
     /// The list of shards that are assigned to the node in current epoch.
-    shards_assigned_current_epoch: Vec<ShardIndex>,
-    /// The list of shards that the node currently holds. In includes shards in all status.
-    shards_exist: Vec<ShardIndex>,
+    all_owned_shards: Vec<ShardIndex>,
+    /// The list of shards that the node gained from the previous epoch.
+    gained_shards_from_prev_epoch: Vec<ShardIndex>,
+    /// The list of shards that the node no longer needs and can be removed.
+    shards_to_remove: Vec<ShardIndex>,
+    /// The list of shards that the node should lock.
+    shards_to_lock: Vec<ShardIndex>,
 }
 
 impl ShardDiffCalculator {
     /// Create a new `ShardDiffCalculator` for a storage node.
+    /// TODO(WAL-657): Use `node_id` instead of `public_key`.
     pub fn new(committees: &ActiveCommittees, id: &PublicKey, shards_exist: &[ShardIndex]) -> Self {
-        let shards_assigned_prev_epoch: Vec<ShardIndex> = committees
+        let shards_assigned_prev_epoch = committees
             .previous_committee()
-            .map_or_else(Vec::new, |committee| {
-                committee.shards_for_node_public_key(id).to_vec()
-            });
+            .map(|committee| committee.shards_for_node_public_key(id).to_vec())
+            .unwrap_or_default();
         let shards_assigned_current_epoch = committees
             .current_committee()
             .shards_for_node_public_key(id)
             .to_vec();
+
+        let gained_shards_from_prev_epoch = {
+            let current: HashSet<_> = shards_assigned_current_epoch.iter().copied().collect();
+            let prev: HashSet<_> = shards_assigned_prev_epoch.iter().copied().collect();
+            current.difference(&prev).copied().collect()
+        };
+
+        let shards_to_remove = {
+            let all: HashSet<_> = shards_exist.iter().copied().collect();
+            let assigned: HashSet<_> = shards_assigned_prev_epoch
+                .iter()
+                .chain(shards_assigned_current_epoch.iter())
+                .copied()
+                .collect();
+            all.difference(&assigned).copied().collect()
+        };
+
+        let shards_to_lock = {
+            let prev: HashSet<_> = shards_assigned_prev_epoch.iter().copied().collect();
+            let current: HashSet<_> = shards_assigned_current_epoch.iter().copied().collect();
+            prev.difference(&current).copied().collect()
+        };
+
         Self {
-            shards_assigned_prev_epoch,
-            shards_assigned_current_epoch,
-            shards_exist: shards_exist.to_vec(),
+            all_owned_shards: shards_assigned_current_epoch,
+            gained_shards_from_prev_epoch,
+            shards_to_remove,
+            shards_to_lock,
         }
     }
 
     /// Returns the list of shards that are assigned to the node in current epoch serving data.
-    pub fn all_owned_shards(&self) -> Vec<ShardIndex> {
-        self.shards_assigned_current_epoch.clone()
+    pub fn all_owned_shards(&self) -> &[ShardIndex] {
+        &self.all_owned_shards
     }
 
     /// These are the shards that are gained from the previous epoch, and can be synced using
     /// shard sync.
-    pub fn gained_shards_from_prev_epoch(&self) -> Vec<ShardIndex> {
-        let current: HashSet<_> = self.shards_assigned_current_epoch.iter().copied().collect();
-        let prev: HashSet<_> = self.shards_assigned_prev_epoch.iter().copied().collect();
-        current.difference(&prev).copied().collect()
+    pub fn gained_shards_from_prev_epoch(&self) -> &[ShardIndex] {
+        &self.gained_shards_from_prev_epoch
     }
 
-    /// These are the shards that are no longer needed and can be removed.
-    pub fn shards_to_remove(&self) -> Vec<ShardIndex> {
-        let all: HashSet<_> = self.shards_exist.iter().copied().collect();
-        let assigned: HashSet<_> = self
-            .shards_assigned_prev_epoch
-            .iter()
-            .chain(self.shards_assigned_current_epoch.iter())
-            .copied()
-            .collect();
-        all.difference(&assigned).copied().collect()
+    /// These are the shards that are no longer needed and can be removed. Note that these shards
+    /// do not include the ones that are just moved out. We still need to keep them for shard
+    /// sync. These are the shards that was owned by the node at least two epochs ago.
+    pub fn shards_to_remove(&self) -> &[ShardIndex] {
+        &self.shards_to_remove
     }
 
     /// These are the shards that are just moved out, and therefore should be locked. They
     /// should not be removed yet given that they need to be served as the source of shard
     /// sync for the new shard owner.
-    pub fn shards_to_lock(&self) -> Vec<ShardIndex> {
-        let prev: HashSet<_> = self.shards_assigned_prev_epoch.iter().copied().collect();
-        let current: HashSet<_> = self.shards_assigned_current_epoch.iter().copied().collect();
-        prev.difference(&current).copied().collect()
+    pub fn shards_to_lock(&self) -> &[ShardIndex] {
+        &self.shards_to_lock
     }
 }
 
@@ -908,7 +925,7 @@ mod tests {
 
     use std::num::NonZeroU16;
 
-    use walrus_sui::types::{Committee, StorageNode};
+    use walrus_sui::{test_utils, types::Committee};
     use walrus_test_utils::{assert_unordered_eq, param_test};
 
     use super::*;
@@ -1066,12 +1083,12 @@ mod tests {
         let current_epoch = 6;
 
         // Build active committees based on the input.
-        let mut node_0 = StorageNode::new_for_testing();
+        let mut node_0 = test_utils::new_move_storage_node_for_testing();
         node_0.shard_ids = input.prev_epoch_shards[0]
             .iter()
             .map(|s| ShardIndex(*s))
             .collect();
-        let mut node_1 = StorageNode::new_for_testing();
+        let mut node_1 = test_utils::new_move_storage_node_for_testing();
         node_1.shard_ids = input.prev_epoch_shards[1]
             .iter()
             .map(|s| ShardIndex(*s))
@@ -1125,36 +1142,35 @@ mod tests {
         );
 
         assert_unordered_eq!(
-            shard_diff_calculator.all_owned_shards(),
+            shard_diff_calculator.all_owned_shards().iter().copied(),
             expected_result
                 .all_owned_shards
                 .iter()
                 .map(|s| ShardIndex(*s))
-                .collect::<Vec<_>>()
         );
         assert_unordered_eq!(
-            shard_diff_calculator.gained_shards_from_prev_epoch(),
+            shard_diff_calculator
+                .gained_shards_from_prev_epoch()
+                .iter()
+                .copied(),
             expected_result
                 .gained_shards_from_prev_epoch
                 .iter()
                 .map(|s| ShardIndex(*s))
-                .collect::<Vec<_>>()
         );
         assert_unordered_eq!(
-            shard_diff_calculator.shards_to_remove(),
+            shard_diff_calculator.shards_to_remove().iter().copied(),
             expected_result
                 .shards_to_remove
                 .iter()
                 .map(|s| ShardIndex(*s))
-                .collect::<Vec<_>>()
         );
         assert_unordered_eq!(
-            shard_diff_calculator.shards_to_lock(),
+            shard_diff_calculator.shards_to_lock().iter().copied(),
             expected_result
                 .shards_to_lock
                 .iter()
                 .map(|s| ShardIndex(*s))
-                .collect::<Vec<_>>()
         );
     }
 }

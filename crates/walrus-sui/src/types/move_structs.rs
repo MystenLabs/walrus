@@ -20,7 +20,6 @@ use sui_types::{
 };
 use utoipa::openapi::schema;
 use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
     messages::BlobPersistenceType,
     BlobId,
     EncodingType,
@@ -279,22 +278,6 @@ pub struct StorageNode {
     /// The indices of the shards held by the storage node.
     #[serde(default, skip_deserializing)]
     pub shard_ids: Vec<ShardIndex>,
-}
-
-impl StorageNode {
-    /// Creates a new `StorageNodeCap` for testing.
-    pub fn new_for_testing() -> Self {
-        Self {
-            name: "test".to_string(),
-            node_id: ObjectID::random(),
-            network_address: NetworkAddress("127.0.0.1:8080".to_string()),
-            public_key: ProtocolKeyPair::generate().public().clone(),
-            next_epoch_public_key: None,
-            network_public_key: NetworkKeyPair::generate().public().clone(),
-            metadata: ObjectID::random(),
-            shard_ids: vec![],
-        }
-    }
 }
 
 impl AssociatedContractStruct for StorageNode {

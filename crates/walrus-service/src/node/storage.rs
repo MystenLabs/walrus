@@ -636,12 +636,12 @@ impl Storage {
             .read()
             .expect("Should acquire the lock successfully")
             .values()
-            .filter(|&shard_storage| {
+            .filter_map(|shard_storage| {
                 shard_storage
                     .status()
                     .is_ok_and(|status| status.is_owned_by_node())
+                    .then_some(shard_storage.id())
             })
-            .map(|shard_storage| shard_storage.id())
             .collect::<Vec<_>>()
     }
 }

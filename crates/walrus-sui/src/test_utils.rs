@@ -32,12 +32,30 @@ use tokio::runtime::Runtime;
 #[cfg(msim)]
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use walrus_core::{BlobId, DEFAULT_ENCODING};
+use walrus_core::{
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    messages::{
+        BlobPersistenceType,
+        Confirmation,
+        ConfirmationCertificate,
+        InvalidBlobCertificate,
+        InvalidBlobIdMsg,
+    },
+    BlobId,
+    DEFAULT_ENCODING,
+};
 use walrus_test_utils::WithTempDir;
 
 use crate::{
     client::SuiContractClient,
-    types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
+    types::{
+        BlobCertified,
+        BlobDeleted,
+        BlobRegistered,
+        InvalidBlobId,
+        NetworkAddress,
+        StorageNode,
+    },
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 
@@ -509,5 +527,19 @@ impl EventForTesting for InvalidBlobId {
             blob_id,
             event_id: event_id_for_testing(),
         }
+    }
+}
+
+/// Creates a new StorageNode object representing on chain storage node for testing.
+pub fn new_move_storage_node_for_testing() -> StorageNode {
+    StorageNode {
+        name: "test".to_string(),
+        node_id: ObjectID::random(),
+        network_address: NetworkAddress("127.0.0.1:8080".to_string()),
+        public_key: ProtocolKeyPair::generate().public().clone(),
+        next_epoch_public_key: None,
+        network_public_key: NetworkKeyPair::generate().public().clone(),
+        metadata: ObjectID::random(),
+        shard_ids: vec![],
     }
 }

@@ -1290,7 +1290,9 @@ impl StorageNode {
         // contract for multiple epochs. Here we need to make sure that all the shards that is
         // assigned to the node in the latest epoch are created.
         self.inner
-            .create_storage_for_shards_in_background(shard_diff_calculator.all_owned_shards())
+            .create_storage_for_shards_in_background(
+                shard_diff_calculator.all_owned_shards().to_vec(),
+            )
             .await?;
 
         // Given that the storage node is severely lagging, the node may contain shards in outdated
@@ -1306,7 +1308,7 @@ impl StorageNode {
 
         // For shards that just moved out, we need to lock them to not store more data in them.
         for shard in shard_diff_calculator.shards_to_lock() {
-            if let Some(shard_storage) = self.inner.storage.shard_storage(shard) {
+            if let Some(shard_storage) = self.inner.storage.shard_storage(*shard) {
                 shard_storage
                     .lock_shard_for_epoch_change()
                     .context("failed to lock shard")?;
@@ -1325,7 +1327,7 @@ impl StorageNode {
                 .start_finish_epoch_change_tasks(
                     event_handle,
                     event,
-                    shard_diff_calculator.shards_to_remove(),
+                    shard_diff_calculator.shards_to_remove().to_vec(),
                     committees,
                     true,
                 );
@@ -1402,7 +1404,7 @@ impl StorageNode {
             ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards());
 
         for shard_id in shard_diff_calculator.shards_to_lock() {
-            let Some(shard_storage) = storage.shard_storage(shard_id) else {
+            let Some(shard_storage) = storage.shard_storage(*shard_id) else {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
             };
@@ -1429,7 +1431,7 @@ impl StorageNode {
             assert!(committees.current_committee().contains(public_key));
 
             self.inner
-                .create_storage_for_shards_in_background(shards_gained.clone())
+                .create_storage_for_shards_in_background(shards_gained.to_vec())
                 .await?;
 
             if new_node_joining_committee {
@@ -1447,7 +1449,7 @@ impl StorageNode {
             // There shouldn't be an epoch change event for the genesis epoch.
             assert!(event.epoch != GENESIS_EPOCH);
             self.shard_sync_handler
-                .start_sync_shards(shards_gained, new_node_joining_committee)
+                .start_sync_shards(shards_gained.to_vec(), new_node_joining_committee)
                 .await?;
             ongoing_shard_sync = true;
         }
@@ -1456,7 +1458,7 @@ impl StorageNode {
             .start_finish_epoch_change_tasks(
                 event_handle,
                 event,
-                shard_diff_calculator.shards_to_remove(),
+                shard_diff_calculator.shards_to_remove().to_vec(),
                 committees,
                 ongoing_shard_sync,
             );
