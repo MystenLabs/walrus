@@ -47,6 +47,7 @@ use crate::{
 /// Configuration for the config synchronizer.
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ConfigSynchronizerConfig {
     /// Interval between config monitoring checks.
     #[serde_as(as = "DurationSeconds<u64>")]
@@ -1107,6 +1108,8 @@ mod tests {
                     scale_down_lag_threshold: 10
                     base_config:
                         max_delay_millis: 1000
+            config_synchronizer:
+                enabled: false
         "};
 
         let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
