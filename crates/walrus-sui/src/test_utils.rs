@@ -34,13 +34,6 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
-    messages::{
-        BlobPersistenceType,
-        Confirmation,
-        ConfirmationCertificate,
-        InvalidBlobCertificate,
-        InvalidBlobIdMsg,
-    },
     BlobId,
     DEFAULT_ENCODING,
 };

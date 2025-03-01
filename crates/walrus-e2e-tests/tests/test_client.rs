@@ -1907,7 +1907,7 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
 async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let (_sui_cluster_handle, walrus_cluster, client) =
-        test_cluster::default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             Duration::from_secs(20),
             TestNodesConfig {
                 node_weights: vec![1, 1],
