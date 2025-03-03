@@ -4,6 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures::future::join_all;
+use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
@@ -28,18 +29,29 @@ impl NodeRecoveryHandler {
         }
     }
 
-    pub async fn start_node_recovery(&self, epoch: Epoch) -> Result<(), TypedStoreError> {
+    /// Starts the node recovery process to recover blobs that are certified before the given epoch.
+    /// For blobs that are certified after `certified_before_epoch`, the event processing is in
+    /// charge of making sure the blob is stored at all shards.
+    pub async fn start_node_recovery(
+        &self,
+        certified_before_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
         let mut locked_task_handle = self.task_handle.lock().unwrap();
         assert!(locked_task_handle.is_none());
 
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
         let task_handle = tokio::spawn(async move {
+            fail_point_async!("start_node_recovery_entry");
             loop {
                 let mut all_blob_syncs = Vec::new();
+                tracing::info!(
+                    "scanning blobs to recover certified blobs before epoch {}",
+                    certified_before_epoch
+                );
                 for (blob_id, blob_info) in node
                     .storage
-                    .certified_blob_info_iter_before_epoch(epoch)
+                    .certified_blob_info_iter_before_epoch(certified_before_epoch)
                     .filter_map(|blob_result| {
                         blob_result
                             .inspect_err(|error| {
@@ -48,12 +60,15 @@ impl NodeRecoveryHandler {
                             .ok()
                     })
                 {
-                    if !blob_info.is_certified(epoch) {
+                    // Note that here we need to use the current epoch to check if the blob is
+                    // still certified. If the blob is retired, we don't need to recover it anymore.
+                    if !blob_info.is_certified(node.current_epoch()) {
                         // Skip blobs that are not certified in the given epoch. This
                         // includes blobs that are invalid or expired.
                         tracing::debug!(
                             walrus.blob_id = %blob_id,
-                            walrus.epoch = epoch,
+                            walrus.blob_certified_before_epoch = certified_before_epoch,
+                            walrus.current_epoch = node.current_epoch(),
                             "skip non-certified blob"
                         );
                         continue;
@@ -62,8 +77,8 @@ impl NodeRecoveryHandler {
                     if let Ok(stored_at_all_shards) = node.is_stored_at_all_shards(&blob_id).await {
                         if stored_at_all_shards {
                             tracing::debug!(
-                                walrus.blob_id = %blob_id,
-                                walrus.epoch = %epoch,
+                                walrus.blob_certified_before_epoch = certified_before_epoch,
+                                walrus.current_epoch = node.current_epoch(),
                                 "blob is stored at all shards; skip recovery"
                             );
                             continue;
@@ -115,18 +130,23 @@ impl NodeRecoveryHandler {
                     .map(|notify| notify.notified())
                     .collect();
                 join_all(notify_futures).await;
+
+                // TODO(WAL-669): right now, we have to do one more loop to check if all the blobs
+                // are recovered. This is not efficient because checking blob existence is
+                // expensive. It's better that blob sync handler can return the blob sync status
+                // and we can avoid the extra loop of all the blob syncs finished successfully.
             }
 
             let current_node_status = node
                 .storage
                 .node_status()
                 .expect("reading node status should not fail");
-            if current_node_status == NodeStatus::RecoveryInProgress(epoch) {
+            if current_node_status == NodeStatus::RecoveryInProgress(certified_before_epoch) {
                 tracing::info!("node recovery task finished; set node status to active");
                 match node.set_node_status(NodeStatus::Active) {
                     Ok(()) => {
                         node.contract_service
-                            .epoch_sync_done(epoch, node.node_capability())
+                            .epoch_sync_done(certified_before_epoch, node.node_capability())
                             .await
                     }
                     Err(error) => {

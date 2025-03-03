@@ -71,7 +71,13 @@ mod tests {
         data_length: usize,
         write_only: bool,
     ) -> anyhow::Result<()> {
-        tracing::info!("generating random blob of length {data_length}");
+        // Get a random epoch length for the blob to be stored.
+        let epoch_ahead = rand::thread_rng().gen_range(1..=5);
+
+        tracing::info!(
+            "generating random blobs of length {data_length} and store them for {epoch_ahead} \
+            epochs"
+        );
         let blob = walrus_test_utils::random_data(data_length);
 
         let store_results = client
@@ -79,7 +85,7 @@ mod tests {
             .reserve_and_store_blobs_retry_committees(
                 &[blob.as_slice()],
                 DEFAULT_ENCODING,
-                5,
+                epoch_ahead,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
@@ -197,8 +203,8 @@ mod tests {
 
     // Tests that we can create a Walrus cluster with a Sui cluster and run basic
     // operations deterministically.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest(check_determinism)]
-    #[ignore = "ignore simtests by default"]
     async fn walrus_basic_determinism() {
         let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
             // TODO: remove once Sui simtest can work with these features.
@@ -241,8 +247,8 @@ mod tests {
     }
 
     // Tests the scenario where a single node crashes and restarts.
-    #[walrus_simtest]
     #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
     async fn walrus_with_single_node_crash_and_restart() {
         let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
             // TODO: remove once Sui simtest can work with these features.
@@ -447,7 +453,7 @@ mod tests {
     }
 
     // This integration test simulates a scenario where a node is lagging behind and recovers.
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_lagging_node_recovery() {
         let (_sui_cluster, walrus_cluster, client) =
@@ -597,7 +603,7 @@ mod tests {
 
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
@@ -723,7 +729,7 @@ mod tests {
 
     // This test simulates a scenario where a node is repeatedly moving shards among storage nodes,
     // and a workload is running concurrently.
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest(config = "latency_config()")]
     async fn test_repeated_shard_move_with_workload() {
         const MAX_NODE_WEIGHT: u16 = 6;
@@ -815,7 +821,7 @@ mod tests {
         }
     }
 
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
         register_fail_point("fail_point_direct_shard_sync_recovery", move || {
@@ -977,8 +983,8 @@ mod tests {
         clear_fail_point("fail_point_direct_shard_sync_recovery");
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    #[ignore = "ignore simtests by default"]
     async fn test_sync_node_config_params_basic() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
@@ -1161,8 +1167,8 @@ mod tests {
         );
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    #[ignore = "ignore simtests by default"]
     async fn test_registered_node_update_protocol_key() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
@@ -1294,8 +1300,8 @@ mod tests {
             .expect("Node should be active");
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    #[ignore = "ignore simtests by default"]
     async fn test_node_config_synchronizer() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
@@ -1436,5 +1442,86 @@ mod tests {
 
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+    }
+
+    // This test is used to test the long node recovery scenario.
+    // The node recovery process is artificially prolonged to be longer than 1 epoch.
+    // We should expect the recovering node should eventually become Active.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_long_node_recovery() {
+        let (_sui_cluster, walrus_cluster, client) =
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: false,
+                },
+                None,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node crashes.
+        let workload_handle = start_background_workload(client_arc.clone(), false);
+
+        // Running the workload for 60 seconds to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Register a fail point to have a temporary pause in the node recovery process that is
+        // longer than epoch length.
+        register_fail_point_async("start_node_recovery_entry", || async move {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        // Tracks if a crash has been triggered.
+        let fail_triggered = Arc::new(AtomicBool::new(false));
+        let target_fail_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
+        let fail_triggered_clone = fail_triggered.clone();
+
+        // Trigger node crash during some DB access.
+        register_fail_points(DB_FAIL_POINTS, move || {
+            crash_target_node(
+                target_fail_node_id,
+                fail_triggered_clone.clone(),
+                Duration::from_secs(60),
+            );
+        });
+
+        tokio::time::sleep(Duration::from_secs(180)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = get_nodes_health_info(&node_refs).await;
+
+        assert!(node_health_info[0].shard_detail.is_some());
+        for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
+            // For all the shards that the crashed node owns, they should be in ready state.
+            assert_eq!(shard.status, ShardStatus::Ready);
+        }
+
+        assert_eq!(
+            get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
+        );
+
+        workload_handle.abort();
+
+        clear_fail_point("start_node_recovery_entry");
     }
 }
