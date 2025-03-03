@@ -447,7 +447,7 @@ impl EventProcessor {
                 let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
                         self.package_store
-                            .get_original_package_id(event.package_id.into())
+                            .get_original_package_id(event.type_.address)
                     }))
                     .await?;
                 for (seq, tx_event) in tx_events
