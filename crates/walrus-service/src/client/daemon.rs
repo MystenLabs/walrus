@@ -34,19 +34,13 @@ use tower::{
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{encoding::Primary, BlobId, EncodingType, EpochCount};
+use walrus_core::{encoding::Primary, BlobId, EncodingType, EpochCount, DEFAULT_ENCODING};
 use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::move_structs::BlobWithAttribute,
 };
 
-use super::{
-    responses::BlobStoreResult,
-    utils::encoding_type_or_default_for_version,
-    Client,
-    ClientResult,
-    StoreWhen,
-};
+use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},
@@ -114,10 +108,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<BlobStoreResult> {
-        let encoding_type = encoding_type_or_default_for_version(
-            encoding_type,
-            self.sui_client().system_object_version().await?,
-        );
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         let result = self
             .reserve_and_store_blobs_retry_committees(

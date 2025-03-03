@@ -32,6 +32,7 @@ use walrus_core::{
     BlobId,
     EncodingType,
     EpochCount,
+    DEFAULT_ENCODING,
     SUPPORTED_ENCODING_TYPES,
 };
 use walrus_sdk::api::BlobStatus;
@@ -108,7 +109,6 @@ use crate::{
             WalletOutput,
         },
         styled_spinner,
-        utils::encoding_type_or_default_for_version,
         Client,
         ClientDaemon,
         Config,
@@ -543,8 +543,7 @@ impl ClientCommandRunner {
             anyhow::bail!("deletable blobs cannot be shared");
         }
 
-        let encoding_type =
-            encoding_type_or_default_for_version(encoding_type, system_object.version);
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         if dry_run {
             return Self::store_dry_run(client, files, encoding_type, epochs_ahead, self.json)
@@ -648,10 +647,7 @@ impl ClientCommandRunner {
         )
         .await?;
 
-        let encoding_type = encoding_type_or_default_for_version(
-            encoding_type,
-            sui_read_client.system_object_version().await?,
-        );
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
 
         let refresher_handle = config
             .refresh_config
@@ -800,10 +796,7 @@ impl ClientCommandRunner {
                     tracing::debug!("reading `n_shards` from chain");
                     sui_read_client.current_committee().await?.n_shards()
                 };
-                let encoding_type = encoding_type_or_default_for_version(
-                    encoding_type,
-                    sui_read_client.system_object_version().await?,
-                );
+                let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
                 (n_shards, encoding_type)
             };
 
@@ -932,8 +925,7 @@ impl ClientCommandRunner {
 
         let mut delete_outputs = Vec::new();
 
-        let system_version = client.sui_client().system_object_version().await?;
-        let encoding_type = encoding_type_or_default_for_version(encoding_type, system_version);
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
         let blobs = target.get_blob_identities(client.encoding_config(), encoding_type)?;
 
         // Process each target
