@@ -94,11 +94,24 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
             }
         }
 
-        println!(
-            "Summary for Modified or Created Blobs ({} newly certified, {} extended)",
-            total_count - reuse_and_extend_count,
-            reuse_and_extend_count
-        );
+        let mut parts = Vec::new();
+        if total_count - reuse_and_extend_count > 0 {
+            parts.push(format!(
+                "{} newly certified",
+                total_count - reuse_and_extend_count
+            ));
+        }
+        if reuse_and_extend_count > 0 {
+            parts.push(format!("{} extended", reuse_and_extend_count));
+        }
+
+        let summary = if !parts.is_empty() {
+            format!("({})", parts.join(", "))
+        } else {
+            String::new()
+        };
+
+        println!("Summary for Modified or Created Blobs {}", summary);
         println!(
             "Total encoded size: {}",
             HumanReadableBytes(total_encoded_size)
