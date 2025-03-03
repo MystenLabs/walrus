@@ -425,6 +425,8 @@ impl EventProcessor {
             == ObjectID::from_str(
                 "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
             )?;
+        let march_7_7_pm_utc =
+            chrono::DateTime::parse_from_rfc3339("2025-03-07T19:00:00+00:00")?.to_utc();
 
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
@@ -452,9 +454,7 @@ impl EventProcessor {
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
-            // TODO(WAL-667): remove special casing
-            let march_7_7_pm_utc =
-                chrono::DateTime::parse_from_rfc3339("2025-03-07T19:00:00+00:00")?.to_utc();
+            // TODO(WAL-667): remove special case
             let checkpoint_datetime =
                 chrono::DateTime::<Utc>::from(verified_checkpoint.timestamp());
             let before_march_7_7pm_utc = checkpoint_datetime < march_7_7_pm_utc;
@@ -465,13 +465,12 @@ impl EventProcessor {
                 let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
                         // TODO(WAL-667): remove special case
-                        if on_public_testnet && before_march_7_7pm_utc {
-                            self.package_store
-                                .get_original_package_id(event.package_id.into())
+                        let pkg_address = if on_public_testnet && before_march_7_7pm_utc {
+                            event.package_id.into()
                         } else {
-                            self.package_store
-                                .get_original_package_id(event.type_.address)
-                        }
+                            event.type_.address
+                        };
+                        self.package_store.get_original_package_id(pkg_address)
                     }))
                     .await?;
                 for (seq, tx_event) in tx_events
