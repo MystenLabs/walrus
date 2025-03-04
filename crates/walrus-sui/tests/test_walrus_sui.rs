@@ -99,16 +99,11 @@ async fn test_initialize_contract() -> anyhow::Result<()> {
     Ok(())
 }
 
-async_param_test! {
-    #[tokio::test]
-    #[ignore = "ignore integration tests by default"]
-    test_register_certify_blob -> anyhow::Result<()> : [
-        raptorq: (EncodingType::RedStuffRaptorQ),
-        reed_solomon: (EncodingType::RS2),
-    ]
-}
-async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Result<()> {
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_register_certify_blob() -> anyhow::Result<()> {
     _ = tracing_subscriber::fmt::try_init();
+    let encoding_type = EncodingType::RS2;
 
     let (_sui_cluster_handle, walrus_client, _) = initialize_contract_and_wallet().await?;
 

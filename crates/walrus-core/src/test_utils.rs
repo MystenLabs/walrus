@@ -6,7 +6,7 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU16;
 
 use fastcrypto::traits::{KeyPair, Signer as _};
-use rand::{rngs::StdRng, Rng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{
     encoding::{
@@ -27,19 +27,12 @@ use crate::{
         VerifiedBlobMetadataWithId,
     },
     BlobId,
-    EncodingType,
     RecoverySymbol,
     Sliver,
     SliverIndex,
     SliverPairIndex,
     DEFAULT_ENCODING,
-    SUPPORTED_ENCODING_TYPES,
 };
-
-/// Randomly selects an encoding type from the supported encoding types.
-pub fn random_encoding_type() -> EncodingType {
-    SUPPORTED_ENCODING_TYPES[rand::thread_rng().gen_range(0..SUPPORTED_ENCODING_TYPES.len())]
-}
 
 /// Returns a deterministic fixed protocol key pair for testing.
 ///
