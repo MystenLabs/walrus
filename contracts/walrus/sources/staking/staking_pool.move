@@ -66,8 +66,8 @@ const EAuthorizationFailure: u64 = 15;
 const EInvalidNetworkAddressLength: u64 = 16;
 /// Invalid name length.
 const EInvalidNameLength: u64 = 17;
-/// An empty pool being destroyed has non-zero pending stake.
-const EPendingStakeInEmptyPool: u64 = 18;
+/// The number of shares for the staked wal are zero.
+const EZeroShares: u64 = 18;
 
 /// Represents the state of the staking pool.
 public enum PoolState has copy, drop, store {
@@ -338,6 +338,8 @@ public(package) fun request_withdraw_stake(
         .exchange_rate_at_epoch(staked_wal.activation_epoch())
         .convert_to_share_amount(principal_amount);
 
+    assert!(share_amount != 0, EZeroShares);
+
     pool.pending_shares_withdraw.insert_or_add(withdraw_epoch, share_amount);
     staked_wal.set_withdrawing(withdraw_epoch);
 }
@@ -415,20 +417,20 @@ public(package) fun advance_epoch(
     // Sanity check.
     assert!(rewards.value() == 0 || pool.wal_balance > 0, EIncorrectEpochAdvance);
 
-    // Update the commission_rate if there's a pending value for the current epoch.
-    // Note that pending commission rates are set 2 epochs ahead, so users are
-    // aware of the rate change in advance.
-    pool.pending_commission_rate.inner().try_get(&current_epoch).do!(|commission_rate| {
-        pool.commission_rate = commission_rate as u16;
-        pool.pending_commission_rate.flush(current_epoch);
-    });
-
     // Split the commission from the rewards.
     let total_rewards = rewards.value();
     let commission = rewards.split(
         total_rewards * (pool.commission_rate as u64) / (N_BASIS_POINTS as u64),
     );
     pool.commission.join(commission);
+
+    // Update the commission_rate for the new epoch if there's a pending value.
+    // Note that pending commission rates are set 2 epochs ahead, so users are
+    // aware of the rate change in advance.
+    pool.pending_commission_rate.inner().try_get(&current_epoch).do!(|commission_rate| {
+        pool.commission_rate = commission_rate as u16;
+        pool.pending_commission_rate.flush(current_epoch);
+    });
 
     // Add rewards to the pool and update the `wal_balance`.
     let rewards_amount = rewards.value();
@@ -480,7 +482,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     // don't forget to flush the early withdrawals since we worked on a copy
     let _ = pool.pre_active_withdrawals.flush(current_epoch);
 
-    let shares_withdraw = pool.pending_shares_withdraw.flush(wctx.epoch());
+    let shares_withdraw = pool.pending_shares_withdraw.flush(current_epoch);
     let pending_withdrawal = exchange_rate.convert_to_wal_amount(
         shares_withdraw + pre_active_shares_withdraw,
     );
@@ -572,7 +574,6 @@ public(package) fun destroy_empty(pool: StakingPool) {
 
     let StakingPool {
         id,
-        pending_stake,
         exchange_rates,
         rewards_pool,
         commission,
@@ -587,9 +588,6 @@ public(package) fun destroy_empty(pool: StakingPool) {
     commission.destroy_zero();
     rewards_pool.destroy_zero();
     extra_fields.destroy_empty();
-
-    let (_epochs, pending_stakes) = pending_stake.unwrap().into_keys_values();
-    pending_stakes.do!(|stake| assert!(stake == 0, EPendingStakeInEmptyPool));
 }
 
 /// Returns the exchange rate for the given current or future epoch. If there

@@ -35,7 +35,13 @@ fn client() -> Result<()> {
     app.extract_json_command()?;
 
     tracing::info!("client version: {VERSION}");
-    let runner = ClientCommandRunner::new(&app.config, &app.wallet, app.gas_budget, app.json);
+    let runner = ClientCommandRunner::new(
+        &app.config,
+        app.context.as_deref(),
+        &app.wallet,
+        app.gas_budget,
+        app.json,
+    );
 
     // Drop the temporary tracing subscriber, as the global ones are about to be initialized.
     drop(subscriber_guard);

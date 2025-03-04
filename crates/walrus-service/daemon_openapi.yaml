@@ -25,7 +25,9 @@ paths:
         description: The encoding type to use for the blob.
         required: false
         schema:
-          $ref: '#/components/schemas/EncodingType'
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EncodingType'
       - name: epochs
         in: query
         description: |-

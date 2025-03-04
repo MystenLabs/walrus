@@ -79,12 +79,12 @@ pub struct Settings {
     /// The ssh private key to access the instances.
     #[serde(
         skip_serializing,
-        deserialize_with = "walrus_service::utils::resolve_home_dir"
+        deserialize_with = "walrus_utils::config::resolve_home_dir"
     )]
     pub ssh_private_key_file: PathBuf,
     /// The corresponding ssh public key registered on the instances. If not specified. the
     /// public key defaults the same path as the private key with an added extension 'pub'.
-    #[serde(deserialize_with = "walrus_service::utils::resolve_home_dir_option")]
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir_option")]
     pub ssh_public_key_file: Option<PathBuf>,
     /// The list of cloud provider regions to deploy the testbed.
     pub regions: Vec<String>,

@@ -27,6 +27,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::SuiContractClient,
+    config::{load_wallet_context_from_path, WalletConfig},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
         create_and_init_system,
@@ -351,7 +352,7 @@ pub async fn deploy_walrus_contract(
             "Loading existing admin wallet from path: {}",
             admin_wallet_path.display()
         );
-        WalletContext::new(&admin_wallet_path, None, None)?
+        load_wallet_context_from_path(Some(&admin_wallet_path))?
     } else {
         tracing::debug!("Creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
@@ -544,7 +545,7 @@ pub async fn create_client_config(
     let client_config = client::Config {
         contract_config,
         exchange_objects,
-        wallet_config: Some(wallet_path),
+        wallet_config: Some(WalletConfig::from_path(wallet_path)),
         communication_config: Default::default(),
         refresh_config: Default::default(),
     };
@@ -685,7 +686,7 @@ pub async fn create_storage_node_configs(
             rpc: rpc.clone(),
             contract_config,
             event_polling_interval: defaults::polling_interval(),
-            wallet_config: wallet_path,
+            wallet_config: WalletConfig::from_path(wallet_path),
             backoff_config: ExponentialBackoffConfig::default(),
             gas_budget: None,
         });

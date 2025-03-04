@@ -403,10 +403,11 @@ pub(crate) fn register_http_metrics(registry: &Registry) -> HttpMetrics {
 ///     }
 /// }
 /// ```
+#[macro_export]
 macro_rules! define_metric_set {
     (
         $(#[$outer:meta])*
-        struct $name:ident {
+        $vis:vis struct $name:ident {
             $($new_type_field:ident: $new_type_field_type:ident,)*
             $(
                 #[help = $help_str:literal]
@@ -416,7 +417,7 @@ macro_rules! define_metric_set {
     ) => {
         $(#[$outer])*
         #[derive(Debug, Clone)]
-        pub(crate) struct $name {
+        $vis struct $name {
             $(
                 #[doc = $help_str]
                 pub $field_name: $field_type,
@@ -427,6 +428,7 @@ macro_rules! define_metric_set {
         }
 
         impl $name {
+            /// Creates a new instance of the metric set.
             pub fn new(registry: &Registry) -> Self {
                 Self { $(
                     $field_name: {

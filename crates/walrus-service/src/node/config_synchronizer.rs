@@ -38,7 +38,9 @@ impl StorageNodeConfigLoader {
 #[async_trait]
 impl ConfigLoader for StorageNodeConfigLoader {
     async fn load_storage_node_config(&self) -> anyhow::Result<StorageNodeConfig> {
-        Ok(load_from_yaml(&self.config_path)?)
+        let mut config: StorageNodeConfig = load_from_yaml(&self.config_path)?;
+        config.load_keys()?;
+        Ok(config)
     }
 }
 
@@ -113,5 +115,102 @@ impl std::fmt::Debug for ConfigSynchronizer {
         f.debug_struct("ConfigSynchronizer")
             .field("check_interval", &self.check_interval)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use serde_yaml;
+    use tempfile::TempDir;
+    use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
+    use walrus_sui::types::{move_structs::VotingParams, NetworkAddress};
+
+    use super::*;
+    use crate::node::config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet};
+
+    #[tokio::test]
+    async fn test_load_config_and_generate_update_params() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let config_path = temp_dir.path().join("config.yaml");
+        let key_path = temp_dir.path().join("protocol_key.key");
+        let network_key_path = temp_dir.path().join("network_key.key");
+
+        create_protocol_key_file(&key_path)?;
+        create_network_key_file(&network_key_path)?;
+
+        let config = StorageNodeConfig {
+            protocol_key_pair: PathOrInPlace::from_path(key_path),
+            next_protocol_key_pair: None,
+            name: "test-node".to_string(),
+            storage_path: temp_dir.path().to_path_buf(),
+            network_key_pair: PathOrInPlace::from_path(network_key_path), // Use key from file
+            public_host: "localhost".to_string(),
+            public_port: 9185,
+            ..Default::default()
+        };
+
+        // Write config to file.
+        let config_str = serde_yaml::to_string(&config)?;
+        std::fs::write(&config_path, config_str)?;
+
+        // Create a ConfigLoader to load the config from disk.
+        let config_loader = StorageNodeConfigLoader::new(config_path);
+
+        // Load the configuration.
+        let loaded_config = config_loader.load_storage_node_config().await?;
+
+        // Create a SyncedNodeConfigSet with different values.
+        let synced_config = SyncedNodeConfigSet {
+            name: "old-name".to_string(),
+            network_address: NetworkAddress("old-host:8080".to_string()),
+            network_public_key: loaded_config.network_key_pair().public().clone(),
+            public_key: loaded_config.protocol_key_pair().public().clone(),
+            next_public_key: None,
+            voting_params: VotingParams {
+                storage_price: 150,
+                write_price: 2300,
+                node_capacity: 251_000_000,
+            },
+            metadata: Default::default(),
+        };
+
+        // Call generate_update_params() with the synced config.
+        let update_params = loaded_config.generate_update_params(&synced_config);
+
+        // Verify expected updates are generated.
+        assert_eq!(update_params.name, Some("test-node".to_string()));
+        assert_eq!(
+            update_params.network_address,
+            Some(NetworkAddress("localhost:9185".to_string()))
+        );
+        assert_eq!(
+            update_params.storage_price,
+            Some(loaded_config.voting_params.storage_price)
+        );
+        assert_eq!(
+            update_params.write_price,
+            Some(loaded_config.voting_params.write_price)
+        );
+        assert_eq!(
+            update_params.node_capacity,
+            Some(loaded_config.voting_params.node_capacity)
+        );
+
+        Ok(())
+    }
+
+    fn create_protocol_key_file(path: &std::path::Path) -> anyhow::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        file.write_all(ProtocolKeyPair::generate().to_base64().as_bytes())?;
+        Ok(())
+    }
+
+    fn create_network_key_file(path: &std::path::Path) -> anyhow::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        let network_key = NetworkKeyPair::generate();
+        file.write_all(network_key.to_base64().as_bytes())?;
+        Ok(())
     }
 }

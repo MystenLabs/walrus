@@ -882,6 +882,12 @@ impl TryFrom<SuiEvent> for ContractEvent {
             contracts::events::ContractUpgraded => Ok(ContractEvent::PackageEvent(
                 PackageEvent::ContractUpgraded(value.try_into()?),
             )),
+            contracts::events::ContractUpgradeProposed => Ok(ContractEvent::PackageEvent(
+                PackageEvent::ContractUpgradeProposed(value.try_into()?),
+            )),
+            contracts::events::ContractUpgradeQuorumReached => Ok(ContractEvent::PackageEvent(
+                PackageEvent::ContractUpgradeQuorumReached(value.try_into()?),
+            )),
             contracts::events::RegisterDenyListUpdate => Ok(ContractEvent::DenyListEvent(
                 DenyListEvent::RegisterDenyListUpdate(value.try_into()?),
             )),

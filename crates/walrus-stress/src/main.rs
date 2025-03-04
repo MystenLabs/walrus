@@ -15,9 +15,9 @@ use anyhow::Context;
 use clap::Parser;
 use walrus_service::{
     client::{metrics::ClientMetrics, Config, Refiller},
-    utils::{load_from_yaml, load_wallet_context},
+    utils::load_from_yaml,
 };
-use walrus_sui::utils::SuiNetwork;
+use walrus_sui::{config::load_wallet_context_from_path, utils::SuiNetwork};
 
 use crate::generator::LoadGenerator;
 
@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
     // Start the write transaction generator.
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
 
-    let wallet = load_wallet_context(&args.wallet_path)?;
+    let wallet = load_wallet_context_from_path(args.wallet_path)?;
     let contract_client = config.new_contract_client(wallet, None).await?;
 
     let refiller = Refiller::new(

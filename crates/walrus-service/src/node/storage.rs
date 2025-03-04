@@ -628,6 +628,22 @@ impl Storage {
             .compact_range(&BlobId([0; 32]), &BlobId([255; 32]))?;
         Ok(())
     }
+
+    /// Test utility to get the shards that are live on the node.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn existing_shards_live(&self) -> Vec<ShardIndex> {
+        self.shards
+            .read()
+            .expect("Should acquire the lock successfully")
+            .values()
+            .filter_map(|shard_storage| {
+                shard_storage
+                    .status()
+                    .is_ok_and(|status| status.is_owned_by_node())
+                    .then_some(shard_storage.id())
+            })
+            .collect::<Vec<_>>()
+    }
 }
 
 #[cfg(test)]

@@ -43,21 +43,24 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::move_structs::{BlobAttribute, EpochState},
+    config::WalletConfig,
+    types::move_structs::{Authorized, BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
 
 use super::args::{
     AggregatorArgs,
+    BlobIdentifiers,
+    BlobIdentity,
     BurnSelection,
     CliCommands,
     DaemonArgs,
     DaemonCommands,
     EpochArg,
     FileOrBlobId,
-    FileOrBlobIdOrObjectId,
     HealthSortBy,
     InfoCommands,
+    NodeAdminCommands,
     NodeSelection,
     PublisherArgs,
     RpcArg,
@@ -76,6 +79,7 @@ use crate::{
             warning,
             BlobIdDecimal,
             CliOutput,
+            HumanReadableFrost,
             HumanReadableMist,
         },
         error::ClientErrorKind,
@@ -104,6 +108,7 @@ use crate::{
             WalletOutput,
         },
         styled_spinner,
+        utils::encoding_type_or_default_for_version,
         Client,
         ClientDaemon,
         Config,
@@ -131,16 +136,20 @@ impl ClientCommandRunner {
     /// Creates a new client runner, loading the configuration and wallet context.
     pub fn new(
         config: &Option<PathBuf>,
-        wallet: &Option<PathBuf>,
+        context: Option<&str>,
+        wallet_override: &Option<PathBuf>,
         gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
-        let config = load_configuration(config);
-        let wallet_path = wallet.clone().or(config
+        let config = load_configuration(config.as_ref(), context);
+        let wallet_config: Option<WalletConfig> = config
             .as_ref()
             .ok()
-            .and_then(|conf| conf.wallet_config.clone()));
-        let wallet = crate::utils::load_wallet_context(&wallet_path);
+            .and_then(|config: &Config| config.wallet_config.clone());
+        let wallet_path: Option<PathBuf> = wallet_override
+            .clone()
+            .or_else(|| wallet_config.as_ref().map(|wc| wc.path().to_path_buf()));
+        let wallet = WalletConfig::load_wallet_context(wallet_config.as_ref());
 
         Self {
             wallet_path,
@@ -409,6 +418,10 @@ impl ClientCommandRunner {
                 }
                 Ok(())
             }
+
+            CliCommands::NodeAdmin { node_id, command } => {
+                self.run_admin_command(node_id, command).await
+            }
         }
     }
 
@@ -417,7 +430,7 @@ impl ClientCommandRunner {
     /// Consumes `self`.
     #[tokio::main]
     pub async fn run_daemon_app(
-        self,
+        mut self,
         command: DaemonCommands,
         metrics_runtime: MetricsAndLoggingRuntime,
     ) -> Result<()> {
@@ -452,7 +465,7 @@ impl ClientCommandRunner {
         }
     }
 
-    fn maybe_export_contract_info(&self, registry: &Registry) {
+    fn maybe_export_contract_info(&mut self, registry: &Registry) {
         let Ok(config) = self.config.as_ref() else {
             return;
         };
@@ -460,9 +473,10 @@ impl ClientCommandRunner {
             registry,
             &config.contract_config.system_object,
             &config.contract_config.staking_object,
-            utils::load_wallet_context(&self.wallet_path)
-                .and_then(|mut wallet| wallet.active_address())
-                .ok(),
+            match &mut self.wallet {
+                Ok(wallet_context) => wallet_context.active_address().ok(),
+                Err(_) => None,
+            },
         );
     }
 
@@ -899,89 +913,83 @@ impl ClientCommandRunner {
 
     pub(crate) async fn delete(
         self,
-        target: FileOrBlobIdOrObjectId,
+        target: BlobIdentifiers,
         confirmation: UserConfirmation,
         no_status_check: bool,
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
-        // Check that the target is valid.
-        target.exactly_one_is_some()?;
-
-        let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
-        let file = target.file.clone();
-        let object_id = target.object_id;
-        let encoding_type = encoding_type_or_default_for_version(
-            encoding_type,
-            client.sui_client().system_object_version().await?,
-        );
-
-        let (blob_id, deleted_blobs) = if let Some(blob_id) =
-            target.get_or_compute_blob_id(client.encoding_config(), encoding_type)?
-        {
-            let to_delete = client
-                .deletable_blobs_by_id(&blob_id)
-                .await?
-                .collect::<Vec<_>>();
-
-            if !self.json {
-                if to_delete.is_empty() {
-                    println!("No owned deletable blobs found for blob ID {blob_id}.");
-                    return Ok(());
-                }
-                if confirmation.is_required() {
-                    println!("The following blobs with blob ID {blob_id} are deletable:");
-                    to_delete.print_output(self.json)?;
-                    if !ask_for_confirmation()? {
-                        println!("{} Aborting. No blobs were deleted.", success());
-                        return Ok(());
+        // Create client once to be reused
+        let client =
+            match get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await {
+                Ok(client) => client,
+                Err(e) => {
+                    if !self.json {
+                        eprintln!("Error connecting to client: {}", e);
                     }
+                    return Err(e);
                 }
-                println!("Deleting blobs...");
-            }
+            };
 
-            for blob in to_delete.iter() {
-                client.delete_owned_blob_by_object(blob.id).await?;
-            }
+        let mut delete_outputs = Vec::new();
 
-            (Some(blob_id), to_delete)
-        } else if let Some(object_id) = object_id {
-            if let Some(to_delete) = client
-                .sui_client()
-                .owned_blobs(None, ExpirySelectionPolicy::Valid)
-                .await?
-                .into_iter()
-                .find(|blob| blob.id == object_id)
-            {
-                client.delete_owned_blob_by_object(object_id).await?;
-                (Some(to_delete.blob_id), vec![to_delete])
-            } else {
-                (None, vec![])
-            }
-        } else {
-            unreachable!("we checked that either file, blob ID or object ID are be provided");
-        };
+        let system_version = client.sui_client().system_object_version().await?;
+        let encoding_type = encoding_type_or_default_for_version(encoding_type, system_version);
+        let blobs = target.get_blob_identities(client.encoding_config(), encoding_type)?;
 
-        let post_deletion_status = match (no_status_check, blob_id) {
-            (false, Some(deleted_blob_id)) => {
-                // Wait to ensure that the deletion information is propagated.
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                Some(
-                    client
-                        .get_blob_status_with_retries(&deleted_blob_id, client.sui_client())
-                        .await?,
-                )
-            }
-            _ => None,
-        };
-
-        DeleteOutput {
-            blob_id,
-            file,
-            object_id,
-            deleted_blobs,
-            post_deletion_status,
+        // Process each target
+        for blob in blobs {
+            let output = delete_blob(
+                &client,
+                blob,
+                confirmation.clone(),
+                no_status_check,
+                self.json,
+            )
+            .await;
+            delete_outputs.push(output);
         }
-        .print_output(self.json)
+
+        // Check if any operations were performed
+        if delete_outputs.is_empty() {
+            if !self.json {
+                println!("No operations were performed.");
+            }
+            return Ok(());
+        }
+
+        // Print results
+        if self.json {
+            println!("{}", serde_json::to_string(&delete_outputs)?);
+        } else {
+            // In CLI mode, print each result individually
+            for output in &delete_outputs {
+                output.print_cli_output();
+            }
+
+            // Print summary
+            let success_count = delete_outputs
+                .iter()
+                .filter(|output| output.error.is_none() && !output.aborted && !output.no_blob_found)
+                .count();
+            let total_count = delete_outputs.len();
+
+            if success_count == total_count {
+                println!(
+                    "\n{} All {} deletion operations completed successfully.",
+                    success(),
+                    total_count
+                );
+            } else {
+                println!(
+                    "\n{} {}/{} deletion operations completed successfully.",
+                    warning(),
+                    success_count,
+                    total_count
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) async fn stake_with_node_pools(
@@ -1096,6 +1104,163 @@ impl ClientCommandRunner {
         println!("{} The specified blob objects have been burned", success());
         Ok(())
     }
+
+    pub(crate) async fn run_admin_command(
+        self,
+        node_id: ObjectID,
+        command: NodeAdminCommands,
+    ) -> Result<()> {
+        let sui_client = self
+            .config?
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+        match command {
+            NodeAdminCommands::VoteForUpgrade {
+                upgrade_manager_object_id,
+                package_path,
+            } => {
+                let digest = sui_client
+                    .vote_for_upgrade(upgrade_manager_object_id, node_id, package_path)
+                    .await?;
+                println!(
+                    "{} Voted for package upgrade with digest 0x{}",
+                    success(),
+                    digest.iter().map(|b| format!("{:02x}", b)).join("")
+                );
+            }
+            NodeAdminCommands::SetCommissionAuthorized { object_or_address } => {
+                let authorized: Authorized = object_or_address.try_into()?;
+                sui_client
+                    .set_commission_receiver(node_id, authorized.clone())
+                    .await?;
+                println!(
+                    "{} Commission receiver for node id {} has been set to {}",
+                    success(),
+                    node_id,
+                    authorized
+                );
+            }
+            NodeAdminCommands::SetGovernanceAuthorized { object_or_address } => {
+                let authorized: Authorized = object_or_address.try_into()?;
+                sui_client
+                    .set_governance_authorized(node_id, authorized.clone())
+                    .await?;
+                println!(
+                    "{} Governance authorization for node id {} has been set to {}",
+                    success(),
+                    node_id,
+                    authorized
+                );
+            }
+            NodeAdminCommands::CollectCommission => {
+                let amount =
+                    HumanReadableFrost::from(sui_client.collect_commission(node_id).await?);
+                println!("{} Collected {} as commission", success(), amount);
+            }
+        }
+        Ok(())
+    }
+}
+
+async fn delete_blob(
+    client: &Client<SuiContractClient>,
+    target: BlobIdentity,
+    confirmation: UserConfirmation,
+    no_status_check: bool,
+    json: bool,
+) -> DeleteOutput {
+    let mut result = DeleteOutput {
+        blob_identity: target.clone(),
+        ..Default::default()
+    };
+
+    if let Some(blob_id) = target.blob_id {
+        let to_delete = match client.deletable_blobs_by_id(&blob_id).await {
+            Ok(blobs) => blobs.collect::<Vec<_>>(),
+            Err(e) => {
+                result.error = Some(e.to_string());
+                return result;
+            }
+        };
+
+        if to_delete.is_empty() {
+            result.no_blob_found = true;
+            return result;
+        }
+
+        if confirmation.is_required() && !json {
+            println!(
+                "The following blobs with blob ID {blob_id} are deletable:\n{}",
+                to_delete.iter().map(|blob| blob.id.to_string()).join("\n")
+            );
+            match ask_for_confirmation() {
+                Ok(confirmed) => {
+                    if !confirmed {
+                        println!("{} Aborting. No blobs were deleted.", success());
+                        result.aborted = true;
+                        return result;
+                    }
+                }
+                Err(e) => {
+                    result.error = Some(e.to_string());
+                    return result;
+                }
+            }
+        }
+
+        if !json {
+            println!("Deleting blobs...");
+        }
+
+        for blob in to_delete.iter() {
+            if let Err(e) = client.delete_owned_blob_by_object(blob.id).await {
+                result.error = Some(e.to_string());
+                return result;
+            }
+            result.deleted_blobs.push(blob.clone());
+        }
+
+        if !no_status_check {
+            // Wait to ensure that the deletion information is propagated.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            result.post_deletion_status = match client
+                .get_blob_status_with_retries(&blob_id, client.sui_client())
+                .await
+            {
+                Ok(status) => Some(status),
+                Err(e) => {
+                    result.error = Some(format!("Failed to get post-deletion status: {}", e));
+                    None
+                }
+            };
+        }
+    } else if let Some(object_id) = target.object_id {
+        let to_delete = match client
+            .sui_client()
+            .owned_blobs(None, ExpirySelectionPolicy::Valid)
+            .await
+        {
+            Ok(blobs) => blobs.into_iter().find(|blob| blob.id == object_id),
+            Err(e) => {
+                result.error = Some(e.to_string());
+                return result;
+            }
+        };
+
+        if let Some(blob) = to_delete {
+            if let Err(e) = client.delete_owned_blob_by_object(object_id).await {
+                result.error = Some(e.to_string());
+                return result;
+            }
+            result.deleted_blobs = vec![blob];
+        } else {
+            result.no_blob_found = true;
+        }
+    } else {
+        result.error = Some("No valid target provided".to_string());
+    }
+
+    result
 }
 
 async fn get_epochs_ahead(
@@ -1163,26 +1328,4 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
-}
-
-// TODO(WAL-647): Remove for mainnet
-fn encoding_type_or_default_for_version(
-    encoding_type: Option<EncodingType>,
-    system_version: u64,
-) -> EncodingType {
-    if let Some(encoding_type) = encoding_type {
-        encoding_type
-    } else {
-        let encoding_type = if system_version >= 2 {
-            EncodingType::RS2
-        } else {
-            EncodingType::RedStuffRaptorQ
-        };
-        tracing::debug!(
-            system_version,
-            ?encoding_type,
-            "choosing default encoding based on system version"
-        );
-        encoding_type
-    }
 }

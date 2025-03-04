@@ -14,10 +14,6 @@ use std::{
     sync::Arc,
 };
 
-use fastcrypto::{
-    bls12381::min_pk::{BLS12381AggregateSignature, BLS12381KeyPair, BLS12381PrivateKey},
-    traits::{Signer, ToFromBytes},
-};
 #[cfg(msim)]
 use sui_config::local_ip_utils;
 use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
@@ -37,23 +33,23 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use walrus_core::{
-    keys::ProtocolKeyPair,
-    messages::{
-        BlobPersistenceType,
-        Confirmation,
-        ConfirmationCertificate,
-        InvalidBlobCertificate,
-        InvalidBlobIdMsg,
-    },
+    keys::{NetworkKeyPair, ProtocolKeyPair},
     BlobId,
-    Epoch,
     DEFAULT_ENCODING,
 };
 use walrus_test_utils::WithTempDir;
 
 use crate::{
     client::SuiContractClient,
-    types::{BlobCertified, BlobDeleted, BlobRegistered, InvalidBlobId},
+    config::load_wallet_context_from_path,
+    types::{
+        BlobCertified,
+        BlobDeleted,
+        BlobRegistered,
+        InvalidBlobId,
+        NetworkAddress,
+        StorageNode,
+    },
     utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
 };
 
@@ -69,40 +65,17 @@ pub fn event_id_for_testing() -> EventID {
     }
 }
 
-/// Returns an arbitrary (fixed) `EventID` for testing.
-pub fn fixed_event_id_for_testing() -> EventID {
+/// Returns an arbitrary (fixed) `EventID` for testing with a variable sequence number.
+pub fn fixed_event_id_for_testing(event_seq: u64) -> EventID {
     EventID {
         tx_digest: TransactionDigest::new([42; 32]),
-        event_seq: 314,
+        event_seq,
     }
 }
 
 /// Returns an arbitrary (fixed) `ObjectID` for testing.
 pub fn object_id_for_testing() -> ObjectID {
     ObjectID::from_single_byte(42)
-}
-
-/// Returns a certificate on the provided `blob_id` from the default test committee.
-///
-/// The default test committee is currently a single storage node with sk = 117.
-pub fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> ConfirmationCertificate {
-    let confirmation = bcs::to_bytes(&Confirmation::new(
-        epoch,
-        blob_id,
-        BlobPersistenceType::Permanent,
-    ))
-    .unwrap();
-    let signature = sign_with_default_committee(&confirmation);
-    ConfirmationCertificate::new(vec![0], confirmation, signature)
-}
-
-/// Returns a certificate from the default test committee that marks `blob_id` as invalid.
-///
-/// The default test committee is currently a single storage node with sk = 117.
-pub fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> InvalidBlobCertificate {
-    let invalid_blob_id_msg = bcs::to_bytes(&InvalidBlobIdMsg::new(epoch, blob_id)).unwrap();
-    let signature = sign_with_default_committee(&invalid_blob_id_msg);
-    InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
 }
 
 /// Represents a test cluster running within this process or as a separate process.
@@ -373,7 +346,7 @@ pub async fn create_and_fund_wallets_on_cluster(
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
-    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let mut cluster_wallet = load_wallet_context_from_path(Some(path_guard.as_path()))?;
 
     let mut wallets = vec![];
     let mut addresses = vec![];
@@ -402,7 +375,7 @@ pub async fn new_wallet_on_sui_test_cluster(
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
     // the wallet to continue running.
-    let mut cluster_wallet = WalletContext::new(&path_guard, None, None)?;
+    let mut cluster_wallet = load_wallet_context_from_path(Some(path_guard.as_path()))?;
     let wallet = wallet_for_testing(&mut cluster_wallet, true).await?;
     drop(path_guard);
     Ok(wallet)
@@ -493,17 +466,6 @@ async fn fund_addresses(
     Ok(())
 }
 
-fn sign_with_default_committee(msg: &[u8]) -> BLS12381AggregateSignature {
-    default_protocol_keypair().as_ref().sign(msg).into()
-}
-
-fn default_protocol_keypair() -> ProtocolKeyPair {
-    let mut sk = [0; 32];
-    sk[31] = 117;
-    let sk = BLS12381PrivateKey::from_bytes(&sk).unwrap();
-    BLS12381KeyPair::from(sk).into()
-}
-
 /// Trait to provide an event with the specified `blob_id` for testing.
 pub trait EventForTesting {
     /// Returns an event with the specified `blob_id` for testing.
@@ -559,5 +521,19 @@ impl EventForTesting for InvalidBlobId {
             blob_id,
             event_id: event_id_for_testing(),
         }
+    }
+}
+
+/// Creates a new StorageNode object representing on chain storage node for testing.
+pub fn new_move_storage_node_for_testing() -> StorageNode {
+    StorageNode {
+        name: "test".to_string(),
+        node_id: ObjectID::random(),
+        network_address: NetworkAddress("127.0.0.1:8080".to_string()),
+        public_key: ProtocolKeyPair::generate().public().clone(),
+        next_epoch_public_key: None,
+        network_public_key: NetworkKeyPair::generate().public().clone(),
+        metadata: ObjectID::random(),
+        shard_ids: vec![],
     }
 }

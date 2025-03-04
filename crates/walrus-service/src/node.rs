@@ -139,10 +139,8 @@ use self::{
 };
 use crate::{
     client::Blocklist,
-    common::{
-        config::SuiConfig,
-        utils::{should_reposition_cursor, ShardDiff},
-    },
+    common::{config::SuiConfig, utils::should_reposition_cursor},
+    utils::ShardDiffCalculator,
 };
 
 pub mod committee;
@@ -1285,22 +1283,36 @@ impl StorageNode {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
+        let shard_diff_calculator =
+            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards());
 
-        // Create storage for shards that are currently owned by the node in the latest epoch.
-        let shard_diff =
-            ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
+        // Since the node is doing a full recovery, its local shards may be out of sync with the
+        // contract for multiple epochs. Here we need to make sure that all the shards that is
+        // assigned to the node in the latest epoch are created.
         self.inner
-            .create_storage_for_shards_in_background(shard_diff.gained)
+            .create_storage_for_shards_in_background(
+                shard_diff_calculator.all_owned_shards().to_vec(),
+            )
             .await?;
 
         // Given that the storage node is severely lagging, the node may contain shards in outdated
         // status. We need to set the status of all currently owned shards to `Active` despite
-        // their current status.
+        // their current status. Node recovery will recover all the missing certified blobs in these
+        // shards in a crash-tolerant manner.
         for shard in self.inner.owned_shards() {
             storage
                 .shard_storage(shard)
                 .expect("we just create all storage, it must exist")
                 .set_active_status()?;
+        }
+
+        // For shards that just moved out, we need to lock them to not store more data in them.
+        for shard in shard_diff_calculator.shards_to_lock() {
+            if let Some(shard_storage) = self.inner.storage.shard_storage(*shard) {
+                shard_storage
+                    .lock_shard_for_epoch_change()
+                    .context("failed to lock shard")?;
+            }
         }
 
         // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
@@ -1309,12 +1321,13 @@ impl StorageNode {
             .start_node_recovery(event.epoch)?;
 
         // Last but not least, we need to remove any shards that are no longer owned by the node.
-        if !shard_diff.removed.is_empty() {
+        let shards_to_remove = shard_diff_calculator.shards_to_remove();
+        if !shards_to_remove.is_empty() {
             self.start_epoch_change_finisher
                 .start_finish_epoch_change_tasks(
                     event_handle,
                     event,
-                    shard_diff.removed.clone(),
+                    shard_diff_calculator.shards_to_remove().to_vec(),
                     committees,
                     true,
                 );
@@ -1387,10 +1400,10 @@ impl StorageNode {
         let committees = self.inner.committee_service.active_committees();
         assert!(event.epoch <= committees.epoch());
 
-        let shard_diff =
-            ShardDiff::diff_previous(&committees, &storage.existing_shards(), public_key);
+        let shard_diff_calculator =
+            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards());
 
-        for shard_id in &shard_diff.lost {
+        for shard_id in shard_diff_calculator.shards_to_lock() {
             let Some(shard_storage) = storage.shard_storage(*shard_id) else {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
@@ -1413,11 +1426,12 @@ impl StorageNode {
             .await;
 
         let mut ongoing_shard_sync = false;
-        if !shard_diff.gained.is_empty() {
+        let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
+        if !shards_gained.is_empty() {
             assert!(committees.current_committee().contains(public_key));
 
             self.inner
-                .create_storage_for_shards_in_background(shard_diff.gained.clone())
+                .create_storage_for_shards_in_background(shards_gained.to_vec())
                 .await?;
 
             if new_node_joining_committee {
@@ -1435,7 +1449,7 @@ impl StorageNode {
             // There shouldn't be an epoch change event for the genesis epoch.
             assert!(event.epoch != GENESIS_EPOCH);
             self.shard_sync_handler
-                .start_sync_shards(shard_diff.gained, new_node_joining_committee)
+                .start_sync_shards(shards_gained.to_vec(), new_node_joining_committee)
                 .await?;
             ongoing_shard_sync = true;
         }
@@ -1444,7 +1458,7 @@ impl StorageNode {
             .start_finish_epoch_change_tasks(
                 event_handle,
                 event,
-                shard_diff.removed.clone(),
+                shard_diff_calculator.shards_to_remove().to_vec(),
                 committees,
                 ongoing_shard_sync,
             );
@@ -1498,6 +1512,12 @@ impl StorageNode {
 
     pub(crate) fn inner(&self) -> &Arc<StorageNodeInner> {
         &self.inner
+    }
+
+    /// Test utility to get the shards that are live on the node.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn existing_shards_live(&self) -> Vec<ShardIndex> {
+        self.inner.storage.existing_shards_live()
     }
 }
 

@@ -33,7 +33,6 @@ use walrus_sdk::{
 };
 use walrus_sui::client::SuiClientError;
 
-use super::storage::ShardStatus;
 use crate::common::api::RestApiError;
 
 /// Type used for internal errors.
@@ -364,8 +363,6 @@ pub enum SyncShardClientError {
     NoSyncClient,
     #[error("Unable to find the owner for shard {0}")]
     NoOwnerForShard(ShardIndex),
-    #[error("The shard {0} is not in a valid status for syncing: {1}")]
-    InvalidShardStatusToSync(ShardIndex, ShardStatus),
     #[error(transparent)]
     ShardNotAssigned(#[from] ShardNotAssigned),
     #[error(transparent)]

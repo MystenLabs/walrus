@@ -3,18 +3,31 @@
 
 //! Contains integration tests for the Sui bindings.
 
-use std::{num::NonZeroU16, sync::Arc};
+use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
-use anyhow::bail;
-use fastcrypto::traits::ToFromBytes;
-use sui_types::base_types::SuiAddress;
+use anyhow::{bail, Result};
+use fastcrypto::{
+    bls12381::min_pk::{BLS12381AggregateSignature, BLS12381KeyPair, BLS12381PrivateKey},
+    traits::ToFromBytes,
+};
+use rand::{rngs::StdRng, SeedableRng};
+use sui_sdk::wallet_context::WalletContext;
+use sui_types::{base_types::SuiAddress, crypto::Signer};
 use tokio_stream::StreamExt;
 use walrus_core::{
     encoding::{EncodingConfig, EncodingConfigTrait as _},
     keys::{NetworkKeyPair, ProtocolKeyPair},
     merkle::Node,
+    messages::{
+        BlobPersistenceType,
+        Confirmation,
+        ConfirmationCertificate,
+        InvalidBlobCertificate,
+        InvalidBlobIdMsg,
+    },
     BlobId,
     EncodingType,
+    Epoch,
     ShardIndex,
 };
 use walrus_sui::{
@@ -28,19 +41,33 @@ use walrus_sui::{
     },
     test_utils::{
         self,
-        get_default_blob_certificate,
-        get_default_invalid_certificate,
         new_contract_client_on_sui_test_cluster,
         new_wallet_on_sui_test_cluster,
-        system_setup::{publish_with_default_system, SystemContext},
+        system_setup::{
+            create_and_init_system_for_test,
+            end_epoch_zero,
+            register_committee_and_stake,
+            SystemContext,
+        },
         TestClusterHandle,
     },
     types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
     utils,
 };
 use walrus_test_utils::{async_param_test, WithTempDir};
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 async fn initialize_contract_and_wallet() -> anyhow::Result<(
+    Arc<TestClusterHandle>,
+    WithTempDir<SuiContractClient>,
+    SystemContext,
+)> {
+    initialize_contract_and_wallet_with_epoch_duration(Duration::from_secs(3600)).await
+}
+
+async fn initialize_contract_and_wallet_with_epoch_duration(
+    epoch_duration: Duration,
+) -> anyhow::Result<(
     Arc<TestClusterHandle>,
     WithTempDir<SuiContractClient>,
     SystemContext,
@@ -52,16 +79,12 @@ async fn initialize_contract_and_wallet() -> anyhow::Result<(
 
     // Get a wallet on the global sui test cluster
     let admin_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
-    let node_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
 
-    // TODO(#793): make this nicer, s.t. we don't throw away the wallet with the storage node cap.
-    // Fix once the testbed setup is ready.
     let result = admin_wallet
         .and_then_async(|admin_wallet| {
-            node_wallet.and_then_async(|wallet| publish_with_default_system(admin_wallet, wallet))
+            publish_with_default_system_with_epoch_duration(admin_wallet, epoch_duration)
         })
-        .await?
-        .map(|result| result.inner);
+        .await?;
     let system_context = result.inner.0.clone();
     let admin_contract_client = result.map(|(_, client)| client);
 
@@ -438,6 +461,54 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_collect_commission() -> anyhow::Result<()> {
+    _ = tracing_subscriber::fmt::try_init();
+
+    // Set zero duration, s.t. we can change the epoch whenever we need to.
+    let (_sui_cluster_handle, walrus_client, _) =
+        initialize_contract_and_wallet_with_epoch_duration(Duration::ZERO).await?;
+
+    let cap = walrus_client
+        .as_ref()
+        .read_client()
+        .get_address_capability_object(walrus_client.as_ref().address())
+        .await?
+        .expect("cap should exist");
+
+    // Signal that epoch zero is done.
+    walrus_client.as_ref().epoch_sync_done(1, cap.id).await?;
+
+    let resource_size = 1_000_000_000_000;
+    let _storage_resource = walrus_client
+        .as_ref()
+        .reserve_space(resource_size, 1)
+        .await?;
+
+    // Change epoch to allow collecting commission.
+    walrus_client.as_ref().voting_end().await?;
+    walrus_client.as_ref().initiate_epoch_change().await?;
+
+    // Get the value of the commission from the staking pool.
+    let expected_commission = walrus_client
+        .as_ref()
+        .read_client()
+        .get_staking_pool(cap.node_id)
+        .await?
+        .commission;
+
+    // Collect the commission.
+    let commission = walrus_client
+        .as_ref()
+        .collect_commission(cap.node_id)
+        .await?;
+
+    assert_eq!(expected_commission, commission);
+
+    Ok(())
+}
+
 async_param_test! {
     #[ignore = "ignore integration tests by default"]
     test_automatic_wal_coin_squashing -> anyhow::Result<()> : [
@@ -539,4 +610,89 @@ async fn test_automatic_wal_coin_squashing(
         n_coins + n_target_coins as usize
     );
     Ok(())
+}
+
+// Helper functions
+
+fn sign_with_default_committee(msg: &[u8]) -> BLS12381AggregateSignature {
+    default_protocol_keypair().as_ref().sign(msg).into()
+}
+
+fn default_protocol_keypair() -> ProtocolKeyPair {
+    let mut sk = [0; 32];
+    sk[31] = 117;
+    let sk = BLS12381PrivateKey::from_bytes(&sk).unwrap();
+    BLS12381KeyPair::from(sk).into()
+}
+
+/// Returns a certificate on the provided `blob_id` from the default test committee.
+///
+/// The default test committee is currently a single storage node with sk = 117.
+fn get_default_blob_certificate(blob_id: BlobId, epoch: Epoch) -> ConfirmationCertificate {
+    let confirmation = bcs::to_bytes(&Confirmation::new(
+        epoch,
+        blob_id,
+        BlobPersistenceType::Permanent,
+    ))
+    .unwrap();
+    let signature = sign_with_default_committee(&confirmation);
+    ConfirmationCertificate::new(vec![0], confirmation, signature)
+}
+
+/// Returns a certificate from the default test committee that marks `blob_id` as invalid.
+///
+/// The default test committee is currently a single storage node with sk = 117.
+fn get_default_invalid_certificate(blob_id: BlobId, epoch: Epoch) -> InvalidBlobCertificate {
+    let invalid_blob_id_msg = bcs::to_bytes(&InvalidBlobIdMsg::new(epoch, blob_id)).unwrap();
+    let signature = sign_with_default_committee(&invalid_blob_id_msg);
+    InvalidBlobCertificate::new(vec![0], invalid_blob_id_msg, signature)
+}
+
+/// Publishes the package with a default system object and a custom epoch duration.
+///
+/// This setup uses a single storage node with sk = 117.
+/// Returns the system context, the admin wallet that also holds the node cap.
+async fn publish_with_default_system_with_epoch_duration(
+    mut admin_wallet: WalletContext,
+    epoch_duration: Duration,
+) -> Result<(SystemContext, SuiContractClient)> {
+    // Default system config, compatible with current tests
+    let system_context = create_and_init_system_for_test(
+        &mut admin_wallet,
+        NonZeroU16::new(100).expect("100 is not 0"),
+        Duration::from_secs(0),
+        epoch_duration,
+        None,
+        false,
+        None,
+    )
+    .await?;
+
+    // Set up node params.
+    // Pk corresponding to secret key scalar(117)
+    let network_key_pair = NetworkKeyPair::generate_with_rng(&mut StdRng::seed_from_u64(0));
+    let protocol_keypair = default_protocol_keypair();
+
+    let mut storage_node_params =
+        NodeRegistrationParams::new_for_test(protocol_keypair.public(), network_key_pair.public());
+    storage_node_params.commission_rate = 50_00; // 50%
+
+    // Create admin contract client
+    let admin_contract_client = system_context
+        .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
+        .await?;
+
+    register_committee_and_stake(
+        &admin_contract_client,
+        &[storage_node_params],
+        &[protocol_keypair],
+        &[&admin_contract_client],
+        &[1_000_000_000],
+    )
+    .await?;
+
+    // call vote end
+    end_epoch_zero(&admin_contract_client).await?;
+
+    Ok((system_context, admin_contract_client))
 }

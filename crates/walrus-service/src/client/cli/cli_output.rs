@@ -670,28 +670,27 @@ impl CliOutput for Vec<Blob> {
 
 impl CliOutput for DeleteOutput {
     fn print_cli_output(&self) {
-        let blob_str = if let Some(blob_id) = self.blob_id {
-            blob_and_file_str(&blob_id, &self.file)
-        } else if let Some(object_id) = self.object_id {
-            format!("(object ID: {})", object_id)
-        } else {
-            unreachable!("either file, blob ID or object ID must be provided")
-        };
+        let identity = self.blob_identity.to_string();
+        println!(
+            "\n{}{}",
+            "Delete result for: ".bold().walrus_purple(),
+            identity
+        );
 
-        if self.deleted_blobs.is_empty() {
-            println!(
-                "{} No objects were deleted for the given blob {blob_str}.",
-                success()
-            );
-        } else {
-            println!(
-                "{} The following objects were deleted for the given blob {blob_str}:",
-                success()
-            );
+        if let Some(error_msg) = &self.error {
+            println!("{} Error: {}", error(), error_msg);
+        } else if self.aborted {
+            println!("{} Operation aborted. No blobs were deleted.", warning());
+        } else if self.no_blob_found {
+            println!("{} No owned deletable blobs found.", warning());
+            return;
+        }
+
+        if !self.deleted_blobs.is_empty() {
+            println!("{} The following objects were deleted:", success());
             self.deleted_blobs.print_cli_output();
-            if let Some(post_deletion_status) = self.post_deletion_status {
-                let status_output = removed_instance_string(&post_deletion_status);
-
+            if let Some(post_deletion_status) = &self.post_deletion_status {
+                let status_output = removed_instance_string(post_deletion_status);
                 println!("{} {}", "Note:".bold().walrus_purple(), status_output);
             }
         }

@@ -9,7 +9,7 @@ use std::{
     fmt::Debug,
     future::Future,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::{Path, PathBuf},
+    path::Path,
     pin::Pin,
     str::FromStr,
     sync::Arc,
@@ -33,7 +33,6 @@ use serde::{
     Serialize,
 };
 use serde_json;
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
@@ -60,7 +59,7 @@ use walrus_sui::{
 };
 
 use super::active_committees::ActiveCommittees;
-use crate::node::config::MetricsPushConfig;
+use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
 
 /// The maximum length of the storage node name. Keep in sync with `MAX_NODE_NAME_LENGTH` in
 /// `contracts/walrus/sources/staking/staking_pool.move`.
@@ -243,54 +242,6 @@ where
         )));
     }
     Ok(name)
-}
-
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
-pub fn resolve_home_dir<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let path: PathBuf = Deserialize::deserialize(deserializer)?;
-    path_with_resolved_home_dir(path).map_err(D::Error::custom)
-}
-
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
-pub fn resolve_home_dir_vec<'de, D>(deserializer: D) -> Result<Vec<PathBuf>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let paths: Vec<PathBuf> = Deserialize::deserialize(deserializer)?;
-    paths
-        .into_iter()
-        .map(|p| path_with_resolved_home_dir(p).map_err(D::Error::custom))
-        .collect()
-}
-
-/// Can be used to deserialize optional paths such that the `~` is resolved to the user's home
-/// directory.
-pub fn resolve_home_dir_option<'de, D>(deserializer: D) -> Result<Option<PathBuf>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let path: Option<PathBuf> = Deserialize::deserialize(deserializer)?;
-    let Some(path) = path else { return Ok(None) };
-    Ok(Some(
-        path_with_resolved_home_dir(path).map_err(D::Error::custom)?,
-    ))
-}
-
-fn path_with_resolved_home_dir(path: PathBuf) -> Result<PathBuf> {
-    if path.starts_with("~/") {
-        let home = home::home_dir().context("unable to resolve home directory")?;
-        Ok(home.join(
-            path.strip_prefix("~")
-                .expect("we just checked for this prefix"),
-        ))
-    } else {
-        Ok(path)
-    }
 }
 
 /// A runtime for metrics and logging.
@@ -507,85 +458,88 @@ async fn push_metrics(
     Ok(())
 }
 
-/// The difference between shard allocations in different epochs.
+/// For a storage node, given the shard allocation in previous and current epoch, and currently
+/// existing shards, calculate the shards movement in respect to previous epoch (for shard sync)
+/// as well as to local existing shards (for shard removal and recovery).
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
-pub(crate) struct ShardDiff {
-    /// Shards lost from the assignment.
-    pub lost: Vec<ShardIndex>,
-    /// Shards gained in the assignment.
-    pub gained: Vec<ShardIndex>,
-    /// Shards which are common to both assignments.
-    pub unchanged: Vec<ShardIndex>,
-    /// Shards that can be removed from this node.
-    pub removed: Vec<ShardIndex>,
+pub(crate) struct ShardDiffCalculator {
+    /// The list of shards that are assigned to the node in current epoch.
+    all_owned_shards: Vec<ShardIndex>,
+    /// The list of shards that the node gained from the previous epoch.
+    gained_shards_from_prev_epoch: Vec<ShardIndex>,
+    /// The list of shards that the node no longer needs and can be removed.
+    shards_to_remove: Vec<ShardIndex>,
+    /// The list of shards that the node should lock.
+    shards_to_lock: Vec<ShardIndex>,
 }
 
-impl ShardDiff {
-    /// Returns a new `ShardDiff` when moving from the allocation in
-    /// `committees.previous_committee()` to `committees.current_committee()` for the node
-    /// identified by the provided public key.
-    /// `exist` is the list of shards that the node currently holds, which is used to find out
-    /// the shards that are no longer needed in the node and can be removed.
-    pub fn diff_previous(
-        committees: &ActiveCommittees,
-        exist: &[ShardIndex],
-        id: &PublicKey,
-    ) -> ShardDiff {
-        let from: &[ShardIndex] = committees
+impl ShardDiffCalculator {
+    /// Create a new `ShardDiffCalculator` for a storage node.
+    /// TODO(WAL-657): Use `node_id` instead of `public_key`.
+    pub fn new(committees: &ActiveCommittees, id: &PublicKey, shards_exist: &[ShardIndex]) -> Self {
+        let shards_assigned_prev_epoch = committees
             .previous_committee()
-            .map_or(&[], |committee| committee.shards_for_node_public_key(id));
-        let to = committees
+            .map(|committee| committee.shards_for_node_public_key(id).to_vec())
+            .unwrap_or_default();
+        let shards_assigned_current_epoch = committees
             .current_committee()
-            .shards_for_node_public_key(id);
-        Self::diff(from, to, exist)
-    }
+            .shards_for_node_public_key(id)
+            .to_vec();
 
-    /// Returns a new `ShardDiff` when moving from the allocation in `from` to `to`.
-    pub fn diff(from: &[ShardIndex], to: &[ShardIndex], exist: &[ShardIndex]) -> ShardDiff {
-        let from: HashSet<ShardIndex> = from.iter().copied().collect();
-        let to: HashSet<ShardIndex> = to.iter().copied().collect();
-        let exist: HashSet<ShardIndex> = exist.iter().copied().collect();
+        let gained_shards_from_prev_epoch = {
+            let current: HashSet<_> = shards_assigned_current_epoch.iter().copied().collect();
+            let prev: HashSet<_> = shards_assigned_prev_epoch.iter().copied().collect();
+            current.difference(&prev).copied().collect()
+        };
 
-        ShardDiff {
-            unchanged: exist.intersection(&to).copied().collect(),
-            lost: from.difference(&to).copied().collect(),
-            gained: to.difference(&exist).copied().collect(),
-            removed: exist
-                .difference(&from.union(&to).copied().collect())
+        let shards_to_remove = {
+            let all: HashSet<_> = shards_exist.iter().copied().collect();
+            let assigned: HashSet<_> = shards_assigned_prev_epoch
+                .iter()
+                .chain(shards_assigned_current_epoch.iter())
                 .copied()
-                .collect(),
+                .collect();
+            all.difference(&assigned).copied().collect()
+        };
+
+        let shards_to_lock = {
+            let prev: HashSet<_> = shards_assigned_prev_epoch.iter().copied().collect();
+            let current: HashSet<_> = shards_assigned_current_epoch.iter().copied().collect();
+            prev.difference(&current).copied().collect()
+        };
+
+        Self {
+            all_owned_shards: shards_assigned_current_epoch,
+            gained_shards_from_prev_epoch,
+            shards_to_remove,
+            shards_to_lock,
         }
     }
-}
 
-/// Returns the path if it is `Some` or any of the default paths if they exist (attempt in order).
-pub fn path_or_defaults_if_exist(path: &Option<PathBuf>, defaults: &[PathBuf]) -> Option<PathBuf> {
-    tracing::debug!(?path, ?defaults, "looking for configuration file");
-    let mut path = path.clone();
-    for default in defaults {
-        if path.is_some() {
-            break;
-        }
-        path = default.exists().then_some(default.clone());
+    /// Returns the list of shards that are assigned to the node in current epoch serving data.
+    pub fn all_owned_shards(&self) -> &[ShardIndex] {
+        &self.all_owned_shards
     }
-    path
-}
 
-/// Loads the wallet context from the given path.
-///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Sui configuration directory.
-// NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
-pub fn load_wallet_context(path: &Option<PathBuf>) -> Result<WalletContext> {
-    let mut default_paths = vec!["./sui_config.yaml".into()];
-    if let Some(home_dir) = home::home_dir() {
-        default_paths.push(home_dir.join(".sui").join("sui_config").join("client.yaml"))
+    /// These are the shards that are gained from the previous epoch, and can be synced using
+    /// shard sync.
+    pub fn gained_shards_from_prev_epoch(&self) -> &[ShardIndex] {
+        &self.gained_shards_from_prev_epoch
     }
-    let path = path_or_defaults_if_exist(path, &default_paths)
-        .ok_or(anyhow!("could not find a valid wallet config file"))?;
-    tracing::info!("using Sui wallet configuration from '{}'", path.display());
-    WalletContext::new(&path, None, None)
+
+    /// These are the shards that are no longer needed and can be removed. Note that these shards
+    /// do not include the ones that are just moved out. We still need to keep them for shard
+    /// sync. These are the shards that was owned by the node at least two epochs ago.
+    pub fn shards_to_remove(&self) -> &[ShardIndex] {
+        &self.shards_to_remove
+    }
+
+    /// These are the shards that are just moved out, and therefore should be locked. They
+    /// should not be removed yet given that they need to be served as the source of shard
+    /// sync for the new shard owner.
+    pub fn shards_to_lock(&self) -> &[ShardIndex] {
+        &self.shards_to_lock
+    }
 }
 
 /// Generates a new Sui wallet for the specified network at the specified path and attempts to fund
@@ -792,6 +746,7 @@ pub async fn collect_event_blobs_for_catchup(
     system_object_id: ObjectID,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
+    metrics: Option<&EventProcessorMetrics>,
 ) -> Result<Vec<BlobId>> {
     use walrus_sui::client::contract_config::ContractConfig;
 
@@ -811,7 +766,7 @@ pub async fn collect_event_blobs_for_catchup(
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
     let blob_ids = blob_downloader
-        .download(upto_checkpoint, None, recovery_path)
+        .download(upto_checkpoint, None, recovery_path, metrics)
         .await?;
     Ok(blob_ids)
 }
@@ -825,6 +780,7 @@ pub async fn collect_event_blobs_for_catchup(
     package_id: Option<ObjectID>,
     upto_checkpoint: Option<u64>,
     recovery_path: &Path,
+    _metrics: Option<&EventProcessorMetrics>,
 ) -> Result<Vec<BlobId>> {
     Ok(vec![])
 }
@@ -890,6 +846,9 @@ pub async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
 #[cfg(test)]
 mod tests {
 
+    use std::num::NonZeroU16;
+
+    use walrus_sui::{test_utils, types::Committee};
     use walrus_test_utils::{assert_unordered_eq, param_test};
 
     use super::*;
@@ -944,64 +903,197 @@ mod tests {
         test_parse_various!(pebi, "Pi", 1024 * 1024 * 1024 * 1024 * 1024u64);
     }
 
+    /// Input for the shard diff calculator tests.
+    struct ShardDiffCalculatorInput {
+        /// The list of shard indexes that are assigned to each node in previous epoch.
+        prev_epoch_shards: Vec<Vec<u16>>,
+        /// The list of shard indexes that are assigned to each node in current epoch.
+        current_epoch_shards: Vec<Vec<u16>>,
+        /// The list of shard indexes that the node 0 currently holds.
+        existing_shards_all: Vec<u16>,
+    }
+
+    /// The expected results from the shard diff calculator.
+    struct ExpectedResult {
+        /// The list of shard indexes that the node 0 currently serves.
+        all_owned_shards: Vec<u16>,
+        /// The list of shard indexes that the node 0 gained from the previous epoch.
+        gained_shards_from_prev_epoch: Vec<u16>,
+        /// The list of shard indexes that the node 0 no longer needs and can be removed.
+        shards_to_remove: Vec<u16>,
+        /// The list of shard indexes that the node 0 should lock.
+        shards_to_lock: Vec<u16>,
+    }
+
     param_test! {
-        test_shard_diff: [
+        test_shard_diff_calculator: [
             only_gain: (
-                ShardDiff::diff(
-                    &[],
-                    &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                    &[],
-                ),
-                ShardDiff {
-                    gained: vec![ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                    ..Default::default()
+                ShardDiffCalculatorInput {
+                    prev_epoch_shards: vec![vec![0, 2], vec![1, 3, 4, 5]],
+                    current_epoch_shards: vec![vec![0, 1, 2, 3], vec![4, 5]],
+                    existing_shards_all: vec![0, 2],
+                },
+                ExpectedResult {
+                    all_owned_shards: vec![0, 1, 2, 3],
+                    gained_shards_from_prev_epoch: vec![1, 3],
+                    shards_to_remove: vec![],
+                    shards_to_lock: vec![],
                 },
             ),
-            gained_and_lost: (
-                ShardDiff::diff(
-                    &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                    &[ShardIndex(2), ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-                    &[ShardIndex(1), ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                ),
-                ShardDiff {
-                    lost: vec![ShardIndex(1)],
-                    gained: vec![ShardIndex(5)],
-                    unchanged: vec![ShardIndex(2), ShardIndex(3), ShardIndex(4)],
-                    removed: vec![],
+            only_lost: (
+                ShardDiffCalculatorInput {
+                    prev_epoch_shards: vec![vec![2, 3, 4, 5], vec![0, 1]],
+                    current_epoch_shards: vec![vec![2, 5], vec![3, 4, 0, 1]],
+                    existing_shards_all: vec![2, 3, 4, 5],
+                },
+                ExpectedResult {
+                    all_owned_shards: vec![2, 5],
+                    gained_shards_from_prev_epoch: vec![],
+                    shards_to_remove: vec![],
+                    shards_to_lock: vec![3, 4],
                 },
             ),
-            gained_lost_and_removed: (
-                ShardDiff::diff(
-                    &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-                    &[ShardIndex(6), ShardIndex(7), ShardIndex(4)],
-                    &[ShardIndex(1), ShardIndex(2), ShardIndex(4)],
-                ),
-                ShardDiff {
-                    lost: vec![ShardIndex(3), ShardIndex(5)],
-                    gained: vec![ShardIndex(6), ShardIndex(7)],
-                    unchanged: vec![ShardIndex(4)],
-                    removed: vec![ShardIndex(1), ShardIndex(2)],
+            gain_and_lost_and_removed: (
+                ShardDiffCalculatorInput {
+                    prev_epoch_shards: vec![vec![1, 2, 3], vec![0, 4, 5]],
+                    current_epoch_shards: vec![vec![0, 1, 2], vec![3, 4, 5]],
+                    existing_shards_all: vec![0, 1, 2, 3, 4],
+                },
+                ExpectedResult {
+                    all_owned_shards: vec![0, 1, 2],
+                    gained_shards_from_prev_epoch: vec![0],
+                    shards_to_remove: vec![4],
+                    shards_to_lock: vec![3],
                 },
             ),
-            gained_from_old_epochs: (
-                ShardDiff::diff(
-                    &[ShardIndex(3), ShardIndex(4), ShardIndex(5)],
-                    &[ShardIndex(6), ShardIndex(3), ShardIndex(4)],
-                    &[ShardIndex(1), ShardIndex(2), ShardIndex(4)],
-                ),
-                ShardDiff {
-                    lost: vec![ShardIndex(5)],
-                    gained: vec![ShardIndex(3), ShardIndex(6)],
-                    unchanged: vec![ShardIndex(4)],
-                    removed: vec![ShardIndex(1), ShardIndex(2)],
+            // This simulates the case for a node recovery, where the local shards completely
+            // mismatches the assignment in the previous and current epochs.
+            existing_shards_all_mismatch_assignment: (
+                ShardDiffCalculatorInput {
+                    prev_epoch_shards: vec![vec![1, 2, 3], vec![0, 4, 5]],
+                    current_epoch_shards: vec![vec![0, 1, 2], vec![3, 4, 5]],
+                    existing_shards_all: vec![3, 4, 5],
+                },
+                ExpectedResult {
+                    all_owned_shards: vec![0, 1, 2],
+                    gained_shards_from_prev_epoch: vec![0],
+                    shards_to_remove: vec![4, 5],
+                    shards_to_lock: vec![3],
+                },
+            ),
+            // This simulates the case for a shard, 4, that is moved out and back in in the next
+            // epoch.
+            removed_and_gained: (
+                ShardDiffCalculatorInput {
+                    prev_epoch_shards: vec![vec![1, 2, 3], vec![0, 4, 5]],
+                    current_epoch_shards: vec![vec![1, 2, 3, 4], vec![0, 5]],
+                    existing_shards_all: vec![1, 2, 3, 4],
+                },
+                ExpectedResult {
+                    all_owned_shards: vec![1, 2, 3, 4],
+                    gained_shards_from_prev_epoch: vec![4],
+                    shards_to_remove: vec![],
+                    shards_to_lock: vec![],
                 },
             ),
         ]
     }
-    fn test_shard_diff(computed_diff: ShardDiff, expected_result: ShardDiff) {
-        assert_unordered_eq!(computed_diff.lost, expected_result.lost);
-        assert_unordered_eq!(computed_diff.gained, expected_result.gained);
-        assert_unordered_eq!(computed_diff.unchanged, expected_result.unchanged);
-        assert_unordered_eq!(computed_diff.removed, expected_result.removed);
+    fn test_shard_diff_calculator(
+        input: ShardDiffCalculatorInput,
+        expected_result: ExpectedResult,
+    ) {
+        let prev_epoch = 5;
+        let current_epoch = 6;
+
+        // Build active committees based on the input.
+        let mut node_0 = test_utils::new_move_storage_node_for_testing();
+        node_0.shard_ids = input.prev_epoch_shards[0]
+            .iter()
+            .map(|s| ShardIndex(*s))
+            .collect();
+        let mut node_1 = test_utils::new_move_storage_node_for_testing();
+        node_1.shard_ids = input.prev_epoch_shards[1]
+            .iter()
+            .map(|s| ShardIndex(*s))
+            .collect();
+        let prev_committees = Committee::new(
+            vec![node_0.clone(), node_1.clone()],
+            prev_epoch,
+            NonZeroU16::new(
+                input
+                    .prev_epoch_shards
+                    .iter()
+                    .map(|s| s.len())
+                    .sum::<usize>() as u16,
+            )
+            .unwrap(),
+        )
+        .expect("failed to create committees");
+
+        node_0.shard_ids = input.current_epoch_shards[0]
+            .iter()
+            .map(|s| ShardIndex(*s))
+            .collect();
+        node_1.shard_ids = input.current_epoch_shards[1]
+            .iter()
+            .map(|s| ShardIndex(*s))
+            .collect();
+        let current_committees = Committee::new(
+            vec![node_0.clone(), node_1.clone()],
+            current_epoch,
+            NonZeroU16::new(
+                input
+                    .current_epoch_shards
+                    .iter()
+                    .map(|s| s.len())
+                    .sum::<usize>() as u16,
+            )
+            .unwrap(),
+        )
+        .expect("failed to create committees");
+
+        let active_committees = ActiveCommittees::new(current_committees, Some(prev_committees));
+
+        let shard_diff_calculator = ShardDiffCalculator::new(
+            &active_committees,
+            &node_0.public_key,
+            &input
+                .existing_shards_all
+                .iter()
+                .map(|s| ShardIndex(*s))
+                .collect::<Vec<_>>(),
+        );
+
+        assert_unordered_eq!(
+            shard_diff_calculator.all_owned_shards().iter().copied(),
+            expected_result
+                .all_owned_shards
+                .iter()
+                .map(|s| ShardIndex(*s))
+        );
+        assert_unordered_eq!(
+            shard_diff_calculator
+                .gained_shards_from_prev_epoch()
+                .iter()
+                .copied(),
+            expected_result
+                .gained_shards_from_prev_epoch
+                .iter()
+                .map(|s| ShardIndex(*s))
+        );
+        assert_unordered_eq!(
+            shard_diff_calculator.shards_to_remove().iter().copied(),
+            expected_result
+                .shards_to_remove
+                .iter()
+                .map(|s| ShardIndex(*s))
+        );
+        assert_unordered_eq!(
+            shard_diff_calculator.shards_to_lock().iter().copied(),
+            expected_result
+                .shards_to_lock
+                .iter()
+                .map(|s| ShardIndex(*s))
+        );
     }
 }

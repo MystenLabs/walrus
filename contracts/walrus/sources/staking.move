@@ -108,18 +108,6 @@ public fun register_candidate(
     cap
 }
 
-#[allow(unused_function)]
-/// Blocks staking for the nodes staking pool
-/// Marks node as "withdrawing",
-/// - excludes it from the next committee selection
-/// - still has to remain active while it is part of the committee and until all shards have
-///     been transferred to its successor
-/// - The staking pool is deleted once the last funds have been withdrawn from it by its stakers
-fun withdraw_node(staking: &mut Staking, cap: &mut StorageNodeCap) {
-    staking.inner_mut().set_withdrawing(cap.node_id());
-    staking.inner_mut().withdraw_node(cap);
-}
-
 // === Commission ===
 
 /// Sets next_commission in the staking pool, which will then take effect as commission rate

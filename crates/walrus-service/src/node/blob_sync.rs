@@ -16,6 +16,7 @@ use futures::{
     TryFutureExt,
 };
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
+use rayon::prelude::*;
 use tokio::{
     sync::{Notify, Semaphore},
     task::{JoinHandle, JoinSet},
@@ -184,21 +185,28 @@ impl BlobSyncHandler {
     pub async fn cancel_all_expired_syncs_and_mark_events_completed(
         &self,
     ) -> anyhow::Result<usize> {
-        tracing::debug!("cancelling all blob syncs for expired blobs");
+        tracing::info!("cancelling all blob syncs for expired blobs");
 
-        let join_handles: Vec<_> = self
-            .blob_syncs_in_progress
-            .lock()
-            .expect("should be able to acquire lock")
-            .iter_mut()
-            .filter_map(|(blob_id, sync)| {
-                self.node
-                    .is_blob_certified(blob_id)
-                    .is_ok_and(Not::not)
-                    .then(|| sync.cancel())
-                    .flatten()
-            })
-            .collect();
+        let join_handles: Vec<_> = {
+            let mut in_progress_guard = self
+                .blob_syncs_in_progress
+                .lock()
+                .expect("should be able to acquire lock");
+            tracing::info!("acquired lock on the in-progress blob recoveries");
+
+            in_progress_guard
+                .par_iter_mut()
+                .filter_map(|(blob_id, sync)| {
+                    self.node
+                        .is_blob_certified(blob_id)
+                        .is_ok_and(Not::not)
+                        .then(|| sync.cancel())
+                        .flatten()
+                })
+                .collect()
+        };
+        tracing::info!("released lock on the in-progress blob recoveries");
+
         let count = join_handles.len();
 
         try_join_all(join_handles)
@@ -206,12 +214,7 @@ impl BlobSyncHandler {
             .into_iter()
             .for_each(CompletableHandle::mark_as_complete);
 
-        if count > 0 {
-            tracing::info!("cancelled {count} blob syncs for now expired blobs");
-        } else {
-            tracing::debug!("no blob syncs cancelled");
-        }
-
+        tracing::info!("cancelled {count} blob syncs for now expired blobs");
         Ok(count)
     }
 
@@ -299,34 +302,42 @@ impl BlobSyncHandler {
         permits: Permits,
         mut event_handle: Option<EventHandle>,
     ) -> Option<EventHandle> {
+        let start = tokio::time::Instant::now();
+        let blob_id = synchronizer.blob_id;
+
         let queued_gauge =
             walrus_utils::with_label!(self.node.metrics.recover_blob_backlog, STATUS_QUEUED);
-        let start = tokio::time::Instant::now();
-        let _permit = permits
-            .blob
-            .acquire_owned()
-            .count_in_flight(&queued_gauge)
-            .await
-            .expect("semaphore should not be dropped");
-
         let in_progress_gauge =
             walrus_utils::with_label!(self.node.metrics.recover_blob_backlog, STATUS_IN_PROGRESS);
 
-        let _decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
-        let blob_id = synchronizer.blob_id;
-
         let cancel_token = synchronizer.cancel_token.clone();
-        let label = tokio::select! {
+        let (label, _guard) = tokio::select! {
             biased;
 
             _ = cancel_token.cancelled() => {
                 tracing::debug!("cancelled blob sync");
-                metrics::STATUS_CANCELLED
+                (metrics::STATUS_CANCELLED, None)
             },
-            _ = synchronizer.run(permits.sliver_pairs) => {
+
+            guard = async {
+                // Await claiming the permit inside this async closure, to enable cancellation to
+                // also cancel waiting for the permit.
+                let _permit = permits
+                    .blob
+                    .acquire_owned()
+                    .count_in_flight(&queued_gauge)
+                    .await
+                    .expect("semaphore should not be dropped");
+
+                let decrement_guard = GaugeGuard::acquire(&in_progress_gauge);
+
+                synchronizer.run(permits.sliver_pairs).await;
+
+                decrement_guard
+            } => {
                 event_handle.mark_as_complete();
                 event_handle = None;
-                metrics::STATUS_SUCCESS
+                (metrics::STATUS_SUCCESS, Some(guard))
             }
         };
 

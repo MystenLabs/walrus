@@ -18,7 +18,6 @@ use commands::generate_or_convert_key;
 use config::PathOrInPlace;
 use fs::File;
 use humantime::Duration;
-use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tokio::{
     runtime::{self, Runtime},
@@ -457,6 +456,7 @@ mod commands {
             ReadClient as _,
             SuiReadClient,
         },
+        config::{load_wallet_context_from_path, WalletConfig},
         types::move_structs::NodeMetadata,
     };
     use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -520,7 +520,7 @@ mod commands {
                 &metrics_runtime.registry,
                 &config.contract_config.system_object,
                 &config.contract_config.staking_object,
-                utils::load_wallet_context(&Some(config.wallet_config.clone()))
+                WalletConfig::load_wallet_context(Some(&config.wallet_config))
                     .and_then(|mut wallet| wallet.active_address())
                     .ok(),
             );
@@ -528,19 +528,6 @@ mod commands {
 
         let cancel_token = CancellationToken::new();
         let (exit_notifier, exit_listener) = oneshot::channel::<()>();
-
-        let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
-            config
-                .sui
-                .as_ref()
-                .map(|config| config.into())
-                .expect("SUI configuration must be present"),
-            config.event_processor_config.clone(),
-            config.use_legacy_event_provider,
-            &config.storage_path,
-            &metrics_runtime.registry,
-            cancel_token.child_token(),
-        )?;
 
         let metrics_push_registry_clone = metrics_runtime.registry.clone();
         let metrics_push_runtime = match config.metrics_push.take() {
@@ -559,6 +546,19 @@ mod commands {
             }
             None => None,
         };
+
+        let (event_manager, event_processor_runtime) = EventProcessorRuntime::start(
+            config
+                .sui
+                .as_ref()
+                .map(|config| config.into())
+                .expect("SUI configuration must be present"),
+            config.event_processor_config.clone(),
+            config.use_legacy_event_provider,
+            &config.storage_path,
+            &metrics_runtime.registry,
+            cancel_token.child_token(),
+        )?;
 
         let node_runtime = StorageNodeRuntime::start(
             &config,
@@ -814,7 +814,7 @@ mod commands {
                 "getting Sui RPC URL from wallet at '{}'",
                 wallet_config.display()
             );
-            let wallet_context = WalletContext::new(&wallet_config, None, None)
+            let wallet_context = load_wallet_context_from_path(Some(&wallet_config))
                 .context("Reading Sui wallet failed")?;
             wallet_context
                 .config
@@ -867,7 +867,7 @@ mod commands {
             sui: Some(SuiConfig {
                 rpc: sui_rpc,
                 contract_config,
-                wallet_config,
+                wallet_config: WalletConfig::from_path(&wallet_config),
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget,
@@ -941,6 +941,7 @@ mod commands {
             system_config,
             stores.clone(),
             &recovery_path,
+            None,
         )
         .await
         {

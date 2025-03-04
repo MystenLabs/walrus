@@ -5,7 +5,7 @@ module walrus::staking_inner_tests;
 
 use std::unit_test::assert_eq;
 use sui::{clock, test_utils::destroy, vec_map};
-use walrus::{staking_inner, storage_node, test_utils as test};
+use walrus::{staking_inner, storage_node, test_utils::{Self as test, frost_per_wal}};
 
 const EPOCH_DURATION: u64 = 7 * 24 * 60 * 60 * 1000;
 
@@ -60,7 +60,7 @@ fun test_staking_rejoin_active_set() {
     let mut staked_wal = vector[];
     let mut stake_amount = 10_000;
     pools.do_ref!(|pool| {
-        let wal = staking.stake_with_pool(test::mint(stake_amount, ctx), *pool, ctx);
+        let wal = staking.stake_with_pool(test::mint_wal(stake_amount, ctx), *pool, ctx);
         staked_wal.push_back(wal);
         // Increase the stake amount to have a clear ordering.
         stake_amount = stake_amount + 1;
@@ -112,16 +112,16 @@ fun test_staking_active_set() {
     let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
 
     // now Alice, Bob, and Carl stake in the pools
-    let mut wal_alice = staking.stake_with_pool(test::mint(100000, ctx), pool_one, ctx);
-    let wal_alice_2 = staking.stake_with_pool(test::mint(100000, ctx), pool_one, ctx);
+    let mut wal_alice = staking.stake_with_pool(test::mint_wal(100000, ctx), pool_one, ctx);
+    let wal_alice_2 = staking.stake_with_pool(test::mint_wal(100000, ctx), pool_one, ctx);
 
     wal_alice.join(wal_alice_2);
 
-    let wal_bob = staking.stake_with_pool(test::mint(200000, ctx), pool_two, ctx);
-    let wal_carl = staking.stake_with_pool(test::mint(600000, ctx), pool_three, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint_wal(200000, ctx), pool_two, ctx);
+    let wal_carl = staking.stake_with_pool(test::mint_wal(600000, ctx), pool_three, ctx);
 
     // expect the active set to be modified
-    assert!(staking.active_set().total_stake() == 1000000);
+    assert!(staking.active_set().total_stake() == 1000000 * frost_per_wal());
     assert!(staking.active_set().active_ids().length() == 3);
     assert!(staking.active_set().cur_min_stake() == 0);
 
@@ -163,9 +163,9 @@ fun test_staking_active_set_early_withdraw() {
     let pool_three = test::pool().name(b"pool_3".to_string()).register(&mut staking, ctx);
 
     // Alice stakes for pool_one
-    let wal_alice = staking.stake_with_pool(test::mint(100_000, ctx), pool_one, ctx);
-    let wal_bob = staking.stake_with_pool(test::mint(100_000, ctx), pool_two, ctx);
-    let wal_carl = staking.stake_with_pool(test::mint(100_000, ctx), pool_three, ctx);
+    let wal_alice = staking.stake_with_pool(test::mint_wal(100_000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint_wal(100_000, ctx), pool_two, ctx);
+    let wal_carl = staking.stake_with_pool(test::mint_wal(100_000, ctx), pool_three, ctx);
 
     let active_ids = staking.active_set().active_ids();
     assert!(active_ids.contains(&pool_one));
@@ -173,7 +173,10 @@ fun test_staking_active_set_early_withdraw() {
     assert!(active_ids.contains(&pool_three));
 
     // Alice performs an early withdraw
-    assert_eq!(staking.withdraw_stake(wal_alice, ctx).burn_for_testing(), 100_000);
+    assert_eq!(
+        staking.withdraw_stake(wal_alice, ctx).burn_for_testing(),
+        100_000 * frost_per_wal(),
+    );
 
     // make sure the node is removed from active set
     let active_ids = staking.active_set().active_ids();
@@ -215,14 +218,14 @@ fun test_parameter_changes() {
 
     // manually trigger advance epoch to apply the changes
     // TODO: this should be triggered via a system api
-    staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(1, false));
+    staking[pool_id].advance_epoch(test::mint_wal(0, ctx).into_balance(), &test::wctx(1, false));
 
     assert_eq!(staking[pool_id].storage_price(), 100000000);
     assert_eq!(staking[pool_id].write_price(), 100000000);
     assert_eq!(staking[pool_id].node_capacity(), 10000000000000);
     assert_eq!(staking[pool_id].commission_rate(), 0); // still old commission rate
 
-    staking[pool_id].advance_epoch(test::mint(0, ctx).into_balance(), &test::wctx(2, false));
+    staking[pool_id].advance_epoch(test::mint_wal(0, ctx).into_balance(), &test::wctx(2, false));
 
     assert_eq!(staking[pool_id].commission_rate(), 10000); // new commission rate
 
@@ -242,8 +245,8 @@ fun test_epoch_sync_done() {
     let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
 
     // now Alice, Bob, and Carl stake in the pools
-    let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
-    let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
+    let wal_alice = staking.stake_with_pool(test::mint_wal(300000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint_wal(700000, ctx), pool_two, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee_and_calculate_votes();
@@ -283,8 +286,8 @@ fun test_epoch_sync_done_duplicate() {
     let pool_two = test::pool().name(b"pool_2".to_string()).register(&mut staking, ctx);
 
     // now Alice, Bob, and Carl stake in the pools
-    let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
-    let wal_bob = staking.stake_with_pool(test::mint(700000, ctx), pool_two, ctx);
+    let wal_alice = staking.stake_with_pool(test::mint_wal(300000, ctx), pool_one, ctx);
+    let wal_bob = staking.stake_with_pool(test::mint_wal(700000, ctx), pool_two, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee_and_calculate_votes();
@@ -318,7 +321,7 @@ fun test_epoch_sync_wrong_epoch() {
     let pool_one = test::pool().name(b"pool_1".to_string()).register(&mut staking, ctx);
 
     // now Alice, Bob, and Carl stake in the pools
-    let wal_alice = staking.stake_with_pool(test::mint(300000, ctx), pool_one, ctx);
+    let wal_alice = staking.stake_with_pool(test::mint_wal(300000, ctx), pool_one, ctx);
 
     // trigger `advance_epoch` to update the committee and set the epoch state to sync
     staking.select_committee_and_calculate_votes();

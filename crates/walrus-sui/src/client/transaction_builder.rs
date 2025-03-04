@@ -753,18 +753,7 @@ impl WalrusPtbBuilder {
             vec![exchange_arg, split_coin],
         )?;
         let wal_amount = exchange.exchange_rate.sui_to_wal(amount);
-        self.tx_wal_balance += wal_amount;
-        match self.wal_coin_arg {
-            Some(wal_coin_arg) => {
-                self.pt_builder
-                    .command(Command::MergeCoins(wal_coin_arg, vec![result_arg]));
-            }
-            None => {
-                // This coin needs to be consumed by another function or transferred at the end.
-                self.add_result_to_be_consumed(result_arg);
-                self.wal_coin_arg = Some(result_arg);
-            }
-        }
+        self.add_wal_coin_result_arg(result_arg, wal_amount);
         Ok(())
     }
 
@@ -1073,6 +1062,24 @@ impl WalrusPtbBuilder {
             authorized,
         ];
         self.walrus_move_call(contracts::staking::set_governance_authorized, args)?;
+        Ok(())
+    }
+
+    /// Collects the commission for the node.
+    pub async fn collect_commission(&mut self, node_id: ObjectID) -> SuiClientResult<()> {
+        let authenticated = self
+            .get_authenticated_arg_for_pool(node_id, PoolOperationWithAuthorization::Commission)
+            .await?;
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.pt_builder.pure(node_id)?,
+            authenticated,
+        ];
+        let result_arg = self.walrus_move_call(contracts::staking::collect_commission, args)?;
+        // We can get the value of the commission up to now. If there is an epoch change before the
+        // transaction is executed, this may increase, but not decrease.
+        let commission_value = self.read_client.get_staking_pool(node_id).await?.commission;
+        self.add_wal_coin_result_arg(result_arg, commission_value);
         Ok(())
     }
 
@@ -1458,5 +1465,21 @@ impl WalrusPtbBuilder {
         self.system_object
             .get_or_try_init(|| self.read_client.get_system_object())
             .await
+    }
+
+    /// Adds a wal coin resulting from a command to the main WAL coin argument.
+    fn add_wal_coin_result_arg(&mut self, arg: Argument, value: u64) {
+        self.tx_wal_balance += value;
+        match self.wal_coin_arg {
+            Some(wal_coin_arg) => {
+                self.pt_builder
+                    .command(Command::MergeCoins(wal_coin_arg, vec![arg]));
+            }
+            None => {
+                // This coin needs to be consumed by another function or transferred at the end.
+                self.add_result_to_be_consumed(arg);
+                self.wal_coin_arg = Some(arg);
+            }
+        }
     }
 }

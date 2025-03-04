@@ -8,10 +8,7 @@ use std::{net::SocketAddr, path::PathBuf, time::Duration};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds, DurationSeconds};
 
-use crate::{
-    common::{config::SuiReaderConfig, utils},
-    node::events::EventProcessorConfig,
-};
+use crate::{common::config::SuiReaderConfig, node::events::EventProcessorConfig};
 
 /// The subdirectory in which to store the backup blobs when running without remote storage.
 pub const BACKUP_BLOB_ARCHIVE_SUBDIR: &str = "archive";
@@ -46,7 +43,7 @@ pub struct BackupDbConfig {
 pub struct BackupConfig {
     /// Directory in which to persist the event processor database and downloaded blob archives if
     /// no backup_bucket is specified.
-    #[serde(deserialize_with = "utils::resolve_home_dir")]
+    #[serde(deserialize_with = "walrus_utils::config::resolve_home_dir")]
     pub backup_storage_path: PathBuf,
     /// Database configuration. Split apart to ease passing these values to db-specific routines.
     #[serde(flatten)]

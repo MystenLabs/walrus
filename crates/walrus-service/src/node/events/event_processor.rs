@@ -8,24 +8,20 @@ use std::{
     fmt::Debug,
     fs,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
     time::Duration,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
+use chrono::Utc;
 use futures_util::future::try_join_all;
 use move_core_types::{
     account_address::AccountAddress,
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
-use prometheus::{
-    register_int_counter_with_registry,
-    register_int_gauge_with_registry,
-    IntCounter,
-    IntGauge,
-    Registry,
-};
+use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
 use rocksdb::Options;
 use sui_package_resolver::{
     error::Error as PackageResolverError,
@@ -73,6 +69,7 @@ use walrus_utils::{
 };
 
 use crate::{
+    common::telemetry,
     node::events::{
         ensure_experimental_rest_endpoint_exists,
         event_blob::EventBlob,
@@ -115,13 +112,16 @@ pub struct LocalDBPackageStore {
     original_id_cache: Arc<RwLock<HashMap<AccountAddress, ObjectID>>>,
 }
 
-/// Metrics for the event processor.
-#[derive(Clone, Debug)]
-pub struct EventProcessorMetrics {
-    /// The latest downloaded full checkpoint.
-    pub latest_downloaded_checkpoint: IntGauge,
-    /// The number of checkpoints downloaded. Useful for computing the download rate.
-    pub total_downloaded_checkpoints: IntCounter,
+telemetry::define_metric_set! {
+    /// Metrics for the event processor.
+    pub struct EventProcessorMetrics {
+        #[help = "Latest downloaded full checkpoint"]
+        event_processor_latest_downloaded_checkpoint: IntGauge[],
+        #[help = "The number of checkpoints downloaded. Useful for computing the download rate"]
+        event_processor_total_downloaded_checkpoints: IntCounter[],
+        #[help = "The number of event blobs fetched with their source"]
+        event_processor_event_blob_fetched: IntCounterVec["blob_source"],
+    }
 }
 
 /// Stores for the event processor.
@@ -170,26 +170,6 @@ impl Debug for LocalDBPackageStore {
         f.debug_struct("LocalDBPackageStore")
             .field("package_store_table", &self.package_store_table)
             .finish()
-    }
-}
-
-impl EventProcessorMetrics {
-    /// Creates a new instance of the event processor metrics.
-    pub fn new(registry: &Registry) -> Self {
-        Self {
-            latest_downloaded_checkpoint: register_int_gauge_with_registry!(
-                "event_processor_latest_downloaded_checkpoint",
-                "Latest downloaded full checkpoint",
-                registry,
-            )
-            .expect("this is a valid metrics registration"),
-            total_downloaded_checkpoints: register_int_counter_with_registry!(
-                "event_processor_total_downloaded_checkpoints",
-                "Total number of checkpoints downloaded",
-                registry,
-            )
-            .expect("this is a valid metrics registration"),
-        }
     }
 }
 
@@ -436,6 +416,18 @@ impl EventProcessor {
         let mut rx = self
             .checkpoint_downloader
             .start(next_checkpoint, cancel_token);
+
+        // TODO(WAL-667): remove special case
+        let on_public_testnet = self
+            .package_store
+            .get_original_package_id(self.system_pkg_id.into())
+            .await?
+            == ObjectID::from_str(
+                "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
+            )?;
+        let march_7_7_pm_utc =
+            chrono::DateTime::parse_from_rfc3339("2025-03-07T19:00:00+00:00")?.to_utc();
+
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
@@ -453,21 +445,32 @@ impl EventProcessor {
                 checkpoint.checkpoint_summary.sequence_number()
             );
             self.metrics
-                .latest_downloaded_checkpoint
+                .event_processor_latest_downloaded_checkpoint
                 .set(next_checkpoint as i64);
-            self.metrics.total_downloaded_checkpoints.inc();
+            self.metrics
+                .event_processor_total_downloaded_checkpoints
+                .inc();
             let verified_checkpoint =
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
+            // TODO(WAL-667): remove special case
+            let checkpoint_datetime =
+                chrono::DateTime::<Utc>::from(verified_checkpoint.timestamp());
+            let before_march_7_7pm_utc = checkpoint_datetime < march_7_7_pm_utc;
             for tx in checkpoint.transactions.into_iter() {
                 self.update_package_store(&tx.output_objects)
                     .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
                 let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
-                        self.package_store
-                            .get_original_package_id(event.package_id.into())
+                        // TODO(WAL-667): remove special case
+                        let pkg_address = if on_public_testnet && before_march_7_7pm_utc {
+                            event.package_id.into()
+                        } else {
+                            event.type_.address
+                        };
+                        self.package_store.get_original_package_id(pkg_address)
                     }))
                     .await?;
                 for (seq, tx_event) in tx_events
@@ -650,6 +653,7 @@ impl EventProcessor {
                 system_config.clone(),
                 stores.clone(),
                 &recovery_path,
+                Some(&event_processor.metrics),
             )
             .await
             {
@@ -859,6 +863,7 @@ impl EventProcessor {
         system_objects: SystemConfig,
         stores: EventProcessorStores,
         recovery_path: &Path,
+        metrics: Option<&EventProcessorMetrics>,
     ) -> Result<()> {
         tracing::info!("Starting event catchup using event blobs");
         let next_checkpoint = stores
@@ -878,6 +883,7 @@ impl EventProcessor {
             system_objects.system_object_id,
             next_checkpoint,
             recovery_path,
+            metrics,
         )
         .await?;
 

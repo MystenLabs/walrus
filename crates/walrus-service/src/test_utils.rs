@@ -85,8 +85,7 @@ use crate::{
             EndCommitteeChangeError,
             NodeCommitteeService,
         },
-        config,
-        config::{ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
+        config::{self, ConfigSynchronizerConfig, ShardSyncConfig, StorageNodeConfig},
         contract_service::SystemContractService,
         errors::{SyncNodeConfigError, SyncShardClientError},
         events::{
@@ -629,6 +628,7 @@ impl Drop for SimStorageNodeHandle {
 /// See function level documentation for details on the various configuration settings.
 #[derive(Debug)]
 pub struct StorageNodeHandleBuilder {
+    name: Option<String>,
     storage: Option<WithTempDir<Storage>>,
     blocklist_path: Option<PathBuf>,
     event_provider: Box<dyn SystemEventProvider>,
@@ -787,6 +787,12 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Specify the node's name.
+    pub fn with_name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+
     /// Creates the configured [`StorageNodeHandle`].
     pub async fn build(self) -> anyhow::Result<StorageNodeHandle> {
         // Identify the storage being used, as it allows us to extract the shards
@@ -843,6 +849,7 @@ impl StorageNodeHandleBuilder {
 
         // Create the node's config using the previously generated keypair and address.
         let config = StorageNodeConfig {
+            name: self.name.unwrap_or_else(|| "node".to_string()),
             storage_path: temp_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
             next_protocol_key_pair: None,
@@ -1004,7 +1011,9 @@ impl StorageNodeHandleBuilder {
                     system_context.system_object,
                     system_context.staking_object,
                 ),
-                wallet_config: self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
+                wallet_config: walrus_sui::config::WalletConfig::from_path(
+                    self.node_wallet_dir.unwrap().join("wallet_config.yaml"),
+                ),
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
@@ -1060,6 +1069,7 @@ impl StorageNodeHandleBuilder {
 impl Default for StorageNodeHandleBuilder {
     fn default() -> Self {
         Self {
+            name: None,
             shard_sync_config: None,
             event_provider: Box::<Vec<ContractEvent>>::default(),
             blocklist_path: None,
@@ -1402,7 +1412,7 @@ impl SystemContractService for StubContractService {
     }
 
     fn current_epoch(&self) -> Epoch {
-        unimplemented!("stub service does not store the epoch")
+        1
     }
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
@@ -1807,17 +1817,20 @@ impl TestClusterBuilder {
         let mut lookup_service_and_handle = None;
 
         for (
+            idx,
             (
                 (
                     (
-                        ((((config, event_provider), service), contract_service), capability),
-                        node_wallet_dir,
+                        (
+                            ((((config, event_provider), service), contract_service), capability),
+                            node_wallet_dir,
+                        ),
+                        start_node_from_beginning,
                     ),
-                    start_node_from_beginning,
+                    blocklist_file,
                 ),
-                blocklist_file,
+                disable_event_blob_writer,
             ),
-            disable_event_blob_writer,
         ) in self
             .storage_node_configs
             .into_iter()
@@ -1829,6 +1842,7 @@ impl TestClusterBuilder {
             .zip(self.start_node_from_beginning.into_iter())
             .zip(self.blocklist_files.into_iter())
             .zip(self.disable_event_blob_writer.into_iter())
+            .enumerate()
         {
             let local_identity = config.key_pair.public().clone();
             let builder = StorageNodeHandle::builder()
@@ -1841,7 +1855,8 @@ impl TestClusterBuilder {
                 .with_blocklist_file(blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
                 .with_disabled_event_blob_writer(disable_event_blob_writer)
-                .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer);
+                .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
+                .with_name(format!("node-{}", idx));
             tracing::info!(
                 "test cluster builder build enable_node_config_synchronizer: {}",
                 self.enable_node_config_synchronizer
@@ -2156,6 +2171,7 @@ pub mod test_cluster {
             },
             TestClusterHandle,
         },
+        types::move_structs::Authorized,
     };
 
     use super::*;
@@ -2172,7 +2188,7 @@ pub mod test_cluster {
     };
 
     /// The weight of each storage node in the test cluster.
-    pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000;
+    pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000_000_000;
 
     /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
     /// node handle.
@@ -2211,34 +2227,11 @@ pub mod test_cluster {
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
         };
-        default_setup_with_epoch_duration_generic::<StorageNodeHandle>(
+        default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
             epoch_duration,
             test_nodes_config,
             Some(10),
             ClientCommunicationConfig::default_for_test(),
-            with_subsidies,
-        )
-        .await
-    }
-
-    /// Performs the default setup with the input epoch duration for the test cluster with the
-    /// specified storage node handle.
-    pub async fn default_setup_with_epoch_duration_generic<T: StorageNodeHandleTrait>(
-        epoch_duration: Duration,
-        test_nodes_config: TestNodesConfig,
-        num_checkpoints_per_blob: Option<u32>,
-        communication_config: ClientCommunicationConfig,
-        with_subsidies: bool,
-    ) -> anyhow::Result<(
-        Arc<TestClusterHandle>,
-        TestCluster<T>,
-        WithTempDir<client::Client<SuiContractClient>>,
-    )> {
-        default_setup_with_num_checkpoints_generic(
-            epoch_duration,
-            test_nodes_config,
-            num_checkpoints_per_blob,
-            communication_config,
             with_subsidies,
         )
         .await
@@ -2256,6 +2249,36 @@ pub mod test_cluster {
         Arc<TestClusterHandle>,
         TestCluster<T>,
         WithTempDir<client::Client<SuiContractClient>>,
+    )> {
+        let (handle, cluster, client, _) = default_setup_with_deploy_directory_generic(
+            epoch_duration,
+            test_nodes_config,
+            num_checkpoints_per_blob,
+            communication_config,
+            with_subsidies,
+            None,
+            false,
+        )
+        .await?;
+        Ok((handle, cluster, client))
+    }
+
+    // TODO(WAL-653): Refactor with builder pattern to make selecting different options cleaner.
+    /// Performs the default setup with the input epoch duration for the test cluster with the
+    /// specified storage node handle.
+    pub async fn default_setup_with_deploy_directory_generic<T: StorageNodeHandleTrait>(
+        epoch_duration: Duration,
+        test_nodes_config: TestNodesConfig,
+        num_checkpoints_per_blob: Option<u32>,
+        communication_config: ClientCommunicationConfig,
+        with_subsidies: bool,
+        deploy_directory: Option<PathBuf>,
+        delegate_governance_to_admin_wallet: bool,
+    ) -> anyhow::Result<(
+        Arc<TestClusterHandle>,
+        TestCluster<T>,
+        WithTempDir<client::Client<SuiContractClient>>,
+        SystemContext,
     )> {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
@@ -2293,6 +2316,7 @@ pub mod test_cluster {
             epoch_duration,
             None,
             with_subsidies,
+            deploy_directory,
         )
         .await?;
 
@@ -2370,6 +2394,18 @@ pub mod test_cluster {
             &amounts_to_stake,
         )
         .await?;
+
+        if delegate_governance_to_admin_wallet {
+            let authorized = Authorized::Address(admin_contract_client.as_ref().address());
+            for (cap, client) in storage_capabilities
+                .iter()
+                .zip(contract_clients_refs.iter())
+            {
+                client
+                    .set_governance_authorized(cap.node_id, authorized.clone())
+                    .await?;
+            }
+        }
 
         end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
 
@@ -2458,7 +2494,7 @@ pub mod test_cluster {
             })
             .await?;
 
-        Ok((sui_cluster, cluster, client))
+        Ok((sui_cluster, cluster, client, system_ctx))
     }
 
     async fn setup_checkpoint_based_event_processors(

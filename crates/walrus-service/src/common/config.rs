@@ -3,20 +3,15 @@
 
 //! Common configuration module.
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
-use sui_sdk::wallet_context::WalletContext;
-use walrus_sui::client::{
-    contract_config::ContractConfig,
-    SuiClientError,
-    SuiContractClient,
-    SuiReadClient,
+use walrus_sui::{
+    client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
+    config::WalletConfig,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
-
-use crate::common::utils;
 
 /// Sui-specific configuration for Walrus
 #[serde_with::serde_as]
@@ -37,8 +32,7 @@ pub struct SuiConfig {
     )]
     pub event_polling_interval: Duration,
     /// Location of the wallet config.
-    #[serde(deserialize_with = "utils::resolve_home_dir")]
-    pub wallet_config: PathBuf,
+    pub wallet_config: WalletConfig,
     /// The configuration for the backoff strategy used for retries.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
@@ -61,7 +55,7 @@ impl SuiConfig {
     /// Creates a [`SuiContractClient`] based on the configuration.
     pub async fn new_contract_client(&self) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new(
-            WalletContext::new(&self.wallet_config, None, None)?,
+            WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
             &self.contract_config,
             self.backoff_config.clone(),
             self.gas_budget,
