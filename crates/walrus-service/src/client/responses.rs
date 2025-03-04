@@ -48,7 +48,7 @@ use walrus_sdk::{
 use walrus_sui::{
     client::ReadClient,
     types::{
-        move_structs::{Blob, BlobAttribute},
+        move_structs::{Blob, BlobAttribute, EpochState},
         Committee,
         NetworkAddress,
         StakedWal,
@@ -296,7 +296,7 @@ impl InfoOutput {
         let storage_info = InfoStorageOutput::get_storage_info(sui_read_client).await?;
         let size_info = InfoSizeOutput::get_size_info(sui_read_client).await?;
         let price_info = InfoPriceOutput::get_price_info(sui_read_client, encoding_types).await?;
-        let committee_info = if dev {
+        let committee_info: Option<InfoCommitteeOutput> = if dev {
             Some(InfoCommitteeOutput::get_committee_info(sui_read_client, sort).await?)
         } else {
             None
@@ -323,6 +323,7 @@ impl InfoOutput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InfoEpochOutput {
     pub(crate) current_epoch: Epoch,
+    pub(crate) estimated_start_of_current_epoch: DateTime<Utc>,
     pub(crate) epoch_duration: Duration,
     pub(crate) max_epochs_ahead: EpochCount,
 }
@@ -333,9 +334,16 @@ impl InfoEpochOutput {
         let fixed_params = sui_read_client.fixed_system_parameters().await?;
         let epoch_duration = fixed_params.epoch_duration;
         let max_epochs_ahead = fixed_params.max_epochs_ahead;
+        let epoch_state = sui_read_client.epoch_state().await?;
+        let estimated_start_of_current_epoch = match epoch_state {
+            EpochState::EpochChangeDone(epoch_start)
+            | EpochState::NextParamsSelected(epoch_start) => epoch_start,
+            EpochState::EpochChangeSync(_) => Utc::now(),
+        };
 
         Ok(Self {
             current_epoch,
+            estimated_start_of_current_epoch,
             epoch_duration,
             max_epochs_ahead,
         })

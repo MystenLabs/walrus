@@ -388,6 +388,7 @@ impl CliOutput for InfoEpochOutput {
     fn print_cli_output(&self) {
         let Self {
             current_epoch,
+            estimated_start_of_current_epoch,
             epoch_duration,
             max_epochs_ahead,
         } = self;
@@ -397,6 +398,7 @@ impl CliOutput for InfoEpochOutput {
 
             {heading}
             Current epoch: {current_epoch}
+            Estimated start time of current epoch: {estimated_start_of_current_epoch}
             Epoch duration: {hr_epoch_duration}
             Blobs can be stored for at most {max_epochs_ahead} epochs in the future.
             ",
