@@ -74,6 +74,7 @@ impl EventBlobDownloader {
                     return Err(err.into());
                 }
             };
+
             let blob_path = path.join(prev_event_blob.to_string());
             let (blob, blob_source) = if blob_path.exists() {
                 (std::fs::read(blob_path.as_path())?, "local")
