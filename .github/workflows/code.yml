@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-deny@0.17.0
       - name: Check dependencies
@@ -110,7 +110,7 @@ jobs:
     env:
       RUST_LOG: warn
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -149,7 +149,7 @@ jobs:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
@@ -164,7 +164,7 @@ jobs:
     if: false
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: taiki-e/install-action@v2.48.0
+      - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-nextest
       - uses: actions/checkout@v4
