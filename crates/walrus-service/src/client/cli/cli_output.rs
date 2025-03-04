@@ -34,6 +34,7 @@ use crate::client::{
         DeleteOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
+        EpochTimeOrMessage,
         ExampleBlobInfo,
         ExchangeOutput,
         ExtendBlobOutput,
@@ -388,17 +389,25 @@ impl CliOutput for InfoEpochOutput {
     fn print_cli_output(&self) {
         let Self {
             current_epoch,
-            estimated_start_of_current_epoch,
+            start_of_current_epoch,
             epoch_duration,
             max_epochs_ahead,
         } = self;
+
+        let time_output = match start_of_current_epoch {
+            EpochTimeOrMessage::DateTime(start_time) => {
+                let end_time = *start_time + chrono::Duration::from_std(*epoch_duration).unwrap();
+                format!("Start time: {}, End time: {}", start_time, end_time)
+            }
+            EpochTimeOrMessage::Message(msg) => msg.clone(),
+        };
 
         printdoc!(
             "
 
             {heading}
             Current epoch: {current_epoch}
-            Estimated start time of current epoch: {estimated_start_of_current_epoch}
+            {time_output}
             Epoch duration: {hr_epoch_duration}
             Blobs can be stored for at most {max_epochs_ahead} epochs in the future.
             ",

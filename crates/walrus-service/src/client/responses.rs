@@ -318,12 +318,17 @@ impl InfoOutput {
     }
 }
 
-/// The output of the `info` command.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) enum EpochTimeOrMessage {
+    DateTime(DateTime<Utc>),
+    Message(String),
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct InfoEpochOutput {
     pub(crate) current_epoch: Epoch,
-    pub(crate) estimated_start_of_current_epoch: DateTime<Utc>,
+    pub(crate) start_of_current_epoch: EpochTimeOrMessage,
     pub(crate) epoch_duration: Duration,
     pub(crate) max_epochs_ahead: EpochCount,
 }
@@ -335,15 +340,19 @@ impl InfoEpochOutput {
         let epoch_duration = fixed_params.epoch_duration;
         let max_epochs_ahead = fixed_params.max_epochs_ahead;
         let epoch_state = sui_read_client.epoch_state().await?;
-        let estimated_start_of_current_epoch = match epoch_state {
+        let start_of_current_epoch = match epoch_state {
             EpochState::EpochChangeDone(epoch_start)
-            | EpochState::NextParamsSelected(epoch_start) => epoch_start,
-            EpochState::EpochChangeSync(_) => Utc::now(),
+            | EpochState::NextParamsSelected(epoch_start) => {
+                EpochTimeOrMessage::DateTime(epoch_start)
+            }
+            EpochState::EpochChangeSync(_) => {
+                EpochTimeOrMessage::Message("Epoch change is currently in progress...".to_string())
+            }
         };
 
         Ok(Self {
             current_epoch,
-            estimated_start_of_current_epoch,
+            start_of_current_epoch,
             epoch_duration,
             max_epochs_ahead,
         })
