@@ -17,14 +17,21 @@ use anyhow::{anyhow, bail, Context};
 use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
-use errors::ListSymbolsError;
+use errors::{ListSymbolsError, Unavailable};
 use events::event_blob_writer::EventBlobWriter;
 use fastcrypto::traits::KeyPair;
-use futures::{stream, Stream, StreamExt, TryFutureExt as _};
+use futures::{
+    stream::{self, FuturesOrdered},
+    FutureExt as _,
+    Stream,
+    StreamExt,
+    TryFutureExt as _,
+};
 use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
 use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 use storage::blob_info::PerObjectBlobInfoApi;
@@ -34,8 +41,10 @@ use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
+use thread_pool::BoundedRayonThreadPool;
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
+use tower::{Service, ServiceExt};
 use tracing::{field, Instrument as _, Span};
 use typed_store::{rocks::MetricConf, TypedStoreError};
 use walrus_core::{
@@ -157,8 +166,10 @@ mod blob_retirement_notifier;
 mod blob_sync;
 mod epoch_change_driver;
 mod node_recovery;
+mod recovery_symbol_service;
 mod shard_sync;
 mod start_epoch_change_finisher;
+mod thread_pool;
 
 pub(crate) mod errors;
 mod storage;
@@ -482,6 +493,7 @@ pub struct StorageNodeInner {
     blocklist: Arc<Blocklist>,
     node_capability: ObjectID,
     blob_retirement_notifier: Arc<BlobRetirementNotifier>,
+    symbol_service: RecoverySymbolService,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -557,7 +569,6 @@ impl StorageNode {
         tracing::info!("successfully opened the node database");
 
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
-
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -566,7 +577,6 @@ impl StorageNode {
                 .clone(),
             storage,
             event_manager,
-            encoding_config,
             contract_service: contract_service.clone(),
             current_epoch: watch::Sender::new(committee_service.get_epoch()),
             committee_service,
@@ -576,6 +586,12 @@ impl StorageNode {
             blocklist: blocklist.clone(),
             node_capability: node_capability.id,
             blob_retirement_notifier: Arc::new(BlobRetirementNotifier::new()),
+            symbol_service: RecoverySymbolService::new(
+                config.blob_recovery.max_proof_cache_elements,
+                encoding_config.clone(),
+                thread_pool::default_bounded(),
+            ),
+            encoding_config,
         });
 
         blocklist.start_refresh_task();
@@ -1778,10 +1794,15 @@ impl StorageNodeInner {
         target_sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
+        // Claim a worker for performing the expansion necessary to get the symbol.
+        let mut worker = match self.symbol_service.clone().ready_oneshot().now_or_never() {
+            Some(result) => result.expect("polling the symbol service is infallible"),
+            None => return Err(Unavailable.into()),
+        };
+
         let sliver = self
             .retrieve_sliver(blob_id, sliver_pair_index, target_sliver_type.orthogonal())
             .await?;
-        let n_shards = self.n_shards();
         let convert_error = |error| match error {
             RecoverySymbolError::IndexTooLarge => {
                 panic!("index validity must be checked above")
@@ -1797,34 +1818,15 @@ impl StorageNodeInner {
             .ok_or_else(|| {
                 RetrieveSymbolError::Internal(anyhow!("metadata not found for blob {:?}", blob_id))
             })?;
-        let encoding_config = self
-            .encoding_config
-            .get_for_type(metadata.metadata().encoding_type());
 
-        match sliver {
-            Sliver::Primary(inner) => {
-                let target_index = target_pair_index.to_sliver_index::<Secondary>(n_shards);
-                let recovery_symbol = inner
-                    .recovery_symbol_for_sliver(target_pair_index, &encoding_config)
-                    .map_err(convert_error)?;
+        let request = RecoverySymbolRequest {
+            blob_id: *metadata.blob_id(),
+            source_sliver: sliver,
+            target_pair_index,
+            encoding_type: metadata.metadata().encoding_type(),
+        };
 
-                Ok(GeneralRecoverySymbol::from_recovery_symbol(
-                    recovery_symbol,
-                    target_index,
-                ))
-            }
-            Sliver::Secondary(inner) => {
-                let target_index = target_pair_index.to_sliver_index::<Primary>(n_shards);
-                let recovery_symbol = inner
-                    .recovery_symbol_for_sliver(target_pair_index, &encoding_config)
-                    .map_err(convert_error)?;
-
-                Ok(GeneralRecoverySymbol::from_recovery_symbol(
-                    recovery_symbol,
-                    target_index,
-                ))
-            }
-        }
+        worker.call(request).map_err(convert_error).await
     }
 }
 
@@ -2272,11 +2274,16 @@ impl ServiceState for StorageNodeInner {
         // function, otherwise, specify only the symbol IDs.
         let target_type_from_proof = filter.proof_axis().map(|axis| axis.orthogonal());
 
-        for symbol_id in symbol_id_iter {
-            match self
-                .retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof)
-                .await
-            {
+        // We use FuturesOrdered to keep the results in the same order as the requests.
+        let mut symbols: FuturesOrdered<_> = symbol_id_iter
+            .map(|symbol_id| {
+                self.retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof)
+                    .map(move |result| (symbol_id, result))
+            })
+            .collect();
+
+        while let Some((symbol_id, result)) = symbols.next().await {
+            match result {
                 Ok(symbol) => output.push(symbol),
 
                 // Callers may request symbols that are not stored with this shard, or
@@ -3486,6 +3493,7 @@ mod tests {
     }
 
     async_param_test! {
+        #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
         recovers_sliver_from_only_symbols_of_one_type -> TestResult: [
             primary: (SliverType::Primary),
             secondary: (SliverType::Secondary),
@@ -3514,7 +3522,9 @@ mod tests {
                     &blob,
                     node_client,
                     shard.into(),
-                    TIMEOUT,
+                    // The nodes will now quickly return an "Unavailable" error when they are
+                    // loaded, this means that we may the exponential backoff requiring more time.
+                    TIMEOUT * 2,
                 )
                 .instrument(tracing::info_span!("test-inners"))
                 .await;

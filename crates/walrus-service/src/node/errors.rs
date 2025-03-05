@@ -27,6 +27,7 @@ use walrus_sdk::{
         DebugInfo,
         Status,
         StatusCode as ApiStatusCode,
+        GLOBAL_ERROR_DOMAIN,
         STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN,
     },
     error::NodeError,
@@ -49,7 +50,7 @@ impl RestApiError for InternalError {
     }
 
     fn domain(&self) -> String {
-        "global".to_owned()
+        GLOBAL_ERROR_DOMAIN.to_owned()
     }
 
     fn reason(&self) -> String {
@@ -96,6 +97,13 @@ pub struct IndexOutOfRange {
     pub index: u16,
     pub max: u16,
 }
+
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[error("the service is currently unavailable")]
+#[rest_api_error(
+    reason = "UNAVAILABLE", status = ApiStatusCode::Unavailable, domain = GLOBAL_ERROR_DOMAIN
+)]
+pub struct Unavailable;
 
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = ERROR_DOMAIN)]
@@ -210,6 +218,10 @@ pub enum RetrieveSymbolError {
     #[error("the sliver from which to extract the recovery symbol could not be retrieved: {0}")]
     #[rest_api_error(delegate)]
     RetrieveSliver(#[from] RetrieveSliverError),
+
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    Unavailable(#[from] Unavailable),
 
     #[error(transparent)]
     #[rest_api_error(delegate)]

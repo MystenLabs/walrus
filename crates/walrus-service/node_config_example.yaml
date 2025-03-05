@@ -65,6 +65,7 @@ sui:
 blob_recovery:
   max_concurrent_blob_syncs: 100
   max_concurrent_sliver_syncs: 2000
+  max_proof_cache_elements: 7500
   retry_interval_min_secs: 1
   retry_interval_max_secs: 3600
   metadata_request_timeout_secs: 5

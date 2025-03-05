@@ -482,6 +482,9 @@ pub struct BlobRecoveryConfig {
     pub max_concurrent_blob_syncs: usize,
     /// The number of in-parallel slivers synchronized
     pub max_concurrent_sliver_syncs: usize,
+    /// The maximum number of elements stored in the proof cache for serving remote recovery
+    /// requests.
+    pub max_proof_cache_elements: u64,
     /// Configuration of the committee service timeouts and retries
     #[serde(flatten)]
     pub committee_service_config: CommitteeServiceConfig,
@@ -492,6 +495,7 @@ impl Default for BlobRecoveryConfig {
         Self {
             max_concurrent_blob_syncs: 100,
             max_concurrent_sliver_syncs: 2_000,
+            max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
         }
     }

@@ -3,7 +3,6 @@
 
 use std::{num::NonZeroU16, sync::Arc};
 
-use anyhow::Context as _;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -572,14 +571,9 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
 ) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
     let filter = query.try_into()?;
-    let symbols = tokio::task::spawn_blocking(move || async move {
-        state
-            .retrieve_multiple_recovery_symbols(&blob_id, filter)
-            .await
-    })
-    .await
-    .context("background thread running retrieve_multiple_recovery_symbols panicked")?
-    .await?;
+    let symbols = state
+        .retrieve_multiple_recovery_symbols(&blob_id, filter)
+        .await?;
 
     Ok(Bcs(symbols))
 }

@@ -313,6 +313,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}:
     get:
       tags:
@@ -490,6 +496,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: ''
           content:
             application/json:
               schema:

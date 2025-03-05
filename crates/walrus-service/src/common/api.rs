@@ -193,8 +193,10 @@ pub(crate) fn into_responses(
                 write!(&mut output, " ({list_num}) {item}").expect("write to string does not fail");
             }
             output
-        } else {
+        } else if !descr_list.is_empty() {
             descr_list.pop().expect("checked length")
+        } else {
+            String::default()
         };
 
         let content = ContentBuilder::new()

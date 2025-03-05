@@ -50,6 +50,8 @@ use serde::{de::Error, Deserialize, Serialize};
 use serde_with::{serde_as, TryFromInto};
 use utoipa::ToSchema;
 
+/// Error domain for service-agnostic errors.
+pub const GLOBAL_ERROR_DOMAIN: &str = "global";
 /// Error domain for storage node errors.
 pub const STORAGE_NODE_ERROR_DOMAIN: &str = "storage.walrus.space";
 /// Error domain for storage daemon errors.
@@ -364,6 +366,11 @@ status_codes![
     /// Some resource has been exhausted, perhaps a per-user quota, or
     /// perhaps the entire file system is out of space.
     (ResourceExhausted, "RESOURCE_EXHAUSTED", HttpStatusCode::TOO_MANY_REQUESTS),
+
+    /// The service is currently unavailable.
+    ///
+    /// This is likely a temporary situation and may be corrected by retrying with a backoff.
+    (Unavailable, "UNAVAILABLE", HttpStatusCode::SERVICE_UNAVAILABLE),
 ];
 
 #[serde_as]

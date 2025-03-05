@@ -122,8 +122,8 @@ impl<T, U> ByAxis<T, U> {
         }
     }
 
-    /// Maps a `ByAxis<T, U>` to a `ByAxis<O, P>` by applying functions resulting in the same type to
-    /// either variant.
+    /// Maps a `ByAxis<T, U>` to a `ByAxis<O, P>` by applying functions resulting in the same type
+    /// to either variant.
     ///
     /// See also [`by_axis::map!`][map] when both `map_primary` and `map_secondary` are
     /// identical.
