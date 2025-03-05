@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     errors::{SliverRecoveryError, SliverVerificationError},
     symbols,
+    DecodingSymbol,
     EncodingAxis,
     EncodingConfig,
     EncodingConfigEnum,
@@ -157,14 +158,20 @@ impl<T: EncodingAxis> SliverData<T> {
         &self,
         config: &EncodingConfigEnum,
     ) -> Result<Symbols, RecoverySymbolError> {
-        Ok(Symbols::new(
-            config
-                .encode_all_symbols::<T::OrthogonalAxis>(self.symbols.data())?
-                .into_iter()
-                .flatten()
-                .collect(),
-            self.symbols.symbol_size(), // The symbol size remains unvaried when re-encoding.
-        ))
+        let symbol_list = config.encode_all_symbols::<T::OrthogonalAxis>(self.symbols.data())?;
+        assert!(!symbol_list.is_empty(), "must be at least 1 symbol");
+        assert!(!symbol_list[0].is_empty(), "symbols must have data");
+
+        let symbol_size = self.symbols.symbol_size(); // Symbol size does not vary when re-encoding.
+        let data_length = symbol_list.len() * usize::from(symbol_size.get());
+
+        let mut flattened: Vec<u8> = Vec::with_capacity(data_length);
+        for symbol in symbol_list {
+            // Vec's specialize this to use a memcpy since symbol is `&[T: Copy]`.
+            flattened.extend_from_slice(&symbol);
+        }
+
+        Ok(Symbols::new(flattened, symbol_size))
     }
 
     /// Gets the recovery symbol for a specific target sliver starting from the current sliver.
@@ -185,9 +192,11 @@ impl<T: EncodingAxis> SliverData<T> {
     ) -> Result<RecoverySymbol<T::OrthogonalAxis, MerkleProof<Blake2b256>>, RecoverySymbolError>
     {
         Self::check_index(target_pair_index.into(), config.n_shards())?;
+
         let recovery_symbols = self.recovery_symbols(config)?;
         let target_sliver_index =
             target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
+
         Ok(recovery_symbols
             .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
             .expect("we have exactly `n_shards` symbols and the bound was checked")
@@ -196,6 +205,32 @@ impl<T: EncodingAxis> SliverData<T> {
                     .get_proof(target_sliver_index.as_usize())
                     .expect("bound already checked above"),
             ))
+    }
+
+    /// Gets the decoding symbol for a specific target sliver starting from the current sliver.
+    ///
+    /// The `target_pair_index` is the index of the [`SliverPair`] to which the sliver to be
+    /// recovered belongs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`RecoverySymbolError::EncodeError`] if the sliver cannot be encoded. Returns a
+    /// [`RecoverySymbolError::IndexTooLarge`] error if `target_pair_index >= n_shards`.
+    pub fn decoding_symbol_for_sliver(
+        &self,
+        target_pair_index: SliverPairIndex,
+        config: &EncodingConfigEnum,
+    ) -> Result<DecodingSymbol<T::OrthogonalAxis>, RecoverySymbolError> {
+        Self::check_index(target_pair_index.into(), config.n_shards())?;
+
+        // TODO(jsmith): Avoid expanding all the symbols to get a single symbol (WAL-611).
+        let recovery_symbols = self.recovery_symbols(config)?;
+        let target_sliver_index =
+            target_pair_index.to_sliver_index::<T::OrthogonalAxis>(config.n_shards());
+
+        Ok(recovery_symbols
+            .decoding_symbol_at(target_sliver_index.as_usize(), self.index.into())
+            .expect("we have exactly `n_shards` symbols and the bound was checked"))
     }
 
     /// Recovers a [`Sliver`] from the provided recovery symbols.
@@ -787,7 +822,7 @@ mod tests {
             one_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 4, 1),
             two_byte_symbol_raptorq: (EncodingType::RedStuffRaptorQ, &[1,2,3,4], 2, 2),
             two_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4], 2, 2),
-            four_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 2),
+            four_byte_symbol_reed_solomon: (EncodingType::RS2, &[1,2,3,4,5,6,7,8], 2, 4),
         ]
     }
     fn test_recovery_symbol_proof(
