@@ -397,7 +397,7 @@ impl CliOutput for InfoEpochOutput {
         let time_output = match start_of_current_epoch {
             EpochTimeOrMessage::DateTime(start_time) => {
                 let end_time = *start_time + chrono::Duration::from_std(*epoch_duration).unwrap();
-                format!("Start time: {}, End time: {}", start_time, end_time)
+                format!("Start time: {}\nEnd time: {}", start_time, end_time)
             }
             EpochTimeOrMessage::Message(msg) => msg.clone(),
         };
