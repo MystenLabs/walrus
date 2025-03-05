@@ -28,7 +28,7 @@ impl NodeRecoveryHandler {
         }
     }
 
-    pub fn start_node_recovery(&self, epoch: Epoch) -> Result<(), TypedStoreError> {
+    pub async fn start_node_recovery(&self, epoch: Epoch) -> Result<(), TypedStoreError> {
         let mut locked_task_handle = self.task_handle.lock().unwrap();
         assert!(locked_task_handle.is_none());
 
@@ -59,7 +59,7 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
-                    if let Ok(stored_at_all_shards) = node.is_stored_at_all_shards(&blob_id) {
+                    if let Ok(stored_at_all_shards) = node.is_stored_at_all_shards(&blob_id).await {
                         if stored_at_all_shards {
                             tracing::debug!(
                                 walrus.blob_id = %blob_id,
@@ -147,10 +147,10 @@ impl NodeRecoveryHandler {
     }
 
     /// Restarts any in progress recovery.
-    pub fn restart_recovery(&self) -> Result<(), TypedStoreError> {
+    pub async fn restart_recovery(&self) -> Result<(), TypedStoreError> {
         if let NodeStatus::RecoveryInProgress(recovering_epoch) = self.node.storage.node_status()? {
             if recovering_epoch == self.node.current_epoch() {
-                return self.start_node_recovery(self.node.current_epoch());
+                return self.start_node_recovery(self.node.current_epoch()).await;
             } else {
                 assert!(recovering_epoch < self.node.current_epoch());
                 tracing::warn!(

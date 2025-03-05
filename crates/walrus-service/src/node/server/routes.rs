@@ -209,7 +209,9 @@ pub async fn get_sliver<S: SyncServiceState>(
     )>,
 ) -> Result<Response, RetrieveSliverError> {
     let blob_id = blob_id.0;
-    let sliver = state.retrieve_sliver(&blob_id, sliver_pair_index, sliver_type)?;
+    let sliver = state
+        .retrieve_sliver(&blob_id, sliver_pair_index, sliver_type)
+        .await?;
 
     debug_assert_eq!(sliver.r#type(), sliver_type, "invalid sliver type fetched");
     match sliver {
@@ -256,7 +258,9 @@ pub async fn put_sliver<S: SyncServiceState>(
         SliverType::Secondary => Sliver::Secondary(Bcs::from_bytes(&body)?.0),
     };
 
-    state.store_sliver(&blob_id, sliver_pair_index, &sliver)?;
+    state
+        .store_sliver(&blob_id, sliver_pair_index, &sliver)
+        .await?;
 
     // TODO(jsmith): Change to CREATED
     Ok(ApiSuccess::ok("sliver stored successfully"))
@@ -300,9 +304,15 @@ pub async fn get_sliver_status<S: SyncServiceState>(
 ) -> Result<ApiSuccess<StoredOnNodeStatus>, RetrieveSliverError> {
     let blob_id = blob_id.0;
     let status = match sliver_type {
-        SliverType::Primary => state.sliver_status::<PrimaryEncoding>(&blob_id, sliver_pair_index),
+        SliverType::Primary => {
+            state
+                .sliver_status::<PrimaryEncoding>(&blob_id, sliver_pair_index)
+                .await
+        }
         SliverType::Secondary => {
-            state.sliver_status::<SecondaryEncoding>(&blob_id, sliver_pair_index)
+            state
+                .sliver_status::<SecondaryEncoding>(&blob_id, sliver_pair_index)
+                .await
         }
     }?;
     Ok(ApiSuccess::ok(status))
@@ -435,7 +445,8 @@ pub async fn get_recovery_symbol<S: SyncServiceState>(
     };
     let symbol_id = SymbolId::new(primary_index, secondary_index);
     let symbol = state
-        .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))?
+        .retrieve_recovery_symbol(&blob_id, symbol_id, Some(sliver_type))
+        .await?
         .into();
 
     match symbol {
@@ -474,7 +485,9 @@ pub async fn get_recovery_symbol_by_id<S: SyncServiceState>(
     State(state): State<Arc<S>>,
     Path((blob_id, symbol_id)): Path<(BlobIdString, SymbolId)>,
 ) -> Result<Response, RetrieveSymbolError> {
-    let symbol = state.retrieve_recovery_symbol(&blob_id.0, symbol_id, None)?;
+    let symbol = state
+        .retrieve_recovery_symbol(&blob_id.0, symbol_id, None)
+        .await?;
 
     Ok(Bcs(symbol).into_response())
 }
@@ -559,11 +572,14 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     ExtraQuery(query): ExtraQuery<ListRecoverySymbolsQuery>,
 ) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
     let filter = query.try_into()?;
-    let symbols = tokio::task::spawn_blocking(move || {
-        state.retrieve_multiple_recovery_symbols(&blob_id, filter)
+    let symbols = tokio::task::spawn_blocking(move || async move {
+        state
+            .retrieve_multiple_recovery_symbols(&blob_id, filter)
+            .await
     })
     .await
-    .context("background thread running retrieve_multiple_recovery_symbols panicked")??;
+    .context("background thread running retrieve_multiple_recovery_symbols panicked")?
+    .await?;
 
     Ok(Bcs(symbols))
 }
@@ -674,5 +690,5 @@ pub async fn sync_shard<S: SyncServiceState>(
     Authorization(public_key): Authorization,
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
 ) -> Result<Response, OrRejection<SyncShardServiceError>> {
-    Ok(Bcs(state.sync_shard(public_key, signed_request)?).into_response())
+    Ok(Bcs(state.sync_shard(public_key, signed_request).await?).into_response())
 }

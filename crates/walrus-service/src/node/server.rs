@@ -523,7 +523,7 @@ mod tests {
             }
         }
 
-        fn retrieve_sliver(
+        async fn retrieve_sliver(
             &self,
             _blob_id: &BlobId,
             _sliver_pair_index: SliverPairIndex,
@@ -534,7 +534,7 @@ mod tests {
 
         /// Returns a valid response only for the pair index 0, otherwise, returns
         /// an internal error.
-        fn retrieve_recovery_symbol(
+        async fn retrieve_recovery_symbol(
             &self,
             _blob_id: &BlobId,
             symbol_id: SymbolId,
@@ -567,19 +567,20 @@ mod tests {
             }
         }
 
-        fn retrieve_multiple_recovery_symbols(
+        async fn retrieve_multiple_recovery_symbols(
             &self,
             blob_id: &BlobId,
             _filter: RecoverySymbolsFilter,
         ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
             let symbol = self
                 .retrieve_recovery_symbol(blob_id, SymbolId::new(0.into(), 0.into()), None)
+                .await
                 .unwrap();
             Ok(vec![symbol.clone(), symbol])
         }
 
         /// Successful only for the pair index 0, otherwise, returns an internal error.
-        fn store_sliver(
+        async fn store_sliver(
             &self,
             _blob_id: &BlobId,
             sliver_pair_index: SliverPairIndex,
@@ -630,7 +631,7 @@ mod tests {
             }
         }
 
-        fn sliver_status<A: EncodingAxis>(
+        async fn sliver_status<A: EncodingAxis>(
             &self,
             _blob_id: &BlobId,
             SliverPairIndex(sliver_pair_index): SliverPairIndex,
@@ -676,7 +677,7 @@ mod tests {
             }
         }
 
-        fn sync_shard(
+        async fn sync_shard(
             &self,
             _public_key: PublicKey,
             _signed_request: SignedMessage<SyncShardMsg>,

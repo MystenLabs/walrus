@@ -802,11 +802,12 @@ impl StorageNodeHandleBuilder {
             temp_dir,
         } = self
             .storage
-            .unwrap_or_else(|| empty_storage_with_shards(&[]));
+            .unwrap_or_else(|| futures::executor::block_on(empty_storage_with_shards(&[])));
 
-        let node_info = self
-            .test_config
-            .unwrap_or_else(|| StorageNodeTestConfig::new(storage.shards_present(), false));
+        let node_info = self.test_config.unwrap_or_else(|| {
+            let shards = futures::executor::block_on(storage.shards_present());
+            StorageNodeTestConfig::new(shards, false)
+        });
         // To be in the committee, the node must have at least one shard assigned to it.
         let is_in_committee = !node_info.shards.is_empty();
 
@@ -1846,7 +1847,9 @@ impl TestClusterBuilder {
         {
             let local_identity = config.key_pair.public().clone();
             let builder = StorageNodeHandle::builder()
-                .with_storage(empty_storage_with_shards(&config.shards))
+                .with_storage(futures::executor::block_on(empty_storage_with_shards(
+                    &config.shards,
+                )))
                 .with_test_config(config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
@@ -2614,7 +2617,7 @@ async fn wait_for_event_processor_to_start(
 }
 
 /// Returns an empty storage, with the column families for the specified shards already created.
-pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
+pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> {
     let temp_dir =
         nondeterministic!(tempfile::tempdir().expect("temporary directory creation must succeed"));
     let db_config = DatabaseConfig::default();
@@ -2623,6 +2626,7 @@ pub fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Storage> 
 
     storage
         .create_storage_for_shards(shards)
+        .await
         .expect("should be able to create storage for shards");
 
     WithTempDir {

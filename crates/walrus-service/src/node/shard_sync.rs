@@ -241,6 +241,7 @@ impl ShardSyncHandler {
             .node
             .storage
             .shard_storage(shard_index)
+            .await
             .ok_or_else(|| {
                 tracing::error!(
                     "{shard_index} is not assigned to this node; cannot start shard sync"
@@ -275,6 +276,7 @@ impl ShardSyncHandler {
                 .node
                 .storage
                 .existing_shard_storages()
+                .await
                 .iter()
                 .map(|s| s.id())
                 .collect::<Vec<_>>();
@@ -289,7 +291,7 @@ impl ShardSyncHandler {
                         .await
                 }));
         } else {
-            for shard_storage in self.node.storage.existing_shard_storages() {
+            for shard_storage in self.node.storage.existing_shard_storages().await {
                 // Restart the syncing task for shards that were previously syncing (in ActiveSync
                 // status).
                 let shard_status = shard_storage.status()?;
@@ -604,6 +606,7 @@ mod tests {
                 .inner
                 .storage
                 .shard_storage(ShardIndex(i))
+                .await
                 .expect("Failed to get shard storage")
                 .update_status_in_test(ShardStatus::ActiveSync)
                 .expect("Failed to update shard status");
@@ -642,6 +645,7 @@ mod tests {
             .inner
             .storage
             .shard_storage(ShardIndex(0))
+            .await
             .expect("Failed to get shard storage")
             .update_status_in_test(ShardStatus::None)
             .expect("Failed to update shard status");

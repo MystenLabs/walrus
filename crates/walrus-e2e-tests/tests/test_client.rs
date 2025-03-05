@@ -1132,6 +1132,7 @@ async fn test_repeated_shard_move() -> TestResult {
         walrus_cluster.nodes[0]
             .storage_node()
             .existing_shards()
+            .await
             .len(),
         0
     );
@@ -1139,6 +1140,7 @@ async fn test_repeated_shard_move() -> TestResult {
         walrus_cluster.nodes[1]
             .storage_node()
             .existing_shards()
+            .await
             .len(),
         2
     );
@@ -1157,11 +1159,19 @@ async fn test_repeated_shard_move() -> TestResult {
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(7).await;
     assert_eq!(
-        walrus_cluster.nodes[0].storage_node.existing_shards().len(),
+        walrus_cluster.nodes[0]
+            .storage_node()
+            .existing_shards()
+            .await
+            .len(),
         2
     );
     assert_eq!(
-        walrus_cluster.nodes[1].storage_node.existing_shards().len(),
+        walrus_cluster.nodes[1]
+            .storage_node()
+            .existing_shards()
+            .await
+            .len(),
         0
     );
 
@@ -1961,6 +1971,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         walrus_cluster.nodes[1]
             .storage_node()
             .existing_shards()
+            .await
             .len(),
         2
     );
@@ -1968,19 +1979,22 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         walrus_cluster.nodes[0]
             .storage_node()
             .existing_shards()
+            .await
             .len(),
         2
     );
     assert_unordered_eq!(
         walrus_cluster.nodes[1]
             .storage_node()
-            .existing_shards_live(),
+            .existing_shards_live()
+            .await,
         vec![]
     );
     assert_unordered_eq!(
         walrus_cluster.nodes[0]
             .storage_node()
-            .existing_shards_live(),
+            .existing_shards_live()
+            .await,
         vec![ShardIndex(0), ShardIndex(1)]
     );
 
@@ -1991,6 +2005,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         walrus_cluster.nodes[1]
             .storage_node()
             .existing_shards()
+            .await
             .len(),
         0
     );
@@ -1998,6 +2013,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
         walrus_cluster.nodes[0]
             .storage_node()
             .existing_shards()
+            .await
             .len(),
         2
     );

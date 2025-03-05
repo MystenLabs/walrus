@@ -131,6 +131,7 @@ impl StartEpochChangeFinisher {
             self.node
                 .storage
                 .remove_storage_for_shards(&[*shard_index])
+                .await
                 .map_err(|error| {
                     tracing::error!(
                         epoch = %event.epoch,

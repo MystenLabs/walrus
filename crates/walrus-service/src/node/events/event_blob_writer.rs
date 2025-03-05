@@ -832,6 +832,7 @@ impl EventBlobWriter {
                     sliver_pair.index(),
                     &Sliver::Primary(sliver_pair.primary.clone()),
                 )
+                .await
                 .map_or_else(
                     |e| {
                         if matches!(e, StoreSliverError::ShardNotAssigned(_)) {
@@ -852,6 +853,7 @@ impl EventBlobWriter {
                     sliver_pair.index(),
                     &Sliver::Secondary(sliver_pair.secondary.clone()),
                 )
+                .await
                 .map_or_else(
                     |e| {
                         if matches!(e, StoreSliverError::ShardNotAssigned(_)) {

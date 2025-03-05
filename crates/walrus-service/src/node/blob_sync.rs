@@ -600,6 +600,7 @@ impl BlobSynchronizer {
             let shard_storage = self
                 .storage()
                 .shard_storage(shard)
+                .await
                 .unwrap_or_else(|| panic!("shard {} is managed by this node", shard));
             let sliver_id = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
 

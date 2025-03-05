@@ -1270,8 +1270,12 @@ mod tests {
         ]
     }
     async fn can_store_and_retrieve_sliver(sliver_type: SliverType) -> TestResult {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
         let sliver = get_sliver(sliver_type, 1);
 
         shard.put_sliver(&BLOB_ID, &sliver)?;
@@ -1284,8 +1288,12 @@ mod tests {
 
     #[tokio::test]
     async fn stores_separate_primary_and_secondary_sliver() -> TestResult {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         let primary = get_sliver(SliverType::Primary, 1);
         let secondary = get_sliver(SliverType::Secondary, 2);
@@ -1308,8 +1316,12 @@ mod tests {
 
     #[tokio::test]
     async fn stores_and_deletes_slivers() -> TestResult {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         let primary = get_sliver(SliverType::Primary, 1);
         let secondary = get_sliver(SliverType::Secondary, 2);
@@ -1331,8 +1343,12 @@ mod tests {
 
     #[tokio::test]
     async fn delete_on_empty_slivers_does_not_error() -> TestResult {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         assert!(!shard.is_sliver_stored::<Primary>(&BLOB_ID)?);
         assert!(!shard.is_sliver_stored::<Secondary>(&BLOB_ID)?);
@@ -1356,12 +1372,20 @@ mod tests {
         type_first: SliverType,
         type_second: SliverType,
     ) -> TestResult {
-        let storage = empty_storage_with_shards(&[SHARD_INDEX, OTHER_SHARD_INDEX]);
+        let storage = empty_storage_with_shards(&[SHARD_INDEX, OTHER_SHARD_INDEX]).await;
 
-        let first_shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let first_shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
         let first_sliver = get_sliver(type_first, 1);
 
-        let second_shard = storage.as_ref().shard_storage(OTHER_SHARD_INDEX).unwrap();
+        let second_shard = storage
+            .as_ref()
+            .shard_storage(OTHER_SHARD_INDEX)
+            .await
+            .expect("shard should exist");
         let second_sliver = get_sliver(type_second, 2);
 
         first_shard.put_sliver(&BLOB_ID, &first_sliver)?;
@@ -1398,8 +1422,12 @@ mod tests {
     ) -> TestResult {
         let is_pair_stored: bool = store_primary & store_secondary;
 
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         if store_primary {
             shard.put_sliver(&BLOB_ID, &get_sliver(SliverType::Primary, 3))?;
@@ -1438,9 +1466,13 @@ mod tests {
         data: HashMap<BlobId, HashMap<SliverType, Sliver>>,
     }
 
-    fn setup_storage() -> Result<ShardStorageFetchSliversSetup, TypedStoreError> {
-        let storage = empty_storage();
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+    async fn setup_storage() -> Result<ShardStorageFetchSliversSetup, TypedStoreError> {
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         let blob_ids = [
             BlobId([0; 32]),
@@ -1501,8 +1533,12 @@ mod tests {
             storage,
             blob_ids,
             data,
-        } = setup_storage()?;
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        } = setup_storage().await?;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
         assert_eq!(
             shard.fetch_slivers(sliver_type, &[blob_ids[0]])?,
             vec![(blob_ids[0], data[&blob_ids[0]][&sliver_type].clone())]
@@ -1527,8 +1563,12 @@ mod tests {
             storage,
             blob_ids,
             data,
-        } = setup_storage()?;
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        } = setup_storage().await?;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         assert_eq!(
             shard.fetch_slivers(sliver_type, &[blob_ids[0], blob_ids[2]])?,
@@ -1550,8 +1590,12 @@ mod tests {
     async fn test_shard_storage_fetch_non_existing_slivers(sliver_type: SliverType) -> TestResult {
         let ShardStorageFetchSliversSetup {
             storage, blob_ids, ..
-        } = setup_storage()?;
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        } = setup_storage().await?;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         assert!(shard.fetch_slivers(sliver_type, &[blob_ids[1]])?.is_empty());
 
@@ -1571,8 +1615,12 @@ mod tests {
             storage,
             blob_ids,
             data,
-        } = setup_storage()?;
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        } = setup_storage().await?;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
 
         assert_eq!(
             shard.fetch_slivers(sliver_type, &blob_ids)?,
@@ -1603,7 +1651,7 @@ mod tests {
         fetched_blob_id_index: usize,
         expected_next_blob_info_index: Option<usize>,
     ) -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let blob_info = storage.inner.blob_info.clone();
         let new_epoch = 3;
 
@@ -1626,7 +1674,11 @@ mod tests {
         blob_info.remove(&sorted_blob_ids[4])?;
         blob_info.remove(&sorted_blob_ids[7])?;
 
-        let shard = storage.as_ref().shard_storage(SHARD_INDEX).unwrap();
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
         let mut blob_info_iter = storage
             .inner
             .blob_info

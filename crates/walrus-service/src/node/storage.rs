@@ -7,7 +7,7 @@ use std::{
     fmt::Debug,
     ops::Bound::{Excluded, Included},
     path::Path,
-    sync::{Arc, RwLock, TryLockError},
+    sync::Arc,
 };
 
 use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
@@ -17,6 +17,7 @@ use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
+use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
     rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
@@ -227,12 +228,28 @@ impl Storage {
         self.node_status.insert(&(), &status)
     }
 
+    /// Returns lock write access to the shards map, and returns the underlying shard map.
+    pub(crate) async fn mut_shards(
+        &self,
+    ) -> OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>> {
+        self.shards.clone().write_owned().await
+    }
+
     /// Creates the storage for the specified shards, if it does not exist yet.
-    pub(crate) fn create_storage_for_shards(
+    pub(crate) async fn create_storage_for_shards(
         &self,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut locked_map = self.shards.write().unwrap();
+        let mut locked_map = self.mut_shards().await;
+        self.create_storage_for_shards_locked(&mut locked_map, new_shards)
+            .await
+    }
+
+    pub(crate) async fn create_storage_for_shards_locked(
+        &self,
+        locked_map: &mut OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>>,
+        new_shards: &[ShardIndex],
+    ) -> Result<(), TypedStoreError> {
         for &shard_index in new_shards {
             match locked_map.entry(shard_index) {
                 Entry::Vacant(entry) => {
@@ -255,16 +272,14 @@ impl Storage {
     }
 
     #[tracing::instrument(skip_all)]
-    pub(crate) fn remove_storage_for_shards(
+    pub(crate) async fn remove_storage_for_shards(
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
+        let mut shards = self.mut_shards().await;
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
-            if let Some(shard_storage) = {
-                let mut shards = self.shards.write().expect("take lock shouldn't fail");
-                shards.remove(shard_index)
-            } {
+            if let Some(shard_storage) = { shards.remove(shard_index) } {
                 // Do not hold the `shards` lock when deleting column families.
                 shard_storage.delete_shard_storage()?;
             }
@@ -277,32 +292,23 @@ impl Storage {
     }
 
     /// Returns the indices of the shards managed by the storage.
-    pub fn existing_shards(&self) -> Vec<ShardIndex> {
-        self.shards
-            .read()
-            .expect("Should acquire the lock successfully")
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
+    pub async fn existing_shards(&self) -> Vec<ShardIndex> {
+        self.shards.read().await.keys().cloned().collect::<Vec<_>>()
     }
 
     /// Returns an iterator over the shard storages managed by the storage.
-    pub fn existing_shard_storages(&self) -> Vec<Arc<ShardStorage>> {
+    pub async fn existing_shard_storages(&self) -> Vec<Arc<ShardStorage>> {
         self.shards
             .read()
-            .expect("Should acquire the lock successfully")
+            .await
             .values()
             .cloned()
             .collect::<Vec<_>>()
     }
 
     /// Returns a handle over the storage for a single shard.
-    pub fn shard_storage(&self, shard: ShardIndex) -> Option<Arc<ShardStorage>> {
-        self.shards
-            .read()
-            .expect("Should acquire the lock successfully")
-            .get(&shard)
-            .cloned()
+    pub async fn shard_storage(&self, shard: ShardIndex) -> Option<Arc<ShardStorage>> {
+        self.shards.read().await.get(&shard).cloned()
     }
 
     /// Attempts to get the status of the stored shards.
@@ -316,9 +322,9 @@ impl Storage {
     ) -> Result<HashMap<ShardIndex, Option<ShardStatus>>, WouldBlockError> {
         let shards = match self.shards.try_read() {
             Ok(shards) => shards,
-            Err(TryLockError::WouldBlock) => return Err(WouldBlockError),
-            error @ Err(TryLockError::Poisoned(_)) => {
-                error.expect("shard lock should not be poisoned")
+            Err(_) => {
+                tracing::debug!("try_list_shard_status would block");
+                return Err(WouldBlockError);
             }
         };
 
@@ -467,10 +473,10 @@ impl Storage {
 
     /// Deletes the metadata and slivers for the provided [`BlobId`] from the storage.
     #[tracing::instrument(skip_all)]
-    pub fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
+    pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         let mut batch = self.metadata.batch();
         self.delete_metadata(&mut batch, blob_id, true)?;
-        self.delete_slivers(&mut batch, blob_id)?;
+        self.delete_slivers(&mut batch, blob_id).await?;
         batch.write()?;
         Ok(())
     }
@@ -490,8 +496,12 @@ impl Storage {
     }
 
     /// Deletes the slivers on all shards for the provided [`BlobId`].
-    fn delete_slivers(&self, batch: &mut DBBatch, blob_id: &BlobId) -> Result<(), TypedStoreError> {
-        for shard in self.existing_shard_storages() {
+    async fn delete_slivers(
+        &self,
+        batch: &mut DBBatch,
+        blob_id: &BlobId,
+    ) -> Result<(), TypedStoreError> {
+        for shard in self.existing_shard_storages().await {
             shard.delete_sliver_pair(batch, blob_id)?;
         }
         Ok(())
@@ -499,23 +509,25 @@ impl Storage {
 
     /// Returns true if the provided blob-id is stored at the specified shard.
     #[tracing::instrument(skip_all)]
-    pub fn is_stored_at_shard(&self, blob_id: &BlobId, shard: ShardIndex) -> anyhow::Result<bool> {
+    pub async fn is_stored_at_shard(
+        &self,
+        blob_id: &BlobId,
+        shard: ShardIndex,
+    ) -> anyhow::Result<bool> {
         Ok(self
             .shard_storage(shard)
+            .await
             .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?
             .is_sliver_pair_stored(blob_id)?)
     }
 
     /// Returns a list of identifiers of the shards that store their
     /// respective sliver for the specified blob.
-    pub fn shards_with_sliver_pairs(
+    pub async fn shards_with_sliver_pairs(
         &self,
         blob_id: &BlobId,
     ) -> Result<Vec<ShardIndex>, TypedStoreError> {
-        let shard_map = self
-            .shards
-            .read()
-            .expect("should acquire the lock successfully");
+        let shard_map = self.shards.read().await;
         let mut shards_with_sliver_pairs = Vec::with_capacity(shard_map.len());
 
         for shard in shard_map.values() {
@@ -543,18 +555,13 @@ impl Storage {
 
     /// Returns the shards currently present in the storage.
     #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) fn shards_present(&self) -> Vec<ShardIndex> {
-        self.shards
-            .read()
-            .expect("should acquire the lock successfully")
-            .keys()
-            .copied()
-            .collect()
+    pub(crate) async fn shards_present(&self) -> Vec<ShardIndex> {
+        self.shards.read().await.keys().copied().collect()
     }
 
     /// Handles a sync shard request. The validity of the request should be checked before calling
     /// this function.
-    pub fn handle_sync_shard_request(
+    pub async fn handle_sync_shard_request(
         &self,
         request: &SyncShardRequest,
         current_epoch: Epoch,
@@ -571,7 +578,7 @@ impl Storage {
             }
         }
 
-        let Some(shard) = self.shard_storage(request.shard_index()) else {
+        let Some(shard) = self.shard_storage(request.shard_index()).await else {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
@@ -631,10 +638,10 @@ impl Storage {
 
     /// Test utility to get the shards that are live on the node.
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn existing_shards_live(&self) -> Vec<ShardIndex> {
+    pub async fn existing_shards_live(&self) -> Vec<ShardIndex> {
         self.shards
             .read()
-            .expect("Should acquire the lock successfully")
+            .await
             .values()
             .filter_map(|shard_storage| {
                 shard_storage
@@ -696,9 +703,9 @@ pub(crate) mod tests {
     pub(crate) const OTHER_SHARD_INDEX: ShardIndex = ShardIndex(9);
 
     /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
-    pub(crate) fn empty_storage() -> WithTempDir<Storage> {
+    pub(crate) async fn empty_storage() -> WithTempDir<Storage> {
         typed_store::metrics::DBMetrics::init(&Registry::new());
-        empty_storage_with_shards(&[SHARD_INDEX])
+        empty_storage_with_shards(&[SHARD_INDEX]).await
     }
 
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> SliverData<E> {
@@ -716,14 +723,23 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn populated_storage(spec: StorageSpec) -> TestResult<WithTempDir<Storage>> {
-        let mut storage = empty_storage();
+    pub(crate) async fn populated_storage(
+        spec: StorageSpec<'_>,
+    ) -> TestResult<WithTempDir<Storage>> {
+        let mut storage = empty_storage().await;
 
         let mut seed = 10u8;
         for (shard, sliver_list) in spec {
             // TODO: call create storage once with the list of storages.
-            storage.as_mut().create_storage_for_shards(&[*shard])?;
-            let shard_storage = storage.as_ref().shard_storage(*shard).unwrap();
+            storage
+                .as_mut()
+                .create_storage_for_shards(&[*shard])
+                .await?;
+            let shard_storage = storage
+                .as_ref()
+                .shard_storage(*shard)
+                .await
+                .expect("shard storage should be created");
 
             for (blob_id, which) in sliver_list.iter() {
                 if matches!(*which, WhichSlivers::Primary | WhichSlivers::Both) {
@@ -742,7 +758,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn can_write_then_read_metadata() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
@@ -763,7 +779,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn stores_and_deletes_metadata() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
         let metadata = walrus_core::test_utils::verified_blob_metadata();
         let blob_id = metadata.blob_id();
@@ -787,7 +803,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn delete_on_empty_metadata_does_not_error() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
 
         let mut batch = storage.metadata.batch();
@@ -805,7 +821,7 @@ pub(crate) mod tests {
         ]
     }
     async fn update_blob_info(skip_certify: bool) -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
@@ -890,7 +906,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn update_blob_info_metadata_stored() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
         let blob_id = BLOB_ID;
 
@@ -943,7 +959,7 @@ pub(crate) mod tests {
         sequence_ids: &[u64],
         expected_sequence: &[u64],
     ) -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
 
         let cursors: Vec<_> = sequence_ids
@@ -968,7 +984,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn maybe_advance_event_cursor_missed_zero() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let storage = storage.as_ref();
 
         storage.maybe_advance_event_cursor(1, &event_id_for_testing())?;
@@ -993,9 +1009,9 @@ pub(crate) mod tests {
             which: WhichSlivers,
             is_retrieved: bool,
         ) -> TestResult {
-            let storage = populated_storage(&[(SHARD_INDEX, vec![(BLOB_ID, which)])])?;
+            let storage = populated_storage(&[(SHARD_INDEX, vec![(BLOB_ID, which)])]).await?;
 
-            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
+            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID).await?;
 
             if is_retrieved {
                 assert_eq!(result, &[SHARD_INDEX]);
@@ -1011,9 +1027,10 @@ pub(crate) mod tests {
             let storage = populated_storage(&[
                 (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
                 (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            ])?;
+            ])
+            .await?;
 
-            let mut result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
+            let mut result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID).await?;
 
             result.sort();
 
@@ -1027,9 +1044,10 @@ pub(crate) mod tests {
             let storage = populated_storage(&[
                 (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
                 (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            ])?;
+            ])
+            .await?;
 
-            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID)?;
+            let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID).await?;
 
             assert_eq!(result, [OTHER_SHARD_INDEX]);
 
@@ -1046,12 +1064,13 @@ pub(crate) mod tests {
         spec: StorageSpec,
         lock_shard: Option<ShardIndex>,
     ) -> TestResult<TempDir> {
-        let storage = populated_storage(spec)?;
+        let storage = populated_storage(spec).await?;
         if let Some(shard) = lock_shard {
             storage
                 .inner
                 .shard_storage(shard)
-                .unwrap()
+                .await
+                .expect("shard should be created")
                 .lock_shard_for_epoch_change()
                 .expect("shard should be sealed");
         }
@@ -1077,7 +1096,7 @@ pub(crate) mod tests {
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
-                let Some(shard) = storage.shard_storage(shard_id) else {
+                let Some(shard) = storage.shard_storage(shard_id).await else {
                     panic!("shard {shard_id} should exist");
                 };
 
@@ -1118,6 +1137,7 @@ pub(crate) mod tests {
             assert_eq!(
                 storage
                     .shard_storage(SHARD_INDEX)
+                    .await
                     .expect("shard should exist")
                     .status()
                     .expect("status should be present"),
@@ -1127,6 +1147,7 @@ pub(crate) mod tests {
             assert_eq!(
                 storage
                     .shard_storage(OTHER_SHARD_INDEX)
+                    .await
                     .expect("shard should exist")
                     .status()
                     .expect("status should be present"),
@@ -1142,7 +1163,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn reopen_partially_created_sliver_column_family() -> TestResult {
         let test_shard_index = ShardIndex(123);
-        let storage = empty_storage();
+        let storage = empty_storage().await;
 
         let primary_cfs = ShardStorage::primary_slivers_column_family_options(
             test_shard_index,
@@ -1246,7 +1267,7 @@ pub(crate) mod tests {
             // Check shard files exist.
             check_cf_existence(storage.database.clone(), true);
 
-            storage.remove_storage_for_shards(&[SHARD_INDEX])?;
+            storage.remove_storage_for_shards(&[SHARD_INDEX]).await?;
 
             // Check shard file does not exist.
             check_cf_existence(storage.database.clone(), false);
@@ -1265,7 +1286,7 @@ pub(crate) mod tests {
             check_cf_existence(storage.database.clone(), false);
 
             // Remove it again should not encounter any error.
-            storage.remove_storage_for_shards(&[SHARD_INDEX])?;
+            storage.remove_storage_for_shards(&[SHARD_INDEX]).await?;
 
             Result::<(), anyhow::Error>::Ok(())
         })?;
@@ -1297,7 +1318,7 @@ pub(crate) mod tests {
         count: u64,
         expected_blob_index_in_response: &[u8],
     ) -> TestResult {
-        let mut storage = empty_storage();
+        let mut storage = empty_storage().await;
 
         // All tests use the same setup:
         // - 2 shards: 3 and 5
@@ -1314,11 +1335,15 @@ pub(crate) mod tests {
 
         // Initialize storage with two shards
         let shards = [ShardIndex(3), ShardIndex(5)];
-        storage.as_mut().create_storage_for_shards(&shards)?;
+        storage.as_mut().create_storage_for_shards(&shards).await?;
 
         // Populate shards with slivers
         for shard in shards {
-            let shard_storage = storage.as_ref().shard_storage(shard).unwrap();
+            let shard_storage = storage
+                .as_ref()
+                .shard_storage(shard)
+                .await
+                .expect("shard should exist");
             data.insert(shard, HashMap::new());
 
             for (index, blob_id) in blob_ids.iter().enumerate() {
@@ -1386,8 +1411,10 @@ pub(crate) mod tests {
             count,
             2,
         );
-        let SyncShardResponse::V1(slivers) =
-            storage.as_ref().handle_sync_shard_request(&request, 2)?;
+        let SyncShardResponse::V1(slivers) = storage
+            .as_ref()
+            .handle_sync_shard_request(&request, 2)
+            .await?;
 
         // Verify response matches expected
         let expected_response = expected_blob_index_in_response
@@ -1408,13 +1435,14 @@ pub(crate) mod tests {
     /// exist.
     #[tokio::test]
     async fn handle_sync_shard_request_shard_not_found() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
 
         let request =
             SyncShardRequest::new(ShardIndex(123), SliverType::Primary, BlobId([1; 32]), 1, 1);
         let response = storage
             .as_ref()
             .handle_sync_shard_request(&request, 0)
+            .await
             .unwrap_err();
 
         assert!(matches!(
@@ -1476,7 +1504,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_certified_blob_info_iter_before_epoch() -> TestResult {
-        let storage = empty_storage();
+        let storage = empty_storage().await;
         let blob_info = storage.inner.blob_info.clone();
         let new_epoch = 3;
 

@@ -194,7 +194,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> Result<Sliver, RetrieveSliverError>;
+    ) -> impl Future<Output = Result<Sliver, RetrieveSliverError>> + Send;
 
     /// Stores the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
@@ -202,7 +202,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
-    ) -> Result<bool, StoreSliverError>;
+    ) -> impl Future<Output = Result<bool, StoreSliverError>> + Send;
 
     /// Retrieves a signed confirmation over the identifiers of the shards storing their respective
     /// sliver-pairs for their BlobIds.
@@ -228,7 +228,7 @@ pub trait ServiceState {
         blob_id: &BlobId,
         symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
-    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError>;
+    ) -> impl Future<Output = Result<GeneralRecoverySymbol, RetrieveSymbolError>> + Send;
 
     /// Retrieves multiple recovery symbols.
     ///
@@ -238,7 +238,7 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
-    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>;
+    ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send;
 
     /// Retrieves the blob status for the given `blob_id`.
     fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
@@ -254,14 +254,14 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<StoredOnNodeStatus, RetrieveSliverError>;
+    ) -> impl Future<Output = Result<StoredOnNodeStatus, RetrieveSliverError>> + Send;
 
     /// Returns the shard data with the provided signed request and the public key of the sender.
     fn sync_shard(
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardServiceError>;
+    ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -604,7 +604,7 @@ impl StorageNode {
 
         let node_recovery_handler =
             NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
-        node_recovery_handler.restart_recovery()?;
+        node_recovery_handler.restart_recovery().await?;
 
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
             Some(EventBlobWriterFactory::new(
@@ -691,8 +691,8 @@ impl StorageNode {
     ///
     /// This neither considers the current shard assignment from the Walrus contracts nor the status
     /// of the local shard storage.
-    pub fn existing_shards(&self) -> Vec<ShardIndex> {
-        self.inner.storage.existing_shards()
+    pub async fn existing_shards(&self) -> Vec<ShardIndex> {
+        self.inner.storage.existing_shards().await
     }
 
     /// Wait for the storage node to be in at least the provided epoch.
@@ -1054,7 +1054,7 @@ impl StorageNode {
 
         if !self.inner.is_blob_certified(&event.blob_id)?
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
-            || self.inner.is_stored_at_all_shards(&event.blob_id)?
+            || self.inner.is_stored_at_all_shards(&event.blob_id).await?
         {
             event_handle.mark_as_complete();
 
@@ -1125,7 +1125,7 @@ impl StorageNode {
         self.blob_sync_handler
             .cancel_sync_and_mark_event_complete(&event.blob_id)
             .await?;
-        self.inner.storage.delete_blob_data(&event.blob_id)?;
+        self.inner.storage.delete_blob_data(&event.blob_id).await?;
 
         event_handle.mark_as_complete();
         Ok(())
@@ -1284,7 +1284,7 @@ impl StorageNode {
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
         let shard_diff_calculator =
-            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards());
+            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards().await);
 
         // Since the node is doing a full recovery, its local shards may be out of sync with the
         // contract for multiple epochs. Here we need to make sure that all the shards that is
@@ -1302,13 +1302,14 @@ impl StorageNode {
         for shard in self.inner.owned_shards() {
             storage
                 .shard_storage(shard)
+                .await
                 .expect("we just create all storage, it must exist")
                 .set_active_status()?;
         }
 
         // For shards that just moved out, we need to lock them to not store more data in them.
         for shard in shard_diff_calculator.shards_to_lock() {
-            if let Some(shard_storage) = self.inner.storage.shard_storage(*shard) {
+            if let Some(shard_storage) = self.inner.storage.shard_storage(*shard).await {
                 shard_storage
                     .lock_shard_for_epoch_change()
                     .context("failed to lock shard")?;
@@ -1318,7 +1319,8 @@ impl StorageNode {
         // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
         // the node will be in a state where it has all the shards and blobs that it should have.
         self.node_recovery_handler
-            .start_node_recovery(event.epoch)?;
+            .start_node_recovery(event.epoch)
+            .await?;
 
         // Last but not least, we need to remove any shards that are no longer owned by the node.
         let shards_to_remove = shard_diff_calculator.shards_to_remove();
@@ -1401,10 +1403,10 @@ impl StorageNode {
         assert!(event.epoch <= committees.epoch());
 
         let shard_diff_calculator =
-            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards());
+            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards().await);
 
         for shard_id in shard_diff_calculator.shards_to_lock() {
-            let Some(shard_storage) = storage.shard_storage(*shard_id) else {
+            let Some(shard_storage) = storage.shard_storage(*shard_id).await else {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
             };
@@ -1516,8 +1518,8 @@ impl StorageNode {
 
     /// Test utility to get the shards that are live on the node.
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn existing_shards_live(&self) -> Vec<ShardIndex> {
-        self.inner.storage.existing_shards_live()
+    pub async fn existing_shards_live(&self) -> Vec<ShardIndex> {
+        self.inner.storage.existing_shards_live().await
     }
 }
 
@@ -1539,9 +1541,9 @@ impl StorageNodeInner {
             .to_vec()
     }
 
-    pub(crate) fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> anyhow::Result<bool> {
+    pub(crate) async fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> anyhow::Result<bool> {
         for shard in self.owned_shards() {
-            match self.storage.is_stored_at_shard(blob_id, shard) {
+            match self.storage.is_stored_at_shard(blob_id, shard).await {
                 Ok(false) => return Ok(false),
                 Ok(true) => continue,
                 Err(error) => {
@@ -1613,7 +1615,7 @@ impl StorageNodeInner {
         self.blocklist.is_blocked(blob_id)
     }
 
-    fn get_shard_for_sliver_pair(
+    async fn get_shard_for_sliver_pair(
         &self,
         sliver_pair_index: SliverPairIndex,
         blob_id: &BlobId,
@@ -1622,6 +1624,7 @@ impl StorageNodeInner {
             sliver_pair_index.to_shard_index(self.encoding_config.n_shards(), blob_id);
         self.storage
             .shard_storage(shard_index)
+            .await
             .ok_or(ShardNotAssigned(shard_index, self.current_epoch()))
     }
 
@@ -1687,14 +1690,15 @@ impl StorageNodeInner {
         (summary, detail)
     }
 
-    pub(crate) fn store_sliver_unchecked(
+    pub(crate) async fn store_sliver_unchecked(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
     ) -> Result<bool, StoreSliverError> {
-        let shard_storage =
-            self.get_shard_for_sliver_pair(sliver_pair_index, metadata.blob_id())?;
+        let shard_storage = self
+            .get_shard_for_sliver_pair(sliver_pair_index, metadata.blob_id())
+            .await?;
 
         let shard_status = shard_storage
             .status()
@@ -1728,9 +1732,12 @@ impl StorageNodeInner {
         new_shards: Vec<ShardIndex>,
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
-        tokio::task::spawn_blocking(move || this.storage.create_storage_for_shards(&new_shards))
-            .in_current_span()
-            .await??;
+        tokio::task::spawn_blocking(move || async move {
+            this.storage.create_storage_for_shards(&new_shards).await
+        })
+        .in_current_span()
+        .await?
+        .await?;
         Ok(())
     }
 
@@ -1764,15 +1771,16 @@ impl StorageNodeInner {
         self.is_shutting_down.load(Ordering::SeqCst)
     }
 
-    fn try_retrieve_recovery_symbol(
+    async fn try_retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         target_sliver_type: SliverType,
         target_pair_index: SliverPairIndex,
     ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
-        let sliver =
-            self.retrieve_sliver(blob_id, sliver_pair_index, target_sliver_type.orthogonal())?;
+        let sliver = self
+            .retrieve_sliver(blob_id, sliver_pair_index, target_sliver_type.orthogonal())
+            .await?;
         let n_shards = self.n_shards();
         let convert_error = |error| match error {
             RecoverySymbolError::IndexTooLarge => {
@@ -1881,7 +1889,7 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver_type: SliverType,
-    ) -> Result<Sliver, RetrieveSliverError> {
+    ) -> impl Future<Output = Result<Sliver, RetrieveSliverError>> + Send {
         self.inner
             .retrieve_sliver(blob_id, sliver_pair_index, sliver_type)
     }
@@ -1891,7 +1899,7 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
         sliver: &Sliver,
-    ) -> Result<bool, StoreSliverError> {
+    ) -> impl Future<Output = Result<bool, StoreSliverError>> + Send {
         self.inner.store_sliver(blob_id, sliver_pair_index, sliver)
     }
 
@@ -1920,7 +1928,7 @@ impl ServiceState for StorageNode {
         blob_id: &BlobId,
         symbol_id: SymbolId,
         sliver_type: Option<SliverType>,
-    ) -> Result<GeneralRecoverySymbol, RetrieveSymbolError> {
+    ) -> impl Future<Output = Result<GeneralRecoverySymbol, RetrieveSymbolError>> + Send {
         self.inner
             .retrieve_recovery_symbol(blob_id, symbol_id, sliver_type)
     }
@@ -1929,7 +1937,7 @@ impl ServiceState for StorageNode {
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
-    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+    ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send {
         self.inner
             .retrieve_multiple_recovery_symbols(blob_id, filter)
     }
@@ -1950,7 +1958,7 @@ impl ServiceState for StorageNode {
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
-    ) -> Result<StoredOnNodeStatus, RetrieveSliverError> {
+    ) -> impl Future<Output = Result<StoredOnNodeStatus, RetrieveSliverError>> + Send {
         self.inner.sliver_status::<A>(blob_id, sliver_pair_index)
     }
 
@@ -1958,7 +1966,7 @@ impl ServiceState for StorageNode {
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
-    ) -> Result<SyncShardResponse, SyncShardServiceError> {
+    ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send {
         self.inner.sync_shard(public_key, signed_request)
     }
 }
@@ -2049,7 +2057,7 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
-    fn retrieve_sliver(
+    async fn retrieve_sliver(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
@@ -2064,7 +2072,9 @@ impl ServiceState for StorageNodeInner {
             RetrieveSliverError::Unavailable,
         );
 
-        let shard_storage = self.get_shard_for_sliver_pair(sliver_pair_index, blob_id)?;
+        let shard_storage = self
+            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
+            .await?;
 
         shard_storage
             .get_sliver(blob_id, sliver_type)
@@ -2076,7 +2086,7 @@ impl ServiceState for StorageNodeInner {
             })
     }
 
-    fn store_sliver(
+    async fn store_sliver(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
@@ -2103,6 +2113,7 @@ impl ServiceState for StorageNodeInner {
         }
 
         self.store_sliver_unchecked(&metadata, sliver_pair_index, sliver)
+            .await
     }
 
     async fn compute_storage_confirmation(
@@ -2116,6 +2127,7 @@ impl ServiceState for StorageNodeInner {
         );
         ensure!(
             self.is_stored_at_all_shards(blob_id)
+                .await
                 .context("database error when checkingstorage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
         );
@@ -2164,7 +2176,7 @@ impl ServiceState for StorageNodeInner {
     }
 
     #[tracing::instrument(skip(self))]
-    fn retrieve_recovery_symbol(
+    async fn retrieve_recovery_symbol(
         &self,
         blob_id: &BlobId,
         symbol_id: SymbolId,
@@ -2209,12 +2221,15 @@ impl ServiceState for StorageNodeInner {
                 continue;
             }
 
-            match self.try_retrieve_recovery_symbol(
-                blob_id,
-                source_pair_index,
-                target_sliver_type,
-                target_sliver_pair,
-            ) {
+            match self
+                .try_retrieve_recovery_symbol(
+                    blob_id,
+                    source_pair_index,
+                    target_sliver_type,
+                    target_sliver_pair,
+                )
+                .await
+            {
                 Ok(symbol) => return Ok(symbol),
                 Err(error) => final_error = error,
             }
@@ -2224,7 +2239,7 @@ impl ServiceState for StorageNodeInner {
     }
 
     #[tracing::instrument(skip_all)]
-    fn retrieve_multiple_recovery_symbols(
+    async fn retrieve_multiple_recovery_symbols(
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
@@ -2258,7 +2273,10 @@ impl ServiceState for StorageNodeInner {
         let target_type_from_proof = filter.proof_axis().map(|axis| axis.orthogonal());
 
         for symbol_id in symbol_id_iter {
-            match self.retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof) {
+            match self
+                .retrieve_recovery_symbol(blob_id, symbol_id, target_type_from_proof)
+                .await
+            {
                 Ok(symbol) => output.push(symbol),
 
                 // Callers may request symbols that are not stored with this shard, or
@@ -2302,13 +2320,14 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
-    fn sliver_status<A: EncodingAxis>(
+    async fn sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
         sliver_pair_index: SliverPairIndex,
     ) -> Result<StoredOnNodeStatus, RetrieveSliverError> {
         match self
-            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)?
+            .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
+            .await?
             .is_sliver_stored::<A>(blob_id)
         {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
@@ -2317,7 +2336,7 @@ impl ServiceState for StorageNodeInner {
         }
     }
 
-    fn sync_shard(
+    async fn sync_shard(
         &self,
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
@@ -2343,6 +2362,7 @@ impl ServiceState for StorageNodeInner {
 
         self.storage
             .handle_sync_shard_request(request, self.current_epoch())
+            .await
     }
 }
 
@@ -2439,13 +2459,16 @@ mod tests {
 
         #[tokio::test]
         async fn errs_if_blob_is_not_registered() -> TestResult {
-            let storage_node = storage_node_with_storage(populated_storage(&[(
-                SHARD_INDEX,
-                vec![
-                    (BLOB_ID, WhichSlivers::Primary),
-                    (OTHER_BLOB_ID, WhichSlivers::Both),
-                ],
-            )])?)
+            let storage_node = storage_node_with_storage(
+                populated_storage(&[(
+                    SHARD_INDEX,
+                    vec![
+                        (BLOB_ID, WhichSlivers::Primary),
+                        (OTHER_BLOB_ID, WhichSlivers::Both),
+                    ],
+                )])
+                .await?,
+            )
             .await;
 
             let err = storage_node
@@ -2471,7 +2494,8 @@ mod tests {
                         (BLOB_ID, WhichSlivers::Primary),
                         (OTHER_BLOB_ID, WhichSlivers::Both),
                     ],
-                )])?,
+                )])
+                .await?,
                 vec![BlobRegistered::for_testing(BLOB_ID).into()],
             )
             .await;
@@ -2507,7 +2531,8 @@ mod tests {
                         (BLOB_ID, WhichSlivers::Both),
                         (OTHER_BLOB_ID, WhichSlivers::Both),
                     ],
-                )])?,
+                )])
+                .await?,
                 vec![BlobRegistered::for_testing(BLOB_ID).into()],
             )
             .await;
@@ -2569,9 +2594,10 @@ mod tests {
         let n_shards = node.as_ref().inner.committee_service.get_shard_count();
         let sliver_pair_index = shard_for_node.to_pair_index(n_shards, &BLOB_ID);
 
-        let result =
-            node.as_ref()
-                .retrieve_sliver(&BLOB_ID, sliver_pair_index, SliverType::Primary);
+        let result = node
+            .as_ref()
+            .retrieve_sliver(&BLOB_ID, sliver_pair_index, SliverType::Primary)
+            .await;
 
         assert!(matches!(result, Err(RetrieveSliverError::Unavailable)));
 
@@ -2593,13 +2619,16 @@ mod tests {
     ) -> TestResult {
         let node = StorageNodeHandle::builder()
             .with_shard_assignment(shard_assignment)
-            .with_storage(populated_storage(
-                shards_in_storage
-                    .iter()
-                    .map(|shard| (*shard, vec![(BLOB_ID, WhichSlivers::Both)]))
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )?)
+            .with_storage(
+                populated_storage(
+                    shards_in_storage
+                        .iter()
+                        .map(|shard| (*shard, vec![(BLOB_ID, WhichSlivers::Both)]))
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                )
+                .await?,
+            )
             .with_system_event_provider(vec![])
             .with_node_started(true)
             .build()
@@ -2609,6 +2638,7 @@ mod tests {
             node.storage_node
                 .inner
                 .is_stored_at_all_shards(&BLOB_ID)
+                .await
                 .expect("error checking is stord at all shards"),
             is_stored_at_all_shards
         );
@@ -2632,10 +2662,13 @@ mod tests {
     async fn deletes_blob_data_on_event(event: BlobEvent, is_certified: bool) -> TestResult {
         let events = Sender::new(48);
         let node = StorageNodeHandle::builder()
-            .with_storage(populated_storage(&[
-                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            ])?)
+            .with_storage(
+                populated_storage(&[
+                    (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                    (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                ])
+                .await?,
+            )
             .with_system_event_provider(events.clone())
             .with_node_started(true)
             .build()
@@ -2644,7 +2677,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        assert!(inner.is_stored_at_all_shards(&BLOB_ID)?);
+        assert!(inner.is_stored_at_all_shards(&BLOB_ID).await?);
         events.send(
             BlobRegistered {
                 deletable: true,
@@ -2665,7 +2698,7 @@ mod tests {
         events.send(event.into())?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!inner.is_stored_at_all_shards(&BLOB_ID)?);
+        assert!(!inner.is_stored_at_all_shards(&BLOB_ID).await?);
         Ok(())
     }
 
@@ -2748,10 +2781,13 @@ mod tests {
 
     #[tokio::test]
     async fn returns_correct_sliver_status() -> TestResult {
-        let storage_node = storage_node_with_storage(populated_storage(&[
-            (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
-            (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
-        ])?)
+        let storage_node = storage_node_with_storage(
+            populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
+            ])
+            .await?,
+        )
         .await;
 
         let pair_index =
@@ -2759,21 +2795,21 @@ mod tests {
         let other_pair_index =
             OTHER_SHARD_INDEX.to_pair_index(storage_node.as_ref().inner.n_shards(), &BLOB_ID);
 
-        check_sliver_status::<Primary>(&storage_node, pair_index, StoredOnNodeStatus::Stored)?;
-        check_sliver_status::<Secondary>(&storage_node, pair_index, StoredOnNodeStatus::Stored)?;
-        check_sliver_status::<Primary>(
-            &storage_node,
-            other_pair_index,
-            StoredOnNodeStatus::Stored,
-        )?;
+        check_sliver_status::<Primary>(&storage_node, pair_index, StoredOnNodeStatus::Stored)
+            .await?;
+        check_sliver_status::<Secondary>(&storage_node, pair_index, StoredOnNodeStatus::Stored)
+            .await?;
+        check_sliver_status::<Primary>(&storage_node, other_pair_index, StoredOnNodeStatus::Stored)
+            .await?;
         check_sliver_status::<Secondary>(
             &storage_node,
             other_pair_index,
             StoredOnNodeStatus::Nonexistent,
-        )?;
+        )
+        .await?;
         Ok(())
     }
-    fn check_sliver_status<A: EncodingAxis>(
+    async fn check_sliver_status<A: EncodingAxis>(
         storage_node: &StorageNodeHandle,
         pair_index: SliverPairIndex,
         expected: StoredOnNodeStatus,
@@ -2781,7 +2817,8 @@ mod tests {
         let effective = storage_node
             .as_ref()
             .inner
-            .sliver_status::<A>(&BLOB_ID, pair_index)?;
+            .sliver_status::<A>(&BLOB_ID, pair_index)
+            .await?;
         assert_eq!(effective, expected);
         Ok(())
     }
@@ -2964,11 +3001,11 @@ mod tests {
     where
         F: FnMut(&ShardIndex, SliverType) -> bool,
     {
-        let nodes_and_shards: Vec<_> = cluster
-            .nodes
-            .iter()
-            .flat_map(|node| std::iter::repeat(node).zip(node.storage_node().existing_shards()))
-            .collect();
+        let mut nodes_and_shards = Vec::new();
+        for node in cluster.nodes.iter() {
+            let existing_shards = node.storage_node().existing_shards().await;
+            nodes_and_shards.extend(std::iter::repeat(node).zip(existing_shards));
+        }
 
         let mut metadata_stored = vec![];
 
@@ -3342,6 +3379,7 @@ mod tests {
             .inner
             .storage
             .shard_storage(test_shard)
+            .await
             .unwrap()
             .delete_shard_storage()
             .unwrap();
@@ -3658,11 +3696,14 @@ mod tests {
             cluster_with_partially_stored_blob(&[&[0, 1, 2, 3]], BLOB, |_, _| true).await?;
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
-        let is_newly_stored = cluster.nodes[0].storage_node.store_sliver(
-            blob.blob_id(),
-            assigned_sliver_pair.index(),
-            &Sliver::Primary(assigned_sliver_pair.primary.clone()),
-        )?;
+        let is_newly_stored = cluster.nodes[0]
+            .storage_node
+            .store_sliver(
+                blob.blob_id(),
+                assigned_sliver_pair.index(),
+                &Sliver::Primary(assigned_sliver_pair.primary.clone()),
+            )
+            .await?;
 
         assert!(!is_newly_stored);
 
@@ -3702,6 +3743,7 @@ mod tests {
                     .inner
                     .storage
                     .shard_storage(ShardIndex(0))
+                    .await
                     .unwrap()
                     .get_primary_sliver(&blob_id)
                     .unwrap()
@@ -3775,16 +3817,19 @@ mod tests {
             .protocol_key_pair
             .sign_message(&sync_shard_msg);
 
-        let result = cluster.nodes[0].storage_node.sync_shard(
-            cluster.nodes[1]
-                .as_ref()
-                .inner
-                .protocol_key_pair
-                .0
-                .public()
-                .clone(),
-            signed_request,
-        );
+        let result = cluster.nodes[0]
+            .storage_node
+            .sync_shard(
+                cluster.nodes[1]
+                    .as_ref()
+                    .inner
+                    .protocol_key_pair
+                    .0
+                    .public()
+                    .clone(),
+                signed_request,
+            )
+            .await;
         assert!(matches!(
             result,
             Err(SyncShardServiceError::MessageVerificationError(..))
@@ -3848,6 +3893,7 @@ mod tests {
             .inner
             .storage
             .shard_storage(ShardIndex(0))
+            .await
             .unwrap()
             .lock_shard_for_epoch_change()
             .expect("Lock shard failed.");
@@ -3857,11 +3903,10 @@ mod tests {
             SliverPairIndex(3)
         );
         let sliver = retry_until_success_or_timeout(TIMEOUT, || async {
-            cluster.nodes[0].storage_node.retrieve_sliver(
-                blob.blob_id(),
-                SliverPairIndex(3),
-                SliverType::Primary,
-            )
+            cluster.nodes[0]
+                .storage_node
+                .retrieve_sliver(blob.blob_id(), SliverPairIndex(3), SliverType::Primary)
+                .await
         })
         .await
         .expect("Sliver retrieval failed.");
@@ -3884,17 +3929,21 @@ mod tests {
             .inner
             .storage
             .shard_storage(ShardIndex(0))
+            .await
             .unwrap()
             .lock_shard_for_epoch_change()
             .expect("Lock shard failed.");
 
         let assigned_sliver_pair = blob.assigned_sliver_pair(ShardIndex(0));
         assert!(matches!(
-            cluster.nodes[0].storage_node.store_sliver(
-                blob.blob_id(),
-                assigned_sliver_pair.index(),
-                &Sliver::Primary(assigned_sliver_pair.primary.clone()),
-            ),
+            cluster.nodes[0]
+                .storage_node
+                .store_sliver(
+                    blob.blob_id(),
+                    assigned_sliver_pair.index(),
+                    &Sliver::Primary(assigned_sliver_pair.primary.clone()),
+                )
+                .await,
             Err(StoreSliverError::ShardNotAssigned(..))
         ));
 
@@ -3980,13 +4029,20 @@ mod tests {
         let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
         node_inner
             .storage
-            .create_storage_for_shards(&shard_indices)?;
-        let shard_storage_set = ShardStorageSet {
-            shard_storage: shard_indices
-                .iter()
-                .map(|i| node_inner.storage.shard_storage(*i).unwrap())
-                .collect(),
-        };
+            .create_storage_for_shards(&shard_indices)
+            .await?;
+        let mut shard_storage = vec![];
+        for shard_index in shard_indices {
+            shard_storage.push(
+                node_inner
+                    .storage
+                    .shard_storage(shard_index)
+                    .await
+                    .expect("shard storage should exist"),
+            );
+        }
+
+        let shard_storage_set = ShardStorageSet { shard_storage };
         let shard_storage_set = Arc::new(shard_storage_set);
 
         for shard_storage in shard_storage_set.shard_storage.iter() {
@@ -4135,7 +4191,8 @@ mod tests {
             .inner
             .storage
             .shard_storage(ShardIndex(0))
-            .unwrap();
+            .await
+            .expect("shard storage should exist");
 
         assert_eq!(blob_details.len(), 23);
         assert_eq!(shard_storage_src.sliver_count(SliverType::Primary), 23);
@@ -4245,8 +4302,13 @@ mod tests {
         };
         node_inner
             .storage
-            .create_storage_for_shards(&[ShardIndex(0)])?;
-        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            .create_storage_for_shards(&[ShardIndex(0)])
+            .await?;
+        let shard_storage_dst = node_inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .await
+            .unwrap();
         shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
         if wipe_metadata_before_transfer_in_dst {
@@ -4309,8 +4371,13 @@ mod tests {
         };
         node_inner
             .storage
-            .create_storage_for_shards(&[ShardIndex(0)])?;
-        let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            .create_storage_for_shards(&[ShardIndex(0)])
+            .await?;
+        let shard_storage_dst = node_inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .await
+            .unwrap();
         shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
         if wipe_metadata_before_transfer_in_dst {
@@ -4422,7 +4489,8 @@ mod tests {
                 .inner
                 .storage
                 .shard_storage(ShardIndex(0))
-                .unwrap();
+                .await
+                .expect("shard storage should exist");
             assert!(
                 shard_storage_dst.sliver_count(SliverType::Primary)
                     < shard_storage_src.sliver_count(SliverType::Primary)
@@ -4548,8 +4616,13 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])?;
-            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+                .create_storage_for_shards(&[ShardIndex(0)])
+                .await?;
+            let shard_storage_dst = node_inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .await
+                .expect("shard storage should exist");
             shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
             // Starts the shard syncing process in the new shard, which should only use happy path
@@ -4616,8 +4689,13 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])?;
-            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+                .create_storage_for_shards(&[ShardIndex(0)])
+                .await?;
+            let shard_storage_dst = node_inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .await
+                .expect("shard storage should exist");
             shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
             cluster.nodes[1]
@@ -4635,7 +4713,8 @@ mod tests {
                     .inner
                     .storage
                     .shard_storage(ShardIndex(0))
-                    .unwrap();
+                    .await
+                    .expect("shard storage should exist");
                 assert!(
                     shard_storage_dst.sliver_count(SliverType::Primary)
                         < shard_storage_src.sliver_count(SliverType::Primary)
@@ -4699,7 +4778,9 @@ mod tests {
                 );
             }
 
-            storage_dst.remove_storage_for_shards(&[ShardIndex(1)])?;
+            storage_dst
+                .remove_storage_for_shards(&[ShardIndex(1)])
+                .await?;
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
@@ -4947,8 +5028,13 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])?;
-            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+                .create_storage_for_shards(&[ShardIndex(0)])
+                .await?;
+            let shard_storage_dst = node_inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .await
+                .expect("shard storage should exist");
             shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
             cluster.nodes[1]
@@ -5001,11 +5087,16 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])?;
+                .create_storage_for_shards(&[ShardIndex(0)])
+                .await?;
             node_inner.storage.clear_metadata_in_test()?;
             node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
 
-            let shard_storage_dst = node_inner.storage.shard_storage(ShardIndex(0)).unwrap();
+            let shard_storage_dst = node_inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .await
+                .expect("shard storage should exist");
             shard_storage_dst.update_status_in_test(ShardStatus::None)?;
 
             cluster.nodes[1]
@@ -5123,6 +5214,7 @@ mod tests {
                 .inner
                 .storage
                 .shard_storage(ShardIndex(0))
+                .await
                 .expect("Shard storage should be created")
                 .status()
                 .unwrap(),
@@ -5134,6 +5226,7 @@ mod tests {
             .inner
             .storage
             .shard_storage(ShardIndex(1))
+            .await
             .is_none());
 
         assert_eq!(
@@ -5141,6 +5234,7 @@ mod tests {
                 .inner
                 .storage
                 .shard_storage(ShardIndex(27))
+                .await
                 .expect("Shard storage should be created")
                 .status()
                 .unwrap(),
@@ -5320,6 +5414,7 @@ mod tests {
                     .inner
                     .storage
                     .shard_storage(ShardIndex(1))
+                    .await
                     .unwrap(),
             )
             .await?;
