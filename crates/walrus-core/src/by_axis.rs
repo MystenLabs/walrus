@@ -68,7 +68,7 @@ impl Display for Axis {
 
 /// Represents either a value over the primary ([`Primary`][Self::Primary]) or secondary encoding
 /// axis ([`Secondary`][Self::Secondary]).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ByAxis<T, U> {
     /// Contains the primary axis value.
     Primary(T),
@@ -121,6 +121,44 @@ impl<T, U> ByAxis<T, U> {
             ByAxis::Secondary(inner) => map_secondary(inner),
         }
     }
+
+    /// Maps a `ByAxis<T, U>` to a `ByAxis<O, P>` by applying functions resulting in the same type to
+    /// either variant.
+    ///
+    /// See also [`by_axis::map!`][map] when both `map_primary` and `map_secondary` are
+    /// identical.
+    pub fn map<O, P, F, G>(self, map_primary: F, map_secondary: G) -> ByAxis<O, P>
+    where
+        F: FnOnce(T) -> O,
+        G: FnOnce(U) -> P,
+    {
+        match self {
+            ByAxis::Primary(inner) => ByAxis::Primary(map_primary(inner)),
+            ByAxis::Secondary(inner) => ByAxis::Secondary(map_secondary(inner)),
+        }
+    }
+}
+
+impl<T> ByAxis<T, T> {
+    /// Converts a `ByAxis<T, T>` into the inner value of type `T`.
+    pub fn into_inner(self) -> T {
+        match self {
+            ByAxis::Primary(value) => value,
+            ByAxis::Secondary(value) => value,
+        }
+    }
+}
+
+impl<T, U, E> ByAxis<Result<T, E>, Result<U, E>> {
+    /// Transposes a `ByAxis` of a `Result` to a `Result` of a `ByAxis`.
+    ///
+    /// The error types must be the same for both the primary and secondary.
+    pub fn transpose(self) -> Result<ByAxis<T, U>, E> {
+        match self {
+            ByAxis::Primary(result) => result.map(ByAxis::Primary),
+            ByAxis::Secondary(result) => result.map(ByAxis::Secondary),
+        }
+    }
 }
 
 /// Calls [`ByAxis::flat_map`] with the closure duplicated across both the `Primary`
@@ -132,7 +170,18 @@ macro_rules! flat_map {
     };
 }
 
-pub(crate) use flat_map;
+pub use flat_map;
+
+/// Calls [`ByAxis::map`] with the closure duplicated across both the `Primary` and `Secondary`
+/// variants.
+#[macro_export]
+macro_rules! map {
+    ($by_axis:expr, $($fn_once:tt)*) => {
+        $by_axis.map($($fn_once)*, $($fn_once)*)
+    };
+}
+
+pub use map;
 
 macro_rules! derive_from_trait {
     (ByAxis<$t:ty, $u:ty>, ($($type_args:tt)*)) => {
