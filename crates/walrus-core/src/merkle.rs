@@ -77,7 +77,7 @@ pub trait MerkleAuth: Clone + alloc::fmt::Debug {
 }
 
 /// A proof that some data is at index `leaf_index` in a [`MerkleTree`].
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Serialize, Deserialize)]
 pub struct MerkleProof<T = Blake2b256> {
     _hash_type: PhantomData<T>,
     /// The sibling hash values on the path from the leaf to the root.
@@ -143,6 +143,14 @@ where
         Some(current_hash)
     }
 }
+
+impl PartialEq for MerkleProof {
+    fn eq(&self, other: &Self) -> bool {
+        self.path.eq(&other.path)
+    }
+}
+
+impl Eq for MerkleProof {}
 
 /// Merkle tree using a hash function `T` (default: [`Blake2b256`]) from the [`fastcrypto`] crate.
 ///
