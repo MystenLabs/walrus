@@ -14,6 +14,7 @@ use core::{
 
 use raptorq::{EncodingPacket, PayloadId};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, Bytes};
 
 use super::{
     errors::SymbolVerificationError,
@@ -37,10 +38,12 @@ use crate::{
 };
 
 /// A set of encoded symbols.
+#[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Symbols {
     /// The encoded symbols.
     // INV: The length of this vector is a multiple of `symbol_size`.
+    #[serde_as(as = "Bytes")]
     data: Vec<u8>,
     /// The number of bytes for each symbol.
     symbol_size: NonZeroU16,
