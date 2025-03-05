@@ -21,6 +21,7 @@ use core::{
 };
 
 use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use by_axis::{Axis, ByAxis, WrongAxisError};
 use encoding::{
     EncodingAxis,
     EncodingConfig,
@@ -52,7 +53,9 @@ use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
 use crate::metadata::BlobMetadataApi as _;
+
 pub mod bft;
+pub mod by_axis;
 pub mod encoding;
 pub mod inconsistency;
 pub mod keys;
@@ -481,57 +484,23 @@ impl From<ShardIndex> for usize {
 /// A sliver of an erasure-encoded blob.
 ///
 /// Can be either a [`PrimarySliver`] or [`SecondarySliver`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Sliver {
-    /// A primary sliver.
-    Primary(PrimarySliver),
-    /// A secondary sliver.
-    Secondary(SecondarySliver),
-}
+pub type Sliver = ByAxis<PrimarySliver, SecondarySliver>;
 
 impl Sliver {
-    /// Returns true iff this sliver is a [`Sliver::Primary`].
-    #[inline]
-    pub fn is_primary(&self) -> bool {
-        matches!(self, Sliver::Primary(_))
-    }
-
-    /// Returns true iff this sliver is a [`Sliver::Secondary`].
-    #[inline]
-    pub fn is_secondary(&self) -> bool {
-        matches!(self, Sliver::Secondary(_))
-    }
-
-    /// Returns the associated [`SliverType`] of this sliver.
-    pub fn r#type(&self) -> SliverType {
-        match self {
-            Sliver::Primary(_) => SliverType::Primary,
-            Sliver::Secondary(_) => SliverType::Secondary,
-        }
-    }
-
     /// Returns the hash of the sliver, i.e., the Merkle root of the tree computed over the symbols.
     pub fn hash(&self, config: &EncodingConfigEnum) -> Result<Node, RecoverySymbolError> {
-        match self {
-            Sliver::Primary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),
-            Sliver::Secondary(inner) => inner.get_merkle_root::<DefaultHashFunction>(config),
-        }
+        by_axis::flat_map!(self.as_ref(), |x| x
+            .get_merkle_root::<DefaultHashFunction>(config))
     }
 
     /// Returns the sliver size in bytes.
     pub fn len(&self) -> usize {
-        match self {
-            Sliver::Primary(inner) => inner.len(),
-            Sliver::Secondary(inner) => inner.len(),
-        }
+        by_axis::flat_map!(self.as_ref(), |x| x.len())
     }
 
     /// Returns true iff the sliver length is 0.
     pub fn is_empty(&self) -> bool {
-        match self {
-            Sliver::Primary(inner) => inner.is_empty(),
-            Sliver::Secondary(inner) => inner.is_empty(),
-        }
+        by_axis::flat_map!(self.as_ref(), |x| x.is_empty())
     }
 
     /// Checks that the provided sliver is authenticated by the metadata.
@@ -543,10 +512,7 @@ impl Sliver {
         encoding_config: &EncodingConfig,
         metadata: &BlobMetadata,
     ) -> Result<(), SliverVerificationError> {
-        match self {
-            Sliver::Primary(inner) => inner.verify(encoding_config, metadata),
-            Sliver::Secondary(inner) => inner.verify(encoding_config, metadata),
-        }
+        by_axis::flat_map!(self.as_ref(), |x| x.verify(encoding_config, metadata))
     }
 
     /// Returns the [`Sliver<T>`][Sliver] contained within the enum.
@@ -559,99 +525,14 @@ impl Sliver {
     }
 }
 
-impl TryFrom<Sliver> for PrimarySliver {
-    type Error = WrongSliverVariantError;
-
-    fn try_from(value: Sliver) -> Result<Self, Self::Error> {
-        match value {
-            Sliver::Primary(sliver) => Ok(sliver),
-            Sliver::Secondary(_) => Err(WrongSliverVariantError),
-        }
-    }
-}
-
-impl TryFrom<Sliver> for SecondarySliver {
-    type Error = WrongSliverVariantError;
-
-    fn try_from(value: Sliver) -> Result<Self, Self::Error> {
-        match value {
-            Sliver::Primary(_) => Err(WrongSliverVariantError),
-            Sliver::Secondary(sliver) => Ok(sliver),
-        }
-    }
-}
-
-impl From<PrimarySliver> for Sliver {
-    fn from(value: PrimarySliver) -> Self {
-        Self::Primary(value)
-    }
-}
-
-impl From<SecondarySliver> for Sliver {
-    fn from(value: SecondarySliver) -> Self {
-        Self::Secondary(value)
-    }
-}
+by_axis::derive_from_trait!(ByAxis<PrimarySliver, SecondarySliver>);
+by_axis::derive_try_from_trait!(ByAxis<PrimarySliver, SecondarySliver>);
 
 /// A type indicating either a primary or secondary sliver.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DecodingSymbolType {
-    /// Enum indicating a primary decoding symbol.
-    Primary,
-    /// Enum indicating a secondary decoding symbol.
-    Secondary,
-}
+pub type DecodingSymbolType = Axis;
 
 /// A type indicating either a primary or secondary sliver.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[serde(rename_all = "lowercase")]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub enum SliverType {
-    /// Enum indicating a primary sliver.
-    Primary,
-    /// Enum indicating a secondary sliver.
-    Secondary,
-}
-
-impl SliverType {
-    /// Returns the opposite sliver type.
-    pub fn orthogonal(&self) -> SliverType {
-        match self {
-            SliverType::Primary => SliverType::Secondary,
-            SliverType::Secondary => SliverType::Primary,
-        }
-    }
-
-    /// Creates the [`SliverType`] for the [`EncodingAxis`].
-    pub fn for_encoding<T: EncodingAxis>() -> Self {
-        if T::IS_PRIMARY {
-            SliverType::Primary
-        } else {
-            SliverType::Secondary
-        }
-    }
-
-    /// Provides a string representation of the enum variant.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SliverType::Primary => "primary",
-            SliverType::Secondary => "secondary",
-        }
-    }
-}
-
-impl AsRef<str> for SliverType {
-    fn as_ref(&self) -> &str {
-        self.as_str()
-    }
-}
-
-impl Display for SliverType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
+pub type SliverType = Axis;
 
 // Symbols.
 
@@ -772,64 +653,16 @@ impl<'de> Deserialize<'de> for SymbolId {
 /// A decoding symbol for recovering a sliver
 ///
 /// Can be either a [`PrimaryRecoverySymbol`] or [`SecondaryRecoverySymbol`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "for<'a> U: Deserialize<'a>"))]
-pub enum RecoverySymbol<U: MerkleAuth> {
-    /// A primary decoding symbol to recover a primary sliver
-    Primary(PrimaryRecoverySymbol<U>),
-    /// A secondary decoding symbol to recover a secondary sliver.
-    Secondary(SecondaryRecoverySymbol<U>),
-}
+pub type RecoverySymbol<U> = ByAxis<PrimaryRecoverySymbol<U>, SecondaryRecoverySymbol<U>>;
 
-impl<U: MerkleAuth> RecoverySymbol<U> {
-    /// Returns true iff this decoding symbol is a [`RecoverySymbol::Primary`].
-    #[inline]
-    pub fn is_primary(&self) -> bool {
-        matches!(self, RecoverySymbol::Primary(_))
-    }
-
-    /// Returns true iff this decoding symbol is a [`RecoverySymbol::Secondary`].
-    #[inline]
-    pub fn is_secondary(&self) -> bool {
-        matches!(self, RecoverySymbol::Secondary(_))
-    }
-
-    /// Returns the associated [`DecodingSymbolType`] of this decoding symbol.
-    pub fn r#type(&self) -> DecodingSymbolType {
-        match self {
-            RecoverySymbol::Primary(_) => DecodingSymbolType::Primary,
-            RecoverySymbol::Secondary(_) => DecodingSymbolType::Secondary,
-        }
-    }
-}
-
-/// Error returned when trying to extract the wrong variant (primary or secondary) of
-/// [`RecoverySymbol`] from it.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
-#[error("cannot convert the `RecoverySymbol` to the variant requested")]
-pub struct WrongRecoverySymbolVariantError;
-
-impl<U: MerkleAuth> TryFrom<RecoverySymbol<U>> for PrimaryRecoverySymbol<U> {
-    type Error = WrongRecoverySymbolVariantError;
-
-    fn try_from(value: RecoverySymbol<U>) -> Result<Self, Self::Error> {
-        match value {
-            RecoverySymbol::Primary(primary) => Ok(primary),
-            RecoverySymbol::Secondary(_) => Err(WrongRecoverySymbolVariantError),
-        }
-    }
-}
-
-impl<U: MerkleAuth> TryFrom<RecoverySymbol<U>> for SecondaryRecoverySymbol<U> {
-    type Error = WrongRecoverySymbolVariantError;
-
-    fn try_from(value: RecoverySymbol<U>) -> Result<Self, Self::Error> {
-        match value {
-            RecoverySymbol::Primary(_) => Err(WrongRecoverySymbolVariantError),
-            RecoverySymbol::Secondary(secondary) => Ok(secondary),
-        }
-    }
-}
+by_axis::derive_from_trait!(
+    ByAxis<PrimaryRecoverySymbol<U>, SecondaryRecoverySymbol<U>>,
+    (U)
+);
+by_axis::derive_try_from_trait!(
+    ByAxis<PrimaryRecoverySymbol<U>, SecondaryRecoverySymbol<U>>,
+    (U)
+);
 
 /// Error returned for an invalid conversion to an encoding type.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -917,13 +750,8 @@ impl Display for EncodingType {
 /// Can be either a [`PrimaryInconsistencyProof`] or a [`SecondaryInconsistencyProof`],
 /// proving that either a [`PrimarySliver`] or a [`SecondarySliver`] cannot be recovered
 /// from their respective recovery symbols.
-#[derive(Debug, Clone)]
-pub enum InconsistencyProof<T: MerkleAuth = MerkleProof> {
-    /// Inconsistency proof for an encoding on the primary axis.
-    Primary(PrimaryInconsistencyProof<T>),
-    /// Inconsistency proof for an encoding on the secondary axis.
-    Secondary(SecondaryInconsistencyProof<T>),
-}
+pub type InconsistencyProof<T = MerkleProof> =
+    ByAxis<PrimaryInconsistencyProof<T>, SecondaryInconsistencyProof<T>>;
 
 impl<T: MerkleAuth> InconsistencyProof<T> {
     /// Verifies the inconsistency proof.
@@ -935,54 +763,18 @@ impl<T: MerkleAuth> InconsistencyProof<T> {
         metadata: &BlobMetadata,
         encoding_config: &EncodingConfig,
     ) -> Result<(), InconsistencyVerificationError> {
-        match self {
-            InconsistencyProof::Primary(proof) => proof.verify(metadata, encoding_config),
-            InconsistencyProof::Secondary(proof) => proof.verify(metadata, encoding_config),
-        }
+        by_axis::flat_map!(self, |proof| proof.verify(metadata, encoding_config))
     }
 }
 
-impl<T: MerkleAuth> From<PrimaryInconsistencyProof<T>> for InconsistencyProof<T> {
-    fn from(value: PrimaryInconsistencyProof<T>) -> Self {
-        Self::Primary(value)
-    }
-}
-
-impl<T: MerkleAuth> From<SecondaryInconsistencyProof<T>> for InconsistencyProof<T> {
-    fn from(value: SecondaryInconsistencyProof<T>) -> Self {
-        Self::Secondary(value)
-    }
-}
-
-/// Error returned when trying to extract the wrong variant (primary or secondary) of
-/// [`InconsistencyProof`] from it.
-#[derive(Debug, Error, PartialEq, Eq, Clone)]
-#[error("cannot convert the `InconsistencyProof` to the variant requested")]
-pub struct WrongProofVariantError;
-
-impl<T: MerkleAuth> TryFrom<InconsistencyProof<T>> for PrimaryInconsistencyProof<T> {
-    type Error = WrongProofVariantError;
-
-    fn try_from(value: InconsistencyProof<T>) -> Result<Self, Self::Error> {
-        if let InconsistencyProof::Primary(primary) = value {
-            Ok(primary)
-        } else {
-            Err(WrongProofVariantError)
-        }
-    }
-}
-
-impl<T: MerkleAuth> TryFrom<InconsistencyProof<T>> for SecondaryInconsistencyProof<T> {
-    type Error = WrongProofVariantError;
-
-    fn try_from(value: InconsistencyProof<T>) -> Result<Self, Self::Error> {
-        if let InconsistencyProof::Secondary(secondary) = value {
-            Ok(secondary)
-        } else {
-            Err(WrongProofVariantError)
-        }
-    }
-}
+by_axis::derive_from_trait!(
+    ByAxis<PrimaryInconsistencyProof<T>, SecondaryInconsistencyProof<T>>,
+    (T: MerkleAuth)
+);
+by_axis::derive_try_from_trait!(
+    ByAxis<PrimaryInconsistencyProof<T>, SecondaryInconsistencyProof<T>>,
+    (T: MerkleAuth)
+);
 
 /// Returns an error if the condition evaluates to false.
 ///

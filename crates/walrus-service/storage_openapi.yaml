@@ -102,7 +102,7 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/SliverType'
+          $ref: '#/components/schemas/Axis'
       requestBody:
         description: BCS-encoded inconsistency proof
         content:
@@ -249,7 +249,7 @@ paths:
           Only necessary if you intend to construct inconsistency proofs with the returned symbols.
         required: false
         schema:
-          $ref: '#/components/schemas/SliverType'
+          $ref: '#/components/schemas/Axis'
         style: form
       - name: ids
         in: query
@@ -275,7 +275,7 @@ paths:
                 $ref: '#/components/schemas/SliverIndex'
                 description: The ID of the target sliver being recovered.
               targetType:
-                $ref: '#/components/schemas/SliverType'
+                $ref: '#/components/schemas/Axis'
                 description: The type of the sliver being recovered.
         style: form
       responses:
@@ -338,7 +338,7 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/SliverType'
+          $ref: '#/components/schemas/Axis'
       responses:
         '200':
           description: BCS encoded primary or secondary sliver
@@ -395,7 +395,7 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/SliverType'
+          $ref: '#/components/schemas/Axis'
       requestBody:
         description: BCS-encoded sliver octet-stream
         content:
@@ -458,7 +458,7 @@ paths:
         in: path
         required: true
         schema:
-          $ref: '#/components/schemas/SliverType'
+          $ref: '#/components/schemas/Axis'
       responses:
         '200':
           description: BCS encoded symbol
@@ -862,6 +862,12 @@ components:
         Successful API response body as JSON.
 
         Contains the HTTP code as well as a message or response object.
+    Axis:
+      type: string
+      description: A type indicating either the primary or secondary axis.
+      enum:
+      - primary
+      - secondary
     BlobStatus:
       oneOf:
       - type: string
@@ -1197,12 +1203,6 @@ components:
         As blobs are encoded into as many pairs of slivers as there are shards in the committee,
         this value ranges be from 0 to the number of shards (exclusive).
       minimum: 0
-    SliverType:
-      type: string
-      description: A type indicating either a primary or secondary sliver.
-      enum:
-      - primary
-      - secondary
     Status:
       type: object
       description: |-

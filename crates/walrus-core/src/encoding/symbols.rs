@@ -24,6 +24,7 @@ use super::{
     WrongSymbolSizeError,
 };
 use crate::{
+    by_axis::{self, ByAxis},
     ensure,
     merkle::{MerkleAuth, MerkleProof, Node},
     metadata::{BlobMetadata, BlobMetadataApi as _},
@@ -32,6 +33,7 @@ use crate::{
     SliverIndex,
     SliverType,
     SymbolId,
+    WrongAxisError,
 };
 
 /// A set of encoded symbols.
@@ -346,13 +348,7 @@ impl<T: EncodingAxis> Display for DecodingSymbol<T> {
 }
 
 /// Either a primary or secondary decoding symbol.
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-pub enum EitherDecodingSymbol {
-    /// A decoding symbol that can be used to decode a primary sliver.
-    Primary(DecodingSymbol<Primary>),
-    /// A decoding symbol that can be used to decode a secondary sliver.
-    Secondary(DecodingSymbol<Secondary>),
-}
+pub type EitherDecodingSymbol = ByAxis<DecodingSymbol<Primary>, DecodingSymbol<Secondary>>;
 
 impl EitherDecodingSymbol {
     /// The type of the sliver that was used to create the decoding symbol.
@@ -395,17 +391,8 @@ impl EitherDecodingSymbol {
     }
 }
 
-impl From<DecodingSymbol<Primary>> for EitherDecodingSymbol {
-    fn from(value: DecodingSymbol<Primary>) -> Self {
-        Self::Primary(value)
-    }
-}
-
-impl From<DecodingSymbol<Secondary>> for EitherDecodingSymbol {
-    fn from(value: DecodingSymbol<Secondary>) -> Self {
-        Self::Secondary(value)
-    }
-}
+by_axis::derive_from_trait!(ByAxis<DecodingSymbol<Primary>, DecodingSymbol<Secondary>>);
+by_axis::derive_try_from_trait!(ByAxis<DecodingSymbol<Primary>, DecodingSymbol<Secondary>>);
 
 /// A recovery symbol taken from a blob.
 ///

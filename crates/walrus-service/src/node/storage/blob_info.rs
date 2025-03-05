@@ -707,7 +707,7 @@ impl ValidBlobInfoV1 {
         if force
             || self
                 .initial_certified_epoch
-                .map_or(true, |existing_epoch| existing_epoch > new_certified_epoch)
+                .is_none_or(|existing_epoch| existing_epoch > new_certified_epoch)
         {
             self.initial_certified_epoch = Some(new_certified_epoch);
         }

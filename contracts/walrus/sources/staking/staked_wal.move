@@ -149,12 +149,12 @@ public fun withdraw_epoch(sw: &StakedWal): u32 {
 /// Aborts if the `node_id` or `activation_epoch` of the staked WALs do not match.
 public fun join(sw: &mut StakedWal, other: StakedWal) {
     assert!(sw.node_id == other.node_id, EMetadataMismatch);
+    assert!(sw.activation_epoch == other.activation_epoch, EMetadataMismatch);
 
     // Simple scenario - staked wal is in `Staked` state. We guarantee that the
     // metadata is identical: same activation epoch and both are in the same state.
     if (sw.is_staked()) {
         assert!(other.is_staked(), EMetadataMismatch);
-        assert!(sw.activation_epoch == other.activation_epoch, EMetadataMismatch);
 
         let StakedWal { id, principal, .. } = other;
         sw.principal.join(principal);

@@ -63,6 +63,8 @@ use crate::{
             StakingPool,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
+            SystemStateInnerV1Enum,
+            SystemStateInnerV1Testnet,
         },
         BlobEvent,
         Committee,
@@ -699,14 +701,27 @@ impl SuiReadClient {
         if package_id != *self.walrus_package_id() {
             self.refresh_package_id_with_id(package_id).await?;
         }
-        let inner = self
+        let inner = if let Ok(inner) = self
             .sui_client
             .get_dynamic_field::<u64, SystemStateInnerV1>(
                 self.system_object_id,
                 TypeTag::U64,
                 version,
             )
-            .await?;
+            .await
+        {
+            SystemStateInnerV1Enum::V1(inner)
+        } else {
+            let inner = self
+                .sui_client
+                .get_dynamic_field::<u64, SystemStateInnerV1Testnet>(
+                    self.system_object_id,
+                    TypeTag::U64,
+                    version,
+                )
+                .await?;
+            SystemStateInnerV1Enum::V1Testnet(inner)
+        };
         Ok(SystemObject {
             id,
             version,
@@ -867,23 +882,18 @@ impl ReadClient for SuiReadClient {
         Ok(self
             .get_system_object()
             .await?
-            .inner
-            .storage_price_per_unit_size)
+            .storage_price_per_unit_size())
     }
 
     async fn write_price_per_unit_size(&self) -> SuiClientResult<u64> {
-        Ok(self
-            .get_system_object()
-            .await?
-            .inner
-            .write_price_per_unit_size)
+        Ok(self.get_system_object().await?.write_price_per_unit_size())
     }
 
     async fn storage_and_write_price_per_unit_size(&self) -> SuiClientResult<(u64, u64)> {
-        let system_object = self.get_system_object().await?.inner;
+        let system_object = self.get_system_object().await?;
         Ok((
-            system_object.storage_price_per_unit_size,
-            system_object.write_price_per_unit_size,
+            system_object.storage_price_per_unit_size(),
+            system_object.write_price_per_unit_size(),
         ))
     }
 
@@ -913,9 +923,7 @@ impl ReadClient for SuiReadClient {
         let blob = self
             .get_system_object()
             .await?
-            .inner
-            .event_blob_certification_state
-            .latest_certified_blob;
+            .latest_certified_event_blob();
         Ok(blob)
     }
 
@@ -1055,13 +1063,13 @@ impl ReadClient for SuiReadClient {
 
     async fn fixed_system_parameters(&self) -> SuiClientResult<FixedSystemParameters> {
         let staking_object = self.get_staking_object().await?.inner;
-        let system_object = self.get_system_object().await?.inner;
+        let system_object = self.get_system_object().await?;
         let first_epoch_start = i64::try_from(staking_object.first_epoch_start)
             .context("first-epoch start time does not fit in i64")?;
 
         Ok(FixedSystemParameters {
             n_shards: staking_object.n_shards,
-            max_epochs_ahead: system_object.future_accounting.length(),
+            max_epochs_ahead: system_object.future_accounting().length(),
             epoch_duration: Duration::from_millis(staking_object.epoch_duration),
             epoch_zero_end: DateTime::<Utc>::from_timestamp_millis(first_epoch_start).ok_or_else(
                 || anyhow!("invalid first_epoch_start timestamp received from contracts"),
