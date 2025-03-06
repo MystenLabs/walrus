@@ -144,7 +144,7 @@ where
     }
 }
 
-impl PartialEq for MerkleProof {
+impl<T> PartialEq for MerkleProof<T> {
     fn eq(&self, other: &Self) -> bool {
         self.path.eq(&other.path)
     }
