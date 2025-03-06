@@ -120,7 +120,19 @@ pub struct Storage {
 }
 
 /// An opaque lock object that can be required to later access the shards map.
-pub(crate) struct StorageShardLock(OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>>);
+pub(crate) struct StorageShardLock {
+    // The shards that are currently present in the storage.
+    existing_shards: Vec<ShardIndex>,
+    // The guard to the shards map.
+    shards_guard: OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>>,
+}
+
+impl StorageShardLock {
+    /// Returns the shards that are currently present in the storage.
+    pub fn existing_shards(&self) -> &[ShardIndex] {
+        &self.existing_shards
+    }
+}
 
 impl Storage {
     const NODE_STATUS_COLUMN_FAMILY_NAME: &'static str = "node_status";
@@ -232,8 +244,13 @@ impl Storage {
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
-    pub(crate) async fn mut_shards(&self) -> StorageShardLock {
-        StorageShardLock(self.shards.clone().write_owned().await)
+    pub(crate) async fn lock_shards(&self) -> StorageShardLock {
+        let shards_guard = self.shards.clone().write_owned().await;
+        let existing_shards = shards_guard.keys().cloned().collect::<Vec<_>>();
+        StorageShardLock {
+            existing_shards,
+            shards_guard,
+        }
     }
 
     /// Creates the storage for the specified shards, if it does not exist yet.
@@ -241,18 +258,18 @@ impl Storage {
         &self,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut shard_map_lock = self.mut_shards().await;
-        self.create_storage_for_shards_locked(&mut shard_map_lock.0, new_shards)
+        let shard_map_lock = self.lock_shards().await;
+        self.create_storage_for_shards_locked(shard_map_lock, new_shards)
             .await
     }
 
     pub(crate) async fn create_storage_for_shards_locked(
         &self,
-        locked_map: &mut OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>>,
+        mut locked_map: StorageShardLock,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
         for &shard_index in new_shards {
-            match locked_map.entry(shard_index) {
+            match locked_map.shards_guard.entry(shard_index) {
                 Entry::Vacant(entry) => {
                     let shard_storage = Arc::new(ShardStorage::create_or_reopen(
                         shard_index,
@@ -277,10 +294,10 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut shard_map_lock = self.mut_shards().await;
+        let mut shard_map_lock = self.lock_shards().await;
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
-            if let Some(shard_storage) = shard_map_lock.0.remove(shard_index) {
+            if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
                 // Do not hold the `shards` lock when deleting column families.
                 shard_storage.delete_shard_storage()?;
             }

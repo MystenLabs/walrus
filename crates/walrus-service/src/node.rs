@@ -27,7 +27,7 @@ use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-use storage::blob_info::PerObjectBlobInfoApi;
+use storage::{blob_info::PerObjectBlobInfoApi, StorageShardLock};
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
@@ -139,7 +139,11 @@ use self::{
 };
 use crate::{
     client::Blocklist,
-    common::{config::SuiConfig, utils::should_reposition_cursor},
+    common::{
+        active_committees::ActiveCommittees,
+        config::SuiConfig,
+        utils::should_reposition_cursor,
+    },
     utils::ShardDiffCalculator,
 };
 
@@ -1137,7 +1141,9 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
-        // #[cfg(not(test))]
+        // There shouldn't be an epoch change event for the genesis epoch.
+        assert!(event.epoch != GENESIS_EPOCH);
+
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;
         }
@@ -1150,12 +1156,31 @@ impl StorageNode {
         self.epoch_change_driver
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
+        // Here we need to wait for the previous shard removal to finish so that for the case
+        // where same shard is moved in again, we don't have shard removal and move-in running
+        // concurrently.
+        //
+        // Note that we expect this call to finish quickly because removing RocksDb column
+        // families is supposed to be fast, and we have an entire epoch duration to do so. By
+        // the time next epoch starts, the shard removal task should have completed.
+        self.start_epoch_change_finisher
+            .wait_until_previous_task_done()
+            .await;
+
+        // During epoch change, we need to lock the read access to shard map until all the new
+        // shards are created.
+        let shard_map_lock = self.inner.storage.lock_shards().await;
+
         if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
-            self.process_epoch_change_start_while_catching_up(event_handle, event)
+            self.process_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
                 .await
         } else {
-            self.process_epoch_change_start_when_node_is_in_sync(event_handle, event)
-                .await
+            self.process_epoch_change_start_when_node_is_in_sync(
+                event_handle,
+                event,
+                shard_map_lock,
+            )
+            .await
         }
     }
 
@@ -1165,6 +1190,7 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
+        shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
         self.inner
             .committee_service
@@ -1206,13 +1232,14 @@ impl StorageNode {
             tracing::info!("node just became a new committee member, process shard changes");
             // This node just became a new committee member. Process shard changes as a new
             // committee member.
-            self.process_shard_changes_in_new_epoch(event_handle, event, true)
+            self.process_shard_changes_in_new_epoch(event_handle, event, true, shard_map_lock)
                 .await?;
         } else {
             tracing::info!("start node recovery to catch up to the latest epoch");
             // This node is a past and current committee member. Start node recovery to catch up
             // to the latest epoch.
-            self.start_node_recovery(event_handle, event).await?;
+            self.start_node_recovery(event_handle, event, shard_map_lock)
+                .await?;
         }
 
         Ok(())
@@ -1224,6 +1251,7 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
+        shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
         if !self.begin_committee_change(event.epoch).await? {
             event_handle.mark_as_complete();
@@ -1264,8 +1292,14 @@ impl StorageNode {
                 and processing shard changes"
             );
         }
-        self.process_shard_changes_in_new_epoch(event_handle, event, is_new_node_joining_committee)
-            .await
+
+        self.process_shard_changes_in_new_epoch(
+            event_handle,
+            event,
+            is_new_node_joining_committee,
+            shard_map_lock,
+        )
+        .await
     }
 
     /// Starts the node recovery process.
@@ -1276,6 +1310,7 @@ impl StorageNode {
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
+        shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
@@ -1284,14 +1319,17 @@ impl StorageNode {
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
         let shard_diff_calculator =
-            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards().await);
+            ShardDiffCalculator::new(&committees, public_key, shard_map_lock.existing_shards());
 
         // Since the node is doing a full recovery, its local shards may be out of sync with the
         // contract for multiple epochs. Here we need to make sure that all the shards that is
         // assigned to the node in the latest epoch are created.
+        //
+        // Note that the shard_map_lock will be unlocked after this function returns.
         self.inner
             .create_storage_for_shards_in_background(
                 shard_diff_calculator.all_owned_shards().to_vec(),
+                shard_map_lock,
             )
             .await?;
 
@@ -1396,6 +1434,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
         new_node_joining_committee: bool,
+        shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
@@ -1403,7 +1442,16 @@ impl StorageNode {
         assert!(event.epoch <= committees.epoch());
 
         let shard_diff_calculator =
-            ShardDiffCalculator::new(&committees, public_key, &storage.existing_shards().await);
+            ShardDiffCalculator::new(&committees, public_key, shard_map_lock.existing_shards());
+
+        let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
+        self.create_new_shards_and_start_sync(
+            shard_map_lock,
+            shards_gained,
+            &committees,
+            new_node_joining_committee,
+        )
+        .await?;
 
         for shard_id in shard_diff_calculator.shards_to_lock() {
             let Some(shard_storage) = storage.shard_storage(*shard_id).await else {
@@ -1416,24 +1464,33 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
-        // Here we need to wait for the previous shard removal to finish so that for the case
-        // where same shard is moved in again, we don't have shard removal and move-in running
-        // concurrently.
-        //
-        // Note that we expect this call to finish quickly because removing RocksDb column
-        // families is supposed to be fast, and we have an entire epoch duration to do so. By
-        // the time next epoch starts, the shard removal task should have completed.
         self.start_epoch_change_finisher
-            .wait_until_previous_task_done()
-            .await;
+            .start_finish_epoch_change_tasks(
+                event_handle,
+                event,
+                shard_diff_calculator.shards_to_remove().to_vec(),
+                committees,
+                !shards_gained.is_empty(),
+            );
 
-        let mut ongoing_shard_sync = false;
-        let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
+        Ok(())
+    }
+
+    /// Creates the shards that are newly assigned to the node and starts the sync for them.
+    /// Note that the shard_map_lock will be unlocked after this function returns.
+    async fn create_new_shards_and_start_sync(
+        &self,
+        shard_map_lock: StorageShardLock,
+        shards_gained: &[ShardIndex],
+        committees: &ActiveCommittees,
+        new_node_joining_committee: bool,
+    ) -> anyhow::Result<()> {
+        let public_key = self.inner.public_key();
         if !shards_gained.is_empty() {
             assert!(committees.current_committee().contains(public_key));
 
             self.inner
-                .create_storage_for_shards_in_background(shards_gained.to_vec())
+                .create_storage_for_shards_in_background(shards_gained.to_vec(), shard_map_lock)
                 .await?;
 
             if new_node_joining_committee {
@@ -1447,23 +1504,10 @@ impl StorageNode {
                 // shards are created.
                 self.inner.set_node_status(NodeStatus::RecoverMetadata)?;
             }
-
-            // There shouldn't be an epoch change event for the genesis epoch.
-            assert!(event.epoch != GENESIS_EPOCH);
             self.shard_sync_handler
                 .start_sync_shards(shards_gained.to_vec(), new_node_joining_committee)
                 .await?;
-            ongoing_shard_sync = true;
         }
-
-        self.start_epoch_change_finisher
-            .start_finish_epoch_change_tasks(
-                event_handle,
-                event,
-                shard_diff_calculator.shards_to_remove().to_vec(),
-                committees,
-                ongoing_shard_sync,
-            );
 
         Ok(())
     }
@@ -1730,10 +1774,13 @@ impl StorageNodeInner {
     async fn create_storage_for_shards_in_background(
         self: &Arc<Self>,
         new_shards: Vec<ShardIndex>,
+        shard_map_lock: StorageShardLock,
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
         tokio::task::spawn_blocking(move || async move {
-            this.storage.create_storage_for_shards(&new_shards).await
+            this.storage
+                .create_storage_for_shards_locked(shard_map_lock, &new_shards)
+                .await
         })
         .in_current_span()
         .await?
