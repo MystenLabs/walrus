@@ -119,6 +119,9 @@ pub struct Storage {
     config: DatabaseConfig,
 }
 
+/// An opaque lock object that can be required to later access the shards map.
+pub(crate) struct StorageShardLock(OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>>);
+
 impl Storage {
     const NODE_STATUS_COLUMN_FAMILY_NAME: &'static str = "node_status";
     const METADATA_COLUMN_FAMILY_NAME: &'static str = "metadata";
@@ -229,10 +232,8 @@ impl Storage {
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
-    pub(crate) async fn mut_shards(
-        &self,
-    ) -> OwnedRwLockWriteGuard<HashMap<ShardIndex, Arc<ShardStorage>>> {
-        self.shards.clone().write_owned().await
+    pub(crate) async fn mut_shards(&self) -> StorageShardLock {
+        StorageShardLock(self.shards.clone().write_owned().await)
     }
 
     /// Creates the storage for the specified shards, if it does not exist yet.
@@ -240,8 +241,8 @@ impl Storage {
         &self,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut locked_map = self.mut_shards().await;
-        self.create_storage_for_shards_locked(&mut locked_map, new_shards)
+        let mut shard_map_lock = self.mut_shards().await;
+        self.create_storage_for_shards_locked(&mut shard_map_lock.0, new_shards)
             .await
     }
 
@@ -276,10 +277,10 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut shards = self.mut_shards().await;
+        let mut shard_map_lock = self.mut_shards().await;
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
-            if let Some(shard_storage) = { shards.remove(shard_index) } {
+            if let Some(shard_storage) = shard_map_lock.0.remove(shard_index) {
                 // Do not hold the `shards` lock when deleting column families.
                 shard_storage.delete_shard_storage()?;
             }

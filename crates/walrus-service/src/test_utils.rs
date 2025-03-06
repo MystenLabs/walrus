@@ -800,14 +800,23 @@ impl StorageNodeHandleBuilder {
         let WithTempDir {
             inner: storage,
             temp_dir,
-        } = self
-            .storage
-            .unwrap_or_else(|| futures::executor::block_on(empty_storage_with_shards(&[])));
+        } = {
+            if let Some(storage) = self.storage {
+                storage
+            } else {
+                empty_storage_with_shards(&[]).await
+            }
+        };
 
-        let node_info = self.test_config.unwrap_or_else(|| {
-            let shards = futures::executor::block_on(storage.shards_present());
-            StorageNodeTestConfig::new(shards, false)
-        });
+        let node_info = {
+            if let Some(test_config) = self.test_config {
+                test_config
+            } else {
+                let shards = storage.shards_present().await;
+                StorageNodeTestConfig::new(shards, false)
+            }
+        };
+
         // To be in the committee, the node must have at least one shard assigned to it.
         let is_in_committee = !node_info.shards.is_empty();
 
@@ -1845,11 +1854,10 @@ impl TestClusterBuilder {
             .zip(self.disable_event_blob_writer.into_iter())
             .enumerate()
         {
+            let storage = empty_storage_with_shards(&config.shards).await;
             let local_identity = config.key_pair.public().clone();
             let builder = StorageNodeHandle::builder()
-                .with_storage(futures::executor::block_on(empty_storage_with_shards(
-                    &config.shards,
-                )))
+                .with_storage(storage)
                 .with_test_config(config)
                 .with_rest_api_started(true)
                 .with_node_started(true)
