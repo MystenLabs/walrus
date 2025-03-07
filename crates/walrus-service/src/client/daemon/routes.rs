@@ -409,7 +409,7 @@ pub(super) async fn status() -> Response {
     "OK".into_response()
 }
 
-/// The parameters of query to publisher
+/// The query parameters for a publisher.
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct PublisherQuery {
     /// The encoding type to use for the blob.
