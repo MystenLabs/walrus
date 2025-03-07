@@ -156,7 +156,7 @@ walrus-utils.workspace = true
 hex = "0.4.3"
 http-body-util = "0.1.1"
 mockall.workspace = true
-ring = "0.17.11"
+ring = "0.17.12"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
