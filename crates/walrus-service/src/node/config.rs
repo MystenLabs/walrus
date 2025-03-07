@@ -5,6 +5,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Display,
     net::{IpAddr, SocketAddr},
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -402,6 +403,21 @@ pub struct MetricsPushConfig {
     pub labels: Option<HashMap<String, String>>,
 }
 
+/// Identifies a role to attach to metrics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceRole {
+    /// The storage node service.
+    StorageNode,
+}
+
+impl Display for ServiceRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServiceRole::StorageNode => f.write_str("walrus-node"),
+        }
+    }
+}
+
 impl MetricsPushConfig {
     /// Creates a new `MetricsPushConfig` with the provided URL and otherwise default values.
     pub fn new_for_url(url: String) -> Self {
@@ -415,22 +431,32 @@ impl MetricsPushConfig {
     /// Sets the 'name' label to `name` and the 'host' label to the machine's hostname; if the
     /// hostname cannot be determined, `name` is used as a fallback.
     pub fn set_name_and_host_label(&mut self, name: &str) {
-        self.labels
-            .get_or_insert_with(HashMap::new)
+        self.labels_mut()
             .entry("name".into())
-            .or_insert_with(|| name.into());
+            .or_insert_with(|| name.to_owned());
 
         let host =
             hostname::get().map_or_else(|_| name.into(), |v| v.to_string_lossy().to_string());
         self.set_host(host);
     }
 
+    /// Sets the role associated with the service, overwrites any previously set value.
+    pub fn set_role_label(&mut self, role: ServiceRole) {
+        if let Some(prior) = self
+            .labels_mut()
+            .insert("role".to_owned(), role.to_string())
+        {
+            tracing::warn!(%prior, %role, "overwrote a prior role value");
+        }
+    }
+
     /// Sets the 'host' label to `host`.
     fn set_host(&mut self, host: String) {
-        self.labels
-            .get_or_insert_with(HashMap::new)
-            .entry("host".into())
-            .or_insert_with(|| host);
+        self.labels_mut().entry("host".to_owned()).or_insert(host);
+    }
+
+    fn labels_mut(&mut self) -> &mut HashMap<String, String> {
+        self.labels.get_or_insert_default()
     }
 }
 
