@@ -63,7 +63,7 @@ pub struct Claim {
 }
 
 impl Claim {
-    /// Build Claim from JWT token
+    /// Builds the Claim from a JWT token.
     pub fn from_token(
         token: &str,
         decoding_key: &DecodingKey,
