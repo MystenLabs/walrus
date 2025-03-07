@@ -174,6 +174,7 @@ mod tests {
                 node_capacity: 251_000_000,
             },
             metadata: Default::default(),
+            commission_rate_data: Default::default(),
         };
 
         // Call generate_update_params() with the synced config.

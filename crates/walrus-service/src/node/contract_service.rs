@@ -29,7 +29,7 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{
     committee::CommitteeService,
-    config::{StorageNodeConfig, SyncedNodeConfigSet},
+    config::{CommissionRateData, StorageNodeConfig, SyncedNodeConfigSet},
     errors::SyncNodeConfigError,
 };
 use crate::common::config::SuiConfig;
@@ -178,6 +178,10 @@ impl SuiSystemContractService {
             next_public_key: node_info.next_epoch_public_key,
             voting_params: pool.voting_params,
             metadata,
+            commission_rate_data: CommissionRateData {
+                pending_commission_rate: pool.pending_commission_rate,
+                commission_rate: pool.commission_rate,
+            },
         })
     }
 }

@@ -439,9 +439,9 @@ pub struct StakingPool {
     /// Pending early withdrawals for which we cannot calculate the pool tokens.
     pending_early_withdrawals: Vec<(Epoch, u64)>,
     /// Pending commission rate changes indexed by epoch.
-    pending_commission_rate: Vec<(Epoch, u64)>,
+    pub pending_commission_rate: Vec<(Epoch, u64)>,
     /// The commission rate for the pool.
-    commission_rate: u16,
+    pub commission_rate: u16,
     /// Exchange rates table ID.
     #[serde(deserialize_with = "deserialize_bag_or_table")]
     exchange_rates: ObjectID,

@@ -120,14 +120,16 @@ pub struct NodeUpdateParams {
     pub network_public_key: Option<NetworkPublicKey>,
     /// The next public key parameters of the storage node.
     pub update_public_key: Option<UpdatePublicKeyParams>,
-    /// The storage price to vote for
+    /// The storage price to vote for.
     pub storage_price: Option<u64>,
-    /// The write price to vote for
+    /// The write price to vote for.
     pub write_price: Option<u64>,
-    /// The node capacity to vote for
+    /// The node capacity to vote for.
     pub node_capacity: Option<u64>,
     /// The metadata of the storage node.
     pub metadata: Option<NodeMetadata>,
+    /// The commission rate for the storage node.
+    pub commission_rate: Option<u16>,
 }
 
 impl NodeUpdateParams {

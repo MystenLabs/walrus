@@ -28,6 +28,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
     keys::{KeyPairParseError, NetworkKeyPair, ProtocolKeyPair},
     messages::ProofOfPossession,
+    Epoch,
     NetworkPublicKey,
     PublicKey,
 };
@@ -327,6 +328,21 @@ impl StorageNodeConfig {
         }
     }
 
+    fn calculate_next_commission_rate(
+        &self,
+        commission_rate_data: &CommissionRateData,
+        local_commission_rate: u16,
+    ) -> Option<u16> {
+        let projected_commission_rate = commission_rate_data
+            .pending_commission_rate
+            .last()
+            .map_or(commission_rate_data.commission_rate as u64, |&(_, rate)| {
+                rate
+            });
+        assert!(projected_commission_rate < u16::MAX as u64);
+        (projected_commission_rate != local_commission_rate as u64).then_some(local_commission_rate)
+    }
+
     /// Compares the current node parameters with the passed-in parameters and generates the
     /// update params if there are any changes, so that the source of the passed-in parameters
     /// can be updated to the node parameters.
@@ -352,8 +368,21 @@ impl StorageNodeConfig {
                 != self.voting_params.node_capacity)
                 .then_some(self.voting_params.node_capacity),
             metadata: (synced_config.metadata != self.metadata).then_some(self.metadata.clone()),
+            commission_rate: self.calculate_next_commission_rate(
+                &synced_config.commission_rate_data,
+                self.commission_rate,
+            ),
         }
     }
+}
+
+/// The commission rate data for the storage node.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct CommissionRateData {
+    /// Pending commission rate changes indexed by epoch.
+    pub pending_commission_rate: Vec<(Epoch, u64)>,
+    /// The current commission rate for the storage node.
+    pub commission_rate: u16,
 }
 
 /// A set of node config parameters that are monitored by the config synchronizer.
@@ -381,6 +410,8 @@ pub struct SyncedNodeConfigSet {
     pub voting_params: VotingParams,
     /// The metadata of the storage node, it corresponds to `[StorageNodeConfig::metadata]`.
     pub metadata: NodeMetadata,
+    /// The commission rate data for the storage node.
+    pub commission_rate_data: CommissionRateData,
 }
 
 /// Configuration for metric push.
@@ -1169,6 +1200,7 @@ mod tests {
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: new_voting_params,
             metadata: new_metadata,
+            commission_rate: 100,
             ..Default::default()
         }
     }
@@ -1190,8 +1222,12 @@ mod tests {
                 next_public_key: None,
                 voting_params: config.voting_params.clone(),
                 metadata: config.metadata.clone(),
+                commission_rate_data: Default::default(),
             },
-            expected_params: NodeUpdateParams::default(),
+            expected_params: NodeUpdateParams {
+                commission_rate: Some(config.commission_rate),
+                ..Default::default()
+            },
         });
 
         // Test 2: All fields need updating
@@ -1217,6 +1253,10 @@ mod tests {
                 next_public_key: None,
                 voting_params: old_voting_params.clone(),
                 metadata: old_metadata.clone(),
+                commission_rate_data: CommissionRateData {
+                    pending_commission_rate: vec![],
+                    commission_rate: config.commission_rate,
+                },
             },
             expected_params: NodeUpdateParams {
                 name: Some(config.name.clone()),
@@ -1230,6 +1270,7 @@ mod tests {
                 write_price: Some(config.voting_params.write_price),
                 node_capacity: Some(config.voting_params.node_capacity),
                 metadata: Some(config.metadata.clone()),
+                commission_rate: None,
             },
         });
 
@@ -1247,6 +1288,10 @@ mod tests {
                 next_public_key: None,
                 voting_params: old_voting_params.clone(),
                 metadata: old_metadata.clone(),
+                commission_rate_data: CommissionRateData {
+                    pending_commission_rate: vec![(32, config.commission_rate as u64)],
+                    commission_rate: 20,
+                },
             },
             expected_params: NodeUpdateParams {
                 name: None,
@@ -1257,6 +1302,64 @@ mod tests {
                 write_price: Some(config.voting_params.write_price),
                 node_capacity: Some(config.voting_params.node_capacity),
                 metadata: Some(config.metadata.clone()),
+                commission_rate: None,
+            },
+        });
+
+        // Test 4: Commission rate needs updating
+        test_cases.push(TestCase {
+            description: "Commission rate needs updating".to_string(),
+            synced_config: SyncedNodeConfigSet {
+                name: config.name.clone(),
+                network_address: NetworkAddress(format!(
+                    "{}:{}",
+                    config.public_host, config.public_port
+                )),
+                network_public_key: config.network_key_pair().public().clone(),
+                public_key: config.protocol_key_pair().public().clone(),
+                next_public_key: None,
+                voting_params: config.voting_params.clone(),
+                metadata: config.metadata.clone(),
+                commission_rate_data: CommissionRateData {
+                    pending_commission_rate: vec![],
+                    commission_rate: 500, // Different from config's commission_rate
+                },
+            },
+            expected_params: NodeUpdateParams {
+                name: None,
+                network_address: None,
+                network_public_key: None,
+                update_public_key: None,
+                storage_price: None,
+                write_price: None,
+                node_capacity: None,
+                metadata: None,
+                commission_rate: Some(config.commission_rate),
+            },
+        });
+
+        // Test 5: Commission rate with pending changes
+        test_cases.push(TestCase {
+            description: "Commission rate with pending changes".to_string(),
+            synced_config: SyncedNodeConfigSet {
+                name: config.name.clone(),
+                network_address: NetworkAddress(format!(
+                    "{}:{}",
+                    config.public_host, config.public_port
+                )),
+                network_public_key: config.network_key_pair().public().clone(),
+                public_key: config.protocol_key_pair().public().clone(),
+                next_public_key: None,
+                voting_params: config.voting_params.clone(),
+                metadata: config.metadata.clone(),
+                commission_rate_data: CommissionRateData {
+                    pending_commission_rate: vec![(32, config.commission_rate as u64), (33, 110)],
+                    commission_rate: config.commission_rate,
+                },
+            },
+            expected_params: NodeUpdateParams {
+                commission_rate: Some(config.commission_rate),
+                ..Default::default()
             },
         });
 
