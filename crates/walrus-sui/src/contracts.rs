@@ -247,6 +247,7 @@ pub mod staking {
     contract_ident!(fn staking::set_write_price_vote);
     contract_ident!(fn staking::set_node_capacity_vote);
     contract_ident!(fn staking::collect_commission);
+    contract_ident!(fn staking::set_next_commission);
 }
 
 /// Module for tags corresponding to the Move module `staking_inner`.

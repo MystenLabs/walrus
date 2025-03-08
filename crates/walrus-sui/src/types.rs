@@ -143,6 +143,7 @@ impl NodeUpdateParams {
             || self.write_price.is_some()
             || self.node_capacity.is_some()
             || self.metadata.is_some()
+            || self.commission_rate.is_some()
     }
 
     /// Returns true if the node needs a reboot due to the proposed changes.

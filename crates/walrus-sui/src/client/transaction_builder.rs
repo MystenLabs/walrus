@@ -1046,6 +1046,21 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Sets the commission rate for the node.
+    pub async fn set_commission_rate(
+        &mut self,
+        storage_node_cap: &ArgumentOrOwnedObject,
+        rate: u16,
+    ) -> SuiClientResult<()> {
+        let args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(*storage_node_cap).await?,
+            self.pt_builder.pure(rate)?,
+        ];
+        self.walrus_move_call(contracts::staking::set_next_commission, args)?;
+        Ok(())
+    }
+
     /// Sets the governance authorized object for the pool.
     pub async fn set_governance_authorized(
         &mut self,
@@ -1125,6 +1140,11 @@ impl WalrusPtbBuilder {
 
         if let Some(metadata) = params.metadata {
             self.set_node_metadata(&storage_node_cap, &metadata).await?;
+        }
+
+        if let Some(commission_rate) = params.commission_rate {
+            self.set_commission_rate(&storage_node_cap, commission_rate)
+                .await?;
         }
 
         Ok(())
