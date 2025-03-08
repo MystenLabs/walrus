@@ -499,7 +499,7 @@ impl Client<SuiContractClient> {
             .await?;
         let mut size = 0;
         for pair_and_metadata in pairs_and_metadata.iter() {
-            size += pair_and_metadata.1.size();
+            size += pair_and_metadata.1.metadata().unencoded_length();
         }
         if !post_store.check_size(size) {
             return Err(ClientError::from(
