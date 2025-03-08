@@ -110,9 +110,9 @@ impl ClientMultiplexer {
         // If the user has specified `burn_after_store == true`, the default post store action is to
         // burn the created objects after storing. Otherwise, they are sent to the main wallet.
         let default_post_store_action = if args.burn_after_store {
-            PostStoreAction::Burn(None)
+            PostStoreAction::Burn
         } else {
-            PostStoreAction::TransferTo(main_address, None)
+            PostStoreAction::TransferTo(main_address)
         };
 
         tracing::info!(?default_post_store_action, "client multiplexer initialized");
@@ -126,6 +126,7 @@ impl ClientMultiplexer {
     }
 
     /// Submits a write request to the client pool.
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(err, skip_all)]
     pub async fn submit_write(
         &self,
@@ -135,6 +136,7 @@ impl ClientMultiplexer {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        exact_size: Option<u64>,
     ) -> ClientResult<BlobStoreResult> {
         let client = self.client_pool.next_client().await;
         tracing::debug!("submitting write request to client in pool");
@@ -147,6 +149,7 @@ impl ClientMultiplexer {
                 store_when,
                 persistence,
                 post_store,
+                exact_size,
             )
             .await?;
 
@@ -176,6 +179,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        exact_size: Option<u64>,
     ) -> ClientResult<BlobStoreResult> {
         self.submit_write(
             blob,
@@ -184,12 +188,13 @@ impl WalrusWriteClient for ClientMultiplexer {
             store_when,
             persistence,
             post_store,
+            exact_size,
         )
         .await
     }
 
-    fn default_post_store_action(&self, size_limit: Option<u64>) -> PostStoreAction {
-        self.default_post_store_action.set_size(size_limit)
+    fn default_post_store_action(&self) -> PostStoreAction {
+        self.default_post_store_action
     }
 }
 

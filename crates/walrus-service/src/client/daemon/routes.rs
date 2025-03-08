@@ -277,19 +277,19 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
 ) -> Response {
-    // Check if there is an authorization claim, and use it to check the size.
-    let mut size_limit = None;
+    // Check if there is an authorization claim, and use it to check the exact size.
+    let mut exact_size = None;
     if let Some(TypedHeader(header)) = bearer_header {
         match check_blob_size(header, blob.len()) {
-            Ok(limit) => size_limit = limit,
+            Ok(size) => exact_size = size,
             Err(error) => return error.into_response(),
         }
     }
 
     let post_store_action = if let Some(address) = send_object_to {
-        PostStoreAction::TransferTo(address, size_limit)
+        PostStoreAction::TransferTo(address)
     } else {
-        client.default_post_store_action(size_limit)
+        client.default_post_store_action()
     };
     tracing::debug!(?post_store_action, "starting to store received blob");
 
@@ -301,6 +301,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
             post_store_action,
+            exact_size,
         )
         .await
     {

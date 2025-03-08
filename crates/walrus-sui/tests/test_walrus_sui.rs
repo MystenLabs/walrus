@@ -196,7 +196,7 @@ async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Resu
 
     walrus_client
         .as_ref()
-        .certify_blobs(&[(&blob_obj, certificate)], PostStoreAction::Keep(None))
+        .certify_blobs(&[(&blob_obj, certificate)], PostStoreAction::Keep)
         .await?;
 
     // Make sure that we got the expected event
@@ -263,7 +263,7 @@ async fn test_register_certify_blob(encoding_type: EncodingType) -> anyhow::Resu
         .as_ref()
         .certify_blobs(
             &[(&blob_obj, get_default_blob_certificate(blob_id, 1))],
-            PostStoreAction::Keep(None),
+            PostStoreAction::Keep,
         )
         .await?;
 

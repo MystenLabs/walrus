@@ -82,6 +82,7 @@ pub trait WalrusReadClient {
 /// Trait representing a client that can write blobs to Walrus.
 pub trait WalrusWriteClient: WalrusReadClient {
     /// Writes a blob to Walrus.
+    #[allow(clippy::too_many_arguments)]
     fn write_blob(
         &self,
         blob: &[u8],
@@ -90,10 +91,11 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        exact_size: Option<u64>,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
 
     /// Returns the default [`PostStoreAction`] for this client.
-    fn default_post_store_action(&self, expect_size: Option<u64>) -> PostStoreAction;
+    fn default_post_store_action(&self) -> PostStoreAction;
 }
 
 impl<T: ReadClient> WalrusReadClient for Client<T> {
@@ -118,6 +120,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        exact_size: Option<u64>,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type_or_default_for_version(
             encoding_type,
@@ -132,6 +135,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
                 store_when,
                 persistence,
                 post_store,
+                exact_size,
             )
             .await?;
 
@@ -141,8 +145,8 @@ impl WalrusWriteClient for Client<SuiContractClient> {
             .expect("there is only one blob, as store was called with one blob"))
     }
 
-    fn default_post_store_action(&self, expect_size: Option<u64>) -> PostStoreAction {
-        PostStoreAction::Keep(expect_size)
+    fn default_post_store_action(&self) -> PostStoreAction {
+        PostStoreAction::Keep
     }
 }
 

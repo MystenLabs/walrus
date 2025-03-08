@@ -320,13 +320,13 @@ impl BlobPersistence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostStoreAction {
     /// Burn the blob object.
-    Burn(Option<u64>),
+    Burn,
     /// Transfer the blob object to the given address.
-    TransferTo(SuiAddress, Option<u64>),
+    TransferTo(SuiAddress),
     /// Keep the blob object in the wallet that created it.
-    Keep(Option<u64>),
+    Keep,
     /// Put the blob into a shared blob object.
-    Share(Option<u64>),
+    Share,
 }
 
 impl PostStoreAction {
@@ -335,30 +335,9 @@ impl PostStoreAction {
     /// If `share` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
     pub fn from_share(share: bool) -> Self {
         if share {
-            Self::Share(None)
+            Self::Share
         } else {
-            Self::Keep(None)
-        }
-    }
-
-    /// Set size expectation on a postaction.
-    pub fn set_size(self, expected: Option<u64>) -> Self {
-        match self {
-            PostStoreAction::Burn(_) => PostStoreAction::Burn(expected),
-            PostStoreAction::TransferTo(addr, _) => PostStoreAction::TransferTo(addr, expected),
-            PostStoreAction::Keep(_) => PostStoreAction::Keep(expected),
-            PostStoreAction::Share(_) => PostStoreAction::Keep(expected),
-        }
-    }
-
-    /// Check file size meet the limit in postaction.
-    pub fn check_size(self, size: u64) -> bool {
-        match self {
-            PostStoreAction::Burn(Some(expected)) => size == expected,
-            PostStoreAction::TransferTo(_addr, Some(expected)) => size == expected,
-            PostStoreAction::Keep(Some(expected)) => size == expected,
-            PostStoreAction::Share(Some(expected)) => size == expected,
-            _ => true,
+            Self::Keep
         }
     }
 }
@@ -1442,7 +1421,7 @@ impl SuiContractClientInner {
         }
 
         match post_store {
-            PostStoreAction::Share(_) => {
+            PostStoreAction::Share => {
                 // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
                 self.create_blob_id_to_shared_mapping(
                     &res,
@@ -2269,7 +2248,7 @@ impl SuiContractClientInner {
         }
 
         match post_store {
-            PostStoreAction::Share(_) => {
+            PostStoreAction::Share => {
                 // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
                 self.create_blob_id_to_shared_mapping(
                     &res,
@@ -2327,16 +2306,16 @@ impl SuiContractClientInner {
         post_store: PostStoreAction,
     ) -> SuiClientResult<()> {
         match post_store {
-            PostStoreAction::TransferTo(address, _) => {
+            PostStoreAction::TransferTo(address) => {
                 pt_builder
                     .transfer(Some(address), vec![blob_id.into()])
                     .await?;
             }
-            PostStoreAction::Burn(_) => {
+            PostStoreAction::Burn => {
                 pt_builder.burn_blob(blob_id.into()).await?;
             }
-            PostStoreAction::Keep(_) => (),
-            PostStoreAction::Share(_) => {
+            PostStoreAction::Keep => (),
+            PostStoreAction::Share => {
                 pt_builder.new_shared_blob(blob_id.into()).await?;
             }
         }

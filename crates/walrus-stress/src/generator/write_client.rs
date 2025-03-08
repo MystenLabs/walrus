@@ -99,7 +99,8 @@ impl WriteClient {
                 epochs_to_store,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
-                PostStoreAction::Keep(None),
+                PostStoreAction::Keep,
+                None,
             )
             .await?
             .first()
@@ -207,10 +208,7 @@ impl WriteClient {
         self.client
             .as_ref()
             .sui_client()
-            .certify_blobs(
-                &[(&blob_sui_object, certificate)],
-                PostStoreAction::Burn(None),
-            )
+            .certify_blobs(&[(&blob_sui_object, certificate)], PostStoreAction::Burn)
             .await?;
 
         Ok(blob_id)

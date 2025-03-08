@@ -484,6 +484,7 @@ impl Client<SuiContractClient> {
     }
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip_all, fields(blob_id))]
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
@@ -493,18 +494,21 @@ impl Client<SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        exact_size: Option<u64>,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         let pairs_and_metadata = self
             .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
             .await?;
-        let mut size = 0;
-        for pair_and_metadata in pairs_and_metadata.iter() {
-            size += pair_and_metadata.1.metadata().unencoded_length();
-        }
-        if !post_store.check_size(size) {
-            return Err(ClientError::from(
-                ClientErrorKind::PayloadVerificationFailed,
-            ));
+        if let Some(exact_size) = exact_size {
+            let mut size = 0;
+            for pair_and_metadata in pairs_and_metadata.iter() {
+                size += pair_and_metadata.1.metadata().unencoded_length();
+            }
+            if exact_size != size {
+                return Err(ClientError::from(
+                    ClientErrorKind::PayloadVerificationFailed,
+                ));
+            }
         }
 
         self.retry_if_error_epoch_change(|| {
