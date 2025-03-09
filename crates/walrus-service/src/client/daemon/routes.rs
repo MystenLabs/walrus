@@ -409,8 +409,9 @@ pub(super) async fn status() -> Response {
     "OK".into_response()
 }
 
+/// The query parameters for a publisher.
 #[derive(Debug, Deserialize, IntoParams)]
-pub(crate) struct PublisherQuery {
+pub struct PublisherQuery {
     /// The encoding type to use for the blob.
     #[serde(default)]
     pub encoding_type: Option<EncodingType>,

@@ -105,7 +105,13 @@ mod tests {
         data_length: usize,
         write_only: bool,
     ) -> anyhow::Result<()> {
-        tracing::info!("generating random blob of length {data_length}");
+        // Get a random epoch length for the blob to be stored.
+        let epoch_ahead = rand::thread_rng().gen_range(1..=5);
+
+        tracing::info!(
+            "generating random blobs of length {data_length} and store them for {epoch_ahead} \
+            epochs"
+        );
         let blob = walrus_test_utils::random_data(data_length);
 
         let store_results = client
@@ -113,7 +119,7 @@ mod tests {
             .reserve_and_store_blobs_retry_committees(
                 &[blob.as_slice()],
                 DEFAULT_ENCODING,
-                5,
+                epoch_ahead,
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
@@ -310,10 +316,14 @@ mod tests {
                 local.metadata: {:?}, remote.metadata: {:?}\n\
                 local.commission_rate: {:?}, remote.commission_rate: {:?}\n\
                 local.network_public_key: {:?}, remote.network_public_key: {:?}\n\
-                local.next_protocol_public_key: {:?}, local.public_key: {:?}, remote.public_key: {:?}",
+                local.next_protocol_public_key: {:?}\n\
+                local.public_key: {:?}, remote.public_key: {:?}",
                 local_config.name,
                 remote_config.name,
-                NetworkAddress(format!("{}:{}", local_config.public_host, local_config.public_port)),
+                NetworkAddress(format!(
+                    "{}:{}",
+                    local_config.public_host, local_config.public_port
+                )),
                 remote_config.network_address,
                 local_config.voting_params,
                 remote_config.voting_params,
@@ -355,8 +365,8 @@ mod tests {
 
     // Tests that we can create a Walrus cluster with a Sui cluster and run basic
     // operations deterministically.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest(check_determinism)]
-    #[ignore = "ignore simtests by default"]
     async fn walrus_basic_determinism() {
         let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
             // TODO: remove once Sui simtest can work with these features.
@@ -399,8 +409,8 @@ mod tests {
     }
 
     // Tests the scenario where a single node crashes and restarts.
-    #[walrus_simtest]
     #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
     async fn walrus_with_single_node_crash_and_restart() {
         let _guard = ProtocolConfig::apply_overrides_for_testing(|_, mut config| {
             // TODO: remove once Sui simtest can work with these features.
@@ -605,7 +615,7 @@ mod tests {
     }
 
     // This integration test simulates a scenario where a node is lagging behind and recovers.
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_lagging_node_recovery() {
         let (_sui_cluster, walrus_cluster, client) =
@@ -755,7 +765,7 @@ mod tests {
 
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
@@ -881,7 +891,7 @@ mod tests {
 
     // This test simulates a scenario where a node is repeatedly moving shards among storage nodes,
     // and a workload is running concurrently.
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest(config = "latency_config()")]
     async fn test_repeated_shard_move_with_workload() {
         const MAX_NODE_WEIGHT: u16 = 6;
@@ -973,7 +983,7 @@ mod tests {
         }
     }
 
-    #[ignore = "ignore E2E tests by default"]
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
         register_fail_point("fail_point_direct_shard_sync_recovery", move || {
@@ -1135,8 +1145,8 @@ mod tests {
         clear_fail_point("fail_point_direct_shard_sync_recovery");
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    #[ignore = "ignore simtests by default"]
     async fn test_sync_node_config_params_basic() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
@@ -1319,8 +1329,8 @@ mod tests {
         );
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    #[ignore = "ignore simtests by default"]
     async fn test_registered_node_update_protocol_key() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
@@ -1452,8 +1462,8 @@ mod tests {
             .expect("Node should be active");
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
-    #[ignore = "ignore simtests by default"]
     async fn test_node_config_synchronizer() {
         let (_sui_cluster, mut walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
@@ -1636,7 +1646,8 @@ mod tests {
             ),
             next_protocol_key_pair: (
                 &TestUpdateParams {
-                    next_protocol_key_pair: Some(PathOrInPlace::InPlace(ProtocolKeyPair::generate())),
+                    next_protocol_key_pair:
+                        Some(PathOrInPlace::InPlace(ProtocolKeyPair::generate())),
                     ..Default::default()
                 }
             ),

@@ -431,6 +431,7 @@ mod commands {
         LoadsFromPath,
         MetricsPushConfig,
         NodeRegistrationParamsForThirdPartyRegistration,
+        ServiceRole,
     };
     use sui_sdk::SuiClientBuilder;
     #[cfg(not(msim))]
@@ -533,6 +534,7 @@ mod commands {
         let metrics_push_runtime = match config.metrics_push.take() {
             Some(mut mc) => {
                 mc.set_name_and_host_label(&config.name);
+                mc.set_role_label(ServiceRole::StorageNode);
                 let network_key_pair = network_key_pair.0.clone();
                 let mp_config = EnableMetricsPush {
                     cancel: cancel_token.child_token(),

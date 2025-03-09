@@ -120,8 +120,6 @@ use crate::{
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
-    /// The wallet path.
-    wallet_path: Option<PathBuf>,
     /// The Sui wallet for the client.
     wallet: Result<WalletContext>,
     /// The config for the client.
@@ -130,6 +128,8 @@ pub struct ClientCommandRunner {
     json: bool,
     /// The gas budget for the client commands.
     gas_budget: Option<u64>,
+    /// Whether the wallet was set explicitly as a CLI argument or in the config.
+    wallet_set_explicitly: bool,
 }
 
 impl ClientCommandRunner {
@@ -142,21 +142,21 @@ impl ClientCommandRunner {
         json: bool,
     ) -> Self {
         let config = load_configuration(config.as_ref(), context);
-        let wallet_config: Option<WalletConfig> = config
+        let wallet_config = wallet_override
             .as_ref()
-            .ok()
-            .and_then(|config: &Config| config.wallet_config.clone());
-        let wallet_path: Option<PathBuf> = wallet_override
-            .clone()
-            .or_else(|| wallet_config.as_ref().map(|wc| wc.path().to_path_buf()));
+            .map(WalletConfig::from_path)
+            .or(config
+                .as_ref()
+                .ok()
+                .and_then(|config: &Config| config.wallet_config.clone()));
         let wallet = WalletConfig::load_wallet_context(wallet_config.as_ref());
 
         Self {
-            wallet_path,
             wallet,
             config,
             gas_budget,
             json,
+            wallet_set_explicitly: wallet_config.is_some(),
         }
     }
 
@@ -352,7 +352,7 @@ impl ClientCommandRunner {
                     &self.config?,
                     None,
                     self.wallet,
-                    self.wallet_path.is_none(),
+                    !self.wallet_set_explicitly,
                 )
                 .await?;
                 let attribute = sui_read_client.get_blob_attribute(&blob_obj_id).await?;
@@ -492,7 +492,7 @@ impl ClientCommandRunner {
             self.config?,
             rpc_url,
             self.wallet,
-            self.wallet_path.is_none(),
+            !self.wallet_set_explicitly,
             &None,
         )
         .await?;
@@ -644,7 +644,7 @@ impl ClientCommandRunner {
             &config,
             rpc_url,
             self.wallet,
-            self.wallet_path.is_none(),
+            !self.wallet_set_explicitly,
         )
         .await?;
 
@@ -706,7 +706,7 @@ impl ClientCommandRunner {
             &config,
             rpc_url,
             self.wallet,
-            self.wallet_path.is_none(),
+            !self.wallet_set_explicitly,
         )
         .await?;
 
@@ -762,7 +762,7 @@ impl ClientCommandRunner {
             &config,
             rpc_url,
             self.wallet,
-            self.wallet_path.is_none(),
+            !self.wallet_set_explicitly,
         )
         .await?;
 
@@ -791,7 +791,7 @@ impl ClientCommandRunner {
                     &config,
                     rpc_url,
                     self.wallet,
-                    self.wallet_path.is_none(),
+                    !self.wallet_set_explicitly,
                 )
                 .await?;
                 let n_shards = if let Some(n_shards) = n_shards {
@@ -870,7 +870,7 @@ impl ClientCommandRunner {
             self.config?,
             rpc_url,
             self.wallet,
-            self.wallet_path.is_none(),
+            !self.wallet_set_explicitly,
             &daemon_args.blocklist,
         )
         .await?;
