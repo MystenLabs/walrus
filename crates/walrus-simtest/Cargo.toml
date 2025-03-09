@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[dev-dependencies]
+[dependencies]
 anyhow.workspace = true
 futures.workspace = true
 prometheus.workspace = true
@@ -14,7 +14,7 @@ rand.workspace = true
 reqwest = { version = "0.12.12", default-features = false, features = ["__internal_proxy_sys_no_cache", "http2", "json", "rustls-tls"] }
 sui-macros.workspace = true
 sui-protocol-config.workspace = true
-sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.43.0" }
+sui-types.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 walrus-core.workspace = true
