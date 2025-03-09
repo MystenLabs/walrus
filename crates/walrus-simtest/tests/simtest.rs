@@ -1606,6 +1606,86 @@ mod tests {
         }
     }
 
+    // The node recovery process is artificially prolonged to be longer than 1 epoch.
+    // We should expect the recovering node should eventually become Active.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_long_node_recovery() {
+        let (_sui_cluster, walrus_cluster, client) =
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4],
+                    use_legacy_event_processor: true,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: false,
+                },
+                None,
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        // All requests should succeed even if a node crashes.
+        let workload_handle = start_background_workload(client_arc.clone(), false);
+
+        // Running the workload for 60 seconds to get some data in the system.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+
+        // Register a fail point to have a temporary pause in the node recovery process that is
+        // longer than epoch length.
+        register_fail_point_async("start_node_recovery_entry", || async move {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        // Tracks if a crash has been triggered.
+        let fail_triggered = Arc::new(AtomicBool::new(false));
+        let target_fail_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
+        let fail_triggered_clone = fail_triggered.clone();
+
+        // Trigger node crash during some DB access.
+        register_fail_points(DB_FAIL_POINTS, move || {
+            crash_target_node(
+                target_fail_node_id,
+                fail_triggered_clone.clone(),
+                Duration::from_secs(60),
+            );
+        });
+
+        tokio::time::sleep(Duration::from_secs(180)).await;
+
+        let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
+        let node_health_info = get_nodes_health_info(&node_refs).await;
+
+        assert!(node_health_info[0].shard_detail.is_some());
+        for shard in &node_health_info[0].shard_detail.as_ref().unwrap().owned {
+            // For all the shards that the crashed node owns, they should be in ready state.
+            assert_eq!(shard.status, ShardStatus::Ready);
+        }
+
+        assert_eq!(
+            get_nodes_health_info(&[&walrus_cluster.nodes[0]])
+                .await
+                .get(0)
+                .unwrap()
+                .node_status,
+            "Active"
+        );
+
+        workload_handle.abort();
+
+        clear_fail_point("start_node_recovery_entry");
+    }
+
     async_param_test! {
         #[ignore = "ignore E2E tests by default"]
         #[walrus_simtest]
