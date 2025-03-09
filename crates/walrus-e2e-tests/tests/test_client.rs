@@ -33,7 +33,6 @@ use walrus_core::{
     ShardIndex,
     SliverPairIndex,
     DEFAULT_ENCODING,
-    SUPPORTED_ENCODING_TYPES,
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::api::BlobStatus;
@@ -99,10 +98,8 @@ async fn test_store_and_read_blob_without_failures(blob_size: usize) {
 
 /// Basic read and write test for the client.
 ///
-/// It generates random blobs and stores them using different encoding types.
+/// It generates random blobs and stores them.
 /// It then reads the blobs back and verifies that the data is correct.
-///
-/// The test uses a random number of encoding types for each blob.
 pub async fn basic_store_and_read<F>(
     client: &WithTempDir<Client<SuiContractClient>>,
     num_blobs: usize,
@@ -115,50 +112,42 @@ where
     // Generate random blobs.
     let blob_data = walrus_test_utils::random_data_list(data_length, num_blobs);
     let mut path_to_data: HashMap<PathBuf, Vec<u8>> = HashMap::new();
-    let mut blobs_by_encoding: HashMap<EncodingType, Vec<(PathBuf, Vec<u8>)>> = HashMap::new();
+    let mut blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = vec![];
     let mut path_to_blob_id: HashMap<PathBuf, BlobId> = HashMap::new();
 
-    // For each blob, create multiple encodings and paths.
+    // Create paths for each blob.
     for (i, data) in blob_data.iter().enumerate() {
-        for encoding in SUPPORTED_ENCODING_TYPES {
-            let path = PathBuf::from(format!("blob_{}_{}", i, encoding));
-            path_to_data.insert(path.clone(), data.to_vec());
-            blobs_by_encoding
-                .entry(*encoding)
-                .or_default()
-                .push((path, data.to_vec()));
-        }
+        let path = PathBuf::from(format!("blob_{}", i));
+        path_to_data.insert(path.clone(), data.to_vec());
+        blobs_with_paths.push((path, data.to_vec()));
     }
 
-    // Store blobs grouped by encoding type.
-    for (encoding_type, blobs_with_paths) in blobs_by_encoding {
-        let store_result = client
-            .as_ref()
-            .reserve_and_store_blobs_retry_committees_with_path(
-                &blobs_with_paths,
-                encoding_type,
-                1,
-                StoreWhen::Always,
-                BlobPersistence::Permanent,
-                PostStoreAction::Keep,
-            )
-            .await?;
+    let store_result = client
+        .as_ref()
+        .reserve_and_store_blobs_retry_committees_with_path(
+            &blobs_with_paths,
+            DEFAULT_ENCODING,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
 
-        for result in store_result {
-            match result.blob_store_result {
-                BlobStoreResult::NewlyCreated { blob_object, .. } => {
-                    assert_eq!(
-                        blob_object.encoding_type, encoding_type,
-                        "Stored blob has incorrect encoding type"
-                    );
-                    path_to_blob_id.insert(result.path, blob_object.blob_id);
-                }
-                _ => panic!(
-                    "Expected NewlyCreated result, got: {:?}",
-                    result.blob_store_result
-                ),
-            };
-        }
+    for result in store_result {
+        match result.blob_store_result {
+            BlobStoreResult::NewlyCreated { blob_object, .. } => {
+                assert_eq!(
+                    blob_object.encoding_type, DEFAULT_ENCODING,
+                    "Stored blob has incorrect encoding type"
+                );
+                path_to_blob_id.insert(result.path, blob_object.blob_id);
+            }
+            _ => panic!(
+                "Expected NewlyCreated result, got: {:?}",
+                result.blob_store_result
+            ),
+        };
     }
 
     // Call the pre-read hook before reading data.
