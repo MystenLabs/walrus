@@ -20,22 +20,25 @@ mod tests {
     };
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
+    use sui_types::base_types::ObjectID;
     use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
     use walrus_core::{
         encoding::{Primary, Secondary},
+        keys::{NetworkKeyPair, ProtocolKeyPair},
         DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::api::{ServiceHealthInfo, ShardStatus};
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, ClientCommunicationConfig, StoreWhen},
+        node::config::{CommissionRateData, PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
         test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
     };
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
         types::{move_structs::VotingParams, NetworkAddress, NodeMetadata},
     };
-    use walrus_test_utils::WithTempDir;
+    use walrus_test_utils::{async_param_test, WithTempDir};
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;
     const DB_FAIL_POINTS: &[&str] = &[
@@ -62,6 +65,37 @@ mod tests {
     /// This latency applies to both Sui cluster and Walrus cluster.
     fn latency_config() -> sui_simulator::SimConfig {
         env_config(uniform_latency_ms(5..15), [])
+    }
+
+    /// Fetches the synced node config set from the contract.
+    async fn test_get_synced_node_config_set(
+        contract_client: &SuiContractClient,
+        node_id: ObjectID,
+    ) -> anyhow::Result<SyncedNodeConfigSet> {
+        let pool = contract_client
+            .read_client
+            .get_staking_pool(node_id)
+            .await?;
+
+        let node_info = pool.node_info.clone();
+        let metadata = contract_client
+            .read_client
+            .get_node_metadata(node_info.metadata)
+            .await?;
+
+        Ok(SyncedNodeConfigSet {
+            name: node_info.name,
+            network_address: node_info.network_address,
+            network_public_key: node_info.network_public_key,
+            public_key: node_info.public_key,
+            next_public_key: node_info.next_epoch_public_key,
+            voting_params: pool.voting_params,
+            metadata,
+            commission_rate_data: CommissionRateData {
+                pending_commission_rate: pool.pending_commission_rate,
+                commission_rate: pool.commission_rate,
+            },
+        })
     }
 
     // Helper function to write a random blob, read it back and check that it is the same.
@@ -193,6 +227,130 @@ mod tests {
                 data_length += 1;
             }
         })
+    }
+
+    /// StorageNodeConfig update parameters for testing.
+    #[derive(Debug, Clone, Default)]
+    struct TestUpdateParams {
+        pub name: Option<String>,
+        pub public_host: Option<String>,
+        pub public_port: Option<u16>,
+        pub network_key_pair: Option<PathOrInPlace<NetworkKeyPair>>,
+        pub next_protocol_key_pair: Option<PathOrInPlace<ProtocolKeyPair>>,
+        pub voting_params: Option<VotingParams>,
+        pub metadata: Option<NodeMetadata>,
+        pub commission_rate: Option<u16>,
+    }
+
+    /// Update StorageNodeConfig based on TestUpdateParams where all fields are Options
+    async fn update_config_from_test_params(
+        config: &Arc<RwLock<StorageNodeConfig>>,
+        params: &TestUpdateParams,
+    ) {
+        let mut config_write = config.write().await;
+
+        // Update all optional fields
+        if let Some(name) = &params.name {
+            config_write.name = name.clone();
+        }
+
+        if let Some(public_host) = &params.public_host {
+            config_write.public_host = public_host.clone();
+        }
+
+        if let Some(public_port) = params.public_port {
+            config_write.public_port = public_port;
+        }
+
+        if let Some(network_key_pair) = &params.network_key_pair {
+            config_write.network_key_pair = network_key_pair.clone();
+        }
+
+        if let Some(next_protocol_key_pair) = &params.next_protocol_key_pair {
+            config_write.next_protocol_key_pair = Some(next_protocol_key_pair.clone());
+        }
+
+        if let Some(voting_params) = &params.voting_params {
+            config_write.voting_params = voting_params.clone();
+        }
+
+        if let Some(metadata) = &params.metadata {
+            config_write.metadata = metadata.clone();
+        }
+
+        if let Some(commission_rate) = params.commission_rate {
+            config_write.commission_rate = commission_rate;
+        }
+    }
+
+    /// Wait until the node's configuration is synced with the on-chain state.
+    async fn wait_till_node_config_synced(
+        client: &SuiContractClient,
+        node_id: ObjectID,
+        config: &Arc<RwLock<StorageNodeConfig>>,
+        timeout: Duration,
+    ) -> Result<(), anyhow::Error> {
+        let start_time = std::time::Instant::now();
+
+        loop {
+            if start_time.elapsed() > timeout {
+                return Err(anyhow::anyhow!("Timed out waiting for node config to sync"));
+            }
+
+            // Fetch the remote config.
+            let remote_config = test_get_synced_node_config_set(client, node_id).await?;
+
+            let local_config = config.read().await;
+
+            tracing::info!(
+                "Comparing local and remote configs:\n\
+                local.name: {:?}, remote.name: {:?}\n\
+                local.network_address: {:?}, remote.network_address: {:?}\n\
+                local.voting_params: {:?}, remote.voting_params: {:?}\n\
+                local.metadata: {:?}, remote.metadata: {:?}\n\
+                local.commission_rate: {:?}, remote.commission_rate: {:?}\n\
+                local.network_public_key: {:?}, remote.network_public_key: {:?}\n\
+                local.next_protocol_public_key: {:?}, local.public_key: {:?}, remote.public_key: {:?}",
+                local_config.name,
+                remote_config.name,
+                NetworkAddress(format!("{}:{}", local_config.public_host, local_config.public_port)),
+                remote_config.network_address,
+                local_config.voting_params,
+                remote_config.voting_params,
+                local_config.metadata,
+                remote_config.metadata,
+                local_config.commission_rate,
+                remote_config.commission_rate_data.commission_rate,
+                local_config.network_key_pair().public(),
+                remote_config.network_public_key,
+                local_config.next_protocol_key_pair().map(|kp| kp.public()),
+                local_config.protocol_key_pair().public(),
+                remote_config.public_key,
+            );
+
+            let configs_match = remote_config.name == local_config.name
+                && remote_config.network_address
+                    == NetworkAddress(format!(
+                        "{}:{}",
+                        local_config.public_host, local_config.public_port
+                    ))
+                && remote_config.voting_params == local_config.voting_params
+                && remote_config.metadata == local_config.metadata
+                && remote_config.commission_rate_data.commission_rate
+                    == local_config.commission_rate
+                && &remote_config.network_public_key == local_config.network_key_pair().public()
+                && (local_config.next_protocol_key_pair.is_none()
+                    && &remote_config.public_key == local_config.protocol_key_pair().public());
+
+            if configs_match {
+                tracing::info!("Node config is now in sync with on-chain state\n");
+                return Ok(());
+            }
+            // Release the read lock explicitly before sleeping.
+            drop(local_config);
+
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
     }
 
     // Tests that we can create a Walrus cluster with a Sui cluster and run basic
@@ -1415,7 +1573,7 @@ mod tests {
     /// Waits until the node's protocol key pair in the config matches the target public key.
     /// Returns Ok(()) if the key matches within the timeout duration, or an error if it times out.
     async fn wait_for_public_key_change(
-        config: &Arc<RwLock<walrus_service::node::config::StorageNodeConfig>>,
+        config: &Arc<RwLock<StorageNodeConfig>>,
         target_public_key: &walrus_core::PublicKey,
         timeout: Duration,
     ) -> anyhow::Result<()> {
@@ -1436,5 +1594,141 @@ mod tests {
 
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
+    }
+
+    async_param_test! {
+        #[ignore = "ignore E2E tests by default"]
+        #[walrus_simtest]
+        test_sync_node_params : [
+            commission_rate: (
+                &TestUpdateParams {
+                    commission_rate: Some(100),
+                    ..Default::default()
+                }
+            ),
+            voting_params: (
+                &TestUpdateParams {
+                    voting_params: Some(VotingParams {
+                        storage_price: 100,
+                        write_price: 100,
+                        node_capacity: 100,
+                    }),
+                    ..Default::default()
+                }
+            ),
+            metadata: (
+                &TestUpdateParams {
+                    metadata: Some(
+                        NodeMetadata::new(
+                            "https://walrus.io/images/walrus.jpg".to_string(),
+                            "https://walrus.io".to_string(),
+                            "Alias for walrus is sea elephant".to_string(),
+                        )
+                    ),
+                    ..Default::default()
+                }
+            ),
+            network_public_key: (
+                &TestUpdateParams {
+                    network_key_pair: Some(PathOrInPlace::InPlace(NetworkKeyPair::generate())),
+                    ..Default::default()
+                }
+            ),
+            next_protocol_key_pair: (
+                &TestUpdateParams {
+                    next_protocol_key_pair: Some(PathOrInPlace::InPlace(ProtocolKeyPair::generate())),
+                    ..Default::default()
+                }
+            ),
+            network_address: (
+                &TestUpdateParams {
+                    public_port: Some(8080),
+                    ..Default::default()
+                }
+            ),
+
+        ]
+    }
+    async fn test_sync_node_params(update_params: &TestUpdateParams) {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(30),
+                TestNodesConfig {
+                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    use_legacy_event_processor: false,
+                    disable_event_blob_writer: false,
+                    blocklist_dir: None,
+                    enable_node_config_synchronizer: true,
+                },
+                Some(10),
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+        let client_arc = Arc::new(client);
+
+        let config = Arc::new(RwLock::new(
+            walrus_cluster.nodes[5].storage_node_config.clone(),
+        ));
+        walrus_cluster.nodes[5].node_id = Some(
+            SimStorageNodeHandle::spawn_node(
+                config.clone(),
+                None,
+                walrus_cluster.nodes[5].cancel_token.clone(),
+            )
+            .await
+            .id(),
+        );
+
+        // Adding stake to the new node so that it can be in Active state.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
+            .await
+            .expect("Node should be active");
+
+        let node_id = walrus_cluster.nodes[5]
+            .storage_node_capability
+            .as_ref()
+            .unwrap()
+            .node_id;
+        wait_till_node_config_synced(
+            &client_arc.as_ref().as_ref().sui_client(),
+            node_id,
+            &config,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Node config should be synced");
+
+        // Update the node config with the new params.
+        update_config_from_test_params(&config, update_params).await;
+
+        // Wait for the node config to be synced again.
+        wait_till_node_config_synced(
+            &client_arc.as_ref().as_ref().sui_client(),
+            node_id,
+            &config,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Node config should be synced");
     }
 }

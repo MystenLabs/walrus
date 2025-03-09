@@ -11908,6 +11908,7 @@ dependencies = [
  "sui-macros",
  "sui-protocol-config",
  "sui-simulator",
+ "sui-types",
  "tokio",
  "tracing",
  "walrus-core",
