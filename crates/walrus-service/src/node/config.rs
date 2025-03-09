@@ -329,6 +329,10 @@ impl StorageNodeConfig {
         }
     }
 
+    /// Calculates the next commission rate for the storage node.
+    ///
+    /// This function compares the local commission rate with the on-chain projected commission
+    /// rate one epoch in the future and returns the local commission rate if it is different.
     fn calculate_next_commission_rate(
         &self,
         commission_rate_data: &CommissionRateData,

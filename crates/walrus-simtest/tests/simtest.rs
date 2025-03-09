@@ -1737,7 +1737,49 @@ mod tests {
                     ..Default::default()
                 }
             ),
+            random_combi: (
+                &{
+                    let mut rng = rand::thread_rng();
+                    let mut params = TestUpdateParams::default();
 
+                    // For each field, randomly decide whether to set it (50% chance)
+                    if rng.gen_bool(0.5) {
+                        params.commission_rate = Some(rng.gen_range(0..=100));
+                    }
+
+                    if rng.gen_bool(0.5) {
+                        params.voting_params = Some(VotingParams {
+                            storage_price: rng.gen_range(1..1000),
+                            write_price: rng.gen_range(1..100),
+                            node_capacity: rng.gen_range(1_000_000..1_000_000_000),
+                        });
+                    }
+
+                    if rng.gen_bool(0.5) {
+                        params.metadata = Some(NodeMetadata::new(
+                            "https://walrus.io/images/walrus.jpg".to_string(),
+                            "https://walrus.io".to_string(),
+                            "Random description".to_string(),
+                        ));
+                    }
+
+                    if rng.gen_bool(0.5) {
+                        params.network_key_pair =
+                            Some(PathOrInPlace::InPlace(NetworkKeyPair::generate()));
+                    }
+
+                    if rng.gen_bool(0.5) {
+                        params.next_protocol_key_pair =
+                            Some(PathOrInPlace::InPlace(ProtocolKeyPair::generate()));
+                    }
+
+                    if rng.gen_bool(0.5) {
+                        params.public_port = Some(rng.gen_range(8000..9000));
+                    }
+
+                    params
+                }
+            ),
         ]
     }
     async fn test_sync_node_params(update_params: &TestUpdateParams) {
