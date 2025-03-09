@@ -345,9 +345,10 @@ impl InfoEpochOutput {
             | EpochState::NextParamsSelected(epoch_start) => {
                 EpochTimeOrMessage::DateTime(epoch_start)
             }
-            EpochState::EpochChangeSync(_) => {
-                EpochTimeOrMessage::Message("Epoch change is currently in progress...".to_string())
-            }
+            EpochState::EpochChangeSync(_) => EpochTimeOrMessage::Message(format!(
+                "Epoch change is currently in progress... Expected epoch end time is {}",
+                Utc::now() + epoch_duration
+            )),
         };
 
         Ok(Self {
