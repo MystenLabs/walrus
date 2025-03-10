@@ -16,7 +16,18 @@ ignore = [
   "RUSTSEC-2024-0384",
   # `derivative` is unmaintained.
   "RUSTSEC-2024-0388",
+  # `paste` is unmaintained.
+  "RUSTSEC-2024-0436",
+  # TODO: The following can probably be removed after upgrading Sui to v1.45.
+  # `backoff` is unmaintained.
+  "RUSTSEC-2025-0012",
+  # Crash due to uncontrolled recursion in `protobuf` crate.
+  "RUSTSEC-2024-0437",
+  # `x509-parser v0.14.0` used by anemo and Sui depends on a very old version of `ring`.
+  "RUSTSEC-2025-0009",
+  "RUSTSEC-2025-0010",
 ]
+
 
 # This section is considered when running `cargo deny check licenses`
 # More documentation for the licenses section can be found here:
@@ -69,6 +80,8 @@ multiple-versions = "deny"
 skip = [
   { name = "itertools", version = "<=12.1" },
   { name = "synstructure", version = "0.12.6" },
+  # AWS crates are not fully in sync.
+  { name = "aws-smithy-http", version = "0.60.12" },
 ]
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
@@ -100,9 +113,7 @@ allow-git = [
   "https://github.com/asonnino/prometheus-parser",
   "https://github.com/bmwill/axum-server",
   "https://github.com/mystenmark/async-task",
-  "https://github.com/mystenmark/tokio-madsim-fork",
   "https://github.com/zhiburt/tabled",
-  "https://www.github.com/MystenLabs/mysten-sim.git",
 ]
 
 [sources.allow-org]
