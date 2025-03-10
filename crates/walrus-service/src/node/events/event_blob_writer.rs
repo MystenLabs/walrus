@@ -974,8 +974,7 @@ impl EventBlobWriter {
     /// This method processes the next pending blob by storing its slivers,
     /// attesting it, and updating the database state. Returns the blob id if it is attested.
     async fn attest_pending_blob(&mut self) -> Result<Option<BlobId>> {
-        let Some((event_index, metadata)) = self.pending.unbounded_iter().seek_to_first().next()
-        else {
+        let Some((event_index, metadata)) = self.pending.unbounded_iter().next() else {
             return Ok(None);
         };
 
@@ -1274,7 +1273,7 @@ impl EventBlobWriter {
     /// This method updates the database state to move attested blobs back to
     /// pending status when an epoch change occurs.
     fn move_attested_blob_to_pending(&mut self, batch: &mut DBBatch) -> Result<()> {
-        let Some((_, metadata)) = self.attested.unbounded_iter().seek_to_first().next() else {
+        let Some((_, metadata)) = self.attested.unbounded_iter().next() else {
             return Ok(());
         };
 

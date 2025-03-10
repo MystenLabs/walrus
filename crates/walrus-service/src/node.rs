@@ -4195,10 +4195,13 @@ mod tests {
             .expect("shard storage should exist");
 
         assert_eq!(blob_details.len(), 23);
-        assert_eq!(shard_storage_src.sliver_count(SliverType::Primary), 23);
-        assert_eq!(shard_storage_src.sliver_count(SliverType::Secondary), 23);
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 0);
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 0);
+        assert_eq!(shard_storage_src.sliver_count(SliverType::Primary), Ok(23));
+        assert_eq!(
+            shard_storage_src.sliver_count(SliverType::Secondary),
+            Ok(23)
+        );
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), Ok(0));
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), Ok(0));
 
         let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
 
@@ -4212,8 +4215,11 @@ mod tests {
         // Waits for the shard to be synced.
         wait_for_shards_in_active_state(&shard_storage_set).await?;
 
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), 23);
-        assert_eq!(shard_storage_dst.sliver_count(SliverType::Secondary), 23);
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), Ok(23));
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Secondary),
+            Ok(23)
+        );
 
         assert_eq!(blob_details.len(), 23);
 

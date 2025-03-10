@@ -15,7 +15,7 @@ use rand::{
 use serde::{de::DeserializeOwned, Serialize};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
-use sui_rpc_api::{CheckpointData, Client as RpcClient};
+use sui_rpc_api::Client as RpcClient;
 use sui_sdk::{
     apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
@@ -44,6 +44,7 @@ use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     base_types::{ObjectID, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
+    full_checkpoint_content::CheckpointData,
     messages_checkpoint::CertifiedCheckpointSummary,
     object::Object,
     quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,

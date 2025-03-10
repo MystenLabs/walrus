@@ -15,7 +15,7 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      SUI_TAG: testnet-v1.43.0
+      SUI_TAG: testnet-v1.44.3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5.4.0

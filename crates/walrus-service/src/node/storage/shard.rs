@@ -888,7 +888,7 @@ impl ShardStorage {
 
         // Update the metric for the total number of blobs pending recovery, so that we know how
         // many blobs are pending recovery.
-        let mut total_blobs_pending_recovery = self.pending_recover_slivers.keys().count();
+        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter().count();
         self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
 
         for recover_blob in self.pending_recover_slivers.safe_iter() {
@@ -1130,10 +1130,16 @@ impl ShardStorage {
     }
 
     #[cfg(test)]
-    pub(crate) fn sliver_count(&self, sliver_type: SliverType) -> usize {
+    pub(crate) fn sliver_count(&self, sliver_type: SliverType) -> Result<usize, TypedStoreError> {
         match sliver_type {
-            SliverType::Primary => self.primary_slivers.keys().count(),
-            SliverType::Secondary => self.secondary_slivers.keys().count(),
+            SliverType::Primary => self
+                .primary_slivers
+                .safe_iter()
+                .try_fold(0, |count, e| e.map(|_| count + 1)),
+            SliverType::Secondary => self
+                .secondary_slivers
+                .safe_iter()
+                .try_fold(0, |count, e| e.map(|_| count + 1)),
         }
     }
 
@@ -1166,7 +1172,10 @@ impl ShardStorage {
     pub(crate) fn all_pending_recover_slivers(
         &self,
     ) -> Result<Vec<(SliverType, BlobId)>, TypedStoreError> {
-        self.pending_recover_slivers.keys().collect()
+        self.pending_recover_slivers
+            .safe_iter()
+            .map(|r| r.map(|(k, _)| k))
+            .collect()
     }
 }
 
@@ -1670,7 +1679,8 @@ mod tests {
             )?;
         }
 
-        let sorted_blob_ids = blob_info.keys()?;
+        let mut sorted_blob_ids = blob_info.keys()?;
+        sorted_blob_ids.sort();
         blob_info.remove(&sorted_blob_ids[4])?;
         blob_info.remove(&sorted_blob_ids[7])?;
 

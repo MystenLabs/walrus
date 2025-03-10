@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "0E707F2DEB9FE59F9BDD54EBA27B90046DBD5D247B7CAA992CA2D6CA30457627"
+manifest_digest = "C0EC1B0B51D3C9482821813D975C75F69B1E99D2381CA515701CCFDC835A79AE"
 deps_digest = "3C4103934B1E040BB6B23F1D610B4EF9F2F1166A50A104EADCF77467C004C600"
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -11,11 +11,11 @@ dependencies = [
 
 [[move.package]]
 id = "MoveStdlib"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.43.0", subdir = "crates/sui-framework/packages/move-stdlib" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.44.3", subdir = "crates/sui-framework/packages/move-stdlib" }
 
 [[move.package]]
 id = "Sui"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.43.0", subdir = "crates/sui-framework/packages/sui-framework" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "testnet-v1.44.3", subdir = "crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -30,6 +30,6 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.43.1"
+compiler-version = "1.44.3"
 edition = "2024.beta"
 flavor = "sui"

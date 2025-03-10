@@ -217,8 +217,12 @@ impl BlobInfoTable {
         self.aggregate_blob_info.remove(blob_id)
     }
 
+    #[cfg(test)]
     pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
-        self.aggregate_blob_info.keys().collect()
+        self.aggregate_blob_info
+            .safe_iter()
+            .map(|r| r.map(|(k, _)| k))
+            .collect()
     }
 
     pub fn insert_batch<'a>(

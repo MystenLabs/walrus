@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
+use bincode::Options as _;
 use chrono::Utc;
 use futures_util::future::try_join_all;
 use move_core_types::{
@@ -252,9 +253,10 @@ impl EventProcessor {
 
     /// Polls the event store for new events starting from the given sequence number.
     pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>> {
-        let iter = self.stores.event_store.unbounded_iter();
-        Ok(iter
-            .skip_to(&from)?
+        Ok(self
+            .stores
+            .event_store
+            .iter_with_bounds(Some(from), None)
             .take(MAX_EVENTS_PER_POLL)
             .map(|(_, event)| event)
             .collect())
@@ -263,8 +265,7 @@ impl EventProcessor {
     /// Polls the event store for the next event starting from the given sequence number,
     /// and returns the event along with any InitState that exists at that index.
     pub fn poll_next(&self, from: u64) -> Result<Option<StreamEventWithInitState>> {
-        let mut iter = self.stores.event_store.unbounded_iter();
-        iter = iter.skip_to(&from)?;
+        let mut iter = self.stores.event_store.iter_with_bounds(Some(from), None);
         let Some((index, event)) = iter.next() else {
             return Ok(None);
         };
@@ -323,9 +324,22 @@ impl EventProcessor {
                     write_batch.schedule_delete_range(&self.stores.event_store, &0, &commit_index)?;
                     write_batch.schedule_delete_range(&self.stores.init_state, &0, &commit_index)?;
                     write_batch.write()?;
+
                     // This will prune the event store by deleting all the sst files relevant to the
                     // events before the commit index
-                    self.stores.event_store.delete_file_in_range(&0, &commit_index)?;
+                    let start = bincode::DefaultOptions::new()
+                        .with_big_endian()
+                        .with_fixint_encoding()
+                        .serialize(&0)?;
+                    let end = bincode::DefaultOptions::new()
+                        .with_big_endian()
+                        .with_fixint_encoding()
+                        .serialize(&commit_index)?;
+                    self.stores.event_store.rocksdb.delete_file_in_range(
+                        &self.stores.event_store.cf(),
+                        &start,
+                        &end,
+                    )?;
                 }
                 _ = cancel_token.cancelled() => {
                     return Ok(());
@@ -402,9 +416,9 @@ impl EventProcessor {
         let mut next_event_index = self
             .stores
             .event_store
-            .unbounded_iter()
-            .skip_to_last()
+            .reversed_safe_iter_with_bounds(None, None)?
             .next()
+            .transpose()?
             .map(|(k, _)| k + 1)
             .unwrap_or(0);
         let Some(prev_checkpoint) = self.stores.checkpoint_store.get(&())? else {
@@ -868,9 +882,9 @@ impl EventProcessor {
         tracing::info!("Starting event catchup using event blobs");
         let next_checkpoint = stores
             .checkpoint_store
-            .unbounded_iter()
-            .skip_to_last()
+            .reversed_safe_iter_with_bounds(None, None)?
             .next()
+            .transpose()?
             .map(|(_, checkpoint)| checkpoint.inner().sequence_number + 1);
 
         if !recovery_path.exists() {
@@ -889,9 +903,9 @@ impl EventProcessor {
 
         let next_event_index = stores
             .event_store
-            .unbounded_iter()
-            .skip_to_last()
+            .reversed_safe_iter_with_bounds(None, None)?
             .next()
+            .transpose()?
             .map(|(i, _)| i + 1);
 
         Self::process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
