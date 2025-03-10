@@ -8,8 +8,8 @@ Here are some thoughts on this initial "design" commit:
    object store. {store, read, metadata, ?}.
 2. We might want to move this crate to its own repo to strengthen the decoupling between this code
    and the whole Walrus codebase. Compiling (or even just downloading) the official Walrus repo to
-   build the Rust SDK is a relatively significant point of friction for potential users that we
-   could avoid.
+   build the Rust SDK is a relatively significant point of friction for potential users that would
+   be nice to avoid.
 3. TODO: We should consider how Sui and Wal coins integrate into the interface. So far, they are
    only represented in the error interface.
 4. TODO: Consider whether the Sites, Publisher or Aggregator interfaces should be treated here,
