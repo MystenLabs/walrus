@@ -1,5 +1,13 @@
+use std::fmt;
 
-pub struct BlobId(pub [u8; 32]);
+use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub struct BlobId(pub [u8; BlobId::LENGTH]);
+
+impl BlobId {
+    pub const LENGTH: usize = 32;
+}
 
 impl AsRef<[u8]> for BlobId {
     fn as_ref(&self) -> &[u8] {
@@ -7,22 +15,22 @@ impl AsRef<[u8]> for BlobId {
     }
 }
 
-impl Display for BlobId {
+impl fmt::Display for BlobId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Base64Display::new(self.as_ref(), &URL_SAFE_NO_PAD).fmt(f)
     }
 }
 
-impl Debug for BlobId {
+/// Error returned when unable to parse a blob ID.
+#[derive(Debug, PartialEq, Eq)]
+pub struct BlobIdParseError;
+
+impl fmt::Display for BlobIdParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "BlobId({self})")
+        write!(f, "unable to parse Walrus Blob ID")
     }
 }
-
-/// Error returned when unable to parse a blob ID.
-#[derive(Debug, Error, PartialEq, Eq)]
-#[error("failed to parse a blob ID")]
-pub struct BlobIdParseError;
+impl std::error::Error for BlobIdParseError {}
 
 impl TryFrom<&[u8]> for BlobId {
     type Error = BlobIdParseError;
@@ -33,17 +41,15 @@ impl TryFrom<&[u8]> for BlobId {
     }
 }
 
-impl FromStr for BlobId {
+impl std::str::FromStr for BlobId {
     type Err = BlobIdParseError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut blob_id = Self([0; Self::LENGTH]);
-        if let Ok(Self::LENGTH) = URL_SAFE_NO_PAD.decode_slice(s, &mut blob_id.0) {
+        if let Ok(Self::LENGTH) = URL_SAFE_NO_PAD.decode_slice(input, &mut blob_id.0) {
             Ok(blob_id)
         } else {
             Err(BlobIdParseError)
         }
     }
 }
-
-

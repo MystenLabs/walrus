@@ -2,25 +2,33 @@
 //!
 //! It provides a Rust API for interacting with the Walrus blob store.
 //!
-mod error;
 mod blob_id;
+mod error;
+mod metadata;
 
-use crate::error::Error;
-use crate::blob_id::BlobId;
-
-use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use crate::{blob_id::BlobId, error::Error, metadata::BlobMetadata};
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// A client for interacting with the Walrus network.
+#[derive(Debug)]
 pub struct WalrusClient {
     // TODO: include config, context, etc...
 }
 
 impl WalrusClient {
-    pub fn store_blob(&self, blob: &[u8]) -> Result<BlobId> {
+    /// Store a blob in the Walrus network.
+    pub async fn store_blob(&self, _blob: &[u8]) -> Result<BlobId> {
         todo!()
     }
 
-    pub fn read_blob(&self, blob_id: BlobId) -> Result<BlobId> {
+    /// Read a blob from the Walrus network.
+    pub async fn read_blob(&self, _blob_id: BlobId) -> Result<Vec<u8>> {
+        todo!()
+    }
+
+    /// Get metadata for a blob.
+    pub async fn get_metadata(&self, _blob_id: BlobId) -> Result<BlobMetadata> {
         todo!()
     }
 }
