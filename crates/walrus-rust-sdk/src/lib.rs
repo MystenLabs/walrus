@@ -6,6 +6,8 @@ mod blob_id;
 mod error;
 mod metadata;
 
+use std::path::Path;
+
 pub use crate::{
     blob_id::{BlobId, BlobIdParseError},
     error::Error,
@@ -22,6 +24,13 @@ pub struct WalrusClient {
 }
 
 impl WalrusClient {
+    /// Create a new Walrus client, given a configuration file.
+    pub fn from_config(_config: impl AsRef<Path>) -> Result<Self> {
+        todo!()
+    }
+
+    // TODO: consider more constructors that allow reads and don't require a config file.
+
     /// Store a blob in the Walrus network.
     pub async fn store_blob(&self, _blob: &[u8]) -> Result<BlobId> {
         todo!()
