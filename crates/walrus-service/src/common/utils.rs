@@ -8,6 +8,7 @@ use std::{
     env,
     fmt::Debug,
     future::Future,
+    mem,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     pin::Pin,
@@ -841,6 +842,28 @@ pub async fn wait_until_terminated(mut exit_listener: oneshot::Receiver<()>) {
             Ok(_) => tracing::info!("exit notification received"),
         }
     }
+}
+
+/// Clone a service and return the original instance.
+///
+/// When cloning a service the clone may not yet be ready. For example, consider cloning a service
+/// that holds a permit for a semaphore. The clone is (typically) returned without the permit
+/// which is left on the original service. This means that the clone is likely not ready ready to
+/// be `call`-ed.
+///
+/// Therefore, the correct way to clone a ready service, where you would like to the clone to have
+/// the readiness, is to `clone()` then call [`std::mem::replace`] to swap the ready, original
+/// instance with the clone.
+///
+/// This function is a convenience function for that pattern.
+///
+/// For more information see the [`tower::Service`] documentation.
+pub(crate) fn clone_ready_service<T, R>(svc: &mut T) -> T
+where
+    T: tower::Service<R> + Clone,
+{
+    let unready_clone = svc.clone();
+    mem::replace(svc, unready_clone)
 }
 
 #[cfg(test)]

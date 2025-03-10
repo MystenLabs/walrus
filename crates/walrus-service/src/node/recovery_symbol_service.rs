@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    mem,
     sync::Arc,
     task::{self, Context, Poll},
 };
@@ -24,6 +23,7 @@ use walrus_core::{
 };
 
 use super::{thread_pool, BoundedRayonThreadPool};
+use crate::utils;
 
 /// The key into the cache.
 ///
@@ -163,8 +163,7 @@ impl Service<RecoverySymbolRequest> for RecoverySymbolService {
     }
 
     fn call(&mut self, req: RecoverySymbolRequest) -> Self::Future {
-        let unready_clone = self.clone();
-        let mut this = mem::replace(self, unready_clone);
+        let mut this = utils::clone_ready_service(self);
 
         async move { this.handle_request_and_cache(req).await }.boxed()
     }
