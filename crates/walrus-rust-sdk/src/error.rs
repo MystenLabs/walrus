@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 /// Error type for the Walrus SDK.
 #[derive(Debug, Clone)]
 pub enum Error {

@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 //! This is the walrus-rust-sdk crate.
 //!
 //! It provides a Rust API for interacting with the Walrus blob store.

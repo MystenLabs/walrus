@@ -1,3 +1,6 @@
+// Copyright (c) Mysten Labs, Inc.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::fmt;
 
 use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
