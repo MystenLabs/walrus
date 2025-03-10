@@ -4,6 +4,7 @@ default-members = [
   "crates/walrus-e2e-tests",
   "crates/walrus-proc-macros",
   "crates/walrus-proxy",
+  "crates/walrus-rust-sdk",
   "crates/walrus-sdk",
   "crates/walrus-service",
   "crates/walrus-simtest",
@@ -119,6 +120,7 @@ utoipa-redoc = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.15.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
+walrus-rust-sdk = { path = "crates/walrus-rust-sdk" }
 walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }

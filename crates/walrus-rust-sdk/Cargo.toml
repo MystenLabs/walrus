@@ -1,0 +1,14 @@
+[package]
+name = "walrus-rust-sdk"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+# Ideally we have zero dependencies on the main MystenLabs/walrus codebase to avoid the potential
+# for future cyclical dependencies and to reduce build times for SDK users.
+[dependencies]
+base64 = "0.22.1"
+
+[lints]
+workspace = true

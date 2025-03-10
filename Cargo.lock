@@ -11819,6 +11819,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-rust-sdk"
+version = "1.17.0"
+dependencies = [
+ "base64 0.22.1",
+]
+
+[[package]]
 name = "walrus-sdk"
 version = "1.17.0"
 dependencies = [
