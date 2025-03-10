@@ -2,10 +2,12 @@ use std::fmt;
 
 use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
+/// A unique identifier for a blob stored in the Walrus network.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct BlobId(pub [u8; BlobId::LENGTH]);
 
 impl BlobId {
+    /// The length of a blob ID in bytes is constant.
     pub const LENGTH: usize = 32;
 }
 

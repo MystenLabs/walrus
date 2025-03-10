@@ -6,9 +6,14 @@ mod blob_id;
 mod error;
 mod metadata;
 
-use crate::{blob_id::BlobId, error::Error, metadata::BlobMetadata};
+pub use crate::{
+    blob_id::{BlobId, BlobIdParseError},
+    error::Error,
+    metadata::BlobMetadata,
+};
 
-type Result<T> = std::result::Result<T, Error>;
+/// A convenience type for results from the Walrus SDK.
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// A client for interacting with the Walrus network.
 #[derive(Debug)]
@@ -28,7 +33,7 @@ impl WalrusClient {
     }
 
     /// Get metadata for a blob.
-    pub async fn get_metadata(&self, _blob_id: BlobId) -> Result<BlobMetadata> {
+    pub async fn get_blob_metadata(&self, _blob_id: BlobId) -> Result<BlobMetadata> {
         todo!()
     }
 }
