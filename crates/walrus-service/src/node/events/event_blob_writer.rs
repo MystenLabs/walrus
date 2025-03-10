@@ -60,7 +60,7 @@ const ATTESTED: &str = "attested_blob_store";
 const PENDING: &str = "pending_blob_store";
 const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
-const NUM_CHECKPOINTS_PER_BLOB: u32 = 18_000;
+pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
 
 /// Metadata for event blobs.
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
