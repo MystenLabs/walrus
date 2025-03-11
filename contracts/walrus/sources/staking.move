@@ -337,6 +337,11 @@ public fun calculate_rewards(
     staking.inner().calculate_rewards(node_id, staked_principal, activation_epoch, withdraw_epoch)
 }
 
+/// Call `staked_wal::can_withdraw_early` to allow calling this method in applications.
+public fun can_withdraw_staked_wal_early(staking: &Staking, staked_wal: &StakedWal): bool {
+    staking.inner().can_withdraw_staked_wal_early(staked_wal)
+}
+
 // === Upgrade ===
 
 public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID) {
