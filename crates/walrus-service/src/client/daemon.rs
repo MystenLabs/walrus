@@ -90,7 +90,6 @@ pub trait WalrusWriteClient: WalrusReadClient {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-        exact_size: Option<u64>,
     ) -> impl std::future::Future<Output = ClientResult<BlobStoreResult>> + Send;
 
     /// Returns the default [`PostStoreAction`] for this client.
@@ -119,7 +118,6 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-        _exact_size: Option<u64>,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type_or_default_for_version(
             encoding_type,

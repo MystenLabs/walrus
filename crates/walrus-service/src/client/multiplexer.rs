@@ -148,7 +148,6 @@ impl ClientMultiplexer {
                 store_when,
                 persistence,
                 post_store,
-                None,
             )
             .await?;
 
@@ -178,16 +177,7 @@ impl WalrusWriteClient for ClientMultiplexer {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-        exact_size: Option<u64>,
     ) -> ClientResult<BlobStoreResult> {
-        if let Some(size) = exact_size {
-            if blob.len() as u64 != size {
-                return Err(ClientError::from(
-                    ClientErrorKind::PayloadVerificationFailed,
-                ));
-            }
-        }
-
         self.submit_write(
             blob,
             encoding_type,

@@ -57,10 +57,6 @@ pub struct Claim {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_epochs: Option<u32>,
 
-    /// The maximum size of the blob that can be stored, in bytes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_size: Option<u64>,
-
     /// The exact size of the blob that can be stored, in bytes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
@@ -124,18 +120,8 @@ impl Claim {
             return Ok(());
         }
 
-        if let Some(body_size_upper_hint) = body_size_hint.upper() {
-            if let Some(max_size) = self.max_size {
-                if body_size_upper_hint > max_size {
-                    tracing::debug!(
-                        max_size,
-                        body_size_upper_hint,
-                        "upload with body size greater than max_size"
-                    );
-                    return Err(PublisherAuthError::MaxSizeExceeded);
-                }
-            }
-            if let Some(size) = self.size {
+        if let Some(size) = self.size {
+            if let Some(body_size_upper_hint) = body_size_hint.upper() {
                 if body_size_upper_hint < size {
                     tracing::debug!(
                         size = size,
@@ -145,9 +131,7 @@ impl Claim {
                     return Err(PublisherAuthError::SizeIncorrect);
                 }
             }
-        }
-        let body_size_lower_hint = body_size_hint.lower();
-        if let Some(size) = self.size {
+            let body_size_lower_hint = body_size_hint.lower();
             if body_size_lower_hint > 0 && body_size_lower_hint > size {
                 tracing::debug!(
                     size = size,
@@ -339,11 +323,6 @@ pub enum PublisherAuthError {
     #[error("the send_object_to field is missing from the query, but it is required")]
     #[rest_api_error(reason = "MISSING_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
     MissingSendObjectTo,
-
-    /// The size of the body is above the maximum allowed.
-    #[error("the size of the body is above the maximum allowed.")]
-    #[rest_api_error(reason = "MAX_SIZE_EXCEEDED", status = ApiStatusCode::FailedPrecondition)]
-    MaxSizeExceeded,
 
     /// The size of the body is incorrect.
     #[error("the size of the body is incorrect")]
@@ -757,74 +736,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn verify_body_size_with_max_size() {
-        let claim = Claim {
-            jti: "test".to_string(),
-            iat: None,
-            exp: FAR_EXP,
-            send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
-            epochs: Some(1),
-            max_size: Some(10),
-            ..Default::default()
-        };
-        let (router, token, encode_key) = setup_router_and_token(
-            // Expiring sec.
-            0,
-            // Verify upload.
-            true,
-            // Use secret.
-            true,
-            claim.clone(),
-        );
-
-        let mut other_claim = claim;
-        // Need to change the JTI to avoid the replay suppression.
-        other_claim.jti = "other".to_string();
-        let other_token = encode(&Header::default(), &other_claim, &encode_key).unwrap();
-
-        let requests = vec![
-            (
-                RequestHeadersAndData::new(
-                    &format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ),
-                    correct_auth_header(token.clone()),
-                    // Big body fails.
-                    Some(Body::from(vec![42; 100])),
-                ),
-                StatusCode::BAD_REQUEST,
-            ),
-            (
-                RequestHeadersAndData::new(
-                    &format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ),
-                    correct_auth_header(token),
-                    // Small body is ok.
-                    Some(Body::from(vec![42; 5])),
-                ),
-                StatusCode::OK,
-            ),
-            (
-                RequestHeadersAndData::new(
-                    &format!(
-                        "/v1/blobs?epochs=1&send_object_to={}",
-                        SuiAddress::from_bytes(ADDRESS).expect("valid address")
-                    ),
-                    correct_auth_header(other_token),
-                    // No body is ok.
-                    None,
-                ),
-                StatusCode::OK,
-            ),
-        ];
-
-        execute_requests(&router, requests).await;
-    }
-
-    #[tokio::test]
     async fn verify_body_size_with_exact_size() {
         let claim = Claim {
             jti: "test".to_string(),
@@ -832,7 +743,6 @@ mod tests {
             exp: FAR_EXP,
             send_object_to: Some(SuiAddress::from_bytes(ADDRESS).expect("valid address")),
             epochs: Some(1),
-            max_size: None,
             size: Some(1000),
             ..Default::default()
         };

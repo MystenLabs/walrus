@@ -277,12 +277,10 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
 ) -> Response {
-    // Check if there is an authorization claim, and use it to check the exact size.
-    let mut exact_size = None;
+    // Check if there is an authorization claim
     if let Some(TypedHeader(header)) = bearer_header {
-        match check_blob_size(header, blob.len()) {
-            Ok(size) => exact_size = size,
-            Err(error) => return error.into_response(),
+        if let Err(e) = check_blob_size(header, blob.len()) {
+            return e.into_response();
         }
     }
 
@@ -301,7 +299,6 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             StoreWhen::NotStoredIgnoreResources,
             BlobPersistence::from_deletable(deletable),
             post_store_action,
-            exact_size,
         )
         .await
     {
@@ -327,35 +324,28 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     response
 }
 
-/// Checks if the JWT claim has a maximum size and if the blob exceeds it.
-///
-/// IMPORTANT: This function does _not_ check the validity of the claim (i.e., does not
-/// authenticate the signature). The assumption is that a previous middleware has already done
-/// so.
-///
-/// The function just decodes the token and checks that the size in the claim is not exceeded.
+/// Checks if the JWT claim has a specified size and if the blob exceeds it.
+/// IMPORTANT: This function does _not_ check the signature of the claim
 fn check_blob_size(
     bearer_header: Authorization<Bearer>,
     blob_size: usize,
-) -> Result<Option<u64>, PublisherAuthError> {
-    // Note: We disable validation and use a default key because, if the authorization
-    // header is present, it must have been checked by a previous middleware.
+) -> Result<(), PublisherAuthError> {
     let mut validation = Validation::default();
     validation.insecure_disable_signature_validation();
     let default_key = DecodingKey::from_secret(&[]);
 
     match Claim::from_token(bearer_header.token().trim(), &default_key, &validation) {
-        Ok(claim) if claim.max_size.is_some() => {
-            if blob_size as u64 > claim.max_size.expect("just checked") {
-                Err(PublisherAuthError::MaxSizeExceeded)
-            } else {
-                Ok(claim.size)
+        Ok(claim) => {
+            if let Some(size) = claim.size {
+                if blob_size as u64 != size {
+                    return Err(PublisherAuthError::SizeIncorrect);
+                }
             }
+            Ok(())
         }
         // We return an internal error here, because the claim should have been checked by a
         // previous middleware, and therefore we should be able to decode it.
         Err(error) => Err(PublisherAuthError::Internal(error.into())),
-        Ok(_) => Ok(None),
     }
 }
 
