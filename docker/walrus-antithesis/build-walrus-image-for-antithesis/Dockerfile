@@ -55,8 +55,8 @@ RUN LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
 # Stage 3: Production Images
 # -------------------------------------
 
-# walrus-service: Complete service image
-FROM debian:bookworm-slim AS walrus-service
+# build walrus-service image containing all binaries
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates curl git
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
@@ -67,56 +67,6 @@ RUN mkdir -p /symbols
 RUN ln -s /opt/walrus/bin/walrus /symbols/walrus
 RUN ln -s /opt/walrus/bin/walrus-node /symbols/walrus-node
 RUN ln -s /opt/walrus/bin/walrus-deploy /symbols/walrus-deploy
-# COPY --from=builder /walrus/target/release/walrus /symbols/walrus
-# COPY --from=builder /walrus/target/release/walrus-node /symbols/walrus-node
-# COPY --from=builder /walrus/target/release/walrus-deploy /symbols/walrus-deploy
-COPY --from=builder /usr/lib/libvoidstar.so /usr/lib/libvoidstar.so
-COPY --from=builder /contracts /opt/walrus/contracts
-COPY --from=builder /sui /opt/sui
-ARG BUILD_DATE
-ARG GIT_REVISION
-LABEL build-date=$BUILD_DATE
-LABEL git-revision=$GIT_REVISION
-
-# walrus-cli: CLI-only image
-FROM debian:bookworm-slim AS walrus-cli
-RUN apt-get update && apt-get install -y ca-certificates curl
-ARG PROFILE=release
-WORKDIR "$WORKDIR/walrus"
-COPY --from=builder /walrus/target/release-antithesis/walrus /opt/walrus/bin/walrus
-RUN mkdir -p /symbols
-RUN ln -s /opt/walrus/bin/walrus /symbols/walrus
-# COPY --from=builder /walrus/target/release/walrus /symbols/walrus
-COPY --from=builder /usr/lib/libvoidstar.so /usr/lib/libvoidstar.so
-ARG BUILD_DATE
-ARG GIT_REVISION
-LABEL build-date=$BUILD_DATE
-LABEL git-revision=$GIT_REVISION
-
-# walrus-node: Node-only image
-FROM debian:bookworm-slim AS walrus-node
-RUN apt-get update && apt-get install -y ca-certificates curl
-ARG PROFILE=release
-WORKDIR "$WORKDIR/walrus"
-COPY --from=builder /walrus/target/release-antithesis/walrus-node /opt/walrus/bin/walrus-node
-RUN mkdir -p /symbols
-RUN ln -s /opt/walrus/bin/walrus-node /symbols/walrus-node
-# COPY --from=builder /walrus/target/release/walrus-node /symbols/walrus-node
-COPY --from=builder /usr/lib/libvoidstar.so /usr/lib/libvoidstar.so
-ARG BUILD_DATE
-ARG GIT_REVISION
-LABEL build-date=$BUILD_DATE
-LABEL git-revision=$GIT_REVISION
-
-# walrus-deploy: Deployment tool image
-FROM debian:bookworm-slim AS walrus-deploy
-RUN apt-get update && apt-get install -y ca-certificates curl
-ARG PROFILE=release
-WORKDIR "$WORKDIR/walrus"
-COPY --from=builder /walrus/target/release-antithesis/walrus-deploy /opt/walrus/bin/walrus-deploy
-RUN mkdir -p /symbols
-RUN ln -s /opt/walrus/bin/walrus-deploy /symbols/walrus-deploy
-# COPY --from=builder /walrus/target/release/walrus-deploy /symbols/walrus-deploy
 COPY --from=builder /usr/lib/libvoidstar.so /usr/lib/libvoidstar.so
 COPY --from=builder /contracts /opt/walrus/contracts
 COPY --from=builder /sui /opt/sui
