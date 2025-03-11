@@ -184,7 +184,10 @@ jobs:
           done
 
           tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
-          rm -rf ${{ env.TMP_BUILD_DIR }}
+
+      - name: Remove temp staging files
+        shell: bash
+        run: rm -rf ${{ env.TMP_BUILD_DIR }}
 
       - name: List upload directory contents
         shell: bash
