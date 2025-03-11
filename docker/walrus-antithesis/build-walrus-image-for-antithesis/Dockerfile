@@ -25,8 +25,15 @@ COPY contracts ./contracts
 COPY contracts /contracts
 COPY docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh /tmp/
 
+ARG SUI_VERSION
+COPY version.toml .
+RUN SUI_VERSION=$(grep SUI_VERSION version.toml | cut -d'"' -f2)
+
+# Print SUI_VERSION used in this build
+RUN echo "SUI_VERSION: $SUI_VERSION"
+
 # Clone specific Sui version for offline access
-RUN git clone --depth 1 --branch testnet-v1.41.0 https://github.com/MystenLabs/sui /sui
+RUN git clone --depth 1 --branch SUI_VERSION https://github.com/MystenLabs/sui /sui
 
 # Update Move.toml to use local Sui repository
 RUN chmod +x /tmp/update_move_toml.sh
