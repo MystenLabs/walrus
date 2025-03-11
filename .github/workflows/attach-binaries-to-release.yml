@@ -133,7 +133,7 @@ jobs:
       - name: Set git config for long paths (Windows)
         if: ${{ startsWith(matrix.os, 'windows') }}
         run: |
-            git config --system core.longpaths true          
+            git config --system core.longpaths true
 
       - name: Install postgres (MacOS arm64)
         if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
@@ -189,7 +189,7 @@ jobs:
         if: ${{ env.walrus_tarball_exist != '' }}
         shell: bash
         run: |
-            rm ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+            rm ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
             rm -rf {{ env.TMP_BUILD_DIR }}/release
 
       - name: List upload directory contents
@@ -202,3 +202,18 @@ jobs:
           path: "./tmp"
           destination: "mysten-walrus-releases"
           parent: false
+
+      - name: Upload release artifacts for ${{ matrix.os }} platform
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # pin@4.4.3
+        with:
+          name: walrus-binaries-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
+
+      - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # pin@v1
+        with:
+          tag_name: ${{ env.walrus_tag }}
+          files: |
+            ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz          
