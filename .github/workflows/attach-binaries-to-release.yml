@@ -80,7 +80,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - name: Set os/arch variables (Windows)
-        if: ${{ matrix.os == 'windows-ghcloud' }}
+        if: ${{ startsWith(matrix.os, 'windows') }}
         shell: bash
         run: |
           export arch=$(uname -m)
@@ -89,7 +89,7 @@ jobs:
           echo "extention=$(echo ".exe")" >> $GITHUB_ENV
 
       - name: Set os/arch variables
-        if: ${{ matrix.os != 'windows-ghcloud' }}
+        if: ${{ !startsWith(matrix.os, 'windows') }}
         shell: bash
         run: |
           export arch=$(uname -m)
@@ -97,7 +97,7 @@ jobs:
           export os_type="${system_os}-${arch}"
           echo "os_type=${system_os}-${arch}" >> $GITHUB_ENV
 
-      - name: Check if tar balls and binaries have been uploaded already
+      - name: Check if tar balls have been uploaded already
         continue-on-error: true
         shell: bash
         run: |
@@ -116,11 +116,11 @@ jobs:
           tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
 
       - name: Install nexttest (Windows)
-        if: ${{ matrix.os == 'windows-ghcloud' && env.walrus_tarball_exist == '' }}
+        if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
         uses: taiki-e/install-action@33022ba120c3f523d134bbbee12278fc11a3df1a # pin@nextest
 
       - name: Install postgres (Windows)
-        if: ${{ matrix.os == 'windows-ghcloud' && env.walrus_tarball_exist == '' }}
+        if: ${{ startsWith(matrix.os, 'windows') && env.walrus_tarball_exist == '' }}
         shell: bash
         run: |
           choco install postgresql12 --force --params '/Password:root'
@@ -129,6 +129,11 @@ jobs:
           echo "PQ_LIB_DIR=C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_ENV
           echo "PG_DATABASE_URL=postgres://postgres:root@localhost/" >> $GITHUB_ENV
           echo "PG_EXAMPLE_DATABASE_URL=postgres://postgres:root@localhost/diesel_example" >> $GITHUB_ENV
+
+      - name: Set git config for long paths (Windows)
+        if: ${{ startsWith(matrix.os, 'windows') }}
+        run: |
+            git config --system core.longpaths true          
 
       - name: Install postgres (MacOS arm64)
         if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
@@ -180,10 +185,12 @@ jobs:
 
           tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
 
-      - name: Remove downloaded walrus tar ball
+      - name: Remove downloaded walrus tar ball and temp files
         if: ${{ env.walrus_tarball_exist != '' }}
         shell: bash
-        run: rm ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+        run: |
+            rm ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+            rm -rf {{ env.TMP_BUILD_DIR }}/release
 
       - name: List upload directory contents
         shell: bash
