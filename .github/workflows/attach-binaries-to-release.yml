@@ -1,0 +1,193 @@
+name: Attach Walrus binaries to a release
+run-name: Attach Walrus binaries to a ${{ inputs.walrus_tag }} release
+
+on:
+  release:
+    types: created
+  workflow_dispatch:
+    inputs:
+      walrus_tag:
+        description: "Walrus repo tag to attach builds to"
+        type: string
+        required: true
+
+concurrency: ${{ github.workflow }}-${{ inputs.walrus_tag || github.ref }}
+
+env:
+  TAG_NAME: "${{ github.event.inputs.walrus_tag || github.ref }}"
+  BINARY_LIST_FILE: "./binary-build-list.json"
+  CARGO_TERM_COLOR: always
+  # Disable incremental compilation.
+  #
+  # Incremental compilation is useful as part of an edit-build-test-edit cycle,
+  # as it lets the compiler avoid recompiling code that hasn't changed. However,
+  # on CI, we're not making small edits; we're almost always building the entire
+  # project from scratch. Thus, incremental compilation on CI actually
+  # introduces *additional* overhead to support making future builds
+  # faster...but no future builds will ever occur in any given CI environment.
+  #
+  # See https://matklad.github.io/2021/09/04/fast-rust-builds.html#ci-workflow
+  # for details.
+  CARGO_INCREMENTAL: 0
+  # Allow more retries for network requests in cargo (downloading crates) and
+  # rustup (installing toolchains). This should help to reduce flaky CI failures
+  # from transient network timeouts or other issues.
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  # Don't emit giant backtraces in the CI logs.
+  RUST_BACKTRACE: short
+  TMP_BUILD_DIR: "./tmp/release"
+
+jobs:
+  release-build:
+    name: Build & Publish Binaries
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        os: [
+            ubuntu-ghcloud, # ubuntu-x86_64
+            ubuntu-arm64, # ubuntu-arm64
+            windows-ghcloud, # windows-x86_64
+            macos-latest-large, # macos-x86_64
+            macos-latest-xlarge, # macos-arm64
+          ]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Clean up and validate ${{ env.TAG_NAME }} tag name
+        shell: bash
+        run: |
+          export walrus_tag=$(echo ${{ env.TAG_NAME }} | sed s/'refs\/tags\/'//)
+          [[ "${walrus_tag}" == "main" ]] && echo "tag cannot be equals to 'main'" && exit 1
+          echo "walrus_tag=${walrus_tag}" >> $GITHUB_ENV
+          export walrus_version=$(echo ${walrus_tag} | sed -e 's/mainnet-v//' -e 's/testnet-v//')
+          echo "walrus_version=${walrus_version}" >> $GITHUB_ENV
+
+      - name: Check out ${{ env.walrus_tag }}
+        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # pin@v3
+        with:
+          ref: ${{ env.walrus_tag }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          version: ">= 363.0.0"
+
+      - name: Configure GCP service user auth
+        id: auth
+        uses: google-github-actions/auth@35b0e87d162680511bf346c299f71c9c5c379033 # pin@v1
+        with:
+          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
+
+      - name: Set os/arch variables (Windows)
+        if: ${{ matrix.os == 'windows-ghcloud' }}
+        shell: bash
+        run: |
+          export arch=$(uname -m)
+          export os_type="windows-${arch}"
+          echo "os_type=${os_type}" >> $GITHUB_ENV
+          echo "extention=$(echo ".exe")" >> $GITHUB_ENV
+
+      - name: Set os/arch variables
+        if: ${{ matrix.os != 'windows-ghcloud' }}
+        shell: bash
+        run: |
+          export arch=$(uname -m)
+          export system_os=$(echo ${{ matrix.os }} | cut -d- -f1)
+          export os_type="${system_os}-${arch}"
+          echo "os_type=${system_os}-${arch}" >> $GITHUB_ENV
+
+      - name: Check if tar balls and binaries have been uploaded already
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-releases | grep -w walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz | head -n 1 || echo '')" >> $GITHUB_ENV
+
+      - name: Download archive, if it exists
+        if: ${{ env.walrus_tarball_exist != '' }}
+        shell: bash
+        run: |
+          mkdir -p ${{ env.TMP_BUILD_DIR }}
+          gcloud storage cp gs://mysten-walrus-releases/walrus-${{ env.walrus_tag }}-${os_type}.tgz ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+          tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
+
+      - name: Install nexttest (Windows)
+        if: ${{ matrix.os == 'windows-ghcloud' && env.walrus_tarball_exist == '' }}
+        uses: taiki-e/install-action@33022ba120c3f523d134bbbee12278fc11a3df1a # pin@nextest
+
+      - name: Install postgres (Windows)
+        if: ${{ matrix.os == 'windows-ghcloud' && env.walrus_tarball_exist == '' }}
+        shell: bash
+        run: |
+          choco install postgresql12 --force --params '/Password:root'
+          echo "C:\Program Files\PostgreSQL\12\bin" >> $GITHUB_PATH
+          echo "C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_PATH
+          echo "PQ_LIB_DIR=C:\Program Files\PostgreSQL\12\lib" >> $GITHUB_ENV
+          echo "PG_DATABASE_URL=postgres://postgres:root@localhost/" >> $GITHUB_ENV
+          echo "PG_EXAMPLE_DATABASE_URL=postgres://postgres:root@localhost/diesel_example" >> $GITHUB_ENV
+
+      - name: Install postgres (MacOS arm64)
+        if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
+        shell: bash
+        env:
+          PQ_LIB_DIR: "$(brew --prefix libpq)/lib"
+          LIBRARY_PATH: "/opt/homebrew/lib:$LIBRARY_PATH"
+          PKG_CONFIG_PATH: "/opt/homebrew/lib/pkgconfig:$PKG_CONFIG_PATH"
+          PATH: "/opt/homebrew/bin:$PATH"
+        run: |
+          brew install postgresql
+
+      - name: Install postgres (Ubuntu arm64)
+        if: ${{ matrix.os == 'ubuntu-arm64' && env.walrus_tarball_exist == '' }}
+        shell: bash
+        run: |
+          sudo apt update && sudo apt install libpq-dev
+
+      - name: Remove unused apps (MacOS arm64)
+        if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          # MacOS arm64 runner only has 14GB avaialble, which is too small for our builds, so removing unused softwared.
+          df -h /
+          sudo rm -rf /Applications/Xcode*.app
+          sudo rm -rf ~/Library/Developer/Xcode/DerivedData
+          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/*
+          sudo rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
+          df -h /
+
+      - name: Cargo build for ${{ matrix.os }} platform
+        if: ${{ env.walrus_tarball_exist == '' }}
+        shell: bash
+        run: |
+          [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --release
+
+      - name: Rename and archive binaries for ${{ matrix.os }}
+        if: ${{ env.walrus_tarball_exist == '' }}
+        shell: bash
+        run: |
+          mkdir -p ${{ env.TMP_BUILD_DIR }}
+
+          [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
+          for binary in $(cat ${{ env.BINARY_LIST_FILE }} | jq -r '.release_binaries[]'); do
+            export binary=$(echo ${binary} | tr -d $'\r')
+            mv ./target/release/${binary}${{ env.extention }} ${{ env.TMP_BUILD_DIR }}/${binary}${{ env.extention }}
+          done
+
+          tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
+
+      - name: Remove downloaded walrus tar ball
+        if: ${{ env.walrus_tarball_exist != '' }}
+        shell: bash
+        run: rm ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${os_type}.tgz
+
+      - name: List upload directory contents
+        shell: bash
+        run: ls -al ${{ env.TMP_BUILD_DIR }}
+
+      - name: Upload binaries for ${{ inputs.os }} platform to GCP
+        uses: google-github-actions/upload-cloud-storage@v2
+        with:
+          path: './tmp'
+          destination: 'mysten-walrus-releases'
+          parent: false
