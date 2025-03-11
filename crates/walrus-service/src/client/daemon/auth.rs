@@ -128,8 +128,8 @@ impl Claim {
             if let Some(max_size) = self.max_size {
                 if body_size_upper_hint > max_size {
                     tracing::debug!(
-                        max_size = max_size,
-                        body_size_upper_hint = body_size_upper_hint,
+                        max_size,
+                        body_size_upper_hint,
                         "upload with body size greater than max_size"
                     );
                     return Err(PublisherAuthError::MaxSizeExceeded);
