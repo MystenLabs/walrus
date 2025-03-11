@@ -170,7 +170,7 @@ pub enum ClientErrorKind {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
-    /// The payload client provided do not pass the verification.
+    /// The payload provided by the client does not pass the verification.
     #[error("The payload did not pass the verification")]
     PayloadVerificationFailed,
     /// A failure internal to the node.
