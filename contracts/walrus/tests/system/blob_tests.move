@@ -35,6 +35,8 @@ fun blob_register_happy_path() {
 
     let blob = register_default_blob(&mut system, storage, false, ctx);
 
+    assert!(!blob.is_deletable());
+
     blob.burn();
     system.destroy_for_testing();
 }
@@ -464,6 +466,7 @@ fun delete_blob() {
 
     // Assert certified
     assert!(blob.certified_epoch().is_some());
+    assert!(blob.is_deletable());
 
     // Now delete the blob
     let storage = system.delete_blob(blob);
