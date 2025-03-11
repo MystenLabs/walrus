@@ -188,7 +188,7 @@ jobs:
 
       - name: List upload directory contents
         shell: bash
-        run: ls -al ${{ env.TMP_BUILD_DIR }}
+        run: ls -al ./tmp
 
       - name: Upload binaries for ${{ inputs.os }} platform to GCP
         uses: google-github-actions/upload-cloud-storage@v2
