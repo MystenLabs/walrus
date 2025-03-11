@@ -500,10 +500,9 @@ impl Client<SuiContractClient> {
             .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
             .await?;
         if let Some(exact_size) = exact_size {
-            let mut size = 0;
-            for pair_and_metadata in pairs_and_metadata.iter() {
-                size += pair_and_metadata.1.metadata().unencoded_length();
-            }
+            let size = pairs_and_metadata.iter().fold(0, |sum, (_, metadata)| {
+                sum + metadata.metadata().unencoded_length()
+            });
             if exact_size != size {
                 return Err(ClientError::from(
                     ClientErrorKind::PayloadVerificationFailed,
