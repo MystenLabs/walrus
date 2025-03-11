@@ -101,7 +101,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          echo "walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-releases | grep -w walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz | head -n 1 || echo '')" >> $GITHUB_ENV
+          walrus_tarball_exist=$(gcloud storage ls gs://mysten-walrus-releases | \
+            grep -w "walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz" | \
+            head -n 1 || echo '')
+
+          echo "walrus_tarball_exist=$walrus_tarball_exist" >> $GITHUB_ENV
 
       - name: Download archive, if it exists
         if: ${{ env.walrus_tarball_exist != '' }}
