@@ -2,7 +2,7 @@
 # Copyright (c) Mysten Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-echo "Running simulator tests at commit $(git rev-parse HEAD)"
+echo "Running Walrus simtests at commit $(git rev-parse HEAD)"
 
 # Function to handle SIGINT signal (Ctrl+C)
 cleanup() {
@@ -19,10 +19,7 @@ if [ -z "$NUM_CPUS" ]; then
   NUM_CPUS=$(cat /proc/cpuinfo | grep processor | wc -l) # ubuntu
 fi
 
-# filter out some tests that give spurious failures.
-TEST_FILTER="(not (test(~batch_verification_tests)))"
-
-DATE=$(date +%s)
+DATE=$(date '+%Y%m%d_%H%M%S')
 SEED="$DATE"
 
 # create logs directory
@@ -38,8 +35,11 @@ LOG_FILE="$LOG_DIR/log"
 # Therefore, we cannot simply use the /tmp directory for the simulator tests.
 WALRUS_TMP_DIR="~/walrus_simtest_tmp"
 
-# Set the LD_LIBRARY_PATH to include the crt-static library.
-export LD_LIBRARY_PATH=~/.rustup/toolchains/1.84-x86_64-unknown-linux-gnu/lib/rustlib/x86_64-unknown-linux-gnu/lib:$LD_LIBRARY_PATH
+# Set the LD_LIBRARY_PATH to include the crt-static library. The query here include all the rustlib
+# paths for the current toolchain installed. This is to make sure that when we upgrade rust to a
+# new version, the ld library path is updated automatically.
+RUST_LIB_PATHS=$(find ~/.rustup/toolchains -type d -path "*/lib/rustlib/x86_64-unknown-linux-gnu/lib" 2>/dev/null)
+export LD_LIBRARY_PATH=$(echo "$RUST_LIB_PATHS" | tr '\n' ':')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
 # By default run 1 iteration for each test, if not specified.
 : ${TEST_NUM:=1}
