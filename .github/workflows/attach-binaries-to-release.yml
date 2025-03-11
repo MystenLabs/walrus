@@ -216,4 +216,4 @@ jobs:
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |
-            ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz          
+            ${{ env.TMP_BUILD_DIR }}/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
