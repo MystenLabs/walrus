@@ -785,8 +785,8 @@ public(package) fun calculate_rewards(
 
 /// Check whether StakedWal can be withdrawn directly.
 public(package) fun can_withdraw_staked_wal_early(self: &StakingInnerV1, sw: &StakedWal): bool {
-    let is_in_committee = self.next_committee.is_some_and!(|cmt| cmt.contains(&sw.node_id()));
-    sw.can_withdraw_early(is_in_committee, &self.new_walrus_context())
+    let is_in_next_committee = self.next_committee.is_some_and!(|cmt| cmt.contains(&sw.node_id()));
+    sw.can_withdraw_early(is_in_next_committee, &self.new_walrus_context())
 }
 
 // === Internal ===
