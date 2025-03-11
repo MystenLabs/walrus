@@ -1259,8 +1259,8 @@ pub struct EpochArg {
     #[clap(long, value_parser = EpochCountOrMax::parse_epoch_count)]
     pub(crate) epochs: Option<EpochCountOrMax>,
 
-    /// The earliest time when the blob can expire, in RFC3339 format (e.g. "2024-03-20T15:00:00Z")
-    /// or a more relaxed format (e.g. "2024-03-20 15:00:00").
+    /// The earliest time when the blob can expire, in RFC3339 format (e.g., "2024-03-20T15:00:00Z")
+    /// or a more relaxed format (e.g., "2024-03-20 15:00:00").
     #[clap(long, value_parser = humantime::parse_rfc3339_weak)]
     pub(crate) earliest_expiry_time: Option<SystemTime>,
 

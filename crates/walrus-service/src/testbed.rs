@@ -498,6 +498,7 @@ pub async fn create_client_config(
     set_config_dir: Option<&Path>,
     admin_contract_client: &mut SuiContractClient,
     exchange_objects: Vec<ObjectID>,
+    sui_amount: u64,
 ) -> anyhow::Result<client::Config> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -517,6 +518,7 @@ pub async fn create_client_config(
         client_address,
         admin_contract_client.wallet_mut(),
         &sui_network,
+        sui_amount,
     )
     .await?;
     // Fund the client wallet with WAL.
@@ -586,6 +588,7 @@ pub async fn create_storage_node_configs(
     admin_contract_client: &mut SuiContractClient,
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
+    sui_amount: u64,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     tracing::debug!(
         ?working_dir,
@@ -647,6 +650,7 @@ pub async fn create_storage_node_configs(
         testbed_config.sui_network,
         faucet_cooldown,
         admin_contract_client.wallet_mut(),
+        sui_amount,
     )
     .await?;
 
@@ -804,6 +808,7 @@ async fn create_storage_node_wallets(
     sui_network: SuiNetwork,
     faucet_cooldown: Option<Duration>,
     admin_wallet: &mut WalletContext,
+    sui_amount: u64,
 ) -> anyhow::Result<Vec<WalletContext>> {
     // Create wallets for the storage nodes
     let mut storage_node_wallets = (0..n_nodes.get())
@@ -829,7 +834,13 @@ async fn create_storage_node_wallets(
             );
             tokio::time::sleep(cooldown).await;
         }
-        get_sui_from_wallet_or_faucet(wallet.active_address()?, admin_wallet, &sui_network).await?;
+        get_sui_from_wallet_or_faucet(
+            wallet.active_address()?,
+            admin_wallet,
+            &sui_network,
+            sui_amount,
+        )
+        .await?;
     }
     Ok(storage_node_wallets)
 }

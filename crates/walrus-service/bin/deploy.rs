@@ -8,11 +8,11 @@ use std::{
     net::IpAddr,
     num::NonZeroU16,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use humantime::Duration;
 use sui_types::base_types::ObjectID;
 use walrus_core::EpochCount;
 use walrus_service::{
@@ -71,7 +71,7 @@ struct RegisterNodesArgs {
     #[clap(long)]
     stake_amount: Option<u64>,
     /// Gas budget for Sui transactions to register the nodes.
-    #[arg(long)]
+    #[clap(long)]
     gas_budget: Option<u64>,
 }
 
@@ -82,8 +82,9 @@ struct DeploySystemContractArgs {
     working_dir: PathBuf,
     /// Sui network for which the config is generated.
     ///
-    /// Available options are `devnet`, `testnet`, and `localnet`, or a custom Sui network. To
-    /// specify a custom Sui network, pass a string of the format `<RPC_URL>;<FAUCET_URL>`.
+    /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`, or a custom Sui
+    /// network. To specify a custom Sui network, pass a string of the format
+    /// `<RPC_URL>(;<FAUCET_URL>)?`.
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The directory in which the contracts are located.
@@ -92,17 +93,17 @@ struct DeploySystemContractArgs {
     /// Gas budget for sui transactions to publish the contracts and set up the system.
     ///
     /// If not specified, the gas budget is estimated automatically.
-    #[arg(long)]
+    #[clap(long)]
     gas_budget: Option<u64>,
     /// The total number of shards. The shards are distributed evenly among the storage nodes.
-    #[arg(long, default_value = "1000")]
+    #[clap(long, default_value = "1000")]
     n_shards: NonZeroU16,
     /// The epoch duration.
-    #[arg(long, default_value = "1h")]
+    #[clap(long, default_value = "1h", value_parser = humantime::parse_duration)]
     epoch_duration: Duration,
-    /// The duration of epoch 0.
-    #[arg(long, default_value = "0s")]
-    epoch_zero_duration: Duration,
+    /// Configuration for epoch 0.
+    #[clap(flatten)]
+    epoch_zero_config: EpochZeroConfig,
     /// The list of host names or public IP addresses of the storage nodes.
     #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
     host_addresses: Vec<String>,
@@ -116,19 +117,19 @@ struct DeploySystemContractArgs {
     // Note: The storage unit is set in `crates/walrus-sui/utils.rs`. Change the unit in
     // the doc comment here if it changes.
     /// The price in FROST to set per unit of storage (1 MiB) per epoch.
-    #[arg(long, default_value_t = config::defaults::storage_price())]
+    #[clap(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
     /// The price in FROST to set for writing one unit of storage (1 MiB).
-    #[arg(long, default_value_t = config::defaults::write_price())]
+    #[clap(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
     /// The storage capacity in bytes to deploy the system with.
-    #[arg(long, default_value_t = 1_000_000_000_000)]
+    #[clap(long, default_value_t = 1_000_000_000_000)]
     storage_capacity: u64,
     /// If set, generates the protocol key pairs of the nodes deterministically.
-    #[arg(long, action)]
+    #[clap(long, action)]
     deterministic_keys: bool,
     /// The maximum number of epochs ahead for which storage can be obtained.
-    #[arg(long, default_value_t = 104)]
+    #[clap(long, default_value_t = 53)]
     max_epochs_ahead: EpochCount,
     /// The path to the admin wallet. If not provided, a new wallet is created.
     #[clap(long)]
@@ -136,18 +137,32 @@ struct DeploySystemContractArgs {
     /// If not set, contracts are copied to `working_dir` and published from there to keep the
     /// `Move.toml` unchanged. Use this flag to publish from the original directory and update
     /// the `Move.toml` to point to the new contracts.
-    #[arg(long, action)]
+    #[clap(long, action)]
     do_not_copy_contracts: bool,
     /// If set, creates a WAL exchange.
-    #[arg(long, action)]
+    #[clap(long, action)]
     with_wal_exchange: bool,
     /// If set, the deployment reuses the token deployed at the address specified in the `Move.lock`
     /// file of the WAL contract. Otherwise, a new WAL token is created.
-    #[arg(long, action)]
+    #[clap(long, action)]
     use_existing_wal_token: bool,
     /// If set, creates a subsidies package.
-    #[arg(long, action)]
+    #[clap(long, action)]
     with_subsidies: bool,
+}
+
+/// Configuration for epoch 0, either as a duration or as an absolute end time.
+#[derive(Debug, Clone, clap::Args, PartialEq, Eq)]
+#[group(multiple = false)]
+pub struct EpochZeroConfig {
+    /// The minimum duration of epoch 0. If neither this nor `--epoch-zero-end` is set, the duration
+    /// of epoch 0 will be 0.
+    #[clap(long, value_parser = humantime::parse_duration)]
+    epoch_zero_duration: Option<Duration>,
+    /// The earliest time when epoch 0 can end, in RFC3339 format (e.g., "2024-03-20T15:00:00Z")
+    /// or a more relaxed format (e.g., "2024-03-20 15:00:00").
+    #[clap(long, value_parser = humantime::parse_rfc3339_weak)]
+    epoch_zero_end: Option<SystemTime>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -182,7 +197,7 @@ struct GenerateDryRunConfigsArgs {
     ///
     /// Setting this makes sure that we wait at least this duration after a faucet request, before
     /// sending another request.
-    #[clap(long)]
+    #[clap(long, value_parser = humantime::parse_duration)]
     faucet_cooldown: Option<Duration>,
     /// Use the legacy event processor instead of the standard checkpoint-based event processor.
     #[clap(long, action)]
@@ -198,6 +213,9 @@ struct GenerateDryRunConfigsArgs {
     /// working directory is used.
     #[clap(long)]
     admin_wallet_path: Option<PathBuf>,
+    /// The amount of SUI (in MIST) to send to all created wallets.
+    #[clap(long, default_value_t = 1_000_000_000, requires = "admin_wallet_path")]
+    sui_amount: u64,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -328,7 +346,7 @@ mod commands {
             gas_budget,
             n_shards,
             epoch_duration,
-            epoch_zero_duration,
+            epoch_zero_config,
             host_addresses,
             rest_api_port,
             testbed_config_path,
@@ -353,6 +371,18 @@ mod commands {
             .canonicalize()
             .context("canonicalizing the working directory path failed")?;
 
+        let epoch_zero_duration = match epoch_zero_config {
+            EpochZeroConfig {
+                epoch_zero_duration: Some(duration),
+                ..
+            } => duration,
+            EpochZeroConfig {
+                epoch_zero_end: Some(end),
+                ..
+            } => end.duration_since(SystemTime::now())?,
+            _ => Duration::from_secs(0),
+        };
+
         // Deploy the system contract.
         let testbed_config = deploy_walrus_contract(DeployTestbedContractParameters {
             working_dir: &working_dir,
@@ -366,8 +396,8 @@ mod commands {
             write_price,
             deterministic_keys,
             n_shards,
-            epoch_duration: *epoch_duration,
-            epoch_zero_duration: *epoch_zero_duration,
+            epoch_duration,
+            epoch_zero_duration,
             max_epochs_ahead,
             admin_wallet_path,
             do_not_copy_contracts,
@@ -401,6 +431,7 @@ mod commands {
             disable_event_blob_writer,
             backup_database_url,
             admin_wallet_path,
+            sui_amount,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
@@ -416,8 +447,11 @@ mod commands {
         let testbed_config: TestbedConfig = load_from_yaml(testbed_config_path)?;
 
         if let Some(cooldown) = faucet_cooldown {
-            tracing::info!("sleeping for {cooldown} to let faucet cool down");
-            tokio::time::sleep(cooldown.into()).await;
+            tracing::info!(
+                "sleeping for {} to let faucet cool down",
+                humantime::Duration::from(cooldown)
+            );
+            tokio::time::sleep(cooldown).await;
         }
 
         let admin_wallet_path = admin_wallet_path.or(Some(
@@ -437,6 +471,7 @@ mod commands {
             set_config_dir.as_deref(),
             &mut admin_contract_client,
             testbed_config.exchange_object.into_iter().collect(),
+            sui_amount,
         )
         .await?;
         let serialized_client_config =
@@ -469,10 +504,11 @@ mod commands {
             metrics_port,
             set_config_dir.as_deref(),
             set_db_path.as_deref(),
-            faucet_cooldown.map(|duration| duration.into()),
+            faucet_cooldown,
             &mut admin_contract_client,
             use_legacy_event_provider,
             disable_event_blob_writer,
+            sui_amount,
         )
         .await?;
 
