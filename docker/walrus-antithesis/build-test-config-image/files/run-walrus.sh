@@ -22,9 +22,12 @@ SYSTEM_OBJECT=$(grep "system_object" /opt/walrus/outputs/deploy | awk '{print $2
 STAKING_OBJECT=$(grep "staking_object" /opt/walrus/outputs/deploy | awk '{print $2}')
 EXCHANGE_OBJECT=$(grep "exchange_object" /opt/walrus/outputs/deploy | awk '{print $2}')
 
+echo "Disk space usage:"
+df -h
+
 # copy binaries
 cp /root/sui_bin/sui /usr/local/bin/
-cp /opt/walrus/bin/walrus /usr/local/bin/
+# cp /opt/walrus/bin/walrus /usr/local/bin/
 
 cat <<EOF >/root/.config/walrus/client_config.yaml
 system_object: ${SYSTEM_OBJECT}
@@ -47,4 +50,4 @@ echo "starting walrus node"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_BACKTRACE=1RUST_LOG=info /opt/walrus/bin/walrus-node run --config-path /opt/walrus/outputs/${HOSTNAME}.yaml
+RUST_BACKTRACE=1 RUST_LOG=info /opt/walrus/bin/walrus-node run --config-path /opt/walrus/outputs/${HOSTNAME}.yaml

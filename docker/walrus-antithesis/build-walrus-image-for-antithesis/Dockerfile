@@ -1,4 +1,5 @@
-# Multi-stage Dockerfile for building and packaging Walrus components with Antithesis instrumentation
+# Multi-stage Dockerfile for building and packaging Walrus components with cargo
+# instrumentation for antithesis testing.
 # This file creates multiple production images:
 # - walrus-service: Complete service with all binaries
 # - walrus-cli: CLI tool only
@@ -8,7 +9,7 @@
 # Stage 1: Base Build Environment
 # -------------------------------------
 FROM rust:1.84-bookworm AS base
-ARG PROFILE=release
+ARG PROFILE=release-antithesis
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 WORKDIR "$WORKDIR/walrus"

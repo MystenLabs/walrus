@@ -146,5 +146,7 @@ opt-level = 1
 overflow-checks = true
 panic = 'abort'
 
-[profile.release]
+[profile.release-antithesis]
 debug = 1 # Keep debug symbols
+inherits = "release"
+strip = 'debuginfo' # remove extensive debug info to keep the binary size smaller

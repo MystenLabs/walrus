@@ -4,8 +4,6 @@
 [advisories]
 version = 2
 ignore = [
-  # `difference` is unmaintained.
-  "RUSTSEC-2020-0095",
   # We depend on `rsa` via `fastcrypto` but don't actually use it.
   "RUSTSEC-2023-0071",
   # `rust-yaml` is not maintained, but is a dependency in many of our packages.
@@ -26,6 +24,8 @@ ignore = [
   # `x509-parser v0.14.0` used by anemo and Sui depends on a very old version of `ring`.
   "RUSTSEC-2025-0009",
   "RUSTSEC-2025-0010",
+  # `humantime` is unmaintained.
+  "RUSTSEC-2025-0014",
 ]
 
 
