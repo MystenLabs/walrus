@@ -8,6 +8,7 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{self, Context, Poll},
+    time::Duration,
 };
 
 use futures::FutureExt;
@@ -18,11 +19,24 @@ use tracing::span::Span;
 
 pub(crate) type ThreadPanicError = Box<dyn Any + Send + 'static>;
 
-/// Limit of the number of inflight requests on a [`BoundedRayonThreadPool`] to
-/// `DEFAULT_IN_FLIGHT_RATIO * pool.current_num_threads`.
-pub(crate) const DEFAULT_IN_FLIGHT_RATIO: f64 = 1.5;
-/// Minimum value for the number of inflight requests on a [`BoundedRayonThreadPool`].
-pub(crate) const MIN_IN_FLIGHT_REQUESTS: usize = 3;
+/// The assumed mean amount of time for processing requests in the thread pool.
+///
+/// If this value is higher than the actual, then the actual wait time in the queue will be lower
+/// than [`DEFAULT_MAX_WAIT_TIME`]. If this value is lower than the actual value, then the actual
+/// wait time in the queue with be higher than [`DEFAULT_MAX_WAIT_TIME`].
+//
+// As the service is currently only used to serve recovery symbols, this is calculated from that.
+// First, the time taken to encode + construct the merkle tree for the sliver of a blob of size
+// 50 MB (~250 B symbols) in a system with 1000 shards, as per the `merkle_tree` benchmark, is
+// around 1 ms. However, the service is usually polled before touching the database, and so we must
+// include time for that access as well. We therefore currently set this to 10 ms on span latencies
+// for `retrieve_recovery_symbol` from grafana.
+pub(crate) const ASSUMED_REQUEST_LATENCY: Duration = Duration::from_millis(10);
+
+/// Given [`ASSUMED_REQUEST_LATENCY`], the maximum amount of time for which we are okay with a
+/// task being queued. Used to calculate the default max number of in-flight requests for
+/// [`RayonThreadPool::bounded`].
+pub(crate) const DEFAULT_MAX_WAIT_TIME: Duration = Duration::from_secs(1);
 
 /// A [`RayonThreadPool`] with a limit to the number of concurrent jobs.
 pub(crate) type BoundedRayonThreadPool = ConcurrencyLimit<RayonThreadPool>;
@@ -69,11 +83,18 @@ impl RayonThreadPool {
 
     /// Converts this pool into a [`BoundedRayonThreadPool`].
     ///
-    /// The limit is set to the number of threads in the pool times [`DEFAULT_IN_FLIGHT_RATIO`] or
-    /// a minimum of [`MIN_IN_FLIGHT_REQUESTS`].
+    /// For `N` workers in the thread pool, the limit is set to
+    /// `N * DEFAULT_MAX_WAIT_TIME / ASSUMED_REQUEST_LATENCY` which aims to limit the amount
+    /// of time spent in the queue to [`DEFAULT_MAX_WAIT_TIME`].
     pub fn bounded(self) -> BoundedRayonThreadPool {
-        let limit = ((self.inner.current_num_threads() as f64) * DEFAULT_IN_FLIGHT_RATIO) as usize;
-        ConcurrencyLimit::new(self, limit.max(MIN_IN_FLIGHT_REQUESTS))
+        let n_workers = self.inner.current_num_threads() as f64;
+        let time_in_queue = DEFAULT_MAX_WAIT_TIME.as_secs_f64();
+        let task_latency = ASSUMED_REQUEST_LATENCY.as_secs_f64();
+        let limit = (n_workers * time_in_queue / task_latency) as usize;
+
+        tracing::debug!(%limit, "calculated limit for `BoundedRayonThreadPool`");
+
+        ConcurrencyLimit::new(self, limit)
     }
 }
 
