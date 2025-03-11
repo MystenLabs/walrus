@@ -188,6 +188,6 @@ jobs:
       - name: Upload binaries for ${{ inputs.os }} platform to GCP
         uses: google-github-actions/upload-cloud-storage@v2
         with:
-          path: './tmp'
-          destination: 'mysten-walrus-releases'
+          path: "./tmp"
+          destination: "mysten-walrus-releases"
           parent: false
