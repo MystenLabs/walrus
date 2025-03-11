@@ -100,7 +100,6 @@ impl WriteClient {
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
-                None,
             )
             .await?
             .first()

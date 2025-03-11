@@ -1409,7 +1409,6 @@ async fn test_post_store_action(
             StoreWhen::Always,
             BlobPersistence::Permanent,
             post_store,
-            None,
         )
         .await?;
 
@@ -1559,7 +1558,6 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             StoreWhen::Always,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
-            None,
         )
         .await?;
 

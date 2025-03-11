@@ -82,7 +82,6 @@ pub trait WalrusReadClient {
 /// Trait representing a client that can write blobs to Walrus.
 pub trait WalrusWriteClient: WalrusReadClient {
     /// Writes a blob to Walrus.
-    #[allow(clippy::too_many_arguments)]
     fn write_blob(
         &self,
         blob: &[u8],
@@ -120,7 +119,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
-        exact_size: Option<u64>,
+        _exact_size: Option<u64>,
     ) -> ClientResult<BlobStoreResult> {
         let encoding_type = encoding_type_or_default_for_version(
             encoding_type,
@@ -135,7 +134,6 @@ impl WalrusWriteClient for Client<SuiContractClient> {
                 store_when,
                 persistence,
                 post_store,
-                exact_size,
             )
             .await?;
 
