@@ -277,7 +277,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
 ) -> Response {
-    // Check if there is an authorization claim
+    // Check if there is an authorization claim, and use it to check the size.
     if let Some(TypedHeader(header)) = bearer_header {
         if let Err(e) = check_blob_size(header, blob.len()) {
             return e.into_response();
@@ -324,19 +324,35 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     response
 }
 
-/// Checks if the JWT claim has a specified size and if the blob exceeds it.
-/// IMPORTANT: This function does _not_ check the signature of the claim
+/// Checks if the JWT claim has a maximum size and if the blob exceeds it.
+///
+/// IMPORTANT: This function does _not_ check the validity of the claim (i.e., does not
+/// authenticate the signature). The assumption is that a previous middleware has already done
+/// so.
+///
+/// The function just decodes the token and checks that the size in the claim is not exceeded.
 fn check_blob_size(
     bearer_header: Authorization<Bearer>,
     blob_size: usize,
 ) -> Result<(), PublisherAuthError> {
+    // Note: We disable validation and use a default key because, if the authorization
+    // header is present, it must have been checked by a previous middleware.
     let mut validation = Validation::default();
     validation.insecure_disable_signature_validation();
     let default_key = DecodingKey::from_secret(&[]);
 
     match Claim::from_token(bearer_header.token().trim(), &default_key, &validation) {
         Ok(claim) => {
+            if let Some(max_size) = claim.max_size {
+                if blob_size as u64 > max_size {
+                    return Err(PublisherAuthError::MaxSizeExceeded);
+                }
+            }
             if let Some(size) = claim.size {
+                // Note: The assumption here is upload one file in one blob
+                // If the file is breakdown into more blobs and upload asynchronously in future,
+                // the size check should move to the post action and sum up the unencoded size from
+                // all blobs.
                 if blob_size as u64 != size {
                     return Err(PublisherAuthError::SizeIncorrect);
                 }
