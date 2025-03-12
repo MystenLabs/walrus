@@ -8,17 +8,20 @@ WORKDIR /
 ARG WALRUS_IMAGE_NAME
 
 # Set SUI_VERSION to the version.toml value
-COPY sui_version.toml .
+COPY ./docker/walrus-antithesis/sui_version.toml .
 RUN export SUI_VERSION=$(grep SUI_VERSION sui_version.toml | cut -d'"' -f2) && \
     echo "SUI_VERSION: $SUI_VERSION"
 
-RUN echo "WALRUS_RUST_LOG=$WALRUS_RUST_LOG" >> /.env
-RUN echo "WALRUS_IMAGE_NAME=walrus-service:$WALRUS_COMMIT_HASH" >> /.env
-RUN echo "WALRUS_PLATFORM=linux/amd64" >> /.env
-RUN echo "SUI_IMAGE_NAME=mysten/sui-tools:$SUI_VERSION" >> /.env
 
-COPY ./docker-compose.yaml /docker-compose.yaml
-COPY ./files /files
+RUN echo "WALRUS_RUST_LOG=$WALRUS_RUST_LOG" >> /.env && echo "WALRUS_RUST_LOG: $WALRUS_RUST_LOG"
+RUN echo "WALRUS_IMAGE_NAME=walrus-service:$WALRUS_COMMIT_HASH" >> /.env && \
+    echo "WALRUS_IMAGE_NAME: $WALRUS_IMAGE_NAME"
+RUN echo "WALRUS_PLATFORM=linux/amd64" >> /.env && echo "WALRUS_PLATFORM: $WALRUS_PLATFORM"
+RUN echo "SUI_IMAGE_NAME=mysten/sui-tools:$SUI_VERSION" >> /.env && \
+    echo "SUI_IMAGE_NAME: $SUI_IMAGE_NAME"
+
+COPY ./docker/walrus-antithesis/build-test-config-image/docker-compose.yaml /docker-compose.yaml
+COPY ./docker/walrus-antithesis/build-test-config-image/files /files
 
 FROM scratch
 
