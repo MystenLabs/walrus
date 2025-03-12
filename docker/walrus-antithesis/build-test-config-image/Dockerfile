@@ -10,15 +10,16 @@ ARG WALRUS_RUST_LOG
 
 # Set SUI_VERSION to the version.toml value
 COPY ./docker/walrus-antithesis/sui_version.toml .
-RUN export SUI_VERSION=$(grep SUI_VERSION sui_version.toml | cut -d'"' -f2) && \
-    echo "SUI_VERSION: $SUI_VERSION"
-
 
 RUN echo "WALRUS_RUST_LOG=$WALRUS_RUST_LOG" >> /.env && echo "WALRUS_RUST_LOG: $WALRUS_RUST_LOG"
 RUN echo "WALRUS_IMAGE_NAME=walrus-service:$WALRUS_COMMIT_HASH" >> /.env && \
     echo "WALRUS_IMAGE_NAME: walrus-service:$WALRUS_COMMIT_HASH"
 RUN echo "WALRUS_PLATFORM=linux/amd64" >> /.env && echo "WALRUS_PLATFORM: linux/amd64"
-RUN echo "SUI_IMAGE_NAME=mysten/sui-tools:$SUI_VERSION" >> /.env && \
+
+# Set SUI_VERSION to the version.toml value so that it can pull the correct sui image.
+RUN export SUI_VERSION=$(grep SUI_VERSION sui_version.toml | cut -d'"' -f2) && \
+    echo "SUI_VERSION: $SUI_VERSION" && \
+    echo "SUI_IMAGE_NAME=mysten/sui-tools:$SUI_VERSION" >> /.env && \
     echo "SUI_IMAGE_NAME: mysten/sui-tools:$SUI_VERSION"
 
 COPY ./docker/walrus-antithesis/build-test-config-image/docker-compose.yaml /docker-compose.yaml
