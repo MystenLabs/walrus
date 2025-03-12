@@ -144,7 +144,7 @@ impl Claim {
                     tracing::debug!(
                         size,
                         body_size_upper_hint,
-                        "body size does not match the size specified in the JWT (upper hint mismatch)"
+                        "body does not match the size specified in the JWT (upper hint mismatch)"
                     );
                     return Err(PublisherAuthError::SizeIncorrect);
                 }
@@ -154,9 +154,9 @@ impl Claim {
         if let Some(size) = self.size {
             if body_size_lower_hint > 0 && body_size_lower_hint > size {
                 tracing::debug!(
-                        size,
-                        body_size_lower_hint,
-                        "body size does not match the size specified in the JWT (lower hint mismatch)"
+                    size,
+                    body_size_lower_hint,
+                    "body does not match the size specified in the JWT (lower hint mismatch)"
                 );
                 return Err(PublisherAuthError::SizeIncorrect);
             }
