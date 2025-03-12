@@ -279,8 +279,8 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
 ) -> Response {
     // Check if there is an authorization claim, and use it to check the size.
     if let Some(TypedHeader(header)) = bearer_header {
-        if let Err(e) = check_blob_size(header, blob.len()) {
-            return e.into_response();
+        if let Err(error) = check_blob_size(header, blob.len()) {
+            return error.into_response();
         }
     }
 

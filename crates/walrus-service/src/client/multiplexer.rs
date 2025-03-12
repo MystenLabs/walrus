@@ -126,7 +126,6 @@ impl ClientMultiplexer {
     }
 
     /// Submits a write request to the client pool.
-    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(err, skip_all)]
     pub async fn submit_write(
         &self,

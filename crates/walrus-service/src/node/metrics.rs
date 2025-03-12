@@ -243,7 +243,6 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::CommitteeChangeNotified => "committee-change-notified",
             ClientErrorKind::StakeBelowThreshold(_) => "stake-below-threshold",
             ClientErrorKind::Other(_) => "unknown",
-            ClientErrorKind::PayloadVerificationFailed => "payload-verification-failed",
         }
     }
 }

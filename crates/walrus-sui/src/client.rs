@@ -316,7 +316,7 @@ impl BlobPersistence {
     }
 }
 
-/// The action to be performed for newly-created blobs with an optional size restriction.
+/// The action to be performed for newly-created blobs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostStoreAction {
     /// Burn the blob object.
@@ -1420,21 +1420,20 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
         }
 
-        match post_store {
-            PostStoreAction::Share => {
-                // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-                self.create_blob_id_to_shared_mapping(
-                    &res,
-                    blobs_with_certificates
-                        .iter()
-                        .map(|(blob, _)| blob.blob_id)
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                )
-                .await
-            }
-            _ => Ok(HashMap::new()),
+        if post_store != PostStoreAction::Share {
+            return Ok(HashMap::new());
         }
+
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        self.create_blob_id_to_shared_mapping(
+            &res,
+            blobs_with_certificates
+                .iter()
+                .map(|(blob, _)| blob.blob_id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await
     }
 
     /// Certifies the specified event blob on Sui, with the given metadata and epoch.
@@ -2247,21 +2246,20 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not certify/extend blob: {:?}", res.errors).into());
         }
 
-        match post_store {
-            PostStoreAction::Share => {
-                // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
-                self.create_blob_id_to_shared_mapping(
-                    &res,
-                    blobs_with_certificates
-                        .iter()
-                        .map(|blob_params| blob_params.blob.blob_id)
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                )
-                .await
-            }
-            _ => Ok(HashMap::new()),
+        if post_store != PostStoreAction::Share {
+            return Ok(HashMap::new());
         }
+
+        // If the blobs are shared, create a mapping blob ID -> shared_blob_object_id.
+        self.create_blob_id_to_shared_mapping(
+            &res,
+            blobs_with_certificates
+                .iter()
+                .map(|blob_params| blob_params.blob.blob_id)
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .await
     }
 
     /// Helper function to create a mapping from blob IDs to shared blob object IDs.
