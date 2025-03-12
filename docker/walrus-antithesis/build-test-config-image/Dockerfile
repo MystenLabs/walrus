@@ -5,7 +5,8 @@ RUN apt install python3 python3-pip -y
 
 WORKDIR /
 
-ARG WALRUS_IMAGE_NAME
+ARG WALRUS_COMMIT_HASH
+ARG WALRUS_RUST_LOG
 
 # Set SUI_VERSION to the version.toml value
 COPY ./docker/walrus-antithesis/sui_version.toml .
@@ -15,10 +16,10 @@ RUN export SUI_VERSION=$(grep SUI_VERSION sui_version.toml | cut -d'"' -f2) && \
 
 RUN echo "WALRUS_RUST_LOG=$WALRUS_RUST_LOG" >> /.env && echo "WALRUS_RUST_LOG: $WALRUS_RUST_LOG"
 RUN echo "WALRUS_IMAGE_NAME=walrus-service:$WALRUS_COMMIT_HASH" >> /.env && \
-    echo "WALRUS_IMAGE_NAME: $WALRUS_IMAGE_NAME"
-RUN echo "WALRUS_PLATFORM=linux/amd64" >> /.env && echo "WALRUS_PLATFORM: $WALRUS_PLATFORM"
+    echo "WALRUS_IMAGE_NAME: walrus-service:$WALRUS_COMMIT_HASH"
+RUN echo "WALRUS_PLATFORM=linux/amd64" >> /.env && echo "WALRUS_PLATFORM: linux/amd64"
 RUN echo "SUI_IMAGE_NAME=mysten/sui-tools:$SUI_VERSION" >> /.env && \
-    echo "SUI_IMAGE_NAME: $SUI_IMAGE_NAME"
+    echo "SUI_IMAGE_NAME: mysten/sui-tools:$SUI_VERSION"
 
 COPY ./docker/walrus-antithesis/build-test-config-image/docker-compose.yaml /docker-compose.yaml
 COPY ./docker/walrus-antithesis/build-test-config-image/files /files
