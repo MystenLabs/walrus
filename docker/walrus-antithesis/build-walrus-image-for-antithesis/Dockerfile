@@ -6,9 +6,9 @@
 # - walrus-node: Node binary only
 # - walrus-deploy: Deployment tool with contracts
 
-# Stage 1: Base Build Environment
+# Stage 1: Base Build Environment + Builder
 # -------------------------------------
-FROM rust:1.84-bookworm AS base
+FROM rust:1.85-bookworm AS builder
 ARG PROFILE=release-antithesis
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
@@ -42,9 +42,6 @@ ENV RUSTFLAGS="-C target-feature=-crt-static -C codegen-units=1 -C passes=sancov
 -C link-args=-Wl,--build-id -Ccodegen-units=1 \
 -L/usr/lib/libvoidstar.so -lvoidstar"
 
-# Stage 2: Builder
-# -------------------------------------
-FROM base AS builder
 # Build all binaries with Antithesis instrumentation
 RUN LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
     cargo build --profile $PROFILE \
@@ -52,7 +49,7 @@ RUN LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
     --bin walrus-node \
     --bin walrus-deploy
 
-# Stage 3: Production Images
+# Stage 2: Production Images
 # -------------------------------------
 
 # walrus-service: Complete service image

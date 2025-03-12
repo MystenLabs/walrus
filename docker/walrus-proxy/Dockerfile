@@ -1,4 +1,4 @@
-FROM rust:1.84-bookworm as build
+FROM rust:1.85-bookworm as builder
 
 ARG PROFILE=release
 WORKDIR /work
@@ -14,4 +14,4 @@ RUN cargo build --profile ${PROFILE} --bin walrus-proxy
 
 FROM gcr.io/distroless/cc-debian12 as deploy
 
-COPY --from=build --chmod=755 /work/target/release/walrus-proxy /opt/walrus/bin/walrus-proxy
+COPY --from=builder --chmod=755 /work/target/release/walrus-proxy /opt/walrus/bin/walrus-proxy

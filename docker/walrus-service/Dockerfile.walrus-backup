@@ -2,7 +2,7 @@
 #
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
-FROM rust:1.84-bookworm AS base
+FROM rust:1.85-bookworm AS builder
 ARG PROFILE=release
 ARG RUST_LOG=info,walrus_service::common::event_blob_downloader=warn
 ARG GIT_REVISION
@@ -15,7 +15,6 @@ COPY crates crates
 COPY contracts ./contracts
 COPY contracts /contracts
 
-FROM base AS backup-builder
 RUN cargo build \
     --features walrus-service/backup \
     --profile $PROFILE \
@@ -29,7 +28,7 @@ ARG PROFILE=release
 ENV RUST_LOG=$RUST_LOG
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
-COPY --from=backup-builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
+COPY --from=builder /walrus/target/release/walrus-backup /opt/walrus/bin/walrus-backup
 
 ARG BUILD_DATE
 ARG GIT_REVISION
