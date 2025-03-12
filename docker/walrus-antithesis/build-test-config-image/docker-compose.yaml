@@ -18,7 +18,7 @@ services:
     platform: ${SUI_PLATFORM:-linux/amd64}
     environment:
       - NO_COLOR=1
-      - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet
+      # - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet
     command: >
       /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
       sui start --with-faucet --force-regenesis --committee-size 1 --epoch-duration-ms 86400000"
@@ -39,7 +39,7 @@ services:
         condition: service_healthy
     networks:
       testbed-network:
-    image: walrus-service:0d1fee8784e1ba12c6b24b0d8cea4c6bbf99b6d6
+    image: ${WALRUS_IMAGE_NAME}
     platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: walrus-deploy
     container_name: walrus-deploy
@@ -66,7 +66,7 @@ services:
     # Sleep 60s because Antithesis starts injecting faults after the completion event is fired,
     # but Walrus node starts cannot tolerate disconnection to fullnode, so we need to add a delay
     command: >
-      /bin/bash -c "sleep 60 && /root/complete-setup.sh"
+      /bin/bash -c "sleep 30 && /root/complete-setup.sh"
 
   # Template for Walrus nodes
   walrus-node-0: &walrus-node
