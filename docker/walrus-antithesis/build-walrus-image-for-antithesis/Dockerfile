@@ -25,8 +25,8 @@ COPY contracts ./contracts
 COPY contracts /contracts
 COPY docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh /tmp/
 
-COPY version.toml .
-RUN export SUI_VERSION=$(grep SUI_VERSION version.toml | cut -d'"' -f2) && \
+COPY docker/walrus-antithesis/sui_version.toml .
+RUN export SUI_VERSION=$(grep SUI_VERSION sui_version.toml | cut -d'"' -f2) && \
     echo "SUI_VERSION: $SUI_VERSION" && \
     git clone --depth 1 --branch $SUI_VERSION https://github.com/MystenLabs/sui /sui
 
