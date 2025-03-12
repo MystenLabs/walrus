@@ -154,9 +154,9 @@ impl Claim {
         if let Some(size) = self.size {
             if body_size_lower_hint > 0 && body_size_lower_hint > size {
                 tracing::debug!(
-                    size = size,
-                    body_size_lower_hint = body_size_lower_hint,
-                    "upload with body size do not the same as size (lower hint unmatch)"
+                        size,
+                        body_size_lower_hint,
+                        "body size does not match the size specified in the JWT (lower hint mismatch)"
                 );
                 return Err(PublisherAuthError::SizeIncorrect);
             }
