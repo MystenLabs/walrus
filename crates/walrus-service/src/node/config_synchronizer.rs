@@ -83,49 +83,46 @@ impl ConfigSynchronizer {
         if let Some(config_loader) = &self.config_loader {
             let config = config_loader.load_storage_node_config().await?;
             cert_hash = self.load_tls_cert_hash(&config.tls).await?;
-        } else {
-            tracing::warn!("config loader is not set");
         }
 
         loop {
             tokio::time::sleep(self.check_interval).await;
 
-            if let Err(e) = self.committee_service.sync_committee_members().await {
-                tracing::error!("failed to sync committee: {}", e);
+            if let Err(error) = self.committee_service.sync_committee_members().await {
+                tracing::error!(%error, "failed to sync committee");
             }
 
             let Some(config_loader) = &self.config_loader else {
-                tracing::warn!("config loader is not set");
                 continue;
             };
 
             let config = config_loader.load_storage_node_config().await?;
 
-            let new_cert_hash = self.load_tls_cert_hash(&config.tls).await?;
-            if let (Some(old_hash), Some(new_hash)) = (&cert_hash, &new_cert_hash) {
-                if old_hash != new_hash {
-                    tracing::error!("TLS certificate has changed");
-                    return Err(SyncNodeConfigError::NodeNeedsReboot);
-                }
-            } else {
-                cert_hash = new_cert_hash;
-            }
-
             tracing::debug!("config_synchronizer: syncing node params");
-            if let Err(e) = self
+            if let Err(error) = self
                 .contract_service
                 .sync_node_params(&config, self.node_capability_object_id)
                 .await
             {
                 if matches!(
-                    e,
+                    error,
                     SyncNodeConfigError::NodeNeedsReboot
                         | SyncNodeConfigError::ProtocolKeyPairRotationRequired
                 ) {
-                    tracing::warn!("going to reboot node due to {}", e);
-                    return Err(e);
+                    tracing::warn!(%error, "going to reboot node");
+                    return Err(error);
                 }
-                tracing::error!("failed to sync node params: {}", e);
+                tracing::error!(%error, "failed to sync node params");
+            }
+
+            let new_cert_hash = self.load_tls_cert_hash(&config.tls).await?;
+            if cert_hash != new_cert_hash {
+                tracing::info!(
+                    old_hash = ?cert_hash,
+                    new_hash = ?new_cert_hash,
+                    "TLS certificate has changed, node needs reboot"
+                );
+                return Err(SyncNodeConfigError::NodeNeedsReboot);
             }
         }
     }
@@ -138,7 +135,6 @@ impl ConfigSynchronizer {
                 .sync_node_params(&config, self.node_capability_object_id)
                 .await
         } else {
-            tracing::warn!("config loader is not set");
             Ok(())
         }
     }
@@ -165,15 +161,15 @@ impl ConfigSynchronizer {
         let cert_path = PathBuf::from(cert_path);
         if cert_path.is_relative() {
             return Err(anyhow!(
-                "TLS certificate path must be absolute, got relative path: {:?}",
-                cert_path
+                "TLS certificate path must be absolute, got relative path: {}",
+                cert_path.display()
             ));
         }
 
         // Read the certificate file.
         let cert_data = fs::read(&cert_path).await.context(format!(
-            "Failed to read certificate file at {:?}",
-            cert_path
+            "failed to read certificate file at {}",
+            cert_path.display()
         ))?;
 
         // Calculate hash.
