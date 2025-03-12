@@ -120,7 +120,7 @@ impl Claim {
         }
 
         if self.max_size.is_some() && self.size.is_some() {
-            return Err(PublisherAuthError::InvalidSizes);
+            return Err(PublisherAuthError::SizeIncorrect);
         }
 
         // If verify_upload is disabled, skip the rest of the checks.
@@ -344,18 +344,13 @@ pub enum PublisherAuthError {
     #[rest_api_error(reason = "MISSING_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
     MissingSendObjectTo,
 
-    /// Misuse more that one size conditions in the token to restrict upload
-    #[error("Misuse more that one size conditions in the token to restrict upload")]
-    #[rest_api_error(reason = "iNVALID_SIZES", status = ApiStatusCode::FailedPrecondition)]
-    InvalidSizes,
-
     /// The size of the body is above the maximum allowed.
     #[error("the size of the body is above the maximum allowed.")]
     #[rest_api_error(reason = "MAX_SIZE_EXCEEDED", status = ApiStatusCode::FailedPrecondition)]
     MaxSizeExceeded,
 
-    /// The size of the body is incorrect.
-    #[error("the size of the body is incorrect")]
+    /// The size of the body is incorrect, or misuse size conditions to restrict upload
+    #[error("the size of the body is incorrect, or misuse size conditions to restrict upload")]
     #[rest_api_error(reason = "SIZE_INCORRECT", status = ApiStatusCode::FailedPrecondition)]
     SizeIncorrect,
 
