@@ -139,6 +139,7 @@ pub enum EndCommitteeChangeError {
 /// with committee members.
 ///
 /// It is associated with a single storage epoch.
+#[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait CommitteeService: std::fmt::Debug + Send + Sync {
     /// Returns the epoch associated with the committee.
