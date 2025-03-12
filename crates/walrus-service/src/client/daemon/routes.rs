@@ -345,14 +345,10 @@ fn check_blob_size(
         Ok(claim) => {
             if let Some(max_size) = claim.max_size {
                 if blob_size as u64 > max_size {
-                    return Err(PublisherAuthError::MaxSizeExceeded);
+                    return Err(PublisherAuthError::SizeIncorrect);
                 }
             }
             if let Some(size) = claim.size {
-                // Note: The assumption here is upload one file in one blob
-                // If the file is breakdown into more blobs and upload asynchronously in future,
-                // the size check should move to the post action and sum up the unencoded size from
-                // all blobs.
                 if blob_size as u64 != size {
                     return Err(PublisherAuthError::SizeIncorrect);
                 }

@@ -62,6 +62,8 @@ pub struct Claim {
     pub max_size: Option<u64>,
 
     /// The exact size of the blob that can be stored, in bytes.
+    /// If both `size` and `max_size` are present, this is considered a configuration mistake
+    /// and the claim is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<u64>,
 }
@@ -136,7 +138,7 @@ impl Claim {
                         body_size_upper_hint,
                         "upload with body size greater than max_size"
                     );
-                    return Err(PublisherAuthError::MaxSizeExceeded);
+                    return Err(PublisherAuthError::SizeIncorrect);
                 }
             }
             if let Some(size) = self.size {
@@ -343,11 +345,6 @@ pub enum PublisherAuthError {
     #[error("the send_object_to field is missing from the query, but it is required")]
     #[rest_api_error(reason = "MISSING_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
     MissingSendObjectTo,
-
-    /// The size of the body is above the maximum allowed.
-    #[error("the size of the body is above the maximum allowed.")]
-    #[rest_api_error(reason = "MAX_SIZE_EXCEEDED", status = ApiStatusCode::FailedPrecondition)]
-    MaxSizeExceeded,
 
     /// The size of the body is incorrect, or misuse size conditions to restrict upload
     #[error("the size of the body is incorrect, or misuse size conditions to restrict upload")]
