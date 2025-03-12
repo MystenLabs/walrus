@@ -298,9 +298,6 @@ impl ConfigLoader for SimStorageNodeConfigLoader {
     async fn load_storage_node_config(&self) -> anyhow::Result<StorageNodeConfig> {
         Ok(self.config.read().await.clone())
     }
-    async fn init(&mut self) -> Result<()> {
-        Ok(())
-    }
 }
 
 /// A storage node handle for simulation tests. Comparing to StorageNodeHandle, this struct

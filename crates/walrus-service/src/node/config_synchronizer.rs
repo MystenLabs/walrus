@@ -143,10 +143,11 @@ impl ConfigSynchronizer {
         }
     }
 
-    /// Internal implementation to load and hash the TLS certificate
-    /// Returns Ok(None) if TLS is disabled or certificate path is not configured
-    /// Returns Ok(Some(hash)) if certificate is successfully loaded and hashed
-    /// Returns Err for actual errors like file not found or relative paths
+    /// Internal implementation to load and hash the TLS certificate.
+    ///
+    /// Returns Ok(None) if TLS is disabled or certificate path is not configured.
+    /// Returns Ok(Some(hash)) if certificate is successfully loaded and hashed.
+    /// Returns Err for actual errors like file not found or relative paths.
     async fn load_tls_cert_hash_internal(
         &self,
         tls_config: &TlsConfig,
