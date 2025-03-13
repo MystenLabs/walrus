@@ -49,7 +49,8 @@ RUN LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
     cargo build --profile $PROFILE \
     --bin walrus \
     --bin walrus-node \
-    --bin walrus-deploy
+    --bin walrus-deploy \
+    --bin walrus-stress
 
 # Stage 2: Production Images
 # -------------------------------------
@@ -62,10 +63,12 @@ WORKDIR "$WORKDIR/walrus"
 COPY --from=builder /walrus/target/release-antithesis/walrus /opt/walrus/bin/walrus
 COPY --from=builder /walrus/target/release-antithesis/walrus-node /opt/walrus/bin/walrus-node
 COPY --from=builder /walrus/target/release-antithesis/walrus-deploy /opt/walrus/bin/walrus-deploy
+COPY --from=builder /walrus/target/release-antithesis/walrus-stress /opt/walrus/bin/walrus-stress
 RUN mkdir -p /symbols
 RUN ln -s /opt/walrus/bin/walrus /symbols/walrus
 RUN ln -s /opt/walrus/bin/walrus-node /symbols/walrus-node
 RUN ln -s /opt/walrus/bin/walrus-deploy /symbols/walrus-deploy
+RUN ln -s /opt/walrus/bin/walrus-stress /symbols/walrus-stress
 COPY --from=builder /usr/lib/libvoidstar.so /usr/lib/libvoidstar.so
 COPY --from=builder /contracts /opt/walrus/contracts
 COPY --from=builder /sui /opt/sui

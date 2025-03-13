@@ -66,7 +66,7 @@ services:
     # Sleep 60s because Antithesis starts injecting faults after the completion event is fired,
     # but Walrus node starts cannot tolerate disconnection to fullnode, so we need to add a delay
     command: >
-      /bin/bash -c "sleep 60 && /root/complete-setup.sh"
+      /bin/bash -c "sleep 30 && /root/complete-setup.sh"
 
   # Template for Walrus nodes
   walrus-node-0: &walrus-node
@@ -90,7 +90,7 @@ services:
       - walrus-deploy-outputs:/opt/walrus/outputs
       - ./files/run-walrus.sh:/root/run-walrus.sh
     command: >
-      /bin/bash -c "sleep 30 && /root/run-walrus.sh"
+      /bin/bash -c "/root/run-walrus.sh"
 
   # Additional Walrus nodes using the template
   walrus-node-1:
@@ -125,6 +125,27 @@ services:
     environment:
       - NODE_NAME=dryrun-node-3
       - NO_COLOR=1
+
+  walrus-stress-0:
+    depends_on:
+      walrus-deploy:
+        condition: service_completed_successfully
+    networks:
+      testbed-network:
+        ipv4_address: 10.0.0.30
+    image: ${WALRUS_IMAGE_NAME}
+    platform: ${WALRUS_PLATFORM:-linux/amd64}
+    hostname: walrus-stress-0
+    container_name: walrus-stress-0
+    environment:
+      - NODE_NAME=walrus-stress-0
+      - NO_COLOR=1
+    volumes:
+      - sui-bin:/root/sui_bin
+      - walrus-deploy-outputs:/opt/walrus/outputs
+      - ./files/run-stress.sh:/root/run-stress.sh
+    command: >
+      /bin/bash -c "sleep 30 && /root/run-stress.sh"
 
 # Persistent volumes for sharing data between containers
 volumes:
