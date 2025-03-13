@@ -14,9 +14,9 @@ mkdir -p /root/.config/walrus
 mkdir -p /opt/walrus/outputs
 
 # copy from deploy outputs
-cp /opt/walrus/outputs/sui_client.yaml /root/.sui/sui_config/client.yaml
-cp /opt/walrus/outputs/sui_client.keystore /root/.sui/sui_config/sui.keystore
-cp /opt/walrus/outputs/sui_client.aliases /root/.sui/sui_config/sui.aliases
+cp /opt/walrus/outputs/sui_admin.yaml /root/.sui/sui_config/client.yaml
+cp /opt/walrus/outputs/sui_admin.keystore /root/.sui/sui_config/sui.keystore
+cp /opt/walrus/outputs/sui_admin.aliases /root/.sui/sui_config/sui.aliases
 
 # extract object IDs from the deploy outputs
 SYSTEM_OBJECT=$(grep "system_object" /opt/walrus/outputs/deploy | awk '{print $2}')
@@ -36,13 +36,15 @@ while ! sui client balance; do
     sleep 5
 done
 
-echo "starting walrus node"
+echo "starting stress client"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
 RUST_BACKTRACE=1 RUST_LOG=info /opt/walrus/bin/walrus-stress \
     --config-path /opt/walrus/outputs/client_config.yaml \
-    --write-load 1000 \
-    --read-load 1000 \
-    --n-clients 10 \
-    --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas"
+    --write-load 10 \
+    --read-load 10 \
+    --n-clients 2 \
+    --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas" \
+    --wallet-path /root/.sui/sui_config/client.yaml \
+    --gas-refill-period-millis 60000
