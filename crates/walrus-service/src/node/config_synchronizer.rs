@@ -139,15 +139,12 @@ impl ConfigSynchronizer {
         }
     }
 
-    /// Internal implementation to load and hash the TLS certificate.
+    /// Loads and hashes the TLS certificate.
     ///
     /// Returns Ok(None) if TLS is disabled or certificate path is not configured.
     /// Returns Ok(Some(hash)) if certificate is successfully loaded and hashed.
     /// Returns Err for actual errors like file not found or relative paths.
-    async fn load_tls_cert_hash_internal(
-        &self,
-        tls_config: &TlsConfig,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
+    async fn load_tls_cert_hash(&self, tls_config: &TlsConfig) -> anyhow::Result<Option<Vec<u8>>> {
         // Skip if TLS is disabled or not configured.
         if tls_config.disable_tls {
             return Ok(None);
@@ -178,21 +175,6 @@ impl ConfigSynchronizer {
         let current_hash = hasher.finalize().to_vec();
 
         Ok(Some(current_hash))
-    }
-
-    #[cfg(test)]
-    /// Loads the TLS certificate hash in tests.
-    pub async fn load_tls_cert_hash(
-        &self,
-        tls_config: &TlsConfig,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
-        self.load_tls_cert_hash_internal(tls_config).await
-    }
-
-    #[cfg(not(test))]
-    /// Loads the TLS certificate hash.
-    async fn load_tls_cert_hash(&self, tls_config: &TlsConfig) -> anyhow::Result<Option<Vec<u8>>> {
-        self.load_tls_cert_hash_internal(tls_config).await
     }
 }
 
