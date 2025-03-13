@@ -628,8 +628,9 @@ impl StorageNode {
         // TODO(WAL-667): remove special case
         let num_checkpoints_per_blob = Self::get_num_checkpoints_per_blob(&config.sui).await?;
         tracing::info!(
-            "num_checkpoints_per_blob for event blobs: {:?}",
-            num_checkpoints_per_blob
+            "num_checkpoints_per_blob for event blobs: {:?} {:?}",
+            num_checkpoints_per_blob,
+            node_params.num_checkpoints_per_blob
         );
 
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
