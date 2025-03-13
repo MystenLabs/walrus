@@ -1,11 +1,20 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#[cfg(feature = "backoff")]
 pub mod backoff;
-pub mod checkpoint_downloader;
+
+#[cfg(feature = "config")]
 pub mod config;
+
+#[cfg(feature = "metrics")]
 pub mod metrics;
 
+// TODO(jsmith): Move this out of walrus-utils, as it's an entire service as opposed to a util
+#[cfg(feature = "checkpoints")]
+pub mod checkpoint_downloader;
+
+#[cfg(feature = "test-utils")]
 pub mod tests {
     use std::sync::OnceLock;
 

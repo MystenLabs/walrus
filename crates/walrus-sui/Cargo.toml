@@ -53,7 +53,7 @@ utoipa = { workspace = true, optional = true }
 walkdir = "2.5.0"
 walrus-core = { workspace = true, features = ["sui-types"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true }
+walrus-utils = { workspace = true, features = ["backoff", "config"] }
 
 [dev-dependencies]
 tracing-subscriber.workspace = true
