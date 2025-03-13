@@ -242,6 +242,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",
             ClientErrorKind::CommitteeChangeNotified => "committee-change-notified",
             ClientErrorKind::StakeBelowThreshold(_) => "stake-below-threshold",
+            ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
         }
     }

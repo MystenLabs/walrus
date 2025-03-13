@@ -280,7 +280,7 @@ pub struct ClientCommunicationConfig {
 impl Default for ClientCommunicationConfig {
     fn default() -> Self {
         Self {
-            disable_native_certs: true,
+            disable_native_certs: false,
             max_concurrent_writes: Default::default(),
             max_concurrent_sliver_reads: Default::default(),
             max_concurrent_metadata_reads: default::max_concurrent_metadata_reads(),

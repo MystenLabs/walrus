@@ -8,6 +8,7 @@ use std::{
     iter,
     num::NonZeroU16,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -83,6 +84,7 @@ use crate::{
             HumanReadableFrost,
             HumanReadableMist,
         },
+        communication::NodeCommunicationFactory,
         error::ClientErrorKind,
         multiplexer::ClientMultiplexer,
         responses::{
@@ -761,9 +763,16 @@ impl ClientCommandRunner {
             !self.wallet_set_explicitly,
         )
         .await?;
+        let communication_factory = NodeCommunicationFactory::new(
+            config.communication_config.clone(),
+            Arc::new(EncodingConfig::new(
+                sui_read_client.current_committee().await?.n_shards(),
+            )),
+        )?;
 
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
+            &communication_factory,
             detail,
             sort,
         )

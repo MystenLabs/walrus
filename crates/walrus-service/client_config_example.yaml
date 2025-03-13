@@ -24,7 +24,7 @@ communication_config:
       max_backoff_millis: 30000
       max_retries: 5
   disable_proxy: false
-  disable_native_certs: true
+  disable_native_certs: false
   sliver_write_extra_time:
     factor: 0.5
     base_millis: 500

@@ -414,6 +414,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Add a custom DER-encoded root certificate.
+    ///
+    /// It is the responsibility of the caller to check the certificate for validity.
+    pub fn add_root_certificates(mut self, certificates: &[CertificateDer<'static>]) -> Self {
+        self.roots.extend(certificates.iter().cloned());
+        self
+    }
+
     /// Controls the use of built-in/preloaded certificates during certificate validation.
     ///
     /// Defaults to true – built-in system certs will be used.
