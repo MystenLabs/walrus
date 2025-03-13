@@ -122,7 +122,7 @@ impl Claim {
         }
 
         if self.max_size.is_some() && self.size.is_some() {
-            return Err(PublisherAuthError::SizeIncorrect);
+            return Err(PublisherAuthError::InvalidSize);
         }
 
         // If verify_upload is disabled, skip the rest of the checks.
@@ -331,6 +331,11 @@ pub enum PublisherAuthError {
     #[rest_api_error(reason = "INVALID_EPOCHS", status = ApiStatusCode::FailedPrecondition)]
     InvalidEpochs,
 
+    /// Misuse size, max-size field of the token to restrict upload
+    #[error("misuse size, max-size field of the token to restrict upload")]
+    #[rest_api_error(reason = "INVALID_SIZE", status = ApiStatusCode::FailedPrecondition)]
+    InvalidSize,
+
     /// Epochs is above the maximum allowed.
     #[error("the epochs field in the query is above the maximum allowed")]
     #[rest_api_error(reason = "EPOCHS_ABOVE_MAX", status = ApiStatusCode::FailedPrecondition)]
@@ -346,8 +351,8 @@ pub enum PublisherAuthError {
     #[rest_api_error(reason = "MISSING_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
     MissingSendObjectTo,
 
-    /// The size of the body is incorrect, or misuse size conditions to restrict upload
-    #[error("the size of the body is incorrect, or misuse size conditions to restrict upload")]
+    /// The size of the body is incorrect
+    #[error("the size of the body is incorrect")]
     #[rest_api_error(reason = "SIZE_INCORRECT", status = ApiStatusCode::FailedPrecondition)]
     SizeIncorrect,
 
