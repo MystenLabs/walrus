@@ -27,7 +27,7 @@ df -h
 
 # copy binaries
 cp /root/sui_bin/sui /usr/local/bin/
-# cp /opt/walrus/bin/walrus /usr/local/bin/
+cp /opt/walrus/bin/walrus /usr/local/bin/
 
 cat <<EOF >/root/.config/walrus/client_config.yaml
 system_object: ${SYSTEM_OBJECT}
