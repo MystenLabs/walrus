@@ -252,7 +252,7 @@ impl SystemContractService for SuiSystemContractService {
                 return Err(SyncNodeConfigError::NodeNeedsReboot);
             }
         } else {
-            tracing::info!(
+            tracing::debug!(
                 node_name = config.name,
                 "node parameters are in sync with on-chain values"
             );

@@ -814,7 +814,7 @@ impl LoadsFromPath for NetworkKeyPair {
             .context(format!("unable to read key from '{}'", path.display()))?;
 
         NetworkKeyPair::from_pkcs8_pem(&file_contents)
-            .inspect(|_| tracing::info!("loaded network private key in PKCS#8 format"))
+            .inspect(|_| tracing::debug!("loaded network private key in PKCS#8 format"))
             .or_else(|error| {
                 tracing::debug!(
                     ?error,
@@ -823,7 +823,7 @@ impl LoadsFromPath for NetworkKeyPair {
 
                 NetworkKeyPair::from_str(&file_contents)
                     .inspect(|_| {
-                        tracing::info!("loaded network private key in tagged format");
+                        tracing::debug!("loaded network private key in tagged format");
                     })
                     .map_err(|error2| {
                         anyhow!(
