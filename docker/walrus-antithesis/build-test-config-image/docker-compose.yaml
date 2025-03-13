@@ -90,7 +90,7 @@ services:
       - walrus-deploy-outputs:/opt/walrus/outputs
       - ./files/run-walrus.sh:/root/run-walrus.sh
     command: >
-      /bin/bash -c "/root/run-walrus.sh"
+      /bin/bash -c "sleep 30 && /root/run-walrus.sh"
 
   # Additional Walrus nodes using the template
   walrus-node-1:
