@@ -35,16 +35,25 @@ staking_object: ${STAKING_OBJECT}
 exchange_objects: [${EXCHANGE_OBJECT}]
 EOF
 
-# get some sui tokens
-sui client faucet --url http://10.0.0.20:9123/gas
+# get some sui tokens with retry
+while ! sui client faucet --url http://10.0.0.20:9123/gas; do
+    echo "Failed to get SUI tokens, retrying in 5 seconds..."
+    sleep 5
+done
 sleep 3
 
 echo "Exchange for WAL tokens (500 WAL)"
-# exchange for WAL tokens (500 WAL)
-walrus get-wal --amount 500000000000
+# exchange for WAL tokens (500 WAL) with retry
+while ! walrus get-wal --amount 500000000000; do
+    echo "Failed to get WAL tokens, retrying in 5 seconds..."
+    sleep 5
+done
 
 echo "WAL balance"
-sui client balance
+while ! sui client balance; do
+    echo "Failed to get balance, retrying in 5 seconds..."
+    sleep 5
+done
 
 echo "starting walrus node"
 ## -----------------------------------------------------------------------------
