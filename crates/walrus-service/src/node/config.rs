@@ -161,6 +161,10 @@ pub struct StorageNodeConfig {
     /// The capability object ID of the storage node.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub storage_node_cap: Option<ObjectID>,
+    /// The number of uncertified blobs before the node will reset the local
+    /// state in event blob writer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_uncertified_blob_threshold: Option<u32>,
 }
 
 impl Default for StorageNodeConfig {
@@ -196,6 +200,7 @@ impl Default for StorageNodeConfig {
             metadata: Default::default(),
             config_synchronizer: Default::default(),
             storage_node_cap: None,
+            num_uncertified_blob_threshold: None,
         }
     }
 }

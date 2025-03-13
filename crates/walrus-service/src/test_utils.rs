@@ -57,7 +57,7 @@ use walrus_sui::{
     },
     test_utils::{system_setup::SystemContext, TestClusterHandle},
     types::{
-        move_structs::{EpochState, NodeMetadata, VotingParams},
+        move_structs::{EpochState, EventBlob, NodeMetadata, VotingParams},
         Committee,
         ContractEvent,
         NetworkAddress,
@@ -1461,6 +1461,10 @@ impl SystemContractService for StubContractService {
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
         Ok(1)
     }
+
+    async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
+        Ok(None)
+    }
 }
 
 /// Returns a socket address that is not currently in use on the system.
@@ -2127,6 +2131,10 @@ where
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
         self.as_ref().inner.get_system_object_version().await
     }
+
+    async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
+        self.as_ref().inner.last_certified_event_blob().await
+    }
 }
 
 /// Returns a test-committee with members with the specified number of shards ehortach.
@@ -2603,6 +2611,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             metadata: Default::default(),
             config_synchronizer: Default::default(),
             storage_node_cap: None,
+            num_uncertified_blob_threshold: Some(u32::MAX),
         },
         temp_dir,
     }

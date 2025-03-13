@@ -632,6 +632,7 @@ impl StorageNode {
             num_checkpoints_per_blob
         );
 
+        let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
             Some(EventBlobWriterFactory::new(
                 &config.storage_path,
@@ -640,6 +641,8 @@ impl StorageNode {
                 node_params
                     .num_checkpoints_per_blob
                     .or(num_checkpoints_per_blob),
+                last_certified_event_blob,
+                config.num_uncertified_blob_threshold,
             )?)
         } else {
             None
@@ -811,7 +814,10 @@ impl StorageNode {
             return Ok(None);
         };
         let read_client = config.new_read_client().await?;
-        let system_package_id = read_client.get_system_package_id();
+        let retriable_client = read_client.sui_client();
+        let system_package_id = retriable_client
+            .get_package_id_from_object(read_client.get_system_object_id())
+            .await?;
         let on_public_testnet = system_package_id
             == ObjectID::from_str(
                 "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
@@ -5383,6 +5389,9 @@ mod tests {
         contract_service
             .expect_get_epoch_and_state()
             .returning(move || Ok((0, EpochState::EpochChangeDone(Utc::now()))));
+        contract_service
+            .expect_last_certified_event_blob()
+            .returning(|| Ok(None));
         let node = StorageNodeHandle::builder()
             .with_system_event_provider(vec![ContractEvent::EpochChangeEvent(
                 EpochChangeEvent::EpochChangeStart(EpochChangeStart {

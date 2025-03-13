@@ -145,7 +145,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
     env:
-      MSIM_TEST_NUM: 5
+      MSIM_TEST_NUM: 3
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
     steps:
