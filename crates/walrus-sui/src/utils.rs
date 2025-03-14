@@ -203,12 +203,14 @@ pub enum SuiNetwork {
     Devnet,
     /// Sui Testnet.
     Testnet,
+    /// Sui Mainnet.
+    Mainnet,
     /// A custom Sui network.
     Custom {
         /// The RPC endpoint for the network.
         rpc: String,
         /// The faucet for the network.
-        faucet: String,
+        faucet: Option<String>,
     },
 }
 
@@ -220,17 +222,23 @@ impl FromStr for SuiNetwork {
             "localnet" => Ok(SuiNetwork::Localnet),
             "devnet" => Ok(SuiNetwork::Devnet),
             "testnet" => Ok(SuiNetwork::Testnet),
+            "mainnet" => Ok(SuiNetwork::Mainnet),
             _ => {
                 let parts = s.split(';').collect::<Vec<_>>();
-                if parts.len() == 2 {
+                if parts.len() == 1 {
                     Ok(SuiNetwork::Custom {
                         rpc: parts[0].to_owned(),
-                        faucet: parts[1].to_owned(),
+                        faucet: None,
+                    })
+                } else if parts.len() == 2 {
+                    Ok(SuiNetwork::Custom {
+                        rpc: parts[0].to_owned(),
+                        faucet: Some(parts[1].to_owned()),
                     })
                 } else {
                     Err(anyhow!(
-                        "network must be 'localnet', 'devnet', 'testnet', \
-                        or a custom string in the form 'rpc_url;faucet_url'"
+                        "network must be 'localnet', 'devnet', 'testnet', 'mainnet', \
+                        or a custom string in the form 'rpc_url(;faucet_url)?'"
                     ))
                 }
             }
@@ -239,12 +247,13 @@ impl FromStr for SuiNetwork {
 }
 
 impl SuiNetwork {
-    fn faucet(&self) -> &str {
+    fn faucet(&self) -> Option<&str> {
         match self {
-            SuiNetwork::Localnet => LOCALNET_FAUCET,
-            SuiNetwork::Devnet => DEVNET_FAUCET,
-            SuiNetwork::Testnet => TESTNET_FAUCET,
-            SuiNetwork::Custom { faucet, .. } => faucet,
+            SuiNetwork::Localnet => Some(LOCALNET_FAUCET),
+            SuiNetwork::Devnet => Some(DEVNET_FAUCET),
+            SuiNetwork::Testnet => Some(TESTNET_FAUCET),
+            SuiNetwork::Mainnet => None,
+            SuiNetwork::Custom { faucet, .. } => faucet.as_deref(),
         }
     }
 
@@ -254,6 +263,12 @@ impl SuiNetwork {
             SuiNetwork::Localnet => SuiEnv::localnet(),
             SuiNetwork::Devnet => SuiEnv::devnet(),
             SuiNetwork::Testnet => SuiEnv::testnet(),
+            SuiNetwork::Mainnet => SuiEnv {
+                alias: "mainnet".to_string(),
+                rpc: sui_sdk::SUI_MAINNET_URL.into(),
+                ws: None,
+                basic_auth: None,
+            },
             SuiNetwork::Custom { rpc, .. } => SuiEnv {
                 alias: "custom".to_owned(),
                 rpc: rpc.to_string(),
@@ -269,7 +284,11 @@ impl SuiNetwork {
             SuiNetwork::Localnet => "localnet".to_owned(),
             SuiNetwork::Devnet => "devnet".to_owned(),
             SuiNetwork::Testnet => "testnet".to_owned(),
-            SuiNetwork::Custom { rpc, faucet } => format!("{};{}", rpc, faucet),
+            SuiNetwork::Mainnet => "mainnet".to_owned(),
+            SuiNetwork::Custom { rpc, faucet } => format!(
+                "{rpc}{}",
+                faucet.as_ref().map(|f| format!(";{f}")).unwrap_or_default()
+            ),
         }
     }
 }
@@ -320,8 +339,11 @@ pub async fn send_faucet_request(address: SuiAddress, network: &SuiNetwork) -> R
         "{{\"FixedAmountRequest\": {{ \"recipient\": \"{}\" }} }} ",
         address
     );
+    let Some(faucet) = network.faucet() else {
+        return Err(anyhow!("faucet not available for {network}"));
+    };
     let _result = client
-        .post(network.faucet())
+        .post(faucet)
         .header("Content-Type", "application/json")
         .body(data_raw)
         .send()
@@ -377,14 +399,16 @@ pub async fn request_sui_from_faucet(
     Ok(())
 }
 
-/// Gets 1 SUI for `address` from the provided wallet if the wallet has at least 2 SUI, otherwise
-/// request SUI from the faucet.
+/// Gets `sui_amount` MIST for `address` from the provided wallet if the wallet has at least 2 SUI
+/// more than that amount, otherwise request SUI from the faucet (generally provides 1 SUI).
 pub async fn get_sui_from_wallet_or_faucet(
     address: SuiAddress,
     wallet: &mut WalletContext,
     network: &SuiNetwork,
+    sui_amount: u64,
 ) -> Result<()> {
     let one_sui = 1_000_000_000;
+    let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address()?;
     let balance = wallet
         .get_client()
@@ -392,9 +416,9 @@ pub async fn get_sui_from_wallet_or_faucet(
         .coin_read_api()
         .get_balance(sender, None)
         .await?;
-    if balance.total_balance >= 3 * one_sui as u128 {
+    if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();
-        ptb.transfer_sui(address, Some(one_sui));
+        ptb.transfer_sui(address, Some(sui_amount));
         let ptb = ptb.finish();
         let gas_budget = one_sui / 2;
         let gas_coins = wallet
