@@ -657,8 +657,12 @@ impl SuiReadClient {
         })
         .await?
         .map(|resp| {
-            resp.data
-                .ok_or_else(|| anyhow!("response does not contain object data"))
+            resp.data.ok_or_else(|| {
+                anyhow!(
+                    "response does not contain object data [err={:?}]",
+                    resp.error
+                )
+            })
         }))
     }
 

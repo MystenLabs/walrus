@@ -141,12 +141,12 @@ pub(crate) fn get_sui_object_from_object_response<U>(
 where
     U: AssociatedContractStruct,
 {
-    U::try_from_object_data(
-        object_response
-            .data
-            .as_ref()
-            .ok_or_else(|| anyhow!("response does not contain object data"))?,
-    )
+    U::try_from_object_data(object_response.data.as_ref().ok_or_else(|| {
+        anyhow!(
+            "response does not contain object data [err={:?}",
+            object_response.error
+        )
+    })?)
     .map_err(|_e| {
         anyhow!(
             "could not convert object to expected type {}",
