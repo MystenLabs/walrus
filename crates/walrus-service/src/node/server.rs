@@ -185,6 +185,10 @@ where
             .layer(
                 TraceLayer::new_for_http()
                     .make_span_with(MakeHttpSpan::new())
+                    // TODO(jsmith): This silences logs being emitted by TraceLayer.
+                    // Until we've resolved too may 503's or customized this further to not log
+                    // specifically this error, we disable it.
+                    .on_failure(())
                     .on_response(MakeHttpSpan::new()),
             );
 
