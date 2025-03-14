@@ -47,13 +47,12 @@ jobs:
     timeout-minutes: 120
     strategy:
       matrix:
-        os: [
-            ubuntu-ghcloud, # ubuntu-x86_64
-            ubuntu-arm64, # ubuntu-arm64
-            windows-ghcloud, # windows-x86_64
-            macos-latest-large, # macos-x86_64
-            macos-latest-xlarge, # macos-arm64
-          ]
+        os:
+          - ubuntu-ghcloud # ubuntu-x86_64
+          - ubuntu-arm64 # ubuntu-arm64
+          - windows-ghcloud # windows-x86_64
+          - macos-latest-large # macos-x86_64
+          - macos-latest-xlarge # macos-arm64
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -136,7 +135,7 @@ jobs:
       - name: Set git config for long paths (Windows)
         if: ${{ startsWith(matrix.os, 'windows') }}
         run: |
-            git config --system core.longpaths true
+          git config --system core.longpaths true
 
       - name: Install postgres (MacOS arm64)
         if: ${{ matrix.os == 'macos-latest-xlarge' && env.walrus_tarball_exist == '' }}
