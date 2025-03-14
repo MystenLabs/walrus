@@ -120,6 +120,7 @@ regex.workspace = true
 reqwest.workspace = true
 rocksdb = { workspace = true, optional = true }
 rustls.workspace = true
+rustls-native-certs.workspace = true
 scoped-futures = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true

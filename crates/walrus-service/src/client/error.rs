@@ -170,6 +170,9 @@ pub enum ClientErrorKind {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
+    /// Unable to load trusted certificates from the OS.
+    #[error("unable to load trusted certificates from the OS: {0:?}")]
+    FailedToLoadCerts(Vec<rustls_native_certs::Error>),
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),

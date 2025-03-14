@@ -41,10 +41,7 @@ use walrus_core::{
     ShardIndex,
     DEFAULT_ENCODING,
 };
-use walrus_sdk::{
-    api::{BlobStatus, ServiceHealthInfo},
-    client::Client,
-};
+use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
 use walrus_sui::{
     client::ReadClient,
     types::{
@@ -61,6 +58,7 @@ use walrus_sui::{
 
 use super::{
     cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes},
+    communication::NodeCommunicationFactory,
     resource::RegisterBlobOp,
 };
 use crate::client::cli::{format_event_id, HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
@@ -777,8 +775,12 @@ pub(crate) struct NodeHealthOutput {
 }
 
 impl NodeHealthOutput {
-    pub async fn new(node: StorageNode, detail: bool) -> Self {
-        let client = Client::for_storage_node(&node.network_address.0, &node.network_public_key);
+    pub async fn new(
+        node: StorageNode,
+        detail: bool,
+        node_communication_factory: &NodeCommunicationFactory,
+    ) -> Self {
+        let client = node_communication_factory.create_client(&node);
         let health_info = match client {
             Ok(client) => client
                 .get_server_health_info(detail)
@@ -807,11 +809,12 @@ impl ServiceHealthInfoOutput {
     /// Collects the health information of the storage nodes by querying their health endpoints.
     pub async fn new_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
+        communication_factory: &NodeCommunicationFactory,
         detail: bool,
         sort: SortBy<HealthSortBy>,
     ) -> anyhow::Result<Self> {
         let mut health_info = stream::iter(nodes)
-            .map(|node| NodeHealthOutput::new(node, detail))
+            .map(|node| NodeHealthOutput::new(node, detail, communication_factory))
             .buffer_unordered(10)
             .collect::<Vec<_>>()
             .await;

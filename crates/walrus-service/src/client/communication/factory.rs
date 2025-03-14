@@ -11,6 +11,8 @@ use std::{
 use anyhow::anyhow;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::Client as ReqwestClient;
+use rustls::pki_types::CertificateDer;
+use rustls_native_certs::CertificateResult;
 use tokio::sync::Semaphore;
 use walrus_core::{encoding::EncodingConfig, Epoch, NetworkPublicKey};
 use walrus_sdk::{
@@ -30,6 +32,7 @@ pub(crate) struct NodeCommunicationFactory {
     config: ClientCommunicationConfig,
     encoding_config: Arc<EncodingConfig>,
     client_cache: Arc<Mutex<HashMap<(NetworkAddress, NetworkPublicKey), StorageNodeClient>>>,
+    native_certs: Vec<CertificateDer<'static>>,
 }
 
 /// Factory to create the vectors of [`NodeCommunication`][super::NodeCommunication] objects.
@@ -37,12 +40,31 @@ impl NodeCommunicationFactory {
     pub(crate) fn new(
         config: ClientCommunicationConfig,
         encoding_config: Arc<EncodingConfig>,
-    ) -> Self {
-        Self {
+    ) -> ClientResult<Self> {
+        let native_certs = if !config.disable_native_certs {
+            let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
+            if certs.is_empty() {
+                return Err(ClientError::from(ClientErrorKind::FailedToLoadCerts(
+                    errors,
+                )));
+            };
+            if !errors.is_empty() {
+                tracing::warn!(
+                    "encountered {} errors when trying to load native certs",
+                    errors.len(),
+                );
+                tracing::debug!(?errors, "errors encountered when loading native certs");
+            }
+            certs
+        } else {
+            vec![]
+        };
+        Ok(Self {
             config,
             encoding_config,
             client_cache: Default::default(),
-        }
+            native_certs,
+        })
     }
 
     /// Returns a vector of [`NodeWriteCommunication`] objects representing nodes in random order.
@@ -170,7 +192,10 @@ impl NodeCommunicationFactory {
         Ok(maybe_node_communication)
     }
 
-    fn create_client(&self, node: &StorageNode) -> Result<StorageNodeClient, ClientBuildError> {
+    pub(crate) fn create_client(
+        &self,
+        node: &StorageNode,
+    ) -> Result<StorageNodeClient, ClientBuildError> {
         let node_client_id = (
             node.network_address.clone(),
             node.network_public_key.clone(),
@@ -190,7 +215,8 @@ impl NodeCommunicationFactory {
                 }
                 let client = builder
                     .authenticate_with_public_key(node.network_public_key.clone())
-                    .tls_built_in_root_certs(!self.config.disable_native_certs)
+                    .add_root_certificates(&self.native_certs)
+                    .tls_built_in_root_certs(false)
                     .build(&node.network_address.0)?;
                 Ok(vacant.insert(client).clone())
             }

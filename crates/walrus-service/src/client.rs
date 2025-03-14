@@ -194,7 +194,7 @@ impl Client<()> {
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
                 encoding_config,
-            ),
+            )?,
             config,
         })
     }
