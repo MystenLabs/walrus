@@ -155,11 +155,11 @@ walrus-proc-macros = { workspace = true, features = ["derive-api-errors"] }
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "checkpoints", "config", "metrics"] }
+walrus-utils = { workspace = true, features = ["backoff", "checkpoints", "config", "http", "metrics"] }
 
 [dev-dependencies]
 hex = "0.4.3"
-http-body-util = "0.1.3"
+http-body-util.workspace = true
 mockall.workspace = true
 ring = "0.17.14"
 tempfile.workspace = true

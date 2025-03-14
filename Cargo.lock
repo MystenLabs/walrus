@@ -12029,7 +12029,11 @@ version = "1.18.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "bytes",
  "home",
+ "http-body 1.0.1",
+ "http-body-util",
+ "pin-project",
  "prometheus",
  "rand 0.8.5",
  "reqwest",

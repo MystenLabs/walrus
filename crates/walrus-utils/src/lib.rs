@@ -14,6 +14,9 @@ pub mod metrics;
 #[cfg(feature = "checkpoints")]
 pub mod checkpoint_downloader;
 
+#[cfg(feature = "http")]
+pub mod http;
+
 #[cfg(feature = "test-utils")]
 pub mod tests {
     use std::sync::OnceLock;

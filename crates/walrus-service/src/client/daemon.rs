@@ -47,7 +47,7 @@ use crate::{
         config::AuthConfig,
         daemon::auth::verify_jwt_claim,
     },
-    common::telemetry::{metrics_middleware, register_http_metrics, HttpMetrics, MakeHttpSpan},
+    common::telemetry::{metrics_middleware, HttpServerMetrics, MakeHttpSpan},
 };
 
 pub mod auth;
@@ -140,7 +140,7 @@ impl WalrusWriteClient for Client<SuiContractClient> {
 pub struct ClientDaemon<T> {
     client: Arc<T>,
     network_address: SocketAddr,
-    metrics: HttpMetrics,
+    metrics: HttpServerMetrics,
     router: Router<Arc<T>>,
     allowed_headers: Arc<HashSet<String>>,
 }
@@ -166,7 +166,7 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
         ClientDaemon {
             client: Arc::new(client),
             network_address,
-            metrics: register_http_metrics(registry),
+            metrics: HttpServerMetrics::new(registry),
             router: Router::new()
                 .merge(Redoc::with_url(routes::API_DOCS, A::openapi()))
                 .route(STATUS_ENDPOINT, get(routes::status)),

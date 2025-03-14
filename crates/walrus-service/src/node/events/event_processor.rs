@@ -70,7 +70,6 @@ use walrus_utils::{
 };
 
 use crate::{
-    common::telemetry,
     node::events::{
         ensure_experimental_rest_endpoint_exists,
         event_blob::EventBlob,
@@ -113,7 +112,8 @@ pub struct LocalDBPackageStore {
     original_id_cache: Arc<RwLock<HashMap<AccountAddress, ObjectID>>>,
 }
 
-telemetry::define_metric_set! {
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "walrus"]
     /// Metrics for the event processor.
     pub struct EventProcessorMetrics {
         #[help = "Latest downloaded full checkpoint"]

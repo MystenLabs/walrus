@@ -10,7 +10,6 @@ use prometheus::{
     IntGauge,
     IntGaugeVec,
     Opts,
-    Registry,
 };
 use walrus_sui::types::{
     BlobCertified,
@@ -23,7 +22,7 @@ use walrus_sui::types::{
 
 use crate::{
     client::ClientErrorKind,
-    common::telemetry::{self, CurrentEpochMetric, CurrentEpochStateMetric},
+    common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
     node::events::EventStreamElement,
 };
 
@@ -42,7 +41,8 @@ pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
 type U64GaugeVec = GenericGaugeVec<AtomicU64>;
 type U64Gauge = GenericGauge<AtomicU64>;
 
-telemetry::define_metric_set! {
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "walrus"]
     /// Metrics exported by the storage node.
     pub(crate) struct NodeMetricSet {
         #[help = "The total number of metadata stored"]
@@ -139,7 +139,8 @@ fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.03125, 2.0, 14).expect("count, start, and factor are valid")
 }
 
-telemetry::define_metric_set! {
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "walrus"]
     /// Metrics exported by the default committee service.
     pub(crate) struct CommitteeServiceMetricSet {
         current_epoch: CurrentEpochMetric,

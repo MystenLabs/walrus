@@ -9,61 +9,112 @@
 use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr as _,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64 as StdAtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
 use axum::{
-    body::Body,
+    body::{Body, Bytes, HttpBody},
     extract::{ConnectInfo, MatchedPath, State},
     http::{
         self,
         header::{self, AsHeaderName},
+        uri::Scheme,
         Request,
+        Version,
     },
     middleware,
 };
-use futures::StreamExt;
 use opentelemetry::propagation::Extractor;
 use prometheus::{
     core::{AtomicU64, Collector, GenericGauge},
-    register_histogram_vec_with_registry,
+    Histogram,
     HistogramVec,
+    IntGauge,
     IntGaugeVec,
     Opts,
-    Registry,
 };
 use tokio::time::Instant;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
+use walrus_utils::http::{http_body::Frame, BodyVisitor, VisitBody};
 
 use super::active_committees::ActiveCommittees;
 
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";
 
-/// HTTP metrics for tracking request/response statistics
-#[derive(Debug, Clone)]
-pub(crate) struct HttpMetrics {
-    pub(crate) duration: HistogramVec,
-    pub(crate) request_size: HistogramVec,
-    pub(crate) response_size: HistogramVec,
-}
+const HTTP_RESPONSE_PART_HEADERS: &str = "headers";
+const HTTP_RESPONSE_PART_PAYLOAD: &str = "payload";
 
-impl HttpMetrics {
-    pub(crate) fn new(
-        duration: HistogramVec,
-        request_size: HistogramVec,
-        response_size: HistogramVec,
-    ) -> Self {
-        Self {
-            duration,
-            request_size,
-            response_size,
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "http_server"]
+    /// Metrics reported by the HTTP server.
+    ///
+    /// Fields are those suggested by [OTel].
+    ///
+    /// [OTel]: https://opentelemetry.io/docs/specs/semconv/http/http-metrics/#http-server
+    pub(crate) struct HttpServerMetrics {
+        #[help = "Number of active HTTP server requests"]
+        active_requests: IntGaugeVec["http_request_method", "url_scheme", "http_route"],
+
+        #[help = "Time (in seconds) spent processing requests and serving the response."]
+        request_duration: HistogramVec {
+            labels: [
+                "http_request_method",
+                "url_scheme",
+                "http_route",
+                "network_protocol_version",
+                "error_type",
+                "http_response_status_code",
+                // If "headers", time from request in to response headers being provided. If
+                // "payload", time from response headers to the response body being consumed to be
+                // written to the wire.
+                "http_response_part"
+            ],
+            buckets: vec![
+                0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0
+            ],
+        },
+
+        #[help = "The size in bytes of the (compressed) request body."]
+        request_body_size: HistogramVec{
+            labels: [
+                "http_request_method",
+                "url_scheme",
+                "http_route",
+                "network_protocol_version",
+                "error_type",
+                "http_response_status_code",
+            ],
+            buckets: default_buckets_for_bytes()
+        },
+
+        #[help = "The size in bytes of the (compressed) response body."]
+        response_body_size: HistogramVec{
+            labels: [
+                "http_request_method",
+                "url_scheme",
+                "http_route",
+                "network_protocol_version",
+                "error_type",
+                "http_response_status_code",
+            ],
+            buckets: default_buckets_for_bytes()
         }
     }
+}
+
+/// Returns 21 buckets from <= 128 bytes to approx. <= 134 MB.
+///
+/// As prometheus includes a bucket to +Inf, values over 134 MB are still counted.
+fn default_buckets_for_bytes() -> Vec<f64> {
+    prometheus::exponential_buckets(128.0, 2.0, 21).expect("count, start, and factor are valid")
 }
 
 /// Struct to generate new [`tracing::Span`]s for HTTP requests.
@@ -188,11 +239,11 @@ impl MakeHttpSpan {
 
     fn record_network_protocol_version<B>(&self, request: &Request<B>, span: &Span) {
         let version = match request.version() {
-            http::version::Version::HTTP_09 => "0.9",
-            http::version::Version::HTTP_10 => "1.0",
-            http::version::Version::HTTP_11 => "1.1",
-            http::version::Version::HTTP_2 => "2.0",
-            http::version::Version::HTTP_3 => "3.0",
+            Version::HTTP_09 => "0.9",
+            Version::HTTP_10 => "1.0",
+            Version::HTTP_11 => "1.1",
+            Version::HTTP_2 => "2.0",
+            Version::HTTP_3 => "3.0",
             _ => return,
         };
         span.record("network.protocol.version", version);
@@ -266,226 +317,156 @@ fn get_header_as_str<B, K: AsHeaderName>(request: &Request<B>, key: K) -> Option
         .and_then(|value| value.to_str().ok())
 }
 
+fn http_version(request: &axum::extract::Request) -> &'static str {
+    match request.version() {
+        Version::HTTP_09 => "0.9",
+        Version::HTTP_10 => "1.0",
+        Version::HTTP_11 => "1.1",
+        Version::HTTP_2 => "2",
+        Version::HTTP_3 => "3",
+        _ => "",
+    }
+}
+
 /// Middleware that records the elapsed time, HTTP method, and status of requests.
 pub(crate) async fn metrics_middleware(
-    State(metrics): State<HttpMetrics>,
+    State(metrics): State<HttpServerMetrics>,
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
     // Manually record the time in seconds, since we do not yet know the status code which is
     // required to get the concrete histogram.
     let start = Instant::now();
-    let method = request.method().clone();
-    let route: String = if let Some(path) = request.extensions().get::<MatchedPath>() {
+
+    let http_request_method = request.method().clone();
+    let http_route: String = if let Some(path) = request.extensions().get::<MatchedPath>() {
         path.as_str().into()
     } else {
         // We do not want to return the requested URI, as this would lead to a new histogram
         // for each rest to an invalid URI. Use a
         UNMATCHED_ROUTE.into()
     };
-    // Track request size by reading the body
-    let method_clone = method.clone();
-    let route_clone = route.clone();
-    let (parts, body) = request.into_parts();
-    let counted_body = Body::from_stream(body.into_data_stream().map(move |chunk| {
-        chunk.inspect(|c| {
-            walrus_utils::with_label!(metrics.request_size, method_clone.as_str(), &route_clone)
-                .observe(c.len() as f64);
-        })
-    }));
-    let request = Request::from_parts(parts, counted_body);
+    let url_scheme = request.uri().scheme().cloned();
+    let network_protocol_version = http_version(&request);
+
+    let active_requests = walrus_utils::with_label!(
+        metrics.active_requests,
+        http_request_method.as_str(),
+        url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
+        http_route
+    );
+    active_requests.inc();
+
+    // Observe the body size of the request, as we cannot always rely on `Content-Length`.
+    let body_size_total = Arc::new(StdAtomicU64::default());
+    let request = request.map(|body| {
+        let body_size_total = body_size_total.clone();
+        Body::new(VisitBody::new(
+            body,
+            move |maybe_result: Option<Result<&Frame<Bytes>, &axum::Error>>| {
+                if let Some(data) = maybe_result.and_then(|r| r.ok()?.data_ref()) {
+                    let data_len = u64::try_from(data.len()).expect("chunk length is within u64");
+                    body_size_total.fetch_add(data_len, Ordering::Relaxed);
+                }
+            },
+        ))
+    });
 
     let response = next.run(request).await;
-
-    // Record response metrics
-    let method_clone = method.clone();
-    let route_clone = route.clone();
-    let status = response.status();
-    let (parts, body) = response.into_parts();
-    let counted_body = Body::from_stream(body.into_data_stream().map(move |chunk| {
-        chunk.inspect(|c| {
-            walrus_utils::with_label!(
-                metrics.response_size,
-                method_clone.as_str(),
-                &route_clone,
-                status.as_str()
-            )
-            .observe(c.len() as f64);
-        })
-    }));
-    let response = http::Response::from_parts(parts, counted_body);
-
-    walrus_utils::with_label!(metrics.duration, method.as_str(), &route, status.as_str())
-        .observe(start.elapsed().as_secs_f64());
-
-    response
-}
-
-/// Registers the HTTP request method, route, status, and durations metrics.
-pub(crate) fn register_http_metrics(registry: &Registry) -> HttpMetrics {
-    let duration_opts = prometheus::Opts::new(
-        "request_duration_seconds",
-        "Time (in seconds) spent serving HTTP requests.",
-    )
-    .namespace("http");
-
-    let request_size_opts = prometheus::Opts::new(
-        "request_size_bytes_total",
-        "Total size of HTTP requests in bytes.",
-    )
-    .namespace("http");
-
-    let response_size_opts = prometheus::Opts::new(
-        "response_size_bytes_total",
-        "Total size of HTTP responses in bytes.",
-    )
-    .namespace("http");
-
-    let duration_histogram = register_histogram_vec_with_registry!(
-        duration_opts.into(),
-        &["method", "route", "status_code"],
-        registry
-    )
-    .expect("metric registration must not fail");
-
-    let request_size_histogram = register_histogram_vec_with_registry!(
-        request_size_opts.into(),
-        &["method", "route"],
-        registry
-    )
-    .expect("metric registration must not fail");
-
-    let response_size_histogram = register_histogram_vec_with_registry!(
-        response_size_opts.into(),
-        &["method", "route", "status_code"],
-        registry
-    )
-    .expect("metric registration must not fail");
-
-    HttpMetrics::new(
-        duration_histogram,
-        request_size_histogram,
-        response_size_histogram,
-    )
-}
-
-/// Defines a set of prometheus metrics.
-///
-/// # Example
-///
-/// ```
-/// define_metric_set! {
-///     /// Docstring applied to the containing struct.
-///     struct MyMetricSet {
-///         // Gauges, counters, and histograms can be defined with an empty `[]`.
-///         #[help = "Help text and docstring for this metric"]
-///         my_int_counter: IntCounter[],
-///         #[help = "Help text for the my_histogram field"]
-///         my_histogram: Histogram[],
-///
-///         // Vec-type metrics have their label names specified in the brackets.
-///         #[help = "Help text for the int_counter_vec field"]
-///         int_counter_vec: IntCounterVec["label1", "label2"],
-///         #[help = "Help text for the my_histogram_vec field"]
-///         my_histogram_vec: HistogramVec["label1", "label2"],
-///
-///         // `Histogram` and `HistogramVec` can additionally have their buckets specified.
-///         #[help = "Help text for the my_histogram_with_buckets field"]
-///         my_histogram_with_buckets: Histogram{buckets: vec![0.25, 1.0, 10.0]},
-///         #[help = "Help text for the my_histogram_vec_with_buckets field"]
-///         my_histogram_vec_with_buckets: HistogramVec{
-///             labels: ["field1", "field2"], buckets: vec![1.0, 2.0]
-///         },
-///
-///         // New-type metrics can be used to define metrics, and are any types that implement both
-///         // `Default` and `Into<Box<dyn Collector>>`.
-///         typed_metric: CurrentEpochMetric,
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! define_metric_set {
-    (
-        $(#[$outer:meta])*
-        $vis:vis struct $name:ident {
-            $($new_type_field:ident: $new_type_field_type:ident,)*
-            $(
-                #[help = $help_str:literal]
-                $field_name:ident: $field_type:ident $field_def:tt
-            ),* $(,)?
-        }
-    ) => {
-        $(#[$outer])*
-        #[derive(Debug, Clone)]
-        $vis struct $name {
-            $(
-                #[doc = $help_str]
-                pub $field_name: $field_type,
-            )*
-            $(
-                pub $new_type_field: $new_type_field_type,
-            )*
-        }
-
-        impl $name {
-            /// Creates a new instance of the metric set.
-            pub fn new(registry: &Registry) -> Self {
-                Self { $(
-                    $field_name: {
-                        let opts = Opts::new(stringify!($field_name), $help_str)
-                            .namespace("walrus");
-                        let metric = $crate::common::telemetry::create_metric!(
-                            $field_type,
-                            opts,
-                            $field_def
-                        );
-                        registry
-                            .register(Box::new(metric.clone()))
-                            .expect("metrics defined at compile time must be valid");
-                        metric
-                    },
-                )* $(
-                    $new_type_field: {
-                        let metric = $new_type_field_type::default();
-                        registry
-                            .register(metric.clone().into())
-                            .expect("metrics defined at compile time must be valid");
-                        metric
-                    }
-                ),* }
-            }
-        }
+    let response_available_at = Instant::now();
+    let http_response_status_code = response.status();
+    let error_type = if http_response_status_code.is_client_error()
+        || http_response_status_code.is_server_error()
+    {
+        http_response_status_code.as_str()
+    } else {
+        ""
     };
+
+    metrics
+        .request_body_size
+        .with_label_values(&[
+            http_request_method.as_str(),
+            url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
+            &http_route,
+            network_protocol_version,
+            error_type,
+            http_response_status_code.as_str(),
+        ])
+        .observe(body_size_total.load(Ordering::Relaxed) as f64);
+
+    let request_duration = metrics.request_duration.with_label_values(&[
+        http_request_method.as_str(),
+        url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
+        &http_route,
+        network_protocol_version,
+        error_type,
+        http_response_status_code.as_str(),
+        HTTP_RESPONSE_PART_HEADERS,
+    ]);
+    request_duration.observe(response_available_at.duration_since(start).as_secs_f64());
+
+    let exact_response_body_size = response.body().size_hint().exact();
+    let request_duration = metrics.request_duration.with_label_values(&[
+        http_request_method.as_str(),
+        url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
+        &http_route,
+        network_protocol_version,
+        error_type,
+        http_response_status_code.as_str(),
+        HTTP_RESPONSE_PART_PAYLOAD,
+    ]);
+    let response_body_size = metrics.response_body_size.with_label_values(&[
+        http_request_method.as_str(),
+        url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
+        &http_route,
+        network_protocol_version,
+        error_type,
+        http_response_status_code.as_str(),
+    ]);
+
+    response.map(move |body| {
+        Body::new(VisitBody::new(
+            body,
+            ResponseBodyVisitor {
+                active_requests,
+                request_duration,
+                response_body_size,
+                response_available_at,
+                exact_response_body_size,
+                observed_response_body_size: 0,
+            },
+        ))
+    })
 }
 
-pub(crate) use define_metric_set;
-
-macro_rules! create_metric {
-    ($field_type:ty, $opts:expr, []) => {{
-        <$field_type>::with_opts($opts.into())
-            .expect("this must be called with valid metrics type and options")
-    }};
-    ($field_type:ty, $opts:expr, [$($label_names:tt)+]) => {{
-        <$field_type>::new($opts.into(), &[$($label_names)+])
-            .expect("this must be called with valid metrics type and options")
-    }};
-    (Histogram, $opts:expr, {buckets: $buckets:expr $(,)?}) => {{
-        let mut opts: prometheus::HistogramOpts = $opts.into();
-        opts.buckets = $buckets.into();
-
-        prometheus::Histogram::with_opts(opts)
-            .expect("this must be called with valid metrics type and options")
-    }};
-    (HistogramVec, $opts:expr, {labels: [$($label_names:tt)+], buckets: $buckets:expr $(,)?}) => {{
-        let mut opts: prometheus::HistogramOpts = $opts.into();
-        opts.buckets = $buckets.into();
-
-        prometheus::HistogramVec::new(opts, &[$($label_names)+])
-            .expect("this must be called with valid metrics type and options")
-    }};
+struct ResponseBodyVisitor {
+    active_requests: IntGauge,
+    request_duration: Histogram,
+    response_body_size: Histogram,
+    response_available_at: Instant,
+    exact_response_body_size: Option<u64>,
+    observed_response_body_size: u64,
 }
 
-pub(crate) use create_metric;
+impl<E> BodyVisitor<Bytes, E> for ResponseBodyVisitor {
+    fn frame_polled(&mut self, maybe_result: Option<Result<&Frame<Bytes>, &E>>) {
+        if let Some(data) = maybe_result.and_then(|r| r.ok()?.data_ref()) {
+            let data_len = u64::try_from(data.len()).expect("chunk length is within u64");
+            self.observed_response_body_size += data_len;
+        }
+    }
+
+    fn body_dropped(&mut self, _is_end_stream: bool) {
+        self.active_requests.dec();
+        self.request_duration
+            .observe(self.response_available_at.elapsed().as_secs_f64());
+        self.response_body_size.observe(
+            self.exact_response_body_size
+                .unwrap_or(self.observed_response_body_size) as f64,
+        );
+    }
+}
 
 /// Metric `current_epoch` that records the currently observed walrus epoch.
 ///
@@ -495,7 +476,7 @@ pub(crate) struct CurrentEpochMetric(GenericGauge<AtomicU64>);
 
 impl CurrentEpochMetric {
     pub fn new() -> Self {
-        Self(create_metric!(
+        Self(walrus_utils::metrics::create_metric!(
             GenericGauge<AtomicU64>,
             Opts::new("current_epoch", "The current Walrus epoch").namespace("walrus"),
             []
@@ -538,7 +519,7 @@ impl CurrentEpochStateMetric {
             "The state of the current walrus epoch",
         )
         .namespace("walrus");
-        let metric = create_metric!(IntGaugeVec, opts, ["state"]);
+        let metric = walrus_utils::metrics::create_metric!(IntGaugeVec, opts, ["state"]);
         Self(metric)
     }
 
