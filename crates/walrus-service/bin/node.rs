@@ -219,7 +219,9 @@ struct SetupArgs {
     storage_path: PathBuf,
     /// Sui network for which the config is generated.
     ///
-    /// Available options are `devnet`, `testnet`, and `localnet`.
+    /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`, or a custom Sui
+    /// network. To specify a custom Sui network, pass a string of the format
+    /// `<RPC_URL>(;<FAUCET_URL>)?`.
     #[clap(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// Whether to attempt to get SUI tokens from the faucet.
@@ -231,6 +233,9 @@ struct SetupArgs {
     /// Additional arguments for the generated configuration.
     #[clap(flatten)]
     config_args: ConfigArgs,
+    /// Path to an existing network key. If not specified, a new key will be generated.
+    #[clap(long)]
+    network_key_path: Option<PathBuf>,
     /// Overwrite existing files.
     #[clap(long)]
     force: bool,
@@ -278,12 +283,6 @@ struct ConfigArgs {
     /// If not provided, the RPC node from the wallet's active environment will be used.
     #[clap(long)]
     sui_rpc: Option<String>,
-    /// Use the legacy event provider instead of the standard checkpoint-based event processor.
-    #[clap(long, action)]
-    use_legacy_event_provider: bool,
-    /// Disable event blob writer
-    #[clap(long, action)]
-    disable_event_blob_writer: bool,
     /// The port on which the storage node will serve requests.
     #[clap(long, default_value_t = REST_API_PORT)]
     public_port: u16,
@@ -296,6 +295,10 @@ struct ConfigArgs {
     /// URL of the Walrus proxy to push metrics to.
     #[clap(long)]
     metrics_push_url: Option<String>,
+    /// Path to an existing TLS certificate. If not specified, the node will automatically generate
+    /// self-signed certificates.
+    #[clap(long)]
+    certificate_path: Option<PathBuf>,
     /// Gas budget for transactions.
     ///
     /// If not specified, the gas budget is estimated automatically.
@@ -307,7 +310,7 @@ struct ConfigArgs {
     /// Initial vote for the write price in FROST per MiB.
     #[clap(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
-    /// The commission rate of the storage node, in basis points.
+    /// The commission rate of the storage node, in basis points (1% = 100 basis points).
     #[clap(long, default_value_t = 0)]
     commission_rate: u16,
     /// The image URL of the storage node.
@@ -442,11 +445,14 @@ mod commands {
         keys::{SupportedKeyPair, TaggedKeyPair},
     };
     use walrus_service::{
-        node::events::event_processor::{
-            EventProcessor,
-            EventProcessorRuntimeConfig,
-            SuiClientSet,
-            SystemConfig,
+        node::{
+            config::TlsConfig,
+            events::event_processor::{
+                EventProcessor,
+                EventProcessorRuntimeConfig,
+                SuiClientSet,
+                SystemConfig,
+            },
         },
         utils,
     };
@@ -792,12 +798,11 @@ mod commands {
             node_capacity,
             public_host,
             sui_rpc,
-            use_legacy_event_provider,
-            disable_event_blob_writer,
             public_port,
             rest_api_address,
             metrics_address,
             metrics_push_url,
+            certificate_path,
             gas_budget,
             storage_price,
             write_price,
@@ -874,14 +879,16 @@ mod commands {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget,
             }),
+            tls: TlsConfig {
+                certificate_path,
+                ..Default::default()
+            },
             voting_params: VotingParams {
                 storage_price,
                 write_price,
                 node_capacity: node_capacity.as_u64(),
             },
             commission_rate,
-            use_legacy_event_provider,
-            disable_event_blob_writer,
             name,
             metadata,
             metrics_push,
@@ -982,6 +989,7 @@ mod commands {
             faucet_timeout,
             config_args,
             force,
+            network_key_path,
             registering_third_party,
             registration_epoch,
         }: SetupArgs,
@@ -999,7 +1007,6 @@ mod commands {
         }
         let config_path = config_directory.join("walrus-node.yaml");
         let protocol_key_path = config_directory.join("protocol.key");
-        let network_key_path = config_directory.join("network.key");
         let wallet_config = config_directory.join("sui_config.yaml");
         ensure!(
             config_directory.is_dir(),
@@ -1013,7 +1020,13 @@ mod commands {
             true,
             KeyFormat::Tagged,
         )?;
-        keygen(&network_key_path, KeyType::Network, true, KeyFormat::Pkcs8)?;
+        let network_key_path = if let Some(network_key_path) = network_key_path {
+            network_key_path
+        } else {
+            let network_key_path = config_directory.join("network.key");
+            keygen(&network_key_path, KeyType::Network, true, KeyFormat::Pkcs8)?;
+            network_key_path
+        };
 
         let wallet_address = utils::generate_sui_wallet(
             sui_network,
