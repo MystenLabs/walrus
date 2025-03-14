@@ -2,8 +2,8 @@
 # Copyright (c) Mysten Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-# use EPOCH_DURATION to set the epoch duration, default is 1h
-EPOCH_DURATION=${EPOCH_DURATION:-1h}
+# use EPOCH_DURATION to set the epoch duration, default is 10 minutes in antithesis test.
+EPOCH_DURATION=${EPOCH_DURATION:-10m}
 
 cd /opt/walrus
 

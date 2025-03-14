@@ -6,7 +6,7 @@
 # - A Walrus deployment service
 # - A setup completion service
 # - 4 Walrus nodes for testing
-
+# - 1 stress client for testing
 services:
   # Runs a local Sui network with a single validator
   sui-localnet:
@@ -18,7 +18,7 @@ services:
     platform: ${SUI_PLATFORM:-linux/amd64}
     environment:
       - NO_COLOR=1
-      # - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet
+      - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet # Always use sui mainnet protocol config.
     command: >
       /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
       sui start --with-faucet --force-regenesis --committee-size 1 --epoch-duration-ms 86400000"
@@ -31,7 +31,8 @@ services:
     volumes:
       - sui-bin:/root/sui_bin
 
-  # Deploys the Walrus contracts and initializes the system
+  # Deploys the Walrus contracts and initializes the system.
+  # Note that we need to sleep 30s to make sure that the Sui localnet is ready.
   walrus-deploy:
     restart: no
     depends_on:
@@ -44,7 +45,7 @@ services:
     hostname: walrus-deploy
     container_name: walrus-deploy
     environment:
-      - EPOCH_DURATION=1m
+      - EPOCH_DURATION=10m
       - NO_COLOR=1
     volumes:
       - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
@@ -53,6 +54,7 @@ services:
       /bin/bash -c "sleep 30 && /root/deploy-walrus.sh"
 
   # Performs final setup steps after deployment
+  # This is to signal antithesis that the setup is complete, and failure injection can start.
   complete-setup:
     depends_on:
       sui-localnet:
@@ -71,8 +73,8 @@ services:
   # Template for Walrus nodes
   walrus-node-0: &walrus-node
     depends_on:
-      # sui-localnet:
-      #   condition: service_healthy
+      sui-localnet:
+        condition: service_healthy
       walrus-deploy:
         condition: service_completed_successfully
     networks:
@@ -126,6 +128,7 @@ services:
       - NODE_NAME=dryrun-node-3
       - NO_COLOR=1
 
+  # Stress client for testing
   walrus-stress-0:
     depends_on:
       walrus-deploy:
@@ -145,7 +148,7 @@ services:
       - walrus-deploy-outputs:/opt/walrus/outputs
       - ./files/run-stress.sh:/root/run-stress.sh
     command: >
-      /bin/bash -c "sleep 30 && /root/run-stress.sh"
+      /bin/bash -c "sleep 15 && /root/run-stress.sh"
 
 # Persistent volumes for sharing data between containers
 volumes:

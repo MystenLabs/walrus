@@ -14,6 +14,9 @@ mkdir -p /root/.config/walrus
 mkdir -p /opt/walrus/outputs
 
 # copy from deploy outputs
+# TODO(zhewu): here we are using the admin wallet to run the stress client, which is not ideal.
+# We need to create several client wallets for the stress test so that we can have more than one
+# stress client running concurrently.
 cp /opt/walrus/outputs/sui_admin.yaml /root/.sui/sui_config/client.yaml
 cp /opt/walrus/outputs/sui_admin.keystore /root/.sui/sui_config/sui.keystore
 cp /opt/walrus/outputs/sui_admin.aliases /root/.sui/sui_config/sui.aliases
