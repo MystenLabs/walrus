@@ -25,6 +25,7 @@ mod tests {
     use walrus_core::{
         encoding::{Primary, Secondary},
         keys::{NetworkKeyPair, ProtocolKeyPair},
+        test_utils::random_blob_id,
         DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
@@ -36,7 +37,11 @@ mod tests {
     };
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
-        types::{move_structs::VotingParams, NetworkAddress, NodeMetadata},
+        types::{
+            move_structs::{EventBlob, VotingParams},
+            NetworkAddress,
+            NodeMetadata,
+        },
     };
     use walrus_test_utils::{async_param_test, WithTempDir};
 
@@ -1863,5 +1868,153 @@ mod tests {
         )
         .await
         .expect("Node config should be synced");
+    }
+
+    /// Gets the last certified event blob from the client.
+    /// Returns the last certified event blob if it exists, otherwise panics.
+    async fn get_last_certified_event_blob_must_succeed(
+        client_arc: &Arc<WithTempDir<Client<SuiContractClient>>>,
+    ) -> EventBlob {
+        let start_time = Instant::now();
+        loop {
+            if let Some(blob) = client_arc
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_event_blob()
+                .await
+                .unwrap()
+            {
+                return blob;
+            }
+            if start_time.elapsed() > Duration::from_secs(10) {
+                panic!("Timeout waiting for last certified event blob");
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    /// Kills all the storage nodes in the cluster.
+    async fn kill_all_storage_nodes(storage_node_handles: &[sui_simulator::task::NodeId]) {
+        let handle = sui_simulator::runtime::Handle::current();
+        for node_id in storage_node_handles {
+            handle.delete_node(*node_id);
+        }
+    }
+
+    /// This test verifies that the node can correctly recover from a forked event blob.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_event_blob_fork_recovery() {
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(15),
+                TestNodesConfig {
+                    node_weights: vec![2, 2, 3, 3, 3],
+                    ..Default::default()
+                },
+                Some(20),
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+
+        // Running the workload for 30 seconds to get some event blob certified.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        // Restart all the node, but each with a different checkpoint number per blob.
+        let storage_node_handles = walrus_cluster
+            .nodes
+            .iter()
+            .map(|n| n.node_id.expect("simtest must set node id"))
+            .collect::<Vec<_>>();
+        kill_all_storage_nodes(&storage_node_handles).await;
+        for i in 0..5 {
+            walrus_cluster.nodes[i].node_id = Some(
+                SimStorageNodeHandle::spawn_node(
+                    Arc::new(RwLock::new(
+                        walrus_cluster.nodes[i].storage_node_config.clone(),
+                    )),
+                    Some(30 + i as u32),
+                    walrus_cluster.nodes[i].cancel_token.clone(),
+                )
+                .await
+                .id(),
+            );
+        }
+
+        // Wait for the event blob certification to get stuck.
+        let start_time = Instant::now();
+        let mut last_new_certified_event_blob = Instant::now();
+        let mut last_certified_event_blob_after_folk = EventBlob {
+            blob_id: random_blob_id(),
+            ending_checkpoint_sequence_number: 0,
+        };
+
+        loop {
+            let current_certified_event_blob =
+                get_last_certified_event_blob_must_succeed(&client_arc).await;
+
+            if current_certified_event_blob.blob_id != last_certified_event_blob_after_folk.blob_id
+            {
+                tracing::info!(
+                    "waiting for event blob fork, seeing a new event blob: {:?}",
+                    last_certified_event_blob_after_folk
+                );
+                last_certified_event_blob_after_folk = current_certified_event_blob;
+                last_new_certified_event_blob = Instant::now();
+            }
+
+            if last_new_certified_event_blob.elapsed() > Duration::from_secs(20) {
+                tracing::info!("event blob certification has been stuck for 20 seconds, breaking");
+                break;
+            }
+
+            tracing::debug!(
+                "last checked certified event blob {:?}",
+                last_certified_event_blob_after_folk
+            );
+            if start_time.elapsed() > Duration::from_secs(180) {
+                panic!("Timeout waiting for event blob stuck");
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        // Restart all the node again with the same checkpoint number per blob configuration.
+        let storage_node_handles = walrus_cluster
+            .nodes
+            .iter()
+            .map(|n| n.node_id.expect("simtest must set node id"))
+            .collect::<Vec<_>>();
+        kill_all_storage_nodes(&storage_node_handles).await;
+        for i in 0..5 {
+            walrus_cluster.nodes[i].node_id = Some(
+                SimStorageNodeHandle::spawn_node(
+                    Arc::new(RwLock::new(
+                        walrus_cluster.nodes[i].storage_node_config.clone(),
+                    )),
+                    Some(20),
+                    walrus_cluster.nodes[i].cancel_token.clone(),
+                )
+                .await
+                .id(),
+            );
+        }
+
+        // Wait for the event blob certification to recover.
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let last_certified_event_blob_after_recovery =
+            get_last_certified_event_blob_must_succeed(&client_arc).await;
+
+        // TODO: change this to assert_nq after the bug is fixed.
+        assert_eq!(
+            last_certified_event_blob_after_folk.blob_id,
+            last_certified_event_blob_after_recovery.blob_id
+        );
     }
 }

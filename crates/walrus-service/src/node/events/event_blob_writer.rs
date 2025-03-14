@@ -892,10 +892,11 @@ impl EventBlobWriter {
             tracing::debug!("attestations are paused, skipping blob: {}", blob_id);
             return Ok(());
         }
-        tracing::debug!(
-            "attesting event blob: {} in epoch: {}",
+        tracing::info!(
+            "attesting event blob: {} in epoch: {}. Ending checkpoint sequence number: {}",
             blob_id,
-            self.current_epoch
+            self.current_epoch,
+            checkpoint_sequence_number
         );
 
         match self
