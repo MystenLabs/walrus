@@ -9,7 +9,7 @@ use rand::rngs::StdRng;
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
+    encoding::{EncodingAxis, EncodingConfig, GeneralRecoverySymbol, SliverData, SliverPair},
     messages::{BlobPersistenceType, SignedStorageConfirmation},
     metadata::VerifiedBlobMetadataWithId,
     BlobId,
@@ -17,11 +17,13 @@ use walrus_core::{
     PublicKey,
     ShardIndex,
     Sliver,
+    SliverIndex,
     SliverPairIndex,
+    SliverType,
 };
 use walrus_sdk::{
     api::{BlobStatus, StoredOnNodeStatus},
-    client::Client as StorageNodeClient,
+    client::{Client as StorageNodeClient, RecoverySymbolsFilter},
     error::NodeError,
 };
 use walrus_sui::types::StorageNode;
@@ -286,6 +288,38 @@ impl<W> NodeCommunication<'_, W> {
     /// Converts the public key of the node.
     fn public_key(&self) -> &PublicKey {
         &self.node.public_key
+    }
+
+    /// Retrieves recovery symbols for a sliver and verifies them.
+    #[tracing::instrument(level = Level::TRACE, parent = &self.span, skip(self, metadata))]
+    pub async fn recovery_sliver(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        target_index: SliverIndex,
+        target_type: SliverType,
+        filter: RecoverySymbolsFilter,
+    ) -> NodeResult<Vec<GeneralRecoverySymbol>, NodeError> {
+        tracing::debug!(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.index = %target_index,
+            walrus.sliver.type = ?target_type,
+            "retrieving recovery symbols"
+        );
+
+        let encoding_config = Arc::new(self.encoding_config.clone());
+        let result = self
+            .client
+            .list_and_verify_recovery_symbols(
+                filter,
+                metadata.clone(),
+                encoding_config,
+                target_index,
+                target_type,
+            )
+            .await;
+
+        // Weight is 1 since we're retrieving symbols for a single sliver
+        self.to_node_result(1, result)
     }
 }
 

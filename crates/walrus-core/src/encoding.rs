@@ -36,6 +36,7 @@ pub use config::{
 };
 
 mod errors;
+pub use blob_encoding::{BlobWithDesc, QuiltEncoder};
 pub use errors::{
     DataTooLargeError,
     DecodingVerificationError,

@@ -12,6 +12,7 @@ use super::{
         raptorq::{RaptorQDecoder, RaptorQEncoder},
         Decoder as _,
     },
+    blob_encoding::{BlobWithDesc, QuiltEncoder},
     utils,
     BlobDecoder,
     BlobDecoderEnum,

@@ -30,6 +30,8 @@ db_config:
     max_bytes_for_level_base: 536870912
   node_status: null
   metadata: null
+  quilt_metadata: null
+  quilt_block_metadata: null
   blob_info: null
   per_object_blob_info: null
   event_cursor: null

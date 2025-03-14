@@ -90,6 +90,10 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
 pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
+/// The path to get and store quilt metadata.
+pub const QUILT_METADATA_ENDPOINT: &str = "/v1/quilt/{object_id}/metadata";
+/// The path to get the status of quilt metadata for an object.
+pub const QUILT_METADATA_STATUS_ENDPOINT: &str = "/v1/quilt/{object_id}/metadata/status";
 
 /// Convenience trait to apply bounds on the ServiceState.
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}

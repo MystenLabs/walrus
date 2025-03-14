@@ -446,7 +446,7 @@ mod tests {
             SyncShardMsg,
             SyncShardResponse,
         },
-        metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
+        metadata::{QuiltMetadata, UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
         BlobId,
         InconsistencyProof,
         PublicKey,
@@ -511,6 +511,13 @@ mod tests {
         fn store_metadata(
             &self,
             _metadata: UnverifiedBlobMetadataWithId,
+        ) -> Result<bool, StoreMetadataError> {
+            Ok(true)
+        }
+
+        fn store_quilt_metadata(
+            &self,
+            _metadata: QuiltMetadata,
         ) -> Result<bool, StoreMetadataError> {
             Ok(true)
         }

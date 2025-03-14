@@ -3,12 +3,13 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use core::num::NonZeroU16;
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
+use sui_types::base_types::ObjectID;
 
 use crate::{
     encoding::{
@@ -25,6 +26,9 @@ use crate::{
     SliverPairIndex,
     SliverType,
 };
+
+/// The minimum number of blobs required to form a quilt.
+pub const MIN_BLOBS_PER_QUILT: u16 = 2;
 
 /// Errors returned by [`UnverifiedBlobMetadataWithId::verify`] when unable to verify the metadata.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -44,6 +48,84 @@ pub enum VerificationError {
     /// available in the configuration provided.
     #[error("the unencoded blob length is too large for the given config")]
     UnencodedLengthTooLarge,
+}
+
+/// Represents a blob quilted into a single quilt blob.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltBlock {
+    /// The blob_id of the quilted blob.
+    pub blob_id: BlobId,
+    /// The unencoded length of the blob.
+    pub unencoded_length: u64,
+    /// The end index of the block.
+    pub end_index: u16,
+    /// The description of the block.
+    pub desc: String,
+}
+
+/// A container quilt index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltIndex {
+    /// The structure of the quilt.
+    pub quilt_blocks: Vec<QuiltBlock>,
+}
+
+impl QuiltIndex {
+    pub fn get_quilt_block_by_id(&self, id: &BlobId) -> Option<&QuiltBlock> {
+        self.quilt_blocks.iter().find(|block| &block.blob_id == id)
+    }
+
+    pub fn get_quilt_block_by_desc(&self, desc: &str) -> Option<&QuiltBlock> {
+        self.quilt_blocks.iter().find(|block| &block.desc == desc)
+    }
+}
+
+impl QuiltBlock {
+    /// The length of the description.
+    pub const LENGTH: usize = 32;
+}
+
+/// Metadata associated with a quilt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltMetadata {
+    /// The ID of the quilt.
+    pub quilt_id: BlobId,
+    /// Object ID of the quilt.
+    pub obj_id: Option<ObjectID>,
+    /// The metadata of the quilt.
+    pub quilt_blob_metadata: BlobMetadata,
+    /// The IDs of the blobs in the quilt.
+    pub blocks: Vec<QuiltBlock>,
+}
+
+impl QuiltMetadata {
+    /// Creates a new [`QuiltMetadata`].
+    pub fn new(
+        quilt_id: BlobId,
+        quilt_blob_metadata: BlobMetadata,
+        blocks: Vec<QuiltBlock>,
+    ) -> Self {
+        Self {
+            quilt_id: quilt_id,
+            obj_id: None,
+            quilt_blob_metadata: quilt_blob_metadata,
+            blocks,
+        }
+    }
+
+    /// The BlobId of the quilt.
+    pub fn blob_id(&self) -> &BlobId {
+        &self.quilt_id
+    }
+
+    /// The BlobMetadata of the quilt.
+    pub fn metadata(&self) -> &BlobMetadata {
+        &self.quilt_blob_metadata
+    }
+
+    pub fn obj_id(&self) -> Option<&ObjectID> {
+        self.obj_id.as_ref()
+    }
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
@@ -107,6 +189,14 @@ impl<const V: bool> BlobMetadataWithId<V> {
     /// The associated [`BlobMetadata`].
     pub fn metadata(&self) -> &BlobMetadata {
         &self.metadata
+    }
+
+    /// The end index of the quilt.
+    pub fn quilt_index_end_index(&self) -> Option<u16> {
+        match &self.metadata {
+            BlobMetadata::V2(inner) => Some(inner.quilt_index_end_index),
+            BlobMetadata::V1(_) => None,
+        }
     }
 }
 
@@ -223,6 +313,8 @@ pub trait BlobMetadataApi {
 pub enum BlobMetadata {
     /// Version 1 of the blob metadata.
     V1(BlobMetadataV1),
+    /// Blob metadata with quilt information.
+    V2(BlobMetadataWithQuiltInfoV1),
 }
 
 impl BlobMetadata {
@@ -240,10 +332,46 @@ impl BlobMetadata {
         })
     }
 
+    /// Creates a new [`BlobMetadata`] with the given quilt index end index.
+    pub fn with_quilt_index_end_index(self, quilt_index_end_index: u16) -> BlobMetadata {
+        match self {
+            BlobMetadata::V1(inner) => BlobMetadata::new_with_quilt_info(
+                inner.encoding_type,
+                inner.unencoded_length,
+                inner.hashes,
+                quilt_index_end_index,
+            ),
+            BlobMetadata::V2(inner) => BlobMetadata::new_with_quilt_info(
+                inner.quilt_blob_metadata.encoding_type,
+                inner.quilt_blob_metadata.unencoded_length,
+                inner.quilt_blob_metadata.hashes,
+                quilt_index_end_index,
+            ),
+        }
+    }
+
+    /// Creates a new [`BlobMetadata`] with quilt information.
+    pub fn new_with_quilt_info(
+        encoding_type: EncodingType,
+        unencoded_length: u64,
+        hashes: Vec<SliverPairMetadata>,
+        quilt_index_end_index: u16,
+    ) -> BlobMetadata {
+        BlobMetadata::V2(BlobMetadataWithQuiltInfoV1 {
+            quilt_index_end_index,
+            quilt_blob_metadata: BlobMetadataV1 {
+                encoding_type,
+                unencoded_length,
+                hashes,
+            },
+        })
+    }
+
     /// Returns the encoding type of the blob.
     pub fn encoding_type(&self) -> EncodingType {
         match self {
             BlobMetadata::V1(inner) => inner.encoding_type,
+            BlobMetadata::V2(inner) => inner.quilt_blob_metadata.encoding_type,
         }
     }
 
@@ -254,6 +382,7 @@ impl BlobMetadata {
     pub fn mut_inner(&mut self) -> &mut BlobMetadataV1 {
         match self {
             BlobMetadata::V1(inner) => inner,
+            BlobMetadata::V2(inner) => &mut inner.quilt_blob_metadata,
         }
     }
 }
@@ -267,6 +396,15 @@ pub struct BlobMetadataV1 {
     pub unencoded_length: u64,
     /// The hashes over the slivers of the blob.
     pub hashes: Vec<SliverPairMetadata>,
+}
+
+/// Metadata about a blob, with quilt information.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobMetadataWithQuiltInfoV1 {
+    /// The ID of the quilt.
+    pub quilt_index_end_index: u16,
+    /// The metadata of the quilt.
+    pub quilt_blob_metadata: BlobMetadataV1,
 }
 
 impl BlobMetadataApi for BlobMetadataV1 {
@@ -328,6 +466,45 @@ impl BlobMetadataApi for BlobMetadataV1 {
 
     fn hashes(&self) -> &Vec<SliverPairMetadata> {
         &self.hashes
+    }
+}
+
+impl BlobMetadataApi for BlobMetadataWithQuiltInfoV1 {
+    /// Return the hash of the sliver pair at the given index and type.
+    fn get_sliver_hash(
+        &self,
+        sliver_pair_index: SliverPairIndex,
+        sliver_type: SliverType,
+    ) -> Option<&MerkleNode> {
+        self.quilt_blob_metadata
+            .get_sliver_hash(sliver_pair_index, sliver_type)
+    }
+
+    fn compute_root_hash(&self) -> MerkleNode {
+        self.quilt_blob_metadata.compute_root_hash()
+    }
+
+    fn symbol_size(
+        &self,
+        encoding_config: &EncodingConfig,
+    ) -> Result<NonZeroU16, DataTooLargeError> {
+        self.quilt_blob_metadata.symbol_size(encoding_config)
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        self.quilt_blob_metadata.encoded_size()
+    }
+
+    fn encoding_type(&self) -> EncodingType {
+        self.quilt_blob_metadata.encoding_type()
+    }
+
+    fn unencoded_length(&self) -> u64 {
+        self.quilt_blob_metadata.unencoded_length()
+    }
+
+    fn hashes(&self) -> &Vec<SliverPairMetadata> {
+        self.quilt_blob_metadata.hashes()
     }
 }
 

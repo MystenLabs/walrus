@@ -23,7 +23,7 @@ use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
 use tempfile::TempDir;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    encoding::{EncodingConfigTrait as _, Primary},
+    encoding::{BlobWithDesc, EncodingConfigTrait as _, Primary},
     merkle::Node,
     messages::BlobPersistenceType,
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
@@ -725,6 +725,47 @@ async fn test_store_with_existing_storage_resource(
 
     // Check the object ids are the same.
     assert!(should_match == (original_storage_resources == blob_store));
+    Ok(())
+}
+
+async_param_test! {
+    #[ignore = "ignore E2E tests by default"]
+    #[walrus_simtest]
+    test_store_quilt -> TestResult : [
+        one_quilt: (2),
+        three_quilt: (3),
+        ten_quilt: (4),
+    ]
+}
+/// Tests that a quilt can be stored.
+async fn test_store_quilt(blobs_to_create: u32) -> TestResult {
+    telemetry_subscribers::init_for_testing();
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let blobs = walrus_test_utils::random_data_list(314, blobs_to_create as usize);
+    let encoding_type = random_encoding_type();
+    let desc_vec = (0..blobs_to_create as usize)
+        .map(|i| format!("test-blob-{}", i + 1))
+        .collect::<Vec<_>>();
+    let blobs_with_desc = blobs
+        .iter()
+        .zip(desc_vec.iter())
+        .map(|(blob, desc)| BlobWithDesc::new(blob, desc))
+        .collect::<Vec<_>>();
+
+    // Add a blob that is not deletable.
+    let result = client
+        .as_ref()
+        .reserve_and_store_quilt(
+            &blobs_with_desc,
+            encoding_type,
+            2,
+            StoreWhen::Always,
+            BlobPersistence::Deletable,
+            PostStoreAction::Keep,
+        )
+        .await?;
+    tracing::info!("result: {:?}", result);
+
     Ok(())
 }
 

@@ -20,9 +20,16 @@ use typed_store::{
     Map,
     TypedStoreError,
 };
-use walrus_core::{BlobId, Epoch};
+use walrus_core::{
+    metadata::{QuiltBlock, QuiltMetadata},
+    BlobId,
+    Epoch,
+};
 use walrus_sdk::api::{BlobStatus, DeletableCounts};
-use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
+use walrus_sui::{
+    test_utils::event_id_for_testing,
+    types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId},
+};
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
@@ -159,6 +166,31 @@ impl BlobInfoTable {
                 &BlobInfoMergeOperand::MarkMetadataStored(metadata_stored).to_bytes(),
             )],
         )
+    }
+
+    pub fn set_metadata_stored_with_quilt_info<'a>(
+        &self,
+        batch: &'a mut DBBatch,
+        quilt_metadata: &QuiltMetadata,
+        metadata_stored: bool,
+    ) -> Result<&'a mut DBBatch, TypedStoreError> {
+        batch.partial_merge_batch(
+            &self.aggregate_blob_info,
+            [(
+                quilt_metadata.blob_id(),
+                &BlobInfoMergeOperand::MarkMetadataStored(metadata_stored).to_bytes(),
+            )],
+        )?;
+        // if let Some(obj_id) = quilt_metadata.obj_id() {
+        //     batch.partial_merge_batch(
+        //         &self.per_object_blob_info,
+        //         [(
+        //             obj_id,
+        //             &PerObjectBlobInfoMergeOperand::from_quilt_metadata(quilt_metadata).to_bytes(),
+        //         )],
+        //     )?;
+        // }
+        Ok(batch)
     }
 
     /// Returns an iterator over all blobs that were certified before the specified epoch in the
@@ -389,6 +421,7 @@ pub(super) enum BlobStatusChangeType {
     // INV: Can only be applied to a certified blob.
     Extend,
     Delete { was_certified: bool },
+    Noop,
 }
 
 impl BlobInfoMergeOperand {
@@ -664,6 +697,7 @@ impl ValidBlobInfoV1 {
                         );
                     }
                 }
+                BlobStatusChangeType::Noop => {}
             }
         } else {
             match change_type {
@@ -691,6 +725,7 @@ impl ValidBlobInfoV1 {
                         was_certified,
                     );
                 }
+                BlobStatusChangeType::Noop => {}
             }
         }
 
@@ -703,7 +738,9 @@ impl ValidBlobInfoV1 {
                 self.maybe_unset_initial_certified_epoch();
             }
             // Explicit matches to make sure we cover all cases.
-            BlobStatusChangeType::Register | BlobStatusChangeType::Extend => (),
+            BlobStatusChangeType::Register
+            | BlobStatusChangeType::Extend
+            | BlobStatusChangeType::Noop => (),
         }
     }
 
@@ -1217,6 +1254,7 @@ mod per_object_blob_info {
     pub(crate) struct PerObjectBlobInfoMergeOperand {
         pub change_type: BlobStatusChangeType,
         pub change_info: BlobStatusChangeInfo,
+        pub change_quilt_blocks: Vec<QuiltBlock>,
     }
 
     impl ToBytes for PerObjectBlobInfoMergeOperand {}
@@ -1235,6 +1273,7 @@ mod per_object_blob_info {
             Some(Self {
                 change_type,
                 change_info,
+                change_quilt_blocks: vec![],
             })
         }
     }
@@ -1299,6 +1338,9 @@ mod per_object_blob_info {
         pub event: EventID,
         /// Whether the blob has been deleted.
         pub deleted: bool,
+        /// The quilt structure of the blob.
+        #[serde(default)]
+        pub quilt_blocks: Vec<QuiltBlock>,
     }
 
     impl PerObjectBlobInfoApi for PerObjectBlobInfoV1 {
@@ -1333,6 +1375,7 @@ mod per_object_blob_info {
             PerObjectBlobInfoMergeOperand {
                 change_type,
                 change_info,
+                change_quilt_blocks,
             }: PerObjectBlobInfoMergeOperand,
         ) -> Self {
             assert_eq!(self.blob_id, change_info.blob_id);
@@ -1364,7 +1407,9 @@ mod per_object_blob_info {
                     assert_eq!(self.certified_epoch.is_some(), was_certified);
                     self.deleted = true;
                 }
+                BlobStatusChangeType::Noop => {}
             }
+            self.quilt_blocks.extend(change_quilt_blocks);
             self
         }
 
@@ -1379,6 +1424,7 @@ mod per_object_blob_info {
                         end_epoch,
                         status_event,
                     },
+                change_quilt_blocks,
             } = operand
             else {
                 tracing::error!(
@@ -1395,6 +1441,7 @@ mod per_object_blob_info {
                 deletable,
                 event: status_event,
                 deleted: false,
+                quilt_blocks: vec![],
             })
         }
     }
@@ -1923,5 +1970,47 @@ mod tests {
             BlobInfoV1::Valid(blob_info).to_blob_status(epoch_expired),
             BlobStatus::Nonexistent,
         ));
+    }
+
+    #[test]
+    fn test_per_object_blob_info_compatibility() {
+        // Create a new struct with the current definition
+        let new_info = per_object_blob_info::PerObjectBlobInfoV1 {
+            blob_id: walrus_core::test_utils::blob_id_from_u64(42),
+            registered_epoch: 1,
+            certified_epoch: Some(2),
+            end_epoch: 10,
+            deletable: true,
+            event: event_id_for_testing(),
+            deleted: false,
+            quilt_blocks: vec![], // Empty vector
+        };
+
+        // Serialize the new struct
+        let serialized_new = bincode::serialize(&new_info).expect("Failed to serialize new struct");
+        println!("serialized_new: {:?}", serialized_new);
+
+        // Manually create the serialized format of the old struct by removing the quilt_blocks field
+        // In bincode format, the last field would be the quilt_blocks
+        // For an empty vector, it would be represented as a length of 0 (typically 1 byte)
+        // So we can remove the last byte which represents the empty vector length
+        let serialized_old = &serialized_new[..serialized_new.len() - 1];
+        println!("serialized_old: {:?}", serialized_old);
+
+        // Deserialize using the current struct definition
+        let deserialized_new: per_object_blob_info::PerObjectBlobInfoV1 =
+            bincode::deserialize(serialized_old).expect("Failed to deserialize into new struct");
+
+        // Verify fields match
+        assert_eq!(deserialized_new.blob_id, new_info.blob_id);
+        assert_eq!(deserialized_new.registered_epoch, new_info.registered_epoch);
+        assert_eq!(deserialized_new.certified_epoch, new_info.certified_epoch);
+        assert_eq!(deserialized_new.end_epoch, new_info.end_epoch);
+        assert_eq!(deserialized_new.deletable, new_info.deletable);
+        assert_eq!(deserialized_new.event, new_info.event);
+        assert_eq!(deserialized_new.deleted, new_info.deleted);
+
+        // The new field should be initialized with its default value (empty vector)
+        assert!(deserialized_new.quilt_blocks.is_empty());
     }
 }

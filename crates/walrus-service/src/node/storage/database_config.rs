@@ -177,6 +177,10 @@ pub struct DatabaseConfig {
     pub(super) node_status: Option<DatabaseTableOptions>,
     /// Metadata database options.
     pub(super) metadata: Option<DatabaseTableOptions>,
+    /// Quilt metadata database options.
+    pub(super) quilt_metadata: Option<DatabaseTableOptions>,
+    /// Quilt block metadata database options.
+    pub(super) quilt_block_metadata: Option<DatabaseTableOptions>,
     /// Blob info database options.
     pub(super) blob_info: Option<DatabaseTableOptions>,
     /// Per object blob info database options.
@@ -202,6 +206,16 @@ impl DatabaseConfig {
     /// Returns the metadata database option.
     pub fn metadata(&self) -> &DatabaseTableOptions {
         self.metadata.as_ref().unwrap_or(&self.optimized_for_blobs)
+    }
+
+    /// Returns the quilt metadata database option.
+    pub fn quilt_metadata(&self) -> &DatabaseTableOptions {
+        self.quilt_metadata.as_ref().unwrap_or(&self.standard)
+    }
+
+    /// Returns the quilt block metadata database option.
+    pub fn quilt_block_metadata(&self) -> &DatabaseTableOptions {
+        self.quilt_block_metadata.as_ref().unwrap_or(&self.standard)
     }
 
     /// Returns the blob info database option.
@@ -250,6 +264,8 @@ impl Default for DatabaseConfig {
             optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
             node_status: None,
             metadata: None,
+            quilt_metadata: None,
+            quilt_block_metadata: None,
             blob_info: None,
             per_object_blob_info: None,
             event_cursor: None,

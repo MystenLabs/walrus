@@ -82,6 +82,8 @@ const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistency
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
 const HEALTH_URL_TEMPLATE: &str = "/v1/health";
 const SYNC_SHARD_TEMPLATE: &str = "/v1/migrate/sync_shard";
+const QUILT_METADATA_URL_TEMPLATE: &str = "/v1/quilt/:object_id/metadata";
+const QUILT_METADATA_STATUS_URL_TEMPLATE: &str = "/v1/quilt/:object_id/metadata/status";
 
 #[derive(Debug, Clone)]
 struct UrlEndpoints(Url);
@@ -236,6 +238,26 @@ impl UrlEndpoints {
                 .join("/v1/migrate/sync_shard")
                 .expect("this is a valid URL"),
             SYNC_SHARD_TEMPLATE,
+        )
+    }
+
+    fn quilt_resource(&self, object_id: &ObjectID, subpath: &str) -> Url {
+        self.0
+            .join(&format!("/v1/quilt/{object_id}/{subpath}"))
+            .expect("this should be a valid URL")
+    }
+
+    pub fn quilt_metadata(&self, object_id: &ObjectID) -> (Url, &'static str) {
+        (
+            self.quilt_resource(object_id, "metadata"),
+            QUILT_METADATA_URL_TEMPLATE,
+        )
+    }
+
+    pub fn quilt_metadata_status(&self, object_id: &ObjectID) -> (Url, &'static str) {
+        (
+            self.quilt_resource(object_id, "metadata/status"),
+            QUILT_METADATA_STATUS_URL_TEMPLATE,
         )
     }
 }

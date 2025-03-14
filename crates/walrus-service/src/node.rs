@@ -73,6 +73,7 @@ use walrus_core::{
     metadata::{
         BlobMetadataApi as _,
         BlobMetadataWithId,
+        QuiltMetadata,
         UnverifiedBlobMetadataWithId,
         VerifiedBlobMetadataWithId,
     },
@@ -199,6 +200,8 @@ pub trait ServiceState {
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<bool, StoreMetadataError>;
+
+    fn store_quilt_metadata(&self, metadata: QuiltMetadata) -> Result<bool, StoreMetadataError>;
 
     /// Returns whether the metadata is stored in the shard.
     fn metadata_status(
@@ -1969,6 +1972,10 @@ impl ServiceState for StorageNode {
         self.inner.store_metadata(metadata)
     }
 
+    fn store_quilt_metadata(&self, metadata: QuiltMetadata) -> Result<bool, StoreMetadataError> {
+        self.inner.store_quilt_metadata(metadata)
+    }
+
     fn metadata_status(
         &self,
         blob_id: &BlobId,
@@ -2134,6 +2141,45 @@ impl ServiceState for StorageNodeInner {
             .uploaded_metadata_unencoded_blob_bytes
             .observe(verified_metadata_with_id.as_ref().unencoded_length() as f64);
         self.metrics.metadata_stored_total.inc();
+
+        Ok(true)
+    }
+
+    fn store_quilt_metadata(&self, metadata: QuiltMetadata) -> Result<bool, StoreMetadataError> {
+        let Some(blob_info) = self
+            .storage
+            .get_blob_info(metadata.blob_id())
+            .context("could not retrieve blob info")?
+        else {
+            return Err(StoreMetadataError::NotCurrentlyRegistered);
+        };
+
+        if let Some(event) = blob_info.invalidation_event() {
+            return Err(StoreMetadataError::InvalidBlob(event));
+        }
+
+        ensure!(
+            blob_info.is_registered(self.current_epoch()),
+            StoreMetadataError::NotCurrentlyRegistered,
+        );
+
+        if blob_info.is_metadata_stored() {
+            return Ok(false);
+        }
+
+        // Check if encoding type is supported
+        let encoding_type = metadata.metadata().encoding_type();
+        if !encoding_type.is_supported() {
+            return Err(StoreMetadataError::UnsupportedEncodingType(encoding_type));
+        }
+
+        // self.storage.put_quilt_metadata(&metadata)
+        //     .context("unable to store quilt metadata")?;
+
+        // self.metrics
+        //     .uploaded_metadata_unencoded_blob_bytes
+        //     .observe(verified_metadata_with_id.as_ref().unencoded_length() as f64);
+        // self.metrics.metadata_stored_total.inc();
 
         Ok(true)
     }
