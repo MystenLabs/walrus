@@ -621,7 +621,7 @@ impl RetriableSuiClient {
     /// Returns the package ID from the type of the given object.
     ///
     /// Note: This returns the package address from the object type, not the newest package ID.
-    pub(crate) async fn get_package_id_from_object(
+    pub async fn get_package_id_from_object(
         &self,
         object_id: ObjectID,
     ) -> SuiClientResult<ObjectID> {

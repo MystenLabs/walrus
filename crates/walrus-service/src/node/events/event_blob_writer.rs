@@ -36,6 +36,7 @@ use walrus_sui::{
     client::SuiClientError,
     types::{
         move_errors::{MoveExecutionError, SystemStateInnerError},
+        move_structs::EventBlob as SuiEventBlob,
         BlobEvent,
         ContractEvent,
         EpochChangeEvent,
@@ -61,6 +62,7 @@ const PENDING: &str = "pending_blob_store";
 const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
 pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
+const DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD: u32 = 3;
 
 /// Metadata for event blobs.
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
@@ -245,6 +247,8 @@ impl EventBlobWriterFactory {
         node: Arc<StorageNodeInner>,
         registry: &Registry,
         num_checkpoints_per_blob: Option<u32>,
+        last_certified_event_blob: Option<SuiEventBlob>,
+        num_uncertified_blob_threshold: Option<u32>,
     ) -> Result<EventBlobWriterFactory> {
         let db_path = Self::db_path(root_dir_path);
         fs::create_dir_all(db_path.as_path())?;
@@ -308,6 +312,15 @@ impl EventBlobWriterFactory {
             &ReadWriteOptions::default(),
             false,
         )?;
+
+        Self::reset_uncertified_blobs(
+            &pending,
+            &attested,
+            &failed_to_attest,
+            num_uncertified_blob_threshold,
+            last_certified_event_blob,
+        )?;
+
         let event_cursor = pending
             .unbounded_iter()
             .last()
@@ -419,6 +432,94 @@ impl EventBlobWriterFactory {
                 .unwrap_or(NUM_CHECKPOINTS_PER_BLOB),
         )
         .await
+    }
+
+    /// Resets the state of unattested blobs when the system detects potential network
+    /// synchronization issues.
+    ///
+    /// This function helps recover from network-wide synchronization issues by resetting
+    /// uncertified blobs when their count exceeds a threshold. It's specifically designed
+    /// to handle cases where:
+    /// - The entire network is out of sync for an extended period
+    /// - The cluster is unable to achieve quorum for certifying new blobs
+    /// - There's a need to reset currently formed blobsand retry blob attestation
+    ///
+    /// # Note
+    /// This is a network-level recovery mechanism and would not be helpful with handling local
+    /// node corruption.
+    ///
+    /// # Process
+    /// 1. Gets the last certified blob in system object as an argument
+    /// 2. Counts local uncertified blobs (pending, attested, failed) after the last certified
+    ///    checkpoint
+    /// 3. if there are more total blobs than after the last certified checkpoint, it means that
+    ///    the node is still processing blobs before the last certified checkpoint, and hence there
+    ///    is no need to reset.
+    /// 4. If that count exceeds the threshold, resets all local uncertified blobs
+    fn reset_uncertified_blobs(
+        pending_db: &DBMap<u64, PendingEventBlobMetadata>,
+        attested_db: &DBMap<(), AttestedEventBlobMetadata>,
+        failed_to_attest_db: &DBMap<(), FailedToAttestEventBlobMetadata>,
+        num_uncertified_blob_threshold: Option<u32>,
+        last_certified_event_blob: Option<SuiEventBlob>,
+    ) -> Result<()> {
+        let Some(last_certified_event_blob) = last_certified_event_blob else {
+            return Ok(());
+        };
+        let num_uncertified_blob_threshold =
+            num_uncertified_blob_threshold.unwrap_or(DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD);
+        let pending = pending_db
+            .unbounded_iter()
+            .filter(|(_, metadata)| {
+                metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+            })
+            .collect::<Vec<_>>();
+        let attested = attested_db
+            .unbounded_iter()
+            .filter(|(_, metadata)| {
+                metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+            })
+            .collect::<Vec<_>>();
+        let failed_to_attest = failed_to_attest_db
+            .unbounded_iter()
+            .filter(|(_, metadata)| {
+                metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+            })
+            .collect::<Vec<_>>();
+        let total_uncertified_blobs = pending_db.unbounded_iter().count()
+            + failed_to_attest_db.unbounded_iter().count()
+            + attested_db.unbounded_iter().count();
+        let uncertified_blobs_after_last_certified =
+            pending.len() + failed_to_attest.len() + attested.len();
+
+        let should_reset = total_uncertified_blobs == uncertified_blobs_after_last_certified
+            && uncertified_blobs_after_last_certified as u32 >= num_uncertified_blob_threshold;
+        if !should_reset {
+            tracing::info!(
+                "No need to reset as number of uncertified blobs {} is less than the threshold {}",
+                uncertified_blobs_after_last_certified,
+                num_uncertified_blob_threshold
+            );
+            return Ok(());
+        }
+        tracing::info!(
+            "Resetting current event blob writer state as number of uncertified blobs {} \
+            is greater than the threshold {}",
+            uncertified_blobs_after_last_certified,
+            num_uncertified_blob_threshold
+        );
+        let mut wb = pending_db.batch();
+        for (k, _) in pending {
+            wb.delete_batch(pending_db, std::iter::once(k))?;
+        }
+        if !attested.is_empty() {
+            wb.delete_batch(attested_db, std::iter::once(()))?;
+        }
+        if !failed_to_attest.is_empty() {
+            wb.delete_batch(failed_to_attest_db, std::iter::once(()))?;
+        }
+        wb.write()?;
+        Ok(())
     }
 }
 
@@ -1376,6 +1477,8 @@ mod tests {
             node.storage_node.inner().clone(),
             &registry,
             Some(10),
+            None,
+            None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
@@ -1426,6 +1529,8 @@ mod tests {
             node.storage_node.inner().clone(),
             &registry,
             Some(10),
+            None,
+            None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
@@ -1503,6 +1608,8 @@ mod tests {
             node.storage_node.inner().clone(),
             &registry,
             Some(10),
+            None,
+            None,
         )?;
         let mut blob_writer = blob_writer_factory.create().await?;
         let num_checkpoints: u64 = NUM_BLOBS * blob_writer.num_checkpoints_per_blob() as u64;
