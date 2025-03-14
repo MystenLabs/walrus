@@ -311,7 +311,7 @@ struct ConfigArgs {
     #[clap(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t = config::defaults::commission_rate())]
     commission_rate: u16,
     /// The image URL of the storage node.
     #[clap(long, default_value = "")]
