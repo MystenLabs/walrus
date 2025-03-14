@@ -145,7 +145,7 @@ pub struct StorageNodeConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
     /// The commission rate of the storage node, in basis points.
-    #[serde(default)]
+    #[serde(default = "defaults::commission_rate")]
     pub commission_rate: u16,
     /// The parameters for the staking pool.
     pub voting_params: VotingParams,
@@ -185,7 +185,7 @@ impl Default for StorageNodeConfig {
             event_processor_config: Default::default(),
             use_legacy_event_provider: false,
             disable_event_blob_writer: Default::default(),
-            commission_rate: 0,
+            commission_rate: defaults::commission_rate(),
             voting_params: VotingParams {
                 storage_price: defaults::storage_price(),
                 write_price: defaults::write_price(),
@@ -682,12 +682,17 @@ pub mod defaults {
 
     /// The default vote for the storage price.
     pub fn storage_price() -> u64 {
-        100
+        100_000
     }
 
     /// The default vote for the write price.
     pub fn write_price() -> u64 {
-        2000
+        20_000
+    }
+
+    /// The default commission rate in basis points.
+    pub fn commission_rate() -> u16 {
+        6000
     }
 
     /// Configure the default push interval for metrics.
@@ -1234,7 +1239,7 @@ mod tests {
             network_key_pair: PathOrInPlace::InPlace(test_utils::network_key_pair()),
             voting_params: new_voting_params,
             metadata: new_metadata,
-            commission_rate: 100,
+            commission_rate: 1000,
             ..Default::default()
         }
     }
