@@ -12,7 +12,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency: ${{ github.workflow }}-${{ inputs.walrus_tag || github.ref }}
 
