@@ -159,9 +159,9 @@ walrus-utils = { workspace = true, features = ["backoff", "checkpoints", "config
 
 [dev-dependencies]
 hex = "0.4.3"
-http-body-util = "0.1.1"
+http-body-util = "0.1.3"
 mockall.workspace = true
-ring = "0.17.13"
+ring = "0.17.14"
 tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
