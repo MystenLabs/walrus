@@ -22,6 +22,7 @@ use walrus_sui::{
         ReadClient as _,
         SuiClientError,
         SuiContractClient,
+        SuiReadClient,
     },
     types::{
         move_structs::{EpochState, EventBlob},
@@ -120,6 +121,7 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 #[derive(Debug, Clone)]
 pub struct SuiSystemContractService {
     contract_client: Arc<TokioMutex<SuiContractClient>>,
+    read_client: Arc<SuiReadClient>,
     committee_service: Arc<dyn CommitteeService>,
     rng: Arc<StdMutex<StdRng>>,
 }
@@ -139,6 +141,7 @@ impl SuiSystemContractService {
         seed: u64,
     ) -> Self {
         Self {
+            read_client: contract_client.read_client.clone(),
             contract_client: Arc::new(TokioMutex::new(contract_client)),
             committee_service,
             rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(seed))),
@@ -269,8 +272,7 @@ impl SystemContractService for SuiSystemContractService {
     }
 
     async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
-        let client = self.contract_client.lock().await;
-        let committees = client.get_committees_and_state().await?;
+        let committees = self.read_client.get_committees_and_state().await?;
         Ok((committees.current.epoch, committees.epoch_state))
     }
 
@@ -279,8 +281,7 @@ impl SystemContractService for SuiSystemContractService {
     }
 
     async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        let contract_client = self.contract_client.lock().await;
-        contract_client
+        self.read_client
             .fixed_system_parameters()
             .await
             .context("failed to retrieve system parameters")
@@ -414,19 +415,11 @@ impl SystemContractService for SuiSystemContractService {
     }
 
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError> {
-        self.contract_client
-            .lock()
-            .await
-            .system_object_version()
-            .await
+        self.read_client.system_object_version().await
     }
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
-        self.contract_client
-            .lock()
-            .await
-            .last_certified_event_blob()
-            .await
+        self.read_client.last_certified_event_blob().await
     }
 }
 
