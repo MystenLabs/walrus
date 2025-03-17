@@ -143,7 +143,7 @@ where
 {
     U::try_from_object_data(object_response.data.as_ref().ok_or_else(|| {
         anyhow!(
-            "response does not contain object data [err={:?}",
+            "response does not contain object data [err={:?}]",
             object_response.error
         )
     })?)
