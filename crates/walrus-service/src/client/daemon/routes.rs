@@ -345,12 +345,12 @@ fn check_blob_size(
         Ok(claim) => {
             if let Some(max_size) = claim.max_size {
                 if blob_size as u64 > max_size {
-                    return Err(PublisherAuthError::SizeIncorrect);
+                    return Err(PublisherAuthError::InvalidSize);
                 }
             }
             if let Some(size) = claim.size {
                 if blob_size as u64 != size {
-                    return Err(PublisherAuthError::SizeIncorrect);
+                    return Err(PublisherAuthError::InvalidSize);
                 }
             }
             Ok(())

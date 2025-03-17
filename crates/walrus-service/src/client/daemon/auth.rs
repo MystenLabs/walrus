@@ -12,7 +12,6 @@ use jsonwebtoken::{
 };
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
-use tracing::error;
 use walrus_core::EpochCount;
 use walrus_proc_macros::RestApiError;
 
@@ -45,6 +44,7 @@ pub struct Claim {
     /// The number of epochs the blob should be stored for.
     ///
     /// This is an exact number of epochs the blob should be stored for, no more, no less.
+    ///
     /// If both `epochs` and `max_epochs` are present, this is considered a configuration mistake
     /// and the claim is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,10 +58,14 @@ pub struct Claim {
     pub max_epochs: Option<u32>,
 
     /// The maximum size of the blob that can be stored, in bytes.
+    ///
+    /// If both `size` and `max_size` are present, this is considered a configuration mistake
+    /// and the claim is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_size: Option<u64>,
 
     /// The exact size of the blob that can be stored, in bytes.
+    ///
     /// If both `size` and `max_size` are present, this is considered a configuration mistake
     /// and the claim is rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,17 +80,19 @@ impl Claim {
         validation: &Validation,
     ) -> Result<Self, PublisherAuthError> {
         let claim: Claim = decode(token, decoding_key, validation)
-            .map_err(|err| {
+            .map_err(|error| {
                 tracing::debug!(
-                    error = &err as &dyn std::error::Error,
+                    %error,
                     "failed to convert token to claim"
                 );
-                match err.kind() {
-                    JwtErrorKind::ExpiredSignature => PublisherAuthError::ExpiredSignature(err),
+                match error.kind() {
+                    JwtErrorKind::ExpiredSignature => PublisherAuthError::ExpiredSignature(error),
 
                     JwtErrorKind::InvalidSignature
                     | JwtErrorKind::InvalidAlgorithmName
-                    | JwtErrorKind::ImmatureSignature => PublisherAuthError::InvalidSignature(err),
+                    | JwtErrorKind::ImmatureSignature => {
+                        PublisherAuthError::InvalidSignature(error)
+                    }
 
                     JwtErrorKind::InvalidToken
                     | JwtErrorKind::InvalidAlgorithm
@@ -95,14 +101,14 @@ impl Claim {
                     | JwtErrorKind::InvalidSubject
                     | JwtErrorKind::Base64(_)
                     | JwtErrorKind::Json(_)
-                    | JwtErrorKind::Utf8(_) => PublisherAuthError::InvalidToken(err),
+                    | JwtErrorKind::Utf8(_) => PublisherAuthError::InvalidToken(error),
 
                     JwtErrorKind::RsaFailedSigning => {
                         unreachable!("we are not signing")
                     }
 
                     // The error kind is non-exhaustive, so we need to handle the `_` case.
-                    _ => PublisherAuthError::Internal(err.into()),
+                    _ => PublisherAuthError::Internal(error.into()),
                 }
             })?
             .claims;
@@ -123,7 +129,7 @@ impl Claim {
         }
 
         if self.max_size.is_some() && self.size.is_some() {
-            return Err(PublisherAuthError::InvalidSize);
+            return Err(PublisherAuthError::InconsistentToken);
         }
 
         // If verify_upload is disabled, skip the rest of the checks.
@@ -139,7 +145,7 @@ impl Claim {
                         body_size_upper_hint,
                         "upload with body size greater than max_size"
                     );
-                    return Err(PublisherAuthError::SizeIncorrect);
+                    return Err(PublisherAuthError::InvalidSize);
                 }
             }
             if let Some(size) = self.size {
@@ -149,7 +155,7 @@ impl Claim {
                         body_size_upper_hint,
                         "body does not match the size specified in the JWT (upper hint mismatch)"
                     );
-                    return Err(PublisherAuthError::SizeIncorrect);
+                    return Err(PublisherAuthError::InvalidSize);
                 }
             }
         }
@@ -161,7 +167,7 @@ impl Claim {
                     body_size_lower_hint,
                     "body does not match the size specified in the JWT (lower hint mismatch)"
                 );
-                return Err(PublisherAuthError::SizeIncorrect);
+                return Err(PublisherAuthError::InvalidSize);
             }
         }
 
@@ -169,7 +175,7 @@ impl Claim {
             tracing::debug!(
                 epochs = self.epochs,
                 max_epochs = self.max_epochs,
-                query = query.epochs,
+                query_epochs = query.epochs,
                 "upload with invalid number of epochs"
             );
             return Err(error);
@@ -217,10 +223,10 @@ impl Claim {
                 if query_epochs <= max_epochs {
                     Ok(())
                 } else {
-                    Err(PublisherAuthError::EpochsAboveMax)
+                    Err(PublisherAuthError::InvalidEpochs)
                 }
             }
-            (Some(_), Some(_)) => Err(PublisherAuthError::InvalidEpochs),
+            (Some(_), Some(_)) => Err(PublisherAuthError::InconsistentToken),
             (None, None) => Ok(()),
         }
     }
@@ -234,19 +240,19 @@ impl Claim {
         match (self.send_object_to, query_send_object_to) {
             (Some(expected), Some(actual)) if expected != actual => {
                 tracing::error!(
-                    expected = %expected,
-                    actual = %actual,
+                    %expected,
+                    %actual,
                     "upload with invalid send_object_to field"
                 );
                 Err(PublisherAuthError::InvalidSendObjectTo)
             }
             (Some(expected), None) => {
                 tracing::error!(
-                    expected = %expected,
+                    %expected,
                     "send_object_to field is missing"
                 );
 
-                Err(PublisherAuthError::MissingSendObjectTo)
+                Err(PublisherAuthError::InvalidSendObjectTo)
             }
             _ => Ok(()),
         }
@@ -332,30 +338,20 @@ pub enum PublisherAuthError {
     #[rest_api_error(reason = "INVALID_EPOCHS", status = ApiStatusCode::FailedPrecondition)]
     InvalidEpochs,
 
-    /// Misuse size, max-size field of the token to restrict upload
-    #[error("misuse size, max-size field of the token to restrict upload")]
+    /// The size of the request does not match the size specified in the token.
+    #[error("the size of the request does not match the size specified in the token")]
     #[rest_api_error(reason = "INVALID_SIZE", status = ApiStatusCode::FailedPrecondition)]
     InvalidSize,
-
-    /// Epochs is above the maximum allowed.
-    #[error("the epochs field in the query is above the maximum allowed")]
-    #[rest_api_error(reason = "EPOCHS_ABOVE_MAX", status = ApiStatusCode::FailedPrecondition)]
-    EpochsAboveMax,
 
     /// The send_object_to field in the query does not match the token, or is missing.
     #[error("the send_object_to field in the query does not match the token, or is missing")]
     #[rest_api_error(reason = "INVALID_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
     InvalidSendObjectTo,
 
-    /// The send_object_to field is missing from the query, but it is required.
-    #[error("the send_object_to field is missing from the query, but it is required")]
-    #[rest_api_error(reason = "MISSING_SEND_OBJECT_TO", status = ApiStatusCode::FailedPrecondition)]
-    MissingSendObjectTo,
-
-    /// The size of the body is incorrect
-    #[error("the size of the body is incorrect")]
-    #[rest_api_error(reason = "SIZE_INCORRECT", status = ApiStatusCode::FailedPrecondition)]
-    SizeIncorrect,
+    /// The token itself is inconsistent (e.g., both size and max_size are present).
+    #[error("the token is inconsistent")]
+    #[rest_api_error(reason = "INCONSISTENT_TOKEN", status = ApiStatusCode::FailedPrecondition)]
+    InconsistentToken,
 
     /// The signature on the token has expired.
     #[error("the signature on the token has expired: {0}")]
