@@ -81,7 +81,7 @@ skip = [
   { name = "itertools", version = "<=12.1" },
   { name = "synstructure", version = "0.12.6" },
   # AWS crates are not fully in sync.
-  { name = "aws-smithy-http", version = "0.60.12" },
+  { name = "aws-smithy-http" },
 ]
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.
