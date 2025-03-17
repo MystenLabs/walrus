@@ -171,6 +171,8 @@ pub struct EventBlobWriterMetrics {
     pub latest_processed_event_index: IntGauge,
     /// The latest event in process in an event blob.
     pub latest_in_progress_event_index: IntGauge,
+    /// The latest checkpoint sequence number attested in an event blob.
+    pub latest_attested_checkpoint_sequence_number: IntGauge,
 }
 
 impl EventBlobWriterMetrics {
@@ -192,6 +194,12 @@ impl EventBlobWriterMetrics {
             latest_in_progress_event_index: register_int_gauge_with_registry!(
                 "event_blob_writer_latest_in_progress_event_index",
                 "Latest in progress event blob writer index",
+                registry,
+            )
+            .expect("this is a valid metrics registration"),
+            latest_attested_checkpoint_sequence_number: register_int_gauge_with_registry!(
+                "event_blob_writer_latest_attested_checkpoint_sequence_number",
+                "Latest attested checkpoint sequence number",
                 registry,
             )
             .expect("this is a valid metrics registration"),
@@ -999,6 +1007,10 @@ impl EventBlobWriter {
             self.current_epoch,
             checkpoint_sequence_number
         );
+
+        self.metrics
+            .latest_attested_checkpoint_sequence_number
+            .set(checkpoint_sequence_number as i64);
 
         match self
             .node
