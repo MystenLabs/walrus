@@ -313,13 +313,13 @@ impl EventBlobWriterFactory {
             false,
         )?;
 
-        Self::reset_uncertified_blobs(
-            &pending,
-            &attested,
-            &failed_to_attest,
-            num_uncertified_blob_threshold,
-            last_certified_event_blob,
-        )?;
+        // Self::reset_uncertified_blobs(
+        //     &pending,
+        //     &attested,
+        //     &failed_to_attest,
+        //     num_uncertified_blob_threshold,
+        //     last_certified_event_blob,
+        // )?;
 
         let event_cursor = pending
             .unbounded_iter()
