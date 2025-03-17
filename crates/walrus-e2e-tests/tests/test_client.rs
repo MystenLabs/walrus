@@ -681,8 +681,7 @@ async fn test_store_with_existing_storage_resource(
     let encoding_type = DEFAULT_ENCODING;
     let pairs_and_metadata = client
         .as_ref()
-        .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)
-        .await?;
+        .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
     let encoded_sizes = pairs_and_metadata
         .iter()
         .map(|(_, metadata)| metadata.metadata().encoded_size().unwrap())

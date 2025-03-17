@@ -11,6 +11,10 @@ use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use rand::{rngs::ThreadRng, RngCore as _};
+use rayon::{
+    iter::{IndexedParallelIterator, IntoParallelRefIterator},
+    prelude::*,
+};
 use refresh::are_current_previous_different;
 use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
 use responses::BlobStoreResultWithPath;
@@ -494,9 +498,7 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self
-            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
-            .await?;
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs, encoding_type)?;
 
         self.retry_if_error_epoch_change(|| {
             self.reserve_and_store_encoded_blobs(
@@ -565,9 +567,7 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self
-            .encode_blobs_to_pairs_and_metadata(blobs, encoding_type)
-            .await?;
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs, encoding_type)?;
 
         self.reserve_and_store_encoded_blobs(
             &pairs_and_metadata,
@@ -585,9 +585,7 @@ impl Client<SuiContractClient> {
         encoding_type: EncodingType,
     ) -> ClientResult<EncodedResult> {
         let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
-        let pairs_and_metadata = self
-            .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)
-            .await?;
+        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
 
         // Build the id_to_path mapping.
         let id_to_path: HashMap<BlobId, PathBuf> = pairs_and_metadata
@@ -613,7 +611,7 @@ impl Client<SuiContractClient> {
 
     /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
     /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
-    pub async fn encode_blobs_to_pairs_and_metadata(
+    pub fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[&[u8]],
         encoding_type: EncodingType,
@@ -636,32 +634,27 @@ impl Client<SuiContractClient> {
             }
         }
 
-        let mut failed_indices = Vec::with_capacity(blobs.len());
-        let mut pairs_and_metadata = Vec::with_capacity(blobs.len());
-
         let multi_pb = Arc::new(MultiProgress::new());
+
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        futures::future::join_all(blobs.iter().enumerate().map(|(idx, blob)| {
-            let multi_pb_clone = multi_pb.clone();
-            async move {
-                match self
-                    .encode_pairs_and_metadata(blob, encoding_type, multi_pb_clone.as_ref())
-                    .await
-                {
+        let (pairs_and_metadata, failed_indices) = blobs
+            .par_iter()
+            .enumerate()
+            .map(|(idx, &blob)| {
+                let multi_pb_clone = multi_pb.clone();
+
+                match self.encode_pairs_and_metadata(blob, encoding_type, multi_pb_clone.as_ref()) {
                     Ok(result) => (idx, Ok(result)),
                     Err(e) => {
                         tracing::warn!("Failed to encode blob at index {}: {}", idx, e);
                         (idx, Err(e))
                     }
                 }
-            }
-        }))
-        .await
-        .into_iter()
-        .for_each(|(idx, result)| match result {
-            Ok(data) => pairs_and_metadata.push(data),
-            Err(e) => failed_indices.push((idx, e)),
-        });
+            })
+            .partition_map::<Vec<_>, Vec<_>, _, _, _>(|(idx, result)| match result {
+                Ok(data) => rayon::iter::Either::Left(data),
+                Err(e) => rayon::iter::Either::Right((idx, e)),
+            });
 
         // Return early if none of blobs are encoded.
         if pairs_and_metadata.is_empty() {
@@ -681,7 +674,7 @@ impl Client<SuiContractClient> {
         Ok(pairs_and_metadata)
     }
 
-    async fn encode_pairs_and_metadata(
+    fn encode_pairs_and_metadata(
         &self,
         blob: &[u8],
         encoding_type: EncodingType,
