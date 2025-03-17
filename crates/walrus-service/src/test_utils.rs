@@ -17,9 +17,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{future, stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
@@ -1812,8 +1813,6 @@ impl TestClusterBuilder {
 
     /// Creates the configured `TestCluster`.
     pub async fn build<T: StorageNodeHandleTrait>(self) -> anyhow::Result<TestCluster<T>> {
-        let mut nodes = vec![];
-
         let committee_members: Vec<_> = self
             .storage_node_configs
             .iter()
@@ -1829,6 +1828,7 @@ impl TestClusterBuilder {
 
         // Create the stub lookup service and handles that may be used if none is provided.
         let mut lookup_service_and_handle = None;
+        let mut node_futures = vec![];
 
         for (
             idx,
@@ -1910,20 +1910,26 @@ impl TestClusterBuilder {
                 builder = builder.with_system_contract_service(service);
             }
 
-            nodes.push(
-                T::build_and_run(
-                    builder,
-                    self.sui_cluster_handle.clone(),
-                    self.system_context.clone(),
-                    nondeterministic!(
-                        tempfile::tempdir().expect("temporary directory creation must succeed")
-                    ),
-                    start_node_from_beginning,
-                    disable_event_blob_writer,
-                )
-                .await?,
-            );
+            node_futures.push(T::build_and_run(
+                builder,
+                self.sui_cluster_handle.clone(),
+                self.system_context.clone(),
+                nondeterministic!(
+                    tempfile::tempdir().expect("temporary directory creation must succeed")
+                ),
+                start_node_from_beginning,
+                disable_event_blob_writer,
+            ));
         }
+
+        let nodes = future::join_all(node_futures)
+            .await
+            .into_iter()
+            .enumerate()
+            .map(|(idx, result)| {
+                result.with_context(|| format!("Failed to start storage node {}", idx))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(TestCluster {
             nodes,
