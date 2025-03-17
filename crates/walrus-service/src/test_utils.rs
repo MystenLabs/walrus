@@ -1910,6 +1910,7 @@ impl TestClusterBuilder {
                 builder = builder.with_system_contract_service(service);
             }
 
+            // Build and run the storage nodes in parallel.
             node_futures.push(T::build_and_run(
                 builder,
                 self.sui_cluster_handle.clone(),
@@ -1922,6 +1923,7 @@ impl TestClusterBuilder {
             ));
         }
 
+        // Returns error if any storage node fails to build and start.
         let nodes = future::join_all(node_futures)
             .await
             .into_iter()

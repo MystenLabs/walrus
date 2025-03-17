@@ -271,20 +271,8 @@ impl SystemContractService for SuiSystemContractService {
         Ok(())
     }
 
-    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
-        let committees = self.read_client.get_committees_and_state().await?;
-        Ok((committees.current.epoch, committees.epoch_state))
-    }
-
     fn current_epoch(&self) -> Epoch {
         self.committee_service.active_committees().epoch()
-    }
-
-    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
-        self.read_client
-            .fixed_system_parameters()
-            .await
-            .context("failed to retrieve system parameters")
     }
 
     async fn end_voting(&self) -> Result<(), anyhow::Error> {
@@ -390,22 +378,33 @@ impl SystemContractService for SuiSystemContractService {
         Ok(())
     }
 
+    // Below are the methods that only read state from Sui, which do not require a lock on the
+    // contract client.
+
+    async fn get_epoch_and_state(&self) -> Result<(Epoch, EpochState), anyhow::Error> {
+        let committees = self.read_client.get_committees_and_state().await?;
+        Ok((committees.current.epoch, committees.epoch_state))
+    }
+
+    async fn fixed_system_parameters(&self) -> Result<FixedSystemParameters, anyhow::Error> {
+        self.read_client
+            .fixed_system_parameters()
+            .await
+            .context("failed to retrieve system parameters")
+    }
+
     async fn get_node_capability_object(
         &self,
         node_capability_object_id: Option<ObjectID>,
     ) -> Result<StorageNodeCap, SuiClientError> {
         let node_capability = if let Some(node_cap) = node_capability_object_id {
-            self.contract_client
-                .lock()
-                .await
+            self.read_client
                 .sui_client()
                 .get_sui_object(node_cap)
                 .await?
         } else {
-            let contract_client = self.contract_client.lock().await;
-            let address = contract_client.address();
-            contract_client
-                .read_client
+            let address = self.contract_client.lock().await.address();
+            self.read_client
                 .get_address_capability_object(address)
                 .await?
                 .ok_or(SuiClientError::StorageNodeCapabilityObjectNotSet)?
