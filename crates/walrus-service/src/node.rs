@@ -637,7 +637,7 @@ impl StorageNode {
             node_params.num_checkpoints_per_blob
         );
 
-        let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
+        // let last_certified_event_blob = contract_service.last_certified_event_blob().await?;
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
             Some(EventBlobWriterFactory::new(
                 &config.storage_path,
@@ -646,7 +646,7 @@ impl StorageNode {
                 node_params
                     .num_checkpoints_per_blob
                     .or(num_checkpoints_per_blob),
-                last_certified_event_blob,
+                None,
                 config.num_uncertified_blob_threshold,
             )?)
         } else {
