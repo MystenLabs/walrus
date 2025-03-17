@@ -45,7 +45,7 @@ services:
     hostname: walrus-deploy
     container_name: walrus-deploy
     environment:
-      - EPOCH_DURATION=10m
+      - EPOCH_DURATION=2m
       - NO_COLOR=1
     volumes:
       - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
