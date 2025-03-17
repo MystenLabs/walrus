@@ -734,7 +734,6 @@ pub async fn create_storage_node_configs(
             metadata: Default::default(),
             config_synchronizer: Default::default(),
             storage_node_cap: None,
-            num_uncertified_blob_threshold: Some(10),
         });
     }
 

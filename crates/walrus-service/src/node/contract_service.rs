@@ -23,11 +23,7 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
     },
-    types::{
-        move_structs::{EpochState, EventBlob},
-        StorageNodeCap,
-        UpdatePublicKeyParams,
-    },
+    types::{move_structs::EpochState, StorageNodeCap, UpdatePublicKeyParams},
 };
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
@@ -111,9 +107,6 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Returns the system object version.
     async fn get_system_object_version(&self) -> Result<u64, SuiClientError>;
-
-    /// Returns the last certified event blob.
-    async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError>;
 }
 
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
@@ -418,14 +411,6 @@ impl SystemContractService for SuiSystemContractService {
             .lock()
             .await
             .system_object_version()
-            .await
-    }
-
-    async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
-        self.contract_client
-            .lock()
-            .await
-            .last_certified_event_blob()
             .await
     }
 }
