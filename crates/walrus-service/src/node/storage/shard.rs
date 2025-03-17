@@ -19,9 +19,9 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
-use sui_macros::fail_point_if;
 #[cfg(msim)]
 use sui_macros::{fail_point, fail_point_arg};
+use sui_macros::{fail_point_if, nondeterministic};
 use typed_store::{
     rocks::{
         be_fix_int_ser as to_rocks_db_key,
@@ -415,7 +415,9 @@ impl ShardStorage {
     /// Returns the ids of existing shards that are fully initialized in the database at the
     /// provided path.
     pub(crate) fn existing_cf_shards_ids(path: &Path, options: &Options) -> HashSet<ShardIndex> {
-        DB::list_cf(options, path)
+        // RocksDb internal uses real clock to start and initialize the database. Wrap this call
+        // in a nondeterministic block to make the test deterministic.
+        nondeterministic!(DB::list_cf(options, path)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|cf_name| match id_from_column_family_name(&cf_name) {
@@ -424,7 +426,7 @@ impl ShardStorage {
                 Some((shard_index, SliverType::Secondary)) => Some(shard_index),
                 Some((_, SliverType::Primary)) | None => None,
             })
-            .collect()
+            .collect())
     }
 
     pub(crate) fn status(&self) -> Result<ShardStatus, TypedStoreError> {
