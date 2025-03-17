@@ -20,7 +20,9 @@ if [ -z "$NUM_CPUS" ]; then
 fi
 
 DATE=$(date '+%Y%m%d_%H%M%S')
-SEED="$DATE"
+
+# Using a random seed derived from the current time for the simulator tests.
+SEED=$(date +%s)
 
 # create logs directory
 SIMTEST_LOGS_DIR=~/walrus_simtest_logs
@@ -33,7 +35,7 @@ LOG_FILE="$LOG_DIR/log"
 # Specify the temporary directory for the simulator tests.
 # Note that publishing contracts requires that the contracts exist in the same file system as the simulator tests.
 # Therefore, we cannot simply use the /tmp directory for the simulator tests.
-WALRUS_TMP_DIR="~/walrus_simtest_tmp"
+WALRUS_TMP_DIR=~/walrus_simtest_tmp
 
 # Set the LD_LIBRARY_PATH to include the crt-static library. The query here include all the rustlib
 # paths for the current toolchain installed. This is to make sure that when we upgrade rust to a
@@ -60,8 +62,7 @@ MSIM_TEST_NUM=${TEST_NUM} \
 scripts/simtest/cargo-simtest simtest simtest \
   --color always \
   --test-threads "$NUM_CPUS" \
-  --profile simtestnightly \
-  -E "$TEST_FILTER" 2>&1 | tee "$LOG_FILE"
+  --profile simtestnightly 2>&1 | tee "$LOG_FILE"
 
 # wait for all the jobs to end
 wait
@@ -72,7 +73,7 @@ echo "All tests completed, checking for failures..."
 echo "============================================="
 date
 
-grep -EqHn 'TIMEOUT|FAIL|stderr' "$LOG_DIR"/*
+grep -EqHn 'TIMEOUT|FAIL|stderr|error:' "$LOG_DIR"/*
 
 # if grep found no failures exit now
 [ $? -eq 1 ] && echo "No test failures detected" && exit 0
