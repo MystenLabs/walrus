@@ -4,19 +4,34 @@ A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for co
 
 ## Documentation
 
-General Walrus documentation is available at [docs.walrus.site](https://docs.walrus.site), which is
-built from the [MystenLabs/walrus-docs](https://github.com/MystenLabs/walrus-docs) repository. That
-repository also contains usage examples for Walrus.
+Our main documentation is available [as a Walrus Site](https://docs.walrus.site) (see [the
+documentation](https://docs.walrus.site/walrus-sites/intro.html) for further information on what
+this means) and on [GitHub Pages](https://mystenlabs.github.io/walrus); it is generated using
+[mdBook](https://rust-lang.github.io/mdBook/) from source files in the [`docs/book`](./docs/book)
+directory.
 
-Our encoding system, which we call *Red Stuff*, is described in detail in
-[docs/red-stuff.md](docs/red-stuff.md).
-
-All our code is covered by Rust docs. You can build these and open them in your web browser by
-running the following:
+You can also build and access the documentation locally (assuming you have Rust installed):
 
 ```sh
-cargo doc --workspace --open # add `--no-deps` to prevent building docs of all dependencies
+cargo install mdbook
+cargo install mdbook-admonish --locked
+cargo install mdbook-katex --locked
+mdbook serve
 ```
+
+After this, you can browse the documentation at <http://localhost:3000>.
+
+There are some additional documentation resources:
+
+- Usage examples are available under [docs/examples](./docs/examples/).
+- Our encoding system, which we call *Red Stuff*, is described in detail in
+  [docs/red-stuff.md](docs/red-stuff.md).
+- All our code is covered by Rust docs. You can build these and open them in your web browser by
+  running the following:
+
+  ```sh
+  cargo doc --workspace --open # add `--no-deps` to prevent building docs of all dependencies
+  ```
 
 ## Repository structure
 

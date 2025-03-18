@@ -1,0 +1,41 @@
+[book]
+authors = ["Mysten Labs <build@mystenlabs.com>"]
+language = "en"
+multilingual = false
+src = "docs/book"
+title = "Walrus"
+
+[build]
+build-dir = "docs/build"
+
+[output.html]
+additional-css = ["docs/mdbook-admonish.css"]
+theme = "docs/theme"
+
+[output.linkcheck]
+exclude = [
+  'blob\.store',
+  'github\.com/MystenLabs/walrus', # TODO(WAL-471): Remove this once the repo is public.
+  'google\.com',
+  'suiscan\.xyz',
+  'walrus\.site',
+  'x\.com',
+]
+follow-web-links = true
+optional = true
+warning-policy = "error"
+
+[preprocessor]
+
+[preprocessor.admonish]
+assets_version = "3.0.3" # do not edit: managed by `mdbook-admonish install`
+command = "mdbook-admonish"
+on_failure = "bail"
+
+[preprocessor.katex]
+# Using `\(` and `\)` for inline math and `\[` and `\]` for math blocks.
+block-delimiter = { left = "\\[", right = "\\]" }
+inline-delimiter = { left = "\\(", right = "\\)" }
+
+[preprocessor.gettext]
+after = ["links"]

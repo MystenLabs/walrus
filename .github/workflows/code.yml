@@ -217,9 +217,7 @@ jobs:
         with:
           message: >
             **Warning:** This PR touches the `testnet-contracts` directory. This should only be
-            done if the Testnet contracts are updated. Note that in this case a corresponding
-            change needs to be made to the [walrus-docs](https://github.com/MystenLabs/walrus-docs)
-            repository.
+            done if the Testnet contracts are updated.
 
             cc @karlwuest @mlegner
 
@@ -247,8 +245,7 @@ jobs:
             - If there are added optional parameter sections, it should be possible to specify them
               partially. A useful pattern there is to implement `Default` for the struct and derive
               `#[serde(default)]` on it, see `BlobRecoveryConfig` as an example.
-            - You may need to update the [walrus-docs](https://github.com/MystenLabs/walrus-docs)
-              repository to reflect the changes.
+            - You may need to update the documentation to reflect the changes.
 
   openapi-warning:
     name: Check if the PR touches any of the OpenAPI files

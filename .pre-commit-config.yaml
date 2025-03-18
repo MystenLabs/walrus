@@ -28,6 +28,12 @@ repos:
     hooks:
       - id: typos
         pass_filenames: false
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.17.2
+    hooks:
+      - id: markdownlint-cli2
+        args: ["--fix"]
+        pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
     rev: 0.17.0
     hooks:
@@ -105,3 +111,9 @@ repos:
           - "prettier@3.4.1"
           - "@mysten/prettier-plugin-move@0.2.2"
         files: "^contracts/.*\\.move"
+      - id: mdBook
+        name: Build docs if mdBook is installed
+        language: system
+        entry: bash -c 'which mdbook && mdbook build || ! which mdbook >> /dev/null'
+        files: 'book.toml|docs/.*'
+        pass_filenames: false

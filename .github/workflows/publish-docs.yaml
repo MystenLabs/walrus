@@ -1,0 +1,79 @@
+name: Build docs and publish to GitHub Pages and Walrus
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "book.toml"
+      - "docs/**"
+      - "theme/**"
+      - ".github/actions/build-mdbook/action.yaml"
+      - ".github/workflows/publish.yaml"
+  workflow_dispatch:
+    inputs:
+      publish-pages:
+        description: "Publish to GitHub Pages"
+        type: boolean
+        required: true
+        default: false
+      update-walrus-site:
+        description: "Update the Walrus Site"
+        type: boolean
+        required: true
+        default: false
+
+concurrency: ci-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  publish-github-pages:
+    name: Publish to GitHub Pages
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || inputs.publish-pages == true }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-mdbook
+        with:
+          with_linkcheck: "false"
+      - name: Update GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4.7.3
+        with:
+          folder: build/html
+          clean-exclude: pr-preview/
+          force: false
+
+  # We store the data for the Sui wallet and the site object in GitHub variables
+  # (https://github.com/MystenLabs/walrus/settings/variables/actions) and secrets
+  # (https://github.com/MystenLabs/walrus/settings/secrets/actions).
+  publish-walrus:
+    name: Update Walrus Site
+    runs-on: ubuntu-ghcloud
+    # TODO(WAL-698): enable this when Mainnet is live and we have finished the setup.
+    # if: ${{ github.event_name == 'push' || inputs.update-walrus-site == true }}
+    if: false
+    env:
+      # Colors don't seem to work properly with the multiline commands.
+      NO_COLOR: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/build-mdbook
+        with:
+          with_linkcheck: "false"
+      - uses: ./.github/actions/set-up-walrus
+        with:
+          SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
+          SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
+          WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
+
+      - name: Update Walrus Site
+        run: >
+          RUST_LOG=site_builder=debug,walrus=debug,info
+          site-builder
+          update build/html ${{ vars.WALRUS_SITE_OBJECT }}
+          --epochs 183
+          --force

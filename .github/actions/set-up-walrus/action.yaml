@@ -1,0 +1,64 @@
+name: Set up Walrus and Walrus Sites
+description: Install and configure Walrus and build the Walrus Sites site-builder
+
+inputs:
+  SUI_ADDRESS:
+    description: The Sui address to use
+    required: true
+  SUI_KEYSTORE:
+    description: The content of the Sui keystore file
+    required: true
+  WALRUS_CONFIG:
+    description: The content of the Walrus configuration file
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create bin directory and add to $PATH
+      run: |
+        mkdir -p bin
+        echo "$(pwd)/bin" >> ${GITHUB_PATH}
+      shell: bash
+    - name: Define environment variables
+      run: |
+        echo "SUI_CONFIG_DIR=/home/runner/.sui/sui_config" >> $GITHUB_ENV
+        echo "SUI_KEYSTORE_FILE=/home/runner/.sui/sui_config/sui.keystore" >> $GITHUB_ENV
+        echo "SUI_CONFIG_FILE=/home/runner/.sui/sui_config/client.yaml" >> $GITHUB_ENV
+        echo "SUI_ADDRESS=${{ inputs.SUI_ADDRESS }}" >> $GITHUB_ENV
+      shell: bash
+
+    - name: Set up Sui wallet
+      run: |
+        mkdir -p $SUI_CONFIG_DIR
+        CLIENT_CONF="---
+        keystore:
+          File: $SUI_KEYSTORE_FILE
+        envs:
+          - alias: mainnet
+            rpc: \"https://fullnode.mainnet.sui.io:443\"
+        active_env: mainnet
+        active_address: \"$SUI_ADDRESS\""
+        echo "$CLIENT_CONF" > $SUI_CONFIG_FILE
+        cat $SUI_CONFIG_FILE
+        echo '${{ inputs.SUI_KEYSTORE }}' > $SUI_KEYSTORE_FILE
+      shell: bash
+
+    - name: Install and configure Walrus
+      run: |
+        # The bin directory was already created and added to $PATH in the build-mdbook action
+        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64 -o bin/walrus
+        chmod +x bin/walrus
+        mkdir -p ~/.config/walrus
+        echo '${{ inputs.WALRUS_CONFIG }}' > ~/.config/walrus/client_config.yaml
+        walrus --version
+        walrus info # Ensure the walrus binary works
+      shell: bash
+
+    - name: Install and configure site-builder
+      run: |
+        curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64 -o bin/site-builder
+        chmod +x bin/site-builder
+        curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/mainnet/sites-config.yaml -o sites-config.yaml
+        site-builder --version
+      shell: bash

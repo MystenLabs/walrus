@@ -53,6 +53,9 @@ jobs:
       - name: Check formatting of all YAML files
         run: ./yamlfmt -lint
 
+      - name: Lint all markdown files
+        uses: DavidAnson/markdownlint-cli2-action@v19.1.0
+
   move-formatting:
     name: Check Move formatting
     runs-on: ubuntu-latest

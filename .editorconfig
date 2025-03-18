@@ -13,11 +13,18 @@ insert_final_newline = true
 max_line_length = 100
 trim_trailing_whitespace = true
 
+# Some markdown files are additionally checked using markdownlint.
 [*.md]
 indent_size = unset
 max_line_length = 150
 
-[{*.json,*.sh,*.toml,*.yml,*.yaml,cargo-simtest}]
+# Some markdown files are additionally checked using markdownlint.
+[docs/book/**/*.md]
+indent_size = unset
+max_line_length = unset
+trim_trailing_whitespace = unset
+
+[{*.css,*.html,*.json,*.sh,*.toml,*.yml,*.yaml,cargo-simtest}]
 indent_size = 2
 max_line_length = 150
 
@@ -25,7 +32,7 @@ max_line_length = 150
 indent_size = unset
 
 # Ignore paths
-[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-service/*.yaml,docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh}]
+[{.git/**/*,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-service/*.yaml,docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh,docs/mdbook-admonish.css,docs/theme/**/*}]
 charset = unset
 end_of_line = unset
 indent_size = unset

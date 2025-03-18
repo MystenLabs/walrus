@@ -20,11 +20,19 @@ build/
 # Custom pre-commit configuration
 .custom-pre-commit-config.yaml
 
+# mdBook
+docs/build/
+
+# Walrus binary and configuration
+./walrus
+./client_config.yaml
+docs/examples/CONFIG/bin/walrus
+docs/examples/CONFIG/config_dir/client_config.yaml
+
 # Misc
 *.key
 .env
-client_config.yaml
-working_dir
+working_dir/
 *.log
 venv/
 **/tmp

@@ -1,0 +1,52 @@
+name: Update bin.walrus.site with latest binaries
+
+on:
+  repository_dispatch:
+    types: [update-sites-bins]
+  # every week
+  schedule:
+    - cron: "14 3 * * 0"
+  # on demand
+  workflow_dispatch:
+
+concurrency: ci-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  # We store the data for the Sui wallet and the site object in GitHub variables
+  # (https://github.com/MystenLabs/walrus/settings/variables/actions) and secrets
+  # (https://github.com/MystenLabs/walrus/settings/secrets/actions).
+  update-bin-walrus-site:
+    name: Update Walrus Site bin.walrus.site
+    runs-on: ubuntu-ghcloud
+    env:
+      # Colors don't seem to work properly with the multiline commands.
+      NO_COLOR: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/set-up-walrus
+        with:
+          SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
+          SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
+          WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
+
+      - name: Create temporary directory
+        run: "mkdir -p site"
+      - name: Download latest mainnet and testnet binaries
+        run: |
+          for arch in ubuntu-x86_64 ubuntu-x86_64-generic macos-x86_64 macos-arm64 windows-x86_64.exe; do
+          for env in mainnet testnet; do
+          name=walrus-$env-latest-$arch
+          curl https://storage.googleapis.com/mysten-walrus-binaries/$name -o site/$name
+          done
+          done
+
+      - name: Update Walrus Site
+        run: >
+          RUST_LOG=site_builder=debug,walrus=debug,info
+          site-builder
+          update --list-directory site ${{ vars.WALRUS_SITE_BIN_OBJECT }}
+          --epochs 183
+          --force
