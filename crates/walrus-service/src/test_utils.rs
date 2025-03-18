@@ -490,6 +490,7 @@ impl SimStorageNodeHandle {
                         .expect("temporary directory creation must succeed")
                         .path()
                         .to_path_buf()),
+                    rpc_fallback_config: None,
                 };
             let system_config = crate::node::events::event_processor::SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
@@ -1028,6 +1029,7 @@ impl StorageNodeHandleBuilder {
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
+                rpc_fallback_config: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
@@ -2541,6 +2543,7 @@ pub mod test_cluster {
                     .expect("temporary directory creation must succeed")
                     .path()
                     .to_path_buf()),
+                rpc_fallback_config: None,
             };
             let system_config = SystemConfig {
                 system_pkg_id: sui_read_client.get_system_package_id(),

@@ -23,6 +23,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 bcs.workspace = true
 chrono.workspace = true
+clap.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 home.workspace = true
@@ -41,6 +42,7 @@ sui-move-build.workspace = true
 sui-package-management.workspace = true
 sui-rpc-api.workspace = true
 sui-sdk.workspace = true
+sui-storage.workspace = true
 sui-types.workspace = true
 tempfile = { workspace = true, optional = true }
 test-cluster = { workspace = true, optional = true }
@@ -49,6 +51,7 @@ tokio = { workspace = true, features = ["fs", "sync"] }
 tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true
+url.workspace = true
 utoipa = { workspace = true, optional = true }
 walkdir = "2.5.0"
 walrus-core = { workspace = true, features = ["sui-types"] }

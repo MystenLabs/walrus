@@ -13,13 +13,13 @@ use std::{
 
 use anyhow::bail;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use checkpoint_downloader::AdaptiveDownloaderConfig;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationSeconds};
 use sui_rpc_api::Client;
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::types::{BlobEvent, ContractEvent};
-use walrus_utils::checkpoint_downloader::AdaptiveDownloaderConfig;
 
 pub mod event_blob;
 pub mod event_blob_writer;

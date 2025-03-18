@@ -90,6 +90,7 @@ pub use read_client::{
     SuiReadClient,
 };
 pub mod retry_client;
+pub mod rpc_config;
 
 pub mod transaction_builder;
 use crate::types::move_structs::EventBlob;

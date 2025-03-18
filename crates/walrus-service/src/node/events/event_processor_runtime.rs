@@ -41,6 +41,7 @@ impl EventProcessorRuntime {
             rpc_address: sui_reader_config.rpc.clone(),
             event_polling_interval: sui_reader_config.event_polling_interval,
             db_path: db_path.join("events"),
+            rpc_fallback_config: sui_reader_config.rpc_fallback_config.clone(),
         };
         let system_config = SystemConfig {
             system_pkg_id: sui_reader_config

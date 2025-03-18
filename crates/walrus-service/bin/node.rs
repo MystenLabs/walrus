@@ -10,6 +10,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration as StdDuration,
 };
 
 use anyhow::{bail, Context};
@@ -54,7 +55,11 @@ use walrus_service::{
     },
     SyncNodeConfigError,
 };
-use walrus_sui::{client::SuiContractClient, types::move_structs::VotingParams, utils::SuiNetwork};
+use walrus_sui::{
+    client::{rpc_config::RpcFallbackConfigArgs, SuiContractClient},
+    types::move_structs::VotingParams,
+    utils::SuiNetwork,
+};
 
 const VERSION: &str = version!();
 
@@ -162,6 +167,18 @@ enum Commands {
         #[clap(long, default_value = "http://localhost:9000")]
         /// The Sui RPC URL to use for catchup
         sui_rpc_url: String,
+
+        #[clap(long)]
+        /// The duration to run the event processor for
+        runtime_duration: Duration,
+
+        #[clap(long)]
+        /// The minimum checkpoint lag to use for event stream catchup
+        event_stream_catchup_min_checkpoint_lag: u64,
+
+        #[clap(flatten)]
+        /// The config for rpc fallback.
+        rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
     },
 }
 
@@ -322,6 +339,9 @@ struct ConfigArgs {
     /// The description of the storage node.
     #[clap(long, default_value = "")]
     description: String,
+    /// The config for rpc fallback.
+    #[clap(flatten)]
+    rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -423,23 +443,34 @@ fn main() -> anyhow::Result<()> {
             system_object_id,
             staking_object_id,
             sui_rpc_url,
-        } => commands::catchup(db_path, system_object_id, staking_object_id, sui_rpc_url)?,
+            runtime_duration,
+            event_stream_catchup_min_checkpoint_lag,
+            rpc_fallback_config_args,
+        } => commands::catchup(
+            db_path,
+            system_object_id,
+            staking_object_id,
+            sui_rpc_url,
+            runtime_duration,
+            event_stream_catchup_min_checkpoint_lag,
+            rpc_fallback_config_args.and_then(|args| args.to_config()),
+        )?,
     }
     Ok(())
 }
 
 mod commands {
-    use anyhow::anyhow;
+    use checkpoint_downloader::AdaptiveDownloaderConfig;
     use config::{
         LoadsFromPath,
         MetricsPushConfig,
         NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
     };
+    use prometheus::Registry;
     use sui_sdk::SuiClientBuilder;
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
-    use typed_store::Map;
     use walrus_core::{
         ensure,
         keys::{SupportedKeyPair, TaggedKeyPair},
@@ -447,11 +478,9 @@ mod commands {
     use walrus_service::{
         node::{
             config::TlsConfig,
-            events::event_processor::{
-                EventProcessor,
-                EventProcessorRuntimeConfig,
-                SuiClientSet,
-                SystemConfig,
+            events::{
+                event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
+                EventProcessorConfig,
             },
         },
         utils,
@@ -459,7 +488,8 @@ mod commands {
     use walrus_sui::{
         client::{
             contract_config::ContractConfig,
-            retry_client::{RetriableRpcClient, RetriableSuiClient},
+            retry_client::RetriableSuiClient,
+            rpc_config::RpcFallbackConfig,
             ReadClient as _,
             SuiReadClient,
         },
@@ -811,6 +841,7 @@ mod commands {
             image_url,
             project_url,
             description,
+            rpc_fallback_config_args,
         }: ConfigArgs,
         force: bool,
     ) -> anyhow::Result<StorageNodeConfig> {
@@ -878,6 +909,9 @@ mod commands {
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget,
+                rpc_fallback_config: rpc_fallback_config_args
+                    .clone()
+                    .and_then(|args| args.to_config()),
             }),
             tls: TlsConfig {
                 certificate_path,
@@ -906,20 +940,29 @@ mod commands {
         system_object_id: ObjectID,
         staking_object_id: ObjectID,
         sui_rpc_url: String,
+        runtime_duration: Duration,
+        event_stream_catchup_min_checkpoint_lag: u64,
+        rpc_fallback_config: Option<RpcFallbackConfig>,
     ) -> anyhow::Result<()> {
-        // Wipe db path if it exists
-        if db_path.exists() {
-            fs::remove_dir_all(&db_path).context(format!(
-                "Failed to remove directory '{}'",
-                db_path.display()
-            ))?;
-        }
+        let event_processor_config = EventProcessorConfig {
+            pruning_interval: StdDuration::from_secs(3600),
+            adaptive_downloader_config: AdaptiveDownloaderConfig::default(),
+            event_stream_catchup_min_checkpoint_lag,
+        };
+
+        let runtime_config = EventProcessorRuntimeConfig {
+            rpc_address: sui_rpc_url.clone(),
+            event_polling_interval: std::time::Duration::from_secs(1),
+            db_path: db_path.clone(),
+            rpc_fallback_config: rpc_fallback_config.clone(),
+        };
 
         // Create SuiClientSet
         let sui_client = SuiClientBuilder::default()
             .build(&sui_rpc_url)
             .await
             .context("Failed to create Sui client")?;
+
         let retriable_sui_client =
             RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
 
@@ -928,55 +971,24 @@ mod commands {
             SuiReadClient::new(retriable_sui_client.clone(), &contract_config).await?;
         let system_pkg_id = sui_read_client.get_system_package_id();
 
-        let rest_client = sui_rpc_api::Client::new(&sui_rpc_url)?;
-        let rest_client = RetriableRpcClient::new(rest_client, ExponentialBackoffConfig::default());
-        let clients = SuiClientSet::new(retriable_sui_client, rest_client);
-
         let system_config = SystemConfig::new(system_pkg_id, system_object_id, staking_object_id);
-        let database = EventProcessor::initialize_database(&EventProcessorRuntimeConfig {
-            rpc_address: sui_rpc_url,
-            event_polling_interval: std::time::Duration::from_secs(1),
-            db_path: db_path.clone(),
-        })?;
-
-        let stores = EventProcessor::open_stores(&database)?;
-
-        // Create recovery path
-        let recovery_path = db_path.join("recovery");
-
-        // Call catchup_using_event_blobs
-        match EventProcessor::catchup_using_event_blobs(
-            clients,
+        let event_processor = EventProcessor::new(
+            &event_processor_config,
+            runtime_config,
             system_config,
-            stores.clone(),
-            &recovery_path,
-            None,
+            &Registry::default(),
         )
-        .await
-        {
-            Ok(()) => {
-                tracing::info!("Successfully caught up using event blobs");
-            }
-            Err(e) => {
-                tracing::error!("Failed to catch up using event blobs: {}", e);
-                return Err(e);
-            }
-        }
+        .await?;
+        let cancel_token = CancellationToken::new();
+        let cancel_token_clone = cancel_token.clone();
+        tokio::spawn(async move {
+            event_processor.start(cancel_token_clone).await.unwrap();
+        });
 
-        // Check event db is not empty and count total events
-        let event_iter = stores.event_store.unbounded_iter();
-        let total_events = event_iter.count();
+        tokio::time::sleep(runtime_duration.into()).await;
 
-        if total_events == 0 {
-            tracing::error!("Event store is empty after catchup");
-            Err(anyhow!("Event store is empty after catchup"))
-        } else {
-            tracing::info!(
-                total_events = total_events,
-                "Event store successfully populated"
-            );
-            Ok(())
-        }
+        cancel_token.cancel();
+        Ok(())
     }
 
     #[tokio::main]
