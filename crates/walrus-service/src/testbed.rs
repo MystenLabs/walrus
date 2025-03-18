@@ -50,6 +50,7 @@ use crate::{
     common::config::SuiConfig,
     node::config::{
         defaults::{self, REST_API_PORT},
+        PathOrInPlace,
         StorageNodeConfig,
     },
 };
@@ -68,6 +69,8 @@ pub struct TestbedNodeConfig {
     /// The key of the node.
     #[serde_as(as = "Base64")]
     pub keypair: ProtocolKeyPair,
+    /// The path to the protocol key pair.
+    pub protocol_key_pair_path: Option<PathBuf>,
     /// The network key of the node.
     #[serde_as(as = "Base64")]
     pub network_keypair: NetworkKeyPair,
@@ -304,6 +307,7 @@ pub async fn deploy_walrus_contract(
     );
 
     let mut node_configs = Vec::new();
+    let mid = keypairs.len() / 2;
 
     for (i, ((keypair, network_keypair), host)) in
         keypairs.into_iter().zip(hosts.iter().cloned()).enumerate()
@@ -324,10 +328,18 @@ pub async fn deploy_walrus_contract(
             network_address
         );
 
+        // The first half of the nodes will have a protocol key pair path, the second half will not.
+        let protocol_key_pair_path = if i < mid {
+            Some(working_dir.join(format!("node-{}.key", node_index)))
+        } else {
+            None
+        };
+
         node_configs.push(TestbedNodeConfig {
             name,
             network_address: network_address.clone(),
             keypair,
+            protocol_key_pair_path,
             network_keypair,
             commission_rate: 0,
             storage_price,
@@ -700,11 +712,18 @@ pub async fn create_storage_node_configs(
             .or(set_config_dir.map(|path| path.join(&name)))
             .unwrap_or_else(|| working_dir.join(&name));
 
+        let protocol_key_pair = if let Some(path) = &node.protocol_key_pair_path {
+            fs::write(path, node.keypair.to_base64().as_bytes())
+                .context("Failed to write protocol key pair")?;
+            PathOrInPlace::from_path(path)
+        } else {
+            node.keypair.into()
+        };
         storage_node_configs.push(StorageNodeConfig {
             name: node.name.clone(),
             storage_path,
             blocklist_path: None,
-            protocol_key_pair: node.keypair.into(),
+            protocol_key_pair,
             next_protocol_key_pair: None,
             network_key_pair: node.network_keypair.into(),
             public_host: node.network_address.get_host().to_owned(),
