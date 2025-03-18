@@ -62,7 +62,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # pin@v4
       - run: npm install @mysten/prettier-plugin-move@0.2.2
       - run: npx prettier-move -c **/*.move
 
