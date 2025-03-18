@@ -60,7 +60,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' || needs.diff.outputs.isDenyConfig == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-deny@0.17.0
@@ -73,7 +73,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
@@ -95,7 +95,7 @@ jobs:
     if: ${{ needs.diff.outputs.isRust == 'true' }}
     runs-on: ubuntu-ghcloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
@@ -113,7 +113,7 @@ jobs:
       - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-nextest
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: Swatinem/rust-cache@v2.7.7
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
@@ -131,7 +131,7 @@ jobs:
     env:
       RUSTC_BOOTSTRAP: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/run_tarpaulin
       - name: Add coverage PR comment
         uses: marocchino/sticky-pull-request-comment@v2
@@ -152,7 +152,7 @@ jobs:
       - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-nextest
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - run: ./scripts/simtest/install.sh
       - name: Run tests
         run: cargo simtest simtest --profile simtest
@@ -167,7 +167,7 @@ jobs:
       - uses: taiki-e/install-action@v2.49.13
         with:
           tool: cargo-nextest
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - run: ./scripts/simtest/install.sh
       - name: Build simtests
         run: cargo simtest build
@@ -180,7 +180,7 @@ jobs:
     env:
       SUI_BIN: "/home/runner/.cargo/bin/sui"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Restore cached sui binary
         id: cache-sui-restore
         uses: actions/cache/restore@v4
@@ -211,7 +211,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches the testnet-contracts directory
         uses: marocchino/sticky-pull-request-comment@v2
         with:
@@ -232,7 +232,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches an example config file
         uses: marocchino/sticky-pull-request-comment@v2
         with:
@@ -259,7 +259,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Post a warning if the PR touches an OpenAPI file
         uses: marocchino/sticky-pull-request-comment@v2
         with:
