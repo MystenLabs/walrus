@@ -65,6 +65,8 @@ use crate::{
 mod builder;
 pub use builder::ClientBuilder;
 
+mod middleware;
+
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
 const METADATA_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata/status";
 const SLIVER_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/slivers/:sliver_pair_index/:sliver_type";

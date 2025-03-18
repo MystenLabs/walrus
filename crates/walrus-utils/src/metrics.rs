@@ -167,6 +167,8 @@ macro_rules! define_metric_set {
     };
 }
 
+use std::{borrow::Borrow, marker::PhantomData};
+
 pub use define_metric_set;
 
 #[macro_export]
@@ -196,6 +198,10 @@ macro_rules! create_metric {
 }
 
 pub use create_metric;
+use prometheus::{
+    core::{Atomic, GenericGauge},
+    IntGauge,
+};
 
 #[macro_export]
 macro_rules! with_label {
