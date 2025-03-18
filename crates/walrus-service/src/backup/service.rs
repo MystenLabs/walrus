@@ -405,7 +405,7 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                     UNION
                     SELECT
                         'total_bytes_archived' AS name,
-                        SUM(coalesce(size, 0))::bigint AS value
+                        COALESCE(SUM(size), 0)::bigint AS value
                     FROM blob_state
                     WHERE state = 'archived';
                     ",
