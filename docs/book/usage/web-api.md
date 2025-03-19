@@ -57,10 +57,7 @@ especially in a future Mainnet deployment.
 
 ### Daemon metrics
 
-Services by default export a metrics end-point accessible via:
-```
-http://127.0.0.1:27182/metrics
-```
+Services by default export a metrics end-point accessible via `curl http://127.0.0.1:27182/metrics`.
 It can be changed using the `-a, --metrics-address <METRICS_ADDRESS>` CLI option.
 
 ## Publisher operation and configuration

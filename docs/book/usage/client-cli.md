@@ -219,6 +219,7 @@ MIST) that the command is allowed to use.
 ## Logging and metrics
 
 The `walrus` CLI allows for multiple levels of logging, which can be turned on via an env variable:
+
 ```sh
 RUST_LOG=trace walrus info
 ```

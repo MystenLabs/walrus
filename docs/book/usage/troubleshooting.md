@@ -33,5 +33,5 @@ including the path to the Walrus configuration file and the Sui wallet.
 ## Correct Sui network configuration
 
 If you get an error like "the specified Walrus system object does not exist", make sure your wallet
-is set up for the correct Sui network (mainnet or testnet as you may require) and you use the latest
+is set up for the correct Sui network (Mainnet or Testnet as you may require) and you use the latest
 [configuration](./setup.md#configuration).

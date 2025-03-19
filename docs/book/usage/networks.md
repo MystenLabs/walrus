@@ -1,14 +1,14 @@
 # Available Networks
 
-Walrus mainnet operates a production quality storage network on the Sui mainnet. The Walrus testnet
-operates on the Sui testnet and is used to test new features of Walrus before they graduate to the
-mainnet. Finally, developers can operate local Walrus and Sui networks for testing.
+Walrus Mainnet operates a production quality storage network on the Sui Mainnet. The Walrus Testnet
+operates on the Sui Testnet and is used to test new features of Walrus before they graduate to the
+Mainnet. Finally, developers can operate local Walrus and Sui networks for testing.
 
 ## Mainnet configuration
 
 ### Mainnet parameters
 
-The client parameters for the Walrus mainnet are:
+The client parameters for the Walrus Mainnet are:
 
 ```yaml
 # These are the only mandatory fields. These objects are specific for a particular Walrus
@@ -23,10 +23,12 @@ subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324
 ```
 
 In case you wish to explore the Walrus contracts their parameters are:
+
 ```yaml
 package_id: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
 subsidies_package: 0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc
 ```
+
 These are inferred automatically from the object IDs above, and there is no need to
 manually input them into the Walrus client configuration file.
 
@@ -105,7 +107,7 @@ when [running the CLI](./interacting.md).
 
 ### Testnet parameters
 
-The configuration parameters for the Walrus testnet currently are:
+The configuration parameters for the Walrus Testnet currently are:
 
 ```yaml
 # These are the only mandatory fields. These objects are specific for a particular Walrus
@@ -127,7 +129,6 @@ exchange_objects:
 subsidies_object: 0x4b23c353c35a4dde72fe862399ebe59423933d3c2c0a3f2733b9f74cb3b4933d
 ```
 
-
 <!-- markdownlint-disable code-fence-style -->
 ~~~admonish tip
 The easiest way to obtain the latest configuration is by downloading it from GitHub:
@@ -138,7 +139,6 @@ curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/co
 ```
 ~~~
 <!-- markdownlint-enable code-fence-style -->
-
 
 ### Testnet WAL faucet
 
@@ -186,7 +186,8 @@ In addition, one can spin up a local grafana instance to visualize the metrics c
 storage nodes. This can be done via `cd docker/grafana-local; docker compose up`. This should work
 with the default storage node configuration.
 
-Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
-is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
+Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui Devnet
+is used by default to deploy and interact with the contracts. To run the testbed fully locally,
+simply
 [start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
 (requires `sui` to be v1.28.0 or higher) and specify `localnet` when starting the Walrus testbed.

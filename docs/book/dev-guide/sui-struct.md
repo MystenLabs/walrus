@@ -58,7 +58,7 @@ public struct Blob has key, store {
 Public functions associated with these objects can be found in the respective
 [`storage_resource` move module](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/storage_resource.move)
 and [`blob` move module](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/blob.move). Storage resources can be split and merged in time and data capacity, and can be
-transferred between users allowing complex "blobfi" contracts to be created.
+transferred between users allowing complex contracts to be created.
 
 ## Events
 
@@ -92,7 +92,5 @@ structure within the system object can be used to read the current epoch number,
 information about the committee. Committee changes between epochs are managed by a set of
 [staking contracts](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/staking)
 that implement a full delegated proof of stake system based on the WAL token.
-
-
 
 <!-- TODO (#146): say more about staking contracts. -->

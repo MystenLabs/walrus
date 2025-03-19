@@ -52,7 +52,7 @@ $ sui client gas
 ╰─────────────────┴────────────────────┴──────────────────╯
 ```
 
-Finally, to publish blobs on Walrus you will need some mainnet WAL to pay for storage and upload
+Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
 costs.
 
 <!-- TODO (): TODO: how to get WAL. -->
@@ -128,7 +128,7 @@ versions. An overview in XML format is available at
 Walrus is open-source software published under the Apache 2 license. The code is developed in a
 `git` repository at <https://github.com/MystenLabs/walrus>.
 
-The latest version of mainnet and testnet are available under the branches `mainnet` and `testnet`
+The latest version of Mainnet and Testnet are available under the branches `mainnet` and `testnet`
 respectively, and the latest version under the `main` branch. We welcome reports of issues and bug
 fixes. Follow the instructions in the `README.md` file to build and use Walrus from source.
 
