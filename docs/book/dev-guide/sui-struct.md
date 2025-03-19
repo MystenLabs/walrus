@@ -1,24 +1,20 @@
 # Sui Structures
 
-This section is optional and enables advanced use cases.
+This section is optional and enables advanced use cases, leveraging Sui smart contract interactions
+with the Walrus smart contract.
 
 You can interact with Walrus purely through the client CLI, and JSON or HTTP APIs provided, without
 querying or executing transactions on Sui directly. However, Walrus uses Sui to manage its metadata
 and smart contract developers can read information about the Walrus system, as well as stored blobs,
 on Sui.
 
-The Move code of the Walrus Testnet contracts is available at
-<https://github.com/MystenLabs/walrus-docs/blob/main/contracts>. An example package using
-the Walrus contracts is available at
-<https://github.com/MystenLabs/walrus-docs/blob/main/examples/move>.
+The [Move code of the Walrus system contracts](https://github.com/MystenLabs/walrus/tree/main/contracts) is available and upi can find an [example smart
+contract](https://github.com/MystenLabs/walrus/tree/main/docs/examples) that implements a wrapped blob.
 
 The following sections provide further insights into the contract and an overview of how you may use
 Walrus objects in your own Sui smart contracts.
 
-```admonish danger title="A word of caution"
-Walrus Mainnet will use new Move packages with `struct` layouts and function signatures that may not
-be compatible with this package. Move code that builds against this package will need to be rewritten.
-```
+<!-- TODO() : Review the Move structs and delete me -->
 
 ## Blob and storage objects
 

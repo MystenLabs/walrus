@@ -32,15 +32,20 @@ manually input them into the Walrus client configuration file.
 
 ## Testnet configuration
 
-### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
+```admonish danger title="Disclaimer about the Walrus Testnet"
+All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
+value. The state of the store **can and will be wiped** at any point and possibly with no warning.
+Do not rely on this Testnet for any production purposes, it comes with no availability or
+persistence guarantees.
 
-```admonish tip title="Quick wallet setup"
-If you just want to set up a new Sui wallet for Walrus, you can skip this section and use the
-`walrus generate-sui-wallet` command after [installing Walrus](#installation). In that case, make
-sure to set the `wallet_config` parameter in the [Walrus
-configuration](#advanced-configuration-optional) to the newly generated wallet. Also, make sure to
-obtain some Testnet SUI tokens from the [Sui Testnet faucet](https://faucet.sui.io/?network=testnet).
+New features on testnet may break deployed testnet apps, since this is the network in which we test
+new updates including for compatibility with eco-system applications.
+
+Also see the [Testnet terms of service](../legal/testnet_tos.md) under which this Testnet is made
+available.
 ```
+
+### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
 Interacting with Walrus requires a valid Sui Testnet wallet with some amount of SUI tokens. The
 normal way to set this up is via the Sui CLI; see the [installation

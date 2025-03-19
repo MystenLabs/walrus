@@ -34,7 +34,6 @@ To use the dApp, visit <https://stake.walrus.site> and connect your wallet:
 - Click the `Connect Wallet` button at the top right corner.
 - Select the wallet (if the wallet was connected before, this and the next step won't be required).
 - Approve the connection.
-- (Make sure the selected wallet network is Testnet).
 
 ### Exchange Testnet SUI to WAL
 

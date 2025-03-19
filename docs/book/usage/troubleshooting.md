@@ -8,8 +8,7 @@ You can enable debug logging for Walrus by setting the environment variable `RUS
 
 Before undertaking any other steps, make sure you have the [latest `walrus`
 binary](./setup.md#installation). If you have multiple versions in different locations, find the
-binary that will actually be used with `which walrus`. For the current Testnet, a binary version of
-at 1.9 or later is required.
+binary that will actually be used with `which walrus`.
 
 ## Old hardware or incompatible VMs
 
@@ -34,4 +33,5 @@ including the path to the Walrus configuration file and the Sui wallet.
 ## Correct Sui network configuration
 
 If you get an error like "the specified Walrus system object does not exist", make sure your wallet
-is set up for Sui **Testnet** and you use the latest [configuration](./setup.md#configuration).
+is set up for the correct Sui network (mainnet or testnet as you may require) and you use the latest
+[configuration](./setup.md#configuration).

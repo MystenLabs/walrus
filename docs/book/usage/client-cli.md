@@ -16,7 +16,7 @@ their meaning.
 
 Information about the Walrus system is available through the `walrus info` command. It provides an
 overview of current system parameters such as the current epoch, the number of storage nodes and
-shards in the system, the maximum blob size, and the current cost in (Testnet) WAL for storing
+shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
 
 ```console
@@ -25,29 +25,21 @@ $ walrus info
 Walrus system information
 
 Epochs and storage duration
-Current epoch: 6
-Epoch duration: 2days
-Blobs can be stored for at most 183 epochs in the future.
+Current epoch: 0
+Start time: 2025-03-14 10:14:01.612 UTC
+End time: 2025-03-28 10:14:01.612 UTC
+Epoch duration: 14days
+Blobs can be stored for at most 53 epochs in the future.
 
 Storage nodes
-Number of storage nodes: 58
+Number of storage nodes: 0
 Number of shards: 1000
 
 Blob size
-Maximum blob size: 13.3 GiB (14,273,391,930 B)
+Maximum blob size: 13.6 GiB (14,599,533,452 B)
 Storage unit: 1.00 MiB
 
-Approximate storage prices per epoch
-(Conversion rate: 1 WAL = 1,000,000,000 FROST)
-Price per encoded storage unit: 100 FROST
-Additional price for each write: 2,000 FROST
-Price to store metadata: 6,200 FROST
-Marginal price per additional 1 MiB (w/o metadata): 500 FROST
-
-Total price for example blob sizes
-16.0 MiB unencoded (135 MiB encoded): 13,500 FROST per epoch
-512 MiB unencoded (2.33 GiB encoded): 0.0002 WAL per epoch
-13.3 GiB unencoded (60.5 GiB encoded): 0.0062 WAL per epoch
+...
 ```
 
 ```admonish tip title="FROST and WAL"
@@ -80,11 +72,6 @@ to a different wallet. Note, it is possible to store multiple blobs with a singl
 command.
 ```
 
-```admonish tip title="Obtaining Testnet WAL"
-You can exchange Testnet SUI for Testnet WAL by running `walrus get-wal`. See the [setup
-page](./setup.md#testnet-wal-faucet) for further details.
-```
-
 Storing one or multiple blobs on Walrus can be achieved through the following command:
 
 ```sh
@@ -92,8 +79,8 @@ walrus store <FILES> --epochs <EPOCHS>
 ```
 
 The mandatory CLI argument `--epochs <EPOCHS>` indicates the number of epochs the blob should be
-stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 183
-for the current Testnet deployment (corresponding to one year). In addition to a positive integer,
+stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
+corresponding to two years. In addition to a positive integer,
 you can also use `--epochs max` to store the blob for the maximum number of epochs.
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
@@ -226,3 +213,10 @@ Use the `--config` option to specify a custom path to the
 The `--wallet <WALLET>` argument may be used to specify a non-standard Sui wallet configuration
 file. And a `--gas-budget <GAS_BUDGET>` argument may be used to change the maximum amount of Sui (in
 MIST) that the command is allowed to use.
+
+## Logging and metrics
+
+The `walrus` CLI allows for multiple levels of logging, which can be turned on via an env variable:
+```sh
+RUST_LOG=trace walrus info
+```
