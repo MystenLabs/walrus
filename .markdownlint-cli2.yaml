@@ -1,6 +1,8 @@
 # See https://github.com/DavidAnson/markdownlint-cli2?tab=readme-ov-file#markdownlint-cli2jsonc
 # for configuration options and https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
 # for available rules.
+
+# TODO: Keep globs in sync with .github/workflows/lint.yml.
 globs:
   - "docs/book/**/*.md"
 gitignore: true

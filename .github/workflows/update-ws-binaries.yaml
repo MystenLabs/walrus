@@ -25,7 +25,7 @@ jobs:
       # Colors don't seem to work properly with the multiline commands.
       NO_COLOR: 1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/set-up-walrus
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
