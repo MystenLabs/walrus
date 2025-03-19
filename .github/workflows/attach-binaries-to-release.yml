@@ -66,12 +66,12 @@ jobs:
           echo "walrus_version=${walrus_version}" >> $GITHUB_ENV
 
       - name: Check out ${{ env.walrus_tag }}
-        uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # pin@v3
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
         with:
           ref: ${{ env.walrus_tag }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@6189d56e4096ee891640bb02ac264be376592d6a # pin@v2
         with:
           version: ">= 363.0.0"
 
@@ -196,7 +196,7 @@ jobs:
         run: ls -al ./tmp
 
       - name: Upload binaries for ${{ inputs.os }} platform to GCP
-        uses: google-github-actions/upload-cloud-storage@v2
+        uses: google-github-actions/upload-cloud-storage@386ab77f37fdf51c0e38b3d229fad286861cc0d0 # pin@v2
         with:
           path: "./tmp"
           destination: "mysten-walrus-releases"

@@ -36,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
 
       - name: Tag
-        uses: julbme/gh-action-manage-tag@v1
+        uses: julbme/gh-action-manage-tag@8daf6387badea2c6b8f989bd0f82b5a9ef1d84e6 # pin@v1
         with:
           name: ${{ env.TAG_NAME }}
           state: present

@@ -17,8 +17,8 @@ jobs:
     env:
       SUI_TAG: testnet-v1.44.3
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5.4.0
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # pin@v5.4.0
         with:
           python-version: "3.12"
       - name: Install correct Rust toolchain
@@ -34,19 +34,19 @@ jobs:
 
       - name: Restore cached sui binary
         id: cache-sui-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@d4323d4df104b026a6aa633fdb11d772146be0bf # pin@v4
         with:
           path: "/home/runner/.cargo/bin/sui"
           key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
         run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
-      - uses: taiki-e/install-action@v2.49.13
+      - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
           tool: cargo-nextest
 
       - run: pre-commit run --all-files
-      - uses: peter-evans/create-pull-request@v7.0.8
+      - uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # pin@v7.0.8
         if: ${{ success() }}
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
           title: "chore: update pre-commit hooks"
           commit-message: "chore: update pre-commit hooks"
           body: Update pre-commit hooks to latest version.
-      - uses: peter-evans/create-pull-request@v7.0.8
+      - uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # pin@v7.0.8
         if: ${{ failure() }}
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

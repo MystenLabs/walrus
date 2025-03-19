@@ -40,7 +40,7 @@ jobs:
             https://api.github.com/repos/MystenLabs/walrus/commits/${{ inputs.current_branch }} | jq .sha | tr -d '"')" >> $GITHUB_ENV
 
       - name: Checkout main
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # Pin v4.1.1
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
         with:
           fetch-depth: 0
           ref: main
@@ -66,7 +66,7 @@ jobs:
           fi
 
       - name: Create Release
-        uses: actions/create-release@v1
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # pin@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

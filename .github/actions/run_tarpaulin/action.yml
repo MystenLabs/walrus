@@ -17,7 +17,7 @@ runs:
         name: Coverage report
         path: tarpaulin-report.html
     - name: Code-coverage report
-      uses: irongut/CodeCoverageSummary@v1.3.0
+      uses: irongut/CodeCoverageSummary@51cc3a756ddcd398d447c044c02cb6aa83fdae95 # pin@v1.3.0
       with:
         filename: cobertura.xml
         badge: true
