@@ -770,7 +770,7 @@ pub(crate) struct NodeHealthOutput {
     pub node_id: ObjectID,
     pub node_url: String,
     pub node_name: String,
-    /// The health information of the service.
+    pub network_public_key: NetworkPublicKey,
     pub health_info: Result<ServiceHealthInfo, String>,
 }
 
@@ -793,6 +793,7 @@ impl NodeHealthOutput {
             node_id: node.node_id,
             node_url: node.network_address.0.clone(),
             node_name: node.name,
+            network_public_key: node.network_public_key,
             health_info,
         }
     }

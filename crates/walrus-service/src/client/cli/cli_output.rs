@@ -832,14 +832,15 @@ impl CliOutput for NodeHealthOutput {
     fn print_cli_output(&self) {
         printdoc! {"
 
-            {heading}: {node_name}
+            {heading}
             Node ID: {node_id}
             Node URL: {node_url}
+            Network public key: {network_public_key}
             ",
-            heading = "Node Information".bold().walrus_purple(),
-            node_name = self.node_name,
+            heading = self.node_name.bold().walrus_purple(),
             node_id = self.node_id,
-            node_url = self.node_url
+            node_url = self.node_url,
+            network_public_key = self.network_public_key,
         };
         match &self.health_info {
             Err(error) => {
@@ -1017,7 +1018,7 @@ fn create_node_health_table() -> Table {
         b->"Name",
         b->"Node ID",
         b->"Address",
-        b->"# Owned Shards",
+        bc->"# Shards\n(Ready / Owned)",
         b->"Status",
     ]);
     table
@@ -1026,12 +1027,16 @@ fn create_node_health_table() -> Table {
 fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx: usize) {
     match &node.health_info {
         Ok(health_info) => {
+            let shards_str = format!(
+                "{} / {}",
+                health_info.shard_summary.owned_shard_status.ready, health_info.shard_summary.owned
+            );
             table.add_row(row![
-                node_idx,
+                r->node_idx,
                 node.node_name,
                 node.node_id,
                 node.node_url,
-                r->health_info.shard_summary.owned,
+                c->shards_str,
                 health_info.node_status,
             ]);
         }
@@ -1045,11 +1050,11 @@ fn add_node_health_to_table(table: &mut Table, node: &NodeHealthOutput, node_idx
             };
 
             table.add_row(row![
-                node_idx,
+                r->node_idx,
                 node.node_name,
                 node.node_id,
                 node.node_url,
-                r->"N/A",
+                c->"N/A",
                 Fr->truncated_error,
             ]);
         }
