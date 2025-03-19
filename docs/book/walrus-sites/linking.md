@@ -25,12 +25,15 @@ Here is the part that is a bit different. Assume there is some image that you ca
 `https://gallery.walrus.site/walrus_arctic.webp`, and you want to link it from your own Walrus Site.
 
 Recall that, however, `https://walrus.site` is just one of the possibly many portals. I.e., the same
-resource is browsable from a local portal (`http://gallery.localhost:8080/walrus_arctic.webp`), or
-from any other portal (e.g., `https://gallery.blob.store/walrus_arctic.webp`). Therefore, how
-can you link the resource in a *portal-independent way*? This is important for interoperability,
-availability, and respecting the user's choice of portal.
+resource is browsable from a local portal (`http://gallery.localhost:8080/walrus_arctic.webp`).
+Therefore, how can you link the resource in a *portal-independent way*? This is important for
+interoperability, availability, and respecting the user's choice of portal.
 
 ### The solution: Walrus Sites links
+
+``` admonish warning
+This feature is only available for service-worker based portals.
+```
 
 We solve this problem by having the portals interpret special links that are normally invalid on
 the web and redirect to the corresponding Walrus Sites resource in the portal itself.
