@@ -177,7 +177,7 @@ that could have been made by users before the blob was deleted.
 
 *Shared blobs* are shared Sui objects wrapping "standard" `Blob` objects that can be funded and
 whose lifetime can be extended by anyone. See the [shared blobs
-contracts](https://github.com/MystenLabs/walrus-docs/blob/main/contracts/walrus/sources/system/shared_blob.move)
+contracts](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/shared_blob.move)
 for further details.
 
 You can create a shared blob from an existing `Blob` object you own with the `walrus share` command:
