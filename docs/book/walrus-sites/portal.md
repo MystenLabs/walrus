@@ -121,7 +121,7 @@ traces.
 -`SITE_PACKAGE`: The Walrus Site package id. Depending on the network you are using, you will
 have to specify the correct package id.
 
--`SuiNS_CLIENT_NETWORK`: The network of the SuiNS client.
+-`SUINS_CLIENT_NETWORK`: The network of the SuiNS client.
 
 -`B36_DOMAIN_RESOLUTION_SUPPORT`: Define if b36 domain resolution is supported. Otherwise the
 site will not be served.
