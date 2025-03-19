@@ -1,10 +1,11 @@
 # Setup
 
-At this stage of the project, our Walrus code is not yet public. Instead, we provide a pre-compiled
-`walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which supports different usage
-patterns (see [the next chapter](./interacting.md)). This chapter describes the
-[prerequisites](#prerequisites), [installation](#installation), and [configuration](#configuration)
-of the Walrus client.
+We provide a pre-compiled `walrus` client binary for macOS (Intel and Apple CPUs) and Ubuntu, which
+supports different usage patterns (see [the next chapter](./interacting.md)). This chapter describes
+the [prerequisites](#prerequisites), [installation](#installation), and
+[configuration](#configuration) of the Walrus client.
+
+Walrus is open-source under an Apache 2 licence, and can also be built and installed from source.
 
 ## Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
@@ -140,6 +141,14 @@ In addition to the latest version of the `walrus` binary, the GCS bucket also co
 versions. An overview in XML format is available at
 <https://storage.googleapis.com/mysten-walrus-binaries/>.
 
+### Build from source
+
+Walrus is open-source software published under the Apache 2 licence. The code is developped in a
+`git` repository at <https://github.com/MystenLabs/walrus>.
+
+The latest version of mainnet and testnet are available under the branches `mainnet` and `testnet` respectivelly, and the latest version under the `main` branch. We welcome reports of issues and bug
+fixes. Follow the instructions in the `README.md` file to build and use Walrus from source.
+
 ## Configuration
 
 The Walrus client needs to know about the Sui objects that store the Walrus system and staking
@@ -240,34 +249,3 @@ communication_config:
 ```admonish warning title="Important"
 If you specify a wallet path, make sure your wallet is set up for Sui **Testnet**.
 ```
-
-## Testnet WAL faucet
-
-The Walrus Testnet uses Testnet WAL tokens to buy storage and stake. Testnet WAL tokens have no
-value and can be exchanged (at a 1:1 rate) for some Testnet SUI tokens, which also have no value,
-through the following command:
-
-```sh
-walrus get-wal
-```
-
-You can check that you have received Testnet WAL by checking the Sui balances:
-
-```sh
-sui client balance
-╭─────────────────────────────────────────╮
-│ Balance of coins owned by this address  │
-├─────────────────────────────────────────┤
-│ ╭─────────────────────────────────────╮ │
-│ │ coin  balance (raw)     balance     │ │
-│ ├─────────────────────────────────────┤ │
-│ │ Sui   8869252670        8.86 SUI    │ │
-│ │ WAL   500000000         0.50 WAL    │ │
-│ ╰─────────────────────────────────────╯ │
-╰─────────────────────────────────────────╯
-```
-
-By default, 0.5 SUI are exchanged for 0.5 WAL, but a different amount of SUI may be exchanged using
-the `--amount` option (the value is in MIST/FROST), and a specific SUI/WAL exchange object may be
-used through the `--exchange-id` option. The `walrus get-wal --help` command provides more
-information about those.
