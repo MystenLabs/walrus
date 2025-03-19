@@ -1,8 +1,139 @@
 # Available Networks
 
+Walrus mainnet operates a production quality storage network on the Sui mainnet. The Walrus testnet
+operates on the Sui testnet and is used to test new features of Walrus before they graduate to the
+mainnet. Finally, developers can operate local Walrus and Sui networks for testing.
+
 ## Mainnet configuration
 
+### Mainnet parameters
+
+The client parameters for the Walrus mainnet are:
+
+```yaml
+# These are the only mandatory fields. These objects are specific for a particular Walrus
+# deployment but then do not change over time.
+system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
+staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+
+# The subsidies object allows the client to use the subsidies contract to purchase storage
+# which will reduce the cost of obtaining a storage resource and extending blobs and also
+# adds subsidies to the rewards of the staking pools.
+subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+```
+
+In case you wish to explore the Walrus contracts their parameters are:
+```yaml
+package_id: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
+subsidies_package: 0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc
+```
+These are inferred automatically from the object IDs above, and there is no need to
+manually input them into the Walrus client configuration file.
+
 ## Testnet configuration
+
+### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
+
+```admonish tip title="Quick wallet setup"
+If you just want to set up a new Sui wallet for Walrus, you can skip this section and use the
+`walrus generate-sui-wallet` command after [installing Walrus](#installation). In that case, make
+sure to set the `wallet_config` parameter in the [Walrus
+configuration](#advanced-configuration-optional) to the newly generated wallet. Also, make sure to
+obtain some Testnet SUI tokens from the [Sui Testnet faucet](https://faucet.sui.io/?network=testnet).
+```
+
+Interacting with Walrus requires a valid Sui Testnet wallet with some amount of SUI tokens. The
+normal way to set this up is via the Sui CLI; see the [installation
+instructions](https://docs.sui.io/guides/developer/getting-started/sui-install) in the Sui
+documentation.
+
+After installing the Sui CLI, you need to set up a Testnet wallet by running `sui client`, which
+prompts you to set up a new configuration. Make sure to point it to Sui Testnet, you can use the
+full node at `https://fullnode.testnet.sui.io:443` for this. See
+[here](https://docs.sui.io/guides/developer/getting-started/connect) for further details.
+
+If you already have a Sui wallet configured, you can directly set up the Testnet environment (if you
+don't have it yet),
+
+```sh
+sui client new-env --alias testnet --rpc https://fullnode.testnet.sui.io:443
+```
+
+and switch the active environment to it:
+
+```sh
+sui client switch --env testnet
+```
+
+After this, you should get something like this (everything besides the `testnet` line is optional):
+
+```terminal
+$ sui client envs
+╭──────────┬─────────────────────────────────────┬────────╮
+│ alias    │ url                                 │ active │
+├──────────┼─────────────────────────────────────┼────────┤
+│ devnet   │ https://fullnode.devnet.sui.io:443  │        │
+│ localnet │ http://127.0.0.1:9000               │        │
+│ testnet  │ https://fullnode.testnet.sui.io:443 │ *      │
+│ mainnet  │ https://fullnode.mainnet.sui.io:443 │        │
+╰──────────┴─────────────────────────────────────┴────────╯
+```
+
+Finally, make sure you have at least one gas coin with at least 1 SUI. You can obtain one from the
+[Sui Testnet faucet](https://faucet.sui.io/?network=testnet) (you can find your address through the
+`sui client active-address` command).
+
+After some seconds, you should see your new SUI coins:
+
+```terminal
+$ sui client gas
+╭─────────────────┬────────────────────┬──────────────────╮
+│ gasCoinId       │ mistBalance (MIST) │ suiBalance (SUI) │
+├─────────────────┼────────────────────┼──────────────────┤
+│ 0x65dca966dc... │ 1000000000         │ 1.00             │
+╰─────────────────┴────────────────────┴──────────────────╯
+```
+
+The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
+different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
+when [running the CLI](./interacting.md).
+
+### Testnet parameters
+
+The configuration parameters for the Walrus testnet currently are:
+
+```yaml
+# These are the only mandatory fields. These objects are specific for a particular Walrus
+# deployment but then do not change over time.
+system_object: 0x98ebc47370603fe81d9e15491b2f1443d619d1dab720d586e429ed233e1255c1
+staking_object: 0x20266a17b4f1a216727f3eef5772f8d486a9e3b5e319af80a5b75809c035561d
+
+# The exchange objects are used to swap SUI for WAL. If multiple ones are defined (as below), a
+# random one is chosen for the exchange.
+exchange_objects:
+  - 0x59ab926eb0d94d0d6d6139f11094ea7861914ad2ecffc7411529c60019133997
+  - 0x89127f53890840ab6c52fca96b4a5cf853d7de52318d236807ad733f976eef7b
+  - 0x9f9b4f113862e8b1a3591d7955fadd7c52ecc07cf24be9e3492ce56eb8087805
+  - 0xb60118f86ecb38ec79e74586f1bb184939640911ee1d63a84138d080632ee28a
+
+# The subsidies object allows the client to use the subsidies contract to purchase storage
+# which will reduce the cost of obtaining a storage resource and extending blobs and also
+# adds subsidies to the rewards of the staking pools.
+subsidies_object: 0x4b23c353c35a4dde72fe862399ebe59423933d3c2c0a3f2733b9f74cb3b4933d
+```
+
+
+<!-- markdownlint-disable code-fence-style -->
+~~~admonish tip
+The easiest way to obtain the latest configuration is by downloading it from GitHub:
+
+```sh
+curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/config/client_config_testnet.yaml \
+    -o ~/.config/walrus/client_config.yaml
+```
+~~~
+<!-- markdownlint-enable code-fence-style -->
+
 
 ### Testnet WAL faucet
 
@@ -35,5 +166,22 @@ the `--amount` option (the value is in MIST/FROST), and a specific SUI/WAL excha
 used through the `--exchange-id` option. The `walrus get-wal --help` command provides more
 information about those.
 
-
 ## Running a local Walrus network
+
+In addition to publicly deployed Walrus networks, you can deploy a Walrus testbed on your local
+machine for local testing. All you need to do is run the script `scripts/local-testbed.sh` found
+in the Walrus [git code repository](https://github.com/MystenLabs/walrus). See
+`scripts/local-testbed.sh -h` for further usage information.
+
+The script generates configuration that you can use when
+[running the Walrus client](#using-the-walrus-client) and prints the path to that configuration
+file.
+
+In addition, one can spin up a local grafana instance to visualize the metrics collected by the
+storage nodes. This can be done via `cd docker/grafana-local; docker compose up`. This should work
+with the default storage node configuration.
+
+Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
+is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
+[start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
+(requires `sui` to be v1.28.0 or higher) and specify `localnet` when starting the Walrus testbed.
