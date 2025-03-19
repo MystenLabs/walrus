@@ -10,9 +10,9 @@ const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
 const NODE_STATUS_COLUMN_FAMILY_NAME: &str = "node_status";
 const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
+const BASE_COLUMN_FAMILY_NAME: &str = "shard";
 const PRIMARY_SLIVERS_COLUMN_FAMILY_NAME: &str = "primary-slivers";
 const SECONDARY_SLIVERS_COLUMN_FAMILY_NAME: &str = "secondary-slivers";
-const BASE_COLUMN_FAMILY_NAME: &str = "shard";
 const STATUS_COLUMN_FAMILY_NAME: &str = "status";
 const SYNC_PROGRESS_COLUMN_FAMILY_NAME: &str = "sync-progress";
 const PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME: &str = "pending-recover-slivers";
@@ -54,25 +54,45 @@ pub fn event_index_cf_name() -> &'static str {
 
 /// Returns the name of the primary slivers column family for the given shard.
 pub fn primary_slivers_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + PRIMARY_SLIVERS_COLUMN_FAMILY_NAME
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        PRIMARY_SLIVERS_COLUMN_FAMILY_NAME
+    )
 }
 
 /// Returns the name of the secondary slivers column family for the given shard.
 pub fn secondary_slivers_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + SECONDARY_SLIVERS_COLUMN_FAMILY_NAME
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        SECONDARY_SLIVERS_COLUMN_FAMILY_NAME
+    )
 }
 
 /// Returns the name of the shard status column family for the given shard.
 pub fn shard_status_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + STATUS_COLUMN_FAMILY_NAME
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        STATUS_COLUMN_FAMILY_NAME
+    )
 }
 
 /// Returns the name of the shard sync progress column family for the given shard.
 pub fn shard_sync_progress_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + SYNC_PROGRESS_COLUMN_FAMILY_NAME
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        SYNC_PROGRESS_COLUMN_FAMILY_NAME
+    )
 }
 
 /// Returns the name of the pending recover slivers column family for the given shard.
 pub fn pending_recover_slivers_column_family_name(id: ShardIndex) -> String {
-    base_column_family_name(id) + PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME
+    format!(
+        "{}/{}",
+        base_column_family_name(id),
+        PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME
+    )
 }

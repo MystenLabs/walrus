@@ -34,7 +34,15 @@ use walrus_sui::types::BlobEvent;
 
 use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
-    constants::{metadata_cf_name, node_status_cf_name},
+    constants::{
+        metadata_cf_name,
+        node_status_cf_name,
+        pending_recover_slivers_column_family_name,
+        primary_slivers_column_family_name,
+        secondary_slivers_column_family_name,
+        shard_status_column_family_name,
+        shard_sync_progress_column_family_name,
+    },
     event_cursor_table::EventCursorTable,
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
@@ -52,8 +60,11 @@ mod event_sequencer;
 mod shard;
 
 pub use shard::{
+    pending_recover_slivers_column_family_options,
     primary_slivers_column_family_options,
     secondary_slivers_column_family_options,
+    shard_status_column_family_options,
+    shard_sync_progress_column_family_options,
     PrimarySliverData,
     SecondarySliverData,
     ShardStatus,
@@ -159,11 +170,26 @@ impl Storage {
             .copied()
             .flat_map(|id| {
                 [
-                    primary_slivers_column_family_options(id, &db_config),
-                    secondary_slivers_column_family_options(id, &db_config),
-                    ShardStorage::shard_status_column_family_options(id, &db_config),
-                    ShardStorage::shard_sync_progress_column_family_options(id, &db_config),
-                    ShardStorage::pending_recover_slivers_column_family_options(id, &db_config),
+                    (
+                        primary_slivers_column_family_name(id),
+                        primary_slivers_column_family_options(&db_config),
+                    ),
+                    (
+                        secondary_slivers_column_family_name(id),
+                        secondary_slivers_column_family_options(&db_config),
+                    ),
+                    (
+                        shard_status_column_family_name(id),
+                        shard_status_column_family_options(&db_config),
+                    ),
+                    (
+                        shard_sync_progress_column_family_name(id),
+                        shard_sync_progress_column_family_options(&db_config),
+                    ),
+                    (
+                        pending_recover_slivers_column_family_name(id),
+                        pending_recover_slivers_column_family_options(&db_config),
+                    ),
                 ]
             })
             .collect::<Vec<_>>();
@@ -1167,45 +1193,42 @@ pub(crate) mod tests {
         let test_shard_index = ShardIndex(123);
         let storage = empty_storage().await;
 
-        let primary_cfs =
-            primary_slivers_column_family_options(test_shard_index, &DatabaseConfig::default());
+        let primary_cfs_name = primary_slivers_column_family_name(test_shard_index);
+        let primary_cfs_options = primary_slivers_column_family_options(&DatabaseConfig::default());
 
-        let secondary_cfs =
-            secondary_slivers_column_family_options(test_shard_index, &DatabaseConfig::default());
+        let secondary_cfs_name = secondary_slivers_column_family_name(test_shard_index);
+        let secondary_cfs_options =
+            secondary_slivers_column_family_options(&DatabaseConfig::default());
 
-        let status_cfs = ShardStorage::shard_status_column_family_options(
-            test_shard_index,
-            &DatabaseConfig::default(),
-        );
+        let status_cfs_name = shard_status_column_family_name(test_shard_index);
+        let status_cfs = shard_status_column_family_options(&DatabaseConfig::default());
 
-        let sync_progress_cfs = ShardStorage::shard_sync_progress_column_family_options(
-            test_shard_index,
-            &DatabaseConfig::default(),
-        );
+        let sync_progress_cfs_name = shard_sync_progress_column_family_name(test_shard_index);
+        let sync_progress_cfs =
+            shard_sync_progress_column_family_options(&DatabaseConfig::default());
 
-        let pending_recover_cfs = ShardStorage::pending_recover_slivers_column_family_options(
-            test_shard_index,
-            &DatabaseConfig::default(),
-        );
+        let pending_recover_cfs_name = pending_recover_slivers_column_family_name(test_shard_index);
+        let pending_recover_cfs =
+            pending_recover_slivers_column_family_options(&DatabaseConfig::default());
 
         // Create all but secondary sliver column family. When restarting the storage, the
         // shard should not be detected as existing.
         storage
             .inner
             .database
-            .create_cf(&primary_cfs.0, &primary_cfs.1)?;
+            .create_cf(&primary_cfs_name, &primary_cfs_options)?;
         storage
             .inner
             .database
-            .create_cf(&status_cfs.0, &status_cfs.1)?;
+            .create_cf(&status_cfs_name, &status_cfs)?;
         storage
             .inner
             .database
-            .create_cf(&sync_progress_cfs.0, &sync_progress_cfs.1)?;
+            .create_cf(&sync_progress_cfs_name, &sync_progress_cfs)?;
         storage
             .inner
             .database
-            .create_cf(&pending_recover_cfs.0, &pending_recover_cfs.1)?;
+            .create_cf(&pending_recover_cfs_name, &pending_recover_cfs)?;
         assert!(!ShardStorage::existing_cf_shards_ids(
             storage.temp_dir.path(),
             &Options::default()
@@ -1217,7 +1240,7 @@ pub(crate) mod tests {
         storage
             .inner
             .database
-            .create_cf(&secondary_cfs.0, &secondary_cfs.1)?;
+            .create_cf(&secondary_cfs_name, &secondary_cfs_options)?;
         assert!(
             ShardStorage::existing_cf_shards_ids(storage.temp_dir.path(), &Options::default())
                 .contains(&test_shard_index)

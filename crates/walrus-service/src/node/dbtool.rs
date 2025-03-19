@@ -432,7 +432,7 @@ fn read_primary_slivers(
         db_path,
         [(
             primary_slivers_column_family_name(shard_index),
-            primary_slivers_column_family_options(shard_index, &DatabaseConfig::default()).1,
+            primary_slivers_column_family_options(&DatabaseConfig::default()),
         )],
         false,
     )?;
@@ -483,7 +483,7 @@ fn read_secondary_slivers(
         db_path,
         [(
             secondary_slivers_column_family_name(shard_index),
-            secondary_slivers_column_family_options(shard_index, &DatabaseConfig::default()).1,
+            secondary_slivers_column_family_options(&DatabaseConfig::default()),
         )],
         false,
     )?;

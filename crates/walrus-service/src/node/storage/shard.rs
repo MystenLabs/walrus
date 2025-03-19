@@ -218,17 +218,26 @@ impl ShardStorage {
         let rw_options = ReadWriteOptions::default();
 
         let shard_status = reopen_cf!(
-            Self::shard_status_column_family_options(id, db_config),
+            (
+                shard_status_column_family_name(id),
+                shard_status_column_family_options(db_config),
+            ),
             database,
             rw_options
         );
         let shard_sync_progress = reopen_cf!(
-            Self::shard_sync_progress_column_family_options(id, db_config),
+            (
+                shard_sync_progress_column_family_name(id),
+                shard_sync_progress_column_family_options(db_config),
+            ),
             database,
             rw_options
         );
         let pending_recover_slivers = reopen_cf!(
-            Self::pending_recover_slivers_column_family_options(id, db_config),
+            (
+                pending_recover_slivers_column_family_name(id),
+                pending_recover_slivers_column_family_options(db_config),
+            ),
             database,
             rw_options
         );
@@ -236,12 +245,18 @@ impl ShardStorage {
         // Make sure that sliver column families are created last. They are used to identify
         // whether the shard storage is initialized in `existing_cf_shards_ids`.
         let primary_slivers = reopen_cf!(
-            primary_slivers_column_family_options(id, db_config),
+            (
+                primary_slivers_column_family_name(id),
+                primary_slivers_column_family_options(db_config)
+            ),
             database,
             rw_options
         );
         let secondary_slivers = reopen_cf!(
-            secondary_slivers_column_family_options(id, db_config),
+            (
+                secondary_slivers_column_family_name(id),
+                secondary_slivers_column_family_options(db_config)
+            ),
             database,
             rw_options
         );
@@ -357,42 +372,6 @@ impl ShardStorage {
             SliverType::Primary => self.primary_slivers.contains_key(blob_id),
             SliverType::Secondary => self.secondary_slivers.contains_key(blob_id),
         }
-    }
-
-    /// Returns the name and options for the column families for a shard's operating status
-    /// with the specified index.
-    pub(crate) fn shard_status_column_family_options(
-        id: ShardIndex,
-        db_config: &DatabaseConfig,
-    ) -> (String, Options) {
-        (
-            shard_status_column_family_name(id),
-            db_config.shard_status().to_options(),
-        )
-    }
-
-    /// Returns the name and options for the column families for a shard's sync progress
-    /// with the specified index.
-    pub(crate) fn shard_sync_progress_column_family_options(
-        id: ShardIndex,
-        db_config: &DatabaseConfig,
-    ) -> (String, Options) {
-        (
-            shard_sync_progress_column_family_name(id),
-            db_config.shard_sync_progress().to_options(),
-        )
-    }
-
-    /// Returns the name and options for the column families for a shard's pending recover slivers
-    /// with the specified index.
-    pub(crate) fn pending_recover_slivers_column_family_options(
-        id: ShardIndex,
-        db_config: &DatabaseConfig,
-    ) -> (String, Options) {
-        (
-            pending_recover_slivers_column_family_name(id),
-            db_config.pending_recover_slivers().to_options(),
-        )
     }
 
     /// Returns the ids of existing shards that are fully initialized in the database at the
@@ -1184,27 +1163,34 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
 
 /// Returns the name and options for the column families for a shard's primary
 /// sliver with the specified index.
-pub fn primary_slivers_column_family_options(
-    id: ShardIndex,
-    db_config: &DatabaseConfig,
-) -> (String, Options) {
-    (
-        primary_slivers_column_family_name(id),
-        db_config.shard().to_options(),
-    )
+pub fn primary_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
+    db_config.shard().to_options()
 }
 
 /// Returns the name and options for the column families for a shard's secondary
 /// sliver with the specified index.
-pub fn secondary_slivers_column_family_options(
-    id: ShardIndex,
-    db_config: &DatabaseConfig,
-) -> (String, Options) {
-    (
-        secondary_slivers_column_family_name(id),
-        db_config.shard().to_options(),
-    )
+pub fn secondary_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
+    db_config.shard().to_options()
 }
+
+/// Returns the name and options for the column families for a shard's operating status
+/// with the specified index.
+pub fn shard_status_column_family_options(db_config: &DatabaseConfig) -> Options {
+    db_config.shard_status().to_options()
+}
+
+/// Returns the name and options for the column families for a shard's sync progress
+/// with the specified index.
+pub fn shard_sync_progress_column_family_options(db_config: &DatabaseConfig) -> Options {
+    db_config.shard_sync_progress().to_options()
+}
+
+/// Returns the name and options for the column families for a shard's pending recover slivers
+/// with the specified index.
+pub fn pending_recover_slivers_column_family_options(db_config: &DatabaseConfig) -> Options {
+    db_config.pending_recover_slivers().to_options()
+}
+
 #[cfg(msim)]
 fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow::Error> {
     // Inject a failure point to simulate a sync failure.
