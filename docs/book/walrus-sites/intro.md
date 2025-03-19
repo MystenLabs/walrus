@@ -36,7 +36,7 @@ by whoever wants to have their own, and even on `localhost`). Further, the only 
 portal is to retrieve the metadata (from Sui) and the resource files (from Walrus) that constitute
 the site.
 
-If you have a Sui wallet with some Testnet SUI, you can try and "mint a new Flatlander" from the
+If you have a Sui wallet with some SUI, you can try and "mint a new Flatlander" from the
 site. This creates an NFT from the collection and shows you two links: one to the explorer, and one
 to the "Flatlander site". This latter site is a special Walrus Site that exists only for that NFT,
 and has special characteristics (the background color, the image, ...) that are based on the
@@ -49,14 +49,23 @@ actually the [Base36](https://en.wikipedia.org/wiki/Base36) encoding of the obje
 which is
 [0x644bc958...](https://suiscan.xyz/testnet/object/0x644bc958052463785c026a13be051d579c8a4d2dc93b1874dce5839d4fb18c5e).
 
+``` admonish warning
+The official portal hosted by Mysten Labs, `https://walrus.site`, no longer serves sites lacking a
+SuiNS domain association. You should connect a SuiNS domain to your Site object first, and then
+browse it with `https://<your-domain>.walrus.site/`.
+```
+
 In summary:
 
 - Walrus Sites are served through a portal; in this case, `https://walrus.site`. There can be many
   portals, and anyone can host one.
 - The subdomain on the URL points to a specific object on Sui that allows the browser to fetch and
-  render the site resources. This pointer can be
-  - a SuiNS name, such as `flatland` in `https://flatland.walrus.site`, or
-  - the Base36 encoding of a the Sui object ID, such as `0x644bc958...` in the example above.
+  render the site resources. This pointer
+  - should be a SuiNS name, such as `flatland` in order to be browsable at
+    `https://flatland.walrus.site`, or
+  - the Base36 encoding of a the Sui object ID, such as `0x644bc958...` but for this to be
+    browsable, you would need to use either a different portal, or [host your own](./portal.md) on
+    localhost.
 
 Curious to know how this magic is possible? Read the [technical overview](./overview.md)! If you
 just want to get started trying Walrus Sites out, check the [tutorial](./tutorial.md).
