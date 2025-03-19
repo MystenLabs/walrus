@@ -187,7 +187,7 @@ fn merkle_tree_for_request(
 mod tests {
     use futures::stream;
     use rayon::ThreadPoolBuilder;
-    use thread_pool::{RayonThreadPool, TokioBlockingPool};
+    use thread_pool::{BlockingThreadPool, RayonThreadPool, TokioBlockingPool};
     use tokio_stream::StreamExt as _;
     use tower::ServiceExt as _;
     use walrus_core::{
@@ -213,18 +213,20 @@ mod tests {
             ThreadPoolType::Rayon => RecoverySymbolService::new(
                 10,
                 config,
-                RayonThreadPool::new(
+                BlockingThreadPool::new_rayon(RayonThreadPool::new(
                     ThreadPoolBuilder::new()
                         .num_threads(1)
                         .build()
                         .expect("thread pool construction must succeed")
                         .into(),
-                )
+                ))
                 .bounded(),
             ),
-            ThreadPoolType::Tokio => {
-                RecoverySymbolService::new(10, config, TokioBlockingPool::new().bounded())
-            }
+            ThreadPoolType::Tokio => RecoverySymbolService::new(
+                10,
+                config,
+                BlockingThreadPool::new_tokio(TokioBlockingPool::new()).bounded(),
+            ),
         }
     }
 
