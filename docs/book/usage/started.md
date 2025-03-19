@@ -3,6 +3,8 @@
 You want to get a taste of Walrus? Here are some distributed applications (dapps) that
 you can use from your browser:
 
+<!-- TODO(): Change explorer testnet address -->
+
 * [Publish a blob and see it](https://publish.walrus.site/) on Walrus.
 * [Explore](https://walruscan.com/testnet/home) blob uploads and meta-data on the Walrus explorer.
 * [Mint a toy NFT](https://flatland.walrus.site/) on the flatland application.

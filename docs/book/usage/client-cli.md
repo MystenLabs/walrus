@@ -19,6 +19,8 @@ overview of current system parameters such as the current epoch, the number of s
 shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
 
+<!-- TODO(): Update after epoch 1 -->
+
 ```console
 $ walrus info
 
