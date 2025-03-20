@@ -253,12 +253,14 @@ async fn metadata_request_succeeds_if_available(
     }
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(StdRng::seed_from_u64(0))
-        .build(ActiveCommittees::new(
-            committee,
-            Some(Committee::new(vec![], 0, NonZeroU16::new(10).unwrap()).unwrap()),
-        ))
+        .build_with_factory(
+            ActiveCommittees::new(
+                committee,
+                Some(Committee::new(vec![], 0, NonZeroU16::new(10).unwrap()).unwrap()),
+            ),
+            service_map,
+        )
         .await?;
 
     let returned_metadata = time::timeout(
@@ -291,9 +293,8 @@ async fn new_committee_unavailable_for_reads_until_transition_completes() -> Tes
     );
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(StdRng::seed_from_u64(1))
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, service_map)
         .await?;
 
     let mut pending_request =
@@ -337,9 +338,8 @@ async fn rejects_non_incremental_epochs(initial_epoch: Epoch, jumped_epoch: Epoc
 
     let (committee_lookup, committee_handle) = lookup_service_pair(initial_committees);
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(ServiceFactoryMap::default())
         .randomness(StdRng::seed_from_u64(2))
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, ServiceFactoryMap::default())
         .await?;
 
     committee_handle.set_active_committees(committees_skipped_to);
@@ -385,9 +385,8 @@ async fn requests_for_metadata_are_dispatched_to_correct_committee(
     let (committee_lookup, handle) = lookup_service_pair(committees);
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(StdRng::seed_from_u64(3))
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, service_map)
         .await?;
 
     handle.begin_transition_to(next_committee);
@@ -423,10 +422,9 @@ async fn metadata_requests_do_not_query_self() -> TestResult {
     let (committee_lookup, _) = lookup_service_pair(committees);
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(StdRng::seed_from_u64(4))
         .local_identity(local_identity)
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, service_map)
         .await?;
 
     assert_timeout!(
@@ -536,14 +534,13 @@ async fn recovers_slivers_across_epoch_change() -> TestResult {
     let (committee_lookup, committee_handle) = lookup_service_pair(committees);
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(rng)
         .config(CommitteeServiceConfig {
             // Reduce timeout duration from 5 mins to play nice with the timeouts used in the test
             sliver_request_timeout: Duration::from_secs(1),
             ..Default::default()
         })
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, service_map)
         .await?;
 
     let mut pending_request = committee_service.recover_sliver(
@@ -614,14 +611,13 @@ async fn restarts_inconsistency_proof_collection_across_epoch_change() -> TestRe
     let (committee_lookup, committee_handle) = lookup_service_pair(committees);
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(rng)
         .config(CommitteeServiceConfig {
             // Reduce timeout duration to play nicely with the timeouts used in the test
             invalidity_sync_timeout: Duration::from_secs(10),
             ..Default::default()
         })
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, service_map)
         .await?;
 
     let mut pending_request =
@@ -680,14 +676,13 @@ async fn collects_inconsistency_proof_despite_epoch_change() -> TestResult {
     let (committee_lookup, committee_handle) = lookup_service_pair(committees);
 
     let committee_service = NodeCommitteeService::builder()
-        .node_service_factory(service_map)
         .randomness(rng)
         .config(CommitteeServiceConfig {
             // Reduce timeout duration to play nicely with the timeouts used in the test
             invalidity_sync_timeout: Duration::from_secs(10),
             ..Default::default()
         })
-        .build(committee_lookup)
+        .build_with_factory(committee_lookup, service_map)
         .await?;
 
     let mut pending_request =

@@ -1910,8 +1910,10 @@ impl TestClusterBuilder {
 
                 let service = NodeCommitteeService::builder()
                     .local_identity(local_identity)
-                    .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
-                    .build(lookup_service.clone())
+                    .build_with_factory(
+                        lookup_service.clone(),
+                        DefaultNodeServiceFactory::avoid_system_services(),
+                    )
                     .await?;
                 builder.with_committee_service(Arc::new(service))
             };
@@ -2455,8 +2457,10 @@ pub mod test_cluster {
         let committee_services = future::join_all(contract_clients.iter().map(|_| async {
             let service: Arc<dyn CommitteeService> = Arc::new(
                 NodeCommitteeService::builder()
-                    .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
-                    .build(sui_read_client.clone())
+                    .build_with_factory(
+                        sui_read_client.clone(),
+                        DefaultNodeServiceFactory::avoid_system_services(),
+                    )
                     .await
                     .expect("service construction must succeed in tests"),
             );
