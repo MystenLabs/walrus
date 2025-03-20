@@ -40,8 +40,8 @@ pub(crate) const ASSUMED_REQUEST_LATENCY: Duration = Duration::from_millis(10);
 /// [`RayonThreadPool::bounded`].
 pub(crate) const DEFAULT_MAX_WAIT_TIME: Duration = Duration::from_secs(1);
 
-/// The default number of concurrent jobs for the tokio blocking pool.
-pub(crate) const DEFAULT_TOKIO_BLOCKING_POOL_CONCURRENT_JOBS: usize = 100;
+/// The default number of workers for the tokio blocking pool.
+pub(crate) const DEFAULT_TOKIO_BLOCKING_POOL_NUM_WORKERS: usize = 4;
 
 /// A [`BlockingThreadPool`] with a limit to the number of concurrent jobs.
 pub(crate) type BoundedThreadPool = ConcurrencyLimit<BlockingThreadPool>;
@@ -205,7 +205,10 @@ impl BlockingThreadPool {
         let n_workers = match self {
             Self::Rayon(ref pool) => pool.inner.current_num_threads() as f64,
             Self::Tokio(ref _pool) => std::thread::available_parallelism()
-                .unwrap_or(NonZero::new(DEFAULT_TOKIO_BLOCKING_POOL_CONCURRENT_JOBS).unwrap())
+                .unwrap_or(
+                    NonZero::new(DEFAULT_TOKIO_BLOCKING_POOL_NUM_WORKERS)
+                        .expect("default tokio blocking pool concurrent jobs must be non-zero"),
+                )
                 .get() as f64,
         };
 
@@ -238,8 +241,8 @@ where
 
     fn call(&mut self, req: Req) -> Self::Future {
         match self {
-            Self::Rayon(pool) => pool.call(Box::new(req)),
-            Self::Tokio(pool) => pool.call(Box::new(req)),
+            Self::Rayon(pool) => pool.call(req),
+            Self::Tokio(pool) => pool.call(req),
         }
     }
 }
