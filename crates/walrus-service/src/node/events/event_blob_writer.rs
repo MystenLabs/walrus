@@ -98,16 +98,17 @@ pub struct EventBlobMetadata<T, U> {
 }
 
 /// Metadata for a blob that is waiting for attestation.
-pub type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
+pub(crate) type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
 
 /// Metadata for a blob that failed to attest.
-pub type FailedToAttestEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub(crate) type FailedToAttestEventBlobMetadata =
+    EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last attested.
-pub type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub(crate) type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last certified.
-pub type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
+pub(crate) type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
 
 impl PendingEventBlobMetadata {
     fn new(

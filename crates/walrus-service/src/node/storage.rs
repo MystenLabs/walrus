@@ -75,6 +75,10 @@ pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
     db_config.metadata().to_options()
 }
 
+pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
+    db_config.node_status().to_options()
+}
+
 /// Error returned if a requested operation would block.
 #[derive(Debug, Clone, Copy)]
 pub struct WouldBlockError;
@@ -194,7 +198,8 @@ impl Storage {
             })
             .collect::<Vec<_>>();
 
-        let (node_status_cf_name, node_status_options) = Self::node_status_options(&db_config);
+        let node_status_cf_name = node_status_cf_name();
+        let node_status_options = node_status_options(&db_config);
         let metadata_options = metadata_options(&db_config);
         let metadata_cf_name = metadata_cf_name();
         let blob_info_column_families = BlobInfoTable::options(&db_config);
@@ -575,10 +580,6 @@ impl Storage {
         }
 
         Ok(shards_with_sliver_pairs)
-    }
-
-    fn node_status_options(db_config: &DatabaseConfig) -> (&'static str, Options) {
-        (node_status_cf_name(), db_config.node_status().to_options())
     }
 
     /// Returns the shards currently present in the storage.
