@@ -96,6 +96,8 @@ if you are on Windows.
 curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh
 ```
 
+Make sure that your `"$HOME"/.local/bin` directory is in your `$PATH`.
+
 Once this is done, you should be able to simply type `walrus` in your terminal. For example you can
 get usage instructions (see [the next chapter](./interacting.md) for further details):
 
@@ -123,10 +125,13 @@ PowerShell then follow on-screen instructions.
 .
 
 ```PowerShell
-Invoke-WebRequest -Uri https://storage.googleapis.com/mysten-walrus-binaries/walrus-testnet-latest-windows-x86_64.exe -OutFile walrus.exe
+(New-Object System.Net.WebClient).DownloadFile(
+  "https://storage.googleapis.com/mysten-walrus-binaries/walrus-testnet-latest-windows-x86_64.exe",
+  "walrus.exe"
+)
 ```
 
-From there, you'll need to place the `walrus` executable somewhere in your `PATH`.
+From there, you'll need to place `walrus.exe` somewhere in your `PATH`.
 
 ### Previous versions (optional)
 
