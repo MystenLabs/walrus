@@ -15,17 +15,20 @@ use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
 use walrus_core::{BlobId, BlobMetadata, Epoch, ShardIndex};
 
-use super::events::PositionedStreamEvent;
 use crate::node::{
-    events::event_blob_writer::{
-        AttestedEventBlobMetadata,
-        CertifiedEventBlobMetadata,
-        FailedToAttestEventBlobMetadata,
-        PendingEventBlobMetadata,
-        ATTESTED,
-        CERTIFIED,
-        FAILED_TO_ATTEST,
-        PENDING,
+    events::{
+        event_blob_writer::{
+            attested_cf_name,
+            certified_cf_name,
+            failed_to_attest_cf_name,
+            pending_cf_name,
+            AttestedEventBlobMetadata,
+            CertifiedEventBlobMetadata,
+            FailedToAttestEventBlobMetadata,
+            PendingEventBlobMetadata,
+        },
+        event_processor::event_store_cf_name,
+        PositionedStreamEvent,
     },
     storage::{
         blob_info::{
@@ -37,7 +40,6 @@ use crate::node::{
         },
         constants::{
             aggregate_blob_info_cf_name,
-            event_store_cf_name,
             metadata_cf_name,
             per_object_blob_info_cf_name,
             primary_slivers_column_family_name,
@@ -606,9 +608,14 @@ fn read_secondary_slivers(
 }
 
 fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [CERTIFIED], false)?;
+    let db = DB::open_cf_for_read_only(
+        &RocksdbOptions::default(),
+        db_path,
+        [certified_cf_name()],
+        false,
+    )?;
 
-    let Some(cf) = db.cf_handle(CERTIFIED) else {
+    let Some(cf) = db.cf_handle(certified_cf_name()) else {
         println!("Certified event blobs column family not found");
         return Ok(());
     };
@@ -626,9 +633,14 @@ fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [ATTESTED], false)?;
+    let db = DB::open_cf_for_read_only(
+        &RocksdbOptions::default(),
+        db_path,
+        [attested_cf_name()],
+        false,
+    )?;
 
-    let Some(cf) = db.cf_handle(ATTESTED) else {
+    let Some(cf) = db.cf_handle(attested_cf_name()) else {
         println!("Attested event blobs column family not found");
         return Ok(());
     };
@@ -647,9 +659,14 @@ fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
 }
 
 fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: u64) -> Result<()> {
-    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [PENDING], false)?;
+    let db = DB::open_cf_for_read_only(
+        &RocksdbOptions::default(),
+        db_path,
+        [pending_cf_name()],
+        false,
+    )?;
 
-    let Some(cf) = db.cf_handle(PENDING) else {
+    let Some(cf) = db.cf_handle(pending_cf_name()) else {
         println!("Pending event blobs column family not found");
         return Ok(());
     };
@@ -687,11 +704,11 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
     let db = DB::open_cf_for_read_only(
         &RocksdbOptions::default(),
         db_path,
-        [FAILED_TO_ATTEST],
+        [failed_to_attest_cf_name()],
         false,
     )?;
 
-    let Some(cf) = db.cf_handle(FAILED_TO_ATTEST) else {
+    let Some(cf) = db.cf_handle(failed_to_attest_cf_name()) else {
         println!("Failed-to-attest event blobs column family not found");
         return Ok(());
     };

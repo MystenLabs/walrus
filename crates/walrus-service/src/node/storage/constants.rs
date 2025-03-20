@@ -4,12 +4,13 @@
 use walrus_core::ShardIndex;
 
 /// Column family names used in RocksDB.
-const EVENT_STORE: &str = "event_store";
 const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "aggregate_blob_info";
 const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
 const NODE_STATUS_COLUMN_FAMILY_NAME: &str = "node_status";
 const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
+const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
+const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -22,11 +23,6 @@ const SHARD_PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME: &str = "pending-recover-
 /// Returns the base column family name for a shard.
 fn base_column_family_name(id: ShardIndex) -> String {
     format!("{}-{}", SHARD_BASE_COLUMN_FAMILY_NAME, id.0)
-}
-
-/// Returns the name of the event store column family.
-pub fn event_store_cf_name() -> &'static str {
-    EVENT_STORE
 }
 
 /// Returns the name of the aggregate blob info column family.
@@ -52,6 +48,15 @@ pub fn metadata_cf_name() -> &'static str {
 /// Returns the name of the event index column family.
 pub fn event_index_cf_name() -> &'static str {
     EVENT_INDEX_COLUMN_FAMILY_NAME
+}
+
+/// Returns the name of the event cursor column family.
+pub fn event_cursor_cf_name() -> &'static str {
+    EVENT_CURSOR_COLUMN_FAMILY_NAME
+}
+
+pub fn event_cursor_key() -> &'static [u8; 6] {
+    &EVENT_CURSOR_KEY
 }
 
 /// Returns the column family name for primary slivers of a shard.
@@ -106,7 +111,7 @@ mod tests {
     #[test]
     fn test_column_family_names() {
         assert_eq!(metadata_cf_name(), "metadata");
-        assert_eq!(event_store_cf_name(), "event_store");
+        assert_eq!(event_cursor_cf_name(), "event_cursor");
         assert_eq!(aggregate_blob_info_cf_name(), "aggregate_blob_info");
         assert_eq!(per_object_blob_info_cf_name(), "per_object_blob_info");
         assert_eq!(node_status_cf_name(), "node_status");

@@ -56,15 +56,31 @@ use crate::node::{
 };
 
 /// The column family name for certified event blobs.
-pub const CERTIFIED: &str = "certified_blob_store";
+const CERTIFIED: &str = "certified_blob_store";
 /// The column family name for attested event blobs.
-pub const ATTESTED: &str = "attested_blob_store";
+const ATTESTED: &str = "attested_blob_store";
 /// The column family name for pending event blobs.
-pub const PENDING: &str = "pending_blob_store";
+const PENDING: &str = "pending_blob_store";
 /// The column family name for failed to attest event blobs.
-pub const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
+const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
 pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
+
+pub(crate) fn certified_cf_name() -> &'static str {
+    CERTIFIED
+}
+
+pub(crate) fn attested_cf_name() -> &'static str {
+    ATTESTED
+}
+
+pub(crate) fn pending_cf_name() -> &'static str {
+    PENDING
+}
+
+pub(crate) fn failed_to_attest_cf_name() -> &'static str {
+    FAILED_TO_ATTEST
+}
 
 /// Metadata for event blobs.
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]

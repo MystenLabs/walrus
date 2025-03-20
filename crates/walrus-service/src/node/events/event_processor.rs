@@ -91,13 +91,17 @@ const WALRUS_PACKAGE_STORE: &str = "walrus_package_store";
 /// The name of the committee store.
 const COMMITTEE_STORE: &str = "committee_store";
 /// The name of the event store.
-pub(crate) const EVENT_STORE: &str = "event_store";
+const EVENT_STORE: &str = "event_store";
 /// Event blob state to consider before the first event is processed.
 const INIT_STATE: &str = "init_state";
 /// Max events per stream poll
 const MAX_EVENTS_PER_POLL: usize = 1000;
 
 pub(crate) type PackageCache = PackageStoreWithLruCache<LocalDBPackageStore>;
+
+pub(crate) fn event_store_cf_name() -> &'static str {
+    EVENT_STORE
+}
 
 /// Store which keeps package objects in a local rocksdb store. It is expected that this store is
 /// kept updated with latest version of package objects while iterating over checkpoints. If the
