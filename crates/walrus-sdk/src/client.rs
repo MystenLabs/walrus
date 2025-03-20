@@ -7,19 +7,12 @@ use std::sync::Arc;
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
-use opentelemetry::propagation::Injector;
-use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
-    Client as ReqwestClient,
-    Method,
-    Request,
-    Response,
-    Url,
-};
+use middleware::{HttpClientMetrics, HttpMiddleware, UrlTemplate};
+use reqwest::{header::HeaderValue, Client as ReqwestClient, Method, Request, Response, Url};
 use serde::{de::DeserializeOwned, Serialize, Serializer};
 use sui_types::base_types::ObjectID;
-use tracing::{field, Instrument as _, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tower::ServiceExt;
+use tracing::Level;
 use walrus_core::{
     encoding::{
         EncodingAxis,
@@ -346,8 +339,14 @@ where
 /// A client for communicating with a StorageNode.
 #[derive(Debug, Clone)]
 pub struct Client {
-    inner: ReqwestClient,
+    inner: HttpMiddleware<ReqwestClient>,
     endpoints: UrlEndpoints,
+
+    /// A clone of the client used to create requests via the reqwest::RequestBuilder.
+    ///
+    /// This is needed, because the reqwest builder wants the client for the ergonmics of being
+    /// able to send the request directly from the builder.
+    client_clone: ReqwestClient,
 }
 
 impl Client {
@@ -375,7 +374,7 @@ impl Client {
 
     /// Converts this to the inner client.
     pub fn into_inner(self) -> ReqwestClient {
-        self.inner
+        self.inner.into_inner()
     }
 
     /// Requests the metadata for a blob ID from the node.
@@ -619,8 +618,9 @@ impl Client {
         filter: &RecoverySymbolsFilter,
     ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
         let (url, template) = self.endpoints.list_recovery_symbols(blob_id);
+
         let request = self
-            .inner
+            .client_clone
             .get(url)
             .query(&filter)
             .build()
@@ -736,7 +736,7 @@ impl Client {
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), NodeError> {
         let (url, template) = self.endpoints.metadata(metadata.blob_id());
-        let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref())?;
+        let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref());
         self.send_and_parse_service_response::<String>(request, template)
             .await?;
         Ok(())
@@ -760,7 +760,7 @@ impl Client {
     ) -> Result<(), NodeError> {
         tracing::trace!("starting to store sliver");
         let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
-        let request = self.create_request_with_payload(Method::PUT, url, &sliver)?;
+        let request = self.create_request_with_payload(Method::PUT, url, &sliver);
         self.send_and_parse_service_response::<String>(request, template)
             .await?;
 
@@ -789,7 +789,7 @@ impl Client {
         inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let (url, template) = self.endpoints.inconsistency_proof::<A>(blob_id);
-        let request = self.create_request_with_payload(Method::POST, url, &inconsistency_proof)?;
+        let request = self.create_request_with_payload(Method::POST, url, &inconsistency_proof);
 
         self.send_and_parse_service_response(request, template)
             .await
@@ -896,61 +896,18 @@ impl Client {
     /// The HTTP span ends after the parsing of the headers, since the response may be streamed.
     async fn send_request(
         &self,
-        mut request: Request,
+        request: Request,
         url_template: &'static str,
-    ) -> Result<(Response, Span), NodeError> {
-        let url = request.url();
-        let span = tracing::info_span!(
-            parent: &Span::current(),
-            "http_request",
-            otel.name = format!("{} {}", request.method().as_str(), url_template),
-            otel.kind = "CLIENT",
-            otel.status_code = field::Empty,
-            otel.status_message = field::Empty,
-            http.request.method = request.method().as_str(),
-            http.response.status_code = field::Empty,
-            server.address = url.host_str(),
-            server.port = url.port_or_known_default(),
-            url.full = url.as_str(),
-            "error.type" = field::Empty,
-        );
+    ) -> Result<Response, NodeError> {
+        let output = self
+            .inner
+            .clone()
+            .oneshot((request, UrlTemplate(url_template)))
+            .await;
 
-        // We use the global propagator as in the examples, since this allows a client using the
-        // library to completely disable propagation for contextual information.
-        opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.inject_context(&span.context(), &mut HeaderInjector(request.headers_mut()));
-        });
-
-        let result = self.inner.execute(request).instrument(span.clone()).await;
-
-        match result {
-            Ok(response) => {
-                // Check that the response is using HTTP 2 when not in release mode.
-                debug_assert!(response.version() == reqwest::Version::HTTP_2);
-
-                let status_code = response.status();
-                span.record("http.response.status_code", status_code.as_str());
-
-                // We don't handle anything that is not a 2xx, so they're all failures to us.
-                if !status_code.is_success() {
-                    span.record("otel.status_code", "ERROR");
-                    // For HTTP errors, otel recommends not setting status_message.
-                    span.record("error.type", status_code.as_str());
-                }
-
-                response
-                    .response_error_for_status()
-                    .instrument(span.clone())
-                    .await
-                    .map(|response| (response, span))
-            }
-            Err(err) => {
-                span.record("otel.status_code", "ERROR");
-                span.record("otel.status_message", err.to_string());
-                span.record("error.type", "reqwest::Error");
-
-                Err(NodeError::reqwest(err))
-            }
+        match output {
+            Ok(response) => response.response_error_for_status().await,
+            Err(err) => Err(NodeError::reqwest(err)),
         }
     }
 
@@ -960,7 +917,7 @@ impl Client {
         url_template: &'static str,
     ) -> Result<T, NodeError> {
         self.send_request(request, url_template)
-            .and_then(|(response, span)| response.bcs().instrument(span))
+            .and_then(|response| response.bcs())
             .inspect_err(|error| tracing::trace!(?error))
             .await
     }
@@ -971,7 +928,7 @@ impl Client {
         url_template: &'static str,
     ) -> Result<T, NodeError> {
         self.send_request(request, url_template)
-            .and_then(|(response, span)| response.service_response().instrument(span))
+            .and_then(|response| response.service_response())
             .inspect_err(|error| tracing::trace!(?error))
             .await
     }
@@ -981,12 +938,14 @@ impl Client {
         method: Method,
         url: Url,
         body: &T,
-    ) -> Result<Request, NodeError> {
-        self.inner
-            .request(method, url)
-            .body(bcs::to_bytes(body).expect("type must be bcs encodable"))
-            .build()
-            .map_err(NodeError::reqwest)
+    ) -> Request {
+        let mut request = Request::new(method, url);
+        *request.body_mut() = Some(
+            bcs::to_bytes(body)
+                .expect("type must be bcs encodable")
+                .into(),
+        );
+        request
     }
 
     // Creates a request with a payload and a public key in the Authorization header.
@@ -997,27 +956,13 @@ impl Client {
         body: &T,
         public_key: &PublicKey,
     ) -> Result<Request, NodeError> {
-        let mut request = self.create_request_with_payload(method, url, body)?;
+        let mut request = self.create_request_with_payload(method, url, body);
         let encoded_key = public_key.encode_base64();
         let public_key_header = HeaderValue::from_str(&encoded_key).map_err(NodeError::other)?;
         request
             .headers_mut()
             .insert(reqwest::header::AUTHORIZATION, public_key_header);
         Ok(request)
-    }
-}
-
-// opentelemetry_http currently uses too low a version of the http crate,
-// so we reimplement the injector here.
-struct HeaderInjector<'a>(pub &'a mut HeaderMap);
-
-impl Injector for HeaderInjector<'_> {
-    fn set(&mut self, key: &str, value: String) {
-        if let Ok(name) = HeaderName::from_bytes(key.as_bytes()) {
-            if let Ok(val) = HeaderValue::from_str(&value) {
-                self.0.insert(name, val);
-            }
-        }
     }
 }
 

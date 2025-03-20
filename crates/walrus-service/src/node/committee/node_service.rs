@@ -24,6 +24,7 @@ use std::{
 };
 
 use futures::{future::BoxFuture, FutureExt};
+use prometheus::Registry;
 use tower::Service;
 use walrus_core::{
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
@@ -301,7 +302,7 @@ impl Service<Request> for RemoteStorageNode {
 // pub(crate) type LocalStorageNode = Weak<StorageNodeInner>;
 
 /// A [`NodeServiceFactory`] creating [`RemoteStorageNode`] services.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct DefaultNodeServiceFactory {
     /// If true, disables the use of proxies.
     ///
@@ -315,9 +316,20 @@ pub(crate) struct DefaultNodeServiceFactory {
 
     /// The timeout to configure when connecting to remote nodes.
     pub connect_timeout: Option<Duration>,
+
+    /// The registry to use for registering node metrics.
+    pub registry: Option<Registry>,
 }
 
 impl DefaultNodeServiceFactory {
+    /// Creates a new instance with metrics written to the provided registry.
+    pub fn new_with_metrics(registry: Registry) -> Self {
+        Self {
+            registry: Some(registry),
+            ..Self::default()
+        }
+    }
+
     /// Sets the timeout for connecting to nodes, for all subsequently created nodes.
     pub fn connect_timeout(&mut self, timeout: Duration) {
         self.connect_timeout = Some(timeout);
@@ -329,7 +341,7 @@ impl DefaultNodeServiceFactory {
         Self {
             disable_use_proxy: true,
             disable_loading_native_certs: true,
-            connect_timeout: None,
+            ..Self::default()
         }
     }
 }
@@ -354,6 +366,9 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
         }
         if let Some(timeout) = self.connect_timeout.as_ref() {
             builder = builder.connect_timeout(*timeout);
+        }
+        if let Some(registry) = self.registry.as_ref() {
+            builder = builder.metric_registry(registry.clone());
         }
 
         builder

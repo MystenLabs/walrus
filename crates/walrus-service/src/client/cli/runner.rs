@@ -767,6 +767,7 @@ impl ClientCommandRunner {
             Arc::new(EncodingConfig::new(
                 sui_read_client.current_committee().await?.n_shards(),
             )),
+            None,
         )?;
 
         ServiceHealthInfoOutput::new_for_nodes(

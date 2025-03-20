@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
+use prometheus::Registry;
 use reqwest::{ClientBuilder as ReqwestClientBuilder, Url};
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use walrus_core::NetworkPublicKey;
 
+use super::{HttpClientMetrics, HttpMiddleware};
 use crate::{
     client::{Client, UrlEndpoints},
     error::{BuildErrorKind, ClientBuildError},
@@ -23,6 +25,7 @@ pub struct ClientBuilder {
     roots: Vec<CertificateDer<'static>>,
     no_built_in_root_certs: bool,
     connect_timeout: Option<Duration>,
+    registry: Option<Registry>,
 }
 
 impl ClientBuilder {
@@ -109,6 +112,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Registers metrics the provided registry. Defaults to the globabl default registry.
+    pub fn metric_registry(mut self, registry: Registry) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
     /// Convenience function to build the client where the server is identified by a [`SocketAddr`].
     ///
     /// Equivalent `self.build(&remote.to_string())`
@@ -177,6 +186,15 @@ impl ClientBuilder {
             .build()
             .map_err(ClientBuildError::reqwest)?;
 
-        Ok(Client { inner, endpoints })
+        let registry = self
+            .registry
+            .as_ref()
+            .unwrap_or_else(|| prometheus::default_registry());
+
+        Ok(Client {
+            client_clone: inner.clone(),
+            inner: HttpMiddleware::new(inner, HttpClientMetrics::new(registry)),
+            endpoints,
+        })
     }
 }
