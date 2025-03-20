@@ -195,7 +195,7 @@ share a newly created blob by adding the `--share` option to the `walrus store` 
 You can use the `walrus extend` command to extend the lifetime of a shared blob object. Shared blobs
 can only contain permanent blobs and cannot be deleted before their expiry.
 
-## Blob ID utilities
+## Blob object and blob ID utilities
 
 The `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a
 commitment to the file, and any blob with the same ID will decode to the same content. The blob
@@ -206,6 +206,15 @@ encoding used by the command line tools and other APIs.
 The `walrus list-blobs` command lists all the non expired Sui blob object that the current account
 owns, including their blob ID, object ID, and metadata about expiry and deletable status.
 The option `--include-expired` also lists expired blob objects.
+
+The Sui storage cost associated with blob objects may be reclaimed by deleting the Sui blob object.
+This does not lead to the Walrus blob being deleted, but means that operations such as extending
+its lifetime, deleting it, or modifying attributes are no more available.
+The `walrus burn-blobs --object-ids <BLOB_IDS>` command may be used to delete a specific list of
+blobs IDs. The `--all` flag deletes all blobs under the user account, and `--all-expired` deletes
+all expired blobs under the user account.
+
+<!-- TODO():  attributes about HTTP headers understood by the aggregator? -->
 
 ## Changing the default configuration
 
@@ -221,5 +230,8 @@ MIST) that the command is allowed to use.
 The `walrus` CLI allows for multiple levels of logging, which can be turned on via an env variable:
 
 ```sh
-RUST_LOG=trace walrus info
+RUST_LOG=walrus=trace walrus info
 ```
+
+By default `info` level logs are enabled, but `error`, `debug` and `trace` can give a more
+intimate understanding of what a command does, or how it fails.
