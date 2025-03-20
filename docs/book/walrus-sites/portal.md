@@ -60,16 +60,43 @@ The environment variables are set in the `.env.local` file at the root of each p
 To just run a simple instance of a portal, you can use the environment variables specified
 in the `.env.example` file:
 
+{{#tabs }}
+
+{{#tab name="Mainnet" }}
+
 ```sh
-cp ./portal/server/.env.example ./portal/server/.env.local
+cp ./portal/server/.env.mainnet.example ./portal/server/.env.local
 ```
+
+{{#endtab }}
+{{#tab name="Testnet" }}
+
+```sh
+cp ./portal/server/.env.testnet.example ./portal/server/.env.local
+```
+
+{{#endtab }}
+{{#endtabs }}
 
 Likewise, if you want to run the service-worker portal, you can copy the `.env.example` file to
 `.env.local` in the `portal/worker` directory.
 
+{{#tabs}}
+{{#tab name="Mainnet" }}
+
 ```sh
-cp ./portal/worker/.env.example ./portal/worker/.env.local
+cp ./portal/worker/.env.mainnet.example ./portal/worker/.env.local
 ```
+
+{{#endtab }}
+{{#tab name="Testnet" }}
+
+```sh
+cp ./portal/worker/.env.testnet.example ./portal/worker/.env.local
+```
+
+{{#endtab }}
+{{#endtabs }}
 
 For a more detailed configuration, you can modify the `.env.local` files to suit your needs.
 As a reference, here are the definitions of the environment variables:
