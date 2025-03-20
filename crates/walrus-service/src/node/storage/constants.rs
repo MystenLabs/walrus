@@ -137,4 +137,9 @@ mod tests {
             "shard-900/secondary-slivers"
         );
     }
+
+    #[test]
+    fn test_event_cursor_key() {
+        assert_eq!(event_cursor_key(), b"cursor");
+    }
 }
