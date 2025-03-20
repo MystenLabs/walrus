@@ -5,7 +5,7 @@
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
 
-use std::{collections::BTreeMap, fmt::Debug, future::Future, str::FromStr};
+use std::{collections::BTreeMap, fmt::Debug, future::Future, str::FromStr, sync::Arc};
 
 use futures::{future, stream, Stream, StreamExt};
 use rand::{
@@ -52,12 +52,14 @@ use sui_types::{
     transaction::{Transaction, TransactionData, TransactionKind},
     TypeTag,
 };
+use tokio::time::Instant;
 use tracing::Level;
 use walrus_core::ensure;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{SuiClientError, SuiClientResult};
 use crate::{
+    client::SuiClientMetrics,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
@@ -174,6 +176,7 @@ where
 pub struct RetriableSuiClient {
     sui_client: SuiClient,
     backoff_config: ExponentialBackoffConfig,
+    metrics: Option<Arc<SuiClientMetrics>>,
 }
 
 impl RetriableSuiClient {
@@ -187,7 +190,14 @@ impl RetriableSuiClient {
         RetriableSuiClient {
             sui_client,
             backoff_config,
+            metrics: None,
         }
+    }
+
+    /// Sets the metrics for the client.
+    pub fn with_metrics(mut self, metrics: Option<Arc<SuiClientMetrics>>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// Returns a reference to the inner backoff configuration.
@@ -752,26 +762,46 @@ impl RetriableSuiClient {
     ) -> anyhow::Result<SuiTransactionBlockResponse> {
         // Retry here must use the exact same transaction to avoid locked objects.
         retry_rpc_errors(self.get_strategy(), || async {
+            let transaction = transaction.clone();
             #[cfg(msim)]
             {
                 maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
             }
-            Ok(self
-                .sui_client
-                .quorum_driver_api()
-                .execute_transaction_block(
-                    transaction.clone(),
-                    SuiTransactionBlockResponseOptions::new()
-                        .with_effects()
-                        .with_input()
-                        .with_events()
-                        .with_object_changes()
-                        .with_balance_changes(),
-                    Some(WaitForLocalExecution),
-                )
-                .await?)
+
+            let response = if let Some(metrics) = self.metrics.as_ref() {
+                let start = Instant::now();
+                let response = self.execute_inner(transaction).await;
+                metrics.record_rpc_call("execute_transaction", &response, start.elapsed());
+                response
+            } else {
+                self.execute_inner(transaction).await
+            };
+
+            match response {
+                Ok(response) => Ok(response),
+                Err(e) => Err(anyhow::Error::from(e)),
+            }
         })
         .await
+    }
+
+    async fn execute_inner(
+        &self,
+        transaction: Transaction,
+    ) -> SuiRpcResult<SuiTransactionBlockResponse> {
+        self.sui_client
+            .quorum_driver_api()
+            .execute_transaction_block(
+                transaction,
+                SuiTransactionBlockResponseOptions::new()
+                    .with_effects()
+                    .with_input()
+                    .with_events()
+                    .with_object_changes()
+                    .with_balance_changes(),
+                Some(WaitForLocalExecution),
+            )
+            .await
     }
 
     /// Gets a backoff strategy, seeded from the internal RNG.

@@ -96,6 +96,9 @@ use crate::types::move_structs::EventBlob;
 
 pub mod contract_config;
 
+mod metrics;
+pub use metrics::SuiClientMetrics;
+
 // Keep in sync with the corresponding value in
 // `contracts/walrus/sources/staking/staked_wal.move`
 /// The minimum threshold for staking.
@@ -1181,6 +1184,8 @@ struct SuiContractClientInner {
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
     /// the required gas budget.
     gas_budget: Option<u64>,
+    /// The metrics for the client.
+    metrics: Option<Arc<SuiClientMetrics>>,
 }
 
 impl SuiContractClientInner {
@@ -1194,7 +1199,14 @@ impl SuiContractClientInner {
             wallet,
             read_client,
             gas_budget,
+            metrics: None,
         })
+    }
+
+    /// Set the metrics for the client.
+    pub fn with_metrics(mut self, metrics: Arc<SuiClientMetrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
     }
 
     /// Adds attribute to a blob object.
