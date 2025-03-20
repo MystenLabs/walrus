@@ -249,7 +249,7 @@ impl HttpLabels {
 /// - instruments the returned future and response to track the metrics present
 ///   in [`HttpClientMetrics`],
 /// - creates an HTTP span around the request identifying the remote server, status code, etc; and
-/// - propogates the trace ID of the created span to the server, so that their traces can be
+/// - propagates the trace ID of the created span to the server, so that their traces can be
 ///   stitched together.
 ///
 #[derive(Debug, Clone)]
@@ -375,7 +375,7 @@ struct MonitorInner {
 
 /// Monitors metrics about the request up until the point the response is returned.
 ///
-/// Afterwords, it can be converted into a [`ResponseMonitor`] for monitoring metrics about the
+/// Afterwards, it can be converted into a [`ResponseMonitor`] for monitoring metrics about the
 /// response payload and overall duration.
 struct RequestMonitor {
     /// INV: None iff all tracing/metrics have have been recorded for the request.
