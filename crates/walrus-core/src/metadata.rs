@@ -3,7 +3,7 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use core::num::NonZeroU16;
 
 use enum_dispatch::enum_dispatch;
@@ -18,6 +18,7 @@ use crate::{
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
+        QuiltError,
     },
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
@@ -44,6 +45,131 @@ pub enum VerificationError {
     /// available in the configuration provided.
     #[error("the unencoded blob length is too large for the given config")]
     UnencodedLengthTooLarge,
+}
+/// Represents a blob quilted into a single quilt blob.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltBlock {
+    /// The blob_id of the quilted blob.
+    pub blob_id: BlobId,
+    /// The unencoded length of the blob.
+    pub unencoded_length: u64,
+    /// The start sliver index of the block.
+    #[serde(skip)]
+    pub start_index: u16,
+    /// The end sliver index of the block.
+    pub end_index: u16,
+    /// The description of the block.
+    pub desc: String,
+}
+
+impl QuiltBlock {
+    /// Returns a new [`QuiltBlock`].
+    pub fn new(blob_id: BlobId, unencoded_length: u64, desc: String) -> Self {
+        Self {
+            blob_id,
+            unencoded_length,
+            start_index: 0,
+            end_index: 0,
+            desc,
+        }
+    }
+
+    /// Returns the start index of the block.
+    pub fn start_index(&self) -> u16 {
+        self.start_index
+    }
+
+    /// Returns the end index of the block.
+    pub fn end_index(&self) -> u16 {
+        self.end_index
+    }
+}
+
+/// A index over the blobs in a quilt.
+///
+/// Each [QuiltBlock] represents a blob in the quilt.
+/// The blobs are located by the secondary sliver index, each blob is
+/// mapped to a continuous index range.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltIndex {
+    /// The structure of the quilt.
+    pub quilt_blocks: Vec<QuiltBlock>,
+}
+
+impl QuiltIndex {
+    /// Returns the quilt block with the given blob ID.
+    pub fn get_quilt_block_by_id(&self, id: &BlobId) -> Result<&QuiltBlock, QuiltError> {
+        self.quilt_blocks
+            .iter()
+            .find(|block| &block.blob_id == id)
+            .ok_or(QuiltError::blob_not_found_in_quilt(id))
+    }
+
+    /// Returns the quilt block with the given blob description.
+    pub fn get_quilt_block_by_desc(&self, desc: &str) -> Result<&QuiltBlock, QuiltError> {
+        self.quilt_blocks
+            .iter()
+            .find(|block| block.desc == desc)
+            .ok_or(QuiltError::blob_not_found_in_quilt(&desc))
+    }
+
+    /// Returns an iterator over (blob_id, blob_desc) pairs in the quilt.
+    pub fn iter(&self) -> impl Iterator<Item = (&BlobId, &str)> {
+        self.quilt_blocks
+            .iter()
+            .map(|block| (&block.blob_id, block.desc.as_str()))
+    }
+
+    /// Returns the number of blocks in the quilt.
+    pub fn len(&self) -> usize {
+        self.quilt_blocks.len()
+    }
+
+    /// Returns true if the quilt index is empty.
+    pub fn is_empty(&self) -> bool {
+        self.quilt_blocks.is_empty()
+    }
+
+    /// Populate start_index.
+    pub fn populate_start_indices(&mut self, first_start: u16) {
+        if let Some(first_block) = self.quilt_blocks.first_mut() {
+            first_block.start_index = first_start;
+        }
+
+        // For each subsequent block, set its start_index to the previous block's end_index
+        for i in 1..self.quilt_blocks.len() {
+            let prev_end_index = self.quilt_blocks[i - 1].end_index;
+            self.quilt_blocks[i].start_index = prev_end_index;
+        }
+    }
+}
+
+/// Metadata associated with a quilt containing index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltMetadata {
+    /// The BlobId of the quilt.
+    pub quilt_id: BlobId,
+    /// The blob metadata of the quilt blob.
+    pub metadata: BlobMetadata,
+    /// The index of the quilt.
+    pub index: QuiltIndex,
+}
+
+impl QuiltMetadata {
+    /// Returns the quilt index.
+    pub fn index(&self) -> &QuiltIndex {
+        &self.index
+    }
+
+    /// Returns the blob metadata of the quilt.
+    pub fn metadata(&self) -> &BlobMetadata {
+        &self.metadata
+    }
+
+    /// Returns the blob ID of the quilt.
+    pub fn blob_id(&self) -> &BlobId {
+        &self.quilt_id
+    }
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
