@@ -96,3 +96,38 @@ pub fn pending_recover_slivers_column_family_name(id: ShardIndex) -> String {
         PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_column_family_names() {
+        assert_eq!(metadata_cf_name(), "metadata");
+        assert_eq!(event_store_cf_name(), "event_store");
+        assert_eq!(aggregate_blob_info_cf_name(), "aggregate_blob_info");
+        assert_eq!(per_object_blob_info_cf_name(), "per_object_blob_info");
+        assert_eq!(node_status_cf_name(), "node_status");
+        assert_eq!(event_index_cf_name(), "latest_handled_event_index");
+
+        let shard = ShardIndex(900);
+        assert_eq!(base_column_family_name(shard), "shard-900");
+        assert_eq!(shard_status_column_family_name(shard), "shard-900/status");
+        assert_eq!(
+            shard_sync_progress_column_family_name(shard),
+            "shard-900/sync-progress"
+        );
+        assert_eq!(
+            pending_recover_slivers_column_family_name(shard),
+            "shard-900/pending-recover-slivers"
+        );
+        assert_eq!(
+            primary_slivers_column_family_name(shard),
+            "shard-900/primary-slivers"
+        );
+        assert_eq!(
+            secondary_slivers_column_family_name(shard),
+            "shard-900/secondary-slivers"
+        );
+    }
+}

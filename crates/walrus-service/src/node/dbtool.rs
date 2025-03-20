@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use bincode::Options;
 use clap::Subcommand;
-use rocksdb::{Options as RocksdbOptions, DB};
+use rocksdb::{Options as RocksdbOptions, ReadOptions, DB};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
@@ -17,6 +17,16 @@ use walrus_core::{BlobId, BlobMetadata, Epoch, ShardIndex};
 
 use super::events::PositionedStreamEvent;
 use crate::node::{
+    events::event_blob_writer::{
+        AttestedEventBlobMetadata,
+        CertifiedEventBlobMetadata,
+        FailedToAttestEventBlobMetadata,
+        PendingEventBlobMetadata,
+        ATTESTED,
+        CERTIFIED,
+        FAILED_TO_ATTEST,
+        PENDING,
+    },
     storage::{
         blob_info::{
             blob_info_cf_options,
@@ -72,9 +82,13 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[clap(long)]
         db_path: PathBuf,
-        /// Blob ID to read.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
+        /// Start blob ID in URL-safe base64 format (no padding).
+        #[clap(long)]
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        start_blob_id: Option<BlobId>,
+        /// Number of entries to scan.
+        #[clap(long, default_value = "1")]
+        count: u64,
     },
 
     /// Read object blob info from the RocksDB database.
@@ -82,8 +96,10 @@ pub enum DbToolCommands {
         /// Path to the RocksDB database directory.
         #[clap(long)]
         db_path: PathBuf,
-        /// Object ID to read.
-        object_id: Option<ObjectID>,
+        /// Start object ID to read.
+        #[clap(long)]
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        start_object_id: Option<ObjectID>,
         /// Count of objects to read.
         #[clap(long, default_value = "1")]
         count: u64,
@@ -162,6 +178,41 @@ pub enum DbToolCommands {
         #[clap(long)]
         shard_index: u16,
     },
+
+    /// Read event blob writer metadata from the RocksDB database.
+    EventBlobWriter {
+        /// Path to the RocksDB database directory.
+        #[clap(long)]
+        db_path: PathBuf,
+        /// Commands to read event blob writer metadata.
+        #[command(subcommand)]
+        command: EventBlobWriterCommands,
+    },
+}
+
+/// Commands for reading event blob writer metadata.
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[serde_as]
+#[clap(rename_all = "kebab-case")]
+pub enum EventBlobWriterCommands {
+    /// Read certified event blob metadata.
+    ReadCertified,
+
+    /// Read attested event blob metadata.
+    ReadAttested,
+
+    /// Read pending event blob metadata.
+    ReadPending {
+        /// Start sequence number.
+        #[clap(long)]
+        start_seq: Option<u64>,
+        /// Number of entries to scan.
+        #[clap(long, default_value = "1")]
+        count: u64,
+    },
+
+    /// Read failed-to-attest event blob metadata.
+    ReadFailedToAttest,
 }
 
 impl DbToolCommands {
@@ -174,12 +225,16 @@ impl DbToolCommands {
                 start_event_index,
                 count,
             } => scan_events(db_path, start_event_index, count),
-            Self::ReadBlobInfo { db_path, blob_id } => read_blob_info(db_path, blob_id),
+            Self::ReadBlobInfo {
+                db_path,
+                start_blob_id,
+                count,
+            } => read_blob_info(db_path, start_blob_id, count),
             Self::ReadObjectBlobInfo {
                 db_path,
-                object_id,
+                start_object_id,
                 count,
-            } => read_object_blob_info(db_path, object_id, count),
+            } => read_object_blob_info(db_path, start_object_id, count),
             Self::CountCertifiedBlobs { db_path, epoch } => count_certified_blobs(db_path, epoch),
             Self::DropColumnFamily {
                 db_path,
@@ -203,6 +258,16 @@ impl DbToolCommands {
                 count,
                 shard_index,
             } => read_secondary_slivers(db_path, start_blob_id, count, shard_index),
+            Self::EventBlobWriter { db_path, command } => match command {
+                EventBlobWriterCommands::ReadCertified => read_certified_event_blobs(db_path),
+                EventBlobWriterCommands::ReadAttested => read_attested_event_blobs(db_path),
+                EventBlobWriterCommands::ReadPending { start_seq, count } => {
+                    read_pending_event_blobs(db_path, start_seq, count)
+                }
+                EventBlobWriterCommands::ReadFailedToAttest => {
+                    read_failed_to_attest_event_blobs(db_path)
+                }
+            },
         }
     }
 }
@@ -249,7 +314,7 @@ fn scan_events(db_path: PathBuf, start_event_index: u64, count: u64) -> Result<(
     Ok(())
 }
 
-fn read_blob_info(db_path: PathBuf, blob_id: BlobId) -> Result<()> {
+fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u64) -> Result<()> {
     let blob_info_options = blob_info_cf_options(&DatabaseConfig::default());
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -262,18 +327,37 @@ fn read_blob_info(db_path: PathBuf, blob_id: BlobId) -> Result<()> {
         .cf_handle(aggregate_blob_info_cf_name())
         .expect("Aggregate blob info column family should exist");
 
-    println!("Reading blob info for Blob ID: {}", blob_id);
-    if let Some(blob_info) = db.get_cf(&cf, &be_fix_int_ser(&blob_id)?)? {
-        let blob_info: BlobInfo = bcs::from_bytes(&blob_info)?;
-        println!("BlobInfo: {:?}", blob_info);
+    let iter = if let Some(blob_id) = start_blob_id {
+        db.iterator_cf(
+            &cf,
+            rocksdb::IteratorMode::From(&be_fix_int_ser(&blob_id)?, rocksdb::Direction::Forward),
+        )
     } else {
-        println!("BlobInfo not found");
+        db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
+    };
+
+    for result in iter.take(count as usize) {
+        match result {
+            Ok((key, value)) => {
+                let blob_id: BlobId = bcs::from_bytes(&key)?;
+                let blob_info: BlobInfo = bcs::from_bytes(&value)?;
+                println!("Blob ID: {}, BlobInfo: {:?}", blob_id, blob_info);
+            }
+            Err(e) => {
+                println!("Error: {:?}", e);
+                return Err(e.into());
+            }
+        }
     }
 
     Ok(())
 }
 
-fn read_object_blob_info(db_path: PathBuf, object_id: Option<ObjectID>, count: u64) -> Result<()> {
+fn read_object_blob_info(
+    db_path: PathBuf,
+    start_object_id: Option<ObjectID>,
+    count: u64,
+) -> Result<()> {
     let per_object_blob_info_options = per_object_blob_info_cf_options(&DatabaseConfig::default());
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -285,9 +369,8 @@ fn read_object_blob_info(db_path: PathBuf, object_id: Option<ObjectID>, count: u
     let cf = db
         .cf_handle(per_object_blob_info_cf_name())
         .expect("PerObjectBlobInfo column family should exist");
-    println!("Reading object blob info for Object ID: {:?}", object_id);
 
-    let iter = if let Some(object_id) = object_id {
+    let iter = if let Some(object_id) = start_object_id {
         db.iterator_cf(
             &cf,
             rocksdb::IteratorMode::From(&be_fix_int_ser(&object_id)?, rocksdb::Direction::Forward),
@@ -308,7 +391,7 @@ fn read_object_blob_info(db_path: PathBuf, object_id: Option<ObjectID>, count: u
             }
             Err(e) => {
                 println!("Error: {:?}", e);
-                break;
+                return Err(e.into());
             }
         }
     }
@@ -412,7 +495,7 @@ fn read_blob_metadata(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u6
             }
             Err(e) => {
                 println!("Error: {:?}", e);
-                break;
+                return Err(e.into());
             }
         }
     }
@@ -463,7 +546,7 @@ fn read_primary_slivers(
             }
             Err(e) => {
                 println!("Error: {:?}", e);
-                break;
+                return Err(e.into());
             }
         }
     }
@@ -514,9 +597,113 @@ fn read_secondary_slivers(
             }
             Err(e) => {
                 println!("Error: {:?}", e);
-                break;
+                return Err(e.into());
             }
         }
+    }
+
+    Ok(())
+}
+
+fn read_certified_event_blobs(db_path: PathBuf) -> Result<()> {
+    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [CERTIFIED], false)?;
+
+    let Some(cf) = db.cf_handle(CERTIFIED) else {
+        println!("Certified event blobs column family not found");
+        return Ok(());
+    };
+    let key_buf = be_fix_int_ser("".as_bytes())?;
+    let res = db.get_pinned_cf_opt(&cf, &key_buf, &ReadOptions::default())?;
+    match res {
+        Some(data) => {
+            let metadata: CertifiedEventBlobMetadata = bcs::from_bytes(&data)?;
+            println!("Certified Event Blob Metadata: {:?}", metadata);
+        }
+        None => println!("Certified event blob not found"),
+    }
+
+    Ok(())
+}
+
+fn read_attested_event_blobs(db_path: PathBuf) -> Result<()> {
+    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [ATTESTED], false)?;
+
+    let Some(cf) = db.cf_handle(ATTESTED) else {
+        println!("Attested event blobs column family not found");
+        return Ok(());
+    };
+
+    let key_buf = be_fix_int_ser("".as_bytes())?;
+    let res = db.get_pinned_cf_opt(&cf, &key_buf, &ReadOptions::default())?;
+    match res {
+        Some(data) => {
+            let metadata: AttestedEventBlobMetadata = bcs::from_bytes(&data)?;
+            println!("Attested Event Blob Metadata: {:?}", metadata);
+        }
+        None => println!("Attested event blob not found"),
+    }
+
+    Ok(())
+}
+
+fn read_pending_event_blobs(db_path: PathBuf, start_seq: Option<u64>, count: u64) -> Result<()> {
+    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [PENDING], false)?;
+
+    let Some(cf) = db.cf_handle(PENDING) else {
+        println!("Pending event blobs column family not found");
+        return Ok(());
+    };
+
+    let iter = if let Some(seq) = start_seq {
+        db.iterator_cf(
+            &cf,
+            rocksdb::IteratorMode::From(&be_fix_int_ser(&seq)?, rocksdb::Direction::Forward),
+        )
+    } else {
+        db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
+    };
+
+    for result in iter.take(count as usize) {
+        match result {
+            Ok((key, value)) => {
+                let seq: u64 = bcs::from_bytes(&key)?;
+                let metadata: PendingEventBlobMetadata = bcs::from_bytes(&value)?;
+                println!(
+                    "Sequence: {}, Pending Event Blob Metadata: {:?}",
+                    seq, metadata
+                );
+            }
+            Err(e) => {
+                println!("Error: {:?}", e);
+                return Err(e.into());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
+    let db = DB::open_cf_for_read_only(
+        &RocksdbOptions::default(),
+        db_path,
+        [FAILED_TO_ATTEST],
+        false,
+    )?;
+
+    let Some(cf) = db.cf_handle(FAILED_TO_ATTEST) else {
+        println!("Failed-to-attest event blobs column family not found");
+        return Ok(());
+    };
+
+    let key_buf = be_fix_int_ser("".as_bytes())?;
+    let res = db.get_pinned_cf_opt(&cf, &key_buf, &ReadOptions::default())?;
+    match res {
+        Some(data) => {
+            let metadata: FailedToAttestEventBlobMetadata = bcs::from_bytes(&data)?;
+            println!("Failed-to-attest Event Blob Metadata: {:?}", metadata);
+        }
+        None => println!("Failed-to-attest event blob not found"),
     }
 
     Ok(())

@@ -27,3 +27,14 @@ pub use common::utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+
+pub use node::events::event_blob_writer::{
+    AttestedEventBlobMetadata,
+    CertifiedEventBlobMetadata,
+    FailedToAttestEventBlobMetadata,
+    PendingEventBlobMetadata,
+    ATTESTED,
+    CERTIFIED,
+    FAILED_TO_ATTEST,
+    PENDING,
+};
