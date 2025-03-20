@@ -54,7 +54,7 @@ public struct Blob has key, store {
     deletable: bool,
 }
 ```
-
+<!-- markdownlint-disable line-length -->
 Public functions associated with these objects can be found in the respective
 [`storage_resource` move module](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/storage_resource.move)
 and [`blob` move module](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/blob.move). Storage resources can be split and merged in time and data capacity, and can be
@@ -65,6 +65,7 @@ transferred between users allowing complex contracts to be created.
 Walrus uses [custom Sui events](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move) extensively to notify storage nodes of updates concerning stored Blobs and
 the state of the network. Applications may also use Sui RPC facilities to observe Walrus related
 events.
+<!-- markdownlint-enable line-length -->
 
 When a blob is first registered, a `BlobRegistered` event is emitted that informs storage nodes
 that they should expect slivers associated with its Blob ID. Eventually when the blob is
@@ -86,11 +87,11 @@ shard migrations and epoch parameters.
 
 ## System and staking information
 
+<!-- markdownlint-disable line-length -->
 The [Walrus system object](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/system_state_inner.move) contains metadata about the available and used storage, as well as the
 price of storage per KiB of storage in FROST. The committee
 structure within the system object can be used to read the current epoch number, as well as
 information about the committee. Committee changes between epochs are managed by a set of
 [staking contracts](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/staking)
 that implement a full delegated proof of stake system based on the WAL token.
-
-<!-- TODO (#146): say more about staking contracts. -->
+<!-- markdownlint-enable line-length -->

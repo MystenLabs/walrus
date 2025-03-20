@@ -22,7 +22,7 @@ staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a39
 subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 ```
 
-In case you wish to explore the Walrus contracts their parameters are:
+In case you wish to explore the Walrus contracts their package IDs are:
 
 ```yaml
 package_id: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
@@ -31,6 +31,17 @@ subsidies_package: 0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e
 
 These are inferred automatically from the object IDs above, and there is no need to
 manually input them into the Walrus client configuration file.
+
+<!-- markdownlint-disable code-fence-style -->
+~~~admonish tip
+The easiest way to obtain the latest configuration is by downloading it from GitHub:
+
+```sh
+curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/config/client_config_mainnet.yaml \
+    -o ~/.config/walrus/client_config.yaml
+```
+~~~
+<!-- markdownlint-enable code-fence-style -->
 
 ## Testnet configuration
 
@@ -100,10 +111,11 @@ $ sui client gas
 │ 0x65dca966dc... │ 1000000000         │ 1.00             │
 ╰─────────────────┴────────────────────┴──────────────────╯
 ```
-
+<!-- markdownlint-disable link-fragments -->
 The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
 different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
 when [running the CLI](./interacting.md).
+<!-- markdownlint-disable link-fragments -->
 
 ### Testnet parameters
 
