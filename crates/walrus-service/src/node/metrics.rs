@@ -127,6 +127,11 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The progress of the blob metadata sync. It is represented by the first two bytes \
         of the blob ID since the sync job is sequential over blob IDs."]
         sync_blob_metadata_progress: IntGauge[],
+
+        #[help = "For checking consistency of processed events. Each bucket maps to a recent \
+        recording of event source. The event source is the combination of checkpoint sequence \
+        number and counter."]
+        periodic_event_source_for_deterministic_events: IntGaugeVec["bucket"],
     }
 }
 
