@@ -59,7 +59,7 @@ pub(super) use event_cursor_table::EventProgress;
 mod event_sequencer;
 mod shard;
 
-pub use shard::{
+pub(crate) use shard::{
     pending_recover_slivers_column_family_options,
     primary_slivers_column_family_options,
     secondary_slivers_column_family_options,
