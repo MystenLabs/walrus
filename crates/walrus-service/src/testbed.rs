@@ -26,7 +26,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::{
-    client::SuiContractClient,
+    client::{rpc_config::RpcFallbackConfig, SuiContractClient},
     config::{load_wallet_context_from_path, WalletConfig},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
@@ -561,6 +561,7 @@ pub async fn create_backup_config(
     working_dir: &Path,
     database_url: &str,
     rpc: String,
+    rpc_fallback_config: Option<RpcFallbackConfig>,
 ) -> anyhow::Result<BackupConfig> {
     Ok(BackupConfig::new_with_defaults(
         working_dir.join("backup"),
@@ -569,6 +570,7 @@ pub async fn create_backup_config(
             contract_config: system_ctx.contract_config(),
             backoff_config: ExponentialBackoffConfig::default(),
             event_polling_interval: defaults::polling_interval(),
+            rpc_fallback_config,
         },
         database_url.to_string(),
     ))
@@ -585,6 +587,7 @@ pub async fn create_storage_node_configs(
     set_config_dir: Option<&Path>,
     set_db_path: Option<&Path>,
     faucet_cooldown: Option<Duration>,
+    rpc_fallback_config: Option<RpcFallbackConfig>,
     admin_contract_client: &mut SuiContractClient,
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
@@ -693,6 +696,7 @@ pub async fn create_storage_node_configs(
             wallet_config: WalletConfig::from_path(wallet_path),
             backoff_config: ExponentialBackoffConfig::default(),
             gas_budget: None,
+            rpc_fallback_config: rpc_fallback_config.clone(),
         });
 
         let storage_path = set_db_path

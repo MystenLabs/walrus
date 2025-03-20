@@ -1821,6 +1821,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "checkpoint-downloader"
+version = "1.18.1"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "prometheus",
+ "rand 0.8.5",
+ "rocksdb",
+ "serde",
+ "serde_with",
+ "sui-rpc-api",
+ "sui-types",
+ "tempfile",
+ "tokio",
+ "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tracing",
+ "typed-store",
+ "walrus-sui",
+ "walrus-utils",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11841,6 +11863,7 @@ dependencies = [
  "bincode",
  "byteorder",
  "bytes",
+ "checkpoint-downloader",
  "chrono",
  "clap",
  "colored",
@@ -11977,6 +12000,7 @@ dependencies = [
  "async-trait",
  "bcs",
  "chrono",
+ "clap",
  "fastcrypto",
  "futures",
  "home",
@@ -11998,6 +12022,7 @@ dependencies = [
  "sui-rpc-api",
  "sui-sdk",
  "sui-simulator",
+ "sui-storage",
  "sui-types",
  "tempfile",
  "test-cluster",
@@ -12007,6 +12032,7 @@ dependencies = [
  "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
+ "url",
  "utoipa",
  "walkdir",
  "walrus-core",
@@ -12033,19 +12059,13 @@ dependencies = [
  "home",
  "prometheus",
  "rand 0.8.5",
- "reqwest",
- "rocksdb",
  "serde",
  "serde_json",
  "serde_with",
- "sui-rpc-api",
- "sui-types",
  "tempfile",
  "tokio",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
- "tonic 0.12.3",
  "tracing",
- "typed-store",
 ]
 
 [[package]]

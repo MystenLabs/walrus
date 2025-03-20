@@ -10,10 +10,6 @@ pub mod config;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 
-// TODO(jsmith): Move this out of walrus-utils, as it's an entire service as opposed to a util
-#[cfg(feature = "checkpoints")]
-pub mod checkpoint_downloader;
-
 #[cfg(feature = "test-utils")]
 pub mod tests {
     use std::sync::OnceLock;

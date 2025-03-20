@@ -16,6 +16,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use bincode::Options as _;
+use checkpoint_downloader::ParallelCheckpointDownloader;
 use chrono::Utc;
 use futures_util::future::try_join_all;
 use move_core_types::{
@@ -61,13 +62,13 @@ use typed_store::{
 };
 use walrus_core::{ensure, BlobId};
 use walrus_sui::{
-    client::retry_client::{RetriableRpcClient, RetriableSuiClient},
+    client::{
+        retry_client::{RetriableRpcClient, RetriableSuiClient},
+        rpc_config::RpcFallbackConfig,
+    },
     types::ContractEvent,
 };
-use walrus_utils::{
-    backoff::ExponentialBackoffConfig,
-    checkpoint_downloader::ParallelCheckpointDownloader,
-};
+use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
     common::telemetry,
@@ -221,6 +222,8 @@ pub struct EventProcessorRuntimeConfig {
     pub event_polling_interval: Duration,
     /// The path to the database.
     pub db_path: PathBuf,
+    /// The path to the rpc fallback config.
+    pub rpc_fallback_config: Option<RpcFallbackConfig>,
 }
 
 /// Struct to group client-related parameters.
@@ -276,6 +279,7 @@ impl EventProcessor {
 
     /// Starts the event processor. This method will run until the cancellation token is cancelled.
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
+        tracing::info!("Starting event processor");
         let pruning_task = self.start_pruning_events(cancellation_token.clone());
         let tailing_task = self.start_tailing_checkpoints(cancellation_token.clone());
         select! {
@@ -595,9 +599,11 @@ impl EventProcessor {
         system_config: SystemConfig,
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
-        let client = Self::create_and_validate_client(&runtime_config.rpc_address).await?;
-        let retry_client =
-            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default());
+        let retry_client = Self::create_and_validate_client(
+            &runtime_config.rpc_address,
+            runtime_config.rpc_fallback_config.as_ref(),
+        )
+        .await?;
         let database = Self::initialize_database(&runtime_config)?;
         let stores = Self::open_stores(&database)?;
         let package_store =
@@ -606,7 +612,7 @@ impl EventProcessor {
             .get_original_package_id(system_config.system_pkg_id.into())
             .await?;
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
-            client.clone(),
+            retry_client.clone(),
             stores.checkpoint_store.clone(),
             config.adaptive_downloader_config.clone(),
             registry,
@@ -699,10 +705,17 @@ impl EventProcessor {
 
     async fn create_and_validate_client(
         rest_url: &str,
-    ) -> Result<sui_rpc_api::Client, anyhow::Error> {
+        rpc_fallback_config: Option<&RpcFallbackConfig>,
+    ) -> Result<RetriableRpcClient, anyhow::Error> {
         let client = sui_rpc_api::Client::new(rest_url)?;
+        // Ensure the experimental REST endpoint exists
         ensure_experimental_rest_endpoint_exists(client.clone()).await?;
-        Ok(client)
+        let retriable_client = RetriableRpcClient::new(
+            client,
+            ExponentialBackoffConfig::default(),
+            rpc_fallback_config.cloned(),
+        );
+        Ok(retriable_client)
     }
 
     /// Initializes the database for the event processor.
@@ -1143,11 +1156,12 @@ impl PackageStore for LocalDBPackageStore {
 #[cfg(test)]
 mod tests {
 
+    use checkpoint_downloader::AdaptiveDownloaderConfig;
     use sui_types::messages_checkpoint::CheckpointSequenceNumber;
     use tokio::sync::Mutex;
     use walrus_core::BlobId;
     use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
-    use walrus_utils::{checkpoint_downloader::AdaptiveDownloaderConfig, tests::global_test_lock};
+    use walrus_utils::tests::global_test_lock;
 
     use super::*;
 
@@ -1226,11 +1240,11 @@ mod tests {
         )?;
         let client = sui_rpc_api::Client::new("http://localhost:8080")?;
         let retry_client =
-            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default());
+            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default(), None);
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
-            client.clone(),
+            retry_client.clone(),
             checkpoint_store.clone(),
             AdaptiveDownloaderConfig::default(),
             &Registry::default(),

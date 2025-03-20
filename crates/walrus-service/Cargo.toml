@@ -45,6 +45,7 @@ deploy = ["client", "node", "walrus-sui/test-utils"]
 node = [
   "dep:async-trait",
   "dep:bincode",
+  "dep:checkpoint-downloader",
   "dep:enum_dispatch",
   "dep:mime",
   "dep:mysten-metrics",
@@ -81,6 +82,7 @@ bcs.workspace = true
 bincode = { workspace = true, optional = true }
 byteorder.workspace = true
 bytes = { workspace = true, optional = true }
+checkpoint-downloader = { workspace = true, optional = true }
 chrono.workspace = true
 clap.workspace = true
 colored = { workspace = true, optional = true }
@@ -156,7 +158,7 @@ walrus-proc-macros = { workspace = true, features = ["derive-api-errors"] }
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "checkpoints", "config", "metrics"] }
+walrus-utils = { workspace = true, features = ["backoff", "config", "metrics"] }
 
 [dev-dependencies]
 hex = "0.4.3"
@@ -167,6 +169,7 @@ tempfile.workspace = true
 walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
 walrus-test-utils.workspace = true
+walrus-utils = { workspace = true, features = ["test-utils"] }
 
 [lints]
 workspace = true

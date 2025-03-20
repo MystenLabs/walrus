@@ -7,23 +7,6 @@ license.workspace = true
 
 [features]
 backoff = ["dep:anyhow", "dep:rand", "dep:serde", "dep:serde_with", "dep:tracing", "tokio/time"]
-checkpoints = [
-  "backoff",
-  "dep:anyhow",
-  "dep:async-channel",
-  "dep:prometheus",
-  "dep:rand",
-  "dep:rocksdb",
-  "dep:serde",
-  "dep:serde_with",
-  "dep:sui-rpc-api",
-  "dep:sui-types",
-  "dep:tokio",
-  "dep:tokio-util",
-  "dep:tonic",
-  "dep:typed-store",
-  "test-utils",
-]
 config = ["dep:anyhow", "dep:home", "dep:serde", "dep:tracing"]
 default = []
 metrics = []
@@ -35,19 +18,13 @@ async-channel = { workspace = true, optional = true }
 home = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
-reqwest = { workspace = true, optional = true }
-rocksdb = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
-sui-rpc-api = { workspace = true, optional = true }
-sui-types = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"], optional = true }
 tokio-util = { workspace = true, optional = true }
-tonic = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
-typed-store = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true
