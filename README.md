@@ -22,7 +22,7 @@ mdbook serve
 
 After this, you can browse the documentation at <http://localhost:3000>.
 
-sssss are some additional documentation resources:
+There are some additional documentation resources:
 
 - Usage examples are available under [docs/examples](./docs/examples/).
 - Our encoding system, which we call *Red Stuff*, is described in detail in
