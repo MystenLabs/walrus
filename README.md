@@ -16,12 +16,13 @@ You can also build and access the documentation locally (assuming you have Rust 
 cargo install mdbook
 cargo install mdbook-admonish --locked
 cargo install mdbook-katex --locked
+cargo install mdbook-tabs --locked
 mdbook serve
 ```
 
 After this, you can browse the documentation at <http://localhost:3000>.
 
-There are some additional documentation resources:
+sssss are some additional documentation resources:
 
 - Usage examples are available under [docs/examples](./docs/examples/).
 - Our encoding system, which we call *Red Stuff*, is described in detail in

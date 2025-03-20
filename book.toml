@@ -9,7 +9,8 @@ title = "Walrus"
 build-dir = "docs/build"
 
 [output.html]
-additional-css = ["docs/mdbook-admonish.css"]
+additional-css = ["docs/mdbook-admonish.css", "docs/theme/tabs.css"]
+additional-js = ["docs/theme/tabs.js"]
 theme = "docs/theme"
 
 [output.linkcheck]
@@ -39,3 +40,5 @@ inline-delimiter = { left = "\\(", right = "\\)" }
 
 [preprocessor.gettext]
 after = ["links"]
+
+[preprocessor.tabs]
