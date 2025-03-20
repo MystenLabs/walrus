@@ -54,7 +54,7 @@
 - [Your first Walrus Site](./walrus-sites/tutorial.md)
   - [Installing the site builder](./walrus-sites/tutorial-install.md)
   - [Publishing a Walrus Site](./walrus-sites/tutorial-publish.md)
-  - [Bonus: Set a SuiNS name](./walrus-sites/tutorial-suins.md)
+  - [Set a SuiNS name](./walrus-sites/tutorial-suins.md)
 - [Advanced functionality](./walrus-sites/advanced.md)
   - [Site builder commands](./walrus-sites/commands.md)
   - [Advanced site-builder configuration](./walrus-sites/builder-config.md)
