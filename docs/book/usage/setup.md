@@ -121,7 +121,7 @@ Note that due to DoS protection, it may not be possible to download the binaries
 ### Install on Windows {#windows-install}
 
 To download `walrus` to your Microsoft Windows computer, run the following in your
-PowerShell then follow on-screen instructions.
+PowerShell.
 .
 
 ```PowerShell
