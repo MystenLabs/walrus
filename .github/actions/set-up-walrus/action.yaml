@@ -11,6 +11,9 @@ inputs:
   WALRUS_CONFIG:
     description: The content of the Walrus configuration file
     required: true
+  SUI_NETWORK:
+    description: The Sui network to use
+    default: mainnet
 
 runs:
   using: "composite"
@@ -35,9 +38,9 @@ runs:
         keystore:
           File: $SUI_KEYSTORE_FILE
         envs:
-          - alias: mainnet
-            rpc: \"https://fullnode.mainnet.sui.io:443\"
-        active_env: mainnet
+          - alias: ${{ inputs.SUI_NETWORK }}
+            rpc: \"https://fullnode.${{ inputs.SUI_NETWORK }}.sui.io:443\"
+        active_env: ${{ inputs.SUI_NETWORK }}
         active_address: \"$SUI_ADDRESS\""
         echo "$CLIENT_CONF" > $SUI_CONFIG_FILE
         cat $SUI_CONFIG_FILE
@@ -47,7 +50,7 @@ runs:
     - name: Install and configure Walrus
       run: |
         # The bin directory was already created and added to $PATH in the build-mdbook action
-        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-ubuntu-x86_64 -o bin/walrus
+        curl https://storage.googleapis.com/mysten-walrus-binaries/walrus-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/walrus
         chmod +x bin/walrus
         mkdir -p ~/.config/walrus
         echo '${{ inputs.WALRUS_CONFIG }}' > ~/.config/walrus/client_config.yaml
@@ -57,8 +60,8 @@ runs:
 
     - name: Install and configure site-builder
       run: |
-        curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64 -o bin/site-builder
+        curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-${{ inputs.SUI_NETWORK }}-latest-ubuntu-x86_64 -o bin/site-builder
         chmod +x bin/site-builder
-        curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/mainnet/sites-config.yaml -o sites-config.yaml
+        curl -L https://github.com/MystenLabs/walrus-sites/raw/refs/heads/${{ inputs.SUI_NETWORK }}/sites-config.yaml -o sites-config.yaml
         site-builder --version
       shell: bash
