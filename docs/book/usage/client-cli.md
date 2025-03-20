@@ -197,7 +197,7 @@ can only contain permanent blobs and cannot be deleted before their expiry.
 
 ## Blob object and blob ID utilities
 
-The `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a
+The command `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a
 commitment to the file, and any blob with the same ID will decode to the same content. The blob
 ID is a 256 bit number and represented on some Sui explorer as a decimal large number. The
 command `walrus convert-blob-id <BLOB_ID_DECIMAL>` may be used to convert it to a base64 URL safe
@@ -207,14 +207,41 @@ The `walrus list-blobs` command lists all the non expired Sui blob object that t
 owns, including their blob ID, object ID, and metadata about expiry and deletable status.
 The option `--include-expired` also lists expired blob objects.
 
-The Sui storage cost associated with blob objects may be reclaimed by deleting the Sui blob object.
+The Sui storage cost associated with blob objects may be reclaimed by burning the Sui blob object.
 This does not lead to the Walrus blob being deleted, but means that operations such as extending
 its lifetime, deleting it, or modifying attributes are no more available.
-The `walrus burn-blobs --object-ids <BLOB_IDS>` command may be used to delete a specific list of
-blobs IDs. The `--all` flag deletes all blobs under the user account, and `--all-expired` deletes
-all expired blobs under the user account.
+The `walrus burn-blobs --object-ids <BLOB_OBJ_IDS>` command may be used to burn a specific list of
+blobs object IDs. The `--all` flag burns all blobs under the user account,
+and `--all-expired` burns all expired blobs under the user account.
+
+## Blob attributes
+
+Walrus allows a set of key-value attribute pairs to be associated with a blob object. While the key
+and values may be arbitrary strings to accommodate any needs of dapps, specific keys are converted
+to HTTP headers when serving blobs through aggregators.
 
 <!-- TODO():  attributes about HTTP headers understood by the aggregator? -->
+
+The command
+
+```sh
+walrus set-blob-attribute <BLOB_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
+```
+
+sets attributes `key1` and `key2` to values `value1` and `value2` respectively. The command
+`walrus get-blob-attribute <BLOB_OBJ_ID>` returns all attributes associated with a blob ID. Finally,
+
+```sh
+walrus remove-blob-attribute-fields <BLOB_OBJ_ID> --keys "key1,key2"
+```
+
+deletes the attributes with
+keys listed (separated by commas or spaces). All attributes of a blob object may be deleted by
+the command `walrus remove-blob-attribute <BLOB_OBJ_ID>`.
+
+Note that attributes are associated with blob object IDs on Sui, rather than the blob themselves on
+Walrus. This means that the gas for storage is reclaimed by deleting attributes. And also that the
+same blob contents may have different attributes for different blob objects for the same blob ID.
 
 ## Changing the default configuration
 
