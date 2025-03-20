@@ -191,6 +191,7 @@ const NUM_CHECKPOINTS_PER_BLOB_ON_TESTNET: u32 = 18_000;
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
 const NUM_DIGEST_BUCKETS: u64 = 10;
+const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -946,10 +947,12 @@ impl StorageNode {
 
                 // Ignore the error here since this is a best effort operation, and we don't want
                 // any error from it to stop the node.
-                let _ = self.maybe_record_event_source(
+                if let Err(error) = self.maybe_record_event_source(
                     element_index,
                     &stream_element.checkpoint_event_position,
-                );
+                ) {
+                    tracing::warn!(?error, "Failed to record event source");
+                }
 
                 let event_handle = EventHandle::new(
                     element_index,
@@ -1656,28 +1659,34 @@ impl StorageNode {
         }
 
         // Only record digests for active or recovering nodes
-        match self.inner.storage.node_status()? {
-            NodeStatus::Active | NodeStatus::RecoveryInProgress(_) => {
-                let bucket = event_index / NUM_EVENTS_PER_DIGEST_RECORDING % NUM_DIGEST_BUCKETS;
-                debug_assert!(bucket < NUM_DIGEST_BUCKETS);
-
-                // The event source is the combination of checkpoint sequence number and counter.
-                let event_source = event_source
-                    .checkpoint_sequence_number
-                    .checked_mul(100)
-                    .unwrap_or(0)
-                    + event_source.counter;
-
-                walrus_utils::with_label!(
-                    self.inner
-                        .metrics
-                        .periodic_event_source_for_deterministic_events,
-                    bucket.to_string()
-                )
-                .set(event_source as i64);
-            }
-            _ => {}
+        let node_status = self.inner.storage.node_status()?;
+        if !matches!(
+            node_status,
+            NodeStatus::Active | NodeStatus::RecoveryInProgress(_)
+        ) {
+            return Ok(());
         }
+
+        let bucket = (event_index / NUM_EVENTS_PER_DIGEST_RECORDING) % NUM_DIGEST_BUCKETS;
+        debug_assert!(bucket < NUM_DIGEST_BUCKETS);
+
+        // The event source is the combination of checkpoint sequence number and counter.
+        // We scale the checkpoint sequence number by `CHECKPOINT_EVENT_POSITION_SCALE` to add
+        // event counter in the checkpoint in the event source as well.
+        let event_source = event_source
+            .checkpoint_sequence_number
+            .checked_mul(CHECKPOINT_EVENT_POSITION_SCALE)
+            .unwrap_or(0)
+            + event_source.counter;
+
+        walrus_utils::with_label!(
+            self.inner
+                .metrics
+                .periodic_event_source_for_deterministic_events,
+            bucket.to_string()
+        )
+        .set(event_source as i64);
+
         Ok(())
     }
 
