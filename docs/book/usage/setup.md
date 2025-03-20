@@ -118,13 +118,15 @@ Note that due to DoS protection, it may not be possible to download the binaries
 
 ### Install on Windows {#windows-install}
 
-To download and install `walrus` to your Microsoft Windows computer, run the following in your
-terminal then follow on-screen instructions.
+To download `walrus` to your Microsoft Windows computer, run the following in your
+PowerShell then follow on-screen instructions.
 .
 
-```sh
-TODO: get Windows installation instructions (or script).
+```PowerShell
+Invoke-WebRequest -Uri https://storage.googleapis.com/mysten-walrus-binaries/walrus-testnet-latest-windows-x86_64.exe -OutFile walrus.exe
 ```
+
+From there, you'll need to place the `walrus` executable somewhere in your `PATH`.
 
 ### Previous versions (optional)
 
