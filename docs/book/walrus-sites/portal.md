@@ -58,7 +58,7 @@ Portal configuration is managed through two key elements:
 
 The environment variables are set in the `.env.local` file at the root of each portal directory.
 To just run a simple instance of a portal, you can use the environment variables specified
-in the `.env.example` file:
+in the `.env.<network>.example` file:
 
 {{#tabs }}
 
