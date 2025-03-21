@@ -117,8 +117,8 @@ server analytics.
 - `EDGE_CONFIG`: If you host your portal on Vercel, you can use the [Edge Config][edge-config] to
 blocklist certain SuiNS subdomains or b36 object ids.
 
-- `EDGE_CONFIG_ALLOWLIST`: Similar to blocklist, but allows certain subdomains to use the premium rpc
-url list.
+- `EDGE_CONFIG_ALLOWLIST`: Similar to blocklist, but allows certain subdomains to use the premium
+rpc url list.
 
 - `ENABLE_ALLOWLIST`: Enable the allowlist feature.
 
@@ -163,7 +163,7 @@ here are the explanations for each parameter:
   before stopping.
 - `SITE_NAMES`: Hard coded `name: objectID` mappings, to override the SuiNS names. For development
   only. Use this at your own risk, may render some sites with legitimate SuiNS names unusable.
-  
+
 - `FALLBACK_PORTAL`: This is related only to the service worker portal. The fallback portal should
 be a server-side portal that is used in cases where some browsers do not support service workers.
 
@@ -173,7 +173,6 @@ To run the portal locally you can either use a Docker container or a local devel
 
 You can run the portal via Docker for a quick setup, or use a local development environment if you
 want to modify the code or contribute to the project.
-
 
 #### Docker
 
