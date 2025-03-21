@@ -78,7 +78,7 @@ cp ./portal/server/.env.testnet.example ./portal/server/.env.local
 {{#endtab }}
 {{#endtabs }}
 
-Likewise, if you want to run the service-worker portal, you can copy the `.env.example` file to
+Likewise, if you want to run the service-worker portal, you can copy the `.env.<network>.example` file to
 `.env.local` in the `portal/worker` directory.
 
 {{#tabs}}
