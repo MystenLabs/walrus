@@ -133,7 +133,7 @@ Walrus Sites object on Sui.
 ## Prettifying the Site object
 
 It's possible to prettify the site object on Sui explorers and wallets by using the `metadata`
-field. This is useful for displaying the site's information in a more readable format.
+field. This is useful for adding human-readable information about the site.
 
 As you can see from the example above, the fields correspond to the basic set of properties
 suggested by the
