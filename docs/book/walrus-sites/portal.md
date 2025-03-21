@@ -105,8 +105,8 @@ As a reference, here are the definitions of the environment variables:
 The server portal code contains additional functionality that can be enabled or disabled
 using environment variables. For example, you can enable or disable the blocklist feature
 by setting the `ENABLE_BLOCKLIST` variable to `true` or `false`. This can be helpful to
-manage the behavior of the portal. If you host it somewhere, you might want to avoid
-serving *any* kind of content that could be considered offensive or inappropriate.
+manage the behavior of the portal. For example, if you host a publicly-accessible portal, you might want to avoid
+serving sites that are not published by you.
 ```
 
 -`AGGREGATOR_URL`: The url to a Walrus aggregator that will fetch the site resources from Walrus.
