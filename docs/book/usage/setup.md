@@ -102,7 +102,7 @@ curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/sc
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
 
-Once this is done, you should be able to run walrus by using the `walrus` command in your terminal.
+Once this is done, you should be able to run Walrus by using the `walrus` command in your terminal.
 
 You can see usage instructions as follows (see [the next chapter](./interacting.md) for further
 details):
