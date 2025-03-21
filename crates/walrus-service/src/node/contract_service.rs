@@ -21,6 +21,7 @@ use walrus_sui::{
         FixedSystemParameters,
         ReadClient as _,
         SuiClientError,
+        SuiClientMetrics,
         SuiContractClient,
         SuiReadClient,
     },
@@ -158,6 +159,19 @@ impl SuiSystemContractService {
     ) -> Result<Self, anyhow::Error> {
         Ok(Self::new(
             config.new_contract_client().await?,
+            committee_service,
+        ))
+    }
+
+    /// Creates a new provider with a [`SuiContractClient`] constructed from the config
+    /// with metrics support.
+    pub async fn from_config_with_metrics(
+        config: &SuiConfig,
+        committee_service: Arc<dyn CommitteeService>,
+        metrics: Arc<SuiClientMetrics>,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(Self::new(
+            config.new_contract_client_with_metrics(metrics).await?,
             committee_service,
         ))
     }

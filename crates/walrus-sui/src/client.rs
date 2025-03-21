@@ -408,6 +408,29 @@ impl SuiContractClient {
         Self::new_with_read_client(wallet, gas_budget, read_client)
     }
 
+    /// Constructor for [`SuiContractClient`] with metrics.
+    pub async fn new_from_wallet_with_metrics(
+        wallet: WalletContext,
+        contract_config: &ContractConfig,
+        backoff_config: ExponentialBackoffConfig,
+        gas_budget: Option<u64>,
+        metrics: Arc<SuiClientMetrics>,
+    ) -> SuiClientResult<Self> {
+        let read_client = Arc::new(
+            SuiReadClient::new(
+                RetriableSuiClient::new_from_wallet_with_metrics(
+                    &wallet,
+                    backoff_config.clone(),
+                    metrics,
+                )
+                .await?,
+                contract_config,
+            )
+            .await?,
+        );
+        Self::new_with_read_client(wallet, gas_budget, read_client)
+    }
+
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
     pub fn new_with_read_client(
         mut wallet: WalletContext,
@@ -1184,8 +1207,6 @@ struct SuiContractClientInner {
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
     /// the required gas budget.
     gas_budget: Option<u64>,
-    /// The metrics for the client.
-    metrics: Option<Arc<SuiClientMetrics>>,
 }
 
 impl SuiContractClientInner {
@@ -1199,14 +1220,7 @@ impl SuiContractClientInner {
             wallet,
             read_client,
             gas_budget,
-            metrics: None,
         })
-    }
-
-    /// Set the metrics for the client.
-    pub fn with_metrics(mut self, metrics: Arc<SuiClientMetrics>) -> Self {
-        self.metrics = Some(metrics);
-        self
     }
 
     /// Adds attribute to a blob object.

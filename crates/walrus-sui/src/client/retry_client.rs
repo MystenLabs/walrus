@@ -225,6 +225,15 @@ impl RetriableSuiClient {
         Ok(Self::new(client, backoff_config))
     }
 
+    /// Creates a new retriable client from a wallet context with metrics.
+    pub async fn new_from_wallet_with_metrics(
+        wallet: &WalletContext,
+        backoff_config: ExponentialBackoffConfig,
+        metrics: Arc<SuiClientMetrics>,
+    ) -> SuiClientResult<Self> {
+        let client = Self::new_from_wallet(wallet, backoff_config).await?;
+        Ok(client.with_metrics(Some(metrics)))
+    }
     // Reimplementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.

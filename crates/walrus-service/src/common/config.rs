@@ -3,12 +3,18 @@
 
 //! Common configuration module.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 use walrus_sui::{
-    client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
+    client::{
+        contract_config::ContractConfig,
+        SuiClientError,
+        SuiClientMetrics,
+        SuiContractClient,
+        SuiReadClient,
+    },
     config::WalletConfig,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -59,6 +65,21 @@ impl SuiConfig {
             &self.contract_config,
             self.backoff_config.clone(),
             self.gas_budget,
+        )
+        .await
+    }
+
+    /// Creates a new contract client with metrics support
+    pub async fn new_contract_client_with_metrics(
+        &self,
+        metrics: Arc<SuiClientMetrics>,
+    ) -> Result<SuiContractClient, SuiClientError> {
+        SuiContractClient::new_from_wallet_with_metrics(
+            WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
+            &self.contract_config,
+            self.backoff_config.clone(),
+            self.gas_budget,
+            metrics,
         )
         .await
     }
