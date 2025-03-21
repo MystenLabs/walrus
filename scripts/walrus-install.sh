@@ -99,7 +99,8 @@ resolved_walrus="$(command -v walrus)"
 if [ -z "$resolved_walrus" ]; then
   msg "the walrus binary is not yet in your PATH. You will need to add '$install_dir' to your PATH."
 elif [ "$resolved_walrus" != "$install_dir"/walrus ]; then
-  warn "another walrus binary appears to conflict with this installation. ensure that $install_dir appears before $(dirname "$resolved_walrus") in your PATH."
+  warn "another walrus binary appears to conflict with this installation." \
+    "ensure that $install_dir appears before $(dirname "$resolved_walrus") in your PATH."
 fi
 
 # Success.
