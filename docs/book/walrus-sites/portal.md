@@ -28,8 +28,8 @@ The stable branch of Walrus Sites is `testnet`.
 
 ## Running a local portal
 
-Running a portal locally can be useful, for example if you want to browse Walrus Sites without accessing
-external portals, or for development purposes.
+Running a portal locally can be useful, for example if you want to browse Walrus Sites without
+accessing external portals, or for development purposes.
 
 Let's start by cloning the `walrus-sites` repository:
 
@@ -78,8 +78,8 @@ cp ./portal/server/.env.testnet.example ./portal/server/.env.local
 {{#endtab }}
 {{#endtabs }}
 
-Likewise, if you want to run the service-worker portal, you can copy the `.env.<network>.example` file to
-`.env.local` in the `portal/worker` directory.
+Likewise, if you want to run the service-worker portal, you can copy the `.env.<network>.example`
+file to `.env.local` in the `portal/worker` directory.
 
 {{#tabs}}
 {{#tab name="Mainnet" }}
@@ -111,8 +111,8 @@ serving sites that are not published by you.
 
 -`AGGREGATOR_URL`: The url to a Walrus aggregator that will fetch the site resources from Walrus.
 
--`AMPLITUDE_API_KEY`: Provide it if you want to enable [Amplitude](https://amplitude.com/) for your server
-analytics.
+-`AMPLITUDE_API_KEY`: Provide it if you want to enable [Amplitude](https://amplitude.com/) for your
+server analytics.
 
 -`EDGE_CONFIG`: If you host your portal on Vercel, you can use the [Edge Config][edge-config] to
 blocklist certain SuiNS subdomains or b36 object ids.
