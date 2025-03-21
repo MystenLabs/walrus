@@ -69,7 +69,7 @@ impl SuiConfig {
         .await
     }
 
-    /// Creates a new contract client with metrics support
+    /// Creates a new contract client with metrics support.
     pub async fn new_contract_client_with_metrics(
         &self,
         metrics: Arc<SuiClientMetrics>,
