@@ -10,6 +10,11 @@ portals:
 
 Currently, only a server-side portal is served at <https://walrus.site>.
 
+```admonish warning
+We are sunsetting the testnet portal! From now on, you can only access the mainnet portal
+at <https://walrus.site>.
+```
+
 ```admonish note title="Hosting of the service worker"
 The service-worker portal is no longer hosted, but you can still run it locally. Its code is
 available in the `walrus-sites` repository. For more information, see
