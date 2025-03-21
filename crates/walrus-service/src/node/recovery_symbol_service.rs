@@ -186,8 +186,8 @@ fn merkle_tree_for_request(
 #[cfg(test)]
 mod tests {
     use futures::stream;
-    use rayon::ThreadPoolBuilder;
-    use thread_pool::{BlockingThreadPool, RayonThreadPool, TokioBlockingPool};
+    use rayon::ThreadPoolBuilder as RayonThreadPoolBuilder;
+    use thread_pool::{RayonThreadPool, ThreadPoolBuilder, TokioBlockingPool};
     use tokio_stream::StreamExt as _;
     use tower::ServiceExt as _;
     use walrus_core::{
@@ -209,25 +209,24 @@ mod tests {
         config: Arc<EncodingConfig>,
         pool_type: ThreadPoolType,
     ) -> RecoverySymbolService {
+        let mut builder = ThreadPoolBuilder::default();
+
         match pool_type {
-            ThreadPoolType::Rayon => RecoverySymbolService::new(
-                10,
-                config,
-                BlockingThreadPool::new_rayon(RayonThreadPool::new(
-                    ThreadPoolBuilder::new()
+            ThreadPoolType::Rayon => {
+                builder.rayon(RayonThreadPool::new(
+                    RayonThreadPoolBuilder::new()
                         .num_threads(1)
                         .build()
                         .expect("thread pool construction must succeed")
                         .into(),
-                ))
-                .bounded(),
-            ),
-            ThreadPoolType::Tokio => RecoverySymbolService::new(
-                10,
-                config,
-                BlockingThreadPool::new_tokio(TokioBlockingPool::new()).bounded(),
-            ),
-        }
+                ));
+            }
+            ThreadPoolType::Tokio => {
+                builder.tokio(TokioBlockingPool::default());
+            }
+        };
+
+        RecoverySymbolService::new(10, config, builder.build_bounded())
     }
 
     struct TestBlobInfo {
@@ -293,6 +292,7 @@ mod tests {
 
     async_param_test! {
         result_is_equivalent_to_recovery_symbol_method -> TestResult: [
+            #[cfg(not(msim))]
             use_rayon: (ThreadPoolType::Rayon),
             use_tokio: (ThreadPoolType::Tokio),
         ]
@@ -336,6 +336,7 @@ mod tests {
 
     async_param_test! {
         recovery_symbol_using_cached_proof_is_equivalent_to_recovery_symbol_method -> TestResult: [
+            #[cfg(not(msim))]
             use_rayon: (ThreadPoolType::Rayon),
             use_tokio: (ThreadPoolType::Tokio),
         ]
@@ -385,6 +386,7 @@ mod tests {
 
     async_param_test! {
         recovery_symbol_for_different_sliver_uses_different_proof -> TestResult: [
+            #[cfg(not(msim))]
             use_rayon: (ThreadPoolType::Rayon),
             use_tokio: (ThreadPoolType::Tokio),
         ]
