@@ -16,6 +16,7 @@ You can also build and access the documentation locally (assuming you have Rust 
 cargo install mdbook
 cargo install mdbook-admonish --locked
 cargo install mdbook-katex --locked
+cargo install mdbook-tabs --locked
 mdbook serve
 ```
 

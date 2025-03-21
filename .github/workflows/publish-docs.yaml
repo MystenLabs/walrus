@@ -43,7 +43,7 @@ jobs:
       - name: Update GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4.7.3
         with:
-          folder: build/html
+          folder: docs/build/html
           clean-exclude: pr-preview/
           force: false
 
@@ -69,11 +69,12 @@ jobs:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
+          SUI_NETWORK: mainnet
 
       - name: Update Walrus Site
         run: >
           RUST_LOG=site_builder=debug,walrus=debug,info
           site-builder
-          update build/html ${{ vars.WALRUS_SITE_OBJECT }}
+          update docs/build/html ${{ vars.WALRUS_SITE_OBJECT }}
           --epochs 183
           --force

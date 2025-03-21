@@ -26,11 +26,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
-use super::{database_config::DatabaseTableOptions, DatabaseConfig};
-
-pub(crate) const AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "aggregate_blob_info";
-pub(crate) const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
-const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
+use super::{constants::*, database_config::DatabaseTableOptions, DatabaseConfig};
 
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
@@ -63,19 +59,19 @@ impl BlobInfoTable {
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
-            Some(AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME),
+            Some(aggregate_blob_info_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?;
         let per_object_blob_info = DBMap::reopen(
             database,
-            Some(PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME),
+            Some(per_object_blob_info_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?;
         let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
             database,
-            Some(EVENT_INDEX_COLUMN_FAMILY_NAME),
+            Some(event_index_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?));
@@ -90,15 +86,15 @@ impl BlobInfoTable {
     pub fn options(db_config: &DatabaseConfig) -> Vec<(&'static str, Options)> {
         vec![
             (
-                AGGREGATE_BLOB_INFO_COLUMN_FAMILY_NAME,
+                aggregate_blob_info_cf_name(),
                 blob_info_cf_options(db_config),
             ),
             (
-                PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME,
+                per_object_blob_info_cf_name(),
                 per_object_blob_info_cf_options(db_config),
             ),
             (
-                EVENT_INDEX_COLUMN_FAMILY_NAME,
+                event_index_cf_name(),
                 // Doesn't make sense to have special options for the table containing a single
                 // value.
                 DatabaseTableOptions::default().to_options(),

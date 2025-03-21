@@ -23,7 +23,10 @@ use walrus_service::{
     testbed,
     utils::version,
 };
-use walrus_sui::{client::UpgradeType, utils::SuiNetwork};
+use walrus_sui::{
+    client::{rpc_config::RpcFallbackConfigArgs, UpgradeType},
+    utils::SuiNetwork,
+};
 
 const VERSION: &str = version!();
 #[derive(Parser)]
@@ -216,6 +219,9 @@ struct GenerateDryRunConfigsArgs {
     /// The amount of SUI (in MIST) to send to all created wallets.
     #[clap(long, default_value_t = 1_000_000_000, requires = "admin_wallet_path")]
     sui_amount: u64,
+    /// The config for rpc fallback.
+    #[clap(flatten)]
+    rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -430,6 +436,7 @@ mod commands {
             use_legacy_event_provider,
             disable_event_blob_writer,
             backup_database_url,
+            rpc_fallback_config_args,
             admin_wallet_path,
             sui_amount,
         }: GenerateDryRunConfigsArgs,
@@ -486,6 +493,9 @@ mod commands {
                 working_dir.as_path(),
                 database_url.as_str(),
                 testbed_config.sui_network.env().rpc,
+                rpc_fallback_config_args
+                    .as_ref()
+                    .and_then(|args| args.to_config()),
             )
             .await?;
             let serialized_backup_config = serde_yaml::to_string(&backup_config)
@@ -505,6 +515,9 @@ mod commands {
             set_config_dir.as_deref(),
             set_db_path.as_deref(),
             faucet_cooldown,
+            rpc_fallback_config_args
+                .as_ref()
+                .and_then(|args| args.to_config()),
             &mut admin_contract_client,
             use_legacy_event_provider,
             disable_event_blob_writer,

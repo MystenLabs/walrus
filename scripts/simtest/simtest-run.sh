@@ -60,7 +60,7 @@ TMPDIR="$WALRUS_TMP_DIR" \
 MSIM_TEST_SEED="$SEED" \
 MSIM_TEST_NUM=${TEST_NUM} \
 scripts/simtest/cargo-simtest simtest simtest \
-  --color always \
+  --color never \
   --test-threads "$NUM_CPUS" \
   --profile simtestnightly 2>&1 | tee "$LOG_FILE"
 
@@ -73,7 +73,7 @@ echo "All tests completed, checking for failures..."
 echo "============================================="
 date
 
-grep -EqHn 'TIMEOUT|FAIL|stderr|error:|Summary.*[1-9][0-9]* failed' "$LOG_DIR"/*
+grep -EqHn 'TIMEOUT|FAIL|STDERR|SIGABRT|error:|Summary.*[1-9][0-9]* failed' "$LOG_DIR"/*
 
 # if grep found no failures exit now
 [ $? -eq 1 ] && echo "No test failures detected" && exit 0

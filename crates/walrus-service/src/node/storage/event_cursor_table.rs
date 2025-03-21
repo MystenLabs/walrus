@@ -17,10 +17,11 @@ use typed_store::{
     TypedStoreError,
 };
 
-use super::{event_sequencer::EventSequencer, DatabaseConfig};
-
-const CURSOR_KEY: [u8; 6] = *b"cursor";
-const COLUMN_FAMILY_NAME: &str = "event_cursor";
+use super::{
+    constants::{event_cursor_cf_name, event_cursor_key},
+    event_sequencer::EventSequencer,
+    DatabaseConfig,
+};
 
 type ProgressMergeOperand = (EventID, u64);
 
@@ -83,7 +84,7 @@ impl EventCursorTable {
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         let inner = DBMap::reopen(
             database,
-            Some(COLUMN_FAMILY_NAME),
+            Some(event_cursor_cf_name()),
             &ReadWriteOptions::default(),
             false,
         )?;
@@ -111,7 +112,7 @@ impl EventCursorTable {
             update_cursor_and_progress,
             |_, _, _| None,
         );
-        (COLUMN_FAMILY_NAME, options)
+        (event_cursor_cf_name(), options)
     }
 
     pub fn reposition_event_cursor(
@@ -120,7 +121,7 @@ impl EventCursorTable {
         next_index: u64,
     ) -> Result<(), TypedStoreError> {
         self.inner.insert(
-            &CURSOR_KEY,
+            event_cursor_key(),
             &EventIdWithProgress::V1(EventIdWithProgressV1 {
                 event_id: cursor,
                 next_event_index: next_index,
@@ -134,7 +135,7 @@ impl EventCursorTable {
     }
 
     pub fn get_sequentially_processed_event_count(&self) -> Result<u64, TypedStoreError> {
-        let entry = self.inner.get(&CURSOR_KEY)?;
+        let entry = self.inner.get(event_cursor_key())?;
         Ok(entry.map_or(0, |EventIdWithProgress::V1(v1)| v1.next_event_index))
     }
 
@@ -142,7 +143,7 @@ impl EventCursorTable {
     pub fn get_event_cursor_and_next_index(
         &self,
     ) -> Result<Option<EventIdWithProgress>, TypedStoreError> {
-        self.inner.get(&CURSOR_KEY)
+        self.inner.get(event_cursor_key())
     }
 
     pub fn maybe_advance_event_cursor(
@@ -164,7 +165,7 @@ impl EventCursorTable {
             let merge_operand = bcs::to_bytes(&(cursor, count)).expect("encode to succeed");
 
             let mut batch = self.inner.batch();
-            batch.partial_merge_batch(&self.inner, [(CURSOR_KEY, merge_operand)])?;
+            batch.partial_merge_batch(&self.inner, [(event_cursor_key(), merge_operand)])?;
             batch.write()?;
 
             event_queue.advance();

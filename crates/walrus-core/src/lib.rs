@@ -47,7 +47,7 @@ use inconsistency::{
     SecondaryInconsistencyProof,
 };
 use merkle::{MerkleAuth, MerkleProof, Node};
-use metadata::BlobMetadata;
+pub use metadata::BlobMetadata;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeAs, DisplayFromStr, SerializeAs};
 #[cfg(feature = "sui-types")]

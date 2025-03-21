@@ -235,7 +235,7 @@ pub enum CliCommands {
         #[serde(default)]
         share: bool,
         /// The encoding type to use for encoding the files.
-        #[clap(long)]
+        #[clap(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
@@ -279,7 +279,7 @@ pub enum CliCommands {
         #[serde(default = "default::status_timeout")]
         timeout: Duration,
         /// The encoding type to use for encoding the file.
-        #[clap(long)]
+        #[clap(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
         /// The URL of the Sui RPC node to use.
@@ -344,7 +344,7 @@ pub enum CliCommands {
         #[serde(flatten)]
         rpc_arg: RpcArg,
         /// The encoding type to use for computing the blob ID.
-        #[clap(long)]
+        #[clap(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },
@@ -382,7 +382,7 @@ pub enum CliCommands {
         /// The encoding type to use for computing the blob ID.
         ///
         /// This is only used when running the command with the `--file` target.
-        #[clap(long)]
+        #[clap(long, hide = true)]
         #[serde(default)]
         encoding_type: Option<EncodingType>,
     },

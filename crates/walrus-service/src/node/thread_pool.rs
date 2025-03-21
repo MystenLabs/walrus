@@ -4,6 +4,7 @@
 use std::{
     any::Any,
     future::Future,
+    num::NonZero,
     panic,
     pin::Pin,
     sync::Arc,
@@ -12,6 +13,7 @@ use std::{
 };
 
 use futures::FutureExt;
+#[cfg(not(msim))]
 use rayon::ThreadPoolBuilder;
 use tokio::sync::{oneshot, oneshot::Receiver as OneshotReceiver};
 use tower::{limit::ConcurrencyLimit, Service};
@@ -38,18 +40,32 @@ pub(crate) const ASSUMED_REQUEST_LATENCY: Duration = Duration::from_millis(10);
 /// [`RayonThreadPool::bounded`].
 pub(crate) const DEFAULT_MAX_WAIT_TIME: Duration = Duration::from_secs(1);
 
-/// A [`RayonThreadPool`] with a limit to the number of concurrent jobs.
-pub(crate) type BoundedRayonThreadPool = ConcurrencyLimit<RayonThreadPool>;
+/// The default number of workers for the tokio blocking pool.
+pub(crate) const DEFAULT_TOKIO_BLOCKING_POOL_NUM_WORKERS: usize = 4;
 
-/// Returns a default constructed `BoundedRayonThreadPool`.
-pub(crate) fn default_bounded() -> BoundedRayonThreadPool {
-    RayonThreadPool::new(
-        ThreadPoolBuilder::new()
-            .build()
-            .expect("thread pool construction must succeed")
-            .into(),
-    )
-    .bounded()
+/// A [`BlockingThreadPool`] with a limit to the number of concurrent jobs.
+pub(crate) type BoundedThreadPool = ConcurrencyLimit<BlockingThreadPool>;
+
+/// Returns a default constructed `BoundedThreadPool`.
+pub(crate) fn default_bounded() -> BoundedThreadPool {
+    #[cfg(not(msim))]
+    {
+        BlockingThreadPool::new_rayon(RayonThreadPool::new(
+            ThreadPoolBuilder::new()
+                .build()
+                .expect("thread pool construction must succeed")
+                .into(),
+        ))
+        .bounded()
+    }
+
+    // Note that in simtest, we cannot use Rayon thread pool due to that it causes simtest to be
+    // non-deterministic. This is because Rayon threads are actually run in different threads than
+    // the tokio main threads, and not controlled by the tokio runtime.
+    #[cfg(msim)]
+    {
+        BlockingThreadPool::new_tokio(TokioBlockingPool::new()).bounded()
+    }
 }
 
 /// Extract the result from a [`std::thread::Result`] or resume the panic that caused
@@ -77,24 +93,9 @@ pub(crate) struct RayonThreadPool {
 
 impl RayonThreadPool {
     /// Returns a new `RayonThreadPool` service.
+    #[allow(unused)]
     pub fn new(pool: Arc<rayon::ThreadPool>) -> Self {
         Self { inner: pool }
-    }
-
-    /// Converts this pool into a [`BoundedRayonThreadPool`].
-    ///
-    /// For `N` workers in the thread pool, the limit is set to
-    /// `N * DEFAULT_MAX_WAIT_TIME / ASSUMED_REQUEST_LATENCY` which aims to limit the amount
-    /// of time spent in the queue to [`DEFAULT_MAX_WAIT_TIME`].
-    pub fn bounded(self) -> BoundedRayonThreadPool {
-        let n_workers = self.inner.current_num_threads() as f64;
-        let time_in_queue = DEFAULT_MAX_WAIT_TIME.as_secs_f64();
-        let task_latency = ASSUMED_REQUEST_LATENCY.as_secs_f64();
-        let limit = (n_workers * time_in_queue / task_latency) as usize;
-
-        tracing::debug!(%limit, "calculated limit for `BoundedRayonThreadPool`");
-
-        ConcurrencyLimit::new(self, limit)
     }
 }
 
@@ -123,6 +124,126 @@ where
         });
 
         ThreadPoolFuture { rx }
+    }
+}
+
+/// A cloneable [`tower::Service`] around a [`tokio::task::spawn_blocking`].
+///
+/// Accepts functions as requests (`FnOnce() -> T`), runs them on the thread-pool and
+/// returns the result.
+///
+/// The error type of the service is returned if the function panics and
+/// is the result of [`std::panic::catch_unwind`].
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TokioBlockingPool;
+
+impl TokioBlockingPool {
+    /// Returns a new `TokioBlockingPool` service.
+    #[allow(unused)]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl<Req, Resp> Service<Req> for TokioBlockingPool
+where
+    Req: FnOnce() -> Resp + Send + 'static,
+    Resp: Send + 'static,
+{
+    type Response = Resp;
+    type Error = ThreadPanicError;
+    type Future = ThreadPoolFuture<Resp>;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: Req) -> Self::Future {
+        let (tx, rx) = oneshot::channel();
+        let span = Span::current();
+        tokio::task::spawn_blocking(move || {
+            let _guard = span.entered();
+            let output = panic::catch_unwind(panic::AssertUnwindSafe(req));
+            let _ = tx.send(output);
+        });
+
+        ThreadPoolFuture { rx }
+    }
+}
+
+/// A cloneable [`tower::Service`] around a [`rayon::ThreadPool`] or
+/// [`tokio::task::spawn_blocking`].
+///
+/// Accepts functions as requests (`FnOnce() -> T`), runs them on the thread-pool and
+/// returns the result.
+///
+/// The error type of the service is returned if the function panics and
+/// is the result of [`std::panic::catch_unwind`].
+#[derive(Debug, Clone)]
+pub(crate) enum BlockingThreadPool {
+    Rayon(RayonThreadPool),
+    Tokio(TokioBlockingPool),
+}
+
+impl BlockingThreadPool {
+    #[allow(unused)]
+    pub fn new_rayon(pool: RayonThreadPool) -> Self {
+        Self::Rayon(pool)
+    }
+
+    #[allow(unused)]
+    pub fn new_tokio(pool: TokioBlockingPool) -> Self {
+        Self::Tokio(pool)
+    }
+
+    // Converts this pool into a [`BoundedThreadPool`], whose inner pool is from `self`.
+    //
+    // For `N` workers in the thread pool, the limit is set to
+    // `N * DEFAULT_MAX_WAIT_TIME / ASSUMED_REQUEST_LATENCY` which aims to limit the amount
+    // of time spent in the queue to [`DEFAULT_MAX_WAIT_TIME`].
+    pub fn bounded(self) -> ConcurrencyLimit<BlockingThreadPool> {
+        let n_workers = match self {
+            Self::Rayon(ref pool) => pool.inner.current_num_threads() as f64,
+            Self::Tokio(ref _pool) => std::thread::available_parallelism()
+                .unwrap_or(
+                    NonZero::new(DEFAULT_TOKIO_BLOCKING_POOL_NUM_WORKERS)
+                        .expect("default tokio blocking pool concurrent jobs must be non-zero"),
+                )
+                .get() as f64,
+        };
+
+        let time_in_queue = DEFAULT_MAX_WAIT_TIME.as_secs_f64();
+        let task_latency = ASSUMED_REQUEST_LATENCY.as_secs_f64();
+        let limit = (n_workers * time_in_queue / task_latency) as usize;
+
+        tracing::debug!(%limit, "calculated limit for `bounded RayonThreadPool`");
+
+        ConcurrencyLimit::new(self, limit)
+    }
+}
+
+// Implement Service generically for BlockingThreadPool.
+impl<Req, Resp> Service<Req> for BlockingThreadPool
+where
+    Req: FnOnce() -> Resp + Send + 'static,
+    Resp: Send + 'static,
+{
+    type Response = Resp;
+    type Error = ThreadPanicError;
+    type Future = ThreadPoolFuture<Resp>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        match self {
+            Self::Rayon(pool) => <RayonThreadPool as Service<fn()>>::poll_ready(pool, cx),
+            Self::Tokio(pool) => <TokioBlockingPool as Service<fn()>>::poll_ready(pool, cx),
+        }
+    }
+
+    fn call(&mut self, req: Req) -> Self::Future {
+        match self {
+            Self::Rayon(pool) => pool.call(req),
+            Self::Tokio(pool) => pool.call(req),
+        }
     }
 }
 
