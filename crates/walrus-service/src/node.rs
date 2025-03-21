@@ -442,19 +442,23 @@ impl StorageNodeBuilder {
                 Arc::new(service)
             };
 
-        let contract_service: Arc<dyn SystemContractService> =
-            if let Some(service) = self.contract_service {
-                service
-            } else {
-                Arc::new(
-                    SuiSystemContractService::builder()
-                        .build_from_config(
-                            config.sui.as_ref().expect("Sui config must be provided"),
-                            committee_service.clone(),
-                        )
-                        .await?,
-                )
-            };
+        let contract_service: Arc<dyn SystemContractService> = if let Some(service) =
+            self.contract_service
+        {
+            service
+        } else {
+            Arc::new(
+                SuiSystemContractService::builder()
+                    .metrics_registry(metrics_registry.clone())
+                    .balance_check_frequency(config.balance_check.interval)
+                    .balance_check_warning_threshold(config.balance_check.warning_threshold_mist)
+                    .build_from_config(
+                        config.sui.as_ref().expect("Sui config must be provided"),
+                        committee_service.clone(),
+                    )
+                    .await?,
+            )
+        };
 
         let node_params = NodeParameters {
             pre_created_storage: self.storage,

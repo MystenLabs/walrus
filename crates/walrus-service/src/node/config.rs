@@ -165,6 +165,9 @@ pub struct StorageNodeConfig {
     /// state in event blob writer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub num_uncertified_blob_threshold: Option<u32>,
+    /// Configuration for background SUI balance checks and alerting.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub balance_check: BalanceCheckConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -201,6 +204,7 @@ impl Default for StorageNodeConfig {
             config_synchronizer: Default::default(),
             storage_node_cap: None,
             num_uncertified_blob_threshold: None,
+            balance_check: Default::default(),
         }
     }
 }
@@ -655,6 +659,10 @@ pub mod defaults {
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
     /// Default interval between config monitoring checks in seconds.
     pub const CONFIG_SYNCHRONIZER_INTERVAL_SECS: u64 = 900;
+    /// Default frequency with which balance checks are performed.
+    pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
+    /// SUI MIST threshold under which balance checks log a warning.
+    pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 20_000_000_000;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -968,6 +976,27 @@ impl Default for Http2Config {
             http2_initial_stream_window_size: None,
             http2_initial_connection_window_size: None,
             http2_adaptive_window: true,
+        }
+    }
+}
+
+/// Configuration for balance checks.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BalanceCheckConfig {
+    /// The interval at which to query the balance.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "interval_secs")]
+    pub interval: Duration,
+    /// The amount of MIST for which a lower balance triggers a warning.
+    pub warning_threshold_mist: u64,
+}
+
+impl Default for BalanceCheckConfig {
+    fn default() -> Self {
+        Self {
+            interval: defaults::BALANCE_CHECK_FREQUENCY,
+            warning_threshold_mist: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
         }
     }
 }
