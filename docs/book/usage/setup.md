@@ -88,22 +88,24 @@ adapt most of those.
 
 ### Install via script {#nix-install}
 
-To download and install `walrus` to your `"$HOME"/.local/bin` directory, run the following in your
-terminal then follow on-screen instructions. See [Windows instructions](#windows-install)
-if you are on Windows.
+To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following
+commands in your terminal then follow on-screen instructions. See [Windows
+instructions](#windows-install) if you are on Windows.
 
 ```sh
-# Fresh install
+# Run a first-time install.
 curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh
 
-# Update an existing installation
+# Update an existing installation (overwrites prior version of walrus).
 curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh -s -- -f
 ```
 
-Make sure that your `"$HOME"/.local/bin` directory is in your `$PATH`.
+Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
 
-Once this is done, you should be able to simply type `walrus` in your terminal. For example you can
-get usage instructions (see [the next chapter](./interacting.md) for further details):
+Once this is done, you should be able to run walrus by using the `walrus` command in your terminal.
+
+You can see usage instructions as follows (see [the next chapter](./interacting.md) for further
+details):
 
 ```terminal
 $ walrus --help
@@ -124,7 +126,7 @@ Note that due to DoS protection, it may not be possible to download the binaries
 
 ### Install on Windows {#windows-install}
 
-To download `walrus` to your Microsoft Windows computer, run the following in your PowerShell.
+To download `walrus` to your Microsoft Windows computer, run the following in a PowerShell.
 
 ```PowerShell
 (New-Object System.Net.WebClient).DownloadFile(
