@@ -100,6 +100,7 @@ enum Commands {
         #[clap(long, action, default_value_t = false)]
         cleanup_storage: bool,
         /// Whether to ignore the failures from node parameter synchronization with on-chain values.
+        #[deprecated(note = "This flag is being removed and will have no effect")]
         #[clap(long, action, default_value_t = false)]
         ignore_sync_failures: bool,
     },
@@ -376,16 +377,16 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Register { config_path, force } => commands::register_node(config_path, force)?,
 
+        #[allow(deprecated)]
         Commands::Run {
             config_path,
             cleanup_storage,
-            ignore_sync_failures,
+            ignore_sync_failures: _,
         } => loop {
             let result = commands::run(
                 load_from_yaml(&config_path)?,
                 cleanup_storage,
                 Arc::new(StorageNodeConfigLoader::new(config_path.clone())),
-                ignore_sync_failures,
             );
 
             match result {
@@ -504,7 +505,6 @@ mod commands {
         mut config: StorageNodeConfig,
         cleanup_storage: bool,
         config_loader: Arc<dyn ConfigLoader>,
-        ignore_sync_failures: bool,
     ) -> anyhow::Result<()> {
         if cleanup_storage {
             let storage_path = &config.storage_path;
@@ -605,7 +605,6 @@ mod commands {
             event_manager,
             cancel_token.child_token(),
             Some(config_loader),
-            ignore_sync_failures,
         )?;
 
         monitor_runtimes(
@@ -1153,7 +1152,6 @@ impl StorageNodeRuntime {
         event_manager: Box<dyn EventManager>,
         cancel_token: CancellationToken,
         config_loader: Option<Arc<dyn ConfigLoader>>,
-        ignore_sync_failures: bool,
     ) -> anyhow::Result<Self> {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("walrus-node-runtime")
@@ -1166,7 +1164,6 @@ impl StorageNodeRuntime {
             runtime.block_on(
                 StorageNode::builder()
                     .with_system_event_manager(event_manager)
-                    .with_ignore_sync_failures(ignore_sync_failures)
                     .with_config_loader(config_loader)
                     .build(node_config, metrics_runtime.registry.clone()),
             )?,

@@ -298,7 +298,6 @@ pub struct StorageNodeBuilder {
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
-    ignore_sync_failures: bool,
     config_loader: Option<Arc<dyn ConfigLoader>>,
 }
 
@@ -323,12 +322,6 @@ impl StorageNodeBuilder {
     /// Sets the [`EventManager`] to be used with the node.
     pub fn with_system_event_manager(mut self, event_manager: Box<dyn EventManager>) -> Self {
         self.event_manager = Some(event_manager);
-        self
-    }
-
-    /// Ignores node parameter sync failures if true.
-    pub fn with_ignore_sync_failures(mut self, ignore_sync_failures: bool) -> Self {
-        self.ignore_sync_failures = ignore_sync_failures;
         self
     }
 
@@ -463,7 +456,6 @@ impl StorageNodeBuilder {
         let node_params = NodeParameters {
             pre_created_storage: self.storage,
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
-            ignore_sync_failures: self.ignore_sync_failures,
         };
 
         StorageNode::new(
@@ -528,9 +520,6 @@ pub struct NodeParameters {
     // Number of checkpoints per blob to use when creating event blobs.
     // If not provided, the default value will be used.
     num_checkpoints_per_blob: Option<u32>,
-    // Whether to ignore sync failures during node initialization
-    #[allow(dead_code)]
-    ignore_sync_failures: bool,
 }
 
 impl StorageNode {
