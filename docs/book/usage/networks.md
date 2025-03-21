@@ -1,4 +1,4 @@
-# Available Networks
+# Available networks
 
 Walrus Mainnet operates a production quality storage network on the Sui Mainnet. The Walrus Testnet
 operates on the Sui Testnet and is used to test new features of Walrus before they graduate to the

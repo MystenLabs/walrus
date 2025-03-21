@@ -5,7 +5,13 @@ supports different usage patterns (see [the next chapter](./interacting.md)). Th
 the [prerequisites](#prerequisites), [installation](#installation), and
 [configuration](#configuration) of the Walrus client.
 
-Walrus is open-source under an Apache 2 licence, and can also be built and installed from source.
+Walrus is open-source under an Apache 2 license, and can also be built and installed from the Rust
+source code via cargo.
+
+```admonish info title="Walrus networks"
+This page describes how to connect to Walrus **Mainnet**. See [Available networks](./networks.md)
+for an overview over all Walrus networks.
+```
 
 ## Prerequisites: Sui wallet, SUI and WAL {#prerequisites}
 

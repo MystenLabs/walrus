@@ -20,7 +20,7 @@
 
 # Usage
 
-- [Getting Started](./usage/started.md)
+- [Getting started](./usage/started.md)
 - [Setup](./usage/setup.md)
   - [Available networks](./usage/networks.md)
 - [Interacting with Walrus](./usage/interacting.md)

@@ -19,7 +19,7 @@ overview of current system parameters such as the current epoch, the number of s
 shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
 
-<!-- TODO(): Update after epoch 1 -->
+<!-- TODO(WAL-710): Update after epoch 1 -->
 
 ```console
 $ walrus info
@@ -220,7 +220,7 @@ Walrus allows a set of key-value attribute pairs to be associated with a blob ob
 and values may be arbitrary strings to accommodate any needs of dapps, specific keys are converted
 to HTTP headers when serving blobs through aggregators.
 
-<!-- TODO():  attributes about HTTP headers understood by the aggregator? -->
+<!-- TODO(WAL-710):  attributes about HTTP headers understood by the aggregator? -->
 
 The command
 

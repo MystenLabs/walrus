@@ -29,7 +29,7 @@ mandatory and optional configuration parameters will be made available with the 
 Here are some important config params from a shortened version of the `walrus-node.yaml` config
 file:
 
-<!-- TODO() : change the Testnet url below. -->
+<!-- TODO(WAL-118) : change the Testnet url below. -->
 
 ```yaml
 storage_path: /opt/walrus/db

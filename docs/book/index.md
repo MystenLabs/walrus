@@ -61,11 +61,10 @@ storage node management and blob certification leverages Sui smart contracts.
 This documentation is split into several parts:
 
 1. *Dev blog* contains announcements and other blog posts.
-1. *Design* describes the objectives, security properties, and architecture of Walrus.
 1. *Usage* provides concrete information for developers. If you want to get started quickly, you can
    jump directly to the [setup chapter](./usage/setup.md).
-1. *Walrus Sites* describes how you can use Walrus and Sui together to build truly decentralized
-   websites.
+1. *Sites* describes how you can use Walrus and Sui together to build truly decentralized websites.
+1. *Design* describes the objectives, security properties, and architecture of Walrus.
 
 Finally, we provide a [glossary](./glossary.md) that explains the terminology used throughout the
 documentation.

@@ -16,6 +16,7 @@ theme = "docs/theme"
 exclude = [
   'blob\.store',
   'github\.com/MystenLabs/walrus', # TODO(WAL-471): Remove this once the repo is public.
+  'walrus-mainnet-latest', # TODO(WAL-471): Remove this once we have the first mainnet release.
   'google\.com',
   'suiscan\.xyz',
   'walrus\.site',
