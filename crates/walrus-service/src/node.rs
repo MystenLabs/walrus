@@ -447,11 +447,12 @@ impl StorageNodeBuilder {
                 service
             } else {
                 Arc::new(
-                    SuiSystemContractService::from_config(
-                        config.sui.as_ref().expect("Sui config must be provided"),
-                        committee_service.clone(),
-                    )
-                    .await?,
+                    SuiSystemContractService::builder()
+                        .build_from_config(
+                            config.sui.as_ref().expect("Sui config must be provided"),
+                            committee_service.clone(),
+                        )
+                        .await?,
                 )
             };
 

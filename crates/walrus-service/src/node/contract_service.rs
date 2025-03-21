@@ -117,6 +117,52 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError>;
 }
 
+/// Builder for creating a new [`SuiSystemContractService`].
+#[derive(Debug, Clone)]
+pub struct SuiSystemContractServiceBuilder {
+    seed: u64,
+}
+
+impl Default for SuiSystemContractServiceBuilder {
+    fn default() -> Self {
+        Self {
+            seed: rand::thread_rng().gen(),
+        }
+    }
+}
+
+impl SuiSystemContractServiceBuilder {
+    /// Set the random seed with which to seed the PRNG used within the service.
+    pub fn random_seed(&mut self, seed: u64) -> &mut Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Creates a new [`SuiSystemContractService`] with a [`SuiContractClient`] constructed from
+    /// the config.
+    pub async fn build_from_config(
+        &mut self,
+        config: &SuiConfig,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> Result<SuiSystemContractService, anyhow::Error> {
+        Ok(self.build(config.new_contract_client().await?, committee_service))
+    }
+
+    /// Creates a new [`SuiSystemContractService`] with the provided [`SuiContractClient`].
+    pub fn build(
+        &mut self,
+        contract_client: SuiContractClient,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> SuiSystemContractService {
+        SuiSystemContractService {
+            read_client: contract_client.read_client.clone(),
+            contract_tx_client: Arc::new(TokioMutex::new(contract_client)),
+            committee_service,
+            rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(self.seed))),
+        }
+    }
+}
+
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
 #[derive(Debug, Clone)]
 pub struct SuiSystemContractService {
@@ -130,36 +176,10 @@ pub struct SuiSystemContractService {
 }
 
 impl SuiSystemContractService {
-    /// Creates a new service with the supplied [`SuiContractClient`].
-    pub fn new(
-        contract_client: SuiContractClient,
-        committee_service: Arc<dyn CommitteeService>,
-    ) -> Self {
-        Self::new_with_seed(contract_client, committee_service, rand::thread_rng().gen())
-    }
-
-    fn new_with_seed(
-        contract_client: SuiContractClient,
-        committee_service: Arc<dyn CommitteeService>,
-        seed: u64,
-    ) -> Self {
-        Self {
-            read_client: contract_client.read_client.clone(),
-            contract_tx_client: Arc::new(TokioMutex::new(contract_client)),
-            committee_service,
-            rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(seed))),
-        }
-    }
-
-    /// Creates a new provider with a [`SuiContractClient`] constructed from the config.
-    pub async fn from_config(
-        config: &SuiConfig,
-        committee_service: Arc<dyn CommitteeService>,
-    ) -> Result<Self, anyhow::Error> {
-        Ok(Self::new(
-            config.new_contract_client().await?,
-            committee_service,
-        ))
+    /// Returns a new [`SuiSystemContractServiceBuilder`] for constructing an instance of
+    /// `SuiSystemContractService`.
+    pub fn builder() -> SuiSystemContractServiceBuilder {
+        Default::default()
     }
 
     /// Fetches the synced node config set from the contract.

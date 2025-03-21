@@ -2458,7 +2458,7 @@ pub mod test_cluster {
             .into_iter()
             .zip(committee_services.iter())
             .map(|(client, committee_service)| {
-                SuiSystemContractService::new(client, committee_service.clone())
+                SuiSystemContractService::builder().build(client, committee_service.clone())
             });
 
         let cluster_builder = cluster_builder
