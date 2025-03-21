@@ -164,7 +164,7 @@ here are the explanations for each parameter:
 - `SITE_NAMES`: Hard coded `name: objectID` mappings, to override the SuiNS names. For development
   only. Use this at your own risk, may render some sites with legitimate SuiNS names unusable.
 - `FALLBACK_PORTAL`: This is related only to the service worker portal. The fallback portal should
-be a server side portal that is used in cases where some browsers do not support service workers.
+be a server-side portal that is used in cases where some browsers do not support service workers.
 
 ### Deploying the Portal
 
