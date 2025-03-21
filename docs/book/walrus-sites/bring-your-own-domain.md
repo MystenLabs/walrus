@@ -13,7 +13,7 @@ and other subdomains (i.e. other Walrus Sites) will not be served.
 
 The steps you have to follow are:
 
-1. [Deploy a local portal]((./portal.md)) and include these additional environment variables to
+1. [Deploy a local portal](./portal.md) and include these additional environment variables to
 your `.env.local`:
 
     ```bash
