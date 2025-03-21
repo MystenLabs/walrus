@@ -23,7 +23,7 @@ use move_core_types::{
     account_address::AccountAddress,
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
-use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
+use prometheus::{IntCounter, IntCounterVec, IntGauge, Registry};
 use rocksdb::Options;
 use sui_package_resolver::{
     error::Error as PackageResolverError,

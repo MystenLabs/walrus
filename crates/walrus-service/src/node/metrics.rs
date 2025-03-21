@@ -9,7 +9,6 @@ use prometheus::{
     IntCounterVec,
     IntGauge,
     IntGaugeVec,
-    Opts,
 };
 use walrus_sui::types::{
     BlobCertified,
