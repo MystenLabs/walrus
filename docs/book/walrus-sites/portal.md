@@ -28,8 +28,8 @@ The stable branch of Walrus Sites is `testnet`.
 
 ## Running a local portal
 
-You can run a portal locally if you want to browse Walrus Sites without accessing
-external portals or for development purposes.
+Running a portal locally can be useful, for example if you want to browse Walrus Sites without accessing
+external portals, or for development purposes.
 
 Let's start by cloning the `walrus-sites` repository:
 
