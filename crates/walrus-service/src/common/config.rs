@@ -8,7 +8,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 use walrus_sui::{
-    client::{contract_config::ContractConfig, SuiClientError, SuiContractClient, SuiReadClient},
+    client::{
+        contract_config::ContractConfig,
+        rpc_config::RpcFallbackConfig,
+        SuiClientError,
+        SuiContractClient,
+        SuiReadClient,
+    },
     config::WalletConfig,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -39,6 +45,9 @@ pub struct SuiConfig {
     /// Gas budget for transactions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gas_budget: Option<u64>,
+    /// The config for rpc fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpc_fallback_config: Option<RpcFallbackConfig>,
 }
 
 impl SuiConfig {
@@ -71,6 +80,7 @@ impl From<&SuiConfig> for SuiReaderConfig {
             contract_config: config.contract_config.clone(),
             event_polling_interval: config.event_polling_interval,
             backoff_config: config.backoff_config.clone(),
+            rpc_fallback_config: config.rpc_fallback_config.clone(),
         }
     }
 }
@@ -96,6 +106,9 @@ pub struct SuiReaderConfig {
     /// The configuration for the backoff strategy used for retries.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
+    /// The URL of the checkpoint download fallback endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpc_fallback_config: Option<RpcFallbackConfig>,
 }
 
 impl SuiReaderConfig {
