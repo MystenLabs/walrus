@@ -17,7 +17,7 @@ available in the `walrus-sites` repository. For more information, see
 ```
 
 ```admonish danger title="Walrus Sites stable branch"
-The stable branch of Walrus Sites is `testnet`.
+The stable branch of Walrus Sites is `mainnet`.
 ```
 
 ## Running a local portal
@@ -35,7 +35,7 @@ cd walrus-sites
 Make sure you are on the stable branch:
 
 ``` sh
-git checkout testnet
+git checkout mainnet
 ```
 
 Next, we will see how to configure the portal so it can support the functionality that

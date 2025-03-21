@@ -111,10 +111,10 @@ package: 0xdf9033cac39b7a9b9f76fb6896c9fc5283ba730d6976a2b1d85ad1e6036c3272
 As you can see, the configuration file is quite simple. The only mandatory field is the `package`
 field, which represents the Sui object ID of the Walrus Sites smart contract. You can find the
 latest version of the package in the [Walrus Sites
-repository](https://github.com/MystenLabs/walrus-sites/tree/testnet) on the `testnet` branch.
+repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the `mainnet` branch.
 
 ```admonish danger title="Walrus Sites stable branch"
-The stable branch of Walrus Sites is `testnet`.
+The stable branch of Walrus Sites is `mainnet`.
 Make sure that you always pull the latest changes from there.
 ```
 
