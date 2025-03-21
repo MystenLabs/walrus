@@ -1,11 +1,7 @@
 {
   "mainnet": {
-    "aggregators": {
-      "https://walrus-mainnet-aggregator.dzdaic.com": {}
-    },
-    "publishers": {
-      "https://walrus-testnet-publisher.dzdaic.com": {}
-    }
+    "aggregators": {},
+    "publishers": {}
   },
   "testnet": {
     "aggregators": {
