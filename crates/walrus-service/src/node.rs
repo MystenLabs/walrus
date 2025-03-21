@@ -529,6 +529,7 @@ pub struct NodeParameters {
     // If not provided, the default value will be used.
     num_checkpoints_per_blob: Option<u32>,
     // Whether to ignore sync failures during node initialization
+    #[allow(dead_code)]
     ignore_sync_failures: bool,
 }
 
@@ -563,19 +564,12 @@ impl StorageNode {
             .await
             .or_else(|e| match e {
                 SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
-                SyncNodeConfigError::NodeNeedsReboot => {
-                    tracing::info!("ignore the error since we are booting");
+                _ => {
+                    tracing::warn!(error = ?e, "failed to sync node params");
                     Ok(())
                 }
-                _ => {
-                    if node_params.ignore_sync_failures {
-                        tracing::warn!(error = ?e, "failed to sync node params");
-                        Ok(())
-                    } else {
-                        Err(e)
-                    }
-                }
             })?;
+
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
