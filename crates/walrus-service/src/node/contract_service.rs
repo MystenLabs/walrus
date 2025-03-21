@@ -281,6 +281,12 @@ impl SuiSystemContractService {
         })
     }
 
+    /// Starts a background task to monitor SUI balance.
+    ///
+    /// # Panics
+    ///
+    /// Called during construction of the service, and panics if called after the service
+    /// has been cloned.
     fn start_balance_monitor(
         &mut self,
         frequency: Duration,

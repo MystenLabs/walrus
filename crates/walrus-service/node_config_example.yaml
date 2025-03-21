@@ -122,4 +122,4 @@ config_synchronizer:
 storage_node_cap: null
 balance_check:
   interval_secs: 3600
-  warning_threshold_mist: 20000000000
+  warning_threshold_mist: 5000000000

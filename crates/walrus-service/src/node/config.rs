@@ -662,7 +662,7 @@ pub mod defaults {
     /// Default frequency with which balance checks are performed.
     pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
     /// SUI MIST threshold under which balance checks log a warning.
-    pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 20_000_000_000;
+    pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
