@@ -31,8 +31,7 @@ site-builder publish ./walrus-snake --epochs 100
 
 ``` admonish tip
 Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
-duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks. If you want
-your site to stay up longer, specify the number of epochs with the `--epochs` flag.
+duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.
 ```
 
 The end of the output should look like the following:
