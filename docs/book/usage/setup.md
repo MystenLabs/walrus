@@ -93,7 +93,11 @@ terminal then follow on-screen instructions. See [Windows instructions](#windows
 if you are on Windows.
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh
+# Fresh install
+curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh
+
+# Update an existing installation
+curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh -s -- -f
 ```
 
 Make sure that your `"$HOME"/.local/bin` directory is in your `$PATH`.
@@ -120,9 +124,7 @@ Note that due to DoS protection, it may not be possible to download the binaries
 
 ### Install on Windows {#windows-install}
 
-To download `walrus` to your Microsoft Windows computer, run the following in your
-PowerShell.
-.
+To download `walrus` to your Microsoft Windows computer, run the following in your PowerShell.
 
 ```PowerShell
 (New-Object System.Net.WebClient).DownloadFile(
@@ -155,12 +157,33 @@ information, see the [developer guide](../dev-guide/sui-struct.md#system-and-sta
 These need to be configured in a file `~/.config/walrus/client_config.yaml`. Additionally, a
 `subsidies` object can be specified, which will subsidize storage bought with the client.
 
-The Walrus Mainnet uses the following objects:
+You can access Testnet and Mainnet via the following configuration. Note that this example Walrus
+CLI configuration refers to the standard location for Sui configuration
+(`"~/.sui/sui_config/client.yaml"`).
 
 ```yaml
-system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
-staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+contexts:
+  mainnet:
+    system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
+    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
+    subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+    exchange_objects: []
+    wallet_config:
+      path: ~/.sui/sui_config/client.yaml
+      active_env: mainnet
+  testnet:
+    system_object: 0x98ebc47370603fe81d9e15491b2f1443d619d1dab720d586e429ed233e1255c1
+    staking_object: 0x20266a17b4f1a216727f3eef5772f8d486a9e3b5e319af80a5b75809c035561d
+    exchange_objects:
+      - 0x59ab926eb0d94d0d6d6139f11094ea7861914ad2ecffc7411529c60019133997
+      - 0x89127f53890840ab6c52fca96b4a5cf853d7de52318d236807ad733f976eef7b
+      - 0x9f9b4f113862e8b1a3591d7955fadd7c52ecc07cf24be9e3492ce56eb8087805
+      - 0xb60118f86ecb38ec79e74586f1bb184939640911ee1d63a84138d080632ee28a
+    subsidies_object: 0x4b23c353c35a4dde72fe862399ebe59423933d3c2c0a3f2733b9f74cb3b4933d
+    wallet_config:
+      path: ~/.sui/sui_config/client.yaml
+      active_env: testnet
+default_context: mainnet
 ```
 
 <!-- markdownlint-disable code-fence-style -->
