@@ -4,9 +4,7 @@
 use prometheus::{HistogramVec, IntCounterVec, Opts};
 
 fn default_buckets_for_slow_operations() -> Vec<f64> {
-    vec![
-        0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
-    ]
+    prometheus::exponential_buckets(0.001, 2.0, 14).expect("count, start, and factor are valid")
 }
 
 walrus_utils::metrics::define_metric_set! {
@@ -14,7 +12,7 @@ walrus_utils::metrics::define_metric_set! {
     /// Metrics for the Sui client operations.
     pub struct SuiClientMetrics {
         #[help = "Total number of Sui RPC calls made"]
-        rpc_calls_total: IntCounterVec["method", "status"],
+        rpc_calls_count: IntCounterVec["method", "status"],
 
         #[help = "Duration of Sui RPC calls in seconds"]
         rpc_call_duration_seconds: HistogramVec{
@@ -27,7 +25,7 @@ walrus_utils::metrics::define_metric_set! {
 impl SuiClientMetrics {
     /// Record a Sui RPC call with the given method and status, and duration.
     pub fn record_rpc_call(&self, method: &str, status: &str, duration: std::time::Duration) {
-        self.rpc_calls_total
+        self.rpc_calls_count
             .with_label_values(&[method, status])
             .inc();
 
