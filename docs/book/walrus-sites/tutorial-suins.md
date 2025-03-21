@@ -18,7 +18,7 @@ Let's do this step by step.
 ## Get a SuiNS name
 
 - Navigate to <https://suins.io> (mainnet) or <https://testnet.suins.io> (testnet) and buy
-  a domain name with your Testnet wallet. For example, `walrusgame` (this specific one is already
+  a domain name with your wallet. For example, `walrusgame` (this specific one is already
   taken, choose another you like).
 
   ```admonish note
