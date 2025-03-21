@@ -6,7 +6,7 @@ portals:
 
 1. server-side portals;
 1. custom local apps; and
-1. service-worker based portals residing in the browser.
+1. service-worker based portals running in the browser.
 
 Currently, only a server-side portal is served at <https://walrus.site>.
 
