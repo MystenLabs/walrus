@@ -12015,6 +12015,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "sui-sdk",
+ "sui-types",
  "tokio",
  "tracing",
  "tracing-subscriber",
