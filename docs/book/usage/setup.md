@@ -59,9 +59,9 @@ $ sui client gas
 ```
 
 Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
-costs.
+costs. You can buy WAL through a variety of centralized or decentralized exchanges.
 
-<!-- TODO (): TODO: how to get WAL. -->
+<!-- TODO(WAL-710): how to get WAL. -->
 
 The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
 different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
@@ -145,7 +145,7 @@ information, see the [developer guide](../dev-guide/sui-struct.md#system-and-sta
 These need to be configured in a file `~/.config/walrus/client_config.yaml`. Additionally, a
 `subsidies` object can be specified, which will subsidize storage bought with the client.
 
-The current Mainnet deployment uses the following objects:
+The Walrus Mainnet uses the following objects:
 
 ```yaml
 system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
@@ -158,7 +158,7 @@ subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324
 The easiest way to obtain the latest configuration is by downloading it from GitHub:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/config/client_config_mainnet.yaml \
+curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/book/config/client_config_mainnet.yaml \
     -o ~/.config/walrus/client_config.yaml
 ```
 ~~~
@@ -186,10 +186,20 @@ staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a39
 # adds subsidies to the rewards of the staking pools.
 subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 
-# You can define a custom path to your Sui wallet configuration here. If this is unset or `null`,
-# the wallet is configured from `./sui_config.yaml` (relative to your current working directory), or
-# the system-wide wallet at `~/.sui/sui_config/client.yaml` in this order.
-wallet_config: null
+# You can define a custom path to your Sui wallet configuration here. If this is unset or `null`
+# (default), the wallet is configured from `./sui_config.yaml` (relative to your current working
+# directory), or the system-wide wallet at `~/.sui/sui_config/client.yaml` in this order. Both
+# `active_env` and `active_address` can be omitted, in which case the values from the Sui wallet
+# are used.
+wallet_config:
+  # The path to the wallet configuration file.
+  path: ~/.sui/sui_config/client.yaml
+  # The optional `active_env` to use to override whatever `active_env` is listed in the
+  # configuration file.
+  active_env: mainnet
+  # The optional `active_address` to use to override whatever `active_address` is listed in the
+  # configuration file.
+  active_address: 0x...
 
 # The following parameters can be used to tune the networking behavior of the client. There is no
 # risk in playing around with these values. In the worst case, you may not be able to store/read
@@ -213,10 +223,20 @@ communication_config:
       max_backoff_millis: 30000
       max_retries: 5
   disable_proxy: false
-  disable_native_certs: true
+  disable_native_certs: false
   sliver_write_extra_time:
     factor: 0.5
     base_millis: 500
   registration_delay_millis: 200
   max_total_blob_size: 1073741824
+  committee_change_backoff:
+    min_backoff_millis: 1000
+    max_backoff_millis: 5000
+    max_retries: 5
+refresh_config:
+  refresh_grace_period_secs: 10
+  max_auto_refresh_interval_secs: 30
+  min_auto_refresh_interval_secs: 5
+  epoch_change_distance_threshold_secs: 300
+  refresher_channel_size: 100
 ```

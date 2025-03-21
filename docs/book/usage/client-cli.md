@@ -260,5 +260,5 @@ The `walrus` CLI allows for multiple levels of logging, which can be turned on v
 RUST_LOG=walrus=trace walrus info
 ```
 
-By default `info` level logs are enabled, but `error`, `debug` and `trace` can give a more
-intimate understanding of what a command does, or how it fails.
+By default `info` level logs are enabled, but `debug` and `trace` can give a more intimate
+understanding of what a command does, or how it fails.

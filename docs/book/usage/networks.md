@@ -1,6 +1,6 @@
 # Available networks
 
-Walrus Mainnet operates a production quality storage network on the Sui Mainnet. The Walrus Testnet
+Walrus Mainnet operates a production-quality storage network on the Sui Mainnet. The Walrus Testnet
 operates on the Sui Testnet and is used to test new features of Walrus before they graduate to the
 Mainnet. Finally, developers can operate local Walrus and Sui networks for testing.
 
@@ -22,22 +22,23 @@ staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a39
 subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
 ```
 
-In case you wish to explore the Walrus contracts their package IDs are:
+In case you wish to explore the Walrus contracts, their package IDs are the following:
 
-```yaml
-package_id: 0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77
-subsidies_package: 0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc
-```
+- WAL package: `0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59`
+- Walrus package: `0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77`
+- Subsidies package: `0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc`
 
-These are inferred automatically from the object IDs above, and there is no need to
-manually input them into the Walrus client configuration file.
+As these are inferred automatically from the object IDs above, there is no need to manually input
+them into the Walrus client configuration file. The latest published package IDs can also be found
+in the `Move.lock` files in the subdirectories of the [`contracts` directory on
+GitHub](https://github.com/MystenLabs/walrus/tree/main/contracts).
 
 <!-- markdownlint-disable code-fence-style -->
 ~~~admonish tip
 The easiest way to obtain the latest configuration is by downloading it from GitHub:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/config/client_config_mainnet.yaml \
+curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/book/config/client_config_mainnet.yaml \
     -o ~/.config/walrus/client_config.yaml
 ```
 ~~~
@@ -111,42 +112,24 @@ $ sui client gas
 │ 0x65dca966dc... │ 1000000000         │ 1.00             │
 ╰─────────────────┴────────────────────┴──────────────────╯
 ```
-<!-- markdownlint-disable link-fragments -->
+
 The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
-different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
-when [running the CLI](./interacting.md).
-<!-- markdownlint-disable link-fragments -->
+different Sui wallet, you can specify this in the [Walrus configuration file](./setup.md#configuration)
+or when [running the CLI](./interacting.md).
 
 ### Testnet parameters
 
-The configuration parameters for the Walrus Testnet currently are:
-
-```yaml
-# These are the only mandatory fields. These objects are specific for a particular Walrus
-# deployment but then do not change over time.
-system_object: 0x98ebc47370603fe81d9e15491b2f1443d619d1dab720d586e429ed233e1255c1
-staking_object: 0x20266a17b4f1a216727f3eef5772f8d486a9e3b5e319af80a5b75809c035561d
-
-# The exchange objects are used to swap SUI for WAL. If multiple ones are defined (as below), a
-# random one is chosen for the exchange.
-exchange_objects:
-  - 0x59ab926eb0d94d0d6d6139f11094ea7861914ad2ecffc7411529c60019133997
-  - 0x89127f53890840ab6c52fca96b4a5cf853d7de52318d236807ad733f976eef7b
-  - 0x9f9b4f113862e8b1a3591d7955fadd7c52ecc07cf24be9e3492ce56eb8087805
-  - 0xb60118f86ecb38ec79e74586f1bb184939640911ee1d63a84138d080632ee28a
-
-# The subsidies object allows the client to use the subsidies contract to purchase storage
-# which will reduce the cost of obtaining a storage resource and extending blobs and also
-# adds subsidies to the rewards of the staking pools.
-subsidies_object: 0x4b23c353c35a4dde72fe862399ebe59423933d3c2c0a3f2733b9f74cb3b4933d
-```
+The configuration parameters for the Walrus Testnet can be found in the
+[client_config_testnet.yaml](../config/client_config_testnet.yaml) file. The current Testnet package
+IDs can be found in the `Move.lock` files in the subdirectories of the [`testnet-contracts`
+directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
 
 <!-- markdownlint-disable code-fence-style -->
 ~~~admonish tip
 The easiest way to obtain the latest configuration is by downloading it from GitHub:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/config/client_config_testnet.yaml \
+curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/book/config/client_config_testnet.yaml \
     -o ~/.config/walrus/client_config.yaml
 ```
 ~~~
@@ -165,7 +148,7 @@ walrus get-wal
 You can check that you have received Testnet WAL by checking the Sui balances:
 
 ```sh
-sui client balance
+$ sui client balance
 ╭─────────────────────────────────────────╮
 │ Balance of coins owned by this address  │
 ├─────────────────────────────────────────┤
@@ -190,9 +173,8 @@ machine for local testing. All you need to do is run the script `scripts/local-t
 in the Walrus [git code repository](https://github.com/MystenLabs/walrus). See
 `scripts/local-testbed.sh -h` for further usage information.
 
-The script generates configuration that you can use when
-[running the Walrus client](#using-the-walrus-client) and prints the path to that configuration
-file.
+The script generates configuration that you can use when [running the Walrus client](./client-cli.md)
+and prints the path to that configuration file.
 
 In addition, one can spin up a local grafana instance to visualize the metrics collected by the
 storage nodes. This can be done via `cd docker/grafana-local; docker compose up`. This should work
@@ -200,6 +182,5 @@ with the default storage node configuration.
 
 Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui Devnet
 is used by default to deploy and interact with the contracts. To run the testbed fully locally,
-simply
-[start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
-(requires `sui` to be v1.28.0 or higher) and specify `localnet` when starting the Walrus testbed.
+simply [start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
+(requires `sui` to be `v1.28.0` or higher) and specify `localnet` when starting the Walrus testbed.
