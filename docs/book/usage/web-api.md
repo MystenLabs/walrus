@@ -2,7 +2,7 @@
 
 In addition to the CLI and JSON modes, the Walrus client offers a *daemon mode*. In this mode, it
 runs a simple web server offering HTTP interfaces to store and read blobs in an *aggregator* and
-_publisher_ role respectively. We also offer
+*publisher* role respectively. We also offer
 [public aggregator and publisher services](#public-services) to try the Walrus HTTP APIs without
 the need to run a local client.
 
