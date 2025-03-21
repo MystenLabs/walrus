@@ -111,7 +111,7 @@ serving sites that are not published by you.
 
 -`AGGREGATOR_URL`: The url to a Walrus aggregator that will fetch the site resources from Walrus.
 
--`AMPLITUDE_API_KEY`: Provide it if you enable [Amplitude](https://amplitude.com/) for your server
+-`AMPLITUDE_API_KEY`: Provide it if you want to enable [Amplitude](https://amplitude.com/) for your server
 analytics.
 
 -`EDGE_CONFIG`: If you host your portal on Vercel, you can use the [Edge Config][edge-config] to
