@@ -14,8 +14,10 @@ You can also build and access the documentation locally (assuming you have Rust 
 
 ```sh
 cargo install mdbook
+cargo install mdbook-linkcheck
 cargo install mdbook-admonish --locked
 cargo install mdbook-katex --locked
+cargo install mdbook-templates
 mdbook serve
 ```
 

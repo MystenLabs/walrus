@@ -39,3 +39,7 @@ inline-delimiter = { left = "\\(", right = "\\)" }
 
 [preprocessor.gettext]
 after = ["links"]
+
+[preprocessor.templates]
+command = "mdbook-templates"
+path = "docs/book/assets/operators.json"
