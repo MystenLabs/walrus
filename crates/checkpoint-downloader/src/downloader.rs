@@ -1,232 +1,39 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Checkpoint downloader util.
-
+//! Checkpoint downloader.
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Debug,
     sync::Arc,
     time::Duration,
 };
 
 use anyhow::{anyhow, Result};
-use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
+use prometheus::Registry;
 use rand::{rngs::StdRng, SeedableRng};
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds, DurationSeconds};
-use sui_rpc_api::{client::ResponseExt, Client};
-use sui_types::{
-    full_checkpoint_content::CheckpointData,
-    messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint},
-};
+use sui_rpc_api::client::ResponseExt;
+use sui_types::messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint};
 use tokio::{
     sync::{mpsc, RwLock},
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use tonic::Status;
 use typed_store::{rocks::DBMap, Map};
+use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
+#[cfg(not(test))]
+use walrus_utils::backoff::ExponentialBackoff;
 
-/// Fetcher configuration options for the parallel checkpoint fetcher.
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct ParallelDownloaderConfig {
-    /// Number of retries per checkpoint before giving up.
-    pub min_retries: u32,
-    /// Initial delay before the first retry.
-    #[serde_as(as = "DurationMilliSeconds")]
-    #[serde(rename = "initial_delay_millis")]
-    pub initial_delay: Duration,
-    /// Maximum delay between retries. Once this delay is reached, the
-    /// fetcher will keep retrying with this duration.
-    #[serde_as(as = "DurationMilliSeconds")]
-    #[serde(rename = "max_delay_millis")]
-    pub max_delay: Duration,
-}
-
-impl Default for ParallelDownloaderConfig {
-    fn default() -> Self {
-        // Checkpoint downloader configuration tuned for:
-        // - Checkpoint generation rate: 1 per 200ms (5 per second)
-        // - Network RTT: ~100-300ms
-        //
-        // Retry timing example with 100ms RTT:
-        // T+0ms:   Client requests checkpoint N
-        // T+100ms: Client learns checkpoint N unavailable
-        // T+200ms: Server generates checkpoint N
-        // T+250ms: Client retries after retry_delay
-        // T+350ms: Client gets response which should contain checkpoint N.
-
-        // Retry timing example with 300ms RTT:
-        // T+0ms:   Client requests checkpoint N
-        // T+200ms: Server generates checkpoint N
-        // T+300ms: Client learns checkpoint N unavailable
-        // T+450ms: Client retries after retry_delay
-        // T+750ms: Client gets response which should contain checkpoint N.
-        // The retry_delay of 150ms is chosen to balance in steady state with
-        // fully caught up client:
-        // - Not retrying too quickly (which could waste network resources)
-        // - Not waiting too long (which would cause us to fall behind)
-        // TODO: Use adaptive retry delay based on RTT and error type (#1123)
-        Self {
-            min_retries: 10,
-            initial_delay: Duration::from_millis(150),
-            max_delay: Duration::from_secs(2),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ChannelConfig {
-    /// Additional buffer factor for work queue
-    /// Helps keep the worker busy in case of delays
-    /// in draining the checkpoint queue.
-    pub work_queue_buffer_factor: usize,
-    /// Buffer factor for result queue
-    /// Helps handle delays in processing the results.
-    pub result_queue_buffer_factor: usize,
-}
-
-impl Default for ChannelConfig {
-    fn default() -> Self {
-        Self {
-            work_queue_buffer_factor: 3,
-            result_queue_buffer_factor: 3,
-        }
-    }
-}
-
-/// Configuration for the adaptive worker pool.
-#[serde_as]
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct AdaptiveDownloaderConfig {
-    /// Minimum number of workers.
-    pub min_workers: usize,
-    /// Maximum number of workers.
-    pub max_workers: usize,
-    /// Initial number of workers.
-    pub initial_workers: usize,
-    /// Checkpoint lag threshold for scaling up.
-    pub scale_up_lag_threshold: u64,
-    /// Checkpoint lag threshold for scaling down.
-    pub scale_down_lag_threshold: u64,
-    /// Minimum time between scaling operations.
-    #[serde(rename = "scale_cooldown_secs")]
-    #[serde_as(as = "DurationSeconds")]
-    pub scale_cooldown: Duration,
-    /// Base configuration.
-    pub base_config: ParallelDownloaderConfig,
-    /// Channel configuration.
-    pub channel_config: ChannelConfig,
-}
-
-impl Default for AdaptiveDownloaderConfig {
-    fn default() -> Self {
-        Self {
-            min_workers: 1,
-            max_workers: 10,
-            initial_workers: 5,
-            scale_up_lag_threshold: 100,
-            scale_down_lag_threshold: 10,
-            scale_cooldown: Duration::from_secs(10),
-            base_config: ParallelDownloaderConfig::default(),
-            channel_config: ChannelConfig::default(),
-        }
-    }
-}
-
-impl AdaptiveDownloaderConfig {
-    fn message_queue_size(&self) -> usize {
-        self.max_workers * self.channel_config.work_queue_buffer_factor
-    }
-
-    fn checkpoint_queue_size(&self) -> usize {
-        self.max_workers * self.channel_config.work_queue_buffer_factor
-    }
-
-    fn result_queue_size(&self) -> usize {
-        self.max_workers
-            * self.channel_config.work_queue_buffer_factor
-            * self.channel_config.result_queue_buffer_factor
-    }
-}
-
-/// Metrics for the event processor.
-#[derive(Clone, Debug)]
-struct AdaptiveDownloaderMetrics {
-    /// The number of checkpoint downloader workers.
-    pub num_workers: IntGauge,
-    /// The current checkpoint lag between the local store and the full node.
-    pub checkpoint_lag: IntGauge,
-}
-
-impl AdaptiveDownloaderMetrics {
-    pub fn new(registry: &Registry) -> Self {
-        Self {
-            num_workers: register_int_gauge_with_registry!(
-                "checkpoint_downloader_num_workers",
-                "Number of workers active in the worker pool",
-                registry,
-            )
-            .expect("this is a valid metrics registration"),
-            checkpoint_lag: register_int_gauge_with_registry!(
-                "checkpoint_downloader_checkpoint_lag",
-                "Current checkpoint lag between local store and full node",
-                registry,
-            )
-            .expect("this is a valid metrics registration"),
-        }
-    }
-}
-
-/// Worker message types.
-enum WorkerMessage {
-    /// Download a checkpoint with the given sequence number.
-    Download(CheckpointSequenceNumber),
-    /// Shutdown the worker.
-    Shutdown,
-}
-
-/// Entry in the checkpoint fetcher queue.
-#[derive(Debug)]
-pub struct CheckpointEntry {
-    pub sequence_number: u64,
-    pub result: Result<CheckpointData>,
-}
-
-impl CheckpointEntry {
-    pub fn new(sequence_number: u64, result: Result<CheckpointData>) -> Self {
-        Self {
-            sequence_number,
-            result,
-        }
-    }
-}
-
-/// Configuration for the pool monitor.
-#[derive(Clone)]
-struct PoolMonitorConfig {
-    downloader_config: AdaptiveDownloaderConfig,
-    checkpoint_store: DBMap<(), TrustedCheckpoint>,
-    client: Client,
-    metrics: AdaptiveDownloaderMetrics,
-}
-
-/// Channels for the pool monitor.
-#[derive(Clone)]
-struct PoolMonitorChannels {
-    message_sender: async_channel::Sender<WorkerMessage>,
-    message_receiver: async_channel::Receiver<WorkerMessage>,
-    checkpoint_sender: mpsc::Sender<CheckpointEntry>,
-}
+use crate::{
+    config::{AdaptiveDownloaderConfig, PoolMonitorConfig},
+    metrics::AdaptiveDownloaderMetrics,
+    types::{CheckpointEntry, PoolMonitorChannels, WorkerMessage},
+    ParallelDownloaderConfig,
+};
 
 /// Parallel checkpoint downloader that fetches checkpoints in parallel.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ParallelCheckpointDownloader {
-    full_node_client: Client,
+    full_node_client: RetriableRpcClient,
     checkpoint_store: DBMap<(), TrustedCheckpoint>,
     config: AdaptiveDownloaderConfig,
     metrics: AdaptiveDownloaderMetrics,
@@ -235,7 +42,7 @@ pub struct ParallelCheckpointDownloader {
 impl ParallelCheckpointDownloader {
     /// Creates a new parallel checkpoint downloader.
     pub fn new(
-        full_node_client: Client,
+        full_node_client: RetriableRpcClient,
         checkpoint_store: DBMap<(), TrustedCheckpoint>,
         config: AdaptiveDownloaderConfig,
         registry: &Registry,
@@ -278,7 +85,7 @@ struct ParallelCheckpointDownloaderInner {
 impl ParallelCheckpointDownloaderInner {
     /// Creates a new parallel checkpoint downloader.
     fn new(
-        full_node_client: Client,
+        full_node_client: RetriableRpcClient,
         checkpoint_store: DBMap<(), TrustedCheckpoint>,
         config: AdaptiveDownloaderConfig,
         cancellation_token: CancellationToken,
@@ -337,7 +144,7 @@ impl ParallelCheckpointDownloaderInner {
 
     fn spawn_new_worker(
         worker_id: usize,
-        full_node_client: Client,
+        full_node_client: RetriableRpcClient,
         message_receiver: async_channel::Receiver<WorkerMessage>,
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
@@ -360,7 +167,7 @@ impl ParallelCheckpointDownloaderInner {
     /// summary from the full node and comparing it with the current checkpoint in the store.
     async fn current_checkpoint_lag(
         checkpoint_store: &DBMap<(), TrustedCheckpoint>,
-        client: &Client,
+        client: &RetriableRpcClient,
     ) -> Result<u64> {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
             return Err(anyhow!("Failed to get current checkpoint"));
@@ -374,7 +181,7 @@ impl ParallelCheckpointDownloaderInner {
     /// Worker loop that fetches checkpoints.
     async fn worker_loop(
         worker_id: usize,
-        client: Client,
+        client: RetriableRpcClient,
         message_receiver: async_channel::Receiver<WorkerMessage>,
         checkpoint_sender: mpsc::Sender<CheckpointEntry>,
         config: ParallelDownloaderConfig,
@@ -526,7 +333,7 @@ impl ParallelCheckpointDownloaderInner {
     /// Downloads a checkpoint with retries.
     #[cfg(not(test))]
     async fn download_with_retry(
-        client: &Client,
+        client: &RetriableRpcClient,
         sequence_number: CheckpointSequenceNumber,
         config: &ParallelDownloaderConfig,
         rng: &mut StdRng,
@@ -550,7 +357,7 @@ impl ParallelCheckpointDownloaderInner {
 
     #[cfg(test)]
     async fn download_with_retry(
-        client: &Client,
+        client: &RetriableRpcClient,
         sequence_number: CheckpointSequenceNumber,
         _config: &ParallelDownloaderConfig,
         _rng: &mut StdRng,
@@ -576,48 +383,50 @@ impl ParallelCheckpointDownloaderInner {
 fn create_backoff(
     rng: &mut StdRng,
     config: &ParallelDownloaderConfig,
-) -> crate::backoff::ExponentialBackoff<StdRng> {
+) -> ExponentialBackoff<StdRng> {
     use rand::RngCore;
-    crate::backoff::ExponentialBackoff::new_with_seed(
-        config.initial_delay,
-        config.max_delay,
-        None,
-        rng.next_u64(),
-    )
+    ExponentialBackoff::new_with_seed(config.initial_delay, config.max_delay, None, rng.next_u64())
 }
 
 /// Handles an error that occurred while reading the next checkpoint.
 /// If the error is due to a checkpoint that is already present on the server, it is logged as an
 /// error. Otherwise, it is logged as a debug.
-fn handle_checkpoint_error(status: Option<&Status>, next_checkpoint: u64) {
-    if let Some(checkpoint_height) = status.as_ref().and_then(|e| e.checkpoint_height()) {
-        if next_checkpoint > checkpoint_height {
-            tracing::trace!(
-                next_checkpoint,
-                checkpoint_height,
-                message = status.as_ref().map(|e| e.message()),
-                "failed to read next checkpoint, probably not produced yet",
-            );
-            return;
+fn handle_checkpoint_error(err: Option<&RetriableClientError>, next_checkpoint: u64) {
+    if let Some(RetriableClientError::RpcError(status)) = err {
+        if let Some(checkpoint_height) = status.checkpoint_height() {
+            if next_checkpoint > checkpoint_height {
+                return tracing::trace!(
+                    next_checkpoint,
+                    checkpoint_height,
+                    message = status.message(),
+                    "failed to read next checkpoint, probably not produced yet",
+                );
+            }
         }
     }
-    tracing::warn!(next_checkpoint, ?status, "failed to read next checkpoint",);
+    tracing::warn!(next_checkpoint, ?err, "failed to read next checkpoint");
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use rocksdb::Options;
+    use sui_rpc_api::Client;
     use typed_store::{
         rocks,
         rocks::{errors::typed_store_err_from_rocks_err, MetricConf, ReadWriteOptions},
     };
+    use walrus_utils::{backoff::ExponentialBackoffConfig, tests::global_test_lock};
 
     use super::*;
-    use crate::tests::global_test_lock;
+    use crate::ChannelConfig;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
         let client = Client::new("http://localhost:9000")?;
+        let retriable_client =
+            RetriableRpcClient::new(client, ExponentialBackoffConfig::default(), None);
         let parallel_config = ParallelDownloaderConfig {
             min_retries: 10,
             initial_delay: Duration::from_millis(250),
@@ -667,7 +476,7 @@ mod tests {
         let cancellation_token = CancellationToken::new();
         let cloned_cancel_token = cancellation_token.clone();
         let downloader = ParallelCheckpointDownloader::new(
-            client,
+            retriable_client,
             checkpoint_store,
             config,
             &Registry::default(),
