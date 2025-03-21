@@ -2,7 +2,11 @@
 
 ```admonish note
 Browsing sites with b36 subdomains (e.g. `https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.walrus.site`)
-is no longer possible. Please [use SuiNS names instead](./tutorial-suins.md#get-a-suins-name).
+is no longer possible using the `walrus.site` portal. B36 subdomains are still supported if you use
+a local server, or an alternative portal.
+
+To browse walrus sites using the `walrus.site` portal, please
+[use SuiNS names instead](./tutorial-suins.md#get-a-suins-name).
 ``
 
 Walrus Sites require to use SuiNS names (this is like DNS for Sui) to assign a human-readable name
