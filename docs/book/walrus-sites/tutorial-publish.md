@@ -30,8 +30,8 @@ site-builder publish ./walrus-snake --epochs 100
 ```
 
 ``` admonish tip
-Currently on Walrus Testnet, the duration of an epoch is two days. If you want your site to stay up
-longer, specify the number of epochs with the `--epochs` flag (maximum 183 epochs).
+Depending on the network, the duration of an epoch may vary. Currently on Walrus Testnet, the
+duration of an epoch is two days. On Mainnet, the duration of an epoch is two weeks.
 ```
 
 The end of the output should look like the following:
@@ -39,15 +39,21 @@ The end of the output should look like the following:
 ``` txt
 Execution completed
 Resource operations performed:
-  - created resource /Oi-Regular.ttf with blob ID 76npyqDyGF10-jP_ov-UBHpi-RaRFnxcWgslueGEfr0
-  - created resource /file.svg with blob ID w70pYgtLmi--38Jg1sTGaLlZkQtximNMHXjxDQdXKa0
-  - created resource /index.html with blob ID LVLk9VSnBrEgQ2HJHAgU3p8IarKypQpfn38aSeUZzzE
-  - created resource /walrus.svg with blob ID 866UDjMAy_BB8SsTcgjGEOFp2uAO9BbcVbLh5-_oBNE
+  - created resource /.DS_Store with blob ID PwNzE9_a9anYb8AZysafQZGqd4h0scsTGhzF2GPsWmQ
+  - created resource /Oi-Regular.ttf with blob ID KUTTV_95_c68oQhaRP97tDPOYu0vqCWiGL7mzOq1faU
+  - created resource /file.svg with blob ID oUpm044qBN1rkyIJYvMB4dUj6bRe3QEvJAN-cvlIFmk
+  - created resource /index.html with blob ID AR03hvxSlyfYl-7MhXct4y3rnIIGPHdnjiIF03BK_XY
+  - created resource /walrus.svg with blob ID xK8K1Q5khrl3eBT4jEiB-L_gyShEIOVWti8DcAoEjtw
 The site routes were modified
 
 Created new site: test site
-New site object ID: 0x407a308190eb82b266be9cc28b888d04c5b2e5a503c7d0ffd3f69681ea83b73a
-Browse the resulting site at: https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.walrus.site
+New site object ID: 0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf
+To browse the site, you have the following options:
+        1. Run a local portal, and browse the site through it: e.g. http://5qs1ypn4wn90d6mv7d7dkwvvl49hdrlpqulr11ngpykoifycwf.localhost:3000
+           (more info: https://docs.walrus.site/walrus-sites/portal.html#running-the-portal-locally)
+        2. Use a third-party portal (e.g. walrus.site), which will require a SuiNS name.
+           First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
+           Finally, browse it with: https://example-domain.walrus.site
 ```
 
 This output tells you that, for each file in the folder, a new Walrus blob was created, and the
@@ -75,7 +81,7 @@ where to find the updated files (still `./walrus-snake`) and the object ID of th
 (`0x407a3081...`):
 
 ``` sh
-site-builder update --epochs 100 ./walrus-snake 0x407a3081...
+site-builder update --epochs 100 ./walrus-snake 0xe674c14...
 ```
 
 The output this time should be:
@@ -87,8 +93,13 @@ Resource operations performed:
   - created resource /index.html with blob ID pcZaosgEFtmP2d2IV3QdVhnUjajvQzY2ev8d9U_D5VY
 The site routes were left unchanged
 
-Site object ID: 0x407a308190eb82b266be9cc28b888d04c5b2e5a503c7d0ffd3f69681ea83b73a
-Browse the resulting site at: https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.walrus.site
+Site object ID: 0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf
+To browse the site, you have the following options:
+        1. Run a local portal, and browse the site through it: e.g. http://2ql9wtro4xf2x13pm9jjeyhhfj28okawz5hy453hkyfeholy6f.localhost:3000
+           (more info: https://docs.walrus.site/walrus-sites/portal.html#running-the-portal-locally)
+        2. Use a third-party portal (e.g. walrus.site), which will require a SuiNS name.
+           First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
+           Finally, browse it with: https://example-domain.walrus.site
 ```
 
 Compared to the `publish` action, we can see that now the only actions performed were to delete the

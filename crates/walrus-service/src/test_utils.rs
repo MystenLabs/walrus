@@ -490,6 +490,7 @@ impl SimStorageNodeHandle {
                         .expect("temporary directory creation must succeed")
                         .path()
                         .to_path_buf()),
+                    rpc_fallback_config: None,
                 };
             let system_config = crate::node::events::event_processor::SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
@@ -1028,6 +1029,7 @@ impl StorageNodeHandleBuilder {
                 event_polling_interval: config::defaults::polling_interval(),
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
+                rpc_fallback_config: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
@@ -2456,7 +2458,7 @@ pub mod test_cluster {
             .into_iter()
             .zip(committee_services.iter())
             .map(|(client, committee_service)| {
-                SuiSystemContractService::new(client, committee_service.clone())
+                SuiSystemContractService::builder().build(client, committee_service.clone())
             });
 
         let cluster_builder = cluster_builder
@@ -2541,6 +2543,7 @@ pub mod test_cluster {
                     .expect("temporary directory creation must succeed")
                     .path()
                     .to_path_buf()),
+                rpc_fallback_config: None,
             };
             let system_config = SystemConfig {
                 system_pkg_id: sui_read_client.get_system_package_id(),
@@ -2620,6 +2623,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             config_synchronizer: Default::default(),
             storage_node_cap: None,
             num_uncertified_blob_threshold: Some(u32::MAX),
+            balance_check: Default::default(),
         },
         temp_dir,
     }

@@ -16,8 +16,10 @@ their meaning.
 
 Information about the Walrus system is available through the `walrus info` command. It provides an
 overview of current system parameters such as the current epoch, the number of storage nodes and
-shards in the system, the maximum blob size, and the current cost in (Testnet) WAL for storing
+shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
+
+<!-- TODO(WAL-710): Update after epoch 1 -->
 
 ```console
 $ walrus info
@@ -25,29 +27,21 @@ $ walrus info
 Walrus system information
 
 Epochs and storage duration
-Current epoch: 6
-Epoch duration: 2days
-Blobs can be stored for at most 183 epochs in the future.
+Current epoch: 0
+Start time: 2025-03-14 10:14:01.612 UTC
+End time: 2025-03-28 10:14:01.612 UTC
+Epoch duration: 14days
+Blobs can be stored for at most 53 epochs in the future.
 
 Storage nodes
-Number of storage nodes: 58
+Number of storage nodes: 0
 Number of shards: 1000
 
 Blob size
-Maximum blob size: 13.3 GiB (14,273,391,930 B)
+Maximum blob size: 13.6 GiB (14,599,533,452 B)
 Storage unit: 1.00 MiB
 
-Approximate storage prices per epoch
-(Conversion rate: 1 WAL = 1,000,000,000 FROST)
-Price per encoded storage unit: 100 FROST
-Additional price for each write: 2,000 FROST
-Price to store metadata: 6,200 FROST
-Marginal price per additional 1 MiB (w/o metadata): 500 FROST
-
-Total price for example blob sizes
-16.0 MiB unencoded (135 MiB encoded): 13,500 FROST per epoch
-512 MiB unencoded (2.33 GiB encoded): 0.0002 WAL per epoch
-13.3 GiB unencoded (60.5 GiB encoded): 0.0062 WAL per epoch
+...
 ```
 
 ```admonish tip title="FROST and WAL"
@@ -80,11 +74,6 @@ to a different wallet. Note, it is possible to store multiple blobs with a singl
 command.
 ```
 
-```admonish tip title="Obtaining Testnet WAL"
-You can exchange Testnet SUI for Testnet WAL by running `walrus get-wal`. See the [setup
-page](./setup.md#testnet-wal-faucet) for further details.
-```
-
 Storing one or multiple blobs on Walrus can be achieved through the following command:
 
 ```sh
@@ -92,8 +81,8 @@ walrus store <FILES> --epochs <EPOCHS>
 ```
 
 The mandatory CLI argument `--epochs <EPOCHS>` indicates the number of epochs the blob should be
-stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 183
-for the current Testnet deployment (corresponding to one year). In addition to a positive integer,
+stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
+corresponding to two years. In addition to a positive integer,
 you can also use `--epochs max` to store the blob for the maximum number of epochs.
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
@@ -190,7 +179,7 @@ that could have been made by users before the blob was deleted.
 
 *Shared blobs* are shared Sui objects wrapping "standard" `Blob` objects that can be funded and
 whose lifetime can be extended by anyone. See the [shared blobs
-contracts](https://github.com/MystenLabs/walrus-docs/blob/main/contracts/walrus/sources/system/shared_blob.move)
+contracts](https://github.com/MystenLabs/walrus/tree/main/contracts/walrus/sources/system/shared_blob.move)
 for further details.
 
 You can create a shared blob from an existing `Blob` object you own with the `walrus share` command:
@@ -206,9 +195,9 @@ share a newly created blob by adding the `--share` option to the `walrus store` 
 You can use the `walrus extend` command to extend the lifetime of a shared blob object. Shared blobs
 can only contain permanent blobs and cannot be deleted before their expiry.
 
-## Blob ID utilities
+## Blob object and blob ID utilities
 
-The `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a
+The command `walrus blob-id <FILE>` may be used to derive the blob ID of any file. The blob ID is a
 commitment to the file, and any blob with the same ID will decode to the same content. The blob
 ID is a 256 bit number and represented on some Sui explorer as a decimal large number. The
 command `walrus convert-blob-id <BLOB_ID_DECIMAL>` may be used to convert it to a base64 URL safe
@@ -218,6 +207,42 @@ The `walrus list-blobs` command lists all the non expired Sui blob object that t
 owns, including their blob ID, object ID, and metadata about expiry and deletable status.
 The option `--include-expired` also lists expired blob objects.
 
+The Sui storage cost associated with blob objects may be reclaimed by burning the Sui blob object.
+This does not lead to the Walrus blob being deleted, but means that operations such as extending
+its lifetime, deleting it, or modifying attributes are no more available.
+The `walrus burn-blobs --object-ids <BLOB_OBJ_IDS>` command may be used to burn a specific list of
+blobs object IDs. The `--all` flag burns all blobs under the user account,
+and `--all-expired` burns all expired blobs under the user account.
+
+## Blob attributes
+
+Walrus allows a set of key-value attribute pairs to be associated with a blob object. While the key
+and values may be arbitrary strings to accommodate any needs of dapps, specific keys are converted
+to HTTP headers when serving blobs through aggregators.
+
+<!-- TODO(WAL-710):  attributes about HTTP headers understood by the aggregator? -->
+
+The command
+
+```sh
+walrus set-blob-attribute <BLOB_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
+```
+
+sets attributes `key1` and `key2` to values `value1` and `value2` respectively. The command
+`walrus get-blob-attribute <BLOB_OBJ_ID>` returns all attributes associated with a blob ID. Finally,
+
+```sh
+walrus remove-blob-attribute-fields <BLOB_OBJ_ID> --keys "key1,key2"
+```
+
+deletes the attributes with
+keys listed (separated by commas or spaces). All attributes of a blob object may be deleted by
+the command `walrus remove-blob-attribute <BLOB_OBJ_ID>`.
+
+Note that attributes are associated with blob object IDs on Sui, rather than the blob themselves on
+Walrus. This means that the gas for storage is reclaimed by deleting attributes. And also that the
+same blob contents may have different attributes for different blob objects for the same blob ID.
+
 ## Changing the default configuration
 
 Use the `--config` option to specify a custom path to the
@@ -226,3 +251,14 @@ Use the `--config` option to specify a custom path to the
 The `--wallet <WALLET>` argument may be used to specify a non-standard Sui wallet configuration
 file. And a `--gas-budget <GAS_BUDGET>` argument may be used to change the maximum amount of Sui (in
 MIST) that the command is allowed to use.
+
+## Logging and metrics
+
+The `walrus` CLI allows for multiple levels of logging, which can be turned on via an env variable:
+
+```sh
+RUST_LOG=walrus=trace walrus info
+```
+
+By default `info` level logs are enabled, but `debug` and `trace` can give a more intimate
+understanding of what a command does, or how it fails.

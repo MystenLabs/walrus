@@ -11,13 +11,19 @@ use std::{
 
 use anyhow::Context as _;
 use async_trait::async_trait;
+use prometheus::{
+    core::{AtomicU64, GenericGaugeVec},
+    Registry,
+};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_types::base_types::ObjectID;
-use tokio::sync::Mutex as TokioMutex;
+use tokio::{sync::Mutex as TokioMutex, task::JoinSet, time::MissedTickBehavior};
+use tracing::Instrument as _;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey};
 use walrus_sui::{
     client::{
         BlobObjectMetadata,
+        CoinType,
         FixedSystemParameters,
         ReadClient as _,
         SuiClientError,
@@ -34,13 +40,14 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{
     committee::CommitteeService,
-    config::{CommissionRateData, StorageNodeConfig, SyncedNodeConfigSet},
+    config::{defaults, CommissionRateData, StorageNodeConfig, SyncedNodeConfigSet},
     errors::SyncNodeConfigError,
 };
 use crate::common::config::SuiConfig;
 
 const MIN_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
+type UIntGaugeVec = GenericGaugeVec<AtomicU64>;
 
 enum ProtocolKeyAction {
     UpdateRemoteNextPublicKey(PublicKey),
@@ -117,6 +124,106 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError>;
 }
 
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "walrus"]
+    struct ContractServiceMetrics {
+        #[help = "The observed balance (in MIST) of a SUI address"]
+        sui_balance_mist: UIntGaugeVec["sui_address"],
+    }
+}
+
+/// Builder for creating a new [`SuiSystemContractService`].
+#[derive(Debug, Clone)]
+pub struct SuiSystemContractServiceBuilder {
+    seed: u64,
+    balance_check_frequency: Duration,
+    balance_check_warning_threshold: u64,
+    metrics_registry: Option<Registry>,
+}
+
+impl Default for SuiSystemContractServiceBuilder {
+    fn default() -> Self {
+        Self {
+            seed: rand::thread_rng().gen(),
+            balance_check_frequency: defaults::BALANCE_CHECK_FREQUENCY,
+            balance_check_warning_threshold: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
+            metrics_registry: None,
+        }
+    }
+}
+
+impl SuiSystemContractServiceBuilder {
+    /// Set the random seed with which to seed the PRNG used within the service.
+    pub fn random_seed(&mut self, seed: u64) -> &mut Self {
+        self.seed = seed;
+        self
+    }
+
+    /// Perform a SUI balance check with the specified frequency.
+    ///
+    /// Logs the available balance as an info or warning log message based on the threshold
+    /// specified with [`Self::balance_check_warning_threshold`].
+    ///
+    /// If a metrics registry was provided then the balance is also exported as a metric.
+    ///
+    /// The default is [`defaults::BALANCE_CHECK_FREQUENCY`].
+    pub fn balance_check_frequency(&mut self, frequency: Duration) -> &mut Self {
+        self.balance_check_frequency = frequency;
+        self
+    }
+
+    /// Logs a warning if the SUI balance is below the provided MIST threshold.
+    ///
+    /// The default is [`defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST`].
+    pub fn balance_check_warning_threshold(&mut self, mist_threshold: u64) -> &mut Self {
+        self.balance_check_warning_threshold = mist_threshold;
+        self
+    }
+
+    /// Sets the prometheus [`Registry`] on which to record metrics.
+    ///
+    /// Defaults to the global prometheus registry.
+    pub fn metrics_registry(&mut self, registry: Registry) -> &mut Self {
+        self.metrics_registry = Some(registry);
+        self
+    }
+
+    /// Creates a new [`SuiSystemContractService`] with a [`SuiContractClient`] constructed from
+    /// the config.
+    pub async fn build_from_config(
+        &mut self,
+        config: &SuiConfig,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> Result<SuiSystemContractService, anyhow::Error> {
+        Ok(self.build(config.new_contract_client().await?, committee_service))
+    }
+
+    /// Creates a new [`SuiSystemContractService`] with the provided [`SuiContractClient`].
+    pub fn build(
+        &mut self,
+        contract_client: SuiContractClient,
+        committee_service: Arc<dyn CommitteeService>,
+    ) -> SuiSystemContractService {
+        let mut service = SuiSystemContractService {
+            read_client: contract_client.read_client.clone(),
+            contract_tx_client: Arc::new(TokioMutex::new(contract_client)),
+            committee_service,
+            rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(self.seed))),
+            background_tasks: Default::default(),
+        };
+
+        service.start_balance_monitor(
+            self.balance_check_frequency,
+            self.balance_check_warning_threshold,
+            self.metrics_registry
+                .as_ref()
+                .unwrap_or_else(|| prometheus::default_registry()),
+        );
+
+        service
+    }
+}
+
 /// A [`SystemContractService`] that uses a [`SuiContractClient`] for chain interactions.
 #[derive(Debug, Clone)]
 pub struct SuiSystemContractService {
@@ -127,39 +234,17 @@ pub struct SuiSystemContractService {
     read_client: Arc<SuiReadClient>,
     committee_service: Arc<dyn CommitteeService>,
     rng: Arc<StdMutex<StdRng>>,
+
+    /// Spawned background tasks that are automatically aborted when all instances
+    /// of the service is dropped.
+    background_tasks: Arc<JoinSet<()>>,
 }
 
 impl SuiSystemContractService {
-    /// Creates a new service with the supplied [`SuiContractClient`].
-    pub fn new(
-        contract_client: SuiContractClient,
-        committee_service: Arc<dyn CommitteeService>,
-    ) -> Self {
-        Self::new_with_seed(contract_client, committee_service, rand::thread_rng().gen())
-    }
-
-    fn new_with_seed(
-        contract_client: SuiContractClient,
-        committee_service: Arc<dyn CommitteeService>,
-        seed: u64,
-    ) -> Self {
-        Self {
-            read_client: contract_client.read_client.clone(),
-            contract_tx_client: Arc::new(TokioMutex::new(contract_client)),
-            committee_service,
-            rng: Arc::new(StdMutex::new(StdRng::seed_from_u64(seed))),
-        }
-    }
-
-    /// Creates a new provider with a [`SuiContractClient`] constructed from the config.
-    pub async fn from_config(
-        config: &SuiConfig,
-        committee_service: Arc<dyn CommitteeService>,
-    ) -> Result<Self, anyhow::Error> {
-        Ok(Self::new(
-            config.new_contract_client().await?,
-            committee_service,
-        ))
+    /// Returns a new [`SuiSystemContractServiceBuilder`] for constructing an instance of
+    /// `SuiSystemContractService`.
+    pub fn builder() -> SuiSystemContractServiceBuilder {
+        Default::default()
     }
 
     /// Fetches the synced node config set from the contract.
@@ -194,6 +279,79 @@ impl SuiSystemContractService {
                 commission_rate: pool.commission_rate,
             },
         })
+    }
+
+    /// Starts a background task to monitor SUI balance.
+    ///
+    /// # Panics
+    ///
+    /// Called during construction of the service, and panics if called after the service
+    /// has been cloned.
+    fn start_balance_monitor(
+        &mut self,
+        frequency: Duration,
+        warning_threshold_mist: u64,
+        metrics_registry: &Registry,
+    ) {
+        let metrics = ContractServiceMetrics::new(metrics_registry);
+
+        let background_tasks = Arc::get_mut(&mut self.background_tasks)
+            .expect("called from constructor so no clones yet exist");
+
+        background_tasks.spawn(monitor_sui_balance(
+            frequency,
+            warning_threshold_mist,
+            metrics,
+            self.contract_tx_client.clone(),
+        ));
+    }
+}
+
+async fn monitor_sui_balance(
+    frequency: Duration,
+    warning_threshold_mist: u64,
+    metrics: ContractServiceMetrics,
+    contract_client: Arc<TokioMutex<SuiContractClient>>,
+) {
+    tracing::info!(?frequency, %warning_threshold_mist, "starting monitor for SUI balance");
+    let mut interval = tokio::time::interval(frequency);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    loop {
+        let _now = interval.tick().await;
+        let mut client = contract_client.lock().await;
+
+        let address = client.wallet_mut().active_address().ok();
+        let address = address
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let span = tracing::info_span!("check_sui_balance", sui.address = %address);
+
+        async {
+            tracing::trace!("querying wallet SUI balance");
+
+            let balance_mist = match client.balance(CoinType::Sui).await {
+                Ok(balance_mist) => balance_mist,
+                Err(error) => {
+                    tracing::warn!(?error, "failed to get SUI balance, skipping interval");
+                    return; // Exit the async closure, does not exit the outer function.
+                }
+            };
+            tracing::info!(sui.balance_mist = %balance_mist, "retrieved sui balance");
+
+            walrus_utils::with_label!(metrics.sui_balance_mist, address).set(balance_mist);
+
+            if balance_mist <= warning_threshold_mist {
+                tracing::warn!(
+                    sui.balance_mist = %balance_mist,
+                    %warning_threshold_mist,
+                    "SUI balance is below warning threshold, please add SUI to your account"
+                );
+            }
+        }
+        .instrument(span)
+        .await
     }
 }
 

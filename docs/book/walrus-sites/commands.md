@@ -23,7 +23,7 @@ duration is set to 183 epochs (corresponding to one year).
 
 If you are just uploading raw files without an `index.html`, you may want to use the
 `--list-directory` flag, which will automatically create an index page to browse the files. See for
-example <https://bin.blob.store>.
+example <https://bin.walrus.site>.
 
 The `publish` command will also respect the instructions in the `ws-resources.json` configuration
 file. To know more, see the section on [specifying headers and routing](./routing.md).

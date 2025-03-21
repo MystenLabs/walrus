@@ -22,6 +22,12 @@ does not result in an infinite loading loop.
 Different portals can set this limit as they desire. The limit for the portal hosted at
 <https://walrus.site> has a maximum redirect depth of 3.
 
+## There is a special `__wal__` path
+
+Anything under the `/__wal__/*` path is reserved by the portal for health checks and other
+portal-specific operations. If you use this path inside your site, the resources served under that
+path will not be loaded correctly.
+
 ## Service-worker portal limitations
 
 The following limitations only apply to portals based on service workers.

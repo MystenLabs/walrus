@@ -11,28 +11,6 @@ Walrus behind the scenes. See the [Walrus Sites chapter](./walrus-sites/intro.md
 details on how this works.
 ```
 
-```admonish danger title="Disclaimer about the Walrus Testnet"
-The current Testnet release of Walrus and Walrus Sites is a preview intended to showcase
-the technology and solicit feedback from builders, users, and storage-node operators.
-All transactions are executed on the Sui Testnet and use Testnet WAL and SUI which have no
-value. The state of the store **can and will be wiped** at any point and possibly with no warning.
-Do not rely on this Testnet for any production purposes, it comes with no availability or
-persistence guarantees.
-
-Furthermore, encodings and blob IDs may be incompatible with the future Testnet and Mainnet, and
-developers will be responsible for migrating any Testnet applications and data to Mainnet. Detailed
-migration guides will be provided when Mainnet becomes available.
-
-Also see the [Testnet terms of service](../legal/testnet_tos.md) under which this Testnet is made
-available.
-```
-
-```admonish danger title="Public access"
-**All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
-to store anything that contains secrets or private data without additional measures to protect
-confidentiality.
-```
-
 ## Features
 
 - **Storage and retrieval:** Walrus supports storage operations to write and read blobs. It also
@@ -64,6 +42,12 @@ confidentiality.
   with traditional caches and content distribution networks (CDNs), while ensuring all operations
   can also be run using local tools to maximize decentralization.
 
+```admonish danger title="Public access"
+**All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
+to store anything that contains secrets or private data without additional measures to protect
+confidentiality.
+```
+
 ## Architecture and operations
 
 Walrus's architecture ensures that content remains accessible and retrievable even when many
@@ -77,11 +61,10 @@ storage node management and blob certification leverages Sui smart contracts.
 This documentation is split into several parts:
 
 1. *Dev blog* contains announcements and other blog posts.
-1. *Design* describes the objectives, security properties, and architecture of Walrus.
 1. *Usage* provides concrete information for developers. If you want to get started quickly, you can
    jump directly to the [setup chapter](./usage/setup.md).
-1. *Walrus Sites* describes how you can use Walrus and Sui together to build truly decentralized
-   websites.
+1. *Sites* describes how you can use Walrus and Sui together to build truly decentralized websites.
+1. *Design* describes the objectives, security properties, and architecture of Walrus.
 
 Finally, we provide a [glossary](./glossary.md) that explains the terminology used throughout the
 documentation.

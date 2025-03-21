@@ -1,0 +1,27 @@
+[package]
+name = "checkpoint-downloader"
+publish = false
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-channel.workspace = true
+prometheus.workspace = true
+rand.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_with.workspace = true
+sui-rpc-api.workspace = true
+sui-types.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-util.workspace = true
+tracing.workspace = true
+typed-store.workspace = true
+walrus-sui.workspace = true
+walrus-utils.workspace = true
+
+[dev-dependencies]
+rocksdb.workspace = true
+tempfile.workspace = true

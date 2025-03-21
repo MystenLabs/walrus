@@ -56,13 +56,33 @@ use crate::node::{
     StorageNodeInner,
 };
 
+/// The column family name for certified event blobs.
 const CERTIFIED: &str = "certified_blob_store";
+/// The column family name for attested event blobs.
 const ATTESTED: &str = "attested_blob_store";
+/// The column family name for pending event blobs.
 const PENDING: &str = "pending_blob_store";
+/// The column family name for failed to attest event blobs.
 const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
 pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
 const DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD: u32 = 3;
+
+pub(crate) fn certified_cf_name() -> &'static str {
+    CERTIFIED
+}
+
+pub(crate) fn attested_cf_name() -> &'static str {
+    ATTESTED
+}
+
+pub(crate) fn pending_cf_name() -> &'static str {
+    PENDING
+}
+
+pub(crate) fn failed_to_attest_cf_name() -> &'static str {
+    FAILED_TO_ATTEST
+}
 
 /// Metadata for event blobs.
 #[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
@@ -80,16 +100,17 @@ pub struct EventBlobMetadata<T, U> {
 }
 
 /// Metadata for a blob that is waiting for attestation.
-type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
+pub(crate) type PendingEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, ()>;
 
 /// Metadata for a blob that failed to attest.
-type FailedToAttestEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub(crate) type FailedToAttestEventBlobMetadata =
+    EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last attested.
-type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
+pub(crate) type AttestedEventBlobMetadata = EventBlobMetadata<CheckpointSequenceNumber, BlobId>;
 
 /// Metadata for a blob that is last certified.
-type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
+pub(crate) type CertifiedEventBlobMetadata = EventBlobMetadata<(), BlobId>;
 
 impl PendingEventBlobMetadata {
     fn new(

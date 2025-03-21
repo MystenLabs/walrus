@@ -9,7 +9,8 @@ title = "Walrus"
 build-dir = "docs/build"
 
 [output.html]
-additional-css = ["docs/mdbook-admonish.css"]
+additional-css = ["docs/mdbook-admonish.css", "docs/theme/tabs.css"]
+additional-js = ["docs/theme/tabs.js"]
 theme = "docs/theme"
 
 [output.linkcheck]
@@ -18,6 +19,7 @@ exclude = [
   'github\.com/MystenLabs/walrus', # TODO(WAL-471): Remove this once the repo is public.
   'google\.com',
   'suiscan\.xyz',
+  'walrus-mainnet-latest', # TODO(WAL-471): Remove this once we have the first mainnet release.
   'walrus\.site',
   'x\.com',
 ]
@@ -43,3 +45,5 @@ after = ["links"]
 [preprocessor.templates]
 command = "mdbook-templates"
 path = "docs/book/assets/operators.json"
+
+[preprocessor.tabs]

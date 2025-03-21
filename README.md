@@ -18,6 +18,7 @@ cargo install mdbook-linkcheck
 cargo install mdbook-admonish --locked
 cargo install mdbook-katex --locked
 cargo install mdbook-templates
+cargo install mdbook-tabs --locked
 mdbook serve
 ```
 

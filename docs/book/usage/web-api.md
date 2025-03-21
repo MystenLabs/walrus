@@ -55,23 +55,28 @@ important to ensure only authorized parties may access it, or other measures to 
 especially in a future Mainnet deployment.
 ```
 
-### Notes on publisher operation
+### Daemon metrics
+
+Services by default export a metrics end-point accessible via `curl http://127.0.0.1:27182/metrics`.
+It can be changed using the `--metrics-address <METRICS_ADDRESS>` CLI option.
+
+## Publisher operation and configuration
 
 We list here a few important details on how the publisher deals with funds and objects on Sui.
 
-#### Number of sub-wallets
+### Number of sub-wallets and upload concurrency
 
 As mentioned above, the publisher uses sub-wallets to allow storing blobs in parallel. By default,
-the publisher uses 8 sub-wallets, meaning it can store 8 blobs at the same time.
+the publisher uses 8 sub-wallets, meaning it can handle 8 blob store HTTP requests concurrently.
 
-#### Funds in sub-wallets
+### SUI coin management in sub-wallets
 
 Each of the sub-wallets requires funds to interact with the chain and purchase storage. For this
 reason, a background process checks periodically if the sub-wallets have enough funds. In steady
 state, each of the sub-wallets will have a balance of 0.5-1.0 SUI and WAL. The amount and triggers
 for coin refills can be configured through CLI arguments.
 
-#### Lifecycle of created `Blob` objects
+### Lifecycle of created `Blob` on-chain objects
 
 Each store operation in Walrus creates a `Blob` object on Sui. This blob object represents the
 (partial) ownership over the associated data, and allows certain data management operations (e.g.,
@@ -94,6 +99,8 @@ configuration:
 
 ## Using a public aggregator or publisher {#public-services}
 
+<!-- TODO(WAL-710): Update section based on mainnet services. -->
+
 For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible
 aggregator and/or publisher is required. Several entities run such aggregators and publishers, see
 the lists of public [aggregators](#public-aggregators) and [publishers](#public-publishers) below.
@@ -101,7 +108,7 @@ the lists of public [aggregators](#public-aggregators) and [publishers](#public-
 Public publishers limit requests to 10 MiB by default. If you want to upload larger files, you need
 to [run your own publisher](#local-daemon) or use the [CLI](./client-cli.md).
 
-Also, note that the publisher consumes (Testnet) SUI and WAL on the service side, and a Mainnet
+Also, note that the publisher consumes SUI and WAL on the service side, and a Mainnet
 deployment would likely not be able to provide uncontrolled public access to publishing without
 requiring some authentication and compensation for the funds used.
 

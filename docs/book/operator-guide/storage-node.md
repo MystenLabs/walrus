@@ -29,6 +29,8 @@ mandatory and optional configuration parameters will be made available with the 
 Here are some important config params from a shortened version of the `walrus-node.yaml` config
 file:
 
+<!-- TODO(WAL-118) : change the Testnet url below. -->
+
 ```yaml
 storage_path: /opt/walrus/db
 metrics_address: 127.0.0.1:9184

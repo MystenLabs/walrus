@@ -13,7 +13,7 @@ config:
     heading_line_length: 80
     code_block_line_length: 150
     tables: false
-    stern: true
+    stern: false
   heading-style:
     style: atx
   ul-style:

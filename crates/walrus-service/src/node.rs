@@ -19,7 +19,10 @@ use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
-use events::event_blob_writer::{EventBlobWriter, NUM_CHECKPOINTS_PER_BLOB};
+use events::{
+    event_blob_writer::{EventBlobWriter, NUM_CHECKPOINTS_PER_BLOB},
+    CheckpointEventPosition,
+};
 use fastcrypto::traits::KeyPair;
 use futures::{
     stream::{self, FuturesOrdered},
@@ -182,6 +185,12 @@ mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
 const NUM_CHECKPOINTS_PER_BLOB_ON_TESTNET: u32 = 18_000;
+
+// The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
+// contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
+const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
+const NUM_DIGEST_BUCKETS: u64 = 10;
+const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
@@ -399,6 +408,7 @@ impl StorageNodeBuilder {
                     rpc_address: sui_config.rpc.clone(),
                     event_polling_interval: sui_config.event_polling_interval,
                     db_path: config.storage_path.join("events"),
+                    rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
                 };
                 let system_config = SystemConfig {
                     system_pkg_id: read_client.get_system_package_id(),
@@ -432,18 +442,23 @@ impl StorageNodeBuilder {
                 Arc::new(service)
             };
 
-        let contract_service: Arc<dyn SystemContractService> =
-            if let Some(service) = self.contract_service {
-                service
-            } else {
-                Arc::new(
-                    SuiSystemContractService::from_config(
+        let contract_service: Arc<dyn SystemContractService> = if let Some(service) =
+            self.contract_service
+        {
+            service
+        } else {
+            Arc::new(
+                SuiSystemContractService::builder()
+                    .metrics_registry(metrics_registry.clone())
+                    .balance_check_frequency(config.balance_check.interval)
+                    .balance_check_warning_threshold(config.balance_check.warning_threshold_mist)
+                    .build_from_config(
                         config.sui.as_ref().expect("Sui config must be provided"),
                         committee_service.clone(),
                     )
                     .await?,
-                )
-            };
+            )
+        };
 
         let node_params = NodeParameters {
             pre_created_storage: self.storage,
@@ -933,6 +948,15 @@ impl StorageNode {
                             self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
                         }
                     }
+                }
+
+                // Ignore the error here since this is a best effort operation, and we don't want
+                // any error from it to stop the node.
+                if let Err(error) = self.maybe_record_event_source(
+                    element_index,
+                    &stream_element.checkpoint_event_position,
+                ) {
+                    tracing::warn!(?error, "Failed to record event source");
                 }
 
                 let event_handle = EventHandle::new(
@@ -1610,6 +1634,63 @@ impl StorageNode {
         self.epoch_change_driver.schedule_voting_end(
             NonZero::new(event.epoch + 1).expect("incremented value is non-zero"),
         );
+
+        Ok(())
+    }
+
+    /// Storage node periodically records an event digest to check consistency of processed events.
+    ///
+    /// Every `NUM_EVENTS_PER_DIGEST_RECORDING`, we record the source of the event in metrics
+    /// `process_event_digest` by bucket. The use of bucket is to store the recent bucket size
+    /// number of recordings for better observability.
+    ///
+    /// We only record events in storage node that is sufficiently up-to-date. This means that the
+    /// node is either in Active state or RecoveryInProgress state.
+    ///
+    /// The idea is that for most recent recordings, two nodes in the same bucket should record
+    /// exact same event source. If there is a discrepancy, it means that these two nodes do
+    /// not have the same event history. Once a divergence is detected, we can use the db tool
+    /// to observe the event store to further analyze the issue.
+    fn maybe_record_event_source(
+        &self,
+        event_index: u64,
+        event_source: &CheckpointEventPosition,
+    ) -> Result<(), TypedStoreError> {
+        // Only record every Nth event.
+        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
+        // every few hours.
+        if event_index % NUM_EVENTS_PER_DIGEST_RECORDING != 0 {
+            return Ok(());
+        }
+
+        // Only record digests for active or recovering nodes
+        let node_status = self.inner.storage.node_status()?;
+        if !matches!(
+            node_status,
+            NodeStatus::Active | NodeStatus::RecoveryInProgress(_)
+        ) {
+            return Ok(());
+        }
+
+        let bucket = (event_index / NUM_EVENTS_PER_DIGEST_RECORDING) % NUM_DIGEST_BUCKETS;
+        debug_assert!(bucket < NUM_DIGEST_BUCKETS);
+
+        // The event source is the combination of checkpoint sequence number and counter.
+        // We scale the checkpoint sequence number by `CHECKPOINT_EVENT_POSITION_SCALE` to add
+        // event counter in the checkpoint in the event source as well.
+        let event_source = event_source
+            .checkpoint_sequence_number
+            .checked_mul(CHECKPOINT_EVENT_POSITION_SCALE)
+            .unwrap_or(0)
+            + event_source.counter;
+
+        walrus_utils::with_label!(
+            self.inner
+                .metrics
+                .periodic_event_source_for_deterministic_events,
+            bucket.to_string()
+        )
+        .set(event_source as i64);
 
         Ok(())
     }

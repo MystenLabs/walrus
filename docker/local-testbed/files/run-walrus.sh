@@ -37,7 +37,7 @@ sui client faucet --url http://sui-localnet:9123/gas
 sleep 3
 
 # exchange for WAL tokens (500 WAL)
-walrus get-wal -a 500000000000
+walrus get-wal --amount 500000000000
 sui client balance
 
 ## -----------------------------------------------------------------------------

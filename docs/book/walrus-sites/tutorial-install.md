@@ -72,6 +72,25 @@ Commands:
 
 The `site-builder` tool needs a configuration file to work. This file is called `sites-config.yaml`
 and looks like this:
+{{#tabs }}
+
+{{#tab name="Mainnet" }}
+
+```yaml
+# module: site
+# portal: walrus.site
+package:
+# general:
+#   rpc_url:
+#   wallet:
+#   walrus_binary: /path/to/walrus
+#   walrus_config: /path/to/devnet_deployment/client_config.yaml
+#   gas_budget: 500000000
+```
+
+{{#endtab }}
+
+{{#tab name="Testnet" }}
 
 ```yaml
 # module: site
@@ -84,6 +103,10 @@ package: 0xdf9033cac39b7a9b9f76fb6896c9fc5283ba730d6976a2b1d85ad1e6036c3272
 #   walrus_config: /path/to/devnet_deployment/client_config.yaml
 #   gas_budget: 500000000
 ```
+
+{{#endtab }}
+
+{{#endtabs }}
 
 As you can see, the configuration file is quite simple. The only mandatory field is the `package`
 field, which represents the Sui object ID of the Walrus Sites smart contract. You can find the
