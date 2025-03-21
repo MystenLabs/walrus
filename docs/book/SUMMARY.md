@@ -54,6 +54,7 @@
   - [Redirecting objects to Walrus Sites](./walrus-sites/redirects.md)
 - [Technical overview](./walrus-sites/overview.md)
   - [The Walrus Sites portal](./walrus-sites/portal.md)
+  - [Bring your own domain](./walrus-sites/bring-your-own-domain.md)
   - [Site data authentication](./walrus-sites/authentication.md)
   - [Known restrictions](./walrus-sites/restrictions.md)
 - [Terms of service](./walrus-sites/tos.md)
