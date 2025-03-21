@@ -898,6 +898,7 @@ impl RetriableSuiClient {
     pub(crate) async fn execute_transaction(
         &self,
         transaction: Transaction,
+        method: &str,
     ) -> anyhow::Result<SuiTransactionBlockResponse> {
         // Retry here must use the exact same transaction to avoid locked objects.
         retry_rpc_errors(
@@ -923,7 +924,7 @@ impl RetriableSuiClient {
                     .await?)
             },
             self.metrics.clone(),
-            "execute_transaction",
+            method,
         )
         .await
     }

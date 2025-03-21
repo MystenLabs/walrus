@@ -12,10 +12,10 @@ walrus_utils::metrics::define_metric_set! {
     /// Metrics for the Sui client operations.
     pub struct SuiClientMetrics {
         #[help = "Total number of Sui RPC calls made"]
-        rpc_calls_count: IntCounterVec["method", "status"],
+        sui_rpc_calls_count: IntCounterVec["method", "status"],
 
         #[help = "Duration of Sui RPC calls in seconds"]
-        rpc_call_duration_seconds: HistogramVec{
+        sui_rpc_call_duration_seconds: HistogramVec{
             labels: ["method", "status"],
             buckets: default_buckets_for_slow_operations()
         },
@@ -25,11 +25,11 @@ walrus_utils::metrics::define_metric_set! {
 impl SuiClientMetrics {
     /// Record a Sui RPC call with the given method and status, and duration.
     pub fn record_rpc_call(&self, method: &str, status: &str, duration: std::time::Duration) {
-        self.rpc_calls_count
+        self.sui_rpc_calls_count
             .with_label_values(&[method, status])
             .inc();
 
-        self.rpc_call_duration_seconds
+        self.sui_rpc_call_duration_seconds
             .with_label_values(&[method, status])
             .observe(duration.as_secs_f64());
     }
