@@ -1,7 +1,7 @@
 # Client Daemon mode & HTTP API
 
-In addition to the CLI and JSON modes, the Walrus client offers a _daemon mode_. In this mode, it
-runs a simple web server offering HTTP interfaces to store and read blobs in an _aggregator_ and
+In addition to the CLI and JSON modes, the Walrus client offers a *daemon mode*. In this mode, it
+runs a simple web server offering HTTP interfaces to store and read blobs in an *aggregator* and
 _publisher_ role respectively. We also offer
 [public aggregator and publisher services](#public-services) to try the Walrus HTTP APIs without
 the need to run a local client.
@@ -92,7 +92,7 @@ configuration:
 - If the `send_object_to` query parameter is not specified, two cases are possible:
   - If the publisher was run with the `--keep` flag, then the sub-wallet transfers the
     newly-created blob object to the main wallet, such that all these objects are kept there.
-  - If the `--keep` flag was omitted, then the sub-wallet _immediately burns_ the `Blob` object.
+  - If the `--keep` flag was omitted, then the sub-wallet *immediately burns* the `Blob` object.
     Since no one has requested the object, and the availability of the data on Walrus is independent
     of the existence of such object, it is safe to do so. This is to avoid cluttering the sub-wallet
     with many blob objects.
