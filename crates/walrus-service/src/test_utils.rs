@@ -2627,7 +2627,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             metadata: Default::default(),
             config_synchronizer: Default::default(),
             storage_node_cap: None,
-            num_uncertified_blob_threshold: Some(u32::MAX),
+            num_uncertified_blob_threshold: Some(3),
             balance_check: Default::default(),
         },
         temp_dir,
