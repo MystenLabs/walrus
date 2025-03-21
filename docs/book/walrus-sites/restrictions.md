@@ -25,7 +25,8 @@ Different portals can set this limit as they desire. The limit for the portal ho
 ## There is a special `__wal__` path
 
 Anything under the `/__wal__/*` path is reserved by the portal for health checks and other
-portal-specific operations. If you use this path inside your site, your site will not work.
+portal-specific operations. If you use this path inside your site, the resources served under that
+path will not be loaded correctly.
 
 ## Service-worker portal limitations
 
