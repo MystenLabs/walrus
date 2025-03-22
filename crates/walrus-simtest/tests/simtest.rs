@@ -1388,34 +1388,29 @@ mod tests {
         assert!(walrus_cluster.nodes[5].node_id.is_some());
         let client_arc = Arc::new(client);
 
-        // Check the current protocol key in the staking pool
-        let pool = client_arc
-            .as_ref()
-            .as_ref()
-            .sui_client()
-            .read_client
-            .get_staking_pool(
-                walrus_cluster.nodes[5]
-                    .storage_node_capability
-                    .as_ref()
-                    .unwrap()
-                    .node_id,
-            )
-            .await
-            .expect("Failed to get staking pool");
-
         // Generate new protocol key pair
         let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
 
+        let config = walrus_cluster.nodes[5].node_config_arc.clone();
         // Make sure the new protocol key is different from the current one
-        assert_ne!(&pool.node_info.public_key, new_protocol_key_pair.public());
+        assert_ne!(
+            config.read().await.protocol_key_pair().public(),
+            new_protocol_key_pair.public()
+        );
+        config.write().await.next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
 
-        // Update the next protocol key pair in the node's config
-        walrus_cluster.nodes[5]
-            .storage_node_config
-            .next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
-        // Update the node's public key to match the new protocol key pair
-        walrus_cluster.nodes[5].public_key = new_protocol_key_pair.public().clone();
+        wait_till_node_config_synced(
+            &client_arc.as_ref().as_ref().sui_client(),
+            walrus_cluster.nodes[5]
+                .storage_node_capability
+                .as_ref()
+                .unwrap()
+                .node_id,
+            &walrus_cluster.nodes[5].node_config_arc,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Node config should be synced");
 
         // Check that the protocol key in StakePool is updated to the new one
         let pool = client_arc
@@ -1433,7 +1428,6 @@ mod tests {
             .await
             .expect("Failed to get staking pool");
 
-        let config = walrus_cluster.nodes[5].node_config_arc.clone();
         assert_eq!(&pool.node_info.public_key, new_protocol_key_pair.public());
         let public_key = config.read().await.protocol_key_pair().public().clone();
         assert_eq!(&public_key, new_protocol_key_pair.public());
