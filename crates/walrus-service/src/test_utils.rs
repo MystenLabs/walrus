@@ -324,6 +324,8 @@ pub struct SimStorageNodeHandle {
     pub storage_node_capability: Option<StorageNodeCap>,
     /// The storage node config.
     pub storage_node_config: StorageNodeConfig,
+    /// A reference to the storage node config used by the storage node.
+    pub node_config_arc: Arc<RwLock<StorageNodeConfig>>,
 }
 
 #[cfg(msim)]
@@ -1040,11 +1042,12 @@ impl StorageNodeHandleBuilder {
         };
 
         let cancel_token = CancellationToken::new();
+        let node_config_arc = Arc::new(RwLock::new(storage_node_config.clone()));
 
         let node_id = if start_node {
             Some(
                 SimStorageNodeHandle::spawn_node(
-                    Arc::new(RwLock::new(storage_node_config.clone())),
+                    node_config_arc.clone(),
                     num_checkpoints_per_blob,
                     cancel_token.clone(),
                 )
@@ -1075,6 +1078,7 @@ impl StorageNodeHandleBuilder {
             node_id,
             storage_node_capability: self.storage_node_capability,
             storage_node_config,
+            node_config_arc,
         })
     }
 }
