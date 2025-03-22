@@ -1366,7 +1366,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_registered_node_update_protocol_key() {
-        let (_sui_cluster, mut walrus_cluster, client) =
+        let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(10),
                 TestNodesConfig {
