@@ -221,7 +221,7 @@ impl SystemConfig {
 #[derive(Debug)]
 pub struct EventProcessorRuntimeConfig {
     /// The address of the RPC server.
-    pub rpc_address: String,
+    pub rpc_addresses: Vec<String>,
     /// The event polling interval.
     pub event_polling_interval: Duration,
     /// The path to the database.
@@ -604,7 +604,7 @@ impl EventProcessor {
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         let retry_client = Self::create_and_validate_client(
-            &runtime_config.rpc_address,
+            &runtime_config.rpc_addresses,
             runtime_config.rpc_fallback_config.as_ref(),
         )
         .await?;
@@ -659,7 +659,7 @@ impl EventProcessor {
         }
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = runtime_config.rpc_address.clone();
+        let url = runtime_config.rpc_addresses[0].clone();
         let sui_client = SuiClientBuilder::default()
             .build(&url)
             .await
@@ -708,14 +708,24 @@ impl EventProcessor {
     }
 
     async fn create_and_validate_client(
-        rest_url: &str,
+        rest_urls: &[String],
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
-        let client = sui_rpc_api::Client::new(rest_url)?;
-        // Ensure the experimental REST endpoint exists
-        ensure_experimental_rest_endpoint_exists(client.clone()).await?;
-        let retriable_client = RetriableRpcClient::new(
-            client,
+        let clients = rest_urls
+            .iter()
+            .map(|rest_url| -> Result<sui_rpc_api::Client, anyhow::Error> {
+                let client = sui_rpc_api::Client::new(rest_url)?;
+                // Ensure the experimental REST endpoint exists - this needs to be awaited
+                // so we'll handle it outside the closure
+                Ok(client)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Now validate each client
+        ensure_experimental_rest_endpoint_exists(clients[0].clone()).await?;
+
+        let retriable_client = RetriableRpcClient::new_with_endpoints(
+            clients,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
         );

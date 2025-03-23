@@ -48,6 +48,9 @@ pub struct SuiConfig {
     /// The config for rpc fallback.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
+    /// Additional RPC endpoints to use for the event processor.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_rpc_endpoints: Vec<String>,
 }
 
 impl SuiConfig {
@@ -81,6 +84,7 @@ impl From<&SuiConfig> for SuiReaderConfig {
             event_polling_interval: config.event_polling_interval,
             backoff_config: config.backoff_config.clone(),
             rpc_fallback_config: config.rpc_fallback_config.clone(),
+            additional_rpc_endpoints: config.additional_rpc_endpoints.clone(),
         }
     }
 }
@@ -109,6 +113,9 @@ pub struct SuiReaderConfig {
     /// The URL of the checkpoint download fallback endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
+    /// Additional RPC endpoints to use for the event processor.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_rpc_endpoints: Vec<String>,
 }
 
 impl SuiReaderConfig {

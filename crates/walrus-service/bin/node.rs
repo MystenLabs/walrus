@@ -343,6 +343,9 @@ struct ConfigArgs {
     /// The config for rpc fallback.
     #[clap(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
+    /// Additional Sui full-node RPC endpoints.
+    #[clap(long)]
+    additional_rpc_endpoints: Vec<String>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -841,6 +844,7 @@ mod commands {
             project_url,
             description,
             rpc_fallback_config_args,
+            additional_rpc_endpoints,
         }: ConfigArgs,
         force: bool,
     ) -> anyhow::Result<StorageNodeConfig> {
@@ -911,6 +915,7 @@ mod commands {
                 rpc_fallback_config: rpc_fallback_config_args
                     .clone()
                     .and_then(|args| args.to_config()),
+                additional_rpc_endpoints,
             }),
             tls: TlsConfig {
                 certificate_path,
@@ -950,7 +955,7 @@ mod commands {
         };
 
         let runtime_config = EventProcessorRuntimeConfig {
-            rpc_address: sui_rpc_url.clone(),
+            rpc_addresses: vec![sui_rpc_url.clone()],
             event_polling_interval: std::time::Duration::from_secs(1),
             db_path: db_path.clone(),
             rpc_fallback_config: rpc_fallback_config.clone(),

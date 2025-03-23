@@ -2019,4 +2019,148 @@ mod tests {
             last_certified_event_blob_after_recovery.blob_id
         );
     }
+
+    /// This test verifies that the node can correctly recover from a forked event blob.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_checkpoint_downloader_with_additional_fullnodes() {
+        // 1. Set up the cluster with specified configuration
+        let (_sui_cluster, mut walrus_cluster, client) =
+            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
+                Duration::from_secs(15),
+                TestNodesConfig {
+                    node_weights: vec![2, 2, 3, 3, 3],
+                    ..Default::default()
+                },
+                Some(20),
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let client_arc = Arc::new(client);
+
+        // Wait for the cluster to process some events
+        tokio::time::sleep(Duration::from_secs(30)).await;
+
+        // 2. Get the latest checkpoint from Sui
+        // First, get the contract client from a storage node
+        let storage_node_config = &walrus_cluster.nodes[0].storage_node_config;
+        let contract_client = walrus_sui::utils::create_wallet(
+            &storage_node_config.storage_path,
+            storage_node_config.sui.as_ref().unwrap().network.env(),
+            None,
+        )
+        .expect("Failed to create wallet");
+
+        // Get the RetriableSuiClient to fetch the latest checkpoint
+        let sui_client = contract_client
+            .get_client()
+            .await
+            .expect("Failed to get Sui client");
+        let retriable_sui_client =
+            RetriableSuiClient::new(sui_client, ExponentialBackoffConfig::default());
+
+        // Get the latest checkpoint from Sui
+        let latest_sui_checkpoint = retriable_sui_client
+            .get_latest_checkpoint()
+            .await
+            .expect("Failed to get latest checkpoint from Sui");
+
+        let latest_sui_checkpoint_seq = latest_sui_checkpoint.sequence_number;
+        tracing::info!(
+            "Latest Sui checkpoint sequence number: {}",
+            latest_sui_checkpoint_seq
+        );
+
+        // 3. Find the last processed checkpoint in the Walrus cluster
+        // We'll check each storage node's event processor to get their checkpoint store
+        for (i, node) in walrus_cluster.nodes.iter().enumerate() {
+            // Get the event processor for this node
+            let event_processor_path = node
+                .storage_node_config
+                .storage_path
+                .join("event_processor");
+            let database = typed_store::rocks::open_cf(
+                &event_processor_path,
+                None,
+                &["checkpoint_store"],
+                &rocksdb::Options::default(),
+                None,
+            )
+            .expect("Failed to open event processor database");
+
+            let checkpoint_store: DBMap<(), TrustedCheckpoint> = DBMap::reopen(
+                &Arc::new(database),
+                Some("checkpoint_store"),
+                &ReadWriteOptions::default(),
+                false,
+            )
+            .expect("Failed to open checkpoint store");
+
+            // Get the current checkpoint from the store
+            let current_checkpoint = checkpoint_store
+                .get(&())
+                .expect("Failed to get current checkpoint")
+                .map(|t| *t.inner().sequence_number())
+                .unwrap_or(0);
+
+            tracing::info!(
+                "Node {} current checkpoint sequence number: {}",
+                i,
+                current_checkpoint
+            );
+
+            // 4. Make sure there is no lag
+            // We'll allow a small tolerance in case a new checkpoint was created during the test
+            let max_acceptable_lag = 5;
+            let lag = latest_sui_checkpoint_seq.saturating_sub(current_checkpoint);
+
+            tracing::info!("Node {} checkpoint lag: {}", i, lag);
+            assert!(
+                lag <= max_acceptable_lag,
+                "Node {} has excessive lag: {} checkpoints behind Sui",
+                i,
+                lag
+            );
+        }
+
+        // Verify all nodes can still process events properly
+        // Run a client operation through the Walrus client to verify the system
+        // is still functioning
+        let blob_id = random_blob_id();
+        let blob_data = vec![1, 2, 3, 4];
+
+        // Store a blob and verify it's registered
+        client_arc
+            .store(
+                &blob_id,
+                &blob_data,
+                StorageConfig {
+                    policy: ExpirySelectionPolicy::Epochs(2),
+                    ..Default::default()
+                },
+                BlobMetadata::new(Visibility::Public),
+                None,
+            )
+            .await
+            .expect("Failed to store blob");
+
+        // Verify the blob was certified - this operation requires the nodes to be processing events
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let blob_info = client_arc
+            .get_blob_info(&blob_id)
+            .await
+            .expect("Failed to get blob info");
+
+        assert!(
+            blob_info.certified,
+            "Blob was not certified, suggesting the cluster isn't processing events properly"
+        );
+
+        tracing::info!("Test passed: No checkpoint lag detected in the Walrus cluster");
+    }
 }

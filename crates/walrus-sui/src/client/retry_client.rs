@@ -999,25 +999,7 @@ impl RetriableRpcClient {
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
     ) -> Self {
-        let fallback_client = fallback_config.as_ref().map(|config| {
-            let url = config.checkpoint_bucket.clone();
-            CheckpointBucketClient::new(url)
-        });
-
-        Self {
-            clients: Arc::new(FailoverWrapper::new(vec![client])),
-            main_backoff_config: backoff_config,
-            fallback_client,
-            quick_retry_config: fallback_config
-                .map(|config| config.quick_retry_config)
-                .unwrap_or_else(|| {
-                    ExponentialBackoffConfig::new(
-                        time::Duration::from_millis(100),
-                        time::Duration::from_millis(300),
-                        Some(3),
-                    )
-                }),
-        }
+        Self::new_with_endpoints(vec![client], backoff_config, fallback_config)
     }
 
     /// Creates a new retriable client with multiple RPC endpoints.

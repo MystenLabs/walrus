@@ -484,7 +484,12 @@ impl SimStorageNodeHandle {
         } else {
             let processor_config =
                 crate::node::events::event_processor::EventProcessorRuntimeConfig {
-                    rpc_address: sui_config.rpc.clone(),
+                    rpc_addresses: sui_config
+                        .additional_rpc_endpoints
+                        .iter()
+                        .chain(std::iter::once(&sui_config.rpc))
+                        .cloned()
+                        .collect(),
                     event_polling_interval: Duration::from_millis(100),
                     db_path: nondeterministic!(tempfile::tempdir()
                         .expect("temporary directory creation must succeed")
@@ -1030,6 +1035,11 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
                 rpc_fallback_config: None,
+                additional_rpc_endpoints: sui_cluster_handle
+                    .additional_fullnodes()
+                    .iter()
+                    .map(|node| node.rpc_url.clone())
+                    .collect::<Vec<String>>(),
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
@@ -2537,7 +2547,7 @@ pub mod test_cluster {
         let mut event_processors = vec![];
         for _ in test_cluster_builder.storage_node_test_configs().iter() {
             let processor_config = EventProcessorRuntimeConfig {
-                rpc_address: rpc_url.to_string(),
+                rpc_addresses: vec![rpc_url.to_string()],
                 event_polling_interval: Duration::from_millis(100),
                 db_path: nondeterministic!(tempfile::tempdir()
                     .expect("temporary directory creation must succeed")
