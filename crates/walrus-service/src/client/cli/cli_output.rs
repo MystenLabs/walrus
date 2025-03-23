@@ -863,7 +863,7 @@ impl CliOutput for NodeHealthOutput {
                     {event_heading}
                     Events persisted: {persisted}
                     Events pending: {pending}{highest_finished_event_index_output}
-
+                    Latest checkpoint sequence number: {latest_checkpoint_sequence_number_output}
                     {shard_heading}
                     Owned shards: {owned}
                     Read-only shards: {read_only}
@@ -885,6 +885,11 @@ impl CliOutput for NodeHealthOutput {
                     highest_finished_event_index_output = highest_finished_event_index
                         .map_or("".to_string(), |index| format!(
                             "\nHighest finished event index: {index}"
+                        )),
+                    latest_checkpoint_sequence_number_output = health_info
+                        .latest_checkpoint_sequence_number
+                        .map_or("".to_string(), |number| format!(
+                            "\nLatest checkpoint sequence number: {number}"
                         )),
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
