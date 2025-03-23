@@ -88,6 +88,7 @@ shard_sync_config:
   shard_sync_retry_switch_to_recovery_interval_secs: 7200
 event_processor_config:
   pruning_interval_secs: 3600
+  checkpoint_request_timeout_secs: 60
   adaptive_downloader_config:
     min_workers: 1
     max_workers: 10

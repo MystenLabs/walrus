@@ -10,7 +10,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration as StdDuration,
+    time::Duration,
 };
 
 use anyhow::{bail, Context};
@@ -18,7 +18,6 @@ use clap::{Parser, Subcommand, ValueEnum as _};
 use commands::generate_or_convert_key;
 use config::PathOrInPlace;
 use fs::File;
-use humantime::Duration;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tokio::{
     runtime::{self, Runtime},
@@ -151,35 +150,7 @@ enum Commands {
     /// Catchup events using event blobs.
     /// Hidden command for emergency use only.
     #[clap(hide = true)]
-    Catchup {
-        #[clap(long)]
-        /// Path to the RocksDB database directory.
-        db_path: PathBuf,
-
-        #[clap(long)]
-        /// Object ID of the Walrus system object
-        system_object_id: ObjectID,
-
-        #[clap(long)]
-        /// Object ID of the Walrus staking object
-        staking_object_id: ObjectID,
-
-        #[clap(long, default_value = "http://localhost:9000")]
-        /// The Sui RPC URL to use for catchup
-        sui_rpc_url: String,
-
-        #[clap(long)]
-        /// The duration to run the event processor for
-        runtime_duration: Duration,
-
-        #[clap(long)]
-        /// The minimum checkpoint lag to use for event stream catchup
-        event_stream_catchup_min_checkpoint_lag: u64,
-
-        #[clap(flatten)]
-        /// The config for rpc fallback.
-        rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
-    },
+    Catchup(CatchupArgs),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -245,7 +216,12 @@ struct SetupArgs {
     #[clap(long, action)]
     use_faucet: bool,
     /// Timeout for the faucet call.
-    #[clap(long, default_value = "1min", requires = "use_faucet")]
+    #[clap(
+        long,
+        value_parser = humantime::parse_duration,
+        default_value = "1min",
+        requires = "use_faucet",
+    )]
     faucet_timeout: Duration,
     /// Additional arguments for the generated configuration.
     #[clap(flatten)]
@@ -364,6 +340,34 @@ struct PathArgs {
     wallet_config: PathBuf,
 }
 
+#[derive(Debug, Clone, clap::Args)]
+struct CatchupArgs {
+    #[clap(long)]
+    /// Path to the RocksDB database directory.
+    db_path: PathBuf,
+    #[clap(long)]
+    /// Object ID of the Walrus system object.
+    system_object_id: ObjectID,
+    #[clap(long)]
+    /// Object ID of the Walrus staking object.
+    staking_object_id: ObjectID,
+    #[clap(long, default_value = "http://localhost:9000")]
+    /// The Sui RPC URL to use for catchup.
+    sui_rpc_url: String,
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "10s")]
+    /// The timeout for each request to the Sui RPC node.
+    checkpoint_request_timeout: Duration,
+    #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
+    /// The duration to run the event processor for.
+    runtime_duration: Duration,
+    #[clap(long)]
+    /// The minimum checkpoint lag to use for event stream catchup.
+    event_stream_catchup_min_checkpoint_lag: u64,
+    #[clap(flatten)]
+    /// The config for RPC fallback.
+    rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -438,23 +442,7 @@ fn main() -> anyhow::Result<()> {
 
         Commands::DbTool { command } => command.execute()?,
 
-        Commands::Catchup {
-            db_path,
-            system_object_id,
-            staking_object_id,
-            sui_rpc_url,
-            runtime_duration,
-            event_stream_catchup_min_checkpoint_lag,
-            rpc_fallback_config_args,
-        } => commands::catchup(
-            db_path,
-            system_object_id,
-            staking_object_id,
-            sui_rpc_url,
-            runtime_duration,
-            event_stream_catchup_min_checkpoint_lag,
-            rpc_fallback_config_args.and_then(|args| args.to_config()),
-        )?,
+        Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
     }
     Ok(())
 }
@@ -489,7 +477,6 @@ mod commands {
         client::{
             contract_config::ContractConfig,
             retry_client::RetriableSuiClient,
-            rpc_config::RpcFallbackConfig,
             ReadClient as _,
             SuiReadClient,
         },
@@ -936,25 +923,29 @@ mod commands {
 
     #[tokio::main]
     pub async fn catchup(
-        db_path: PathBuf,
-        system_object_id: ObjectID,
-        staking_object_id: ObjectID,
-        sui_rpc_url: String,
-        runtime_duration: Duration,
-        event_stream_catchup_min_checkpoint_lag: u64,
-        rpc_fallback_config: Option<RpcFallbackConfig>,
+        CatchupArgs {
+            db_path,
+            system_object_id,
+            staking_object_id,
+            sui_rpc_url,
+            checkpoint_request_timeout,
+            runtime_duration,
+            event_stream_catchup_min_checkpoint_lag,
+            rpc_fallback_config_args,
+        }: CatchupArgs,
     ) -> anyhow::Result<()> {
         let event_processor_config = EventProcessorConfig {
-            pruning_interval: StdDuration::from_secs(3600),
+            pruning_interval: Duration::from_secs(3600),
+            checkpoint_request_timeout,
             adaptive_downloader_config: AdaptiveDownloaderConfig::default(),
             event_stream_catchup_min_checkpoint_lag,
         };
 
         let runtime_config = EventProcessorRuntimeConfig {
             rpc_address: sui_rpc_url.clone(),
-            event_polling_interval: std::time::Duration::from_secs(1),
+            event_polling_interval: Duration::from_secs(1),
             db_path: db_path.clone(),
-            rpc_fallback_config: rpc_fallback_config.clone(),
+            rpc_fallback_config: rpc_fallback_config_args.and_then(|args| args.to_config()),
         };
 
         // Create SuiClientSet
@@ -985,7 +976,7 @@ mod commands {
             event_processor.start(cancel_token_clone).await.unwrap();
         });
 
-        tokio::time::sleep(runtime_duration.into()).await;
+        tokio::time::sleep(runtime_duration).await;
 
         cancel_token.cancel();
         Ok(())
@@ -1040,13 +1031,9 @@ mod commands {
             network_key_path
         };
 
-        let wallet_address = utils::generate_sui_wallet(
-            sui_network,
-            &wallet_config,
-            use_faucet,
-            faucet_timeout.into(),
-        )
-        .await?;
+        let wallet_address =
+            utils::generate_sui_wallet(sui_network, &wallet_config, use_faucet, faucet_timeout)
+                .await?;
         println!(
             "Successfully generated a new Sui wallet with address {}",
             wallet_address

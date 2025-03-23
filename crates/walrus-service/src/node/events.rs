@@ -35,6 +35,10 @@ pub struct EventProcessorConfig {
     #[serde_as(as = "DurationSeconds")]
     #[serde(rename = "pruning_interval_secs")]
     pub pruning_interval: Duration,
+    /// The timeout for the RPC client.
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "checkpoint_request_timeout_secs")]
+    pub checkpoint_request_timeout: Duration,
     /// Configuration options for the pipelined checkpoint fetcher.
     pub adaptive_downloader_config: AdaptiveDownloaderConfig,
     /// Minimum checkpoint lag threshold for event blob based catch-up.
@@ -50,6 +54,7 @@ impl Default for EventProcessorConfig {
     fn default() -> Self {
         Self {
             pruning_interval: Duration::from_secs(3600),
+            checkpoint_request_timeout: Duration::from_secs(60),
             adaptive_downloader_config: Default::default(),
             event_stream_catchup_min_checkpoint_lag: 20_000,
         }

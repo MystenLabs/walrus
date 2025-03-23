@@ -601,6 +601,7 @@ impl EventProcessor {
     ) -> Result<Self, anyhow::Error> {
         let retry_client = Self::create_and_validate_client(
             &runtime_config.rpc_address,
+            config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
         )
         .await?;
@@ -705,6 +706,7 @@ impl EventProcessor {
 
     async fn create_and_validate_client(
         rest_url: &str,
+        request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
         let client = sui_rpc_api::Client::new(rest_url)?;
@@ -712,6 +714,7 @@ impl EventProcessor {
         ensure_experimental_rest_endpoint_exists(client.clone()).await?;
         let retriable_client = RetriableRpcClient::new(
             client,
+            request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
         );
@@ -1239,8 +1242,12 @@ mod tests {
             false,
         )?;
         let client = sui_rpc_api::Client::new("http://localhost:8080")?;
-        let retry_client =
-            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default(), None);
+        let retry_client = RetriableRpcClient::new(
+            client.clone(),
+            Duration::from_secs(5),
+            ExponentialBackoffConfig::default(),
+            None,
+        );
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
