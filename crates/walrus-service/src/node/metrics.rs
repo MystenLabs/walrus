@@ -131,6 +131,10 @@ walrus_utils::metrics::define_metric_set! {
         recording of event source. The event source is the combination of checkpoint sequence \
         number and counter."]
         periodic_event_source_for_deterministic_events: IntGaugeVec["bucket"],
+
+        #[help = "The hash of the list of certified blobs at the beginning of the epoch. Note that \
+        the label is the last two digits of the epoch number."]
+        blob_info_consistency_check: IntGaugeVec["epoch"],
     }
 }
 

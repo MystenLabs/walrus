@@ -9072,7 +9072,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "twox-hash",
+ "twox-hash 1.6.3",
  "typed-store",
 ]
 
@@ -11334,6 +11334,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "twox-hash"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7b17f197b3050ba473acf9181f7b1d3b66d1cf7356c6cc57886662276e65908"
+dependencies = [
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "typed-store"
 version = "0.4.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.45.2#88ba4e08e96ba1ab965c11ce1a915331dd3ed68d"
@@ -11962,6 +11971,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "twox-hash 2.1.0",
  "typed-store",
  "utoipa",
  "utoipa-redoc",
