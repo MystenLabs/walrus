@@ -843,8 +843,11 @@ pub struct CheckpointBucketClient {
 
 impl CheckpointBucketClient {
     /// Creates a new checkpoint download client.
-    pub fn new(base_url: Url) -> Self {
-        let client = reqwest::Client::new();
+    pub fn new(base_url: Url, timeout: Duration) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("should be able to build reqwest client");
         Self { client, base_url }
     }
 
@@ -937,7 +940,7 @@ impl RetriableRpcClient {
     ) -> Self {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
-            CheckpointBucketClient::new(url)
+            CheckpointBucketClient::new(url, request_timeout)
         });
 
         Self {

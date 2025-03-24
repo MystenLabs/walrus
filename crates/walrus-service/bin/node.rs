@@ -357,7 +357,7 @@ struct CatchupArgs {
     sui_rpc_url: String,
     #[clap(long, value_parser = humantime::parse_duration, default_value = "10s")]
     /// The timeout for each request to the Sui RPC node.
-    rpc_timeout: Duration,
+    checkpoint_request_timeout: Duration,
     #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
     /// The duration to run the event processor for.
     runtime_duration: Duration,
@@ -927,7 +927,7 @@ mod commands {
             system_object_id,
             staking_object_id,
             sui_rpc_url,
-            rpc_timeout,
+            checkpoint_request_timeout,
             runtime_duration,
             event_stream_catchup_min_checkpoint_lag,
             rpc_fallback_config_args,
@@ -935,7 +935,7 @@ mod commands {
     ) -> anyhow::Result<()> {
         let event_processor_config = EventProcessorConfig {
             pruning_interval: Duration::from_secs(3600),
-            timeout: rpc_timeout,
+            checkpoint_request_timeout,
             adaptive_downloader_config: AdaptiveDownloaderConfig::default(),
             event_stream_catchup_min_checkpoint_lag,
         };

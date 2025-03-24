@@ -605,7 +605,7 @@ impl EventProcessor {
     ) -> Result<Self, anyhow::Error> {
         let retry_client = Self::create_and_validate_client(
             &runtime_config.rpc_address,
-            config.timeout,
+            config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
         )
         .await?;
@@ -710,7 +710,7 @@ impl EventProcessor {
 
     async fn create_and_validate_client(
         rest_url: &str,
-        primary_client_timeout: Duration,
+        request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
         let client = sui_rpc_api::Client::new(rest_url)?;
@@ -718,7 +718,7 @@ impl EventProcessor {
         ensure_experimental_rest_endpoint_exists(client.clone()).await?;
         let retriable_client = RetriableRpcClient::new(
             client,
-            primary_client_timeout,
+            request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
         );
