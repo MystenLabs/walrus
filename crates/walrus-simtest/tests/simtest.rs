@@ -8,7 +8,11 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{atomic::AtomicBool, Arc, Mutex},
+        sync::{
+            atomic::{AtomicBool, AtomicU32, Ordering},
+            Arc,
+            Mutex,
+        },
         time::Duration,
     };
 
@@ -18,9 +22,11 @@ mod tests {
         clear_fail_point,
         register_fail_point,
         register_fail_point_async,
+        register_fail_point_if,
         register_fail_points,
     };
     use sui_protocol_config::ProtocolConfig;
+    use sui_rpc_api::Client as RpcClient;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use sui_types::base_types::ObjectID;
     use tokio::{sync::RwLock, task::JoinHandle, time::Instant};
@@ -1872,6 +1878,50 @@ mod tests {
         .expect("Node config should be synced");
     }
 
+    /// Waits for all nodes to download checkpoints up to the specified sequence number
+    async fn wait_for_nodes_at_checkpoint(
+        node_refs: &[&SimStorageNodeHandle],
+        target_sequence_number: u64,
+        timeout: Duration,
+    ) -> Result<(), anyhow::Error> {
+        let start_time = Instant::now();
+        let poll_interval = Duration::from_secs(1);
+        let mut nodes_to_check: Vec<&SimStorageNodeHandle> = node_refs.iter().copied().collect();
+
+        tracing::info!(
+            "Waiting for all nodes to download checkpoint up to sequence number: {}",
+            target_sequence_number
+        );
+
+        while !nodes_to_check.is_empty() {
+            if start_time.elapsed() > timeout {
+                return Err(anyhow::anyhow!(
+                    "Timeout waiting for nodes to download checkpoint.",
+                ));
+            }
+
+            let node_health_infos = get_nodes_health_info(&nodes_to_check).await;
+
+            let lagging_nodes: Vec<&SimStorageNodeHandle> = node_health_infos
+                .iter()
+                .zip(nodes_to_check.iter())
+                .filter_map(
+                    |(info, node)| match info.latest_checkpoint_sequence_number {
+                        Some(seq) if seq < target_sequence_number => Some(*node),
+                        None => Some(*node),
+                        _ => None,
+                    },
+                )
+                .collect();
+
+            nodes_to_check = lagging_nodes;
+
+            tokio::time::sleep(poll_interval).await;
+        }
+
+        Ok(())
+    }
+
     /// Gets the last certified event blob from the client.
     /// Returns the last certified event blob if it exists, otherwise panics.
     async fn get_last_certified_event_blob_must_succeed(
@@ -2024,8 +2074,7 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_checkpoint_downloader_with_additional_fullnodes() {
-        // 1. Set up the cluster with specified configuration
-        let (_sui_cluster, walrus_cluster, client) =
+        let (sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
                 Duration::from_secs(15),
                 TestNodesConfig {
@@ -2041,17 +2090,27 @@ mod tests {
             .await
             .unwrap();
 
+        let failure_counter = Arc::new(AtomicU32::new(0));
+        let failure_counter_clone = failure_counter.clone();
+        // Register a fail point that will fail the first attempt.
+        register_fail_point_if("fallback_client_inject_error", move || {
+            let attempt_number = failure_counter_clone.fetch_add(1, Ordering::SeqCst);
+            attempt_number < 1 // Return true (fail) for first attempt
+        });
+        tracing::info!(
+            "Additional fullnodes: {:?}",
+            sui_cluster.additional_rpc_urls()
+        );
         let client_arc = Arc::new(client);
 
-        // Wait for the cluster to process some events
+        // Wait for the cluster to process some events.
+        let workload_handle = start_background_workload(client_arc.clone(), false);
         tokio::time::sleep(Duration::from_secs(30)).await;
 
-        // 2. Get the latest checkpoint from Sui
-        // Get the contract client to access the Sui client
-        let retriable_sui_client = client_arc.as_ref().as_ref().read_client.sui_client();
-
-        // Get the latest checkpoint from Sui
-        let latest_sui_checkpoint = retriable_sui_client
+        // Get the latest checkpoint from Sui.
+        let rpc_client = RpcClient::new(sui_cluster.additional_rpc_urls()[0].clone())
+            .expect("Failed to create RPC client");
+        let latest_sui_checkpoint = rpc_client
             .get_latest_checkpoint()
             .await
             .expect("Failed to get latest checkpoint from Sui");
@@ -2062,84 +2121,18 @@ mod tests {
             latest_sui_checkpoint_seq
         );
 
-        // 3. Get the highest processed event for each storage node
-        // Create SDK clients for each node to use their health API
+        // Get the highest processed event and checkpoint for each storage node.
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
         let node_health_infos = get_nodes_health_info(&node_refs).await;
 
-        // 4. Check for event processing lag
-        for (i, health_info) in node_health_infos.iter().enumerate() {
-            // Get the persisted event index from the node's health info
-            let persisted_event_index = health_info.event_progress.persisted;
+        tracing::info!("Node health infos: {:?}", node_health_infos);
 
-            // If there's a highest_finished_event_index, use that instead
-            let last_processed_event = health_info
-                .event_progress
-                .highest_finished_event_index
-                .unwrap_or(persisted_event_index);
-
-            tracing::info!("Node {} last processed event: {}", i, last_processed_event);
-
-            // The actual highest event index may vary based on the latest checkpoint
-            // and how events are processed in the system
-            // We need to ensure the node isn't severely lagging
-
-            // For this test, we'll use a relative lag threshold compared to the highest
-            // event index across all nodes to ensure the cluster is in sync
-            let max_acceptable_lag = 20; // Define a reasonable threshold
-
-            // Find the highest event index across all nodes
-            let highest_node_event = node_health_infos
-                .iter()
-                .map(|info| {
-                    info.event_progress
-                        .highest_finished_event_index
-                        .unwrap_or(info.event_progress.persisted)
-                })
-                .max()
-                .unwrap_or(0);
-
-            let lag = highest_node_event.saturating_sub(last_processed_event);
-
-            // Also ensure all nodes are in the "Active" state
-            assert_eq!(
-                health_info.node_status, "Active",
-                "Node {} is not in Active state: {}",
-                i, health_info.node_status
-            );
-        }
-
-        // Verify all nodes can still process events properly by running a client operation
-        let blob_id = random_blob_id();
-        let blob_data = vec![1, 2, 3, 4];
-
-        // Store a blob and verify it's registered
-        client_arc
-            .store(
-                &blob_id,
-                &blob_data,
-                StorageConfig {
-                    policy: ExpirySelectionPolicy::Epochs(2),
-                    ..Default::default()
-                },
-                BlobMetadata::new(Visibility::Public),
-                None,
-            )
-            .await
-            .expect("Failed to store blob");
-
-        // Verify the blob was certified - this operation requires the nodes to be processing events
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        let blob_info = client_arc
-            .get_blob_info(&blob_id)
-            .await
-            .expect("Failed to get blob info");
-
-        assert!(
-            blob_info.certified,
-            "Blob was not certified, suggesting the cluster isn't processing events properly"
-        );
-
-        tracing::info!("Test passed: All nodes are processing events properly");
+        wait_for_nodes_at_checkpoint(
+            &node_refs,
+            latest_sui_checkpoint_seq,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("All nodes should have downloaded the checkpoint");
     }
 }

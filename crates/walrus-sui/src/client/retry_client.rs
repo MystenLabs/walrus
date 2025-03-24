@@ -263,7 +263,23 @@ impl<T> FailoverWrapper<T> {
                 None => break, // This should not happen if client_count is accurate
             };
 
-            // Execute the operation (without holding the lock)
+            #[cfg(msim)]
+            {
+                let mut try_next = false;
+                fail_point_if!("fallback_client_inject_error", || {
+                    tracing::warn!(
+                        "Injecting a RPC error for fallback client {}",
+                        current_index
+                    );
+                    try_next = true;
+                    current_index += 1;
+                });
+
+                if try_next {
+                    continue;
+                }
+            }
+
             match operation(instance).await {
                 Ok(result) => {
                     self.current_index
@@ -272,6 +288,10 @@ impl<T> FailoverWrapper<T> {
                 }
                 Err(e) => {
                     last_error = Some(e);
+                    tracing::info!(
+                        "Failed to execute operation on client {}, retrying with next client",
+                        current_index
+                    );
                     current_index += 1;
                 }
             }
@@ -975,7 +995,7 @@ pub enum RetriableClientError {
 /// SuiClient is used for all other RPC calls.
 #[derive(Clone)]
 pub struct RetriableRpcClient {
-    clients: Arc<FailoverWrapper<RpcClient>>,
+    client: Arc<FailoverWrapper<RpcClient>>,
     main_backoff_config: ExponentialBackoffConfig,
     fallback_client: Option<CheckpointBucketClient>,
     quick_retry_config: ExponentialBackoffConfig,
@@ -986,7 +1006,7 @@ impl std::fmt::Debug for RetriableRpcClient {
         f.debug_struct("RetriableRpcClient")
             .field("main_backoff_config", &self.main_backoff_config)
             // Skip detailed client debug info since it's not typically useful
-            .field("clients", &"FailoverWrapper<RpcClient>")
+            .field("client", &"FailoverWrapper<RpcClient>")
             .field("fallback_client", &"CheckpointDownloadClient")
             .finish()
     }
@@ -1014,7 +1034,7 @@ impl RetriableRpcClient {
         });
 
         Self {
-            clients: Arc::new(FailoverWrapper::new(clients)),
+            client: Arc::new(FailoverWrapper::new(clients)),
             main_backoff_config: backoff_config,
             fallback_client,
             quick_retry_config: fallback_config
@@ -1059,7 +1079,7 @@ impl RetriableRpcClient {
     ) -> Result<CheckpointData, RetriableClientError> {
         // First try with failover between endpoints
         let primary_result = self
-            .clients
+            .client
             .with_failover(|client| {
                 Box::pin(async move {
                     client
@@ -1102,7 +1122,7 @@ impl RetriableRpcClient {
             tracing::debug!("Trying quick retry with failover before using fallback client");
             let strategy = self.get_quick_strategy();
             let quick_retry_result = retry_rpc_errors(strategy, || async {
-                self.clients
+                self.client
                     .with_failover(|client| {
                         Box::pin(async move {
                             client
@@ -1140,7 +1160,7 @@ impl RetriableRpcClient {
         sequence: u64,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
         retry_rpc_errors(self.get_strategy(), || async {
-            self.clients
+            self.client
                 .with_failover(|client| {
                     Box::pin(async move {
                         client
@@ -1159,7 +1179,7 @@ impl RetriableRpcClient {
         &self,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
         retry_rpc_errors(self.get_strategy(), || async {
-            self.clients
+            self.client
                 .with_failover(|client| {
                     Box::pin(async move {
                         client
@@ -1176,7 +1196,7 @@ impl RetriableRpcClient {
     /// Gets the object with the given ID.
     pub async fn get_object(&self, id: ObjectID) -> Result<Object, RetriableClientError> {
         retry_rpc_errors(self.get_strategy(), || async {
-            self.clients
+            self.client
                 .with_failover(|client| {
                     Box::pin(async move {
                         client
