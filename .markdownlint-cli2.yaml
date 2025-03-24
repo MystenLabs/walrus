@@ -2,9 +2,11 @@
 # for configuration options and https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
 # for available rules.
 
-# TODO: Keep globs in sync with .github/workflows/lint.yml.
+# Note: Keep globs in sync with .github/workflows/lint.yml.
 globs:
   - "docs/book/**/*.md"
+  - "CONTRIBUTING.md"
+  - "README.md"
 gitignore: true
 config:
   default: true

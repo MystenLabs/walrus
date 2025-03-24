@@ -165,12 +165,6 @@ impl PositionedStreamEvent {
     pub fn is_end_of_checkpoint_marker(&self) -> bool {
         matches!(self.element, EventStreamElement::CheckpointBoundary)
     }
-
-    /// Returns true if the element is an event that indicates the end of an epoch.
-    pub fn is_end_of_epoch_event(&self) -> bool {
-        // TODO: Update this once we add an epoch change event
-        false
-    }
 }
 
 /// An indexed element in the event stream with an index that points to the element.

@@ -57,7 +57,8 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@05f32210e84442804257b2a6f20b273450ec8265 # pin@v19.1.0
         with:
           config: .markdownlint-cli2.yaml
-          globs: docs/book/**/*.md # TODO: Keep globs in sync with .markdownlint-cli2.yaml.
+          # Note: Keep globs in sync with .markdownlint-cli2.yaml.
+          globs: "docs/book/**/*.md README.md CONTRIBUTING.md"
 
   move-formatting:
     name: Check Move formatting

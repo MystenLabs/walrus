@@ -261,7 +261,7 @@ pub async fn put_sliver<S: SyncServiceState>(
         .store_sliver(&blob_id, sliver_pair_index, &sliver)
         .await?;
 
-    // TODO(jsmith): Change to CREATED
+    // TODO(WAL-253): Change to CREATED.
     Ok(ApiSuccess::ok("sliver stored successfully"))
 }
 

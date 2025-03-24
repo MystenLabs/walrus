@@ -163,7 +163,7 @@ pub struct StorageNodeConfig {
     pub storage_node_cap: Option<ObjectID>,
     /// The number of uncertified blobs before the node will reset the local
     /// state in event blob writer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub num_uncertified_blob_threshold: Option<u32>,
     /// Configuration for background SUI balance checks and alerting.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
@@ -649,7 +649,7 @@ pub mod defaults {
     use walrus_sui::utils::SuiNetwork;
 
     use super::*;
-    pub use crate::common::config::defaults::{is_default, polling_interval};
+    pub use crate::common::config::defaults::{is_default, is_none, polling_interval};
 
     /// Default metrics port.
     pub const METRICS_PORT: u16 = 9184;
@@ -716,13 +716,6 @@ pub mod defaults {
     /// Returns true if the `duration` is equal to the default push interval for metrics.
     pub fn is_push_interval_default(duration: &Duration) -> bool {
         duration == &push_interval()
-    }
-
-    /// Returns true iff the value is `None` and we don't run in test mode.
-    pub fn is_none<T>(t: &Option<T>) -> bool {
-        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
-        // to generate the example configuration files.
-        !cfg!(test) && t.is_none()
     }
 
     /// The default interval between config monitoring checks

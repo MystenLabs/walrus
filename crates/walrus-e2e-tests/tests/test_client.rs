@@ -793,8 +793,6 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
         .await?;
     assert_eq!(blobs.len(), 1);
 
-    // TODO(mlegner): Check correct handling on nodes.
-
     Ok(())
 }
 

@@ -62,6 +62,8 @@ sui:
     min_backoff_millis: 1000
     max_backoff_millis: 30000
     max_retries: 5
+  gas_budget: null
+  rpc_fallback_config: null
 blob_recovery:
   max_concurrent_blob_syncs: 100
   max_concurrent_sliver_syncs: 2000
@@ -120,6 +122,7 @@ config_synchronizer:
   interval_secs: 900
   enabled: true
 storage_node_cap: null
+num_uncertified_blob_threshold: null
 balance_check:
   interval_secs: 3600
   warning_threshold_mist: 5000000000

@@ -509,10 +509,11 @@ impl From<&BlobEvent> for BlobInfoMergeOperand {
             BlobEvent::Deleted(event) => event.into(),
             BlobEvent::InvalidBlobID(event) => event.into(),
             BlobEvent::DenyListBlobDeleted(_) => {
-                // TODO: WAL-424
-                // NOTE: Zero chance of triggering this event until Rust
-                // implementation supports deny-listing.
-                todo!("DenyListBlobDeleted")
+                // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
+                // Note: It's fine to panic here with a todo!, because in order to trigger this
+                // event, we need f+1 signatures and until the Rust integration is implemented no
+                // such event should be emitted.
+                todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
         }
     }

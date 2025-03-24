@@ -2,31 +2,38 @@
 
 ## GitHub flow
 
-We generally follow the [GitHub flow](https://docs.github.com/en/get-started/quickstart/github-flow) in our project. In
-a nutshell, this requires the following steps to contribute:
+We generally follow the [GitHub flow](https://docs.github.com/en/get-started/quickstart/github-flow)
+in our project. In a nutshell, this requires the following steps to contribute:
 
-1. [Fork the repository](https://docs.github.com/en/get-started/quickstart/contributing-to-projects) (only required if
-   you don't have write access to the repository).
+1. [Fork the repository](https://docs.github.com/en/get-started/quickstart/contributing-to-projects)
+   (only required if you don't have write access to the repository).
 1. [Create a feature branch](https://docs.github.com/en/get-started/quickstart/github-flow#create-a-branch).
 1. [Make changes and create a
-   commit](https://docs.github.com/en/get-started/quickstart/contributing-to-projects#making-and-pushing-changes)
+   commit](https://docs.github.com/en/get-started/quickstart/contributing-to-projects#making-and-pushing-changes).
 1. Push your changes to GitHub and [create a pull
-   request](https://docs.github.com/en/get-started/quickstart/contributing-to-projects#making-a-pull-request) (PR);
-   note that we enforce a particular style for the PR titles, see [below](#commit-messages).
+   request](https://docs.github.com/en/get-started/quickstart/contributing-to-projects#making-a-pull-request)
+   (PR); note that we enforce a particular style for the PR titles, see [below](#commit-messages).
 1. Wait for maintainers to review your changes and, if necessary, revise your PR.
-1. When all requirements are met, a reviewer or the PR author (if they have write permissions) can merge the PR.
+1. When all requirements are met, a reviewer or the PR author (if they have write permissions) can
+   merge the PR.
 
 ## Commit messages
 
-To ensure a consistent Git history (from which we can later easily generate changelogs automatically), we always squash
-commits when merging a PR and enforce that all PR titles comply with the [conventional-commit
-format](https://www.conventionalcommits.org/en/v1.0.0/). For examples, please take a look at our [commit
-history](https://github.com/MystenLabs/walrus/commits/main).
+To ensure a consistent Git history (from which we can later easily generate changelogs
+automatically), we always squash commits when merging a PR and enforce that all PR titles comply
+with the [conventional-commit format](https://www.conventionalcommits.org/en/v1.0.0/). For examples,
+please take a look at our [commit history](https://github.com/MystenLabs/walrus/commits/main).
+
+## Documentation
+
+Make sure all public structs, enums, functions, etc. are covered by docstrings. Additionally, if you
+made any user-facing changes, please adjust our documentation under [docs/book](./docs/book/).
 
 ## Pre-commit hooks
 
-We have CI jobs running for every PR to test and lint the repository. You can install Git pre-commit hooks to ensure
-that these check pass even _before pushing your changes_ to GitHub. To use this, the following steps are required:
+We have CI jobs running for every PR to test and lint the repository. You can install Git pre-commit
+hooks to ensure that these check pass even *before pushing your changes* to GitHub. To use this, the
+following steps are required:
 
 1. Install [Rust](https://www.rust-lang.org/tools/install).
 1. Install [nextest](https://nexte.st/).
@@ -61,7 +68,7 @@ For example, when using `rust-analyzer` with VSCode, you need to add the followi
 ```
 
 Also make sure you use the correct version of Rustfmt. See
-[rust-toolchain.toml](rust-toolchain.toml) for the current version. This also impacts other checks,
+[`rust-toolchain.toml`](rust-toolchain.toml) for the current version. This also impacts other checks,
 for example Clippy.
 
 ### Move code formatting
@@ -85,12 +92,13 @@ prettier-move --write <path-to-move-file-or-folder>
 ## Tests
 
 The majority of our code is covered by automatic unit and integration tests which you can run
-through `cargo test` or `cargo nextest run` (require [nextest](https://nexte.st/)).
+through `cargo test` or `cargo nextest run` (requires [nextest](https://nexte.st/)).
 
-Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend on
-additional packages and take longer to run. These tests can either be run with the newest contract
-version (including breaking changes that are incompatible with testnet) or they can be run with the
-contracts as deployed on testnet, for which the contracts are located in `testnet-contracts`.
+Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend
+on additional packages and take longer to run. These tests can either be run with the newest
+contract version (including breaking changes that are incompatible with Testnet) or they can be run
+with the contracts as deployed on Testnet, for which the contracts are located in
+`testnet-contracts`.
 
 For the first option, you can run these tests as follows:
 
@@ -106,7 +114,8 @@ cargo nextest run --run-ignored ignored-only
 
 ### External test cluster
 
-Integration tests that require a running Sui test cluster can use an external cluster. This requires a one-time setup:
+Integration tests that require a running Sui test cluster can use an external cluster. This requires
+a one-time setup:
 
 ```sh
 CLUSTER_CONFIG_DIR="$PWD/target/sui-start"
@@ -137,29 +146,44 @@ Note that it is currently not possible to use an external cluster with `cargo ne
 
 ### Test coverage
 
-We would like to cover as much code as possible with tests. Ideally you would add unit tests for all code you
-contribute. To analyze test coverage, we use [Tarpaulin](https://crates.io/crates/cargo-tarpaulin). You can install and
-run the tool as follows:
+We would like to cover as much code as possible with tests. Ideally you would add unit tests for all
+code you contribute. To analyze test coverage, we use
+[Tarpaulin](https://crates.io/crates/cargo-tarpaulin). You can install and run the tool as follows:
 
 ```sh
 cargo install cargo-tarpaulin
 cargo tarpaulin --out html
 ```
 
-This creates a file `tarpaulin-report.html`, which shows you coverage statistics as well as which individual lines are
-or aren't covered by tests. Other valid output formats are `json`, `stdout`, `xml`, and `lcov`.
+This creates a file `tarpaulin-report.html`, which shows you coverage statistics as well as which
+individual lines are or aren't covered by tests. Other valid output formats are `json`, `stdout`,
+`xml`, and `lcov`.
 
 The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
 
 ### Running a local Walrus testbed
 
-You can conveniently deploy and interact with a local Walrus testbed as described [here](README.md#run-a-local-walrus-testbed).
+In addition to publicly deployed Walrus systems, you can deploy a Walrus testbed on your local
+machine for manual testing. All you need to do is run the script `scripts/local-testbed.sh`. See
+`scripts/local-testbed.sh -h` for further usage information.
+
+The script generates configuration that you can use when running the Walrus client and prints the
+path to that configuration file.
+
+In addition, one can spin up a local grafana instance to visualize the metrics collected by the
+storage nodes. This can be done via `cd docker/grafana-local; docker compose up`. This should work
+with the default storage node configuration.
+
+Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
+is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
+[start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
+(requires `sui` to be v1.28.0 or higher) and specify `localnet` when starting the Walrus testbed.
 
 ### Simtests
 
 We use simulation testing to ensure that the Walrus system keeps working under various failure
-scenarios. The tests are in the `walrus-simtest` and `walrus-service` crates, with most of the necessary plumbing
-primarily in `walrus-service`.
+scenarios. The tests are in the `walrus-simtest` and `walrus-service` crates, with most of the
+necessary plumbing primarily in `walrus-service`.
 
 To run simulation tests, first install the `cargo simtest` tool:
 
@@ -179,26 +203,27 @@ Further information about the simtest framework is available
 ## Benchmarks
 
 We run micro-benchmarks for encoding, decoding, and authentication using
-[Criterion.rs](https://bheisler.github.io/criterion.rs/book/criterion_rs.html). These benchmarks are not run
-automatically in our pipeline as there is an [explicit advice against doing
+[Criterion.rs](https://bheisler.github.io/criterion.rs/book/criterion_rs.html). These benchmarks are
+not run automatically in our pipeline as there is an [explicit advice against doing
 this](https://bheisler.github.io/criterion.rs/book/faq.html#how-should-i-run-criterionrs-benchmarks-in-a-ci-pipeline).
 
-You can run the benchmarks by calling `cargo bench` from the project's root directory. Criterion will output some data
-to the command line and also generate HTML reports including plots; the root file is located at
-[`target/criterion/report/index.html].
+You can run the benchmarks by calling `cargo bench` from the project's root directory. Criterion
+will output some data to the command line and also generate HTML reports including plots; the root
+file is located at [`target/criterion/report/index.html].
 
-Criterion automatically compares the results from multiple runs. To check if your code changes improve or worsen the
-performance, run the benchmarks first on the latest `main` branch and then again with your code changes or explicitly
-set and use baselines with `--set-baseline` and `--baseline`. See the [Criterion
-documentation](https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html#baselines) for further
-details.
+Criterion automatically compares the results from multiple runs. To check if your code changes
+improve or worsen the performance, run the benchmarks first on the latest `main` branch and then
+again with your code changes or explicitly set and use baselines with `--set-baseline` and
+`--baseline`. See the [Criterion
+documentation](https://bheisler.github.io/criterion.rs/book/user_guide/command_line_options.html#baselines)
+for further details.
 
 ### Profiling
 
 To get quick insights into where the program spends most of its time, you can use the [flamegraph
-tool](https://github.com/flamegraph-rs/flamegraph). After installing with `cargo install flamegraph`, you can run
-binaries, tests, or benchmarks and produce SVG outputs. For example to analyze the `blob_encoding` benchmark, you can
-run the following:
+tool](https://github.com/flamegraph-rs/flamegraph). After installing with `cargo install
+flamegraph`, you can run binaries, tests, or benchmarks and produce SVG outputs. For example to
+analyze the `blob_encoding` benchmark, you can run the following:
 
 ```sh
 CARGO_PROFILE_BENCH_DEBUG=true cargo flamegraph --root --bench blob_encoding --open

@@ -1028,11 +1028,11 @@ impl StorageNode {
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
-                // TODO: WAL-424
-                // it's fine to panic here with a todo!, because in order to trigger this event, we
-                // need f+1 signatures and until the rust integration is implemented no such event
-                // should be emitted.
-                todo!("DenyListBlobDeleted event handling");
+                // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
+                // Note: It's fine to panic here with a todo!, because in order to trigger this
+                // event, we need f+1 signatures and until the Rust integration is implemented no
+                // such event should be emitted.
+                todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
         }
         Ok(())
@@ -1166,9 +1166,7 @@ impl StorageNode {
             // it even if it is no longer valid in the *current* epoch
             if !blob_info.is_registered(event.epoch) {
                 tracing::debug!("deleting data for deleted blob");
-                // TODO: Uncomment the following line as soon as we fixed the certification
-                // vulnerability with deletable blobs (#1147).
-                // self.inner.storage.delete_blob(&event.blob_id, true)?;
+                // TODO (WAL-201): Actually delete blob data.
             }
         } else {
             tracing::warn!(
@@ -2810,8 +2808,8 @@ mod tests {
         deletes_blob_data_on_event -> TestResult: [
             invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
             invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true),
-            // TODO: Uncomment the following tests as soon as we fixed the certification
-            // vulnerability with deletable blobs (#1147).
+            // TODO (WAL-201): Uncomment the following tests as soon as we actually delete blob
+            // data.
             // blob_deleted_event_registered: (
             //     BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
             //     false
@@ -4607,7 +4605,6 @@ mod tests {
         // `break_index` is the index of the blob to break the sync process.
         // Note that currently, each sync batch contains 10 blobs. So testing various interesting
         // places to break the sync process.
-        // TODO(#705): make shard sync parameters configurable.
         simtest_param_test! {
             sync_shard_start_from_progress -> TestResult: [
                 primary1: (1, SliverType::Primary),

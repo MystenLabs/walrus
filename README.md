@@ -1,6 +1,7 @@
 # Walrus
 
-A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for coordination and governance.
+A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for coordination and
+governance.
 
 ## Documentation
 
@@ -10,15 +11,10 @@ this means) and on [GitHub Pages](https://mystenlabs.github.io/walrus); it is ge
 [mdBook](https://rust-lang.github.io/mdBook/) from source files in the [`docs/book`](./docs/book)
 directory.
 
-You can also build and access the documentation locally (assuming you have Rust installed):
+You can also build the documentation locally (assuming you have Rust installed):
 
 ```sh
-cargo install mdbook
-cargo install mdbook-linkcheck
-cargo install mdbook-admonish --locked
-cargo install mdbook-katex --locked
-cargo install mdbook-templates
-cargo install mdbook-tabs --locked
+cargo install mdbook mdbook-admonish mdbook-katex mdbook-linkcheck mdbook-tabs mdbook-templates --locked
 mdbook serve
 ```
 
@@ -40,20 +36,22 @@ There are some additional documentation resources:
 
 This repository contains all Walrus-related code, tools, and documentation:
 
-- [`contracts`](contracts) contains all smart contracts used by Walrus for coordination and governance.
-- [`crates`](crates) contains all Rust crates related to Walrus including binaries for storage nodes
+- [`contracts`](./contracts) contains all smart contracts used by Walrus for coordination and governance.
+- [`crates`](./crates) contains all Rust crates related to Walrus including binaries for storage nodes
   and clients. See [below](#rust-crates) for further information about those.
-- [`docker`](docker) contains Dockerfiles and docker-compose setups for building and running Walrus.
-- [`docs`](docs) contains high-level technical and design documentation about Walrus.
-- [`scripts`](docs) contains tools used for evaluating and testing the code. In particular, this
-  contains a script to run a local testbed, see [below](#run-a-local-walrus-testbed).
-- [`testnet-contracts`](testnet-contracts) contains the Walrus contracts deployed for Walrus Testnet.
+- [`docker`](./docker) contains Dockerfiles and docker-compose setups for building and running Walrus.
+- [`docs`](./docs) contains high-level technical and design documentation about Walrus.
+- [`scripts`](./scripts) contains tools used for evaluating and testing the code. In particular, this
+  contains a script to run a local testbed, see [CONTRIBUTING.md](./CONTRIBUTING.md#run-a-local-walrus-testbed).
+- [`testnet-contracts`](./testnet-contracts) contains the Walrus contracts deployed for Walrus
+  Testnet. The object IDs of the published contracts are included in the `Move.lock` files.
 
 ### Rust crates
 
 Our Rust code is split into several crates with different responsibilities. The main code for Walrus
 is contained in the following crates:
 
+<!-- markdownlint-disable proper-names -->
 - [walrus-core](crates/walrus-core/) contains core types and functionality, including encoding and
   authentication mechanisms.
 - [walrus-sdk](crates/walrus-sdk/) contains (client) interactions with storage nodes.
@@ -66,6 +64,8 @@ is contained in the following crates:
 The following crates contain additional tools that are not part of the main functionality of Walrus
 and more extensive tests:
 
+- [checkpoint-downloader](crates/checkpoint-downloader/) contains code to download checkpoints from
+  Sui RPC nodes and checkpoint buckets.
 - [walrus-e2e-tests](crates/walrus-e2e-tests/) contains end-to-end tests, some of which are also
   run as simulation tests.
 - [walrus-orchestrator](crates/walrus-orchestrator/) contains tools to deploy and benchmark
@@ -83,62 +83,59 @@ and more extensive tests:
   storage nodes.
 - [walrus-test-utils](crates/walrus-test-utils/) contains test macros and other utilities used in
   the other crates.
+<!-- markdownlint-enable proper-names -->
 
 ## Using the Walrus client
 
-The `walrus` binary can be used to interact with Walrus as a client. To use it, you need a Walrus
-configuration and a Sui wallet; both of which are automatically generated when [running a local
-testbed](#run-a-local-walrus-testbed). If you want to interact with a publicly deployed Walrus
-system, you need to obtain the system information and set up a wallet manually.
+If you just want to use the Walrus Mainnet or Testnet, please follow the [setup instructions in our
+documentation](https://docs.walrus.site/usage/setup.html). Further information about the usage is
+also available in the [public documentation](https://docs.walrus.site/usage/interacting.html).
 
-In general, you can build and run the Walrus client as follows:
-
-```sh
-cargo run --bin walrus -- <commands and arguments>
-```
-
-Detailed usage information is available through the `--help` flag:
-
-```sh
-cargo run --bin walrus -- --help
-```
-
-Further information is available in the [public
-documentation](https://docs.walrus.site/usage/interacting.html).
-
-## Run a local Walrus testbed
-
-In addition to publicly deployed Walrus systems, you can deploy a Walrus testbed on your local
-machine for manual testing. All you need to do is run the script `scripts/local-testbed.sh`. See
-`scripts/local-testbed.sh -h` for further usage information.
-
-The script generates configuration that you can use when [running the Walrus
-client](#using-the-walrus-client) and prints the path to that configuration file.
-
-In addition, one can spin up a local grafana instance to visualize the metrics collected by the
-storage nodes. This can be done via `cd docker/grafana-local; docker compose up`. This should work
-with the default storage node configuration.
-
-Note that while the Walrus storage nodes of this testbed run on your local machine, the Sui devnet
-is used by default to deploy and interact with the contracts. To run the testbed fully locally, simply
-[start a local network with `sui start --with-faucet --force-regenesis`](https://docs.sui.io/guides/developer/getting-started/local-network)
-(requires `sui` to be v1.28.0 or higher) and specify `localnet` when starting the Walrus testbed.
+If you want to build the binary from source or run local tests, see the instructions
+[below](#building-from-source-and-testing).
 
 ## Hardware requirements
 
-- We assume that this code is executed on at least 32-bit hardware; concretely, we assume that a `u32` can be converted
-  safely into a `usize`.
-- Servers are assumed to use a 64-bit architecture (or higher); concretely, `usize` has at least 64 bits.
-- When a client is executed on a 32-bit architecture, it may panic for blobs above a certain size. Given sufficient
-  physical memory (4 GiB), it is generally possible to encode or decode blobs smaller than 500 MiB on 32-bit
-  architectures.
+- We assume that this code is executed on at least 32-bit hardware; concretely, we assume that a
+  `u32` can be converted safely into a `usize`.
+- Servers are assumed to use a 64-bit architecture (or higher); concretely, `usize` has at least 64
+  bits.
+- Our encoding relies on vector instructions to be efficient. Our default builds assume AVX2 and
+  SSSE3 support on x86 CPUs and Neon support on ARM CPUs. Walrus binaries can be built for CPUs
+  without these features, but will be much slower.
+- When a client is executed on a 32-bit architecture, it may panic for blobs above a certain size.
+  Given sufficient physical memory (4 GiB), it is generally possible to encode or decode blobs
+  smaller than 500 MiB on 32-bit architectures.
+
+## Building from source and testing
+
+To build Walrus you need to install Rust as described in the [Rust
+documentation](https://www.rust-lang.org/tools/install), and the correct Rust toolchain:
+
+```sh
+rustup update && rustup toolchain install
+```
+
+Then, you can build Walrus using Cargo:
+
+```sh
+cargo build # add `--release` for optimized builds
+```
+
+You can directly run a local build of the `walrus` binary as `cargo run --bin walrus`. Arguments and
+options can be specified after a `--`, for example `cargo run --bin walrus -- store README.md
+--epochs 1`.
+
+You can run our test suite by installing [nextest](https://nexte.st/), and then calling `cargo
+nextest run`. See [CONTRIBUTING.md](./CONTRIBUTING.md#tests) for further details on our tests and
+instructions on how to run a local Walrus testbed.
 
 ## Contributing
 
 If you observe a bug or want to request a feature, please search for an existing
-[issue](https://github.com/MystenLabs/walrus/issues) on this topic and, if none exists, create a new one. If you would
-like to contribute code directly (which we highly appreciate), please familiarize yourself with our [contributing
-workflow](./CONTRIBUTING.md).
+[issue](https://github.com/MystenLabs/walrus/issues) on this topic and, if none exists, create a new
+one. If you would like to contribute code directly (which we highly appreciate), please familiarize
+yourself with our [contributing workflow](./CONTRIBUTING.md).
 
 ## License
 

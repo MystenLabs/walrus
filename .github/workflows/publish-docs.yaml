@@ -6,10 +6,11 @@ on:
       - "main"
     paths:
       - "book.toml"
-      - "docs/**"
-      - "theme/**"
+      - "docs/book/**"
+      - "docs/theme/**"
+      - "docs/mdbook-admonish.css"
       - ".github/actions/build-mdbook/action.yaml"
-      - ".github/workflows/publish.yaml"
+      - ".github/workflows/publish-docs.yaml"
   workflow_dispatch:
     inputs:
       publish-pages:

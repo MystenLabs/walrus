@@ -35,7 +35,6 @@ fun init(otw: INIT, ctx: &mut TxContext) {
 
 /// Function to initialize walrus and share the system and staking objects.
 /// This can only be called once, after which the `InitCap` is destroyed.
-/// TODO: decide what to add as system parameters instead of constants.
 public fun initialize_walrus(
     init_cap: InitCap,
     upgrade_cap: UpgradeCap,

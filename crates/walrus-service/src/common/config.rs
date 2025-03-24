@@ -43,10 +43,10 @@ pub struct SuiConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
     /// Gas budget for transactions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub gas_budget: Option<u64>,
     /// The config for rpc fallback.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
 }
 
@@ -107,7 +107,7 @@ pub struct SuiReaderConfig {
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub backoff_config: ExponentialBackoffConfig,
     /// The URL of the checkpoint download fallback endpoint.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
 }
 
@@ -140,5 +140,12 @@ pub mod defaults {
         // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
         // to generate the example configuration files.
         !cfg!(test) && t == &T::default()
+    }
+
+    /// Returns true iff the value is `None` and we don't run in test mode.
+    pub fn is_none<T>(t: &Option<T>) -> bool {
+        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
+        // to generate the example configuration files.
+        !cfg!(test) && t.is_none()
     }
 }
