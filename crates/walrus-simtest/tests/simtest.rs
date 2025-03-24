@@ -472,12 +472,14 @@ mod tests {
 
         // Do not fail any nodes in the sui cluster.
         let mut do_not_fail_nodes = sui_cluster
+            .lock()
+            .await
             .cluster()
             .all_node_handles()
             .iter()
             .map(|n| n.with(|n| n.get_sim_node_id()))
             .collect::<HashSet<_>>();
-        do_not_fail_nodes.insert(sui_cluster.sim_node_handle().id());
+        do_not_fail_nodes.insert(sui_cluster.lock().await.sim_node_handle().id());
 
         let fail_triggered_clone = fail_triggered.clone();
         register_fail_points(DB_FAIL_POINTS, move || {

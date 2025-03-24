@@ -245,12 +245,15 @@ pub mod using_tokio {
         thread,
     };
 
-    use tokio::runtime::{Builder, Runtime};
+    use tokio::{
+        runtime::{Builder, Runtime},
+        sync::Mutex as TokioMutex,
+    };
 
     use super::TestClusterHandle;
 
     struct GlobalTestClusterHandler {
-        inner: Weak<TestClusterHandle>,
+        inner: Weak<TokioMutex<TestClusterHandle>>,
         runtime: Runtime,
     }
 
@@ -270,11 +273,13 @@ pub mod using_tokio {
             }
         }
 
-        fn get_test_cluster_handle(&mut self) -> Arc<TestClusterHandle> {
+        fn get_test_cluster_handle(&mut self) -> Arc<TokioMutex<TestClusterHandle>> {
             if let Some(handle) = self.inner.upgrade() {
                 handle
             } else {
-                let handle = Arc::new(TestClusterHandle::new(&self.runtime));
+                let handle = Arc::new(tokio::sync::Mutex::new(TestClusterHandle::new(
+                    &self.runtime,
+                )));
                 self.inner = Arc::downgrade(&handle);
                 handle
             }
@@ -284,7 +289,7 @@ pub mod using_tokio {
     /// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
     ///
     /// Initializes the test cluster if it doesn't exist yet.
-    pub fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+    pub fn global_sui_test_cluster() -> Arc<TokioMutex<TestClusterHandle>> {
         static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
         CLUSTER
             .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
@@ -320,14 +325,14 @@ pub fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>
 /// Handler for the global Sui test cluster using the deterministic msim runtime.
 #[cfg(msim)]
 pub mod using_msim {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use super::TestClusterHandle;
 
     /// Returns a handle to a newly created global instance of a Sui test cluster and the wallet
     /// config path.
-    pub async fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
-        Arc::new(TestClusterHandle::new().await)
+    pub async fn global_sui_test_cluster() -> Arc<tokio::sync::Mutex<TestClusterHandle>> {
+        Arc::new(tokio::sync::Mutex::new(TestClusterHandle::new().await))
     }
 }
 
@@ -339,9 +344,10 @@ pub mod using_msim {
 /// See [`new_wallet_on_sui_test_cluster`] for a similar method that funds a single wallet at a
 /// time.
 pub async fn create_and_fund_wallets_on_cluster(
-    sui_cluster: Arc<TestClusterHandle>,
+    sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
     n_wallets: usize,
 ) -> anyhow::Result<Vec<WithTempDir<WalletContext>>> {
+    let sui_cluster = sui_cluster.lock().await;
     let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
@@ -369,8 +375,9 @@ pub async fn create_and_fund_wallets_on_cluster(
 
 /// Returns a new wallet on the global Sui test cluster.
 pub async fn new_wallet_on_sui_test_cluster(
-    sui_cluster: Arc<TestClusterHandle>,
+    sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
+    let sui_cluster = sui_cluster.lock().await;
     let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
@@ -383,7 +390,7 @@ pub async fn new_wallet_on_sui_test_cluster(
 
 /// Returns a new `SuiContractClient` on the global Sui test cluster.
 pub async fn new_contract_client_on_sui_test_cluster(
-    sui_cluster_handle: Arc<TestClusterHandle>,
+    sui_cluster_handle: Arc<tokio::sync::Mutex<TestClusterHandle>>,
     existing_client: &SuiContractClient,
 ) -> anyhow::Result<WithTempDir<SuiContractClient>> {
     let contract_config = existing_client.read_client().contract_config();
