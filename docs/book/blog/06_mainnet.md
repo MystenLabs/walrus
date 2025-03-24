@@ -6,10 +6,15 @@ Published on: 2025-03-27
 
 The production Walrus Mainnet is now live, and operated by
 a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 2025. The
-network can now be used to [publish and retrieve blobs](), [upload and browse Walrus Sites](), as
-well as [stake and unstake]() to determine future committees using the live [Mainnet WAL token]().
-The Walrus protocol health is overseen by an [independent foundation]() that is now
-[well resourced]() to support future development and growth.
+network can now be used to
+[publish and retrieve blobs](../usage/interacting.md),
+[upload and browse Walrus Sites](https://wal.app), as
+well as [stake and unstake]() to determine future committees using the live
+[Mainnet WAL token](https://www.walrus.xyz/wal-token).
+The Walrus protocol health is overseen by an
+[independent foundation](https://www.walrus.xyz/) that is now
+[well resourced](https://www.walrus.xyz/blog/walrus-foundation-fundraising) to support future
+development and growth.
 
 All this to say: Walrus is ready for prime time. On Mainnet the Walrus security properties
 should hold. And Walrus is now ready to satisfy the needs of real applications.
@@ -79,7 +84,8 @@ and development activities.
 ## Open source Walrus codebase
 
 The Walrus codebase, including all smart contracts in Move, services in Rust, and documentation, is
-now open sourced under an Apache 2.0 license, and hosted on [github]().
+now open sourced under an Apache 2.0 license, and hosted on
+[github](https://github.com/MystenLabs/walrus).
 
 Developers may find the Rust CLI client, and associated aggregator and publisher services of most
 interest. These can be extended to specialize services to specific operational needs. They are
