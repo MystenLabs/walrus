@@ -3,11 +3,10 @@ name: Triggers builds for docker images and binaries
 on:
   workflow_dispatch:
   push:
-    branches: 
+    branches:
       - 'devnet'
       - 'testnet'
       - 'mainnet'
-      - 'releases/walrus-*-release'
 
 concurrency: ${{ github.workflow }}-${{ github.ref_name }}
 
@@ -17,7 +16,7 @@ jobs:
     steps:
       - name: Dispatch Walrus Artifact Builds in MystenLabs/sui-operations
         uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
-        with: 
+        with:
           repository: MystenLabs/sui-operations
           token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
           event-type: walrus-build-artifacts
