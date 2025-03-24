@@ -93,14 +93,17 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
             {
                 total_encoded_size += resource_operation.encoded_length();
                 total_cost += cost;
-                if let RegisterBlobOp::ReuseAndExtend { .. } = resource_operation {
-                    reuse_and_extend_count += 1;
-                }
-                if let RegisterBlobOp::RegisterFromScratch { .. } = resource_operation {
-                    newly_certified += 1;
-                }
-                if let RegisterBlobOp::ReuseAndExtendNonCertified { .. } = resource_operation {
-                    newly_certified += 1;
+                match resource_operation {
+                    RegisterBlobOp::ReuseAndExtend { .. } => {
+                        reuse_and_extend_count += 1;
+                    }
+                    RegisterBlobOp::RegisterFromScratch { .. } => {
+                        newly_certified += 1;
+                    }
+                    RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
+                        newly_certified += 1;
+                    }
+                    _ => {}
                 }
             }
         }
