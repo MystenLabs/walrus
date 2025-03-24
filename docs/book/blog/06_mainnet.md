@@ -36,11 +36,14 @@ notable new features and changes:
   epoch with `--end-epoch`.
 
 - **RedStuff with Reed-Solomon codes.** The erasure code underlying
-  RedStuff was changed from RaptorQ to Reed-Solomon (RS) codes. Extended benchmarking suggest the
-  performance is similar, and the use of RS codes ensures blobs can always be reconstructed
-  given a threshold of slivers.
+  RedStuff was changed from RaptorQ to Reed-Solomon (RS) codes. Intense benchmarking suggests their
+  performance, for our parameter set, is similar, and the use of RS codes provides perfect
+  robustness, in that blobs can always be reconstructed given a threshold of slivers. We
+  thank [Joachim Neu](https://www.jneu.net/) for extensive feedback on this topic.
 
-- TLS handing for storage node.
+- **TLS handing for storage node.** Storage nodes can now be configured to serve TLS certificates
+  that are publicly trusted, such as those issues by cloud providers and public authorities such as
+  Let's Encrypt. This allows javascript clients to directly store and retrieve blobs from Walrus.
 
 - **JWT authentication for publisher.** Now the publisher can be configured to only provide
   services to authenticated users via consuming JWT tokens that can be distributed through any
@@ -54,7 +57,11 @@ notable new features and changes:
   basic information of storage nodes. This is useful when allocating stake as well as monitoring
   the network.
 
-- Walrus Sites.
+- **Walrus Sites Updates.** The Mainnet Walrus Sites public portal will be hosted on the
+  `wal.app` domain name. Now Walrus Sites support deletable blobs to make their updates more
+  capital efficient. Those operating their own portals may also use their own domain names to serve
+  a Walrus Site. The [Staking](), [Docs](), [Snowreads](), and [Flatland]() Walrus Sites are now on
+  Mainnet.
 
 
 ## Testnet future plans
