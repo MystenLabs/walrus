@@ -2120,6 +2120,7 @@ mod tests {
             "Latest Sui checkpoint sequence number: {}",
             latest_sui_checkpoint_seq
         );
+        workload_handle.abort();
 
         // Get the highest processed event and checkpoint for each storage node.
         let node_refs: Vec<&SimStorageNodeHandle> = walrus_cluster.nodes.iter().collect();
