@@ -75,10 +75,14 @@ pub trait CliOutput: Serialize {
 }
 impl CliOutput for Vec<BlobStoreResultWithPath> {
     fn print_cli_output(&self) {
+        for result in self {
+            result.print_cli_output();
+        }
+
         let mut total_encoded_size = 0;
         let mut total_cost = 0;
         let mut reuse_and_extend_count = 0;
-        let total_count = self.len();
+        let mut newly_certified = 0;
 
         for res in self.iter() {
             if let BlobStoreResult::NewlyCreated {
@@ -89,18 +93,23 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
             {
                 total_encoded_size += resource_operation.encoded_length();
                 total_cost += cost;
-                if let RegisterBlobOp::ReuseAndExtend { .. } = resource_operation {
-                    reuse_and_extend_count += 1;
+                match resource_operation {
+                    RegisterBlobOp::ReuseAndExtend { .. } => {
+                        reuse_and_extend_count += 1;
+                    }
+                    RegisterBlobOp::RegisterFromScratch { .. }
+                    | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
+                    | RegisterBlobOp::ReuseStorage { .. }
+                    | RegisterBlobOp::ReuseRegistration { .. } => {
+                        newly_certified += 1;
+                    }
                 }
             }
         }
 
         let mut parts = Vec::new();
-        if total_count - reuse_and_extend_count > 0 {
-            parts.push(format!(
-                "{} newly certified",
-                total_count - reuse_and_extend_count
-            ));
+        if newly_certified > 0 {
+            parts.push(format!("{} newly certified", newly_certified));
         }
         if reuse_and_extend_count > 0 {
             parts.push(format!("{} extended", reuse_and_extend_count));
