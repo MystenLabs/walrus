@@ -894,9 +894,10 @@ impl RetriableClientError {
         match self {
             Self::TimeoutError(_) => true,
             Self::RpcError(status) => {
-                status
-                    .checkpoint_height()
-                    .is_some_and(|height| next_checkpoint < height)
+                (status.code() == tonic::Code::NotFound
+                    && status
+                        .checkpoint_height()
+                        .is_some_and(|height| next_checkpoint < height))
                     || (status.code() == tonic::Code::Internal
                         && status.message().contains("missing event"))
             }
