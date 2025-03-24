@@ -237,11 +237,14 @@ impl<T> FailoverWrapper<T> {
 
     /// Executes an operation on the current inner instance, falling back to the next one
     /// if it fails.
-    pub async fn with_failover<F, Fut, R, E>(&self, operation: F, timeout: Duration) -> Result<R, E>
+    pub async fn with_failover<F, Fut, R>(
+        &self,
+        operation: F,
+        timeout: Duration,
+    ) -> Result<R, RetriableClientError>
     where
         F: for<'a> Fn(Arc<T>) -> Fut,
-        Fut: Future<Output = Result<R, E>>,
-        E: RetriableRpcError + From<RetriableClientError>,
+        Fut: Future<Output = Result<R, RetriableClientError>>,
     {
         match tokio::time::timeout(timeout, async {
             let mut last_error = None;
@@ -299,7 +302,7 @@ impl<T> FailoverWrapper<T> {
         .await
         {
             Ok(result) => result,
-            Err(_timeout) => Err(RetriableClientError::TimeoutError(_timeout).into()),
+            Err(_timeout) => Err(RetriableClientError::TimeoutError(_timeout)),
         }
     }
 }
