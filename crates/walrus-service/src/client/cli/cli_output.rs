@@ -75,6 +75,10 @@ pub trait CliOutput: Serialize {
 }
 impl CliOutput for Vec<BlobStoreResultWithPath> {
     fn print_cli_output(&self) {
+        for result in self {
+            result.print_cli_output();
+        }
+
         let mut total_encoded_size = 0;
         let mut total_cost = 0;
         let mut reuse_and_extend_count = 0;
