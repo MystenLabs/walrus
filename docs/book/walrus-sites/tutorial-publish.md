@@ -50,10 +50,10 @@ Created new site: test site
 New site object ID: 0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf
 To browse the site, you have the following options:
         1. Run a local portal, and browse the site through it: e.g. http://5qs1ypn4wn90d6mv7d7dkwvvl49hdrlpqulr11ngpykoifycwf.localhost:3000
-           (more info: https://docs.walrus.site/walrus-sites/portal.html#running-the-portal-locally)
-        2. Use a third-party portal (e.g. walrus.site), which will require a SuiNS name.
+           (more info: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally)
+        2. Use a third-party portal (e.g. wal.app), which will require a SuiNS name.
            First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
-           Finally, browse it with: https://example-domain.walrus.site
+           Finally, browse it with: https://example-domain.wal.app
 ```
 
 This output tells you that, for each file in the folder, a new Walrus blob was created, and the
@@ -96,10 +96,10 @@ The site routes were left unchanged
 Site object ID: 0xe674c144119a37a0ed9cef26a962c3fdfbdbfd86a3b3db562ee81d5542a4eccf
 To browse the site, you have the following options:
         1. Run a local portal, and browse the site through it: e.g. http://2ql9wtro4xf2x13pm9jjeyhhfj28okawz5hy453hkyfeholy6f.localhost:3000
-           (more info: https://docs.walrus.site/walrus-sites/portal.html#running-the-portal-locally)
-        2. Use a third-party portal (e.g. walrus.site), which will require a SuiNS name.
+           (more info: https://docs.wal.app/walrus-sites/portal.html#running-the-portal-locally)
+        2. Use a third-party portal (e.g. wal.app), which will require a SuiNS name.
            First, buy a SuiNS name at suins.io (e.g. example-domain), then point it to the site object ID.
-           Finally, browse it with: https://example-domain.walrus.site
+           Finally, browse it with: https://example-domain.wal.app
 ```
 
 Compared to the `publish` action, we can see that now the only actions performed were to delete the

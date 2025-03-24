@@ -6,7 +6,7 @@ robust but affordable solution for storing unstructured content on decentralized
 while ensuring high availability and reliability even in the presence of Byzantine faults.
 
 ```admonish tip title="Fun fact"
-If you are viewing this site at <https://docs.walrus.site>, you are fetching this from
+If you are viewing this site at <https://docs.wal.app>, you are fetching this from
 Walrus behind the scenes. See the [Walrus Sites chapter](./walrus-sites/intro.md) for further
 details on how this works.
 ```

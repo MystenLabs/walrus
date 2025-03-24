@@ -1,11 +1,11 @@
 # Set a SuiNS name
 
 ```admonish note
-Browsing sites with b36 subdomains (e.g. `https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.walrus.site`)
-is no longer possible using the `walrus.site` portal. B36 subdomains are still supported if you use
+Browsing sites with b36 subdomains (e.g. `https://1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`)
+is no longer possible using the `wal.app` portal. B36 subdomains are still supported if you use
 a local server, or an alternative portal.
 
-To browse walrus sites using the `walrus.site` portal, please
+To browse walrus sites using the `wal.app` portal, please
 [use SuiNS names instead](./tutorial-suins.md#get-a-suins-name).
 ``
 
@@ -34,7 +34,7 @@ Now, you can set the SuiNS name to point to the address of your Walrus Site. To 
 dots" menu icon above the name you want to map, and click "Link To Walrus Site". Paste in the bar
 the object ID of the Walrus Site, check that it is correct, and click "Apply".
 
-After approving the transaction, we can now browse <https://walrusgame.walrus.site>!
+After approving the transaction, we can now browse <https://walrusgame.wal.app>!
 
 ``` admonish warning title="Backwards compatibility"
 If you previously linked a SuiNS domain to a Walrus Site, you might recall clicking the "Link To

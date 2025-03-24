@@ -35,7 +35,7 @@ The file is JSON-formatted, and looks like the following:
     "/path/assets/*": "/assets/asset_router.html"
   },
   "metadata": {
-      "link": "https://subdomain.walrus.site",
+      "link": "https://subdomain.wal.app",
       "image_url": "https://www.walrus.xyz/walrus-site",
       "description": "This is a walrus site.",
       "project_url": "https://github.com/MystenLabs/walrus-sites/",
@@ -143,7 +143,7 @@ suggested by the
 
 ```JSON
 "metadata": {
-      "link": "https://subdomain.walrus.site",
+      "link": "https://subdomain.wal.app",
       "image_url": "https://www.walrus.xyz/walrus-site",
       "description": "This is a walrus site.",
       "project_url": "https://github.com/MystenLabs/walrus-sites/",

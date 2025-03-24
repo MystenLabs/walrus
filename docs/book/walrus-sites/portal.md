@@ -8,11 +8,11 @@ portals:
 1. custom local apps; and
 1. service-worker based portals running in the browser.
 
-Currently, only a server-side portal is served at <https://walrus.site>.
+Currently, only a server-side portal is served at <https://wal.app>.
 
 ```admonish warning
 We are sunsetting the testnet portal! From now on, you can only access the mainnet portal
-at <https://walrus.site>.
+at <https://wal.app>.
 ```
 
 ```admonish note title="Hosting of the service worker"

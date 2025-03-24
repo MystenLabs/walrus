@@ -1,4 +1,4 @@
-name: Update bin.walrus.site with latest binaries
+name: Update bin.wal.app with latest binaries
 
 on:
   repository_dispatch:
@@ -19,7 +19,7 @@ jobs:
   # (https://github.com/MystenLabs/walrus/settings/variables/actions) and secrets
   # (https://github.com/MystenLabs/walrus/settings/secrets/actions).
   update-bin-walrus-site:
-    name: Update Walrus Site bin.walrus.site
+    name: Update Walrus Site bin.wal.app
     runs-on: ubuntu-ghcloud
     env:
       # Colors don't seem to work properly with the multiline commands.

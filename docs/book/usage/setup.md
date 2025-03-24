@@ -119,7 +119,7 @@ Commands:
 
 ```admonish tip
 Our latest Walrus binaries are also available on Walrus itself, namely on
-<https://bin.walrus.site>, for example, <https://bin.walrus.site/walrus-mainnet-latest-ubuntu-x86_64>.
+<https://bin.wal.app>, for example, <https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64>.
 Note that due to DoS protection, it may not be possible to download the binaries with `curl` or
 `wget`.
 ```

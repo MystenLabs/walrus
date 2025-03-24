@@ -78,7 +78,7 @@ and looks like this:
 
 ```yaml
 # module: site
-# portal: walrus.site
+# portal: wal.app
 package:
 # general:
 #   rpc_url:
@@ -94,7 +94,7 @@ package:
 
 ```yaml
 # module: site
-# portal: walrus.site
+# portal: wal.app
 package: 0xdf9033cac39b7a9b9f76fb6896c9fc5283ba730d6976a2b1d85ad1e6036c3272
 # general:
 #   rpc_url: https://fullnode.testnet.sui.io:443

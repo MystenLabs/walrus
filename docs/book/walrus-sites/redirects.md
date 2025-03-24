@@ -6,7 +6,7 @@ specific, and possibly unique, Walrus Site.
 
 ## The goal
 
-Consider a collection of NFTs, such as the one published by <https://flatland.walrus.site>. As we
+Consider a collection of NFTs, such as the one published by <https://flatland.wal.app>. As we
 show there, each minted NFT has its own Walrus Site, which can be personalized based on the contents
 (e.g., the color) of the NFT itself. How can we achieve this?
 
