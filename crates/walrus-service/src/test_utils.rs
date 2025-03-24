@@ -2351,7 +2351,8 @@ pub mod test_cluster {
             with_subsidies,
             deploy_directory,
         )
-        .await?;
+        .await
+        .context("failed to create and init system for test")?;
 
         let n_nodes = members.len();
         let mut contract_clients = Vec::with_capacity(n_nodes);

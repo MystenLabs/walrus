@@ -259,23 +259,26 @@ impl EventProcessor {
     }
 
     /// Polls the event store for new events starting from the given sequence number.
-    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>> {
-        Ok(self
-            .stores
+    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>, TypedStoreError> {
+        self.stores
             .event_store
-            .iter_with_bounds(Some(from), None)
+            .safe_iter_with_bounds(Some(from), None)
             .take(MAX_EVENTS_PER_POLL)
-            .map(|(_, event)| event)
-            .collect())
+            .map(|result| result.map(|(_, event)| event))
+            .collect()
     }
 
     /// Polls the event store for the next event starting from the given sequence number,
     /// and returns the event along with any InitState that exists at that index.
     pub fn poll_next(&self, from: u64) -> Result<Option<StreamEventWithInitState>> {
-        let mut iter = self.stores.event_store.iter_with_bounds(Some(from), None);
-        let Some((index, event)) = iter.next() else {
+        let mut iter = self
+            .stores
+            .event_store
+            .safe_iter_with_bounds(Some(from), None);
+        let Some(result) = iter.next() else {
             return Ok(None);
         };
+        let (index, event) = result?;
         let init_state = self.get_init_state(index)?;
         let event_with_cursor = StreamEventWithInitState::new(event, init_state);
         Ok(Some(event_with_cursor))

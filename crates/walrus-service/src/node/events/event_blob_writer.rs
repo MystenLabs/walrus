@@ -351,9 +351,10 @@ impl EventBlobWriterFactory {
         )?;
 
         let event_cursor = pending
-            .unbounded_iter()
+            .safe_iter()
             .last()
-            .map(|(_, metadata)| metadata.event_cursor)
+            .map(|result| result.map(|(_, metadata)| metadata.event_cursor))
+            .transpose()?
             .or_else(|| {
                 failed_to_attest
                     .get(&())
@@ -376,9 +377,10 @@ impl EventBlobWriterFactory {
                     .map(|metadata| metadata.event_cursor)
             });
         let epoch = pending
-            .unbounded_iter()
+            .safe_iter()
             .last()
-            .map(|(_, metadata)| metadata.epoch)
+            .map(|result| result.map(|(_, metadata)| metadata.epoch))
+            .transpose()?
             .or_else(|| {
                 failed_to_attest
                     .get(&())
@@ -497,27 +499,37 @@ impl EventBlobWriterFactory {
         };
         let num_uncertified_blob_threshold =
             num_uncertified_blob_threshold.unwrap_or(DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD);
+
         let pending = pending_db
-            .unbounded_iter()
-            .filter(|(_, metadata)| {
-                metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+            .safe_iter()
+            .filter(|result| match result {
+                Ok((_, metadata)) => {
+                    metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+                }
+                Err(_) => true,
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let attested = attested_db
-            .unbounded_iter()
-            .filter(|(_, metadata)| {
-                metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+            .safe_iter()
+            .filter(|result| match result {
+                Ok((_, metadata)) => {
+                    metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+                }
+                Err(_) => true,
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let failed_to_attest = failed_to_attest_db
-            .unbounded_iter()
-            .filter(|(_, metadata)| {
-                metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+            .safe_iter()
+            .filter(|result| match result {
+                Ok((_, metadata)) => {
+                    metadata.end > last_certified_event_blob.ending_checkpoint_sequence_number
+                }
+                Err(_) => true,
             })
-            .collect::<Vec<_>>();
-        let total_uncertified_blobs = pending_db.unbounded_iter().count()
-            + failed_to_attest_db.unbounded_iter().count()
-            + attested_db.unbounded_iter().count();
+            .collect::<Result<Vec<_>, _>>()?;
+        let total_uncertified_blobs = pending_db.safe_iter().count()
+            + failed_to_attest_db.safe_iter().count()
+            + attested_db.safe_iter().count();
         let uncertified_blobs_after_last_certified =
             pending.len() + failed_to_attest.len() + attested.len();
 
@@ -1109,9 +1121,10 @@ impl EventBlobWriter {
     /// This method processes the next pending blob by storing its slivers,
     /// attesting it, and updating the database state. Returns the blob id if it is attested.
     async fn attest_pending_blob(&mut self) -> Result<Option<BlobId>> {
-        let Some((event_index, metadata)) = self.pending.unbounded_iter().next() else {
+        let Some(result) = self.pending.safe_iter().next() else {
             return Ok(None);
         };
+        let (event_index, metadata) = result?;
 
         self.update_blob_header(
             metadata.event_cursor.element_index,
@@ -1408,9 +1421,10 @@ impl EventBlobWriter {
     /// This method updates the database state to move attested blobs back to
     /// pending status when an epoch change occurs.
     fn move_attested_blob_to_pending(&mut self, batch: &mut DBBatch) -> Result<()> {
-        let Some((_, metadata)) = self.attested.unbounded_iter().next() else {
+        let Some(result) = self.attested.safe_iter().next() else {
             return Ok(());
         };
+        let (_, metadata) = result?;
 
         batch.delete_batch(&self.attested, std::iter::once(()))?;
         batch.insert_batch(
@@ -1519,7 +1533,7 @@ mod tests {
         generate_and_write_events(&mut blob_writer, num_checkpoints, NUM_EVENTS_PER_CHECKPOINT)
             .await?;
 
-        let pending_blobs = blob_writer.pending.unbounded_iter().collect::<Vec<_>>();
+        let pending_blobs = blob_writer.pending.safe_iter().collect::<Vec<_>>();
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
 
         let mut prev_blob_id = BlobId([0; 32]);
@@ -1605,7 +1619,10 @@ mod tests {
             .expect("Attested blob should exist");
         let attested_blob_id = attested_blob.blob_id;
 
-        let pending_blobs: Vec<_> = blob_writer.pending.unbounded_iter().collect();
+        let pending_blobs = blob_writer
+            .pending
+            .safe_iter()
+            .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
         let first_pending_blob_event_index = pending_blobs[0].0;
 
@@ -1621,7 +1638,7 @@ mod tests {
         )?;
 
         assert_eq!(
-            blob_writer.pending.unbounded_iter().count() as u64,
+            blob_writer.pending.safe_iter().count() as u64,
             NUM_BLOBS - 2
         );
 
@@ -1656,7 +1673,10 @@ mod tests {
             .expect("Attested blob should exist");
         let attested_blob_id = attested_blob.blob_id;
 
-        let pending_blobs: Vec<_> = blob_writer.pending.unbounded_iter().collect();
+        let pending_blobs = blob_writer
+            .pending
+            .safe_iter()
+            .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(pending_blobs.len() as u64, NUM_BLOBS - 1);
         let first_pending_blob_event_index = pending_blobs[0].0;
 
@@ -1672,7 +1692,7 @@ mod tests {
         )?;
 
         assert_eq!(
-            blob_writer.pending.unbounded_iter().count() as u64,
+            blob_writer.pending.safe_iter().count() as u64,
             NUM_BLOBS - 2
         );
 

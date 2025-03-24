@@ -57,13 +57,6 @@ else
     --config 'patch.crates-io.tokio.rev = "9f175e3517812929ad6bdd8db443f1bbd8107965"'
     --config 'patch.crates-io.futures-timer.git = "https://github.com/MystenLabs/mysten-sim.git"'
     --config 'patch.crates-io.futures-timer.rev = "9f175e3517812929ad6bdd8db443f1bbd8107965"'
-    # TODO: Remove this again when we upgrade the Sui version.
-    --config "patch.'https://github.com/MystenLabs/mysten-sim'.msim.git = \
-      'https://github.com/MystenLabs/mysten-sim?rev=9f175e3517812929ad6bdd8db443f1bbd8107965'"
-    --config "patch.'https://github.com/MystenLabs/mysten-sim'.msim.rev = '9f175e3517812929ad6bdd8db443f1bbd8107965'"
-    --config "patch.'https://github.com/MystenLabs/mysten-sim'.msim-macros.git = \
-      'https://github.com/MystenLabs/mysten-sim?rev=9f175e3517812929ad6bdd8db443f1bbd8107965'"
-    --config "patch.'https://github.com/MystenLabs/mysten-sim'.msim-macros.rev = '9f175e3517812929ad6bdd8db443f1bbd8107965'"
   )
 fi
 

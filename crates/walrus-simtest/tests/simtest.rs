@@ -1199,7 +1199,7 @@ mod tests {
                 false,
             )
             .await
-            .unwrap();
+            .expect("Failed to setup test cluster");
 
         assert!(walrus_cluster.nodes[5].node_id.is_none());
         let client_arc = Arc::new(client);
