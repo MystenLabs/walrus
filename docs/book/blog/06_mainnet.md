@@ -25,7 +25,7 @@ Besides the promise of stability and security, the Mainnet release of Walrus com
 notable new features and changes:
 
 - A production staking app. You can now use WAL to stake and unstake to determine the composition
-  of future Walrus storage committees.
+  of future Walrus storage committees. We provide a [staking dapp](),
 
 - Blob attributes.
 - Commands to burn blob objects on Sui.
