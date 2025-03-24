@@ -837,8 +837,8 @@ impl CliOutput for ExtendBlobOutput {
     }
 }
 
-impl CliOutput for NodeHealthOutput {
-    fn print_cli_output(&self) {
+impl NodeHealthOutput {
+    fn print_cli_output(&self, latest_seq: Option<u64>) {
         printdoc! {"
 
             {heading}
@@ -873,6 +873,7 @@ impl CliOutput for NodeHealthOutput {
                     Events persisted: {persisted}
                     Events pending: {pending}{highest_finished_event_index_output}
                     Latest checkpoint sequence number: {latest_checkpoint_sequence_number_output}
+                    Estimated checkpoint lag: {checkpoint_lag}
 
                     {shard_heading}
                     Owned shards: {owned}
@@ -901,6 +902,13 @@ impl CliOutput for NodeHealthOutput {
                         .map_or("n/a".to_string(), |seq_num|
                             format!("{seq_num}")
                         ),
+                    checkpoint_lag =
+                        match (latest_seq, health_info.latest_checkpoint_sequence_number) {
+                            (Some(latest_seq), Some(checkpoint_seq)) => {
+                                format!("{}", std::cmp::max(latest_seq - checkpoint_seq, 0))
+                            }
+                            _ => "n/a".to_string(),
+                        },
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
                     read_only = health_info.shard_summary.read_only,
@@ -955,7 +963,7 @@ impl CliOutput for ServiceHealthInfoOutput {
                         .or_insert(0) += 1;
                 }
             }
-            node.print_cli_output();
+            node.print_cli_output(self.latest_seq);
             add_node_health_to_table(&mut table, node, idx);
         }
         if table.len() > 3 {
