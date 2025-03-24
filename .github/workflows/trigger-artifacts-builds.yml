@@ -1,4 +1,5 @@
-name: Triggers builds for docker images and binaries
+name: Trigger Build Artifacts
+run-name: Trigger Build Artifacts → ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
