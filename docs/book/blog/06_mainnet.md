@@ -78,7 +78,7 @@ features before they are deployed in production.
 
 Walrus Sites on Testnet will also follow similar restrictions to Mainnet, and require a Suins name
 to be displayed through the Testnet portal. We may also deploy additional restrictions on the
-public portal to reduce abuse. Developers are encourages to use a local Sites portal for tests
+public portal to reduce abuse. Developers are encouraged to use a local Sites portal for tests
 and development activities.
 
 ## Open source Walrus codebase
