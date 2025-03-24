@@ -263,43 +263,70 @@ mod tests {
 
     /// Update StorageNodeConfig based on TestUpdateParams where all fields are Options
     async fn update_config_from_test_params(
+        client: &SuiContractClient,
+        node_id: ObjectID,
         config: &Arc<RwLock<StorageNodeConfig>>,
         params: &TestUpdateParams,
-    ) {
+    ) -> Result<(), anyhow::Error> {
+        let remote_config = test_get_synced_node_config_set(client, node_id).await?;
         let mut config_write = config.write().await;
 
         // Update all optional fields
         if let Some(name) = &params.name {
+            assert_ne!(&remote_config.name, name);
             config_write.name = name.clone();
         }
 
         if let Some(public_host) = &params.public_host {
+            assert_ne!(&remote_config.network_address.get_host(), &public_host);
             config_write.public_host = public_host.clone();
         }
 
         if let Some(public_port) = params.public_port {
+            assert_ne!(
+                &remote_config
+                    .network_address
+                    .try_get_port()
+                    .expect("should get port"),
+                &Some(public_port)
+            );
             config_write.public_port = public_port;
         }
 
         if let Some(network_key_pair) = &params.network_key_pair {
+            assert_ne!(
+                &remote_config.network_public_key,
+                network_key_pair
+                    .get()
+                    .expect("should get network key pair")
+                    .public()
+            );
             config_write.network_key_pair = network_key_pair.clone();
         }
 
         if let Some(next_protocol_key_pair) = &params.next_protocol_key_pair {
+            assert_ne!(
+                remote_config.next_public_key.as_ref(),
+                next_protocol_key_pair.get().map(|kp| kp.public())
+            );
             config_write.next_protocol_key_pair = Some(next_protocol_key_pair.clone());
         }
 
         if let Some(voting_params) = &params.voting_params {
+            assert_ne!(&remote_config.voting_params, voting_params);
             config_write.voting_params = voting_params.clone();
         }
 
         if let Some(metadata) = &params.metadata {
+            assert_ne!(&remote_config.metadata, metadata);
             config_write.metadata = metadata.clone();
         }
 
         if let Some(commission_rate) = params.commission_rate {
             config_write.commission_rate = commission_rate;
         }
+
+        Ok(())
     }
 
     /// Wait until the node's configuration is synced with the on-chain state.
@@ -1185,7 +1212,7 @@ mod tests {
                 None,
             )
             .await
-            .unwrap();
+            .expect("Failed to setup test cluster");
 
         assert!(walrus_cluster.nodes[5].node_id.is_none());
         let client_arc = Arc::new(client);
@@ -1352,11 +1379,11 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_registered_node_update_protocol_key() {
-        let (_sui_cluster, mut walrus_cluster, client) =
+        let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
+                Duration::from_secs(10),
                 TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    node_weights: vec![1, 2, 3, 3, 4, 2],
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
@@ -1372,91 +1399,32 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(walrus_cluster.nodes[5].node_id.is_none());
+        assert!(walrus_cluster.nodes[5].node_id.is_some());
         let client_arc = Arc::new(client);
-
-        // Get current committee and verify node[5] is in it
-        let committees = client_arc
-            .inner
-            .get_latest_committees_in_test()
-            .await
-            .expect("Should get committees");
-
-        assert!(committees
-            .current_committee()
-            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
-            .is_none());
-
-        // Check the current protocol key in the staking pool
-        let pool = client_arc
-            .as_ref()
-            .as_ref()
-            .sui_client()
-            .read_client
-            .get_staking_pool(
-                walrus_cluster.nodes[5]
-                    .storage_node_capability
-                    .as_ref()
-                    .unwrap()
-                    .node_id,
-            )
-            .await
-            .expect("Failed to get staking pool");
 
         // Generate new protocol key pair
         let new_protocol_key_pair = walrus_core::keys::ProtocolKeyPair::generate();
 
+        let config = walrus_cluster.nodes[5].node_config_arc.clone();
         // Make sure the new protocol key is different from the current one
-        assert_ne!(&pool.node_info.public_key, new_protocol_key_pair.public());
-
-        // Update the next protocol key pair in the node's config
-        walrus_cluster.nodes[5]
-            .storage_node_config
-            .next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
-        // Update the node's public key to match the new protocol key pair
-        walrus_cluster.nodes[5].public_key = new_protocol_key_pair.public().clone();
-
-        let config = Arc::new(RwLock::new(
-            walrus_cluster.nodes[5].storage_node_config.clone(),
-        ));
-        // Trace the protocol key and next protocol key before spawning the node
-        tracing::info!(
-            "current protocol key: {:?}, next protocol key: {:?}",
+        assert_ne!(
             config.read().await.protocol_key_pair().public(),
-            config
-                .read()
-                .await
-                .next_protocol_key_pair()
+            new_protocol_key_pair.public()
+        );
+        config.write().await.next_protocol_key_pair = Some(new_protocol_key_pair.clone().into());
+
+        wait_till_node_config_synced(
+            &client_arc.as_ref().as_ref().sui_client(),
+            walrus_cluster.nodes[5]
+                .storage_node_capability
                 .as_ref()
-                .map(|kp| kp.public())
-        );
-        walrus_cluster.nodes[5].node_id = Some(
-            SimStorageNodeHandle::spawn_node(
-                config.clone(),
-                None,
-                walrus_cluster.nodes[5].cancel_token.clone(),
-            )
-            .await
-            .id(),
-        );
-
-        // Adding stake to the new node so that it can be in Active state.
-        client_arc
-            .as_ref()
-            .as_ref()
-            .stake_with_node_pool(
-                walrus_cluster.nodes[5]
-                    .storage_node_capability
-                    .as_ref()
-                    .unwrap()
-                    .node_id,
-                test_cluster::FROST_PER_NODE_WEIGHT * 3,
-            )
-            .await
-            .expect("stake with node pool should not fail");
-
-        // Wait for a bit to let the node start up
-        tokio::time::sleep(Duration::from_secs(100)).await;
+                .unwrap()
+                .node_id,
+            &walrus_cluster.nodes[5].node_config_arc,
+            Duration::from_secs(100),
+        )
+        .await
+        .expect("Node config should be synced");
 
         // Check that the protocol key in StakePool is updated to the new one
         let pool = client_arc
@@ -1806,11 +1774,11 @@ mod tests {
         ]
     }
     async fn test_sync_node_params(update_params: &TestUpdateParams) {
-        let (_sui_cluster, mut walrus_cluster, client) =
+        let (_sui_cluster, walrus_cluster, client) =
             test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
+                Duration::from_secs(10),
                 TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 0],
+                    node_weights: vec![1, 2, 3, 3, 4, 2],
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
@@ -1826,57 +1794,26 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(walrus_cluster.nodes[5].node_id.is_none());
+        assert!(walrus_cluster.nodes[5].node_id.is_some());
         let client_arc = Arc::new(client);
 
-        let config = Arc::new(RwLock::new(
-            walrus_cluster.nodes[5].storage_node_config.clone(),
-        ));
-        walrus_cluster.nodes[5].node_id = Some(
-            SimStorageNodeHandle::spawn_node(
-                config.clone(),
-                None,
-                walrus_cluster.nodes[5].cancel_token.clone(),
-            )
-            .await
-            .id(),
-        );
-
-        // Adding stake to the new node so that it can be in Active state.
-        client_arc
-            .as_ref()
-            .as_ref()
-            .stake_with_node_pool(
-                walrus_cluster.nodes[5]
-                    .storage_node_capability
-                    .as_ref()
-                    .unwrap()
-                    .node_id,
-                test_cluster::FROST_PER_NODE_WEIGHT * 3,
-            )
-            .await
-            .expect("stake with node pool should not fail");
-
-        wait_until_node_is_active(&walrus_cluster.nodes[5], Duration::from_secs(100))
-            .await
-            .expect("Node should be active");
+        let config = walrus_cluster.nodes[5].node_config_arc.clone();
 
         let node_id = walrus_cluster.nodes[5]
             .storage_node_capability
             .as_ref()
             .unwrap()
             .node_id;
-        wait_till_node_config_synced(
+
+        // Update the node config with the new params.
+        update_config_from_test_params(
             &client_arc.as_ref().as_ref().sui_client(),
             node_id,
             &config,
-            Duration::from_secs(100),
+            update_params,
         )
         .await
-        .expect("Node config should be synced");
-
-        // Update the node config with the new params.
-        update_config_from_test_params(&config, update_params).await;
+        .expect("Failed to update node config");
 
         // Wait for the node config to be synced again.
         wait_till_node_config_synced(

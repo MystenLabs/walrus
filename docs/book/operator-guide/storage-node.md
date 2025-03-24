@@ -1,5 +1,5 @@
 # Operating a storage node
-<!-- TODO (#141): Update and add further details, also on monitoring. -->
+<!-- TODO (WAL-118): Update and add further details, also on monitoring. -->
 
 The binary of the storage node is not yet publicly available. Prior to official network launch the
 code will be open-sourced.
@@ -29,7 +29,7 @@ mandatory and optional configuration parameters will be made available with the 
 Here are some important config params from a shortened version of the `walrus-node.yaml` config
 file:
 
-<!-- TODO(WAL-118) : change the Testnet url below. -->
+<!-- TODO(WAL-118): change the Testnet URL below. -->
 
 ```yaml
 storage_path: /opt/walrus/db

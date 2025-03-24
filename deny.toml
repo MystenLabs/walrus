@@ -16,16 +16,10 @@ ignore = [
   "RUSTSEC-2024-0388",
   # `paste` is unmaintained.
   "RUSTSEC-2024-0436",
-  # TODO: The following can probably be removed after upgrading Sui to v1.45.
   # `backoff` is unmaintained.
   "RUSTSEC-2025-0012",
   # Crash due to uncontrolled recursion in `protobuf` crate.
   "RUSTSEC-2024-0437",
-  # `x509-parser v0.14.0` used by anemo and Sui depends on a very old version of `ring`.
-  "RUSTSEC-2025-0009",
-  "RUSTSEC-2025-0010",
-  # `humantime` is unmaintained.
-  "RUSTSEC-2025-0014",
 ]
 
 
@@ -45,7 +39,6 @@ allow = [
   "BSL-1.0", # allowed by sui
   "CC0-1.0",
   "ISC",
-  "LicenseRef-ring",
   "MIT",
   "MPL-2.0",
   "Unicode-3.0",
@@ -57,12 +50,6 @@ allow = [
 # canonical license text of a valid SPDX license file.
 # [possible values: any between 0.0 and 1.0].
 confidence-threshold = 0.8
-
-
-[[licenses.clarify]]
-name = "ring"
-expression = "LicenseRef-ring"
-license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
@@ -78,10 +65,11 @@ ignore = true
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "deny"
 skip = [
+  { name = "aws-smithy-http" }, # AWS crates are not fully in sync.
+  { name = "funty", version = "1.1.0" }, # Sui depends on both 1.1.0 and 2.0.0.
   { name = "itertools", version = "<=12.1" },
+  { name = "radium", version = "0.6.2" }, # Sui depends on both 0.6.2 and 0.7.0.
   { name = "synstructure", version = "0.12.6" },
-  # AWS crates are not fully in sync.
-  { name = "aws-smithy-http" },
 ]
 skip-tree = [
   # Mysten's libraries pull in several conflicting repo versions.

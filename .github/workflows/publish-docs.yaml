@@ -6,10 +6,11 @@ on:
       - "main"
     paths:
       - "book.toml"
-      - "docs/**"
-      - "theme/**"
+      - "docs/book/**"
+      - "docs/theme/**"
+      - "docs/mdbook-admonish.css"
       - ".github/actions/build-mdbook/action.yaml"
-      - ".github/workflows/publish.yaml"
+      - ".github/workflows/publish-docs.yaml"
   workflow_dispatch:
     inputs:
       publish-pages:
@@ -41,7 +42,7 @@ jobs:
         with:
           with_linkcheck: "false"
       - name: Update GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4.7.3
+        uses: JamesIves/github-pages-deploy-action@6c2d9db40f9296374acc17b90404b6e8864128c8 # pin@v4.7.3
         with:
           folder: docs/build/html
           clean-exclude: pr-preview/

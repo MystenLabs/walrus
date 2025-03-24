@@ -124,7 +124,8 @@ impl<T: EncodingAxis> SliverData<T> {
             )
             .expect("n_shards and shard_index < n_shards are checked above");
         ensure!(
-            self.get_merkle_root::<Blake2b256>(&encoding_config_for_type)?
+            self.get_merkle_root::<Blake2b256>(&encoding_config_for_type)
+                .expect("encoding definitely works after checking all sizes above")
                 == *pair_metadata.hash::<T>(),
             SliverVerificationError::MerkleRootMismatch
         );

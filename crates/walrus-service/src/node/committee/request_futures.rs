@@ -476,7 +476,6 @@ where
                 SliverVerificationError::MerkleRootMismatch => {
                     panic!("should have been converted to an inconsistency proof")
                 }
-                SliverVerificationError::RecoveryFailed(_) => todo!("what generates this?"),
             },
         }
     }
@@ -685,7 +684,6 @@ where
                 SliverVerificationError::MerkleRootMismatch => {
                     panic!("should have been converted to an inconsistency proof")
                 }
-                SliverVerificationError::RecoveryFailed(_) => todo!("what generates this?"),
             },
         }
     }

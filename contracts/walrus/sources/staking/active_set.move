@@ -4,11 +4,6 @@
 /// Contains an active set of storage nodes. The active set is a smart collection
 /// that only stores up to a 1000 nodes. The active set tracks the total amount of staked
 /// WAL to make the calculation of the rewards and voting power distribution easier.
-///
-/// TODOs:
-/// - consider using a different data structure for the active set (#714)
-/// - consider removing `min_stake` field, use threshold from number of
-///   shards and total_staked (#715)
 module walrus::active_set;
 
 // Error codes
@@ -27,11 +22,10 @@ public struct ActiveSetEntry has copy, drop, store {
 /// to a 1000 nodes.
 /// Additionally, the active set tracks the total amount of staked WAL to make
 /// the calculation of the rewards and voting power distribution easier.
-///
-/// TODO: implement a reserve to track N + K nodes, where N is the active set
-/// size and K is the number of nodes that are in the process of being added to
-/// the active set. This will allow us to handle removals from the active set
-/// without refetching the nodes from the storage.
+// TODO: implement a reserve to track N + K nodes, where N is the active set
+// size and K is the number of nodes that are in the process of being added to
+// the active set. This will allow us to handle removals from the active set
+// without refetching the nodes from the storage.
 public struct ActiveSet has copy, drop, store {
     /// The maximum number of storage nodes in the active set.
     /// Potentially remove this field.

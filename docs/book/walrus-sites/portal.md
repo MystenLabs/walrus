@@ -237,5 +237,12 @@ To serve one of the portals. Typically, you will find it served at `localhost:30
 side portal) or `localhost:8080` for the service worker (but check the output of the serve
 command).
 
+## Next Steps
+
+As a next step, you can bring your own domain to the portal. This is useful if you want to use
+Walrus Sites to host your site under a custom domain name. Learn how to do this in
+the [next section][own-domain].
+
 [get-docker]: https://docs.docker.com/get-docker/
 [edge-config]: https://vercel.com/docs/edge-config
+[own-domain]: ./bring-your-own-domain.md
