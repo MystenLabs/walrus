@@ -7,7 +7,7 @@ use prometheus::IntGauge;
 mod tokio;
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
-pub use tokio::TaskMonitorCollector;
+pub use tokio::{TaskMonitorCollector, TaskMonitorFamily};
 
 /// Defines a set of prometheus metrics.
 ///

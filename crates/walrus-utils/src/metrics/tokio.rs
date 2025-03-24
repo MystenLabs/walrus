@@ -1,15 +1,121 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use prometheus::{
     core::{Collector, Desc},
     proto::{Counter, LabelPair, Metric, MetricFamily, MetricType},
+    Registry,
 };
 use tokio_metrics::TaskMonitor;
 
+/// Default duration at which polls cross the threshold into being categorized as 'slow' is 1ms.
+///
+/// This is currently higher than [`TaskMonitor::DEFAULT_SLOW_POLL_THRESHOLD`] (50 μs) to help
+/// identify the really slow tasks.
+pub const DEFAULT_SLOW_POLL_THRESHOLD: Duration = Duration::from_millis(1);
+/// Default duration at which schedules cross the threshold into being categorized as 'long' is 1ms.
+///
+/// This is currently higher than [`TaskMonitor::DEFAULT_LONG_DELAY_THRESHOLD`] (50 μs) to help
+/// identify the heavily impacted tasks.
+pub const DEFAULT_LONG_DELAY_THRESHOLD: Duration = Duration::from_millis(1);
+
 const TASK_METRICS_NAMESPACE: &str = "tokio_task_metrics";
+
+/// A family of [`TaskMonitor`]s.
+///
+/// Stores a thread-safe map of keys `K` to [`TaskMonitor`]s. Existing or new `TaskMonitor`s can
+/// be retrieved with [`Self::get_or_insert_with_task_name`].
+#[derive(Debug, Clone)]
+pub struct TaskMonitorFamily<K> {
+    inner: Arc<TaskMonitorFamilyInner<K>>,
+}
+
+#[derive(Debug)]
+struct TaskMonitorFamilyInner<K> {
+    registry: Registry,
+    task_monitors: RwLock<HashMap<K, TaskMonitor>>,
+}
+
+impl<K> TaskMonitorFamily<K>
+where
+    K: Hash + Eq,
+{
+    /// Creates a new instance of the [`TaskMonitorCollector`] and registers it with the provided
+    /// prometheus registry.
+    pub fn new(registry: Registry) -> Self {
+        Self {
+            inner: Arc::new(TaskMonitorFamilyInner {
+                registry,
+                task_monitors: Default::default(),
+            }),
+        }
+    }
+
+    /// Gets an existing [`TaskMonitor`] with the specified `key`.
+    ///
+    /// If no such [`TaskMonitor`] exists, then a new one is created under the provided key.
+    ///
+    /// The function `task_name` is used to provide a name for the task in the associated metrics.
+    /// It is attached to the metric as `task = '{task_name()}'` and must be unique among *ALL*
+    /// [`TaskMonitor`]s registered on the registry.
+    pub fn get_or_insert_with_task_name<F>(&self, key: &K, task_name: F) -> TaskMonitor
+    where
+        K: Clone,
+        F: FnOnce() -> String,
+    {
+        // In most cases, the route should already be defined so attempt to get it with a read-lock.
+        if let Some(task_monitor) = self
+            .inner
+            .task_monitors
+            .read()
+            .expect("mutex is not poisoned")
+            .get(key)
+            .cloned()
+        {
+            return task_monitor;
+        }
+
+        // Between the above call, and the write-lock below, another thread may have also attempted
+        // to create the same monitor. For this reason, when creating the monitor below, fall back
+        // to any existing monitor.
+        self.inner
+            .task_monitors
+            .write()
+            .expect("mutex is not poisoned")
+            .entry(key.clone())
+            .or_insert_with(move || {
+                let collector = TaskMonitorCollector::new(task_name());
+                let monitor = collector.monitor().clone();
+                self.inner
+                    .registry
+                    .register(Box::new(collector))
+                    .expect("collectors must be unique");
+
+                monitor
+            })
+            .clone()
+    }
+
+    /// Gets an existing [`TaskMonitor`] with the specified `key`.
+    ///
+    /// If no such [`TaskMonitor`] exists, then a new one is created under the provided key with a
+    /// task name of `key.to_string()`.
+    ///
+    /// See [`Self::get_or_insert_with_task_name`] for more details.
+    pub fn get_or_insert(&self, key: &K) -> TaskMonitor
+    where
+        K: Clone + ToString,
+    {
+        self.get_or_insert_with_task_name(key, || key.to_string())
+    }
+}
 
 /// Implements the [`prometheus::core::Collector`] interface for the [`TaskMonitor`]
 ///
@@ -41,10 +147,15 @@ impl Collector for TaskMonitorCollector {
 
 impl TaskMonitorCollector {
     /// Create a new instance of [`TaskMonitorCollector`] with the specified task name.
-    pub fn new(monitor: TaskMonitor, task: String) -> Self {
+    pub fn new(task: String) -> Self {
+        let mut builder = TaskMonitor::builder();
+        builder
+            .with_long_delay_threshold(DEFAULT_LONG_DELAY_THRESHOLD)
+            .with_slow_poll_threshold(DEFAULT_SLOW_POLL_THRESHOLD);
+
         let const_labels = [("task".to_owned(), task)].into_iter().collect();
         let mut this = Self {
-            inner: monitor,
+            inner: builder.build(),
             descriptions: vec![],
             metric_families: vec![],
             const_labels,
@@ -55,8 +166,7 @@ impl TaskMonitorCollector {
         this
     }
 
-    #[cfg(test)]
-    fn monitor(&self) -> &TaskMonitor {
+    pub fn monitor(&self) -> &TaskMonitor {
         &self.inner
     }
 
@@ -237,7 +347,7 @@ mod test {
     use super::*;
 
     fn task_monitor_collector() -> TaskMonitorCollector {
-        TaskMonitorCollector::new(TaskMonitor::default(), "test_monitor".to_owned())
+        TaskMonitorCollector::new("test_monitor".to_owned())
     }
 
     walrus_test_utils::param_test! {
@@ -316,14 +426,12 @@ mod test {
 
         registry
             .register(Box::new(TaskMonitorCollector::new(
-                TaskMonitor::default(),
                 "test_monitor1".to_owned(),
             )))
             .expect("first monitor should successfully register");
 
         registry
             .register(Box::new(TaskMonitorCollector::new(
-                TaskMonitor::default(),
                 "test_monitor2".to_owned(),
             )))
             .expect("second monitor should successfully register");

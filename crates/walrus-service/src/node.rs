@@ -47,6 +47,7 @@ use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
 use thread_pool::ThreadPoolBuilder;
 use tokio::{select, sync::watch, time::Instant};
+use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
 use tracing::{field, Instrument as _, Span};
@@ -116,6 +117,7 @@ use walrus_sui::{
         GENESIS_EPOCH,
     },
 };
+use walrus_utils::metrics::TaskMonitorFamily;
 
 use self::{
     blob_sync::BlobSyncHandler,
@@ -509,6 +511,7 @@ pub struct StorageNodeInner {
     node_capability: ObjectID,
     blob_retirement_notifier: Arc<BlobRetirementNotifier>,
     symbol_service: RecoverySymbolService,
+    registry: Registry,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -603,6 +606,7 @@ impl StorageNode {
                 registry,
             ),
             encoding_config,
+            registry: registry.clone(),
         });
 
         blocklist.start_refresh_task();
@@ -882,93 +886,106 @@ impl StorageNode {
         let mut maybe_epoch_at_start = Some(self.inner.committee_service.get_epoch());
 
         let mut indexed_element_stream = index_stream.zip(event_stream);
+        let task_monitors = TaskMonitorFamily::<&'static str>::new(self.inner.registry.clone());
         // Important: Events must be handled consecutively and in order to prevent (intermittent)
         // invariant violations and interference between different events.
         while let Some((element_index, stream_element)) = indexed_element_stream.next().await {
-            let node_status = self.inner.storage.node_status()?;
-            let span = tracing::info_span!(
-                parent: &Span::current(),
-                "blob_store receive",
-                "otel.kind" = "CONSUMER",
-                "otel.status_code" = field::Empty,
-                "otel.status_message" = field::Empty,
-                "messaging.operation.type" = "receive",
-                "messaging.system" = "sui",
-                "messaging.destination.name" = "blob_store",
-                "messaging.client.id" = %self.inner.public_key(),
-                "walrus.event.index" = element_index,
-                "walrus.event.tx_digest" = ?stream_element.element.event_id()
-                    .map(|c| c.tx_digest),
-                "walrus.event.checkpoint_seq" = ?stream_element.checkpoint_event_position
-                    .checkpoint_sequence_number,
-                "walrus.event.kind" = stream_element.element.label(),
-                "walrus.blob_id" = ?stream_element.element.blob_id(),
-                "walrus.node_status" = %node_status,
-                "error.type" = field::Empty,
-            );
-
-            fail_point_arg!("event_processing_epoch_check", |epoch: Epoch| {
-                tracing::info!("updating epoch check to {:?}", epoch);
-                maybe_epoch_at_start = Some(epoch);
+            let event_label: &'static str = stream_element.element.label();
+            let monitor = task_monitors.get_or_insert_with_task_name(&event_label, || {
+                format!("process_event {}", event_label)
             });
 
-            let should_write = element_index >= writer_cursor.element_index;
-            let should_process = element_index >= storage_node_cursor.element_index;
-            ensure!(should_write || should_process, "event stream out of sync");
+            let task = async {
+                let node_status = self.inner.storage.node_status()?;
+                let span = tracing::info_span!(
+                    parent: &Span::current(),
+                    "blob_store receive",
+                    "otel.kind" = "CONSUMER",
+                    "otel.status_code" = field::Empty,
+                    "otel.status_message" = field::Empty,
+                    "messaging.operation.type" = "receive",
+                    "messaging.system" = "sui",
+                    "messaging.destination.name" = "blob_store",
+                    "messaging.client.id" = %self.inner.public_key(),
+                    "walrus.event.index" = element_index,
+                    "walrus.event.tx_digest" = ?stream_element.element.event_id()
+                        .map(|c| c.tx_digest),
+                    "walrus.event.checkpoint_seq" = ?stream_element.checkpoint_event_position
+                        .checkpoint_sequence_number,
+                    "walrus.event.kind" = stream_element.element.label(),
+                    "walrus.blob_id" = ?stream_element.element.blob_id(),
+                    "walrus.node_status" = %node_status,
+                    "error.type" = field::Empty,
+                );
 
-            if should_process {
-                if let Some(epoch_at_start) = maybe_epoch_at_start {
-                    if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                        tracing::debug!(
-                            "checking the first contract event if we're severely lagging"
-                        );
-                        // Clear the starting epoch, so that we never make this check again.
-                        maybe_epoch_at_start = None;
+                fail_point_arg!("event_processing_epoch_check", |epoch: Epoch| {
+                    tracing::info!("updating epoch check to {:?}", epoch);
+                    maybe_epoch_at_start = Some(epoch);
+                });
 
-                        // Checks if the node is severely lagging behind.
-                        if node_status != NodeStatus::RecoveryCatchUp
-                            && event.event_epoch() + 1 < epoch_at_start
+                let should_write = element_index >= writer_cursor.element_index;
+                let should_process = element_index >= storage_node_cursor.element_index;
+                ensure!(should_write || should_process, "event stream out of sync");
+
+                if should_process {
+                    if let Some(epoch_at_start) = maybe_epoch_at_start {
+                        if let EventStreamElement::ContractEvent(ref event) = stream_element.element
                         {
-                            tracing::warn!(
-                                "the current epoch ({}) is far ahead of the event epoch ({}); \
-                                node entering recovery mode",
-                                epoch_at_start,
-                                event.event_epoch()
+                            tracing::debug!(
+                                "checking the first contract event if we're severely lagging"
                             );
-                            self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                            // Clear the starting epoch, so that we never make this check again.
+                            maybe_epoch_at_start = None;
+
+                            // Checks if the node is severely lagging behind.
+                            if node_status != NodeStatus::RecoveryCatchUp
+                                && event.event_epoch() + 1 < epoch_at_start
+                            {
+                                tracing::warn!(
+                                    "the current epoch ({}) is far ahead of the event epoch ({}); \
+                                node entering recovery mode",
+                                    epoch_at_start,
+                                    event.event_epoch()
+                                );
+                                self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                            }
                         }
+                    }
+
+                    // Ignore the error here since this is a best effort operation, and we don't
+                    // want any error from it to stop the node.
+                    if let Err(error) = self.maybe_record_event_source(
+                        element_index,
+                        &stream_element.checkpoint_event_position,
+                    ) {
+                        tracing::warn!(?error, "Failed to record event source");
+                    }
+
+                    let event_handle = EventHandle::new(
+                        element_index,
+                        stream_element.element.event_id(),
+                        self.inner.clone(),
+                    );
+                    self.process_event(event_handle, stream_element.clone())
+                        .inspect_err(|err| {
+                            let span = tracing::Span::current();
+                            span.record("otel.status_code", "error");
+                            span.record("otel.status_message", field::display(err));
+                        })
+                        .instrument(span)
+                        .await?;
+                }
+
+                if should_write {
+                    if let Some(writer) = &mut event_blob_writer {
+                        writer.write(stream_element.clone(), element_index).await?;
                     }
                 }
 
-                // Ignore the error here since this is a best effort operation, and we don't want
-                // any error from it to stop the node.
-                if let Err(error) = self.maybe_record_event_source(
-                    element_index,
-                    &stream_element.checkpoint_event_position,
-                ) {
-                    tracing::warn!(?error, "Failed to record event source");
-                }
+                anyhow::Result::<()>::Ok(())
+            };
 
-                let event_handle = EventHandle::new(
-                    element_index,
-                    stream_element.element.event_id(),
-                    self.inner.clone(),
-                );
-                self.process_event(event_handle, stream_element.clone())
-                    .inspect_err(|err| {
-                        let span = tracing::Span::current();
-                        span.record("otel.status_code", "error");
-                        span.record("otel.status_message", field::display(err));
-                    })
-                    .instrument(span)
-                    .await?;
-            }
-
-            if should_write {
-                if let Some(writer) = &mut event_blob_writer {
-                    writer.write(stream_element.clone(), element_index).await?;
-                }
-            }
+            TaskMonitor::instrument(&monitor, task).await?;
         }
 
         bail!("event stream for blob events stopped")
