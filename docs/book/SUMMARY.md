@@ -57,7 +57,6 @@
   - [Bring your own domain](./walrus-sites/bring-your-own-domain.md)
   - [Site data authentication](./walrus-sites/authentication.md)
   - [Known restrictions](./walrus-sites/restrictions.md)
-- [Terms of service](./walrus-sites/tos.md)
 
 ---
 
