@@ -82,7 +82,7 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
         let mut total_encoded_size = 0;
         let mut total_cost = 0;
         let mut reuse_and_extend_count = 0;
-        let total_count = self.len();
+        let mut newly_certified = 0;
 
         for res in self.iter() {
             if let BlobStoreResult::NewlyCreated {
@@ -96,15 +96,18 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
                 if let RegisterBlobOp::ReuseAndExtend { .. } = resource_operation {
                     reuse_and_extend_count += 1;
                 }
+                if let RegisterBlobOp::RegisterFromScratch { .. } = resource_operation {
+                    newly_certified += 1;
+                }
+                if let RegisterBlobOp::ReuseAndExtendNonCertified { .. } = resource_operation {
+                    newly_certified += 1;
+                }
             }
         }
 
         let mut parts = Vec::new();
-        if total_count - reuse_and_extend_count > 0 {
-            parts.push(format!(
-                "{} newly certified",
-                total_count - reuse_and_extend_count
-            ));
+        if newly_certified > 0 {
+            parts.push(format!("{} newly certified", newly_certified));
         }
         if reuse_and_extend_count > 0 {
             parts.push(format!("{} extended", reuse_and_extend_count));
