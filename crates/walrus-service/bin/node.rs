@@ -344,7 +344,7 @@ struct ConfigArgs {
     #[clap(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
     /// Additional Sui full-node RPC endpoints.
-    #[clap(long)]
+    #[clap(long, default_values_t = Vec::<String>::new())]
     additional_rpc_endpoints: Vec<String>,
 }
 
