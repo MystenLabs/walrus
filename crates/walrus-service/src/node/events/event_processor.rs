@@ -169,7 +169,7 @@ pub struct EventProcessor {
     pub checkpoint_downloader: ParallelCheckpointDownloader,
     /// Local package store.
     pub package_store: LocalDBPackageStore,
-    /// The cached latest checkpoint sequence number
+    /// The cached latest checkpoint sequence number.
     latest_checkpoint_seq_cache: Arc<std::sync::RwLock<u64>>,
 }
 
@@ -480,7 +480,7 @@ impl EventProcessor {
             let verified_checkpoint =
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
 
-            // Update the checkpoint cache immediately after verification
+            // Update the checkpoint cache immediately after verification.
             self.update_checkpoint_cache(*verified_checkpoint.sequence_number());
 
             let mut write_batch = self.stores.event_store.batch();
@@ -716,7 +716,7 @@ impl EventProcessor {
                 .checkpoint_store
                 .insert(&(), verified_checkpoint.serializable_ref())?;
 
-            // Also update the cache with the bootstrap checkpoint sequence number
+            // Also update the cache with the bootstrap checkpoint sequence number.
             event_processor.update_checkpoint_cache(*verified_checkpoint.sequence_number());
         }
 
@@ -1107,7 +1107,7 @@ impl EventProcessor {
 
     /// Gets the latest checkpoint sequence number, preferring the cache.
     pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
-        // Try to get from cache first
+        // Try to get from cache first.
         {
             match self.latest_checkpoint_seq_cache.read() {
                 Ok(cache) if *cache > 0 => return Some(*cache),
@@ -1121,7 +1121,7 @@ impl EventProcessor {
             _ => None,
         };
 
-        // Update cache if a value was found
+        // Update cache if a value was found.
         if let Some(num) = seq_num {
             let mut cache = self.latest_checkpoint_seq_cache.write().unwrap();
             *cache = num;
