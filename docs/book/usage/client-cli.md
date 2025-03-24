@@ -85,10 +85,17 @@ Storing one or multiple blobs on Walrus can be achieved through the following co
 walrus store <FILES> --epochs <EPOCHS>
 ```
 
-The mandatory CLI argument `--epochs <EPOCHS>` indicates the number of epochs the blob should be
+A mandatory CLI argument must specific the end epoch for the blob.
+The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be
 stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
 corresponding to two years. In addition to a positive integer,
 you can also use `--epochs max` to store the blob for the maximum number of epochs.
+
+The end epoch for the stored blob can be provided through other. The
+`--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` options takes a date in RFC3339 format
+(e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
+the blob expires after that date if possible. Finally, the `--end-epoch <END_EPOCH>` option takes
+a specific end epoch for the blob.
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
@@ -111,6 +118,7 @@ following:
 - If the blob is already certified on Walrus but as a *deletable* blob or not for a sufficient
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
   collects the availability certificate
+
 
 ## Querying blob status
 
