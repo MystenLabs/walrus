@@ -117,6 +117,7 @@ requiring some authentication and compensation for the funds used.
 The following is a list of know public aggregators; they are checked periodically, but each of them
 may still be temporarily unavailable:
 
+<!-- markdownlint-disable proper-names -->
 {{ #testnet.aggregators }}
 {{ /testnet.aggregators }}
 
@@ -124,6 +125,7 @@ may still be temporarily unavailable:
 
 {{ #testnet.publishers }}
 {{ /testnet.publishers }}
+<!-- markdownlint-enable proper-names -->
 
 ## HTTP API Usage
 
