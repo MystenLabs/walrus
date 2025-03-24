@@ -31,6 +31,7 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
             None,
             ClientCommunicationConfig::default_for_test(),
             false,
+            None,
         )
         .await?;
 

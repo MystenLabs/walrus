@@ -398,6 +398,7 @@ mod tests {
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -442,6 +443,7 @@ mod tests {
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -646,6 +648,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -798,6 +801,7 @@ mod tests {
                     Duration::from_secs(1),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -936,6 +940,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1015,6 +1020,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1176,6 +1182,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1360,6 +1367,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1493,6 +1501,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1639,6 +1648,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1811,6 +1821,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -1970,6 +1981,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -2086,6 +2098,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                Some(2),
             )
             .await
             .unwrap();

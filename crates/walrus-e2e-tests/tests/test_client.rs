@@ -862,6 +862,7 @@ async fn test_blocklist() -> TestResult {
             None,
             ClientCommunicationConfig::default_for_test(),
             false,
+            None,
         )
         .await?;
     let client = client.as_ref();
@@ -1099,6 +1100,7 @@ async fn test_repeated_shard_move() -> TestResult {
             None,
             ClientCommunicationConfig::default_for_test(),
             false,
+            None,
         )
         .await?;
 
@@ -1481,6 +1483,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             false,
             Some(contract_dir.path().to_path_buf()),
             true,
+            None,
         )
         .await?;
 
@@ -1916,6 +1919,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             None,
             ClientCommunicationConfig::default_for_test(),
             false,
+            None,
         )
         .await?;
 

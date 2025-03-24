@@ -2272,6 +2272,7 @@ pub mod test_cluster {
             Some(10),
             ClientCommunicationConfig::default_for_test(),
             with_subsidies,
+            None,
         )
         .await
     }
@@ -2284,6 +2285,7 @@ pub mod test_cluster {
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
         with_subsidies: bool,
+        num_additional_fullnodes: Option<usize>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2297,6 +2299,7 @@ pub mod test_cluster {
             with_subsidies,
             None,
             false,
+            num_additional_fullnodes,
         )
         .await?;
         Ok((handle, cluster, client))
@@ -2305,6 +2308,8 @@ pub mod test_cluster {
     // TODO(WAL-653): Refactor with builder pattern to make selecting different options cleaner.
     /// Performs the default setup with the input epoch duration for the test cluster with the
     /// specified storage node handle.
+    #[allow(unused)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn default_setup_with_deploy_directory_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
         test_nodes_config: TestNodesConfig,
@@ -2313,6 +2318,7 @@ pub mod test_cluster {
         with_subsidies: bool,
         deploy_directory: Option<PathBuf>,
         delegate_governance_to_admin_wallet: bool,
+        num_additional_fullnodes: Option<usize>,
     ) -> anyhow::Result<(
         Arc<TestClusterHandle>,
         TestCluster<T>,
@@ -2322,7 +2328,11 @@ pub mod test_cluster {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
         #[cfg(msim)]
-        let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
+        let sui_cluster =
+            test_utils::using_msim::global_sui_test_cluster_with_additional_fullnodes(
+                num_additional_fullnodes,
+            )
+            .await;
 
         // Get a wallet on the global sui test cluster
         let mut admin_wallet =
