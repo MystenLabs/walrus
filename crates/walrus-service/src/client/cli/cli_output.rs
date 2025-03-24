@@ -97,13 +97,12 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
                     RegisterBlobOp::ReuseAndExtend { .. } => {
                         reuse_and_extend_count += 1;
                     }
-                    RegisterBlobOp::RegisterFromScratch { .. } => {
+                    RegisterBlobOp::RegisterFromScratch { .. }
+                    | RegisterBlobOp::ReuseAndExtendNonCertified { .. }
+                    | RegisterBlobOp::ReuseStorage { .. }
+                    | RegisterBlobOp::ReuseRegistration { .. } => {
                         newly_certified += 1;
                     }
-                    RegisterBlobOp::ReuseAndExtendNonCertified { .. } => {
-                        newly_certified += 1;
-                    }
-                    _ => {}
                 }
             }
         }
