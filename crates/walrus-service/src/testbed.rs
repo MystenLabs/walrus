@@ -758,6 +758,8 @@ pub async fn create_storage_node_configs(
             config_synchronizer: Default::default(),
             storage_node_cap: None,
             num_uncertified_blob_threshold: Some(10),
+            balance_check: Default::default(),
+            thread_pool: Default::default(),
         });
     }
 

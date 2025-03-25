@@ -163,8 +163,14 @@ pub struct StorageNodeConfig {
     pub storage_node_cap: Option<ObjectID>,
     /// The number of uncertified blobs before the node will reset the local
     /// state in event blob writer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub num_uncertified_blob_threshold: Option<u32>,
+    /// Configuration for background SUI balance checks and alerting.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub balance_check: BalanceCheckConfig,
+    /// Configuration for the blocking thread pool.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub thread_pool: ThreadPoolConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -201,6 +207,8 @@ impl Default for StorageNodeConfig {
             config_synchronizer: Default::default(),
             storage_node_cap: None,
             num_uncertified_blob_threshold: None,
+            balance_check: Default::default(),
+            thread_pool: Default::default(),
         }
     }
 }
@@ -645,7 +653,7 @@ pub mod defaults {
     use walrus_sui::utils::SuiNetwork;
 
     use super::*;
-    pub use crate::common::config::defaults::{is_default, polling_interval};
+    pub use crate::common::config::defaults::{is_default, is_none, polling_interval};
 
     /// Default metrics port.
     pub const METRICS_PORT: u16 = 9184;
@@ -655,6 +663,10 @@ pub mod defaults {
     pub const REST_GRACEFUL_SHUTDOWN_PERIOD_SECS: u64 = 60;
     /// Default interval between config monitoring checks in seconds.
     pub const CONFIG_SYNCHRONIZER_INTERVAL_SECS: u64 = 900;
+    /// Default frequency with which balance checks are performed.
+    pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
+    /// SUI MIST threshold under which balance checks log a warning.
+    pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -708,13 +720,6 @@ pub mod defaults {
     /// Returns true if the `duration` is equal to the default push interval for metrics.
     pub fn is_push_interval_default(duration: &Duration) -> bool {
         duration == &push_interval()
-    }
-
-    /// Returns true iff the value is `None` and we don't run in test mode.
-    pub fn is_none<T>(t: &Option<T>) -> bool {
-        // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
-        // to generate the example configuration files.
-        !cfg!(test) && t.is_none()
     }
 
     /// The default interval between config monitoring checks
@@ -970,6 +975,38 @@ impl Default for Http2Config {
             http2_adaptive_window: true,
         }
     }
+}
+
+/// Configuration for balance checks.
+#[serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BalanceCheckConfig {
+    /// The interval at which to query the balance.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "interval_secs")]
+    pub interval: Duration,
+    /// The amount of MIST for which a lower balance triggers a warning.
+    pub warning_threshold_mist: u64,
+}
+
+impl Default for BalanceCheckConfig {
+    fn default() -> Self {
+        Self {
+            interval: defaults::BALANCE_CHECK_FREQUENCY,
+            warning_threshold_mist: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
+        }
+    }
+}
+
+/// Configuration for the blocking thread pool.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThreadPoolConfig {
+    /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
+    ///
+    /// Defaults to an amount calculated from the number of cores.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub max_concurrent_tasks: Option<usize>,
 }
 
 #[cfg(test)]

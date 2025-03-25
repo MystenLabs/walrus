@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::{HistogramVec, IntCounterVec, Opts};
+use prometheus::{HistogramVec, IntCounterVec};
 
 fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.001, 2.0, 14).expect("count, start, and factor are valid")

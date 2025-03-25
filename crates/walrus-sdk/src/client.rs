@@ -589,7 +589,6 @@ impl Client {
     }
 
     /// Requests a storage confirmation from the node for the Blob specified by the given ID
-    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     #[tracing::instrument(skip_all, fields(walrus.blob_id = %blob_id), err(level = Level::DEBUG))]
     pub async fn get_confirmation(
         &self,
@@ -631,7 +630,6 @@ impl Client {
     }
 
     /// Gets a primary or secondary sliver for the identified sliver pair.
-    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     #[tracing::instrument(
         skip_all,
         fields(
@@ -673,7 +671,6 @@ impl Client {
     }
 
     /// Gets a primary or secondary sliver for the identified sliver pair.
-    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn get_sliver_by_type(
         &self,
@@ -938,7 +935,6 @@ impl Client {
     }
 
     /// Stores a sliver on a node.
-    // TODO: This function is only used internally and in test functions in walrus-service. (#498)
     #[tracing::instrument(skip_all, err(level = Level::DEBUG))]
     pub async fn store_sliver_by_type(
         &self,

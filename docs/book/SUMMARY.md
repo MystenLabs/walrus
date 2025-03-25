@@ -14,24 +14,15 @@
   - [Announcing the Walrus Whitepaper](./blog/03_whitepaper.md)
   - [Announcing Testnet](./blog/04_testnet_update.md)
   - [Announcing Testnet v2](./blog/05_testnet_redeployment.md)
+  - [Announcing Mainnet](./blog/06_mainnet.md)
 
 ---
 
-# Design
-
-- [Objectives and use cases](./design/objectives_use_cases.md)
-- [Overview](./design/overview.md)
-  - [Architecture](./design/architecture.md)
-  - [Encoding](./design/encoding.md)
-- [Operations](./design/operations.md)
-  - [Sui operations](./design/operations-sui.md)
-  - [Off-chain operations](./design/operations-off-chain.md)
-- [Properties](./design/properties.md)
-- [Future discussion](./design/future.md)
-
 # Usage
 
+- [Getting started](./usage/started.md)
 - [Setup](./usage/setup.md)
+  - [Available networks](./usage/networks.md)
 - [Interacting with Walrus](./usage/interacting.md)
   - [Using the client CLI](./usage/client-cli.md)
   - [Using the client JSON API](./usage/json-api.md)
@@ -48,13 +39,13 @@
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)
 
-# Walrus Sites
+# Sites
 
 - [Introduction to Walrus Sites](./walrus-sites/intro.md)
 - [Your first Walrus Site](./walrus-sites/tutorial.md)
   - [Installing the site builder](./walrus-sites/tutorial-install.md)
   - [Publishing a Walrus Site](./walrus-sites/tutorial-publish.md)
-  - [Bonus: Set a SuiNS name](./walrus-sites/tutorial-suins.md)
+  - [Set a SuiNS name](./walrus-sites/tutorial-suins.md)
 - [Advanced functionality](./walrus-sites/advanced.md)
   - [Site builder commands](./walrus-sites/commands.md)
   - [Advanced site-builder configuration](./walrus-sites/builder-config.md)
@@ -63,9 +54,24 @@
   - [Redirecting objects to Walrus Sites](./walrus-sites/redirects.md)
 - [Technical overview](./walrus-sites/overview.md)
   - [The Walrus Sites portal](./walrus-sites/portal.md)
+  - [Bring your own domain](./walrus-sites/bring-your-own-domain.md)
   - [Site data authentication](./walrus-sites/authentication.md)
   - [Known restrictions](./walrus-sites/restrictions.md)
 - [Terms of service](./walrus-sites/tos.md)
+
+---
+
+# Design
+
+- [Objectives and use cases](./design/objectives_use_cases.md)
+- [Overview](./design/overview.md)
+  - [Architecture](./design/architecture.md)
+  - [Encoding](./design/encoding.md)
+- [Operations](./design/operations.md)
+  - [Sui operations](./design/operations-sui.md)
+  - [Off-chain operations](./design/operations-off-chain.md)
+- [Properties](./design/properties.md)
+- [Future discussion](./design/future.md)
 
 ---
 

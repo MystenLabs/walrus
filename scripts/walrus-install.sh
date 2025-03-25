@@ -6,6 +6,10 @@ msg() {
   echo "walrus-install: note: $*"
 }
 
+warn() {
+  echo "walrus-install: warning: $*" >&2
+}
+
 die() {
   echo "walrus-install: error: $*" >&2
   exit 1
@@ -88,7 +92,16 @@ curl \
 
 # Now, let's install this binary.
 install -Dm755 "$tmpdir"/walrus "$install_dir"
-msg "walrus binary has been installed to '$install_dir/walrus'"
+msg "walrus binary has been installed to '$install_dir/walrus' [version='$("$install_dir"/walrus --version)']"
+
+resolved_walrus="$(command -v walrus)"
+# Check if $install_dir is in $PATH.
+if [ -z "$resolved_walrus" ]; then
+  msg "the walrus binary is not yet in your PATH. You will need to add '$install_dir' to your PATH."
+elif [ "$resolved_walrus" != "$install_dir"/walrus ]; then
+  warn "another walrus binary appears to conflict with this installation." \
+    "ensure that $install_dir appears before $(dirname "$resolved_walrus") in your PATH."
+fi
 
 # Success.
 exit 0

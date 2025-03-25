@@ -123,9 +123,6 @@ pub enum SliverVerificationError {
     /// metadata.
     #[error("the recomputed Merkle root of the provided sliver does not match the metadata")]
     MerkleRootMismatch,
-    /// Error resulting from the Merkle tree computation. The Merkle root could not be computed.
-    #[error(transparent)]
-    RecoveryFailed(#[from] RecoverySymbolError),
 }
 
 /// Error returned when verification of a recovery symbol fails.

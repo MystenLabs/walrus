@@ -19,7 +19,10 @@ use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
-use events::event_blob_writer::{EventBlobWriter, NUM_CHECKPOINTS_PER_BLOB};
+use events::{
+    event_blob_writer::{EventBlobWriter, NUM_CHECKPOINTS_PER_BLOB},
+    CheckpointEventPosition,
+};
 use fastcrypto::traits::KeyPair;
 use futures::{
     stream::{self, FuturesOrdered},
@@ -42,6 +45,7 @@ use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
+use thread_pool::ThreadPoolBuilder;
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
@@ -183,6 +187,12 @@ pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfi
 
 const NUM_CHECKPOINTS_PER_BLOB_ON_TESTNET: u32 = 18_000;
 
+// The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
+// contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
+const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
+const NUM_DIGEST_BUCKETS: u64 = 10;
+const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
+
 /// Trait for all functionality offered by a storage node.
 pub trait ServiceState {
     /// Retrieves the metadata associated with a blob.
@@ -289,7 +299,6 @@ pub struct StorageNodeBuilder {
     committee_service: Option<Arc<dyn CommitteeService>>,
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
-    ignore_sync_failures: bool,
     config_loader: Option<Arc<dyn ConfigLoader>>,
     sui_client_metrics: Option<Arc<SuiClientMetricSet>>,
 }
@@ -321,12 +330,6 @@ impl StorageNodeBuilder {
     /// Sets the [`EventManager`] to be used with the node.
     pub fn with_system_event_manager(mut self, event_manager: Box<dyn EventManager>) -> Self {
         self.event_manager = Some(event_manager);
-        self
-    }
-
-    /// Ignores node parameter sync failures if true.
-    pub fn with_ignore_sync_failures(mut self, ignore_sync_failures: bool) -> Self {
-        self.ignore_sync_failures = ignore_sync_failures;
         self
     }
 
@@ -440,27 +443,27 @@ impl StorageNodeBuilder {
                 Arc::new(service)
             };
 
-        let contract_service: Arc<dyn SystemContractService> =
-            if let Some(service) = self.contract_service {
-                service
-            } else {
-                let metrics = self
-                    .sui_client_metrics
-                    .unwrap_or_else(|| Arc::new(SuiClientMetricSet::new(&metrics_registry)));
-                Arc::new(
-                    SuiSystemContractService::from_config_with_metrics(
+        let contract_service: Arc<dyn SystemContractService> = if let Some(service) =
+            self.contract_service
+        {
+            service
+        } else {
+            Arc::new(
+                SuiSystemContractService::builder()
+                    .metrics_registry(metrics_registry.clone())
+                    .balance_check_frequency(config.balance_check.interval)
+                    .balance_check_warning_threshold(config.balance_check.warning_threshold_mist)
+                    .build_from_config(
                         config.sui.as_ref().expect("Sui config must be provided"),
                         committee_service.clone(),
-                        metrics,
                     )
                     .await?,
-                )
-            };
+            )
+        };
 
         let node_params = NodeParameters {
             pre_created_storage: self.storage,
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
-            ignore_sync_failures: self.ignore_sync_failures,
         };
 
         StorageNode::new(
@@ -525,8 +528,6 @@ pub struct NodeParameters {
     // Number of checkpoints per blob to use when creating event blobs.
     // If not provided, the default value will be used.
     num_checkpoints_per_blob: Option<u32>,
-    // Whether to ignore sync failures during node initialization
-    ignore_sync_failures: bool,
 }
 
 impl StorageNode {
@@ -560,19 +561,12 @@ impl StorageNode {
             .await
             .or_else(|e| match e {
                 SyncNodeConfigError::ProtocolKeyPairRotationRequired => Err(e),
-                SyncNodeConfigError::NodeNeedsReboot => {
-                    tracing::info!("ignore the error since we are booting");
+                _ => {
+                    tracing::warn!(error = ?e, "failed to sync node params");
                     Ok(())
                 }
-                _ => {
-                    if node_params.ignore_sync_failures {
-                        tracing::warn!(error = ?e, "failed to sync node params");
-                        Ok(())
-                    } else {
-                        Err(e)
-                    }
-                }
             })?;
+
         let encoding_config = committee_service.encoding_config().clone();
 
         let storage = if let Some(storage) = node_params.pre_created_storage {
@@ -607,7 +601,10 @@ impl StorageNode {
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
-                thread_pool::default_bounded(),
+                ThreadPoolBuilder::default()
+                    .max_concurrent(config.thread_pool.max_concurrent_tasks)
+                    .metrics_registry(registry.clone())
+                    .build_bounded(),
             ),
             encoding_config,
         });
@@ -947,6 +944,15 @@ impl StorageNode {
                     }
                 }
 
+                // Ignore the error here since this is a best effort operation, and we don't want
+                // any error from it to stop the node.
+                if let Err(error) = self.maybe_record_event_source(
+                    element_index,
+                    &stream_element.checkpoint_event_position,
+                ) {
+                    tracing::warn!(?error, "Failed to record event source");
+                }
+
                 let event_handle = EventHandle::new(
                     element_index,
                     stream_element.element.event_id(),
@@ -1033,11 +1039,11 @@ impl StorageNode {
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
-                // TODO: WAL-424
-                // it's fine to panic here with a todo!, because in order to trigger this event, we
-                // need f+1 signatures and until the rust integration is implemented no such event
-                // should be emitted.
-                todo!("DenyListBlobDeleted event handling");
+                // TODO (WAL-424): Implement DenyListBlobDeleted event handling.
+                // Note: It's fine to panic here with a todo!, because in order to trigger this
+                // event, we need f+1 signatures and until the Rust integration is implemented no
+                // such event should be emitted.
+                todo!("DenyListBlobDeleted event handling is not yet implemented");
             }
         }
         Ok(())
@@ -1171,9 +1177,7 @@ impl StorageNode {
             // it even if it is no longer valid in the *current* epoch
             if !blob_info.is_registered(event.epoch) {
                 tracing::debug!("deleting data for deleted blob");
-                // TODO: Uncomment the following line as soon as we fixed the certification
-                // vulnerability with deletable blobs (#1147).
-                // self.inner.storage.delete_blob(&event.blob_id, true)?;
+                // TODO (WAL-201): Actually delete blob data.
             }
         } else {
             tracing::warn!(
@@ -1622,6 +1626,63 @@ impl StorageNode {
         self.epoch_change_driver.schedule_voting_end(
             NonZero::new(event.epoch + 1).expect("incremented value is non-zero"),
         );
+
+        Ok(())
+    }
+
+    /// Storage node periodically records an event digest to check consistency of processed events.
+    ///
+    /// Every `NUM_EVENTS_PER_DIGEST_RECORDING`, we record the source of the event in metrics
+    /// `process_event_digest` by bucket. The use of bucket is to store the recent bucket size
+    /// number of recordings for better observability.
+    ///
+    /// We only record events in storage node that is sufficiently up-to-date. This means that the
+    /// node is either in Active state or RecoveryInProgress state.
+    ///
+    /// The idea is that for most recent recordings, two nodes in the same bucket should record
+    /// exact same event source. If there is a discrepancy, it means that these two nodes do
+    /// not have the same event history. Once a divergence is detected, we can use the db tool
+    /// to observe the event store to further analyze the issue.
+    fn maybe_record_event_source(
+        &self,
+        event_index: u64,
+        event_source: &CheckpointEventPosition,
+    ) -> Result<(), TypedStoreError> {
+        // Only record every Nth event.
+        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
+        // every few hours.
+        if event_index % NUM_EVENTS_PER_DIGEST_RECORDING != 0 {
+            return Ok(());
+        }
+
+        // Only record digests for active or recovering nodes
+        let node_status = self.inner.storage.node_status()?;
+        if !matches!(
+            node_status,
+            NodeStatus::Active | NodeStatus::RecoveryInProgress(_)
+        ) {
+            return Ok(());
+        }
+
+        let bucket = (event_index / NUM_EVENTS_PER_DIGEST_RECORDING) % NUM_DIGEST_BUCKETS;
+        debug_assert!(bucket < NUM_DIGEST_BUCKETS);
+
+        // The event source is the combination of checkpoint sequence number and counter.
+        // We scale the checkpoint sequence number by `CHECKPOINT_EVENT_POSITION_SCALE` to add
+        // event counter in the checkpoint in the event source as well.
+        let event_source = event_source
+            .checkpoint_sequence_number
+            .checked_mul(CHECKPOINT_EVENT_POSITION_SCALE)
+            .unwrap_or(0)
+            + event_source.counter;
+
+        walrus_utils::with_label!(
+            self.inner
+                .metrics
+                .periodic_event_source_for_deterministic_events,
+            bucket.to_string()
+        )
+        .set(event_source as i64);
 
         Ok(())
     }
@@ -2758,8 +2819,8 @@ mod tests {
         deletes_blob_data_on_event -> TestResult: [
             invalid_blob_event_registered: (InvalidBlobId::for_testing(BLOB_ID).into(), false),
             invalid_blob_event_certified: (InvalidBlobId::for_testing(BLOB_ID).into(), true),
-            // TODO: Uncomment the following tests as soon as we fixed the certification
-            // vulnerability with deletable blobs (#1147).
+            // TODO (WAL-201): Uncomment the following tests as soon as we actually delete blob
+            // data.
             // blob_deleted_event_registered: (
             //     BlobDeleted{was_certified: false, ..BlobDeleted::for_testing(BLOB_ID)}.into(),
             //     false
@@ -4555,7 +4616,6 @@ mod tests {
         // `break_index` is the index of the blob to break the sync process.
         // Note that currently, each sync batch contains 10 blobs. So testing various interesting
         // places to break the sync process.
-        // TODO(#705): make shard sync parameters configurable.
         simtest_param_test! {
             sync_shard_start_from_progress -> TestResult: [
                 primary1: (1, SliverType::Primary),

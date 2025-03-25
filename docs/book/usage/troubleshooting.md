@@ -8,8 +8,7 @@ You can enable debug logging for Walrus by setting the environment variable `RUS
 
 Before undertaking any other steps, make sure you have the [latest `walrus`
 binary](./setup.md#installation). If you have multiple versions in different locations, find the
-binary that will actually be used with `which walrus`. For the current Testnet, a binary version of
-at 1.9 or later is required.
+binary that will actually be used with `which walrus`.
 
 ## Old hardware or incompatible VMs
 
@@ -17,6 +16,12 @@ Our standard Ubuntu binary is known to cause problems on certain old hardware an
 virtualized environments. If you experience errors like "Illegal instruction (core dumped)",
 [install](./setup.md#installation) the `ubuntu-x86_64-generic` version instead, which is compiled
 specifically to be compatible with almost all physical and virtual x86-64 CPUs.
+
+## Correct Sui network configuration
+
+If you get an error like "the specified Walrus system object does not exist", make sure your wallet
+is set up for the correct Sui network (Mainnet or Testnet as you may require) and you use the latest
+[configuration](./setup.md#configuration).
 
 ## Latest Walrus configuration
 
@@ -27,11 +32,7 @@ this case, update your configuration file with the latest [configuration](./setu
 and make sure the CLI uses the intended configuration.
 
 ```admonish tip
-The `walrus` client binary prints information about the used configuration when starting execution,
-including the path to the Walrus configuration file and the Sui wallet.
+When setting `RUST_LOG=info`, the `walrus` client binary prints information about the used
+configuration when starting execution, including the path to the Walrus configuration file and the
+Sui wallet.
 ```
-
-## Correct Sui network configuration
-
-If you get an error like "the specified Walrus system object does not exist", make sure your wallet
-is set up for Sui **Testnet** and you use the latest [configuration](./setup.md#configuration).

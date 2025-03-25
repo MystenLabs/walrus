@@ -1,7 +1,7 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::{Gauge, GaugeVec, Histogram, IntCounter, IntCounterVec, Opts};
+use prometheus::{Gauge, GaugeVec, Histogram, IntCounter, IntCounterVec};
 
 walrus_utils::metrics::define_metric_set! {
     #[namespace = "walrus"]

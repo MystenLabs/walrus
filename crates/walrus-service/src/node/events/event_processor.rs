@@ -23,7 +23,7 @@ use move_core_types::{
     account_address::AccountAddress,
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
-use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
+use prometheus::{IntCounter, IntCounterVec, IntGauge, Registry};
 use rocksdb::Options;
 use sui_package_resolver::{
     error::Error as PackageResolverError,
@@ -259,23 +259,26 @@ impl EventProcessor {
     }
 
     /// Polls the event store for new events starting from the given sequence number.
-    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>> {
-        Ok(self
-            .stores
+    pub fn poll(&self, from: u64) -> Result<Vec<PositionedStreamEvent>, TypedStoreError> {
+        self.stores
             .event_store
-            .iter_with_bounds(Some(from), None)
+            .safe_iter_with_bounds(Some(from), None)
             .take(MAX_EVENTS_PER_POLL)
-            .map(|(_, event)| event)
-            .collect())
+            .map(|result| result.map(|(_, event)| event))
+            .collect()
     }
 
     /// Polls the event store for the next event starting from the given sequence number,
     /// and returns the event along with any InitState that exists at that index.
     pub fn poll_next(&self, from: u64) -> Result<Option<StreamEventWithInitState>> {
-        let mut iter = self.stores.event_store.iter_with_bounds(Some(from), None);
-        let Some((index, event)) = iter.next() else {
+        let mut iter = self
+            .stores
+            .event_store
+            .safe_iter_with_bounds(Some(from), None);
+        let Some(result) = iter.next() else {
             return Ok(None);
         };
+        let (index, event) = result?;
         let init_state = self.get_init_state(index)?;
         let event_with_cursor = StreamEventWithInitState::new(event, init_state);
         Ok(Some(event_with_cursor))
@@ -605,6 +608,7 @@ impl EventProcessor {
     ) -> Result<Self, anyhow::Error> {
         let retry_client = Self::create_and_validate_client(
             &runtime_config.rpc_address,
+            config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
         )
         .await?;
@@ -709,6 +713,7 @@ impl EventProcessor {
 
     async fn create_and_validate_client(
         rest_url: &str,
+        request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
         let client = sui_rpc_api::Client::new(rest_url)?;
@@ -716,6 +721,7 @@ impl EventProcessor {
         ensure_experimental_rest_endpoint_exists(client.clone()).await?;
         let retriable_client = RetriableRpcClient::new(
             client,
+            request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
         );
@@ -1243,8 +1249,12 @@ mod tests {
             false,
         )?;
         let client = sui_rpc_api::Client::new("http://localhost:8080")?;
-        let retry_client =
-            RetriableRpcClient::new(client.clone(), ExponentialBackoffConfig::default(), None);
+        let retry_client = RetriableRpcClient::new(
+            client.clone(),
+            Duration::from_secs(5),
+            ExponentialBackoffConfig::default(),
+            None,
+        );
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(

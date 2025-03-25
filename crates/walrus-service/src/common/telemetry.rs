@@ -92,7 +92,7 @@ walrus_utils::metrics::define_metric_set! {
                 "error_type",
                 "http_response_status_code",
             ],
-            buckets: default_buckets_for_bytes()
+            buckets: walrus_utils::metrics::default_buckets_for_bytes()
         },
 
         #[help = "The size in bytes of the (compressed) response body."]
@@ -105,16 +105,9 @@ walrus_utils::metrics::define_metric_set! {
                 "error_type",
                 "http_response_status_code",
             ],
-            buckets: default_buckets_for_bytes()
+            buckets: walrus_utils::metrics::default_buckets_for_bytes()
         }
     }
-}
-
-/// Returns 21 buckets from <= 128 bytes to approx. <= 134 MB.
-///
-/// As prometheus includes a bucket to +Inf, values over 134 MB are still counted.
-fn default_buckets_for_bytes() -> Vec<f64> {
-    prometheus::exponential_buckets(128.0, 2.0, 21).expect("count, start, and factor are valid")
 }
 
 /// Struct to generate new [`tracing::Span`]s for HTTP requests.

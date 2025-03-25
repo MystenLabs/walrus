@@ -1,5 +1,7 @@
 # Software development kits (SDKs) and other tools
 
+<!-- TODO(WAL-710): link to ts-sdk for mainnet, and clarify Rust. -->
+
 The Walrus core team is actively working on a Rust SDK and a TypeScript SDK for Walrus. These will
 cover interactions with storage nodes directly and be released around the time of the Mainnet
 launch.
