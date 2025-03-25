@@ -27,19 +27,24 @@ $ walrus info
 Walrus system information
 
 Epochs and storage duration
-Current epoch: 0
-Start time: 2025-03-14 10:14:01.612 UTC
-End time: 2025-03-28 10:14:01.612 UTC
+Current epoch: 1
+Start time: 2025-03-25 15:00:24.408 UTC
+End time: 2025-04-08 15:00:24.408 UTC
 Epoch duration: 14days
 Blobs can be stored for at most 53 epochs in the future.
 
 Storage nodes
-Number of storage nodes: 0
+Number of storage nodes: 103
 Number of shards: 1000
 
 Blob size
 Maximum blob size: 13.6 GiB (14,599,533,452 B)
 Storage unit: 1.00 MiB
+
+Storage prices per epoch
+(Conversion rate: 1 WAL = 1,000,000,000 FROST)
+Price per encoded storage unit: 0.0001 WAL
+Additional price for each write: 20,000 FROST
 
 ...
 ```
