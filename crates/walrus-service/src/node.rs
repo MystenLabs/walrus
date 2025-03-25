@@ -39,7 +39,10 @@ use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-use storage::{blob_info::PerObjectBlobInfoApi, StorageShardLock};
+use storage::{
+    blob_info::{BlobInfoIterator, PerObjectBlobInfoApi},
+    StorageShardLock,
+};
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
@@ -1236,9 +1239,17 @@ impl StorageNode {
             .wait_until_previous_task_done()
             .await;
 
-        self.inner
+        if let Err(err) = self
+            .inner
             .schedule_background_blob_info_consistency_check(event.epoch)
-            .await?;
+            .await
+        {
+            tracing::warn!(
+                ?err,
+                epoch = %event.epoch,
+                "failed to schedule background blob info consistency check"
+            );
+        }
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
@@ -2001,46 +2012,60 @@ impl StorageNodeInner {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Create a background thread which takes the ownership of the iterator and process it.
-        tokio::task::spawn_blocking(move || async move {
+        tokio::task::spawn_blocking(move || {
             let _scope = mysten_metrics::monitored_scope(
                 "EpochChange::background_blob_info_consistency_check",
             );
+
             // Create a blob info iterator that takes the current blob info table as the snapshot.
             let blob_info_iterator = this.storage.certified_blob_info_iter_before_epoch(epoch);
             let _ = tx.send(());
 
-            let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
-
-            for item in blob_info_iterator {
-                match item {
-                    Ok(blob_info) => {
-                        hasher.write(blob_info.0.as_ref());
-                    }
-                    Err(error) => {
-                        // Upon error, we can terminate the task and return immediately since
-                        // we no longer can get a consistent view of the blob info table.
-                        tracing::warn!(?error, "error when processing blob info");
-                        return;
-                    }
-                }
-            }
-
-            let value = hasher.finish();
-
-            tracing::info!(?epoch, certified_blob_hash = ?value,
-                "background blob info consistency check finished");
-            walrus_utils::with_label!(
-                this.metrics.blob_info_consistency_check,
-                (epoch % 100).to_string()
-            )
-            .set(value as i64);
+            Self::compose_certified_blob_list_digest(this.clone(), blob_info_iterator, epoch);
         });
 
         // We need to make sure that the function returns only after the blob info iterator is
         // created, so that it can operate on a consistent snapshot of the blob info table.
         // Otherwise, processing future events may cause inconsistency in different nodes.
-        rx.await?;
+        rx.await.map_err(|err| {
+            anyhow::anyhow!(
+                "background task failed to create iterator. Error: {:?}",
+                err
+            )
+        })?;
         Ok(())
+    }
+
+    fn compose_certified_blob_list_digest(
+        node: Arc<StorageNodeInner>,
+        blob_info_iter: BlobInfoIterator,
+        epoch: Epoch,
+    ) {
+        let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
+        for item in blob_info_iter {
+            match item {
+                Ok(blob_info) => {
+                    hasher.write(blob_info.0.as_ref());
+                }
+                Err(error) => {
+                    // Upon error, we can terminate the task and return immediately since
+                    // we no longer can get a consistent view of the blob info table.
+                    tracing::warn!(?error, "error when processing blob info");
+                    node.metrics.blob_info_consistency_check_error.inc();
+                    return;
+                }
+            }
+        }
+
+        let value = hasher.finish();
+
+        tracing::info!(?epoch, certified_blob_hash = ?value,
+                "background blob info consistency check finished");
+        walrus_utils::with_label!(
+            node.metrics.blob_info_consistency_check,
+            (epoch % 100).to_string()
+        )
+        .set(value as i64);
     }
 }
 

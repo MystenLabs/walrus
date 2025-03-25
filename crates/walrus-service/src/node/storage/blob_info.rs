@@ -213,7 +213,6 @@ impl BlobInfoTable {
         self.aggregate_blob_info.remove(blob_id)
     }
 
-    #[cfg(test)]
     pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
         self.aggregate_blob_info
             .safe_iter()

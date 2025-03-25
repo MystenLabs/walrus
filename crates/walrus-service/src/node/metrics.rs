@@ -135,6 +135,10 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The hash of the list of certified blobs at the beginning of the epoch. Note that \
         the label is the last two digits of the epoch number."]
         blob_info_consistency_check: IntGaugeVec["epoch"],
+
+        #[help = "The number of errors occurred when checking the consistency of the blob info \
+        table."]
+        blob_info_consistency_check_error: IntCounter[],
     }
 }
 

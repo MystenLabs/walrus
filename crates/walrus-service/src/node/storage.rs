@@ -1649,4 +1649,53 @@ pub(crate) mod tests {
 
         Ok(())
     }
+
+    // A sanity check to ensure that after certified_blob_info_iter_before_epoch is created,
+    // any update to the blob info table will not affect the iterator.
+    #[tokio::test]
+    async fn test_certified_blob_info_iter_before_epoch_is_isolated() -> TestResult {
+        let storage = empty_storage().await;
+        let blob_info = storage.inner.blob_info.clone();
+
+        let blob_ids = [
+            BlobId([0; 32]),
+            BlobId([1; 32]),
+            BlobId([2; 32]),
+            BlobId([3; 32]),
+            BlobId([4; 32]),
+        ];
+
+        let blob_info_map = HashMap::from([
+            (blob_ids[0], certified_blob_info(2)),
+            (blob_ids[1], certified_blob_info(5)),
+            (blob_ids[2], certified_blob_info(2)),
+            (blob_ids[3], certified_blob_info(2)),
+        ]);
+
+        let mut batch = blob_info.batch();
+        blob_info.insert_batch(&mut batch, blob_info_map.iter())?;
+        batch.write()?;
+
+        // Create the iterator, which should take the snapshot of the blob info table at the
+        // creation time.
+        let certified_blob_iter = storage
+            .inner
+            .blob_info
+            .certified_blob_info_iter_before_epoch(3, Unbounded);
+
+        // Update blob info table, and these updates should not be visible to the iterator.
+        blob_info.insert(&blob_ids[4], &certified_blob_info(2))?;
+        blob_info.remove(&blob_ids[0])?;
+
+        // Check that the certified blob list matches the state of the blob info table at the
+        // creation time.
+        assert_eq!(
+            certified_blob_iter
+                .map(|result| result.map(|(id, _info)| id))
+                .collect::<Result<Vec<_>, _>>()?,
+            vec![blob_ids[0], blob_ids[2], blob_ids[3]]
+        );
+
+        Ok(())
+    }
 }
