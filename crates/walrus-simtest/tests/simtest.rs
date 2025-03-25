@@ -7,7 +7,7 @@
 #[cfg(msim)]
 mod tests {
     use std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         sync::{atomic::AtomicBool, Arc, Mutex},
         time::Duration,
     };
@@ -17,6 +17,7 @@ mod tests {
     use sui_macros::{
         clear_fail_point,
         register_fail_point,
+        register_fail_point_arg,
         register_fail_point_async,
         register_fail_points,
     };
@@ -28,6 +29,7 @@ mod tests {
         encoding::{Primary, Secondary},
         keys::{NetworkKeyPair, ProtocolKeyPair},
         test_utils::random_blob_id,
+        Epoch,
         DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
@@ -941,6 +943,15 @@ mod tests {
             .await;
         });
 
+        let certified_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
+        let certified_blob_digest_map_clone = certified_blob_digest_map.clone();
+        register_fail_point_arg(
+            "storage_node_certified_blob_digest",
+            move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>> {
+                Some(certified_blob_digest_map_clone.clone())
+            },
+        );
+
         // We use a very short epoch duration of 60 seconds so that we can exercise more epoch
         // changes in the test.
         let mut node_weights = vec![2, 2, 3, 3, 3];
@@ -1016,6 +1027,24 @@ mod tests {
                 break;
             }
             tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+
+        // Ensure that for all the epoch, all the nodes have the same certified blob digest.
+        let digest_map = certified_blob_digest_map.lock().unwrap();
+        for (epoch, node_digest_map) in digest_map.iter() {
+            // Ensure that for the same epoch, all the nodes have the same certified blob digest.
+            let mut epoch_digest = None;
+            for (node_id, digest) in node_digest_map.iter() {
+                tracing::info!(
+                    "blob info consistency check: node {node_id} has digest \
+                    {digest} in epoch {epoch}",
+                );
+                if epoch_digest.is_none() {
+                    epoch_digest = Some(digest);
+                } else {
+                    assert_eq!(epoch_digest, Some(digest));
+                }
+            }
         }
     }
 

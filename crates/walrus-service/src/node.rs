@@ -3,6 +3,8 @@
 
 //! Walrus storage node.
 
+#[cfg(msim)]
+use std::{collections::HashMap, sync::Mutex};
 use std::{
     future::Future,
     hash::Hasher,
@@ -2041,6 +2043,8 @@ impl StorageNodeInner {
         blob_info_iter: BlobInfoIterator,
         epoch: Epoch,
     ) {
+        // xxhash is not a cryptographic hash function, but it is fast, has good collision
+        // resistance, and is consistent across all platforms.
         let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
         for item in blob_info_iter {
             match item {
@@ -2066,6 +2070,17 @@ impl StorageNodeInner {
             (epoch % 100).to_string()
         )
         .set(value as i64);
+
+        fail_point_arg!("storage_node_certified_blob_digest", |digest_map: Arc<
+            Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>,
+        >| {
+            digest_map
+                .lock()
+                .expect("failed to lock the digest map")
+                .entry(epoch)
+                .or_insert_with(|| HashMap::new())
+                .insert(node.node_capability, value);
+        });
     }
 }
 
