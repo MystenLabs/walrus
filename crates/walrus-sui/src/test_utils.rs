@@ -130,15 +130,14 @@ impl Debug for TestClusterHandle {
     }
 }
 
+#[cfg(not(msim))]
 impl TestClusterHandle {
     // Creates a test Sui cluster using tokio runtime.
-    #[cfg(not(msim))]
     fn new(runtime: &Runtime) -> Self {
         Self::from_env().unwrap_or_else(|| Self::new_on_runtime(runtime))
     }
 
     // Creates a test Sui cluster using tokio runtime.
-    #[cfg(not(msim))]
     fn new_on_runtime(runtime: &Runtime) -> Self {
         tracing::debug!("building global Sui test cluster");
         let (tx, rx) = mpsc::channel();
@@ -162,7 +161,6 @@ impl TestClusterHandle {
     /// directory.
     ///
     /// Returns None if the environment variable is not set.
-    #[cfg(not(msim))]
     fn from_env() -> Option<Self> {
         let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
         tracing::debug!("using external Sui test cluster");
@@ -176,8 +174,15 @@ impl TestClusterHandle {
         })
     }
 
+    /// Returns the test cluster reference.
+    pub fn cluster(&self) -> &LocalOrExternalTestCluster {
+        &self.cluster
+    }
+}
+
+#[cfg(msim)]
+impl TestClusterHandle {
     // Creates a test Sui cluster using deterministic MSIM runtime.
-    #[cfg(msim)]
     async fn new() -> Self {
         let (tx, mut rx) = mpsc::channel(10);
         let handle = sui_simulator::runtime::Handle::current();
@@ -205,19 +210,7 @@ impl TestClusterHandle {
         }
     }
 
-    /// Returns the path to the wallet config file.
-    pub async fn wallet_path(&self) -> PathBuf {
-        self.wallet_path.lock().await.clone()
-    }
-
-    /// Returns the test cluster reference.
-    #[cfg(not(msim))]
-    pub fn cluster(&self) -> &LocalOrExternalTestCluster {
-        &self.cluster
-    }
-
     /// Returns the local test cluster reference for simtests.
-    #[cfg(msim)]
     pub fn cluster(&self) -> &TestCluster {
         let LocalOrExternalTestCluster::Local { ref cluster } = self.cluster else {
             unreachable!("always use a local test cluster in simtests")
@@ -225,15 +218,21 @@ impl TestClusterHandle {
         cluster
     }
 
+    /// Returns the simulator node handle for the Sui test cluster.
+    pub fn sim_node_handle(&self) -> &NodeHandle {
+        &self.node_handle
+    }
+}
+
+impl TestClusterHandle {
+    /// Returns the path to the wallet config file.
+    pub async fn wallet_path(&self) -> PathBuf {
+        self.wallet_path.lock().await.clone()
+    }
+
     /// Returns the URL of the RPC node.
     pub fn rpc_url(&self) -> String {
         self.cluster.rpc_url()
-    }
-
-    /// Returns the simulator node handle for the Sui test cluster.
-    #[cfg(msim)]
-    pub fn sim_node_handle(&self) -> &NodeHandle {
-        &self.node_handle
     }
 }
 
@@ -289,6 +288,9 @@ pub mod using_tokio {
     /// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
     ///
     /// Initializes the test cluster if it doesn't exist yet.
+    ///
+    /// Wrap the test cluster handle in an `Arc<Mutex<>>` so that the test body can change the
+    /// Sui cluster internals.
     pub fn global_sui_test_cluster() -> Arc<TokioMutex<TestClusterHandle>> {
         static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
         CLUSTER
@@ -331,6 +333,9 @@ pub mod using_msim {
 
     /// Returns a handle to a newly created global instance of a Sui test cluster and the wallet
     /// config path.
+    ///
+    /// Wrap the test cluster handle in an `Arc<Mutex<>>` so that the test body can change the
+    /// Sui cluster internals.
     pub async fn global_sui_test_cluster() -> Arc<tokio::sync::Mutex<TestClusterHandle>> {
         Arc::new(tokio::sync::Mutex::new(TestClusterHandle::new().await))
     }
