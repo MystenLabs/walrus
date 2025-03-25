@@ -83,10 +83,9 @@ release. Going forward we will regularly wipe the Testnet, every few months. Dev
 the Walrus Mainnet to get any level of stability. The Walrus Testnet is only there to test new
 features before they are deployed in production.
 
-Walrus Sites on Testnet will also follow similar restrictions to Mainnet, and require a SuiNS name
-to be displayed through the Testnet portal. We may also deploy additional restrictions on the
-public portal to reduce abuse. Developers are encouraged to use a local Sites portal for tests
-and development activities.
+We will not be operating a public portal to serve Walrus Sites on Testnet, to reduce costs and
+incidence response associated with free web hosting. Developers can still run a local portal
+pointed to Testnet to test Walrus Sites.
 
 ## Open source Walrus codebase
 
