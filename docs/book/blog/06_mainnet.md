@@ -14,7 +14,6 @@ well as [stake and unstake]() to determine future committees using the live
 On Mainnet the Walrus security properties
 should hold. And Walrus is now ready to satisfy the needs of real applications.
 
-
 The Walrus protocol health is overseen by an
 [independent foundation](https://www.walrus.xyz/) that is now
 [well resourced](https://www.walrus.xyz/blog/walrus-foundation-fundraising) to support future
@@ -51,7 +50,7 @@ notable new features and changes:
 
 - **TLS handing for storage node.** Storage nodes can now be configured to serve TLS certificates
   that are publicly trusted, such as those issues by cloud providers and public authorities such as
-  Let's Encrypt. This allows javascript clients to directly store and retrieve blobs from Walrus.
+  Let's Encrypt. This allows JavaScript clients to directly store and retrieve blobs from Walrus.
 
 - **JWT authentication for publisher.** Now the publisher can be configured to only provide
   services to authenticated users via consuming JWT tokens that can be distributed through any
@@ -77,7 +76,6 @@ notable new features and changes:
   [acquire subsidized storage](https://github.com/MystenLabs/walrus/tree/main/contracts/subsidies).
   The CLI client uses it automatically when storing blobs.
 
-
 ## Testnet future plans
 
 The current Walrus Testnet will soon be wiped and restarted to align the codebase to the Mainnet
@@ -85,7 +83,7 @@ release. Going forward we will regularly wipe the Testnet, every few months. Dev
 the Walrus Mainnet to get any level of stability. The Walrus Testnet is only there to test new
 features before they are deployed in production.
 
-Walrus Sites on Testnet will also follow similar restrictions to Mainnet, and require a Suins name
+Walrus Sites on Testnet will also follow similar restrictions to Mainnet, and require a SuiNS name
 to be displayed through the Testnet portal. We may also deploy additional restrictions on the
 public portal to reduce abuse. Developers are encouraged to use a local Sites portal for tests
 and development activities.
@@ -94,7 +92,7 @@ and development activities.
 
 The Walrus codebase, including all smart contracts in Move, services in Rust, and documentation, is
 now open sourced under an Apache 2.0 license, and hosted on
-[github](https://github.com/MystenLabs/walrus). Since the main Walrus repository is now open to all,
+[GitHub](https://github.com/MystenLabs/walrus). Since the main Walrus repository is now open to all,
 and contains both documentation and smart contracts, we are retiring the `walrus-docs` repository.
 
 Developers may find the Rust CLI client, and associated aggregator and publisher services of most
