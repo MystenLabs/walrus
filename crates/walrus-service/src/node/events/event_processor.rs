@@ -9,7 +9,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -170,7 +173,7 @@ pub struct EventProcessor {
     /// Local package store.
     pub package_store: LocalDBPackageStore,
     /// The cached latest checkpoint sequence number.
-    latest_checkpoint_seq_cache: Arc<std::sync::RwLock<u64>>,
+    latest_checkpoint_seq_cache: Arc<AtomicU64>,
 }
 
 impl Debug for LocalDBPackageStore {
@@ -643,7 +646,7 @@ impl EventProcessor {
             metrics,
             checkpoint_downloader,
             package_store,
-            latest_checkpoint_seq_cache: Arc::new(std::sync::RwLock::new(0)),
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -1109,20 +1112,15 @@ impl EventProcessor {
 
     /// Updates the cached checkpoint sequence number.
     fn update_checkpoint_cache(&self, sequence_number: u64) {
-        let mut cache = self.latest_checkpoint_seq_cache.write().unwrap();
-
-        // Only update if the new checkpoint has a higher sequence number.
-        *cache = cache.max(sequence_number);
+        self.latest_checkpoint_seq_cache
+            .fetch_max(sequence_number, Ordering::SeqCst);
     }
 
     /// Gets the latest checkpoint sequence number, preferring the cache.
     pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
-        // Try to get from cache first.
-        {
-            match self.latest_checkpoint_seq_cache.read() {
-                Ok(cache) if *cache > 0 => return Some(*cache),
-                _ => {}
-            }
+        let cache = self.latest_checkpoint_seq_cache.load(Ordering::SeqCst);
+        if cache > 0 {
+            return Some(cache);
         }
 
         // If cache is empty, query the store.
@@ -1133,8 +1131,8 @@ impl EventProcessor {
 
         // Update cache if a value was found.
         if let Some(num) = seq_num {
-            let mut cache = self.latest_checkpoint_seq_cache.write().unwrap();
-            *cache = num;
+            self.latest_checkpoint_seq_cache
+                .store(num, Ordering::SeqCst);
         }
 
         seq_num
@@ -1336,7 +1334,7 @@ mod tests {
             metrics: EventProcessorMetrics::new(&Registry::default()),
             checkpoint_downloader,
             package_store,
-            latest_checkpoint_seq_cache: Arc::new(std::sync::RwLock::new(0)),
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         })
     }
 

@@ -67,7 +67,6 @@ use sui_types::{
     TypeTag,
 };
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tracing::Level;
 use url::ParseError;
 use walrus_core::ensure;
@@ -208,9 +207,9 @@ where
 /// When an operation fails on the current inner instance, it will try the next one.
 #[derive(Clone, Debug)]
 pub struct FailoverWrapper<T> {
-    inner: Arc<RwLock<Vec<Arc<T>>>>,
+    inner: Arc<Vec<Arc<T>>>,
     current_index: Arc<AtomicUsize>,
-    client_count: usize, // Immutable client count
+    client_count: usize,
 }
 
 impl<T> FailoverWrapper<T> {
@@ -218,7 +217,7 @@ impl<T> FailoverWrapper<T> {
     pub fn new(instances: Vec<T>) -> Self {
         let count = instances.len();
         Self {
-            inner: Arc::new(RwLock::new(instances.into_iter().map(Arc::new).collect())),
+            inner: Arc::new(instances.into_iter().map(Arc::new).collect()),
             current_index: Arc::new(AtomicUsize::new(0)),
             client_count: count,
         }
@@ -231,8 +230,7 @@ impl<T> FailoverWrapper<T> {
         }
 
         let wrapped_index = index % self.client_count;
-        let inner = self.inner.read().await;
-        Some(inner[wrapped_index].clone())
+        Some(self.inner[wrapped_index].clone())
     }
 
     /// Executes an operation on the current inner instance, falling back to the next one
@@ -263,24 +261,32 @@ impl<T> FailoverWrapper<T> {
                     None => break,
                 };
 
-                #[cfg(msim)]
-                {
-                    let mut try_next = false;
-                    fail_point_if!("fallback_client_inject_error", || {
-                        tracing::warn!(
-                            "Injecting a RPC error for fallback client {}",
-                            current_index
-                        );
-                        try_next = true;
-                        current_index += 1;
-                    });
-
-                    if try_next {
-                        continue;
+                let result = {
+                    #[cfg(msim)]
+                    {
+                        let mut should_inject_error = false;
+                        fail_point_if!("fallback_client_inject_error", || {
+                            tracing::warn!(
+                                "Injecting a RPC error for fallback client {}",
+                                current_index
+                            );
+                            should_inject_error = true;
+                        });
+                        if should_inject_error {
+                            Err(RetriableClientError::RpcError(tonic::Status::internal(
+                                "injected error for testing",
+                            )))
+                        } else {
+                            operation(instance).await
+                        }
                     }
-                }
+                    #[cfg(not(msim))]
+                    {
+                        operation(instance).await
+                    }
+                };
 
-                match operation(instance).await {
+                match result {
                     Ok(result) => {
                         self.current_index
                             .store(current_index, std::sync::atomic::Ordering::Relaxed);

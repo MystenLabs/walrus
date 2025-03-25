@@ -2035,7 +2035,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
-                Some(2),
+                Some(4),
             )
             .await
             .unwrap();
