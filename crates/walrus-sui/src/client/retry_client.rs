@@ -945,6 +945,39 @@ pub enum CheckpointDownloadError {
     DeserializationError(String),
 }
 
+/// A client for downloading checkpoint data from a remote server.
+#[derive(Clone, Debug)]
+pub struct CheckpointBucketClient {
+    client: reqwest::Client,
+    base_url: Url,
+}
+
+impl CheckpointBucketClient {
+    /// Creates a new checkpoint download client.
+    pub fn new(base_url: Url, timeout: Duration) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("should be able to build reqwest client");
+        Self { client, base_url }
+    }
+
+    /// Downloads a checkpoint from the remote server.
+    pub async fn get_full_checkpoint(
+        &self,
+        sequence_number: u64,
+    ) -> Result<CheckpointData, CheckpointDownloadError> {
+        let url = self.base_url.join(&format!("{}.chk", sequence_number))?;
+        tracing::debug!(%url, "downloading checkpoint from fallback bucket");
+        let response = self.client.get(url).send().await?.error_for_status()?;
+        let bytes = response.bytes().await?;
+        let checkpoint = Blob::from_bytes::<CheckpointData>(&bytes)
+            .map_err(|e| CheckpointDownloadError::DeserializationError(e.to_string()))?;
+        tracing::debug!(sequence_number, "checkpoint download successful",);
+        Ok(checkpoint)
+    }
+}
+
 // Implement automatic conversion from CheckpointDownloadError to tonic::Status
 impl From<CheckpointDownloadError> for tonic::Status {
     fn from(error: CheckpointDownloadError) -> Self {
@@ -1281,37 +1314,4 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
-}
-
-/// A client for downloading checkpoint data from a remote server.
-#[derive(Clone, Debug)]
-pub struct CheckpointBucketClient {
-    client: reqwest::Client,
-    base_url: Url,
-}
-
-impl CheckpointBucketClient {
-    /// Creates a new checkpoint download client.
-    pub fn new(base_url: Url, timeout: Duration) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .build()
-            .expect("should be able to build reqwest client");
-        Self { client, base_url }
-    }
-
-    /// Downloads a checkpoint from the remote server.
-    pub async fn get_full_checkpoint(
-        &self,
-        sequence_number: u64,
-    ) -> Result<CheckpointData, CheckpointDownloadError> {
-        let url = self.base_url.join(&format!("{}.chk", sequence_number))?;
-        tracing::debug!(%url, "downloading checkpoint from fallback bucket");
-        let response = self.client.get(url).send().await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        let checkpoint = Blob::from_bytes::<CheckpointData>(&bytes)
-            .map_err(|e| CheckpointDownloadError::DeserializationError(e.to_string()))?;
-        tracing::debug!(sequence_number, "checkpoint download successful",);
-        Ok(checkpoint)
-    }
 }
