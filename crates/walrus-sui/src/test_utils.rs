@@ -327,7 +327,7 @@ pub fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>
 /// Handler for the global Sui test cluster using the deterministic msim runtime.
 #[cfg(msim)]
 pub mod using_msim {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use super::TestClusterHandle;
 
