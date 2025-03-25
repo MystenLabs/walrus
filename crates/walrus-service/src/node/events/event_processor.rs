@@ -733,19 +733,33 @@ impl EventProcessor {
     ) -> Result<RetriableRpcClient, anyhow::Error> {
         let clients = rest_urls
             .iter()
-            .map(|rest_url| -> Result<sui_rpc_api::Client, anyhow::Error> {
-                let client = sui_rpc_api::Client::new(rest_url)?;
-                // Ensure the experimental REST endpoint exists - this needs to be awaited
-                // so we'll handle it outside the closure
-                Ok(client)
-            })
+            .map(
+                |rest_url| -> Result<(sui_rpc_api::Client, String), anyhow::Error> {
+                    let client = sui_rpc_api::Client::new(rest_url)?;
+                    // Ensure the experimental REST endpoint exists - this needs to be awaited
+                    // so we'll handle it outside the closure
+                    Ok((client, rest_url.clone()))
+                },
+            )
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Now validate each client
-        ensure_experimental_rest_endpoint_exists(clients[0].clone()).await?;
+        // Validate each client and filter out invalid ones
+        let mut valid_clients = Vec::new();
+        for (client, rest_url) in clients {
+            match ensure_experimental_rest_endpoint_exists(client.clone()).await {
+                Ok(()) => valid_clients.push((client, rest_url)),
+                Err(e) => {
+                    tracing::warn!("Client validation failed for {:?}: {:?}", rest_url, e);
+                }
+            }
+        }
 
-        let retriable_client = RetriableRpcClient::new_with_endpoints(
-            clients,
+        if valid_clients.is_empty() {
+            anyhow::bail!("No valid clients found after validation");
+        }
+
+        let retriable_client = RetriableRpcClient::new(
+            valid_clients,
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
@@ -1301,9 +1315,10 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let client = sui_rpc_api::Client::new("http://localhost:8080")?;
+        let rest_url = "http://localhost:8080";
+        let client = sui_rpc_api::Client::new(rest_url)?;
         let retry_client = RetriableRpcClient::new(
-            client.clone(),
+            vec![(client, rest_url.to_string())],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,

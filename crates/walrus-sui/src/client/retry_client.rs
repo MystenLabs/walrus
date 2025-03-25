@@ -207,30 +207,43 @@ where
 /// When an operation fails on the current inner instance, it will try the next one.
 #[derive(Clone, Debug)]
 pub struct FailoverWrapper<T> {
-    inner: Arc<Vec<Arc<T>>>,
+    inner: Arc<Vec<(Arc<T>, String)>>,
     current_index: Arc<AtomicUsize>,
     client_count: usize,
 }
 
 impl<T> FailoverWrapper<T> {
     /// Creates a new failover wrapper.
-    pub fn new(instances: Vec<T>) -> Self {
+    pub fn new(instances: Vec<(T, String)>) -> Self {
         let count = instances.len();
         Self {
-            inner: Arc::new(instances.into_iter().map(Arc::new).collect()),
+            inner: Arc::new(
+                instances
+                    .into_iter()
+                    .map(|(client, name)| (Arc::new(client), name))
+                    .collect(),
+            ),
             current_index: Arc::new(AtomicUsize::new(0)),
             client_count: count,
         }
     }
 
-    /// Gets a client at the specified index (wrapped around if needed)
+    /// Gets a client at the specified index (wrapped around if needed).
     async fn get_client(&self, index: usize) -> Option<Arc<T>> {
         if self.client_count == 0 {
             return None;
         }
 
         let wrapped_index = index % self.client_count;
-        Some(self.inner[wrapped_index].clone())
+        Some(self.inner[wrapped_index].0.clone())
+    }
+
+    /// Gets the name of the client at the specified index.
+    fn get_name(&self, index: usize) -> Option<&str> {
+        if self.client_count == 0 {
+            return None;
+        }
+        Some(&self.inner[index % self.client_count].1)
     }
 
     /// Executes an operation on the current inner instance, falling back to the next one
@@ -295,8 +308,10 @@ impl<T> FailoverWrapper<T> {
                     Err(e) => {
                         last_error = Some(e);
                         tracing::info!(
-                            "Failed to execute operation on client {}, retrying with next client",
-                            current_index
+                            "Failed to execute operation on client {}, retrying \
+                            with next client {}",
+                            self.get_name(current_index).unwrap_or("unknown"),
+                            self.get_name(current_index + 1).unwrap_or("unknown")
                         );
                         current_index += 1;
                     }
@@ -978,13 +993,6 @@ impl CheckpointBucketClient {
     }
 }
 
-// Implement automatic conversion from CheckpointDownloadError to tonic::Status
-impl From<CheckpointDownloadError> for tonic::Status {
-    fn from(error: CheckpointDownloadError) -> Self {
-        tonic::Status::internal(format!("Checkpoint download failed: {}", error))
-    }
-}
-
 /// Custom error type for RetriableRpcClient operations
 #[derive(Error, Debug)]
 pub enum RetriableClientError {
@@ -1052,22 +1060,7 @@ impl RetriableRpcClient {
 
     /// Creates a new retriable client.
     pub fn new(
-        client: RpcClient,
-        request_timeout: Duration,
-        backoff_config: ExponentialBackoffConfig,
-        fallback_config: Option<RpcFallbackConfig>,
-    ) -> Self {
-        Self::new_with_endpoints(
-            vec![client],
-            request_timeout,
-            backoff_config,
-            fallback_config,
-        )
-    }
-
-    /// Creates a new retriable client with multiple RPC endpoints.
-    pub fn new_with_endpoints(
-        clients: Vec<RpcClient>,
+        clients: Vec<(RpcClient, String)>,
         request_timeout: Duration,
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
