@@ -194,16 +194,22 @@ impl BlobSyncHandler {
                 .expect("should be able to acquire lock");
             tracing::info!("acquired lock on the in-progress blob recoveries");
 
-            in_progress_guard
-                .par_iter_mut()
-                .filter_map(|(blob_id, sync)| {
-                    self.node
-                        .is_blob_certified(blob_id)
-                        .is_ok_and(Not::not)
-                        .then(|| sync.cancel())
-                        .flatten()
-                })
-                .collect()
+            let closure = |(blob_id, sync): (&BlobId, &mut InProgressSyncHandle)| {
+                self.node
+                    .is_blob_certified(blob_id)
+                    .is_ok_and(Not::not)
+                    .then(|| sync.cancel())
+                    .flatten()
+            };
+
+            if cfg!(not(msim)) {
+                in_progress_guard
+                    .par_iter_mut()
+                    .filter_map(closure)
+                    .collect()
+            } else {
+                in_progress_guard.iter_mut().filter_map(closure).collect()
+            }
         };
         tracing::info!("released lock on the in-progress blob recoveries");
 
