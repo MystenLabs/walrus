@@ -107,7 +107,7 @@ impl ThreadPoolBuilder {
     /// Creates a [`BlockingThreadPool`] with the specified configuration.
     pub fn build(&mut self) -> BlockingThreadPool {
         let inner = self.thread_pool.take().unwrap_or_else(|| {
-            // The default is Rayon when unspecified, unless in msim.
+            // The default is Rayon when unspecified, unless in simtest.
             if cfg!(msim) {
                 BlockingThreadPoolInner::Tokio(TokioBlockingPool::default())
             } else {
