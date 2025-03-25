@@ -277,15 +277,11 @@ impl<T> FailoverWrapper<T> {
                 let result = {
                     #[cfg(msim)]
                     {
-                        let mut should_inject_error = false;
+                        let mut inject_error = false;
                         fail_point_if!("fallback_client_inject_error", || {
-                            tracing::warn!(
-                                "Injecting a RPC error for fallback client {}",
-                                current_index
-                            );
-                            should_inject_error = true;
+                            inject_error = should_inject_error(current_index);
                         });
-                        if should_inject_error {
+                        if inject_error {
                             Err(RetriableClientError::RpcError(tonic::Status::internal(
                                 "injected error for testing",
                             )))
@@ -1307,4 +1303,28 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
+}
+
+#[cfg(msim)]
+fn should_inject_error(current_index: usize) -> bool {
+    // For odd indices, always inject error
+    if current_index % 2 == 1 {
+        tracing::warn!(
+            "Injecting a RPC error for fallback client {} (odd index)",
+            current_index
+        );
+        true
+    } else {
+        // For even indices, 50% chance
+        let should_fail = rand::random::<bool>();
+        if should_fail {
+            tracing::warn!(
+                "Injecting a RPC error for fallback client {} (even index, random)",
+                current_index
+            );
+            true
+        } else {
+            false
+        }
+    }
 }

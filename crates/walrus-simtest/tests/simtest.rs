@@ -2026,13 +2026,8 @@ mod tests {
             .await
             .unwrap();
 
-        let failure_counter = Arc::new(AtomicU32::new(0));
-        let failure_counter_clone = failure_counter.clone();
         // Register a fail point that will fail the first attempt.
-        register_fail_point_if("fallback_client_inject_error", move || {
-            let attempt_number = failure_counter_clone.fetch_add(1, Ordering::SeqCst);
-            attempt_number < 1 // Return true (fail) for first attempt
-        });
+        register_fail_point_if("fallback_client_inject_error", move || true);
         tracing::info!(
             "Additional fullnodes: {:?}",
             sui_cluster.lock().await.additional_rpc_urls()
@@ -2071,5 +2066,7 @@ mod tests {
         )
         .await
         .expect("All nodes should have downloaded the checkpoint");
+
+        clear_fail_point("fallback_client_inject_error");
     }
 }
