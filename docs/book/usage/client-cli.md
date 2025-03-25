@@ -119,7 +119,6 @@ following:
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
   collects the availability certificate
 
-
 ## Querying blob status
 
 The status of a blob can be queried through one of the following commands:
