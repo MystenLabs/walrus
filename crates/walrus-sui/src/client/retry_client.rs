@@ -1119,7 +1119,7 @@ impl RetriableRpcClient {
                     ExponentialBackoffConfig::new(
                         Duration::from_millis(100),
                         Duration::from_millis(300),
-                        Some(3),
+                        Some(5),
                     )
                 }),
             metrics: None,
