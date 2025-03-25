@@ -239,7 +239,7 @@ pub struct ServiceHealthInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shard_detail: Option<ShardStatusDetail>,
     /// The latest checkpoint sequence number processed by the node.
-    #[schema(value_type = u64)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_checkpoint_sequence_number: Option<u64>,
 }
 

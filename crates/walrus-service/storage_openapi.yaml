@@ -717,7 +717,6 @@ components:
                 - nodeStatus
                 - eventProgress
                 - shardSummary
-                - latestCheckpointSequenceNumber
                 properties:
                   epoch:
                     type: integer
@@ -751,7 +750,9 @@ components:
                           minimum: 0
                     description: The event progress of the storage node.
                   latestCheckpointSequenceNumber:
-                    type: integer
+                    type:
+                    - integer
+                    - 'null'
                     format: int64
                     description: The latest checkpoint sequence number processed by the node.
                     minimum: 0
@@ -1037,7 +1038,6 @@ components:
       - nodeStatus
       - eventProgress
       - shardSummary
-      - latestCheckpointSequenceNumber
       properties:
         epoch:
           type: integer
@@ -1071,7 +1071,9 @@ components:
                 minimum: 0
           description: The event progress of the storage node.
         latestCheckpointSequenceNumber:
-          type: integer
+          type:
+          - integer
+          - 'null'
           format: int64
           description: The latest checkpoint sequence number processed by the node.
           minimum: 0
