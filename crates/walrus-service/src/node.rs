@@ -569,6 +569,7 @@ impl StorageNode {
                 config.storage_path.as_path(),
                 config.db_config.clone(),
                 MetricConf::new("storage"),
+                registry.clone(),
             )?
         };
         tracing::info!("successfully opened the node database");

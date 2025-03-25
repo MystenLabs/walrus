@@ -2662,8 +2662,13 @@ pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Sto
     let temp_dir =
         nondeterministic!(tempfile::tempdir().expect("temporary directory creation must succeed"));
     let db_config = DatabaseConfig::default();
-    let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
-        .expect("storage creation must succeed");
+    let storage = Storage::open(
+        temp_dir.path(),
+        db_config,
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .expect("storage creation must succeed");
 
     storage
         .create_storage_for_shards(shards)

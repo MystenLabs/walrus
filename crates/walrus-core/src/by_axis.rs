@@ -52,6 +52,16 @@ impl Axis {
             Self::Secondary => "secondary",
         }
     }
+
+    /// Returns true if this represents the primary axis.
+    pub fn is_primary(&self) -> bool {
+        *self == Self::Primary
+    }
+
+    /// Returns true if this represents the secondary axis.
+    pub fn is_secondary(&self) -> bool {
+        *self == Self::Secondary
+    }
 }
 
 impl AsRef<str> for Axis {
@@ -122,8 +132,7 @@ impl<T, U> ByAxis<T, U> {
         }
     }
 
-    /// Maps a `ByAxis<T, U>` to a `ByAxis<O, P>` by applying functions resulting in the same type
-    /// to either variant.
+    /// Maps a `ByAxis<T, U>` to a `ByAxis<O, P>` by applying functions to either variant.
     ///
     /// See also [`by_axis::map!`][map] when both `map_primary` and `map_secondary` are
     /// identical.
@@ -157,6 +166,15 @@ impl<T, U, E> ByAxis<Result<T, E>, Result<U, E>> {
         match self {
             ByAxis::Primary(result) => result.map(ByAxis::Primary),
             ByAxis::Secondary(result) => result.map(ByAxis::Secondary),
+        }
+    }
+}
+
+impl From<Axis> for ByAxis<(), ()> {
+    fn from(value: Axis) -> Self {
+        match value {
+            Axis::Primary => ByAxis::Primary(()),
+            Axis::Secondary => ByAxis::Secondary(()),
         }
     }
 }
