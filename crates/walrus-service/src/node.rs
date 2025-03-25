@@ -2466,14 +2466,11 @@ impl ServiceState for StorageNodeInner {
     fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
         let (shard_summary, shard_detail) = self.shard_health_status(detailed);
 
-        // Get the latest checkpoint sequence number directly from the event manager
+        // Get the latest checkpoint sequence number directly from the event manager.
         let latest_checkpoint_sequence_number = if let Some(event_processor) =
             self.event_manager.as_any().downcast_ref::<EventProcessor>()
         {
-            event_processor
-                .get_latest_checkpoint_sequence_number()
-                .ok()
-                .flatten()
+            event_processor.get_latest_checkpoint_sequence_number()
         } else {
             None
         };
