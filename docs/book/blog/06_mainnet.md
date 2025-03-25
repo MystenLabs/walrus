@@ -8,16 +8,17 @@ The production Walrus Mainnet is now live, and operated by
 a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 2025. The
 network can now be used to
 [publish and retrieve blobs](../usage/interacting.md),
-[upload and browse Walrus Sites](https://wal.app), as
+[upload and browse Walrus Sites](../walrus-sites/tutorial-publish.md), as
 well as [stake and unstake]() to determine future committees using the live
 [Mainnet WAL token](https://www.walrus.xyz/wal-token).
-On Mainnet the Walrus security properties
-should hold. And Walrus is now ready to satisfy the needs of real applications.
+On Mainnet, the Walrus security properties hold. And Walrus is now ready to satisfy
+the needs of real applications.
 
+Walrus is [open source](https://github.com/MystenLabs/walrus).
 The Walrus protocol health is overseen by an
 [independent foundation](https://www.walrus.xyz/) that is now
 [well resourced](https://www.walrus.xyz/blog/walrus-foundation-fundraising) to support future
-development and growth. Walrus is [open source](https://github.com/MystenLabs/walrus).
+development and growth.
 And, the community is collecting tools, resources and dapps for Walrus under
 [Awesome Walrus!](https://github.com/MystenLabs/awesome-walrus)
 
