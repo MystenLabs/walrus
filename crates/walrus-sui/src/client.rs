@@ -98,7 +98,7 @@ use crate::types::move_structs::EventBlob;
 pub mod contract_config;
 
 mod metrics;
-pub use metrics::SuiClientMetrics;
+pub use metrics::SuiClientMetricSet;
 
 // Keep in sync with the corresponding value in
 // `contracts/walrus/sources/staking/staked_wal.move`
@@ -415,7 +415,7 @@ impl SuiContractClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
-        metrics: Arc<SuiClientMetrics>,
+        metrics: Arc<SuiClientMetricSet>,
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(

@@ -75,7 +75,7 @@ use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBack
 
 use super::{rpc_config::RpcFallbackConfig, SuiClientError, SuiClientResult};
 use crate::{
-    client::SuiClientMetrics,
+    client::SuiClientMetricSet,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
@@ -176,11 +176,50 @@ impl RetriableRpcError for RetriableClientError {
     }
 }
 
+/// A guard that records the number of retries and the result of an RPC call.
+struct RetryCountGuard {
+    method: String,
+    count: u64,
+    metrics: Arc<SuiClientMetricSet>,
+    status: String,
+}
+
+impl RetryCountGuard {
+    fn new(metrics: Arc<SuiClientMetricSet>, method: &str) -> Self {
+        Self {
+            method: method.to_string(),
+            count: 1,
+            metrics,
+            status: "success".to_string(),
+        }
+    }
+
+    pub fn record_result<T, E>(&mut self, value: Result<&T, &E>)
+    where
+        E: RetriableRpcError + ToErrorType,
+    {
+        match value {
+            Ok(_) => self.status = "success".to_string(),
+            Err(e) => self.status = e.to_error_type(),
+        }
+        self.count += 1;
+    }
+}
+
+impl Drop for RetryCountGuard {
+    fn drop(&mut self) {
+        if self.count > 1 {
+            self.metrics
+                .record_rpc_retry_count(self.method.as_str(), self.count, &self.status);
+        }
+    }
+}
+
 /// Retries the given function while it returns retriable errors.[
 async fn retry_rpc_errors<S, F, T, E, Fut>(
     mut strategy: S,
     mut func: F,
-    metrics: Option<Arc<SuiClientMetrics>>,
+    metrics: Option<Arc<SuiClientMetricSet>>,
     method: &str,
 ) -> Result<T, E>
 where
@@ -189,6 +228,10 @@ where
     Fut: Future<Output = Result<T, E>>,
     E: RetriableRpcError + ToErrorType,
 {
+    let mut retry_guard = metrics
+        .as_ref()
+        .map(|m| RetryCountGuard::new(m.clone(), method));
+
     loop {
         let start = Instant::now();
         let value = func().await;
@@ -202,6 +245,10 @@ where
                 },
                 start.elapsed(),
             );
+        }
+
+        if let Some(retry_guard) = &mut retry_guard {
+            retry_guard.record_result(value.as_ref());
         }
 
         match value {
@@ -239,7 +286,7 @@ where
 pub struct RetriableSuiClient {
     sui_client: SuiClient,
     backoff_config: ExponentialBackoffConfig,
-    metrics: Option<Arc<SuiClientMetrics>>,
+    metrics: Option<Arc<SuiClientMetricSet>>,
 }
 
 impl RetriableSuiClient {
@@ -258,7 +305,7 @@ impl RetriableSuiClient {
     }
 
     /// Sets the metrics for the client.
-    pub fn with_metrics(mut self, metrics: Option<Arc<SuiClientMetrics>>) -> Self {
+    pub fn with_metrics(mut self, metrics: Option<Arc<SuiClientMetricSet>>) -> Self {
         self.metrics = metrics;
         self
     }
@@ -298,7 +345,7 @@ impl RetriableSuiClient {
     pub async fn new_from_wallet_with_metrics(
         wallet: &WalletContext,
         backoff_config: ExponentialBackoffConfig,
-        metrics: Arc<SuiClientMetrics>,
+        metrics: Arc<SuiClientMetricSet>,
     ) -> SuiClientResult<Self> {
         let client = Self::new_from_wallet(wallet, backoff_config).await?;
         Ok(client.with_metrics(Some(metrics)))
@@ -1016,7 +1063,7 @@ pub struct RetriableRpcClient {
     main_backoff_config: ExponentialBackoffConfig,
     fallback_client: Option<CheckpointBucketClient>,
     quick_retry_config: ExponentialBackoffConfig,
-    metrics: Option<Arc<SuiClientMetrics>>,
+    metrics: Option<Arc<SuiClientMetricSet>>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {

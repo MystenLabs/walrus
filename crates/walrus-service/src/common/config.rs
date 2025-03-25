@@ -12,7 +12,7 @@ use walrus_sui::{
         contract_config::ContractConfig,
         rpc_config::RpcFallbackConfig,
         SuiClientError,
-        SuiClientMetrics,
+        SuiClientMetricSet,
         SuiContractClient,
         SuiReadClient,
     },
@@ -76,7 +76,7 @@ impl SuiConfig {
     /// Creates a new contract client with metrics support.
     pub async fn new_contract_client_with_metrics(
         &self,
-        metrics: Arc<SuiClientMetrics>,
+        metrics: Arc<SuiClientMetricSet>,
     ) -> Result<SuiContractClient, SuiClientError> {
         SuiContractClient::new_from_wallet_with_metrics(
             WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
