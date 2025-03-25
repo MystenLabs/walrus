@@ -29,6 +29,7 @@ futures.workspace = true
 home.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
+prometheus.workspace = true
 rand.workspace = true
 regex.workspace = true
 reqwest.workspace = true
