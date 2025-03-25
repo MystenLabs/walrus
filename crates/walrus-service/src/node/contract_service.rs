@@ -196,15 +196,16 @@ impl SuiSystemContractServiceBuilder {
         config: &SuiConfig,
         committee_service: Arc<dyn CommitteeService>,
     ) -> Result<SuiSystemContractService, anyhow::Error> {
-        if let Some(metrics_registry) = self.metrics_registry.as_ref() {
-            let metrics = Arc::new(SuiClientMetricSet::new(metrics_registry));
-            Ok(self.build(
-                config.new_contract_client_with_metrics(metrics).await?,
-                committee_service,
-            ))
-        } else {
-            Ok(self.build(config.new_contract_client().await?, committee_service))
-        }
+        Ok(self.build(
+            config
+                .new_contract_client(
+                    self.metrics_registry
+                        .as_ref()
+                        .map(|r| Arc::new(SuiClientMetricSet::new(r))),
+                )
+                .await?,
+            committee_service,
+        ))
     }
 
     /// Creates a new [`SuiSystemContractService`] with the provided [`SuiContractClient`].

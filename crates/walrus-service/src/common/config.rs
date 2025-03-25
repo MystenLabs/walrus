@@ -63,29 +63,28 @@ impl SuiConfig {
     }
 
     /// Creates a [`SuiContractClient`] based on the configuration.
-    pub async fn new_contract_client(&self) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new(
-            WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
-            &self.contract_config,
-            self.backoff_config.clone(),
-            self.gas_budget,
-        )
-        .await
-    }
-
-    /// Creates a new contract client with metrics support.
-    pub async fn new_contract_client_with_metrics(
+    pub async fn new_contract_client(
         &self,
-        metrics: Arc<SuiClientMetricSet>,
+        metrics: Option<Arc<SuiClientMetricSet>>,
     ) -> Result<SuiContractClient, SuiClientError> {
-        SuiContractClient::new_from_wallet_with_metrics(
-            WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
-            &self.contract_config,
-            self.backoff_config.clone(),
-            self.gas_budget,
-            metrics,
-        )
-        .await
+        if let Some(metrics) = metrics {
+            SuiContractClient::new_from_wallet_with_metrics(
+                WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
+                &self.contract_config,
+                self.backoff_config.clone(),
+                self.gas_budget,
+                metrics,
+            )
+            .await
+        } else {
+            SuiContractClient::new(
+                WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
+                &self.contract_config,
+                self.backoff_config.clone(),
+                self.gas_budget,
+            )
+            .await
+        }
     }
 }
 

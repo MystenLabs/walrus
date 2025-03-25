@@ -102,7 +102,7 @@ use walrus_sdk::{
     client::{RecoverySymbolsFilter, SymbolIdFilter},
 };
 use walrus_sui::{
-    client::{SuiClientMetricSet, SuiReadClient},
+    client::SuiReadClient,
     types::{
         BlobCertified,
         BlobDeleted,
@@ -300,19 +300,12 @@ pub struct StorageNodeBuilder {
     contract_service: Option<Arc<dyn SystemContractService>>,
     num_checkpoints_per_blob: Option<u32>,
     config_loader: Option<Arc<dyn ConfigLoader>>,
-    sui_client_metrics: Option<Arc<SuiClientMetricSet>>,
 }
 
 impl StorageNodeBuilder {
     /// Creates a new builder.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Sets the metrics for the Sui client.
-    pub fn with_sui_client_metrics(mut self, metrics: Arc<SuiClientMetricSet>) -> Self {
-        self.sui_client_metrics = Some(metrics);
-        self
     }
 
     /// Sets the config loader for the node.
