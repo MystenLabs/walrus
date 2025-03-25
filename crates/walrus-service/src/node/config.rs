@@ -168,6 +168,9 @@ pub struct StorageNodeConfig {
     /// Configuration for background SUI balance checks and alerting.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub balance_check: BalanceCheckConfig,
+    /// Configuration for the blocking thread pool.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub thread_pool: ThreadPoolConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -205,6 +208,7 @@ impl Default for StorageNodeConfig {
             storage_node_cap: None,
             num_uncertified_blob_threshold: None,
             balance_check: Default::default(),
+            thread_pool: Default::default(),
         }
     }
 }
@@ -992,6 +996,17 @@ impl Default for BalanceCheckConfig {
             warning_threshold_mist: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
         }
     }
+}
+
+/// Configuration for the blocking thread pool.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThreadPoolConfig {
+    /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
+    ///
+    /// Defaults to an amount calculated from the number of cores.
+    #[serde(skip_serializing_if = "defaults::is_none")]
+    pub max_concurrent_tasks: Option<usize>,
 }
 
 #[cfg(test)]

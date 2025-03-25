@@ -55,6 +55,9 @@ important to ensure only authorized parties may access it, or other measures to 
 especially in a future Mainnet deployment.
 ```
 
+By default, PUT requests are limited to 10 MiB; you can increase this limit through the
+`--max-body-size` option.
+
 ### Daemon metrics
 
 Services by default export a metrics end-point accessible via `curl http://127.0.0.1:27182/metrics`.
@@ -97,40 +100,11 @@ configuration:
     of the existence of such object, it is safe to do so. This is to avoid cluttering the sub-wallet
     with many blob objects.
 
-## Using a public aggregator or publisher {#public-services}
-
-<!-- TODO(WAL-710): Update section based on mainnet services. -->
-
-For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible
-aggregator and/or publisher is required. Several entities run such aggregators and publishers, see
-the lists of public [aggregators](#public-aggregators) and [publishers](#public-publishers) below.
-
-Public publishers limit requests to 10 MiB by default. If you want to upload larger files, you need
-to [run your own publisher](#local-daemon) or use the [CLI](./client-cli.md).
-
-Also, note that the publisher consumes SUI and WAL on the service side, and a Mainnet
-deployment would likely not be able to provide uncontrolled public access to publishing without
-requiring some authentication and compensation for the funds used.
-
-### Public aggregators
-
-The following is a list of know public aggregators; they are checked periodically, but each of them
-may still be temporarily unavailable:
-
-<!-- markdownlint-disable proper-names -->
-{{ #testnet.aggregators }}
-{{ /testnet.aggregators }}
-
-### Public publishers
-
-{{ #testnet.publishers }}
-{{ /testnet.publishers }}
-<!-- markdownlint-enable proper-names -->
-
 ## HTTP API Usage
 
 For the following examples, we assume you set the `AGGREGATOR` and `PUBLISHER` environment variables
-to your desired aggregator and publisher, respectively. For example:
+to your desired aggregator and publisher, respectively. For example, the instances run by Mysten
+Labs on Walrus Testnet (see [below](#public-services) for further public options):
 
 ```sh
 AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
@@ -163,46 +137,46 @@ $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
 {
   "newlyCreated": {
     "blobObject": {
-      "id": "0xd765d11848cbac5b1f6eec2fbeb343d4558cbe8a484a00587f9ef5385d64d235",
-      "registeredEpoch": 0,
-      "blobId": "Cmh2LQEGJwBYfmIC8duzK8FUE2UipCCrshAYjiUheZM",
+      "id": "0xe91eee8c5b6f35b9a250cfc29e30f0d9e5463a21fd8d1ddb0fc22d44db4eac50",
+      "registeredEpoch": 34,
+      "blobId": "M4hsZGQ1oCktdzegB6HnI6Mi28S2nqOPHxK-W7_4BUk",
       "size": 17,
-      "encodingType": "RedStuff",
-      "certifiedEpoch": 0,
+      "encodingType": "RS2",
+      "certifiedEpoch": 34,
       "storage": {
-        "id": "0x28cc75b33e31b3e672646eacf1a7c7a2e5d638644651beddf7ed4c7e21e9cb8e",
-        "startEpoch": 0,
-        "endEpoch": 1,
-        "storageSize": 4747680
+        "id": "0x4748cd83217b5ce7aa77e7f1ad6fc5f7f694e26a157381b9391ac65c47815faf",
+        "startEpoch": 34,
+        "endEpoch": 35,
+        "storageSize": 66034000
       },
       "deletable": false
     },
     "resourceOperation": {
       "registerFromScratch": {
-        "encodedLength": 4747680,
+        "encodedLength": 66034000,
         "epochsAhead": 1
       }
     },
-    "cost": 231850
+    "cost": 132300
   }
 }
 ```
 
 The information returned is the content of the [Sui blob object](../dev-guide/sui-struct.md).
 
-When the aggregator finds a certified blob with the same blob ID and a sufficient validity period,
+When the publisher finds a certified blob with the same blob ID and a sufficient validity period,
 it returns a `alreadyCertified` JSON structure:
 
 ```sh
 $ curl -X PUT "$PUBLISHER/v1/blobs" -d "some other string"
 {
   "alreadyCertified": {
-    "blobId": "Cmh2LQEGJwBYfmIC8duzK8FUE2UipCCrshAYjiUheZM",
+    "blobId": "M4hsZGQ1oCktdzegB6HnI6Mi28S2nqOPHxK-W7_4BUk",
     "event": {
-      "txDigest": "CLE41JTPR2CgZRC1gyKK6P3xpQRHCetQMsmtEgqGjwst",
+      "txDigest": "4XQHFa9S324wTzYHF3vsBSwpUZuLpmwTHYMFv9nsttSs",
       "eventSeq": "0"
     },
-    "endEpoch": 1
+    "endEpoch": 35
   }
 }
 ```
@@ -225,8 +199,52 @@ Alternatively you may print the contents of a blob in the terminal with the cURL
 curl "$AGGREGATOR/v1/blobs/<some blob ID>"
 ```
 
+<!-- TODO(WAL-710): Mention blob metadata attribute. -->
+
 ```admonish tip title="Content sniffing"
 Modern browsers will attempt to sniff the content type for such resources, and will generally do a
 good job of inferring content types for media. However, the aggregator on purpose prevents such
 sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
 ```
+
+## Using a public aggregator or publisher {#public-services}
+
+For some use cases (e.g., a public website), or to just try out the HTTP API, a publicly accessible
+aggregator and/or publisher is required. On Walrus Testnet, many entities run public aggregators and
+publishers. On Mainnet, there are no public publishers without authentication, as they consume both
+SUI and WAL.
+
+See the following subsections for [public aggregators on Mainnet](#mainnet) and public
+[aggregators](#aggregators-testnet) and [publishers](#publishers-testnet) on Testnet. All of these
+are also available in JSON format [here](../assets/operators.json).
+
+<!-- markdownlint-disable proper-names -->
+### Mainnet
+
+The following is a list of known public aggregators on Walrus Mainnet; they are checked
+periodically, but each of them may still be temporarily unavailable:
+
+{{ #mainnet.aggregators }}
+{{ /mainnet.aggregators }}
+
+### Testnet
+
+#### Aggregators {#aggregators-testnet}
+
+The following is a list of known public aggregators on Walrus Testnet; they are checked
+periodically, but each of them may still be temporarily unavailable:
+
+{{ #testnet.aggregators }}
+{{ /testnet.aggregators }}
+
+#### Publishers {#publishers-testnet}
+
+The following is a list of known public publishers on Walrus Testnet; they are checked
+periodically, but each of them may still be temporarily unavailable:
+
+{{ #testnet.publishers }}
+{{ /testnet.publishers }}
+<!-- markdownlint-enable proper-names -->
+
+Most of these limit requests to 10 MiB by default. If you want to upload larger files, you need to
+[run your own publisher](#local-daemon) or use the [CLI](./client-cli.md).

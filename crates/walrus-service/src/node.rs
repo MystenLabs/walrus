@@ -45,6 +45,7 @@ use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
+use thread_pool::ThreadPoolBuilder;
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
@@ -599,7 +600,10 @@ impl StorageNode {
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
-                thread_pool::default_bounded(),
+                ThreadPoolBuilder::default()
+                    .max_concurrent(config.thread_pool.max_concurrent_tasks)
+                    .metrics_registry(registry.clone())
+                    .build_bounded(),
             ),
             encoding_config,
         });

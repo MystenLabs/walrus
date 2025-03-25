@@ -131,9 +131,9 @@ impl Debug for TestClusterHandle {
     }
 }
 
+#[cfg(not(msim))]
 impl TestClusterHandle {
     // Creates a test Sui cluster using tokio runtime.
-    #[cfg(not(msim))]
     fn new(runtime: &Runtime) -> Self {
         Self::from_env().unwrap_or_else(|| Self::new_on_runtime(runtime, None))
     }
@@ -176,7 +176,6 @@ impl TestClusterHandle {
     /// directory.
     ///
     /// Returns None if the environment variable is not set.
-    #[cfg(not(msim))]
     fn from_env() -> Option<Self> {
         let config_path = std::env::var("SUI_TEST_CONFIG_DIR").ok()?;
         tracing::debug!("using external Sui test cluster");
@@ -191,8 +190,15 @@ impl TestClusterHandle {
         })
     }
 
-    /// Creates a test Sui cluster using deterministic MSIM runtime.
-    #[cfg(msim)]
+    /// Returns the test cluster reference.
+    pub fn cluster(&self) -> &LocalOrExternalTestCluster {
+        &self.cluster
+    }
+}
+
+#[cfg(msim)]
+impl TestClusterHandle {
+    // Creates a test Sui cluster using deterministic MSIM runtime.
     async fn new() -> Self {
         Self::new_with_additional_fullnodes(None).await
     }
@@ -235,24 +241,24 @@ impl TestClusterHandle {
         }
     }
 
-    /// Returns the path to the wallet config file.
-    pub async fn wallet_path(&self) -> PathBuf {
-        self.wallet_path.lock().await.clone()
-    }
-
-    /// Returns the test cluster reference.
-    #[cfg(not(msim))]
-    pub fn cluster(&self) -> &LocalOrExternalTestCluster {
-        &self.cluster
-    }
-
     /// Returns the local test cluster reference for simtests.
-    #[cfg(msim)]
     pub fn cluster(&self) -> &TestCluster {
         let LocalOrExternalTestCluster::Local { ref cluster } = self.cluster else {
             unreachable!("always use a local test cluster in simtests")
         };
         cluster
+    }
+
+    /// Returns the simulator node handle for the Sui test cluster.
+    pub fn sim_node_handle(&self) -> &NodeHandle {
+        &self.node_handle
+    }
+}
+
+impl TestClusterHandle {
+    /// Returns the path to the wallet config file.
+    pub async fn wallet_path(&self) -> PathBuf {
+        self.wallet_path.lock().await.clone()
     }
 
     /// Returns the URL of the RPC node.
@@ -266,12 +272,6 @@ impl TestClusterHandle {
             .iter()
             .map(|node| node.rpc_url.clone())
             .collect()
-    }
-
-    /// Returns the simulator node handle for the Sui test cluster.
-    #[cfg(msim)]
-    pub fn sim_node_handle(&self) -> &NodeHandle {
-        &self.node_handle
     }
 
     /// Returns the additional fullnodes.
@@ -288,12 +288,15 @@ pub mod using_tokio {
         thread,
     };
 
-    use tokio::runtime::{Builder, Runtime};
+    use tokio::{
+        runtime::{Builder, Runtime},
+        sync::Mutex as TokioMutex,
+    };
 
     use super::TestClusterHandle;
 
     struct GlobalTestClusterHandler {
-        inner: Weak<TestClusterHandle>,
+        inner: Weak<TokioMutex<TestClusterHandle>>,
         runtime: Runtime,
     }
 
@@ -313,11 +316,13 @@ pub mod using_tokio {
             }
         }
 
-        fn get_test_cluster_handle(&mut self) -> Arc<TestClusterHandle> {
+        fn get_test_cluster_handle(&mut self) -> Arc<TokioMutex<TestClusterHandle>> {
             if let Some(handle) = self.inner.upgrade() {
                 handle
             } else {
-                let handle = Arc::new(TestClusterHandle::new(&self.runtime));
+                let handle = Arc::new(tokio::sync::Mutex::new(TestClusterHandle::new(
+                    &self.runtime,
+                )));
                 self.inner = Arc::downgrade(&handle);
                 handle
             }
@@ -327,7 +332,10 @@ pub mod using_tokio {
     /// Returns a handle to the global instance of a Sui test cluster and the wallet config path.
     ///
     /// Initializes the test cluster if it doesn't exist yet.
-    pub fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
+    ///
+    /// Wrap the test cluster handle in an `Arc<Mutex<>>` so that the test body can change the
+    /// Sui cluster internals.
+    pub fn global_sui_test_cluster() -> Arc<TokioMutex<TestClusterHandle>> {
         static CLUSTER: OnceLock<std::sync::Mutex<GlobalTestClusterHandler>> = OnceLock::new();
         CLUSTER
             .get_or_init(|| std::sync::Mutex::new(GlobalTestClusterHandler::new()))
@@ -369,16 +377,21 @@ pub mod using_msim {
 
     /// Returns a handle to a newly created global instance of a Sui test cluster and the wallet
     /// config path.
-    pub async fn global_sui_test_cluster() -> Arc<TestClusterHandle> {
-        Arc::new(TestClusterHandle::new().await)
+    ///
+    /// Wrap the test cluster handle in an `Arc<Mutex<>>` so that the test body can change the
+    /// Sui cluster internals.
+    pub async fn global_sui_test_cluster() -> Arc<tokio::sync::Mutex<TestClusterHandle>> {
+        Arc::new(tokio::sync::Mutex::new(TestClusterHandle::new().await))
     }
 
     /// Returns a handle to a newly created global instance of a Sui test cluster with the specified
     /// number of fullnodes.
     pub async fn global_sui_test_cluster_with_additional_fullnodes(
         num_additional_fullnodes: Option<usize>,
-    ) -> Arc<TestClusterHandle> {
-        Arc::new(TestClusterHandle::new_with_additional_fullnodes(num_additional_fullnodes).await)
+    ) -> Arc<tokio::sync::Mutex<TestClusterHandle>> {
+        Arc::new(tokio::sync::Mutex::new(
+            TestClusterHandle::new_with_additional_fullnodes(num_additional_fullnodes).await,
+        ))
     }
 }
 
@@ -390,9 +403,10 @@ pub mod using_msim {
 /// See [`new_wallet_on_sui_test_cluster`] for a similar method that funds a single wallet at a
 /// time.
 pub async fn create_and_fund_wallets_on_cluster(
-    sui_cluster: Arc<TestClusterHandle>,
+    sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
     n_wallets: usize,
 ) -> anyhow::Result<Vec<WithTempDir<WalletContext>>> {
+    let sui_cluster = sui_cluster.lock().await;
     let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
@@ -420,8 +434,9 @@ pub async fn create_and_fund_wallets_on_cluster(
 
 /// Returns a new wallet on the global Sui test cluster.
 pub async fn new_wallet_on_sui_test_cluster(
-    sui_cluster: Arc<TestClusterHandle>,
+    sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
 ) -> anyhow::Result<WithTempDir<WalletContext>> {
+    let sui_cluster = sui_cluster.lock().await;
     let path_guard = sui_cluster.wallet_path.lock().await;
     // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
     // This prevents tasks from being spawned in the current runtime that are expected by
@@ -434,7 +449,7 @@ pub async fn new_wallet_on_sui_test_cluster(
 
 /// Returns a new `SuiContractClient` on the global Sui test cluster.
 pub async fn new_contract_client_on_sui_test_cluster(
-    sui_cluster_handle: Arc<TestClusterHandle>,
+    sui_cluster_handle: Arc<tokio::sync::Mutex<TestClusterHandle>>,
     existing_client: &SuiContractClient,
 ) -> anyhow::Result<WithTempDir<SuiContractClient>> {
     let contract_config = existing_client.read_client().contract_config();

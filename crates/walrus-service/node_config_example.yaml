@@ -127,3 +127,5 @@ num_uncertified_blob_threshold: null
 balance_check:
   interval_secs: 3600
   warning_threshold_mist: 5000000000
+thread_pool:
+  max_concurrent_tasks: null
