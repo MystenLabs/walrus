@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{cmp::Ordering, collections::HashSet, mem, num::NonZeroU16, sync::Arc};
