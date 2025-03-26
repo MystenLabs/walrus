@@ -6,7 +6,7 @@ advice on how to manage or minimize them for specific scenarios.
 
 This document deals with costs of storage specifically. You can find a wider discussion about
 the [WAL tokenonmics](https://www.walrus.xyz/wal-token), and the role it plays in the
-[Walrus delegated proof of stake system](./walrus.pdf) elsewhere.
+[Walrus delegated proof of stake system](../walrus.pdf) elsewhere.
 
 ## Understanding the 4 sources of cost
 
