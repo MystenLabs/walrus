@@ -24,6 +24,9 @@ jobs:
     env:
       # Colors don't seem to work properly with the multiline commands.
       NO_COLOR: 1
+      RUST_LOG: info
+      EPOCHS: 10
+      BUILD_DIR: site
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/set-up-walrus
@@ -34,20 +37,25 @@ jobs:
           SUI_NETWORK: mainnet
 
       - name: Create temporary directory
-        run: "mkdir -p site"
+        run: "mkdir -p ${{ env.BUILD_DIR }}"
       - name: Download latest mainnet and testnet binaries
         run: |
           for arch in ubuntu-x86_64 ubuntu-x86_64-generic macos-x86_64 macos-arm64 windows-x86_64.exe; do
           for env in mainnet testnet; do
           name=walrus-$env-latest-$arch
-          curl https://storage.googleapis.com/mysten-walrus-binaries/$name -o site/$name
+          curl https://storage.googleapis.com/mysten-walrus-binaries/$name -o ${{ env.BUILD_DIR }}/$name
           done
           done
 
+      # TODO: Remove this step once the site-builder supports supports storing multiple blobs
+      # simultaneously.
+      - name: Store blobs on Walrus
+        run: walrus store ${{ env.BUILD_DIR }}/* --epochs ${{ env.EPOCHS }}
+
       - name: Update Walrus Site
         run: >
-          RUST_LOG=site_builder=debug,walrus=debug,info
           site-builder
-          update --list-directory site ${{ vars.WALRUS_SITE_BIN_OBJECT }}
-          --epochs 183
+          update --list-directory ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_BIN }}
+          --epochs ${{ env.EPOCHS }}
+          --permanent
           --force
