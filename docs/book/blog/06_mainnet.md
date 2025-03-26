@@ -9,7 +9,7 @@ a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 20
 network can now be used to
 [publish and retrieve blobs](../usage/interacting.md),
 [upload and browse Walrus Sites](../walrus-sites/tutorial-publish.md), as
-well as [stake and unstake]() to determine future committees using the live
+well as [stake and unstake](https://stake.wal.app) to determine future committees using the live
 [Mainnet WAL token](https://www.walrus.xyz/wal-token).
 On Mainnet, the Walrus security properties hold. And Walrus is now ready to satisfy
 the needs of real applications.
@@ -33,8 +33,8 @@ Besides the promise of stability and security, the Mainnet release of Walrus com
 notable new features and changes:
 
 - **Blob attributes.** Each Sui blob objects can have multiple attributes and values attached to it,
-  to encode application meta-data. In due course the aggregator will use this facility to return
-  correct content types and file names.
+  to encode application meta-data. The aggregator uses this facility for returning common HTTP
+  headers.
 
 - **Burn blob objects on Sui**. The command line `walrus` tool is extended with commands to
   "burn" Sui blob objects to reclaim the associated storage fee, making it cheaper to store blobs.
@@ -68,8 +68,12 @@ notable new features and changes:
 - **Walrus Sites updates.** The Mainnet Walrus Sites public portal will be hosted on the
   `wal.app` domain name. Now Walrus Sites support deletable blobs to make their updates more
   capital efficient. Those operating their own portals may also use their own domain names to serve
-  a Walrus Site. The [Staking](), [Docs](), [Snowreads](), and [Flatland]() Walrus Sites are now on
-  Mainnet.
+  a Walrus Site. The
+  [Staking](https://stake.wal.app),
+  [Docs](https://docs.wal.app),
+  [Snowreads](https://snowreads.wal.app), and
+  [Flatland](https://flatland.wal.app)
+  Walrus Sites are now on Mainnet.
 
 - **A subsidies contract.** The Mainnet release of Walrus requires WAL for storing blobs, however
   to enable early adopters to try the system, transition to it, the Walrus foundation operates a

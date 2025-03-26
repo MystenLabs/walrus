@@ -34,7 +34,7 @@
   - [Sui structures](./dev-guide/sui-struct.md)
 - [Operator guide](./operator-guide/operator-guide.md)
   - [Storage node](./operator-guide/storage-node.md)
-  - [Aggregator](./operator-guide/aggregator.md)
+  - [Aggregator or publisher](./operator-guide/aggregator.md)
 - [Stake and Unstake](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)
