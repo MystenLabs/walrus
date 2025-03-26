@@ -9,7 +9,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -169,6 +172,8 @@ pub struct EventProcessor {
     pub checkpoint_downloader: ParallelCheckpointDownloader,
     /// Local package store.
     pub package_store: LocalDBPackageStore,
+    /// The cached latest checkpoint sequence number.
+    latest_checkpoint_seq_cache: Arc<AtomicU64>,
 }
 
 impl Debug for LocalDBPackageStore {
@@ -477,6 +482,10 @@ impl EventProcessor {
                 .inc();
             let verified_checkpoint =
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
+
+            // Update the checkpoint cache immediately after verification.
+            self.update_checkpoint_cache(*verified_checkpoint.sequence_number());
+
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
             // TODO(WAL-667): remove special case
@@ -637,6 +646,7 @@ impl EventProcessor {
             metrics,
             checkpoint_downloader,
             package_store,
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -649,6 +659,8 @@ impl EventProcessor {
             .get(&())?
             .map(|t| *t.inner().sequence_number())
             .unwrap_or(0);
+
+        event_processor.update_checkpoint_cache(current_checkpoint);
 
         let latest_checkpoint = retry_client.get_latest_checkpoint().await?;
         if current_checkpoint > latest_checkpoint.sequence_number {
@@ -706,6 +718,9 @@ impl EventProcessor {
                 .stores
                 .checkpoint_store
                 .insert(&(), verified_checkpoint.serializable_ref())?;
+
+            // Also update the cache with the bootstrap checkpoint sequence number.
+            event_processor.update_checkpoint_cache(*verified_checkpoint.sequence_number());
         }
 
         Ok(event_processor)
@@ -1084,6 +1099,36 @@ impl EventProcessor {
             .collect();
         (first_event, relevant_events)
     }
+
+    /// Updates the cached checkpoint sequence number.
+    fn update_checkpoint_cache(&self, sequence_number: u64) {
+        // Use fetch_max to atomically update the value if sequence_number is greater
+        self.latest_checkpoint_seq_cache
+            .fetch_max(sequence_number, Ordering::SeqCst);
+    }
+
+    /// Gets the latest checkpoint sequence number, preferring the cache.
+    pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        // Try to get from cache first.
+        let cached = self.latest_checkpoint_seq_cache.load(Ordering::SeqCst);
+        if cached > 0 {
+            return Some(cached);
+        }
+
+        // If cache is empty, query the store.
+        let seq_num = match self.stores.checkpoint_store.get(&()) {
+            Ok(Some(checkpoint)) => Some(*checkpoint.inner().sequence_number()),
+            _ => None,
+        };
+
+        // Update cache if a value was found.
+        if let Some(num) = seq_num {
+            self.latest_checkpoint_seq_cache
+                .store(num, Ordering::SeqCst);
+        }
+
+        seq_num
+    }
 }
 
 impl LocalDBPackageStore {
@@ -1281,6 +1326,7 @@ mod tests {
             metrics: EventProcessorMetrics::new(&Registry::default()),
             checkpoint_downloader,
             package_store,
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         })
     }
 
