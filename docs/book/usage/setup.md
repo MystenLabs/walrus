@@ -94,10 +94,10 @@ instructions](#windows-install) if you are on Windows.
 
 ```sh
 # Run a first-time install.
-curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh
+curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/setup/walrus-install.sh | sh
 
 # Update an existing installation (overwrites prior version of walrus).
-curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/scripts/walrus-install.sh | sh -s -- -f
+curl -sSf https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/setup/walrus-install.sh | sh -s -- -f
 ```
 
 Make sure that the `"$HOME"/.local/bin` directory is in your `$PATH`.
