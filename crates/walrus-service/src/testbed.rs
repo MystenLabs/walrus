@@ -583,6 +583,7 @@ pub async fn create_backup_config(
             backoff_config: ExponentialBackoffConfig::default(),
             event_polling_interval: defaults::polling_interval(),
             rpc_fallback_config,
+            additional_rpc_endpoints: vec![],
         },
         database_url.to_string(),
     ))
@@ -709,6 +710,7 @@ pub async fn create_storage_node_configs(
             backoff_config: ExponentialBackoffConfig::default(),
             gas_budget: None,
             rpc_fallback_config: rpc_fallback_config.clone(),
+            additional_rpc_endpoints: vec![],
         });
 
         let storage_path = set_db_path

@@ -398,8 +398,14 @@ impl StorageNodeBuilder {
                     sui_config.event_polling_interval,
                 ))
             } else {
+                let rpc_addresses = sui_config
+                    .additional_rpc_endpoints
+                    .clone()
+                    .into_iter()
+                    .chain(vec![sui_config.rpc.clone()])
+                    .collect();
                 let processor_config = EventProcessorRuntimeConfig {
-                    rpc_address: sui_config.rpc.clone(),
+                    rpc_addresses,
                     event_polling_interval: sui_config.event_polling_interval,
                     db_path: config.storage_path.join("events"),
                     rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
@@ -2463,6 +2469,16 @@ impl ServiceState for StorageNodeInner {
 
     fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
         let (shard_summary, shard_detail) = self.shard_health_status(detailed);
+
+        // Get the latest checkpoint sequence number directly from the event manager.
+        let latest_checkpoint_sequence_number = if let Some(event_processor) =
+            self.event_manager.as_any().downcast_ref::<EventProcessor>()
+        {
+            event_processor.get_latest_checkpoint_sequence_number()
+        } else {
+            None
+        };
+
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
             epoch: self.current_epoch(),
@@ -2479,6 +2495,7 @@ impl ServiceState for StorageNodeInner {
                 .into(),
             shard_detail,
             shard_summary,
+            latest_checkpoint_sequence_number,
         }
     }
 

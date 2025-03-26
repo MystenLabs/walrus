@@ -11985,6 +11985,7 @@ dependencies = [
  "reqwest",
  "sui-macros",
  "sui-protocol-config",
+ "sui-rpc-api",
  "sui-simulator",
  "sui-types",
  "tokio",
