@@ -23,7 +23,6 @@ macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
 | Ubuntu  | Intel 64bit           | [`site-builder-mainnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64)                |
-| Ubuntu  | Intel 64bit (generic) | [`site-builder-mainnet-latest-ubuntu-x86_64-generic`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64-generic)|
 | MacOS   | Apple Silicon         | [`site-builder-mainnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
@@ -34,7 +33,6 @@ macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
 | Ubuntu  | Intel 64bit           | [`site-builder-testnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64)                |
-| Ubuntu  | Intel 64bit (generic) | [`site-builder-testnet-latest-ubuntu-x86_64-generic`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64-generic)|
 | MacOS   | Apple Silicon         | [`site-builder-testnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
