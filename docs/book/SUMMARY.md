@@ -77,3 +77,4 @@
 [Glossary](./glossary.md)
 [Testnet terms of service](./legal/testnet_tos.md)
 [Privacy policy](./legal/privacy.md)
+[Walrus general terms of service](./legal/walrus_general_tos.md)
