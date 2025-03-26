@@ -471,7 +471,6 @@ APPLY TO YOU, BUT THE PROVISIONS OF SECTION 15 (GOVERNING LAW) WILL APPLY INSTEA
     Walrus Foundation are each waiving the right to a trial by jury or to participate in a class
     action. This arbitration provision shall survive termination of these Terms.
 
-
     b) Exceptions. The Parties retain the right to seek injunctive or other equitable relief from a
     court to prevent (or enjoin) the infringement or misappropriation of our intellectual property
     rights.
@@ -524,7 +523,6 @@ APPLY TO YOU, BUT THE PROVISIONS OF SECTION 15 (GOVERNING LAW) WILL APPLY INSTEA
     trademark, service mark or other proprietary rights notices incorporated in or accompanying the
     Interface.
 
-
     b) Entire Agreement. These Terms, including any addendum terms, constitute the entire and
     exclusive understanding and agreement between Walrus Foundation and you regarding the Interface,
     and these Terms supersede and replace all prior oral or written understandings or agreements
@@ -533,14 +531,12 @@ APPLY TO YOU, BUT THE PROVISIONS OF SECTION 15 (GOVERNING LAW) WILL APPLY INSTEA
     provision will be enforced to the maximum extent permissible and the other provisions of these
     Terms will remain in full force and effect.
 
-
     c) Assignment. Except where provided by Applicable Law in your jurisdiction, you may not assign
     or transfer these Terms, by operation of law or otherwise, without Walrus Foundation’s prior
     written consent. Any attempt by you to assign or transfer these Terms absent our consent or your
     statutory right, will be null. Walrus Foundation may freely assign or transfer these Terms
     without restriction. Subject to the foregoing, these Terms will bind and inure to the benefit of
     the parties, their successors and permitted assigns.
-
 
     d) Notices. Any notices or other communications provided by Walrus Foundation under these Terms
     will be given: (i) via email; or (ii) by posting to the Interface. For notices made by email,

@@ -4,11 +4,11 @@
 Last updated: March 26, 2025
 
 By using Walrus Testnet software, technologies, tools, and other services (collectively
-**“Testnet”**) offered by Walrus Foundation ("Walrus Foundation", "we", "our"), you agree to the general Walrus Terms of Service and these additional Testnet Terms of
-Service (together, the **“Terms”**). If you do not agree, do not participate in Testnet. If you are
-using Testnet on behalf of an organization, you represent and warrant that you are an authorized
-representative of that organization and have the authority to bind that business or entity to the
-Terms.
+**“Testnet”**) offered by Walrus Foundation ("Walrus Foundation", "we", "our"), you agree to the
+general Walrus Terms of Service and these additional Testnet Terms of Service (together, the
+**“Terms”**). If you do not agree, do not participate in Testnet. If you are using Testnet on behalf
+of an organization, you represent and warrant that you are an authorized representative of that
+organization and have the authority to bind that business or entity to the Terms.
 
 ## Privacy Policy
 
@@ -54,13 +54,14 @@ null and void.
 
 ## No Warranty
 
-Walrus Foundation and its service providers provide the Testnet platform solely as a developer test environment. Testnet is
-provided "as is" and "with all faults." We and our service providers make no warranties, express or implied, regarding the
-reliability, accuracy, performance, or fitness for a particular purpose of the service provided. You
-accept all risks associated with the use of Testnet and agree that Walrus Foundation, its affiliates, employees, and
-service providers shall not be liable for any damages, whether direct, indirect, incidental, special,
-consequential, or punitive, arising out of the use or inability to use the service, including but
-not limited to lost profits, loss of business, or data loss.
+Walrus Foundation and its service providers provide the Testnet platform solely as a developer test
+environment. Testnet is provided "as is" and "with all faults." We and our service providers make no
+warranties, express or implied, regarding the reliability, accuracy, performance, or fitness for a
+particular purpose of the service provided. You accept all risks associated with the use of Testnet
+and agree that Walrus Foundation, its affiliates, employees, and service providers shall not be
+liable for any damages, whether direct, indirect, incidental, special, consequential, or punitive,
+arising out of the use or inability to use the service, including but not limited to lost profits,
+loss of business, or data loss.
 
 Any deficiencies or errors in the Testnet platform shall not constitute a breach of this agreement,
 and customers agree to waive any right to seek a refund or compensation based on such deficiencies
