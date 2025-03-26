@@ -14,7 +14,9 @@ Outline of costs associated with Walrus Storage:
 
 - A storage resource is needed to store a blob, with an appropriate capacity and epoch duration.
   Storage resources can be acquired from the Walrus system contract while there is free space
-  available on the system against some WAL. Other options are also available.
+  available on the system against some WAL. Other options are also available, such as e.g. buying
+  them from the subsidy contract, having it transferred, or splitting a larger resource bought
+  occasionally into smaller ones (see discussion below).
 
 - Upon blob registration some WAL is charged to cover the costs of data upload. This ensures that
   storing and deleting blobs in the same storage resource is sustainable.
