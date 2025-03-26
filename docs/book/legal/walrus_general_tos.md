@@ -5,15 +5,15 @@ Please read these Terms of Service (the “Terms”) and our Privacy Policy care
 
 1. Agreement to Terms
 
-    By using our Interface, you agree to be bound by these Terms. If you don’t agree to be bound by the Terms, do not use the Interface. 
+    By using our Interface, you agree to be bound by these Terms. If you don’t agree to be bound by the Terms, do not use the Interface.
 
 1. Privacy Policy
 
-    Please review our Privacy Policy, which also governs your use of the Interface, for information on how we collect, use and share your information. 
+    Please review our Privacy Policy, which also governs your use of the Interface, for information on how we collect, use and share your information.
 
 1. Changes to these Terms or the Interface
 
-    We may update the Terms, including any addendum terms, from time to time in our sole discretion. If we do, we’ll let you know by posting the updated Terms on the Site and/or may also send other communications. It’s important that you review the Terms whenever we update them or you use the Interface. If you continue to use the Interface after we have posted updated Terms it means that you accept and agree to the changes. If you don’t agree to be bound by the changes, you may not use the Interface anymore. Because our Interface is evolving over time we may change or discontinue all or any part of the Interface, at any time and without notice, at our sole discretion. 
+    We may update the Terms, including any addendum terms, from time to time in our sole discretion. If we do, we’ll let you know by posting the updated Terms on the Site and/or may also send other communications. It’s important that you review the Terms whenever we update them or you use the Interface. If you continue to use the Interface after we have posted updated Terms it means that you accept and agree to the changes. If you don’t agree to be bound by the changes, you may not use the Interface anymore. Because our Interface is evolving over time we may change or discontinue all or any part of the Interface, at any time and without notice, at our sole discretion.
 
 1. Interface Use Eligibility
 
@@ -85,61 +85,61 @@ Please read these Terms of Service (the “Terms”) and our Privacy Policy care
 
     You agree not to do any of the following:
 
-    - Post, upload, publish, submit or transmit any User Content that: 
-    
-        - (i) infringes, misappropriates or violates a third party’s patent, copyright, trademark, trade secret, moral rights or other intellectual property rights, or rights of publicity or privacy; 
-        
-        - (ii) violates, or encourages any conduct that would violate, any Applicable Law or regulation or would give rise to civil liability; 
-        
-        - (iii) is fraudulent, false, misleading or deceptive; 
-        
-        - (iv) is defamatory, obscene, pornographic, vulgar or offensive; 
-        
-        - (v) promotes discrimination, bigotry, racism, hatred, harassment or harm against any individual or group; 
-        
-        - (vi) is violent or threatening or promotes violence or actions that are threatening to any person or entity; or 
-        
+    - Post, upload, publish, submit or transmit any User Content that:
+
+        - (i) infringes, misappropriates or violates a third party’s patent, copyright, trademark, trade secret, moral rights or other intellectual property rights, or rights of publicity or privacy;
+
+        - (ii) violates, or encourages any conduct that would violate, any Applicable Law or regulation or would give rise to civil liability;
+
+        - (iii) is fraudulent, false, misleading or deceptive;
+
+        - (iv) is defamatory, obscene, pornographic, vulgar or offensive;
+
+        - (v) promotes discrimination, bigotry, racism, hatred, harassment or harm against any individual or group;
+
+        - (vi) is violent or threatening or promotes violence or actions that are threatening to any person or entity; or
+
         - (vii) promotes illegal or harmful activities or substances;
-    - Engage in or induce others to engage in any form of unauthorized access, hacking, or social engineering, including without limitation any distributed denial or service or DDoS attack, of Walrus Foundation, the Interface, or any users of the foregoing; 
-    
+    - Engage in or induce others to engage in any form of unauthorized access, hacking, or social engineering, including without limitation any distributed denial or service or DDoS attack, of Walrus Foundation, the Interface, or any users of the foregoing;
+
     - Use, display, mirror or frame the Interface or any individual element within the Interface, Walrus Foundation’s name, any Walrus Foundation trademark, logo or other proprietary information, or the layout and design of any page or form contained on a page, without Walrus Foundation’s express written consent;
-    
+
     - Access, tamper with, or use non-public areas of the Interface, Walrus Foundation’s computer systems, or the technical delivery systems of Walrus Foundation’s providers;
-    
+
     - Attempt to probe, scan or test the vulnerability of any Walrus Foundation system or network or breach any security or authentication measures;
-    
+
     - Avoid, bypass, remove, deactivate, impair, descramble or otherwise circumvent any technological measure implemented by Walrus Foundation or any of Walrus Foundation’s providers or any other third party (including another user) to protect the Interface;
-    
+
     - Attempt to access or search the Interface or download content from the Interface using any engine, software, tool, agent, device or mechanism (including spiders, robots, crawlers, data mining tools or the like) other than the software and/or search agents provided by Walrus Foundation or other generally available third-party web browsers;
-    
+
     - Send any unsolicited or unauthorized advertising, promotional materials, email, junk mail, spam, chain letters or other form of solicitation;
-    
+
     - Use any meta tags or other hidden text or metadata utilizing a Walrus Foundation trademark, logo, URL or product name without Walrus Foundation’s express written consent;
-    
+
     - Forge any TCP/IP packet header or any part of the header information in any email or newsgroup posting, or in any way use the Interface to send altered, deceptive or false source-identifying information;
-    
+
     - Attempt to decipher, decompile, disassemble or reverse engineer any of the software used to provide the Interface;
-    
+
     - Interfere with, or attempt to interfere with, the access of any user, host or network, including, without limitation, sending a virus, exploiting any bug, overloading, flooding, spamming, or mail-bombing the Interface;
-    
+
     - Use the Interface for benchmarking or analysis in a manner that could, directly or indirectly, interfere with, detract from, or otherwise harm the Interface or the Protocol;
-    
+
     - Collect or store any personally identifiable information from the Interface from other users of the Interface without their express permission;
-    
+
     - Impersonate or misrepresent your affiliation with any person or entity;
-    
+
     - Create or list any counterfeit items (including digital assets);
-    
+
     - Fabricate in any way any transaction or process related thereto;
-    
+
     - Engage or assist in any activity that violates any law, statute, ordinance, regulation, or sanctions program, including but not limited to the U.S. Department of Treasury’s Office of Foreign Assets Control (“OFAC”), or that involves proceeds of any unlawful activity (including but not limited to money laundering, terrorist financing or deliberately engaging in activities designed to adversely affect the performance of the Interface);
-    
-    - Engage in wash trading or other deceptive or manipulative trading activities; 
-    
+
+    - Engage in wash trading or other deceptive or manipulative trading activities;
+
     - Disguise or interfere in any way with the IP address of the computer you are using to access or use the Interface or that otherwise prevents us from correctly identifying the IP address of the computer you are using to access the Interface;
-    
+
     - Transmit, exchange, or otherwise support the direct or indirect proceeds of criminal or fraudulent activity; or
-    
+
     - Violate any Applicable Law or regulation
 
     Walrus Foundation is not obligated to monitor access to or use of the Interface or to review or edit any content. However, we have the right to do so for the purpose of operating the Interface, to ensure compliance with these Terms and to comply with Applicable Law or other legal requirements. We reserve the right, but are not obligated, to remove or disable access to any content, including User Content, at any time and without notice, including, but not limited to, if we, at our sole discretion, consider it objectionable or in violation of these Terms. We have the right to investigate violations of these Terms or conduct that affects the Interface. We may also consult and cooperate with law enforcement authorities to prosecute users who violate the law.
@@ -154,9 +154,9 @@ Please read these Terms of Service (the “Terms”) and our Privacy Policy care
 
 1. Warranty Disclaimers
 
-    THE INTERFACE AND ANY CONTENT CONTAINED THEREIN IS PROVIDED “AS IS,” WITHOUT WARRANTY OF ANY KIND. WITHOUT LIMITING THE FOREGOING, WE EXPLICITLY DISCLAIM ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT AND NON-INFRINGEMENT, AND ANY WARRANTIES ARISING OUT OF COURSE OF DEALING OR USAGE OF TRADE. WE MAKE NO WARRANTY THAT THE INTERFACE WILL MEET YOUR REQUIREMENTS, BE AVAILABLE ON AN UNINTERRUPTED, SECURE, OR ERROR-FREE BASIS. WE MAKE NO WARRANTY REGARDING THE QUALITY, ACCURACY, TIMELINESS, TRUTHFULNESS, COMPLETENESS OR RELIABILITY OF ANY INFORMATION OR CONTENT ON THE INTERFACE. WALRUS FOUNDATION FURTHER EXPRESSLY DISCLAIMS ALL LIABILITY OR RESPONSIBILITY IN CONNECTION WITH THIRD PARTY SERVICES. NOTHING HEREIN NOR ANY USE OF OUR INTERFACE IN CONNECTION WITH THIRD PARTY SERVICES CONSTITUTES OUR ENDORSEMENT, RECOMMENDATION OR ANY OTHER AFFILIATION OF OR WITH ANY THIRD PARTY SERVICES. 
+    THE INTERFACE AND ANY CONTENT CONTAINED THEREIN IS PROVIDED “AS IS,” WITHOUT WARRANTY OF ANY KIND. WITHOUT LIMITING THE FOREGOING, WE EXPLICITLY DISCLAIM ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT AND NON-INFRINGEMENT, AND ANY WARRANTIES ARISING OUT OF COURSE OF DEALING OR USAGE OF TRADE. WE MAKE NO WARRANTY THAT THE INTERFACE WILL MEET YOUR REQUIREMENTS, BE AVAILABLE ON AN UNINTERRUPTED, SECURE, OR ERROR-FREE BASIS. WE MAKE NO WARRANTY REGARDING THE QUALITY, ACCURACY, TIMELINESS, TRUTHFULNESS, COMPLETENESS OR RELIABILITY OF ANY INFORMATION OR CONTENT ON THE INTERFACE. WALRUS FOUNDATION FURTHER EXPRESSLY DISCLAIMS ALL LIABILITY OR RESPONSIBILITY IN CONNECTION WITH THIRD PARTY SERVICES. NOTHING HEREIN NOR ANY USE OF OUR INTERFACE IN CONNECTION WITH THIRD PARTY SERVICES CONSTITUTES OUR ENDORSEMENT, RECOMMENDATION OR ANY OTHER AFFILIATION OF OR WITH ANY THIRD PARTY SERVICES.
 
-    WALRUS FOUNDATION DOES NOT REPRESENT OR WARRANT THAT ANY CONTENT ON THE INTERFACE IS ACCURATE, COMPLETE, RELIABLE, CURRENT OR ERROR-FREE. WE WILL NOT BE LIABLE FOR ANY LOSS OF ANY KIND FROM ANY ACTION TAKEN OR TAKEN IN RELIANCE ON MATERIAL OR INFORMATION CONTAINED ON THE INTERFACE. WALRUS FOUNDATION CANNOT AND DOES NOT REPRESENT OR WARRANT THAT THE INTERFACE, ANY CONTENT THEREIN, OR OUR SERVERS ARE FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS. WE CANNOT GUARANTEE THE SECURITY OF ANY DATA THAT YOU DISCLOSE ONLINE. YOU ACCEPT THE INHERENT SECURITY RISKS OF PROVIDING INFORMATION AND DEALING ONLINE OVER THE INTERNET AND WILL NOT HOLD US RESPONSIBLE FOR ANY BREACH OF SECURITY. 
+    WALRUS FOUNDATION DOES NOT REPRESENT OR WARRANT THAT ANY CONTENT ON THE INTERFACE IS ACCURATE, COMPLETE, RELIABLE, CURRENT OR ERROR-FREE. WE WILL NOT BE LIABLE FOR ANY LOSS OF ANY KIND FROM ANY ACTION TAKEN OR TAKEN IN RELIANCE ON MATERIAL OR INFORMATION CONTAINED ON THE INTERFACE. WALRUS FOUNDATION CANNOT AND DOES NOT REPRESENT OR WARRANT THAT THE INTERFACE, ANY CONTENT THEREIN, OR OUR SERVERS ARE FREE OF VIRUSES OR OTHER HARMFUL COMPONENTS. WE CANNOT GUARANTEE THE SECURITY OF ANY DATA THAT YOU DISCLOSE ONLINE. YOU ACCEPT THE INHERENT SECURITY RISKS OF PROVIDING INFORMATION AND DEALING ONLINE OVER THE INTERNET AND WILL NOT HOLD US RESPONSIBLE FOR ANY BREACH OF SECURITY.
 
     WALRUS FOUNDATION WILL NOT BE RESPONSIBLE OR LIABLE TO YOU FOR ANY LOSS AND TAKES NO RESPONSIBILITY FOR, AND WILL NOT BE LIABLE TO YOU FOR, ANY USE OF THE INTERFACE, INCLUDING BUT NOT LIMITED TO ANY LOSSES, DAMAGES OR CLAIMS ARISING FROM: (I) USER ERROR SUCH AS FORGOTTEN PASSWORDS, INCORRECTLY CONSTRUCTED TRANSACTIONS, EXCEEDING TRANSFER LIMITS OF THIRD PARTY RESOURCES OR THE PROTOCOL, OR MISTYPED WALLET ADDRESSES; (II) SERVER FAILURE OR DATA LOSS; (III) BLOCKCHAIN NETWORKS, CRYPTOCURRENCY WALLETS, CORRUPT FILES, SOFTWARE ERRORS, OR BUGS; (IV) UNAUTHORIZED ACCESS TO THE INTERFACE; OR (V) ANY THIRD PARTY ACTIVITIES, INCLUDING WITHOUT LIMITATION THE USE OF VIRUSES, PHISHING, BRUTEFORCING OR OTHER MEANS OF ATTACK AGAINST ANY BLOCKCHAIN NETWORK UNDERLYING THE INTERFACE.
 
@@ -164,11 +164,11 @@ Please read these Terms of Service (the “Terms”) and our Privacy Policy care
 
 1. Assumption of Risk
 
-    You are solely responsible for determining what, if any, Taxes and Gas Fees apply to your transactions through the Interface. Neither Walrus Foundation nor any Walrus Foundation affiliates or service providers are responsible for determining the Taxes that apply to such transactions. 
+    You are solely responsible for determining what, if any, Taxes and Gas Fees apply to your transactions through the Interface. Neither Walrus Foundation nor any Walrus Foundation affiliates or service providers are responsible for determining the Taxes that apply to such transactions.
 
-    A lack of use or public interest in the creation and development of distributed ecosystems could negatively impact the development of those ecosystems and related applications, and could therefore also negatively impact the potential utility or value of User Content or certain digital assets. By accessing and using the Interface, you represent that you understand the inherent risks associated with using cryptographic and blockchain-based systems, and that you have a working knowledge of their usage and intricacies. 
+    A lack of use or public interest in the creation and development of distributed ecosystems could negatively impact the development of those ecosystems and related applications, and could therefore also negatively impact the potential utility or value of User Content or certain digital assets. By accessing and using the Interface, you represent that you understand the inherent risks associated with using cryptographic and blockchain-based systems, and that you have a working knowledge of their usage and intricacies.
 
-    You further understand that the markets for tokens and NFTs can be highly volatile due to factors including (but not limited to) adoption, speculation, technology, security, and regulation. 
+    You further understand that the markets for tokens and NFTs can be highly volatile due to factors including (but not limited to) adoption, speculation, technology, security, and regulation.
 
     You acknowledge that the cost and speed of transacting with cryptographic and blockchain-based systems are variable and may increase at any time. Accordingly, you understand and agree to assume full responsibility for all of the risks of accessing and using and interacting with the Interface.
 
@@ -189,7 +189,7 @@ Please read these Terms of Service (the “Terms”) and our Privacy Policy care
     a) Mandatory Arbitration of Disputes. We each agree that any dispute, claim or controversy arising out of or relating to these Terms or the breach, termination, enforcement, interpretation or validity thereof or the use of the Interface (collectively, “Disputes”) will be resolved solely by binding, individual arbitration and not in a class, representative or consolidated action or proceeding. You and Walrus Foundation agree that the Cayman Islands Arbitration Law governs the interpretation and enforcement of these Terms, and that you and Walrus Foundation are each waiving the right to a trial by jury or to participate in a class action. This arbitration provision shall survive termination of these Terms.
 
 
-    b) Exceptions. The Parties retain the right to seek injunctive or other equitable relief from a court to prevent (or enjoin) the infringement or misappropriation of our intellectual property rights. 
+    b) Exceptions. The Parties retain the right to seek injunctive or other equitable relief from a court to prevent (or enjoin) the infringement or misappropriation of our intellectual property rights.
 
     c) Conducting Arbitration and Arbitration Rules. These Terms will be governed by and construed in accordance with the laws of the Cayman Islands, without regard to or application of conflicts of law rules or principles.  Any dispute, controversy, difference or claim arising out of or relating to this Agreement, including the formation, interpretation, breach or termination thereof, including whether the claims asserted are arbitrable, will be referred to and finally resolved by binding arbitration to be administered by the Cayman Islands International Centre (CIAC) and governed by the Arbitration Act (as amended) of the Cayman Islands.  The arbitration shall be conducted in the English language and the place of arbitration shall be in the Cayman Islands.  The number of arbitrators shall be one.  The place of arbitration will be George Town, Cayman Islands.  The decision of the sole arbitrator to any such dispute, controversy, difference or claim shall be final and binding upon both parties.  If any litigation or arbitration is necessary to enforce the terms of this Agreement, the prevailing party will be entitled to have their attorney fees paid by the other party.  Each party waives any right it may have to assert the doctrine of forum non conveniens, to assert that it is not subject to the jurisdiction of such arbitration or courts or to object to venue to the extent any proceeding is brought in accordance herewith. Injunctive and Declaratory Relief. Except as provided in Section 16(b) above, the arbitrator shall determine all issues of liability on the merits of any claim asserted by either party and may award declaratory or injunctive relief only in favor of the individual party seeking relief and only to the extent necessary to provide relief warranted by that party’s individual claim. To the extent that you or we prevail on a claim and seek public injunctive relief (that is, injunctive relief that has the primary purpose and effect of prohibiting unlawful acts that threaten future injury to the public), the entitlement to and extent of such relief must be litigated in a civil court of competent jurisdiction and not in arbitration. The parties agree that litigation of any issues of public injunctive relief shall be stayed pending the outcome of the merits of any individual claims in arbitration.
 
@@ -205,11 +205,11 @@ Please read these Terms of Service (the “Terms”) and our Privacy Policy care
     b) Entire Agreement. These Terms, including any addendum terms, constitute the entire and exclusive understanding and agreement between Walrus Foundation and you regarding the Interface, and these Terms supersede and replace all prior oral or written understandings or agreements between Walrus Foundation and you regarding the Interface. If any provision of these Terms is held invalid or unenforceable by an arbitrator or a court of competent jurisdiction, that provision will be enforced to the maximum extent permissible and the other provisions of these Terms will remain in full force and effect.
 
 
-    c) Assignment. Except where provided by Applicable Law in your jurisdiction, you may not assign or transfer these Terms, by operation of law or otherwise, without Walrus Foundation’s prior written consent. Any attempt by you to assign or transfer these Terms absent our consent or your statutory right, will be null. Walrus Foundation may freely assign or transfer these Terms without restriction. Subject to the foregoing, these Terms will bind and inure to the benefit of the parties, their successors and permitted assigns. 
+    c) Assignment. Except where provided by Applicable Law in your jurisdiction, you may not assign or transfer these Terms, by operation of law or otherwise, without Walrus Foundation’s prior written consent. Any attempt by you to assign or transfer these Terms absent our consent or your statutory right, will be null. Walrus Foundation may freely assign or transfer these Terms without restriction. Subject to the foregoing, these Terms will bind and inure to the benefit of the parties, their successors and permitted assigns.
 
 
-    d) Notices. Any notices or other communications provided by Walrus Foundation under these Terms will be given: (i) via email; or (ii) by posting to the Interface. For notices made by email, the date of receipt will be deemed the date on which such notice is transmitted. Waiver of Rights. Walrus Foundation’s failure to enforce any right or provision of these Terms will not be considered a waiver of such right or provision. The waiver of any such right or provision will be effective only if in writing and signed by a duly authorized representative of Walrus Foundation. Except as expressly set forth in these Terms, the exercise by either party of any of its remedies under these Terms will be without prejudice to its other remedies under these Terms or otherwise. 
+    d) Notices. Any notices or other communications provided by Walrus Foundation under these Terms will be given: (i) via email; or (ii) by posting to the Interface. For notices made by email, the date of receipt will be deemed the date on which such notice is transmitted. Waiver of Rights. Walrus Foundation’s failure to enforce any right or provision of these Terms will not be considered a waiver of such right or provision. The waiver of any such right or provision will be effective only if in writing and signed by a duly authorized representative of Walrus Foundation. Except as expressly set forth in these Terms, the exercise by either party of any of its remedies under these Terms will be without prejudice to its other remedies under these Terms or otherwise.
 
 1. Contact Information
 
-    If you have any questions about these Terms or the Interface, please contact Walrus Foundation at [notices@walrus.xyz](mailto:notices@walrus.xyz). 
+    If you have any questions about these Terms or the Interface, please contact Walrus Foundation at [notices@walrus.xyz](mailto:notices@walrus.xyz).
