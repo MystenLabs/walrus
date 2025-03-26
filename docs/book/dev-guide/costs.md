@@ -69,7 +69,7 @@ transactions:
 - The `walrus store --dry-run ...` command outputs the encoded size that is used in calculations
   of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain. Note
   that the estimated WAL cost is not taking into account the use of subsidies and as such is
-  and overestimate while subsidies are available.
+  an overestimate while subsidies are available.
 
 ## Managing and minimizing costs
 
