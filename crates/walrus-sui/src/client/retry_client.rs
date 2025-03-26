@@ -862,7 +862,7 @@ impl CheckpointBucketClient {
         let bytes = response.bytes().await?;
         let checkpoint = Blob::from_bytes::<CheckpointData>(&bytes)
             .map_err(|e| CheckpointDownloadError::DeserializationError(e.to_string()))?;
-        tracing::debug!(sequence_number, "checkpoint download successful",);
+        tracing::debug!(sequence_number, "checkpoint download successful");
         Ok(checkpoint)
     }
 }
@@ -975,11 +975,11 @@ impl RetriableRpcClient {
 
     async fn get_full_checkpoint_from_primary(
         &self,
-        sequence: u64,
+        sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
         Ok(tokio::time::timeout(
             self.request_timeout,
-            self.client.get_full_checkpoint(sequence),
+            self.client.get_full_checkpoint(sequence_number),
         )
         .await??)
     }
@@ -999,19 +999,18 @@ impl RetriableRpcClient {
     #[tracing::instrument(skip(self))]
     pub async fn get_full_checkpoint(
         &self,
-        sequence: u64,
+        sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        let primary_result = self.get_full_checkpoint_from_primary(sequence).await;
-
-        let Err(err) = &primary_result else {
-            return Ok(primary_result.unwrap());
+        let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
+            Ok(checkpoint) => return Ok(checkpoint),
+            Err(error) => error,
         };
 
-        tracing::debug!("primary client error while fetching checkpoint: {:?}", err);
+        tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
             tracing::debug!("no fallback client configured, retrying primary client");
             return retry_rpc_errors(self.get_strategy(), || async {
-                self.get_full_checkpoint_from_primary(sequence).await
+                self.get_full_checkpoint_from_primary(sequence_number).await
             })
             .await;
         };
@@ -1019,24 +1018,16 @@ impl RetriableRpcClient {
         // For "not found" (pruned) and "missing event" errors, use fallback immediately as the
         // events in full node get pruned by event digest and checkpoint sequence number and newer
         // transactions could have events with the same digest (as the already pruned ones).
-        if err.should_use_fallback_directly(sequence) {
-            tracing::debug!(
-                "using fallback client to fetch checkpoint as error: {:?}",
-                err
-            );
-            return retry_rpc_errors(self.get_strategy(), || async {
-                fallback
-                    .get_full_checkpoint(sequence)
-                    .await
-                    .map_err(RetriableClientError::from)
-            })
-            .await;
+        if error.should_use_fallback_directly(sequence_number) {
+            return self
+                .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
+                .await;
         }
 
         // Try a quick retry on the primary client before falling back
         tracing::debug!("performing a quick retry on primary client");
         let quick_retry_result = retry_rpc_errors(self.get_quick_strategy(), || async {
-            self.get_full_checkpoint_from_primary(sequence).await
+            self.get_full_checkpoint_from_primary(sequence_number).await
         })
         .await;
 
@@ -1047,15 +1038,25 @@ impl RetriableRpcClient {
 
         // Fall back to the fallback client with the main retry strategy.
         tracing::debug!("falling back to fallback client after quick retry failed");
-        retry_rpc_errors(self.get_strategy(), || async {
+        self.get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
+            .await
+            // If fallback fails as well, return the error from the quick retry.
+            .map_err(|_| quick_retry_error)
+    }
+
+    async fn get_full_checkpoint_from_fallback_with_retries(
+        &self,
+        fallback: &CheckpointBucketClient,
+        sequence_number: u64,
+    ) -> Result<CheckpointData, RetriableClientError> {
+        tracing::info!(sequence_number, "fetching checkpoint from fallback client");
+        return retry_rpc_errors(self.get_strategy(), || async {
             fallback
-                .get_full_checkpoint(sequence)
+                .get_full_checkpoint(sequence_number)
                 .await
                 .map_err(RetriableClientError::from)
         })
-        .await
-        // If fallback fails as well, return the error from the quick retry.
-        .map_err(|_| quick_retry_error)
+        .await;
     }
 
     /// Gets the checkpoint summary for the given sequence number.
@@ -1063,7 +1064,7 @@ impl RetriableRpcClient {
         &self,
         sequence: u64,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        retry_rpc_errors(self.get_strategy(), || async {
+        let primary_error = match retry_rpc_errors(self.get_strategy(), || async {
             Ok(tokio::time::timeout(
                 self.request_timeout,
                 self.client.get_checkpoint_summary(sequence),
@@ -1071,10 +1072,26 @@ impl RetriableRpcClient {
             .await??)
         })
         .await
+        {
+            Ok(summary) => return Ok(summary),
+            Err(error) => error,
+        };
+
+        let Some(ref fallback) = self.fallback_client else {
+            return Err(primary_error);
+        };
+
+        tracing::info!("falling back to fallback client to fetch checkpoint summary");
+        let checkpoint = self
+            .get_full_checkpoint_from_fallback_with_retries(fallback, sequence)
+            .await
+            // If fallback fails as well, return the error from the quick retry.
+            .map_err(|_| primary_error)?;
+        Ok(checkpoint.checkpoint_summary)
     }
 
     /// Gets the latest checkpoint sequence number.
-    pub async fn get_latest_checkpoint(
+    pub async fn get_latest_checkpoint_summary(
         &self,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
         retry_rpc_errors(self.get_strategy(), || async {

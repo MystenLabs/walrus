@@ -2647,7 +2647,7 @@ async fn wait_for_event_processor_to_start(
 ) -> anyhow::Result<()> {
     // Wait until event processor is actually running and downloaded a few checkpoints
     tokio::time::sleep(Duration::from_secs(5)).await;
-    let checkpoint = client.get_latest_checkpoint().await?;
+    let checkpoint = client.get_latest_checkpoint_summary().await?;
     while let Some(event_processor_checkpoint) = event_processor.stores.checkpoint_store.get(&())? {
         if event_processor_checkpoint.inner().sequence_number >= checkpoint.sequence_number {
             break;

@@ -9,7 +9,8 @@ a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 20
 network can now be used to
 [publish and retrieve blobs](../usage/interacting.md),
 [upload and browse Walrus Sites](../walrus-sites/tutorial-publish.md), as
-well as [stake and unstake](https://stake.wal.app) to determine future committees using the live
+well as [stake and unstake](https://stake-wal.wal.app/) to determine future committees using the
+live
 [Mainnet WAL token](https://www.walrus.xyz/wal-token).
 On Mainnet, the Walrus security properties hold. And Walrus is now ready to satisfy
 the needs of real applications.
@@ -69,7 +70,7 @@ notable new features and changes:
   `wal.app` domain name. Now Walrus Sites support deletable blobs to make their updates more
   capital efficient. Those operating their own portals may also use their own domain names to serve
   a Walrus Site. The
-  [Staking](https://stake.wal.app),
+  [Staking](https://stake-wal.wal.app/),
   [Docs](https://docs.wal.app),
   [Snowreads](https://snowreads.wal.app), and
   [Flatland](https://flatland.wal.app)

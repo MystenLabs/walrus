@@ -29,7 +29,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # pin@v5.4.0
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install and run editorconfig-checker
         run: |

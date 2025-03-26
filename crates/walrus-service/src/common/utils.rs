@@ -769,6 +769,8 @@ pub async fn collect_event_blobs_for_catchup(
     let blob_ids = blob_downloader
         .download(upto_checkpoint, None, recovery_path, metrics)
         .await?;
+
+    tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
     Ok(blob_ids)
 }
 

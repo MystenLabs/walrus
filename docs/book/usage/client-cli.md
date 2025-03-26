@@ -12,14 +12,16 @@ walrus --help
 Each sub-command of `walrus` can also be called with `--help` to print its specific arguments and
 their meaning.
 
+If you have multiple *contexts* in your configuration file (as in the default one included on the
+[setup page](./setup.md#configuration)), you can specify the context for each command through the
+`--context` option.
+
 ## Walrus system information
 
 Information about the Walrus system is available through the `walrus info` command. It provides an
 overview of current system parameters such as the current epoch, the number of storage nodes and
 shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
-
-<!-- TODO(WAL-710): Update after epoch 1 -->
 
 ```console
 $ walrus info
