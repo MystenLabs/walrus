@@ -403,7 +403,7 @@ impl ShardStorage {
         let labels = Labels {
             collection_name: &self.cf_names.primary_slivers,
             operation_name: OperationType::Get,
-            query_summary: "GET sliver BY blob_id",
+            query_summary: "GET primary_sliver BY blob_id",
             ..Labels::default()
         };
 
@@ -428,7 +428,7 @@ impl ShardStorage {
         let labels = Labels {
             collection_name: &self.cf_names.secondary_slivers,
             operation_name: OperationType::Get,
-            query_summary: "GET sliver BY blob_id",
+            query_summary: "GET secondary_sliver BY blob_id",
             ..Labels::default()
         };
 
@@ -466,7 +466,7 @@ impl ShardStorage {
     ) -> Result<bool, TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
-            collection_name: &self.cf_names.secondary_slivers,
+            collection_name: self.cf_names.slivers(type_),
             operation_name: OperationType::ContainsKey,
             query_summary: "CONTAINS_KEY blob_id",
             ..Labels::default()

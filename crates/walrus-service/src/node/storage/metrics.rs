@@ -9,6 +9,11 @@ use typed_store::TypedStoreError;
 walrus_utils::metrics::define_metric_set! {
     #[namespace = "db_client"]
     /// Metrics exported by database operations.
+    ///
+    /// Some metrics, such as `operation_duration_seconds` follow [OTel semantic conventions][otel]
+    /// for database client metrics.
+    ///
+    /// [otel]: https://opentelemetry.io/docs/specs/semconv/database/database-metrics/
     pub(super) struct CommonDatabaseMetrics {
         #[help = "Duration (in seconds) of database client operations."]
         operation_duration_seconds: HistogramVec {
@@ -43,7 +48,7 @@ pub(super) struct Labels<'a> {
     /// Type of the operation.
     pub operation_name: OperationType,
     /// A low-cardinality summary of the query (e.g., "GET sliver BY blob_id").
-    pub query_summary: &'a str,
+    pub query_summary: &'static str,
     /// Status code capturing the result of the query.
     pub response_status_code: DatabaseStatusCode,
     /// An low-cardinality identifier for the error type, for when `response_status_code`
