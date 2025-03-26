@@ -89,7 +89,7 @@ the Walrus Mainnet to get any level of stability. The Walrus Testnet is only the
 features before they are deployed in production.
 
 We will not be operating a public portal to serve Walrus Sites on Testnet, to reduce costs and
-incidence response associated with free web hosting. Developers can still run a local portal
+incident response associated with free web hosting. Developers can still run a local portal
 pointed to Testnet to test Walrus Sites.
 
 ## Open source Walrus codebase
