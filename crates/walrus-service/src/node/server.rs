@@ -230,6 +230,7 @@ where
         let mut http2_builder = server.http_builder().http2();
         http2_builder
             .max_concurrent_streams(config.http2_max_concurrent_streams)
+            .max_pending_accept_reset_streams(config.http2_max_pending_accept_reset_streams)
             .initial_connection_window_size(config.http2_initial_connection_window_size)
             .initial_stream_window_size(config.http2_initial_stream_window_size)
             .adaptive_window(config.http2_adaptive_window);
