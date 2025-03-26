@@ -26,6 +26,7 @@ exclude = [
 ]
 follow-web-links = true
 optional = true
+traverse-parent-directories = true
 warning-policy = "error"
 
 [preprocessor]

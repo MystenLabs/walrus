@@ -70,7 +70,7 @@ when [running the CLI](./interacting.md).
 ## Installation
 
 We currently provide the `walrus` client binary for macOS (Intel and Apple CPUs), Ubuntu, and
-Windows:
+Windows. The Ubuntu version most likely works on other Linux distributions as well.
 
 | OS      | CPU                   | Architecture                                                                                                                 |
 | ------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -137,11 +137,10 @@ To download `walrus` to your Microsoft Windows computer, run the following in a 
 
 From there, you'll need to place `walrus.exe` somewhere in your `PATH`.
 
-### Previous versions (optional)
+### GitHub releases
 
-In addition to the latest version of the `walrus` binary, the GCS bucket also contains previous
-versions. An overview in XML format is available at
-<https://storage.googleapis.com/mysten-walrus-binaries/>.
+You can find all our releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases).
+Simply download the archive for your system and extract the `walrus` binary.
 
 ### Build from source
 
@@ -164,28 +163,7 @@ CLI configuration refers to the standard location for Sui configuration
 (`"~/.sui/sui_config/client.yaml"`).
 
 ```yaml
-contexts:
-  mainnet:
-    system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
-    staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-    subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
-    exchange_objects: []
-    wallet_config:
-      path: ~/.sui/sui_config/client.yaml
-      active_env: mainnet
-  testnet:
-    system_object: 0x98ebc47370603fe81d9e15491b2f1443d619d1dab720d586e429ed233e1255c1
-    staking_object: 0x20266a17b4f1a216727f3eef5772f8d486a9e3b5e319af80a5b75809c035561d
-    exchange_objects:
-      - 0x59ab926eb0d94d0d6d6139f11094ea7861914ad2ecffc7411529c60019133997
-      - 0x89127f53890840ab6c52fca96b4a5cf853d7de52318d236807ad733f976eef7b
-      - 0x9f9b4f113862e8b1a3591d7955fadd7c52ecc07cf24be9e3492ce56eb8087805
-      - 0xb60118f86ecb38ec79e74586f1bb184939640911ee1d63a84138d080632ee28a
-    subsidies_object: 0x4b23c353c35a4dde72fe862399ebe59423933d3c2c0a3f2733b9f74cb3b4933d
-    wallet_config:
-      path: ~/.sui/sui_config/client.yaml
-      active_env: testnet
-default_context: mainnet
+{{ #include ../setup/client_config.yaml }}
 ```
 
 <!-- markdownlint-disable code-fence-style -->
@@ -193,7 +171,7 @@ default_context: mainnet
 The easiest way to obtain the latest configuration is by downloading it from GitHub:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/book/config/client_config_mainnet.yaml \
+curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/setup/client_config_mainnet.yaml \
     -o ~/.config/walrus/client_config.yaml
 ```
 ~~~
@@ -208,7 +186,7 @@ you need to use the `--config` option when running the `walrus` binary.
 
 ### Advanced configuration (optional)
 
-The configuration file currently supports the following parameters:
+The configuration file currently supports the following parameters for each of the contexts:
 
 ```yaml
 # These are the only mandatory fields. These objects are specific for a particular Walrus
@@ -239,39 +217,5 @@ wallet_config:
 # The following parameters can be used to tune the networking behavior of the client. There is no
 # risk in playing around with these values. In the worst case, you may not be able to store/read
 # blob due to timeouts or other networking errors.
-communication_config:
-  max_concurrent_writes: null
-  max_concurrent_sliver_reads: null
-  max_concurrent_metadata_reads: 3
-  max_concurrent_status_reads: null
-  max_data_in_flight: null
-  reqwest_config:
-    total_timeout_millis: 30000
-    pool_idle_timeout_millis: null
-    http2_keep_alive_timeout_millis: 5000
-    http2_keep_alive_interval_millis: 30000
-    http2_keep_alive_while_idle: true
-  request_rate_config:
-    max_node_connections: 10
-    backoff_config:
-      min_backoff_millis: 1000
-      max_backoff_millis: 30000
-      max_retries: 5
-  disable_proxy: false
-  disable_native_certs: false
-  sliver_write_extra_time:
-    factor: 0.5
-    base_millis: 500
-  registration_delay_millis: 200
-  max_total_blob_size: 1073741824
-  committee_change_backoff:
-    min_backoff_millis: 1000
-    max_backoff_millis: 5000
-    max_retries: 5
-refresh_config:
-  refresh_grace_period_secs: 10
-  max_auto_refresh_interval_secs: 30
-  min_auto_refresh_interval_secs: 5
-  epoch_change_distance_threshold_secs: 300
-  refresher_channel_size: 100
+{{ #include ../setup/client_config_example.yaml:8: }}
 ```

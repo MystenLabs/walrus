@@ -43,6 +43,7 @@ This repository contains all Walrus-related code, tools, and documentation:
 - [`docs`](./docs) contains high-level technical and design documentation about Walrus.
 - [`scripts`](./scripts) contains tools used for evaluating and testing the code. In particular, this
   contains a script to run a local testbed, see [CONTRIBUTING.md](./CONTRIBUTING.md#run-a-local-walrus-testbed).
+- [`setup`](./setup) contains setup scripts and configuration files.
 - [`testnet-contracts`](./testnet-contracts) contains the Walrus contracts deployed for Walrus
   Testnet. The object IDs of the published contracts are included in the `Move.lock` files.
 
