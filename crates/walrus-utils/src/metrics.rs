@@ -67,6 +67,19 @@ macro_rules! define_metric_set {
             /// The namespace in which the metrics reside.
             pub const NAMESPACE: &'static str = $namespace;
 
+            /// Create a unique ID for this instance of the defined metric set, which will be used
+            /// to separate multiple instantiations of the metric, so that they can be registered
+            /// together.
+            fn metric_set_instance_id() -> String {
+                static TYPE_LOCAL_ID: std::sync::atomic::AtomicUsize =
+                    std::sync::atomic::AtomicUsize::new(0);
+                format!(
+                    "{:?}::{}",
+                    std::any::TypeId::of::<Self>(),
+                    TYPE_LOCAL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                )
+            }
+
             /// Creates a new instance of the metric set.
             ///
             /// The instance is created with a const-label of `metric_set_instance_id` set to a
@@ -80,23 +93,12 @@ macro_rules! define_metric_set {
             /// Panics if the metrics are not unique on the registry, or have different sets of
             /// labels or constant labels.
             pub fn new(registry: &::prometheus::Registry) -> Self {
-                // Create a unique ID for this instance of the defined metric set, which will be
-                // used to separate multiple instantiations of the metric, so that they can be
-                // registered together.
-                static TYPE_LOCAL_ID: std::sync::atomic::AtomicUsize =
-                    std::sync::atomic::AtomicUsize::new(0);
-                let metric_set_instance_id = format!(
-                    "{:?}::{}",
-                    std::any::TypeId::of::<Self>(),
-                    TYPE_LOCAL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                );
-
-                Self::new_with_id(registry, metric_set_instance_id)
+                Self::new_inner(registry, Default::default())
             }
 
             /// Creates a new instance of the metric set.
             ///
-            /// The instance is created with a const-label of `metric_set_instance_id` set to `id`.
+            /// The instance is created with a const-label of `custom_id` set to `id`.
             ///
             /// See [`Self::new_with_const_labels`] for more information.
             ///
@@ -105,7 +107,7 @@ macro_rules! define_metric_set {
             /// Panics if the metrics are not unique on the registry, or have different sets of
             /// labels or constant labels.
             pub fn new_with_id(registry: &::prometheus::Registry, id: String) -> Self {
-                Self::new_with_const_labels(registry, [("metric_set_instance_id".to_owned(), id)])
+                Self::new_with_const_labels(registry, [("custom_id".to_owned(), id)])
             }
 
             /// Creates a new instance of the metric set with the specified constant labels.
@@ -135,8 +137,11 @@ macro_rules! define_metric_set {
 
             fn new_inner(
                 registry: &::prometheus::Registry,
-                const_labels: ::std::collections::HashMap<String, String>
+                mut const_labels: ::std::collections::HashMap<String, String>
             ) -> Self {
+                const_labels.entry("metric_set_instance_id".to_owned())
+                    .or_insert_with(|| Self::metric_set_instance_id());
+
                 Self { $(
                     $field_name: {
                         let opts = ::prometheus::Opts::new(stringify!($field_name), $help_str)
