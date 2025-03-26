@@ -56,7 +56,7 @@ would look like before publishing it—and possibly editing to make it look nice
 
 ## `destroy`
 
-Completely destroys the site at the given object id.
+Destroys both blockchain objects and Walrus assets of a site with the given object id.
 
 ## `update-resource`
 
