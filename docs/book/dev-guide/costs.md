@@ -27,9 +27,49 @@ Outline of costs associated with Walrus Storage:
   some SUI into the Sui storage fund, and most of it is refunded when the objects are deleted after
   they are not needed any more.
 
+The size of the storage resource needed to store a blob, and the size taken into account to pay
+for the upload costs, corresponds to the *encoded size* of a
+blob. The encoded size of a blob is the size of the erasure coded blob, which is about 5x larger
+than the unencoded original blob size, and the size of some metadata that is independent of the
+size of the blob. Since the size of the fixed size metadata is quite large (about 64MB in the worse
+case), the cost of storing small blobs (< 10MB) is dominated by this, and the size of storing
+larger blobs is dominated by their increasing size.
+
 The Walrus CLI uses some strategies to lower costs but is not guaranteed to be optimal for all
 use-cases. For high volume or other cost sensitive users there may be strategies that further
 lower costs.
+
+## Measuring costs
+
+The most accurate way to measure the costs of a store for a certain size is to perform a store
+for a blob of the same size , and observe the costs in SUI and WAL in a Sui explorer (or directly
+through Sui RPC calls). Blob contents do not affect costs.
+
+A `walrus store <FILENAME> --epochs max` command will result in 2 transactions:
+
+- The first will perform a `reserve_space` (if no storage resource of appropriate size exists)
+  and `register_blob` and balance changes will include both SUI and WAL.
+
+- Second will perform a single call to `certify_blob` and will only change the SUI balance.
+
+You can observe the storage rebate on an explorer by burning the resulting blob objects
+using the command `walrus burn-blobs --object-ids <BLOB_OBJECT_ID>`.
+
+As a rule of thumb the SUI costs of `register_blob` and `certify_blob` are independent of
+blob size or epoch lifetime. The WAL costs of `register_blob` are linear in the encoded size of
+the blob (both erasure coding and metadata). Calls to `reserve_space` have SUI costs that
+grow in the size of epoch duration, and WAL costs linear with encoded size.
+
+A few commands output information that can assist in cost estimations, without submitting
+transactions:
+
+- The `walrus info` command displays the current costs for buying storage resources from the
+  system contract and also cost of uploads.
+
+- The `walrus store --dry-run ...` command outputs the encoded size that is used in calculations
+  of WAL costs. The `--dry-run` parameter ensures no transactions are submitted on chain. Note
+  that the estimated WAL cost is not taking into account the use of subsidies and as such is
+  and overestimate while subsidies are available.
 
 ## Managing and minimizing costs
 
@@ -81,3 +121,8 @@ any more the blob object may be burned through the CLI or a smart contract call,
 storage costs. This does not delete the blob on Walrus. Depending on the relative costs of SUI and
 WAL it might be cheaper to burn long lived blob objects, then re-registering and re-certify them
 close to the end of their lifetime to extend it.
+
+## The future
+
+The Walrus teams are focused on both making storage of small blobs more efficient in terms of
+costs as well as the size of metadata smaller to reduce costs for all blob sizes.
