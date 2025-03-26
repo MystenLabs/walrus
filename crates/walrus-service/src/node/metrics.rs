@@ -139,6 +139,9 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of errors occurred when checking the consistency of the blob info \
         table."]
         blob_info_consistency_check_error: IntCounter[],
+
+        #[help = "The number of certified blobs scanned during the blob info consistency check."]
+        blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
     }
 }
 

@@ -18,15 +18,15 @@ public struct ActiveSetEntry has copy, drop, store {
     staked_amount: u64,
 }
 
+// TODO: implement a reserve to track N + K nodes, where N is the active set
+// size and K is the number of nodes that are in the process of being added to
+// the active set. This will allow us to handle removals from the active set
+// without refetching the nodes from the storage.
+//
 /// The active set of storage nodes, a smart collection that only stores up
 /// to a 1000 nodes.
 /// Additionally, the active set tracks the total amount of staked WAL to make
 /// the calculation of the rewards and voting power distribution easier.
-///
-/// TODO: implement a reserve to track N + K nodes, where N is the active set
-/// size and K is the number of nodes that are in the process of being added to
-/// the active set. This will allow us to handle removals from the active set
-/// without refetching the nodes from the storage.
 public struct ActiveSet has copy, drop, store {
     /// The maximum number of storage nodes in the active set.
     /// Potentially remove this field.

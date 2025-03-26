@@ -7,7 +7,7 @@
 use std::{collections::HashMap, sync::Mutex};
 use std::{hash::Hasher, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 #[cfg(msim)]
 use sui_types::base_types::ObjectID;
 use tokio::sync::oneshot;
@@ -40,12 +40,8 @@ pub(super) async fn schedule_background_consistency_check(
     // We need to make sure that the function returns only after the blob info iterator is
     // created, so that it can operate on a consistent snapshot of the blob info table.
     // Otherwise, processing future events may cause inconsistency in different nodes.
-    rx.await.map_err(|err| {
-        anyhow::anyhow!(
-            "background task failed to create iterator. Error: {:?}",
-            err
-        )
-    })?;
+    rx.await
+        .context("background task failed to create iterator")?;
     Ok(())
 }
 
@@ -58,10 +54,16 @@ fn compose_certified_blob_list_digest(
     // xxhash is not a cryptographic hash function, but it is fast, has good collision
     // resistance, and is consistent across all platforms.
     let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
+    let epoch_bucket = (epoch % 100).to_string();
     for item in blob_info_iter {
         match item {
             Ok(blob_info) => {
                 hasher.write(blob_info.0.as_ref());
+                walrus_utils::with_label!(
+                    node.metrics.blob_info_consistency_check_certified_scanned,
+                    epoch_bucket
+                )
+                .inc();
             }
             Err(error) => {
                 // Upon error, we can terminate the task and return immediately since
@@ -77,11 +79,8 @@ fn compose_certified_blob_list_digest(
 
     tracing::info!(?epoch, certified_blob_hash = ?value,
             "background blob info consistency check finished");
-    walrus_utils::with_label!(
-        node.metrics.blob_info_consistency_check,
-        (epoch % 100).to_string()
-    )
-    .set(value as i64);
+    walrus_utils::with_label!(node.metrics.blob_info_consistency_check, epoch_bucket)
+        .set(value as i64);
 
     sui_macros::fail_point_arg!("storage_node_certified_blob_digest", |digest_map: Arc<
         Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>,

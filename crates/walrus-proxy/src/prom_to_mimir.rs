@@ -70,7 +70,7 @@ impl Mimir<remote_write::Sample> {
     }
 }
 
-/// TODO implement histogram
+// TODO implement histogram
 impl From<&Histogram> for Mimir<remote_write::Histogram> {
     fn from(_h: &Histogram) -> Self {
         Self {
@@ -78,7 +78,7 @@ impl From<&Histogram> for Mimir<remote_write::Histogram> {
         }
     }
 }
-/// TODO implement histogram
+// TODO implement histogram
 impl Mimir<remote_write::Histogram> {
     #[allow(dead_code)]
     fn histogram(self) -> remote_write::Histogram {

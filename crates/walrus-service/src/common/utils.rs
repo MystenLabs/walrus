@@ -475,8 +475,9 @@ pub(crate) struct ShardDiffCalculator {
 }
 
 impl ShardDiffCalculator {
+    // TODO(WAL-657): Use `node_id` instead of `public_key`.
+    //
     /// Create a new `ShardDiffCalculator` for a storage node.
-    /// TODO(WAL-657): Use `node_id` instead of `public_key`.
     pub fn new(committees: &ActiveCommittees, id: &PublicKey, shards_exist: &[ShardIndex]) -> Self {
         let shards_assigned_prev_epoch = committees
             .previous_committee()
