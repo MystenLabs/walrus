@@ -161,8 +161,9 @@ use crate::{
     common::{
         config::SuiConfig,
         event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
+        utils::should_reposition_cursor,
     },
-    utils::{ShardDiffCalculator, should_reposition_cursor},
+    utils::ShardDiffCalculator,
 };
 
 pub(crate) mod db_checkpoint;

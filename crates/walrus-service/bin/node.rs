@@ -38,7 +38,7 @@ use walrus_core::{
 use walrus_service::{
     DbCheckpointManager,
     SyncNodeConfigError,
-    common::config::SuiConfig,
+    common::{config::SuiConfig, telemetry::WalrusTracingHandle},
     node::{
         ConfigLoader,
         StorageNode,
@@ -84,6 +84,8 @@ struct AdminArgs {
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     /// Admin socket path.
     admin_socket_path: Option<PathBuf>,
+    /// Tracing handle.
+    tracing_handle: WalrusTracingHandle,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -188,6 +190,15 @@ enum AdminCommands {
         /// Subcommand to execute.
         #[command(subcommand)]
         command: CheckpointCommands,
+    },
+    /// Log level management.
+    /// It also supports log directive like `walrus-service=debug`
+    /// to set the log level for a specific component. Use it like this:
+    /// `walrus-node local-admin --socket-path admin log-level --level "walrus_service=debug"`
+    LogLevel {
+        /// The log level to set.
+        #[arg(long)]
+        level: String,
     },
 }
 
@@ -1287,7 +1298,7 @@ impl StorageNodeRuntime {
             .build()
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
-
+        let tracing_handle = WalrusTracingHandle(metrics_runtime.tracing_handle.clone());
         let walrus_node = Arc::new(
             runtime.block_on(
                 StorageNode::builder()
@@ -1342,6 +1353,7 @@ impl StorageNodeRuntime {
             AdminArgs {
                 checkpoint_manager,
                 admin_socket_path: node_config.admin_socket_path.clone(),
+                tracing_handle,
             },
             admin_cancel_token,
         )?;
@@ -1433,6 +1445,20 @@ impl StorageNodeRuntime {
     }
 }
 
+/// Handle log level commands from admin socket.
+async fn handle_log_level_command(level: String, args: &AdminArgs) -> AdminCommandResponse {
+    match args.tracing_handle.update_log(level.as_str()) {
+        Ok(_) => AdminCommandResponse {
+            success: true,
+            message: format!("Log level updated successfully to: {}", level),
+        },
+        Err(e) => AdminCommandResponse {
+            success: false,
+            message: format!("Failed to update log level: {}", e),
+        },
+    }
+}
+
 /// Handle checkpoint commands from admin socket.
 async fn handle_checkpoint_command(
     command: CheckpointCommands,
@@ -1515,6 +1541,7 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
             Ok(AdminCommands::Checkpoint { command }) => {
                 handle_checkpoint_command(command, &args).await
             }
+            Ok(AdminCommands::LogLevel { level }) => handle_log_level_command(level, &args).await,
             Err(e) => AdminCommandResponse {
                 success: false,
                 message: format!("Failed to parse command: {}", e),
