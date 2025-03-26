@@ -599,6 +599,7 @@ impl StorageNode {
                     .max_concurrent(config.thread_pool.max_concurrent_tasks)
                     .metrics_registry(registry.clone())
                     .build_bounded(),
+                registry,
             ),
             encoding_config,
         });
