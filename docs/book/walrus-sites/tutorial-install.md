@@ -17,8 +17,7 @@ Then, follow these additional setup steps.
 Similar to the `walrus` client CLI tool, we currently provide the `site-builder` client binary for
 macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 
-{{#tabs}}
-{{#tab name="Mainnet" }}
+### Mainnet Binaries
 
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
@@ -27,8 +26,7 @@ macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 | MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
 
-{{#endtab }}
-{{#tab name="Testnet" }}
+### Testnet Binaries
 
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
@@ -36,9 +34,6 @@ macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 | MacOS   | Apple Silicon         | [`site-builder-testnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
 | MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
-
-{{#endtab }}
-{{#endtabs }}
 
 ```admonish title="Windows"
 We now offer a pre-built binary also for Windows. However, most of the remaining instructions assume
@@ -49,8 +44,7 @@ adapt most of those.
 You can download the latest build from our Google Cloud Storage (GCS) bucket (correctly setting the
 `$SYSTEM` variable):
 
-{{#tabs}}
-{{#tab name="Mainnet" }}
+### Mainnet curl request
 
 ``` sh
 SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
@@ -58,17 +52,13 @@ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-
 chmod +x site-builder
 ```
 
-{{#endtab }}
-{{#tab name="Testnet" }}
+### Testnet curl request
 
 ``` sh
 SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
 curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-$SYSTEM -o site-builder
 chmod +x site-builder
 ```
-
-{{#endtab }}
-{{#endtabs }}
 
 To be able to run it simply as `site-builder`, move the binary to any directory included in your
 `$PATH` environment variable. Standard locations are `/usr/local/bin/`, `$HOME/bin/`, or
