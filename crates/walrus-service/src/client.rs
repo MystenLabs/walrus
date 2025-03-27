@@ -11,10 +11,7 @@ use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use rand::{rngs::ThreadRng, RngCore as _};
-use rayon::{
-    iter::{IndexedParallelIterator, IntoParallelRefIterator},
-    prelude::*,
-};
+use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use refresh::are_current_previous_different;
 use resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp};
 use responses::BlobStoreResultWithPath;
@@ -100,15 +97,136 @@ mod multiplexer;
 
 type ClientResult<T> = Result<T, ClientError>;
 
-/// The result of encoding as a list of sliver pairs and metadata and a
-/// mapping from blob id to file path.
-#[derive(Debug)]
-pub struct EncodedResult {
-    /// The sliver pairs and metadata.
-    pairs_and_metadata: Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
-    /// The mapping from blob ID to path.
-    id_to_path: HashMap<BlobId, PathBuf>,
+/// The result of encoding a blob.
+#[derive(Debug, Clone, Default)]
+pub struct EncodedBlob {
+    /// The sliver pairs of the blob, if the encoding succeeded.
+    pub pairs: Vec<SliverPair>,
+    /// The metadata of the blob, if the encoding succeeded.
+    pub metadata: Option<VerifiedBlobMetadataWithId>,
+    /// The error of the blob, if the encoding failed.
+    pub error: Option<String>,
+    /// The identifier of the blob.
+    pub identifier: String,
 }
+
+impl EncodedBlob {
+    /// The sliver pairs of the blob.
+    pub fn sliver_pairs(&self) -> Option<Vec<&SliverPair>> {
+        Some(self.pairs.iter().collect())
+    }
+
+    /// The metadata of the blob.
+    pub fn metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
+        self.metadata.as_ref()
+    }
+
+    /// The error of the blob.
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
+    }
+
+    /// The identifier of the blob.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// A blob with its status.
+#[derive(Debug, Clone)]
+pub struct EncodedBlobWithStatus<'a> {
+    /// The encoded blob.
+    pub encoded_blob: &'a EncodedBlob,
+    /// The status of the blob, if the status is available.
+    pub status: Option<BlobStatus>,
+}
+
+impl EncodedBlobWithStatus<'_> {
+    /// The sliver pairs of the blob.
+    pub fn sliver_pairs(&self) -> Option<Vec<&SliverPair>> {
+        self.encoded_blob.sliver_pairs()
+    }
+
+    /// The metadata of the blob.
+    pub fn metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
+        self.encoded_blob.metadata()
+    }
+
+    /// The error of the blob.
+    pub fn error(&self) -> Option<&str> {
+        self.encoded_blob.error()
+    }
+
+    /// The identifier of the blob.
+    pub fn identifier(&self) -> &str {
+        self.encoded_blob.identifier()
+    }
+
+    /// The status of the blob.
+    pub fn status(&self) -> Option<&BlobStatus> {
+        self.status.as_ref()
+    }
+}
+
+/// A blob with its status and operation.
+#[derive(Debug, Clone)]
+pub struct RegisteredBlob<'a> {
+    /// The blob with its status.
+    pub encoded_blob_with_status: &'a EncodedBlobWithStatus<'a>,
+    /// The operation of the blob.
+    pub operation: StoreOp,
+}
+
+impl RegisteredBlob<'_> {
+    /// The sliver pairs of the blob.
+    pub fn sliver_pairs(&self) -> Option<Vec<&SliverPair>> {
+        self.encoded_blob_with_status.sliver_pairs()
+    }
+
+    /// The metadata of the blob.
+    pub fn metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
+        self.encoded_blob_with_status.metadata()
+    }
+
+    /// The error of the blob.
+    pub fn error(&self) -> Option<&str> {
+        self.encoded_blob_with_status.error()
+    }
+
+    /// The identifier of the blob.
+    pub fn identifier(&self) -> &str {
+        self.encoded_blob_with_status.identifier()
+    }
+
+    /// The status of the blob.
+    pub fn status(&self) -> Option<&BlobStatus> {
+        self.encoded_blob_with_status.status()
+    }
+
+    /// The operation of the blob.
+    pub fn operation(&self) -> &StoreOp {
+        &self.operation
+    }
+}
+
+/// A blob with an identifier.
+#[derive(Debug, Clone, Copy)]
+pub struct BlobWithIdentifier<'a> {
+    /// The blob data.
+    pub blob: &'a [u8],
+    /// The identifier of the blob.
+    pub identifier: &'a str,
+}
+
+// /// The result of encoding as a list of sliver pairs and metadata and a
+// /// mapping from blob id to file path.
+// #[derive(Debug)]
+// struct EncodedResult {
+//     /// The sliver pairs and metadata.
+//     pairs_and_metadata: Vec<EncodedBlob>,
+//     /// The mapping from blob ID to path.
+//     id_to_path: HashMap<BlobId, PathBuf>,
+// }
 
 /// Represents how the store operation should be carried out by the client.
 #[derive(Debug, Clone, Copy)]
@@ -498,11 +616,28 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs, encoding_type)?;
+        let identifiers = (0..blobs.len())
+            .map(|i| format!("blob_{}", i))
+            .collect::<Vec<_>>();
+        let blobs_with_identifiers = blobs
+            .iter()
+            .zip(identifiers.iter())
+            .map(|(blob, identifier)| BlobWithIdentifier {
+                identifier: identifier.as_str(),
+                blob,
+            })
+            .collect::<Vec<_>>();
+
+        let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
+            &blobs_with_identifiers,
+            encoding_type,
+        )?;
+
+        let blobs_ref = encoded_blobs.iter().collect::<Vec<_>>();
 
         self.retry_if_error_epoch_change(|| {
             self.reserve_and_store_encoded_blobs(
-                &pairs_and_metadata,
+                &blobs_ref,
                 epochs_ahead,
                 store_when,
                 persistence,
@@ -525,17 +660,18 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
-        let EncodedResult {
-            pairs_and_metadata,
-            id_to_path,
-        } = self
+        let results = self
             .encode_blobs_to_pairs_and_metadata_with_path(blobs_with_paths, encoding_type)
             .await?;
+        let encoded_blobs_ref = results
+            .iter()
+            .filter(|blob| blob.error.is_some())
+            .collect::<Vec<_>>();
 
         let store_results = self
             .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(
-                    &pairs_and_metadata,
+                    &encoded_blobs_ref,
                     epochs_ahead,
                     store_when,
                     persistence,
@@ -544,14 +680,62 @@ impl Client<SuiContractClient> {
             })
             .await?;
 
-        // Attach path for the given blob ID to BlobStoreResult.
-        Ok(store_results
-            .into_iter()
-            .map(|result| BlobStoreResultWithPath {
-                path: id_to_path[result.blob_id()].clone(),
-                blob_store_result: result,
+        // Create a multi-hash-map to store BlobId -> StoreResult mapping
+        let mut blob_id_to_results: HashMap<BlobId, Vec<BlobStoreResult>> = HashMap::new();
+
+        // Group store results by blob_id
+        for result in store_results {
+            let blob_id = match &result {
+                BlobStoreResult::NewlyCreated { blob_object, .. } => blob_object.blob_id,
+                BlobStoreResult::AlreadyCertified { blob_id, .. } => *blob_id,
+                BlobStoreResult::MarkedInvalid { blob_id, .. } => *blob_id,
+                BlobStoreResult::Error { blob_id, .. } => *blob_id,
+            };
+            blob_id_to_results.entry(blob_id).or_default().push(result);
+        }
+
+        // Construct final results by iterating over the original results vector
+        let results = results
+            .iter()
+            .map(|encoded_blob| {
+                match &encoded_blob.metadata {
+                    Some(metadata) => {
+                        let blob_id = *metadata.blob_id();
+                        if let Some(results) = blob_id_to_results.get(&blob_id) {
+                            // Use the first result for this blob_id
+                            BlobStoreResultWithPath {
+                                path: PathBuf::from(&encoded_blob.identifier),
+                                blob_store_result: results[0].clone(),
+                            }
+                        } else {
+                            // If no result found, create an error result
+                            BlobStoreResultWithPath {
+                                path: PathBuf::from(&encoded_blob.identifier),
+                                blob_store_result: BlobStoreResult::Error {
+                                    blob_id,
+                                    error_msg: "No store result found".to_string(),
+                                },
+                            }
+                        }
+                    }
+                    None => {
+                        // Handle case where metadata is missing
+                        BlobStoreResultWithPath {
+                            path: PathBuf::from(&encoded_blob.identifier),
+                            blob_store_result: BlobStoreResult::Error {
+                                blob_id: BlobId::ZERO, // Use a zero blob_id since we don't have one
+                                error_msg: encoded_blob
+                                    .error
+                                    .clone()
+                                    .unwrap_or_else(|| "Encoding failed".to_string()),
+                            },
+                        }
+                    }
+                }
             })
-            .collect::<Vec<_>>())
+            .collect();
+
+        Ok(results)
     }
 
     /// Encodes the blob, reserves & registers the space on chain, and stores the slivers to the
@@ -567,10 +751,11 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs, encoding_type)?;
+        let encoded_blobs = self.encode_blobs_to_pairs_and_metadata(blobs, encoding_type)?;
+        let encoded_blobs_ref = encoded_blobs.iter().collect::<Vec<_>>();
 
         self.reserve_and_store_encoded_blobs(
-            &pairs_and_metadata,
+            &encoded_blobs_ref,
             epochs_ahead,
             store_when,
             persistence,
@@ -583,45 +768,86 @@ impl Client<SuiContractClient> {
         &self,
         blobs_with_paths: &[(PathBuf, Vec<u8>)],
         encoding_type: EncodingType,
-    ) -> ClientResult<EncodedResult> {
-        let blobs: Vec<_> = blobs_with_paths.iter().map(|(_, b)| b.as_slice()).collect();
-        let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
-
-        // Build the id_to_path mapping.
-        let id_to_path: HashMap<BlobId, PathBuf> = pairs_and_metadata
+    ) -> ClientResult<Vec<EncodedBlob>> {
+        let blobs_with_identifiers: Vec<_> = blobs_with_paths
             .iter()
-            .zip(blobs_with_paths.iter())
-            .map(|((_, metadata), (path, _))| (*metadata.blob_id(), path.clone()))
+            .map(|(path, b)| BlobWithIdentifier {
+                identifier: path.to_str().unwrap_or("invalid path"),
+                blob: b.as_slice(),
+            })
             .collect();
+        let results = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
+            &blobs_with_identifiers,
+            encoding_type,
+        )?;
 
-        tracing::info!(
-            "encoded files to metadata: {}",
-            id_to_path
-                .iter()
-                .map(|(id, path)| format!("{} -> {}", id, path.display()))
-                .collect::<Vec<_>>()
-                .join(", ")
+        debug_assert_eq!(
+            results.len(),
+            blobs_with_paths.len(),
+            "the number of encoded blobs and the number of blobs with paths must be the same"
         );
 
-        Ok(EncodedResult {
-            pairs_and_metadata,
-            id_to_path,
-        })
+        tracing::info!("encoded files to metadata: {:?}", results);
+
+        Ok(results)
     }
 
-    /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
-    /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
+    /// Encodes multiple blobs into sliver pairs and metadata.
     pub fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[&[u8]],
         encoding_type: EncodingType,
-    ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        if blobs.is_empty() {
+    ) -> ClientResult<Vec<EncodedBlob>> {
+        let identifiers = (0..blobs.len())
+            .map(|i| format!("blob_{}", i))
+            .collect::<Vec<_>>();
+        let blobs_with_identifiers = blobs
+            .iter()
+            .zip(identifiers.iter())
+            .map(|(blob, identifier)| BlobWithIdentifier {
+                identifier: identifier.as_str(),
+                blob,
+            })
+            .collect::<Vec<_>>();
+
+        let results = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
+            &blobs_with_identifiers,
+            encoding_type,
+        )?;
+
+        debug_assert_eq!(
+            results.len(),
+            blobs.len(),
+            "the number of encoded blobs and the number of blobs must be the same"
+        );
+        debug_assert_eq!(
+            results
+                .iter()
+                .map(|result| result.identifier.as_str())
+                .collect::<Vec<_>>(),
+            identifiers.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            "the identifiers must be the same"
+        );
+
+        Ok(results)
+    }
+
+    /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
+    /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
+    pub fn encode_blobs_to_pairs_and_metadata_with_identifiers(
+        &self,
+        blobs_with_identifiers: &[BlobWithIdentifier],
+        encoding_type: EncodingType,
+    ) -> ClientResult<Vec<EncodedBlob>> {
+        if blobs_with_identifiers.is_empty() {
             return Ok(Vec::new());
         }
 
-        if blobs.len() > 1 {
-            let total_blob_size = blobs.iter().map(|blob| blob.len()).sum::<usize>();
+        if blobs_with_identifiers.len() > 1 {
+            let total_blob_size = blobs_with_identifiers
+                .iter()
+                .map(|blob| blob.blob.len())
+                .sum::<usize>();
             let max_total_blob_size = self.config().communication_config.max_total_blob_size;
             if total_blob_size > max_total_blob_size {
                 return Err(ClientError::from(ClientErrorKind::Other(
@@ -637,41 +863,36 @@ impl Client<SuiContractClient> {
         let multi_pb = Arc::new(MultiProgress::new());
 
         // Encode each blob into sliver pairs and metadata. Filters out failed blobs and continue.
-        let (pairs_and_metadata, failed_indices) = blobs
+        let results = blobs_with_identifiers
             .par_iter()
-            .enumerate()
-            .map(|(idx, &blob)| {
+            .map(|blob| {
                 let multi_pb_clone = multi_pb.clone();
 
-                match self.encode_pairs_and_metadata(blob, encoding_type, multi_pb_clone.as_ref()) {
-                    Ok(result) => (idx, Ok(result)),
+                match self.encode_pairs_and_metadata(
+                    blob.blob,
+                    encoding_type,
+                    multi_pb_clone.as_ref(),
+                ) {
+                    Ok(result) => EncodedBlob {
+                        pairs: result.0,
+                        metadata: Some(result.1),
+                        error: None,
+                        identifier: blob.identifier.to_string(),
+                    },
                     Err(e) => {
-                        tracing::warn!("Failed to encode blob at index {}: {}", idx, e);
-                        (idx, Err(e))
+                        tracing::warn!("Failed to encode blob {}: {}", blob.identifier, e);
+                        EncodedBlob {
+                            pairs: vec![],
+                            metadata: None,
+                            error: Some(format!("{:?}", e)),
+                            identifier: blob.identifier.to_string(),
+                        }
                     }
                 }
             })
-            .partition_map::<Vec<_>, Vec<_>, _, _, _>(|(idx, result)| match result {
-                Ok(data) => rayon::iter::Either::Left(data),
-                Err(e) => rayon::iter::Either::Right((idx, e)),
-            });
+            .collect::<Vec<_>>();
 
-        // Return early if none of blobs are encoded.
-        if pairs_and_metadata.is_empty() {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                format!(
-                    "failed to encode any blob: {}",
-                    failed_indices
-                        .iter()
-                        .map(|(idx, e)| format!("{}: {}", idx, e))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-                .into(),
-            )));
-        }
-
-        Ok(pairs_and_metadata)
+        Ok(results)
     }
 
     fn encode_pairs_and_metadata(
@@ -712,29 +933,32 @@ impl Client<SuiContractClient> {
     /// store operations, the client is notified that the committee has changed.
     async fn reserve_and_store_encoded_blobs(
         &self,
-        pairs_and_metadata: &[(Vec<SliverPair>, VerifiedBlobMetadataWithId)],
+        encoded_blobs: &[&EncodedBlob],
         epochs_ahead: EpochCount,
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        tracing::info!(
-            "storing {} sliver pairs with metadata",
-            pairs_and_metadata.len()
-        );
+        tracing::info!("storing {} sliver pairs with metadata", encoded_blobs.len());
         let status_start_timer = Instant::now();
         let committees = self.get_committees().await?;
 
         // Retrieve the blob status, checking if the committee has changed in the meantime.
         // This operation can be safely interrupted as it does not require a wallet.
-        let blob_id_to_metadata_with_status = self
-            .await_while_checking_notification(self.get_blob_statuses(pairs_and_metadata))
+        let encoded_blobs_with_status = self
+            .await_while_checking_notification(self.get_blob_statuses(encoded_blobs))
             .await?;
 
         tracing::info!(
             duration = ?status_start_timer.elapsed(),
             "retrieved {} blob statuses",
-            blob_id_to_metadata_with_status.len()
+            encoded_blobs_with_status.len()
+        );
+
+        debug_assert_eq!(
+            encoded_blobs_with_status.len(),
+            encoded_blobs.len(),
+            "the number of blob statuses and the number of blobs to store must be the same"
         );
 
         let store_op_timer = Instant::now();
@@ -743,10 +967,7 @@ impl Client<SuiContractClient> {
             .resource_manager(&committees)
             .await
             .store_operation_for_blobs(
-                &blob_id_to_metadata_with_status
-                    .values()
-                    .map(|(_, metadata, status)| (*metadata, *status))
-                    .collect::<Vec<_>>(),
+                &encoded_blobs_with_status,
                 epochs_ahead,
                 persistence,
                 store_when,
@@ -759,23 +980,36 @@ impl Client<SuiContractClient> {
             store_operations.iter().map(|op| format!("{:?}", op)).collect::<Vec<_>>().join("\n")
         );
 
+        debug_assert_eq!(
+            store_operations.len(),
+            encoded_blobs.len(),
+            "the number of store operations and the number of blobs to store must be the same"
+        );
+
         // Collect store ops for noops, new blobs, extended blobs, and certify and extend blobs.
         let mut noop_results: Vec<BlobStoreResult> = Vec::with_capacity(store_operations.len());
         let mut new_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut extended_blobs_and_ops: Vec<_> = Vec::with_capacity(store_operations.len());
         let mut certify_and_extend_blobs_and_ops = HashMap::with_capacity(store_operations.len());
+        let mut blobs_to_be_certified: Vec<_> = Vec::new();
 
         store_operations
-            .into_iter()
-            .for_each(|store_op| match store_op {
-                StoreOp::NoOp(result) => noop_results.push(result),
-                StoreOp::RegisterNew { blob, operation } => {
+            .iter()
+            .for_each(|registered_blob| match registered_blob.operation {
+                StoreOp::NoOp(ref result) => noop_results.push(result.clone()),
+                StoreOp::RegisterNew {
+                    ref blob,
+                    ref operation,
+                } => {
                     if operation.is_certify_and_extend() {
-                        certify_and_extend_blobs_and_ops.insert(blob.blob_id, (blob, operation));
+                        certify_and_extend_blobs_and_ops
+                            .insert(blob.blob_id, (blob.clone(), operation.clone()));
+                        blobs_to_be_certified.push(registered_blob);
                     } else if operation.is_extend() {
-                        extended_blobs_and_ops.push((blob, operation));
+                        extended_blobs_and_ops.push((blob.clone(), operation.clone()));
                     } else {
-                        new_blobs_and_ops.push((blob, operation));
+                        new_blobs_and_ops.push((blob.clone(), operation.clone()));
+                        blobs_to_be_certified.push(registered_blob);
                     }
                 }
             });
@@ -787,13 +1021,6 @@ impl Client<SuiContractClient> {
         {
             return Ok(noop_results);
         }
-
-        // Get certificates for all new blobs.
-        let certify_blobs = new_blobs_and_ops
-            .clone()
-            .into_iter()
-            .chain(certify_and_extend_blobs_and_ops.values().cloned())
-            .collect::<Vec<_>>();
 
         // Check if the committee has changed while registering the blobs.
         if are_current_previous_different(
@@ -809,18 +1036,28 @@ impl Client<SuiContractClient> {
         // This operation can be safely interrupted as it does not require a wallet.
         let blobs_with_certificates = self
             .await_while_checking_notification(
-                self.get_all_blob_certificates(&certify_blobs, &blob_id_to_metadata_with_status),
+                self.get_all_blob_certificates(&blobs_to_be_certified),
             )
             .await?;
 
+        let mut result: Vec<BlobStoreResult> = Vec::with_capacity(encoded_blobs.len());
         let blobs_with_cert_and_extend: Vec<CertifyAndExtendBlobParams> = blobs_with_certificates
             .into_iter()
-            .map(|(blob, cert)| CertifyAndExtendBlobParams {
-                blob,
-                certificate: Some(cert),
-                epochs_extended: certify_and_extend_blobs_and_ops
-                    .get(&blob.blob_id)
-                    .and_then(|(_, op)| op.epochs_extended()),
+            .filter_map(|(blob, cert_result)| match cert_result {
+                Ok(cert) => Some(CertifyAndExtendBlobParams {
+                    blob,
+                    certificate: Some(cert),
+                    epochs_extended: certify_and_extend_blobs_and_ops
+                        .get(&blob.blob_id)
+                        .and_then(|(_, op)| op.epochs_extended()),
+                }),
+                Err(e) => {
+                    result.push(BlobStoreResult::Error {
+                        blob_id: blob.blob_id,
+                        error_msg: e.to_string(),
+                    });
+                    None
+                }
             })
             .chain(extended_blobs_and_ops.as_slice().iter().map(|(blob, op)| {
                 CertifyAndExtendBlobParams {
@@ -893,8 +1130,9 @@ impl Client<SuiContractClient> {
                     }
                 });
 
-        Ok(newly_created_results
+        Ok(result
             .into_iter()
+            .chain(newly_created_results.into_iter())
             .chain(noop_results.into_iter())
             .chain(extended_results.into_iter())
             .chain(cert_and_extend_results)
@@ -905,131 +1143,115 @@ impl Client<SuiContractClient> {
     /// (pair, metadata, status).
     async fn get_blob_statuses<'a>(
         &'a self,
-        pairs_and_metadata: &'a [(Vec<SliverPair>, VerifiedBlobMetadataWithId)],
-    ) -> ClientResult<
-        HashMap<
-            BlobId,
-            (
-                &'a Vec<SliverPair>,
-                &'a VerifiedBlobMetadataWithId,
-                BlobStatus,
-            ),
-        >,
-    > {
-        // Filters out all the failed blobs that cannot fetch status and continue.
-        let blob_id_to_metadata_with_status: HashMap<BlobId, (_, _, _)> =
-            futures::future::join_all(pairs_and_metadata.iter().map(
-                |(pair, metadata)| async move {
+        encoded_blobs: &'a [&'a EncodedBlob],
+    ) -> ClientResult<Vec<EncodedBlobWithStatus<'a>>> {
+        Ok(
+            futures::future::join_all(encoded_blobs.iter().map(|encode_blob| async move {
+                if let Some(metadata) = &encode_blob.metadata {
                     let blob_id = *metadata.blob_id();
                     match async {
                         self.check_blob_id(&blob_id)?;
                         let status = self
                             .get_blob_status_with_retries(&blob_id, &self.sui_client)
                             .await?;
-                        Ok::<_, ClientError>((blob_id, (pair, metadata, status)))
+                        Ok::<_, ClientError>(status)
                     }
                     .await
                     {
-                        Ok(result) => Some(result),
+                        Ok(status) => EncodedBlobWithStatus {
+                            encoded_blob: encode_blob,
+                            status: Some(status),
+                        },
                         Err(e) => {
                             tracing::warn!("Failed to process blob {}: {}", blob_id, e);
-                            None
+                            EncodedBlobWithStatus {
+                                encoded_blob: encode_blob,
+                                status: None,
+                            }
                         }
                     }
-                },
-            ))
+                } else {
+                    tracing::warn!("Failed to process blob: no metadata");
+                    EncodedBlobWithStatus {
+                        encoded_blob: encode_blob,
+                        status: None,
+                    }
+                }
+            }))
             .await
             .into_iter()
-            .flatten()
-            .collect();
-
-        // Return early if no blob status is fetched.
-        if blob_id_to_metadata_with_status.is_empty() {
-            return Err(ClientError::from(ClientErrorKind::NoValidStatusReceived));
-        }
-        Ok(blob_id_to_metadata_with_status)
+            .collect::<Vec<_>>(),
+        )
     }
 
     /// Fetches the certificates for all the blobs, and returns a vector of
     /// (blob, certificate) pair.
     async fn get_all_blob_certificates<'a>(
         &'a self,
-        new_blobs_and_ops: &'a [(Blob, RegisterBlobOp)],
-        blob_id_to_metadata_with_status: &'a HashMap<
-            BlobId,
-            (
-                &'a Vec<SliverPair>,
-                &'a VerifiedBlobMetadataWithId,
-                BlobStatus,
-            ),
-        >,
-    ) -> ClientResult<Vec<(&'a Blob, ConfirmationCertificate)>> {
-        if new_blobs_and_ops.is_empty() {
+        blobs_to_be_certified: &'a [&RegisteredBlob<'a>],
+    ) -> ClientResult<Vec<(&'a Blob, Result<ConfirmationCertificate, ClientError>)>> {
+        if blobs_to_be_certified.is_empty() {
             return Ok(vec![]);
         }
 
         let get_cert_timer = Instant::now();
-        let mut failed_indices = Vec::with_capacity(new_blobs_and_ops.len());
-        let mut blobs_with_certificates = Vec::with_capacity(new_blobs_and_ops.len());
 
         // TODO(joy): add concurrency limit with semaphore.
         let multi_pb = Arc::new(MultiProgress::new());
-        futures::future::join_all(new_blobs_and_ops.iter().map(
-            |(blob_object, resource_operation)| {
+        let results =
+            futures::future::join_all(blobs_to_be_certified.iter().map(|registered_blob| {
+                let operation = &registered_blob.operation;
+                let StoreOp::RegisterNew { blob, operation } = operation else {
+                    panic!("Expected a RegisterNew operation");
+                };
                 let multi_pb_arc = Arc::clone(&multi_pb);
                 async move {
-                    let (pairs, metadata, blob_status) =
-                        blob_id_to_metadata_with_status[&blob_object.blob_id];
+                    let (Some(pairs), Some(metadata), Some(blob_status)) = (
+                        registered_blob.sliver_pairs(),
+                        registered_blob.metadata(),
+                        registered_blob.status(),
+                    ) else {
+                        panic!("Expected a blob with status");
+                    };
                     match self
                         .get_blob_certificate(
-                            blob_object,
-                            resource_operation,
-                            pairs,
+                            blob,
+                            operation,
+                            &pairs,
                             metadata,
-                            &blob_status,
+                            blob_status,
                             multi_pb_arc.as_ref(),
                         )
                         .await
                     {
-                        Ok(certificate) => (blob_object.blob_id, Ok((blob_object, certificate))),
+                        Ok(certificate) => (blob, Ok(certificate)),
                         Err(e) => {
                             tracing::warn!(
-                                %blob_object.blob_id,
+                                %blob.blob_id,
                                 error = %e,
                                 "Failed to get blob certificate"
                             );
-                            (blob_object.blob_id, Err(e))
+                            (blob, Err(e))
                         }
                     }
                 }
-            },
-        ))
-        .await
-        .into_iter()
-        .for_each(|(id, result)| match result {
-            Ok(data) => blobs_with_certificates.push(data),
-            Err(e) => failed_indices.push((id, e)),
-        });
-
-        // Return early if none of blob certificate is fetched.
-        if blobs_with_certificates.is_empty() {
-            return Err(failed_indices.remove(0).1);
-        }
+            }))
+            .await;
 
         tracing::info!(
             duration = ?get_cert_timer.elapsed(),
             "get {} blobs certificates",
-            blobs_with_certificates.len()
+            results.iter().filter(|(_, cert)| cert.is_ok()).count()
         );
 
-        Ok(blobs_with_certificates)
+        Ok(results)
     }
 
     async fn get_blob_certificate(
         &self,
         blob_object: &Blob,
         resource_operation: &RegisterBlobOp,
-        pairs: &[SliverPair],
+        pairs: &[&SliverPair],
         metadata: &VerifiedBlobMetadataWithId,
         blob_status: &BlobStatus,
         multi_pb: &MultiProgress,
@@ -1181,7 +1403,7 @@ impl<T> Client<T> {
     pub async fn send_blob_data_and_get_certificate(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: &[SliverPair],
+        pairs: &[&SliverPair],
         blob_persistence_type: &BlobPersistenceType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<ConfirmationCertificate> {
@@ -1803,7 +2025,7 @@ impl<T> Client<T> {
     async fn pairs_per_node<'a>(
         &'a self,
         blob_id: &'a BlobId,
-        pairs: &'a [SliverPair],
+        pairs: &'a [&'a SliverPair],
         committees: &ActiveCommittees,
     ) -> HashMap<usize, Vec<&'a SliverPair>> {
         committees
@@ -1817,7 +2039,8 @@ impl<T> Client<T> {
                         node.shard_ids
                             .contains(&pair.index().to_shard_index(committees.n_shards(), blob_id))
                     })
-                    .collect()
+                    .copied()
+                    .collect::<Vec<_>>()
             })
             .enumerate()
             .collect()

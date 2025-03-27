@@ -3,6 +3,8 @@
 
 //! Manages the storage and blob resources in the Wallet on behalf of the client.
 
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
@@ -21,7 +23,7 @@ use walrus_sui::{
 };
 
 use super::{responses::BlobStoreResult, ClientError, ClientErrorKind, ClientResult, StoreWhen};
-use crate::client::responses::EventOrObjectId;
+use crate::client::{responses::EventOrObjectId, EncodedBlobWithStatus, RegisteredBlob};
 
 /// Struct to compute the cost of operations with blob and storage resources.
 #[derive(Debug, Clone)]
@@ -192,32 +194,41 @@ impl<'a> ResourceManager<'a> {
     /// the wallet.
     pub async fn store_operation_for_blobs(
         &self,
-        metadata_with_status: &[(&VerifiedBlobMetadataWithId, BlobStatus)],
+        encoded_blobs_with_status: &'a [EncodedBlobWithStatus<'a>],
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
-    ) -> ClientResult<Vec<StoreOp>> {
-        let mut results = Vec::with_capacity(metadata_with_status.len());
+    ) -> ClientResult<Vec<RegisteredBlob<'a>>> {
+        let mut results: Vec<RegisteredBlob<'a>> =
+            Vec::with_capacity(encoded_blobs_with_status.len());
 
         // Filter for already certified/invalid blobs and add to result, otherwise add it to
         // to_be_processed.
-        let to_be_processed = metadata_with_status
+        let to_be_processed = encoded_blobs_with_status
             .iter()
-            .filter(|(metadata, blob_status)| {
-                if !store_when.is_ignore_status() && !persistence.is_deletable() {
-                    if let Some(result) = self.blob_status_to_store_result(
-                        *metadata.blob_id(),
-                        epochs_ahead,
-                        *blob_status,
-                    ) {
-                        tracing::debug!(blob_id=%metadata.blob_id(), "blob is already certified");
-                        results.push(StoreOp::NoOp(result));
-                        return false;
+            .filter(|encoded_blob_with_status| {
+                let metadata = encoded_blob_with_status.metadata();
+                let status = encoded_blob_with_status.status();
+                if let (Some(metadata), Some(blob_status)) = (metadata, status) {
+                    if !store_when.is_ignore_status() && !persistence.is_deletable() {
+                        if let Some(result) = self.blob_status_to_store_result(
+                            *metadata.blob_id(),
+                            epochs_ahead,
+                            *blob_status,
+                        ) {
+                            tracing::debug!(blob_id=%metadata.blob_id(),
+                            "blob is already certified");
+                            results.push(RegisteredBlob {
+                                encoded_blob_with_status,
+                                operation: StoreOp::NoOp(result),
+                            });
+                            return false;
+                        }
                     }
                 }
                 true
             })
-            .map(|(m, _)| *m)
+            .map(|encoded_blob_with_status| encoded_blob_with_status.metadata().unwrap())
             .collect::<Vec<_>>();
 
         // If there are no blobs to be processed, return early the results.
@@ -229,17 +240,24 @@ impl<'a> ResourceManager<'a> {
             .get_existing_or_register(&to_be_processed, epochs_ahead, persistence, store_when)
             .await?;
 
+        let blob_id_map = encoded_blobs_with_status
+            .iter()
+            .map(|encoded_blob_with_status| {
+                (
+                    encoded_blob_with_status.metadata().unwrap().blob_id(),
+                    encoded_blob_with_status,
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
         for (blob, op) in blobs_with_ops {
+            let blob_id = blob.blob_id;
             let store_op = if blob.certified_epoch.is_some()
                 && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
             {
-                tracing::debug!(
-                    "certified blob in the wallet: {:?}.\n{:?}",
-                    blob.blob_id,
-                    op
-                );
+                tracing::debug!("certified blob in the wallet: {:?}.\n{:?}", blob_id, op);
                 StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
-                    blob_id: blob.blob_id,
+                    blob_id,
                     event_or_object: EventOrObjectId::Object(blob.id),
                     end_epoch: blob.certified_epoch.unwrap(),
                 })
@@ -249,7 +267,10 @@ impl<'a> ResourceManager<'a> {
                     operation: op,
                 }
             };
-            results.push(store_op);
+            results.push(RegisteredBlob {
+                encoded_blob_with_status: blob_id_map[&blob_id],
+                operation: store_op,
+            });
         }
         Ok(results)
     }

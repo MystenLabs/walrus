@@ -146,6 +146,14 @@ pub enum BlobStoreResult {
         #[schema(value_type = EventIdSchema)]
         event: EventID,
     },
+    /// Operation failed.
+    Error {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The error message.
+        error_msg: String,
+    },
 }
 
 impl BlobStoreResult {
@@ -158,6 +166,7 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => blob_id,
+            Self::Error { blob_id, .. } => blob_id,
         }
     }
 
@@ -167,6 +176,7 @@ impl BlobStoreResult {
             Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
             Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
             Self::MarkedInvalid { .. } => None,
+            Self::Error { .. } => None,
         }
     }
 }

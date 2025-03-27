@@ -323,12 +323,13 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .next()
         .expect("should register exactly one blob");
 
+    let pair_ref = pairs.iter().collect::<Vec<_>>();
     // Certify blob.
     let certificate = client
         .as_ref()
         .send_blob_data_and_get_certificate(
             &metadata,
-            &pairs,
+            &pair_ref,
             &BlobPersistenceType::Permanent,
             &MultiProgress::new(),
         )
@@ -679,12 +680,21 @@ async fn test_store_with_existing_storage_resource(
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let encoding_type = DEFAULT_ENCODING;
-    let pairs_and_metadata = client
+    let encoded_blobs = client
         .as_ref()
         .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
-    let encoded_sizes = pairs_and_metadata
+    let encoded_sizes = encoded_blobs
         .iter()
-        .map(|(_, metadata)| metadata.metadata().encoded_size().unwrap())
+        .map(|encoded_blob| {
+            if let Some(metadata) = encoded_blob.metadata() {
+                metadata
+                    .metadata()
+                    .encoded_size()
+                    .expect("encoded size should be present")
+            } else {
+                panic!("metadata should be present");
+            }
+        })
         .collect::<Vec<_>>();
 
     // Reserve space for the blobs. Collect all original storage resource objects ids.
