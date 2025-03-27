@@ -2,6 +2,11 @@
 
 Published on: 2024-06-18
 
+```admonish warning
+This blog post is shown in its original form. It may contain information that is no longer accurate
+and broken links.
+```
+
 Walrus is an innovative decentralized storage network for blockchain apps and autonomous agents. The
 Walrus storage system is being released today as a developer preview for Sui builders in order to
 gather feedback. We expect a broad rollout to other web3 communities very soon!
