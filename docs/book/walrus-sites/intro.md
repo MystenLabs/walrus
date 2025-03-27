@@ -36,27 +36,31 @@ by whoever wants to have their own, and even on `localhost`). Further, the only 
 portal is to retrieve the metadata (from Sui) and the resource files (from Walrus) that constitute
 the site.
 
-If you have a Sui wallet with some Testnet SUI, you can try and "mint a new Flatlander" from the
-site. This creates an NFT from the collection and shows you two links: one to the explorer, and one
-to the "Flatlander site". This latter site is a special Walrus Site that exists only for that NFT,
+If you have a Sui wallet with some SUI, you can try and "mint a new Flatlander" from the site. This
+creates an NFT from the collection and shows you two links: one to the explorer, and one to the
+"Flatlander site". This latter site is a special Walrus Site page that exists only for that NFT,
 and has special characteristics (the background color, the image, ...) that are based on the
 contents of the NFT.
 
 The URL to this per-NFT site looks something like this:
-`https://2hzpawjycxuiuh36047yocxapc69g8ercrypa7ccsk8ek4iqu6.wal.app/`. You'll notice that the
-domain remains `wal.app`, but the subdomain is a long and random-looking string. This string is
-actually the [Base36](https://en.wikipedia.org/wiki/Base36) encoding of the object ID of the NFT,
-which is
-[0x644bc958...](https://suiscan.xyz/testnet/object/0x644bc958052463785c026a13be051d579c8a4d2dc93b1874dce5839d4fb18c5e).
+`https://flatland.wal.app/0x811285f7bbbaad302e23a3467ed8b8e56324ab31294c27d7392dac649b215716`.
+You'll notice that the domain remains `wal.app`, but the path is a long and random-looking
+string. This string is actually the [hexadecimal](https://simple.wikipedia.org/wiki/Hexadecimal)
+encoding of the object ID of the NFT, which is [0x811285f7b...][flatlander]. This path is unique to
+each NFT and is used to fetch the metadata and resource files for its' corresponding page. The page
+is then rendered based on the characteristics of the NFT.
 
 In summary:
 
 - Walrus Sites are served through a portal; in this case, `https://wal.app`. There can be many
   portals, and anyone can host one.
 - The subdomain on the URL points to a specific object on Sui that allows the browser to fetch and
-  render the site resources. This pointer can be
-  - a SuiNS name, such as `flatland` in `https://flatland.wal.app`, or
-  - the Base36 encoding of a the Sui object ID, such as `0x644bc958...` in the example above.
+  render the site resources. This pointer should be a SuiNS name, such as `flatland` in
+  `https://flatland.wal.app`.
+- It is possible for each path to be mapped to a specific object on Sui that allows the browser to
+  fetch and render a page based on the characteristics of the NFT.
 
 Curious to know how this magic is possible? Read the [technical overview](./overview.md)! If you
 just want to get started trying Walrus Sites out, check the [tutorial](./tutorial.md).
+
+[flatlander]: https://suiscan.xyz/mainnet/object/0x811285f7bbbaad302e23a3467ed8b8e56324ab31294c27d7392dac649b215716
