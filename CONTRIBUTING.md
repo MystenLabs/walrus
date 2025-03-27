@@ -1,5 +1,13 @@
 # How to Contribute
 
+## Important note
+
+> [!IMPORTANT]
+> We highly appreciate contributions, but **simple typo fixes (e.g., minor spelling errors,
+> punctuation changes, or trivial rewording) will be ignored** unless they significantly improve
+> clarity or fix a critical issue. If you are unsure whether your change is substantial enough,
+> consider opening an issue first to discuss it.
+
 ## GitHub flow
 
 We generally follow the [GitHub flow](https://docs.github.com/en/get-started/quickstart/github-flow)
