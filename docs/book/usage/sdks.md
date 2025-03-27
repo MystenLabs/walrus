@@ -1,12 +1,13 @@
 # Software development kits (SDKs) and other tools
 
-<!-- TODO(WAL-710): link to ts-sdk for mainnet, and clarify Rust. -->
+Mysten Labs has built and published a [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus),
+which supports a wide variety of operations. See also the related
+[examples](https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples).
 
-The Walrus core team is actively working on a Rust SDK and a TypeScript SDK for Walrus. These will
-cover interactions with storage nodes directly and be released around the time of the Mainnet
-launch.
+The Walrus core team is also actively working on a Rust SDK for Walrus, which will be made available
+some time after the Mainnet launch.
 
-Besides these upcoming official SDKs, there also exist unofficial third-party SDKs for interacting
+Besides these official SDKs, there also exist a few unofficial third-party SDKs for interacting
 with the [HTTP API](./web-api.md#http-api-usage) exposed by Walrus aggregators and publishers:
 
 - [Walrus Go SDK](https://github.com/namihq/walrus-go) (maintained by the *Nami Cloud* team)

@@ -3,7 +3,7 @@
 The `walrus` binary can be used to interact with Walrus as a client. See the [setup
 chapter](./setup.md) for prerequisites, installation, and configuration.
 
-Detailed usage information is available through
+Detailed usage information including a full list of available commands can be viewed with
 
 ```sh
 walrus --help
@@ -121,6 +121,10 @@ following:
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
   collects the availability certificate
 
+```admonish tip title="Costs"
+We have a [separate page](../dev-guide/costs.md) with some considerations regarding cost.
+```
+
 ## Querying blob status
 
 The status of a blob can be queried through one of the following commands:
@@ -232,9 +236,9 @@ and `--all-expired` burns all expired blobs under the user account.
 
 Walrus allows a set of key-value attribute pairs to be associated with a blob object. While the key
 and values may be arbitrary strings to accommodate any needs of dapps, specific keys are converted
-to HTTP headers when serving blobs through aggregators.
-
-<!-- TODO(WAL-710):  attributes about HTTP headers understood by the aggregator? -->
+to HTTP headers when serving blobs through aggregators. Each aggregator can decide which headers it
+allows through the `--allowed-headers` CLI option; the defaults can be viewed through `walrus
+aggregator --help`.
 
 The command
 
@@ -242,7 +246,7 @@ The command
 walrus set-blob-attribute <BLOB_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
 ```
 
-sets attributes `key1` and `key2` to values `value1` and `value2` respectively. The command
+sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command
 `walrus get-blob-attribute <BLOB_OBJ_ID>` returns all attributes associated with a blob ID. Finally,
 
 ```sh

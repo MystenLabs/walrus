@@ -1,4 +1,4 @@
-# Staking
+# Staking and unstaking
 
 In Walrus, anyone can delegate stake to storage nodes and, by doing so, influence, which storage
 nodes get selected for the committee in future epochs, and how many shards these nodes will hold.

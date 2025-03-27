@@ -29,7 +29,7 @@ details on how this works.
   objects on Sui, which means that smart contracts can check whether a blob is available and for how
   long, extend its lifetime or optionally delete it.
 
-- **Epochs, tokenomics, and delegated proof of stake** Walrus is operated by a committee of storage
+- **Epochs, tokenomics, and delegated proof of stake:** Walrus is operated by a committee of storage
   nodes that evolve between epochs. A native token, WAL (and its subdivision FROST, where 1 WAL is
   equal to 1 billion FROST), is used to delegate stake to storage nodes, and those with high stake
   become part of the epoch committee. The WAL token is also used for payments for storage. At the

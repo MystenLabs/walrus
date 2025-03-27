@@ -106,8 +106,6 @@ Alternatively you may print the contents of a blob in the terminal with the cURL
 curl "$AGGREGATOR/v1/blobs/<some blob ID>"
 ```
 
-<!-- TODO(WAL-710): Mention blob metadata attribute. -->
-
 ```admonish tip title="Content sniffing"
 Modern browsers will attempt to sniff the content type for such resources, and will generally do a
 good job of inferring content types for media. However, the aggregator on purpose prevents such

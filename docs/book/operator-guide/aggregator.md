@@ -2,6 +2,9 @@
 # Operating an aggregator or publisher
 <!-- TODO (WAL-118): Add further details and example cache setup. -->
 
+This page describes how you can run a Walrus aggregator or publisher exposing the [HTTP
+API](../usage/web-api.md).
+
 ## Starting the daemon locally {#local-daemon}
 
 You can run a local Walrus daemon through the `walrus` binary. There are three different commands:
@@ -74,7 +77,7 @@ Description=Walrus Aggregator
 [Service]
 User=walrus
 Environment=RUST_BACKTRACE=1
-Environment=RUST_LOG=info,walrus=debug
+Environment=RUST_LOG=info
 ExecStart=/opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml aggregator --bind-address 0.0.0.0:9000
 Restart=always
 

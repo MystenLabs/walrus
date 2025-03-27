@@ -61,8 +61,6 @@ $ sui client gas
 Finally, to publish blobs on Walrus you will need some Mainnet WAL to pay for storage and upload
 costs. You can buy WAL through a variety of centralized or decentralized exchanges.
 
-<!-- TODO(WAL-710): how to get WAL. -->
-
 The system-wide wallet will be used by Walrus if no other path is specified. If you want to use a
 different Sui wallet, you can specify this in the [Walrus configuration file](#configuration) or
 when [running the CLI](./interacting.md).
