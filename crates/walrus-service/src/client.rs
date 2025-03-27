@@ -10,6 +10,7 @@ use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
+use metrics::ClientMetrics;
 use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
 use rayon::{
@@ -509,6 +510,7 @@ impl Client<SuiContractClient> {
 
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     #[tracing::instrument(skip_all, fields(blob_id))]
+    #[allow(clippy::too_many_arguments)]
     pub async fn reserve_and_store_blobs_retry_committees(
         &self,
         blobs: &[&[u8]],
@@ -517,8 +519,13 @@ impl Client<SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<&Arc<ClientMetrics>>,
     ) -> ClientResult<Vec<BlobStoreResult>> {
+        let start = Instant::now();
         let pairs_and_metadata = self.encode_blobs_to_pairs_and_metadata(blobs, encoding_type)?;
+        if let Some(metrics) = metrics {
+            metrics.observe_encoding_latency(start.elapsed());
+        }
 
         self.retry_if_error_epoch_change(|| {
             self.reserve_and_store_encoded_blobs(
@@ -527,6 +534,7 @@ impl Client<SuiContractClient> {
                 store_when,
                 persistence,
                 post_store,
+                metrics,
             )
         })
         .await
@@ -560,6 +568,7 @@ impl Client<SuiContractClient> {
                     store_when,
                     persistence,
                     post_store,
+                    None,
                 )
             })
             .await?;
@@ -595,6 +604,7 @@ impl Client<SuiContractClient> {
             store_when,
             persistence,
             post_store,
+            None,
         )
         .await
     }
@@ -737,6 +747,7 @@ impl Client<SuiContractClient> {
         store_when: StoreWhen,
         persistence: BlobPersistence,
         post_store: PostStoreAction,
+        metrics: Option<&Arc<ClientMetrics>>,
     ) -> ClientResult<Vec<BlobStoreResult>> {
         tracing::info!(
             "storing {} sliver pairs with metadata",
@@ -751,11 +762,15 @@ impl Client<SuiContractClient> {
             .await_while_checking_notification(self.get_blob_statuses(pairs_and_metadata))
             .await?;
 
+        let status_timer_duration = status_start_timer.elapsed();
         tracing::info!(
-            duration = ?status_start_timer.elapsed(),
+            duration = ?status_timer_duration,
             "retrieved {} blob statuses",
             blob_id_to_metadata_with_status.len()
         );
+        if let Some(metrics) = metrics {
+            metrics.observe_checking_blob_status(status_timer_duration);
+        }
 
         let store_op_timer = Instant::now();
         // Register blobs if they are not registered, and get the store operations.
@@ -772,12 +787,17 @@ impl Client<SuiContractClient> {
                 store_when,
             )
             .await?;
+
+        let store_op_duration = store_op_timer.elapsed();
         tracing::info!(
-            duration = ?store_op_timer.elapsed(),
+            duration = ?store_op_duration,
             "{} blob resources obtained\n{}",
             store_operations.len(),
             store_operations.iter().map(|op| format!("{:?}", op)).collect::<Vec<_>>().join("\n")
         );
+        if let Some(metrics) = metrics {
+            metrics.observe_store_operation(store_op_duration);
+        }
 
         // Collect store ops for noops, new blobs, extended blobs, and certify and extend blobs.
         let mut noop_results: Vec<BlobStoreResult> = Vec::with_capacity(store_operations.len());
@@ -824,6 +844,7 @@ impl Client<SuiContractClient> {
             return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
         }
 
+        let get_certificates_timer = Instant::now();
         // Get the blob certificates, possibly storing slivers, while checking if the committee has
         // changed in the meantime.
         // This operation can be safely interrupted as it does not require a wallet.
@@ -851,6 +872,16 @@ impl Client<SuiContractClient> {
             }))
             .collect();
 
+        let get_certificates_duration = get_certificates_timer.elapsed();
+        tracing::debug!(
+            duration = ?get_certificates_duration,
+            "fetched certificates for {} blobs",
+            blobs_with_cert_and_extend.len()
+        );
+        if let Some(metrics) = metrics {
+            metrics.observe_get_certificates(get_certificates_duration);
+        }
+
         // Certify all blobs on Sui.
         let sui_cert_timer = Instant::now();
         let shared_blob_object_map = self
@@ -861,11 +892,15 @@ impl Client<SuiContractClient> {
                 tracing::warn!(error = %e, "failed to certify blobs on Sui");
                 ClientError::from(ClientErrorKind::CertificationFailed(e))
             })?;
+        let sui_cert_timer_duration = sui_cert_timer.elapsed();
         tracing::info!(
-            duration = ?sui_cert_timer.elapsed(),
+            duration = ?sui_cert_timer_duration,
             "certified {} blobs on Sui",
             blobs_with_cert_and_extend.len()
         );
+        if let Some(metrics) = metrics {
+            metrics.observe_upload_certificate(sui_cert_timer_duration);
+        }
 
         // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
         let write_committee_epoch = committees.write_committee().epoch;

@@ -67,18 +67,6 @@ impl Instance {
     pub fn ssh_address(&self) -> SocketAddr {
         SocketAddr::new(self.main_ip.into(), 22)
     }
-
-    #[cfg(test)]
-    pub fn new_for_test(id: String) -> Self {
-        Self {
-            id,
-            region: Default::default(),
-            main_ip: Ipv4Addr::LOCALHOST,
-            tags: Default::default(),
-            specs: Default::default(),
-            status: InstanceStatus::Active,
-        }
-    }
 }
 
 pub trait ServerProviderClient: Display {

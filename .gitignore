@@ -36,3 +36,11 @@ working_dir/
 *.log
 venv/
 **/tmp
+
+# Deployment assets
+crates/walrus-orchestrator/assets/sui-wallet*
+crates/walrus-orchestrator/assets/client_config.yaml
+crates/walrus-orchestrator/assets/client_parameters.yaml
+crates/walrus-orchestrator/assets/settings.yaml
+crates/walrus-orchestrator/assets/*.keystore
+crates/walrus-orchestrator/assets/*.aliases

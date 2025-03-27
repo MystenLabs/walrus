@@ -46,16 +46,6 @@ pub trait ProtocolCommands {
     where
         I: Iterator<Item = &'a Instance>;
 
-    /// The command to run a node. The function returns a vector of commands along with the
-    /// associated instance on which to run the command.
-    fn node_command<I>(
-        &self,
-        instances: I,
-        parameters: &BenchmarkParameters,
-    ) -> Vec<(Instance, String)>
-    where
-        I: IntoIterator<Item = Instance>;
-
     /// The command to run a client. The function returns a vector of commands along with the
     /// associated instance on which to run the command.
     fn client_command<I>(
@@ -83,15 +73,6 @@ pub trait ProtocolMetrics {
     /// finalized transactions.
     const LATENCY_SQUARED_SUM: &'static str;
 
-    /// The network path where the nodes expose prometheus metrics.
-    fn nodes_metrics_path<I>(
-        &self,
-        instances: I,
-        parameters: &BenchmarkParameters,
-    ) -> Vec<(Instance, String)>
-    where
-        I: IntoIterator<Item = Instance>;
-
     /// The network path where the clients expose prometheus metrics.
     fn clients_metrics_path<I>(
         &self,
@@ -100,21 +81,6 @@ pub trait ProtocolMetrics {
     ) -> Vec<(Instance, String)>
     where
         I: IntoIterator<Item = Instance>;
-
-    /// The command to retrieve the metrics from the nodes.
-    fn nodes_metrics_command<I>(
-        &self,
-        instances: I,
-        parameters: &BenchmarkParameters,
-    ) -> Vec<(Instance, String)>
-    where
-        I: IntoIterator<Item = Instance>,
-    {
-        self.nodes_metrics_path(instances, parameters)
-            .into_iter()
-            .map(|(instance, path)| (instance, format!("curl {path}")))
-            .collect()
-    }
 
     /// The command to retrieve the metrics from the clients.
     fn clients_metrics_command<I>(
@@ -145,21 +111,6 @@ pub mod test_protocol_metrics {
         const LATENCY_BUCKETS: &'static str = "latency_s";
         const LATENCY_SUM: &'static str = "latency_s_sum";
         const LATENCY_SQUARED_SUM: &'static str = "latency_squared_s";
-
-        fn nodes_metrics_path<I>(
-            &self,
-            instances: I,
-            _parameters: &BenchmarkParameters,
-        ) -> Vec<(Instance, String)>
-        where
-            I: IntoIterator<Item = Instance>,
-        {
-            instances
-                .into_iter()
-                .enumerate()
-                .map(|(i, instance)| (instance, format!("localhost:{}/metrics", 8000 + i as u16)))
-                .collect()
-        }
 
         fn clients_metrics_path<I>(
             &self,

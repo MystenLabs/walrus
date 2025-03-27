@@ -19,6 +19,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
 };
 use walrus_service::client::{
+    metrics::ClientMetrics,
     Client,
     ClientError,
     CommitteesRefresherHandle,
@@ -47,10 +48,12 @@ use super::blob::BlobData;
 pub(crate) struct WriteClient {
     client: WithTempDir<Client<SuiContractClient>>,
     blob: BlobData,
+    metrics: Arc<ClientMetrics>,
 }
 
 impl WriteClient {
     /// Creates a new WriteClient with the given configuration
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(err, skip_all)]
     pub async fn new(
         config: &Config,
@@ -60,6 +63,7 @@ impl WriteClient {
         max_size_log2: u8,
         refresher_handle: CommitteesRefresherHandle,
         refiller: Refiller,
+        metrics: Arc<ClientMetrics>,
     ) -> anyhow::Result<Self> {
         let blob = BlobData::random(
             StdRng::from_rng(thread_rng()).expect("rng should be seedable from thread_rng"),
@@ -68,7 +72,11 @@ impl WriteClient {
         )
         .await;
         let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
-        Ok(Self { client, blob })
+        Ok(Self {
+            client,
+            blob,
+            metrics,
+        })
     }
 
     /// Returns the active address of the client.
@@ -97,9 +105,10 @@ impl WriteClient {
                 &[blob],
                 DEFAULT_ENCODING,
                 epochs_to_store,
-                StoreWhen::Always,
+                StoreWhen::AlwaysIgnoreResources,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
+                Some(&self.metrics),
             )
             .await?
             .first()

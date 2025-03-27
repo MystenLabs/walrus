@@ -105,6 +105,7 @@ impl LoadGenerator {
                     max_size_log2,
                     refresher_handle.clone(),
                     refiller.clone(),
+                    metrics.clone(),
                 )
                 .await?,
             )
