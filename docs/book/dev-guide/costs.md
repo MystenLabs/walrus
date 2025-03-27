@@ -39,7 +39,7 @@ The size of the storage resource needed to store a blob, and the size taken into
 for the upload costs, corresponds to the *encoded size* of a
 blob. The encoded size of a blob is the size of the erasure coded blob, which is about 5x larger
 than the unencoded original blob size, and the size of some metadata that is independent of the
-size of the blob. Since the fixed size per-blob metadata is quite large (about 64MB in the worse
+size of the blob. Since the fixed size per-blob metadata is quite large (about 64MB in the worst
 case), the cost of storing small blobs (< 10MB) is dominated by this, and the size of storing
 larger blobs is dominated by their increasing size.
 
