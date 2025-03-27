@@ -17,8 +17,9 @@ die() {
 
 force=false
 install_dir="$HOME"/.local/bin
+network=mainnet
 
-while getopts "fi:h" opt; do
+while getopts "fi:n:h" opt; do
   case $opt in
     f)
       force=true
@@ -30,13 +31,15 @@ while getopts "fi:h" opt; do
     i)
       install_dir=$OPTARG
       ;;
+    n)
+      network=$OPTARG
+      ;;
     \?)
       die "invalid option: -$OPTARG"
       ;;
   esac
 done
 
-network=testnet
 
 # Detect the target OS.
 case "$(uname -s)" in

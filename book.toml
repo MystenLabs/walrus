@@ -15,10 +15,7 @@ theme = "docs/theme"
 
 [output.linkcheck]
 exclude = [
-  'blob\.store',
   'google\.com',
-  'suiscan\.xyz',
-  'wal\.app',
   'walrus\.site',
   'x\.com',
 ]
