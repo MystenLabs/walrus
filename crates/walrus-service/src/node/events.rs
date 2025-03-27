@@ -307,13 +307,18 @@ async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Resu
     // cyclic dependency errors
     let latest_checkpoint = client.get_latest_checkpoint().await?;
     let mut total_remaining_attempts = 5;
-    while client
+    while let Err(e) = client
         .get_full_checkpoint(latest_checkpoint.sequence_number)
         .await
-        .is_err()
     {
         total_remaining_attempts -= 1;
         if total_remaining_attempts == 0 {
+            tracing::error!(
+                error = ?e,
+                "failed to get full checkpoint after {} attempts. \
+                REST endpoint may not be available.",
+                5
+            );
             return Ok(false);
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
