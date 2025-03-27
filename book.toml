@@ -16,11 +16,9 @@ theme = "docs/theme"
 [output.linkcheck]
 exclude = [
   'blob\.store',
-  'github\.com/MystenLabs/walrus', # TODO(WAL-471): Remove this once the repo is public.
   'google\.com',
   'suiscan\.xyz',
   'wal\.app',
-  'walrus-mainnet-latest', # TODO(WAL-471): Remove this once we have the first mainnet release.
   'walrus\.site',
   'x\.com',
 ]
