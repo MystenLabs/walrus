@@ -4,7 +4,7 @@ In the previous section, we learned how to [deploy a Walrus Sites portal](./port
 there might be cases where you want your Walrus Site under a specific domain, without following
 the default naming convention of `https://<walrus-site-domain>.<portal-domain>`.
 
-Fro example, you might want to use a domain like `https://example.com`, instead of
+For example, you might want to use a domain like `https://example.com`, instead of
 `https://example.wal.app`, where `example.com` is a classic DNS domain that you can purchase
 from any domain registrar. It will point to the IP and port of your portal.
 
