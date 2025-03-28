@@ -28,7 +28,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding, keys::NetworkKeyPair};
 
-use self::telemetry::HttpServerMetrics;
+use self::telemetry::MetricsMiddlewareState;
 use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
 use crate::{
     common::telemetry::{self, MakeHttpSpan},
@@ -146,7 +146,7 @@ pub enum TlsCertificateSource {
 pub struct RestApiServer<S> {
     state: Arc<S>,
     config: RestApiConfig,
-    metrics: HttpServerMetrics,
+    metrics: MetricsMiddlewareState,
     cancel_token: CancellationToken,
     handle: Mutex<Option<Handle>>,
 }
@@ -164,7 +164,7 @@ where
     ) -> Self {
         Self {
             state,
-            metrics: HttpServerMetrics::new(registry),
+            metrics: MetricsMiddlewareState::new(registry),
             cancel_token,
             handle: Default::default(),
             config,

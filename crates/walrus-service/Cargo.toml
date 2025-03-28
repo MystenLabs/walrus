@@ -142,6 +142,7 @@ telemetry-subscribers.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
+tokio-metrics = "0.4.0"
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tower = { workspace = true, features = ["buffer", "limit", "load-shed", "util"] }
@@ -159,7 +160,7 @@ walrus-proc-macros = { workspace = true, features = ["derive-api-errors"] }
 walrus-sdk.workspace = true
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
-walrus-utils = { workspace = true, features = ["backoff", "config", "http", "metrics"] }
+walrus-utils = { workspace = true, features = ["backoff", "config", "http", "metrics", "tokio-metrics"] }
 
 [dev-dependencies]
 hex = "0.4.3"

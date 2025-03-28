@@ -114,7 +114,7 @@ macro_rules! param_test {
         $( $(#[$outer:meta])* $case_name:ident:
             $(<$($type_args:ty),+>)?( $($args:expr),* $(,)? ) ),+$(,)?
     ]) => {
-        param_test!(
+        $crate::param_test!(
             $func_name -> ():
             [ $( $(#[$outer])* $case_name: $(<$($type_args),+>)?( $($args),* ) ),+ ]
         );

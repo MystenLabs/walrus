@@ -36,13 +36,19 @@ use prometheus::{
     IntGauge,
     IntGaugeVec,
     Opts,
+    Registry,
 };
+use reqwest::Method;
 use tokio::time::Instant;
+use tokio_metrics::TaskMonitor;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
-use walrus_utils::http::{http_body::Frame, BodyVisitor, VisitBody};
+use walrus_utils::{
+    http::{http_body::Frame, BodyVisitor, VisitBody},
+    metrics::TaskMonitorFamily,
+};
 
 use super::active_committees::ActiveCommittees;
 
@@ -321,12 +327,49 @@ fn http_version(request: &axum::extract::Request) -> &'static str {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct MetricsMiddlewareState {
+    inner: Arc<MetricsMiddlewareStateInner>,
+}
+
+impl MetricsMiddlewareState {
+    pub fn new(registry: &Registry) -> Self {
+        Self {
+            inner: Arc::new(MetricsMiddlewareStateInner {
+                metrics: HttpServerMetrics::new(registry),
+                task_monitors: TaskMonitorFamily::new(registry.clone()),
+            }),
+        }
+    }
+
+    /// Returns the task monitor for the route and request, where `http_route` should be a
+    /// known route or `UNMATCHED_ROUTE`.
+    fn task_monitor(&self, method: Method, http_route: &str) -> TaskMonitor {
+        self.inner
+            .task_monitors
+            .get_or_insert_with_task_name(&(method.clone(), http_route.to_owned()), || {
+                format!("{} {}", method, http_route)
+            })
+    }
+
+    fn metrics(&self) -> &HttpServerMetrics {
+        &self.inner.metrics
+    }
+}
+
+#[derive(Debug)]
+struct MetricsMiddlewareStateInner {
+    metrics: HttpServerMetrics,
+    task_monitors: TaskMonitorFamily<(Method, String)>,
+}
+
 /// Middleware that records the elapsed time, HTTP method, and status of requests.
 pub(crate) async fn metrics_middleware(
-    State(metrics): State<HttpServerMetrics>,
+    State(state): State<MetricsMiddlewareState>,
     request: axum::extract::Request,
     next: middleware::Next,
 ) -> axum::response::Response {
+    let metrics = state.metrics();
     // Manually record the time in seconds, since we do not yet know the status code which is
     // required to get the concrete histogram.
     let start = Instant::now();
@@ -365,7 +408,9 @@ pub(crate) async fn metrics_middleware(
         ))
     });
 
-    let response = next.run(request).await;
+    let monitor = state.task_monitor(http_request_method.clone(), &http_route);
+    let response = monitor.instrument(next.run(request)).await;
+
     let response_available_at = Instant::now();
     let http_response_status_code = response.status();
     let error_type = if http_response_status_code.is_client_error()

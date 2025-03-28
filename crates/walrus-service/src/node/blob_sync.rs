@@ -21,6 +21,7 @@ use tokio::{
     sync::{Notify, Semaphore},
     task::{JoinHandle, JoinSet},
 };
+use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
 use tracing::{field, Instrument as _, Span};
 use typed_store::TypedStoreError;
@@ -32,6 +33,7 @@ use walrus_core::{
     InconsistencyProof,
     ShardIndex,
 };
+use walrus_utils::metrics::TaskMonitorFamily;
 
 use super::{
     committee::CommitteeService,
@@ -55,6 +57,7 @@ pub(crate) struct BlobSyncHandler {
     blob_syncs_in_progress: Arc<Mutex<HashMap<BlobId, InProgressSyncHandle>>>,
     node: Arc<StorageNodeInner>,
     permits: Permits,
+    task_monitors: TaskMonitorFamily<&'static str>,
 }
 
 impl BlobSyncHandler {
@@ -65,11 +68,12 @@ impl BlobSyncHandler {
     ) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
-            node,
+            task_monitors: TaskMonitorFamily::new(node.registry.clone()),
             permits: Permits {
                 blob: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
                 sliver_pairs: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
             },
+            node,
         }
     }
 
@@ -277,14 +281,16 @@ impl BlobSyncHandler {
                 let blob_sync_handler_clone = self.clone();
                 let permits_clone = self.permits.clone();
 
-                let sync_handle = tokio::spawn(async move {
+                let monitor = self.task_monitors.get_or_insert(&"blob_recovery");
+                let sync_handle = tokio::spawn(TaskMonitor::instrument(&monitor, async move {
                     let result = blob_sync_handler_clone
                         .sync_blob_for_all_shards(synchronizer, permits_clone, event_handle)
                         .instrument(spawned_trace)
                         .await;
                     notify_clone.notify_one();
                     result
-                });
+                }));
+
                 entry.insert(InProgressSyncHandle {
                     cancel_token,
                     blob_sync_handle: Some(sync_handle),
