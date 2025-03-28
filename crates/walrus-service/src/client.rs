@@ -109,7 +109,8 @@ type ClientResult<T> = Result<T, ClientError>;
 /// - WithStatus: A status is obtained if available.
 /// - Registered: The blob is registered.
 /// - WithCertificate: The blob is certified.
-/// - Completed: The blob is stored and the result is available.
+/// - Completed: The blob is stored and the result is available,
+///   or an error occurred.
 #[derive(Debug, Clone)]
 pub enum WalrusStoreBlob<'a, T: Display + Send + Sync> {
     /// Initial phase with raw blob data and identifier.
@@ -187,40 +188,6 @@ pub enum WalrusStoreBlob<'a, T: Display + Send + Sync> {
 }
 
 impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
-    /// Returns the length of the unencoded blob data in bytes.
-    pub fn unencoded_length(&self) -> usize {
-        match self {
-            WalrusStoreBlob::Unencoded { blob, .. } => blob.len(),
-            WalrusStoreBlob::Encoded { blob, .. } => blob.len(),
-            WalrusStoreBlob::WithStatus { blob, .. } => blob.len(),
-            WalrusStoreBlob::Registered { blob, .. } => blob.len(),
-            WalrusStoreBlob::WithCertificate { blob, .. } => blob.len(),
-            WalrusStoreBlob::Completed { blob, .. } => blob.len(),
-        }
-    }
-
-    /// Returns a string representation of the current state of the blob.
-    pub fn get_state(&self) -> &str {
-        match self {
-            WalrusStoreBlob::Unencoded { .. } => "Unencoded",
-            WalrusStoreBlob::Encoded { .. } => "Encoded",
-            WalrusStoreBlob::WithStatus { .. } => "WithStatus",
-            WalrusStoreBlob::Registered { .. } => "Registered",
-            WalrusStoreBlob::WithCertificate { .. } => "WithCertificate",
-            WalrusStoreBlob::Completed { .. } => "Completed",
-        }
-    }
-
-    /// Returns a debug string containing the blob ID, identifier, and current state.
-    pub fn debug_info(&self) -> String {
-        format!(
-            "blob_id: {}, identifier: {}, state: {}",
-            self.get_blob_id(),
-            self.get_identifier(),
-            self.get_state()
-        )
-    }
-
     /// Returns true if the blob is in the Encoded state.
     pub fn is_encoded(&self) -> bool {
         matches!(self, WalrusStoreBlob::Encoded { .. })
@@ -274,54 +241,15 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         }
     }
 
-    /// Returns the blob ID associated with this blob.
-    pub fn get_blob_id(&self) -> BlobId {
+    /// Returns a string representation of the current state of the blob.
+    pub fn get_state(&self) -> &str {
         match self {
-            WalrusStoreBlob::Unencoded { .. } => BlobId::ZERO,
-            WalrusStoreBlob::Encoded { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::WithStatus { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::Registered { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::WithCertificate { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::Completed { result, .. } => *result.blob_id(),
-        }
-    }
-
-    /// Returns the object ID if available from the current operation.
-    pub fn get_object_id(&self) -> Option<ObjectID> {
-        self.get_operation().and_then(|op| match op {
-            StoreOp::RegisterNew { blob, .. } => Some(blob.id),
-            StoreOp::NoOp(_) => None,
-        })
-    }
-
-    /// Converts the current blob state to a Completed state with an error result.
-    pub fn with_error(self, error: ClientError) -> Self {
-        let blob_id = self.get_blob_id();
-        let (blob, identifier) = match self {
-            WalrusStoreBlob::Unencoded { blob, identifier } => (blob, identifier),
-            WalrusStoreBlob::Encoded {
-                blob, identifier, ..
-            } => (blob, identifier),
-            WalrusStoreBlob::WithStatus {
-                blob, identifier, ..
-            } => (blob, identifier),
-            WalrusStoreBlob::Registered {
-                blob, identifier, ..
-            } => (blob, identifier),
-            WalrusStoreBlob::WithCertificate {
-                blob, identifier, ..
-            } => (blob, identifier),
-            WalrusStoreBlob::Completed {
-                blob, identifier, ..
-            } => (blob, identifier),
-        };
-        WalrusStoreBlob::Completed {
-            blob,
-            identifier,
-            result: BlobStoreResult::Error {
-                blob_id,
-                error_msg: error.to_string(),
-            },
+            WalrusStoreBlob::Unencoded { .. } => "Unencoded",
+            WalrusStoreBlob::Encoded { .. } => "Encoded",
+            WalrusStoreBlob::WithStatus { .. } => "WithStatus",
+            WalrusStoreBlob::Registered { .. } => "Registered",
+            WalrusStoreBlob::WithCertificate { .. } => "WithCertificate",
+            WalrusStoreBlob::Completed { .. } => "Completed",
         }
     }
 
@@ -347,6 +275,38 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::WithCertificate { identifier, .. } => identifier,
             WalrusStoreBlob::Completed { identifier, .. } => identifier,
         }
+    }
+
+    /// Returns the length of the unencoded blob data in bytes.
+    pub fn unencoded_length(&self) -> usize {
+        match self {
+            WalrusStoreBlob::Unencoded { blob, .. } => blob.len(),
+            WalrusStoreBlob::Encoded { blob, .. } => blob.len(),
+            WalrusStoreBlob::WithStatus { blob, .. } => blob.len(),
+            WalrusStoreBlob::Registered { blob, .. } => blob.len(),
+            WalrusStoreBlob::WithCertificate { blob, .. } => blob.len(),
+            WalrusStoreBlob::Completed { blob, .. } => blob.len(),
+        }
+    }
+
+    /// Returns the blob ID associated with this blob.
+    pub fn get_blob_id(&self) -> BlobId {
+        match self {
+            WalrusStoreBlob::Unencoded { .. } => BlobId::ZERO,
+            WalrusStoreBlob::Encoded { metadata, .. } => *metadata.blob_id(),
+            WalrusStoreBlob::WithStatus { metadata, .. } => *metadata.blob_id(),
+            WalrusStoreBlob::Registered { metadata, .. } => *metadata.blob_id(),
+            WalrusStoreBlob::WithCertificate { metadata, .. } => *metadata.blob_id(),
+            WalrusStoreBlob::Completed { result, .. } => *result.blob_id(),
+        }
+    }
+
+    /// Returns the object ID if available from the current operation.
+    pub fn get_object_id(&self) -> Option<ObjectID> {
+        self.get_operation().and_then(|op| match op {
+            StoreOp::RegisterNew { blob, .. } => Some(blob.id),
+            StoreOp::NoOp(_) => None,
+        })
     }
 
     /// Returns a reference to the sliver pairs if available in the current state.
@@ -548,6 +508,37 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         }
     }
 
+    /// Converts the current blob state to a Completed state with an error result.
+    pub fn with_error(self, error: ClientError) -> Self {
+        let blob_id = self.get_blob_id();
+        let (blob, identifier) = match self {
+            WalrusStoreBlob::Unencoded { blob, identifier } => (blob, identifier),
+            WalrusStoreBlob::Encoded {
+                blob, identifier, ..
+            } => (blob, identifier),
+            WalrusStoreBlob::WithStatus {
+                blob, identifier, ..
+            } => (blob, identifier),
+            WalrusStoreBlob::Registered {
+                blob, identifier, ..
+            } => (blob, identifier),
+            WalrusStoreBlob::WithCertificate {
+                blob, identifier, ..
+            } => (blob, identifier),
+            WalrusStoreBlob::Completed {
+                blob, identifier, ..
+            } => (blob, identifier),
+        };
+        WalrusStoreBlob::Completed {
+            blob,
+            identifier,
+            result: BlobStoreResult::Error {
+                blob_id,
+                error_msg: error.to_string(),
+            },
+        }
+    }
+
     /// Updates the blob with the provided result and transitions to the Completed state.
     pub fn complete_with(self, result: BlobStoreResult) -> Self {
         match self {
@@ -585,6 +576,16 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     ) -> Self {
         let store_blob_result = self.compute_store_blob_result(result, price_computation);
         self.complete_with(store_blob_result)
+    }
+
+    /// Returns a debug string containing the blob ID, identifier, and current state.
+    pub fn debug_info(&self) -> String {
+        format!(
+            "blob_id: {}, identifier: {}, state: {}",
+            self.get_blob_id(),
+            self.get_identifier(),
+            self.get_state()
+        )
     }
 
     /// Computes the final store result based on the current state and operation.
