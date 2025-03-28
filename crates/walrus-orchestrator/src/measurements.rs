@@ -30,9 +30,9 @@ pub struct Measurement {
     buckets: HashMap<BucketId, usize>,
     /// Sum of the latencies of all finalized transactions.
     sum: Duration,
-    /// Total number of finalized transactions
+    /// Total number of finalized transactions.
     count: usize,
-    /// Sum of the squares of the latencies of all finalized transactions
+    /// Sum of the squares of the latencies of all finalized transactions.
     squared_sum: f64,
 }
 

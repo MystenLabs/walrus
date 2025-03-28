@@ -23,7 +23,7 @@ use crate::encoding::EncodingAxis;
 pub enum Axis {
     /// Enum indicating the primary axis.
     Primary,
-    /// Enum indicating the secondary axis
+    /// Enum indicating the secondary axis.
     Secondary,
 }
 

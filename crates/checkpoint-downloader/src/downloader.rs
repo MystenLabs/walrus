@@ -163,7 +163,9 @@ impl ParallelCheckpointDownloaderInner {
     }
 
     /// Returns the current checkpoint lag between the local store and the full node
-    /// in terms of sequence numbers. This works by downloading the latest checkpoint
+    /// in terms of sequence numbers. 
+    ///
+    /// This works by downloading the latest checkpoint
     /// summary from the full node and comparing it with the current checkpoint in the store.
     async fn current_checkpoint_lag(
         checkpoint_store: &DBMap<(), TrustedCheckpoint>,
@@ -378,7 +380,7 @@ impl ParallelCheckpointDownloaderInner {
     }
 }
 
-/// Helper function to create backoff with consistent settings
+/// Helper function to create backoff with consistent settings.
 #[cfg(not(test))]
 fn create_backoff(
     rng: &mut StdRng,
@@ -389,8 +391,8 @@ fn create_backoff(
 }
 
 /// Handles an error that occurred while reading the next checkpoint.
-/// If the error is due to a checkpoint that is already present on the server, it is logged as an
-/// error. Otherwise, it is logged as a debug.
+/// If the error is due to a checkpoint that is already present on the server, it is logged as an error.
+/// Otherwise, it is logged as a debug.
 fn handle_checkpoint_error(err: Option<&RetriableClientError>, next_checkpoint: u64) {
     if let Some(RetriableClientError::RpcError(status)) = err {
         if let Some(checkpoint_height) = status.checkpoint_height() {
