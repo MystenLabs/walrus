@@ -45,6 +45,8 @@ fun init(otw: WAL, ctx: &mut TxContext) {
     // Mint the total supply of WAL.
     let frost_per_wal = 10u64.pow(DECIMALS);
     let total_supply_to_mint = TOTAL_WAL_SUPPLY_TO_MINT * frost_per_wal;
+    // Verify no overflow occurred
+    assert!(total_supply_to_mint / frost_per_wal == TOTAL_WAL_SUPPLY_TO_MINT, 0);
     let minted_coin = cap.mint(total_supply_to_mint, ctx);
 
     transfer::public_freeze_object(metadata);
@@ -62,12 +64,12 @@ fun init(otw: WAL, ctx: &mut TxContext) {
 
 /// Get the total supply of the WAL token.
 public fun total_supply(treasury: &ProtectedTreasury): u64 {
-    treasury.borrow_cap().total_supply()
+    borrow_cap(treasury).total_supply()
 }
 
 /// Burns a `Coin<WAL>` from the sender.
 public fun burn(treasury: &mut ProtectedTreasury, coin: Coin<WAL>) {
-    treasury.borrow_cap_mut().burn(coin);
+    borrow_cap_mut(treasury).burn(coin);
 }
 
 // ===== Private Accessors =====
@@ -97,7 +99,7 @@ fun test_init() {
     let protected_treasury = test.take_shared<ProtectedTreasury>();
     let frost_per_wal = 10u64.pow(DECIMALS);
     let wal_supply = 5_000_000_000;
-    assert!(protected_treasury.total_supply() == wal_supply * frost_per_wal);
+    assert!(total_supply(&protected_treasury) == wal_supply * frost_per_wal);
     test::return_shared(protected_treasury);
 
     let coin_metadata = test.take_immutable<coin::CoinMetadata<WAL>>();
@@ -129,12 +131,12 @@ fun test_burn() {
     let mut protected_treasury = test.take_shared<ProtectedTreasury>();
     let frost_per_wal = 10u64.pow(DECIMALS);
     let wal_supply = 5_000_000_000;
-    assert!(protected_treasury.total_supply() == wal_supply * frost_per_wal);
+    assert!(total_supply(&protected_treasury) == wal_supply * frost_per_wal);
 
     let mut coin = test.take_from_sender<Coin<WAL>>();
-    let new_coin = coin.split(1000 * frost_per_wal, test.ctx());
-    protected_treasury.burn(new_coin);
-    assert!(protected_treasury.total_supply() == (wal_supply - 1000) * frost_per_wal);
+    let new_coin = coin::split(&mut coin, 1000 * frost_per_wal, test.ctx());
+    burn(&mut protected_treasury, new_coin);
+    assert!(total_supply(&protected_treasury) == (wal_supply - 1000) * frost_per_wal);
 
     test.return_to_sender(coin);
     test::return_shared(protected_treasury);
