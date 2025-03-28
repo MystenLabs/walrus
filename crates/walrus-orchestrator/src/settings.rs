@@ -23,7 +23,7 @@ use crate::{
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Repository {
-    /// The url of the repository.
+    /// The URL of the repository.
     #[serde_as(as = "DisplayFromStr")]
     pub url: Url,
     /// The commit (or branch name) to deploy.
@@ -31,26 +31,40 @@ pub struct Repository {
 }
 
 impl Default for Repository {
+    /// Creates a default repository with a placeholder URL and `main` as the commit.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the default URL is not a valid URL.
     fn default() -> Self {
         Self {
-            url: Url::parse("https://example.com/author/repo").unwrap(),
+            url: Url::parse("https://example.com/author/repo")
+                .expect("Failed to parse default repository URL"),
             commit: "main".into(),
         }
     }
 }
 
 impl Repository {
-    /// Set the commit to 'unknown'. This options is useful when the orchestrator cannot
-    /// be certain of the commit that is running on the instances. This is a failsafe against
-    /// reporting wrong commit values in the measurements.
+    /// Set the commit to `'unknown'`. This is useful when the orchestrator cannot
+    /// be certain of the commit that is running on the instances.
     pub fn set_unknown_commit(&mut self) {
         self.commit = "unknown".into();
     }
 
-    /// Remove the Github access token from the repository url.
+    /// Remove the GitHub access token from the repository URL.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if clearing the password or username fails.
+    /// These operations are expected to succeed on well-formed URLs.
     pub fn remove_access_token(&mut self) {
-        self.url.set_password(None).unwrap();
-        self.url.set_username("").unwrap();
+        self.url
+            .set_password(None)
+            .expect("Failed to remove password from repository URL");
+        self.url
+            .set_username("")
+            .expect("Failed to clear username from repository URL");
     }
 }
 

@@ -18,6 +18,11 @@ use super::{
 use crate::common::utils::{self, MetricsAndLoggingRuntime};
 
 /// Starts a new backup node runtime.
+///
+/// # Panics
+///
+/// Panics if the Prometheus uptime metric cannot be registered.
+/// This is unexpected and indicates a serious misconfiguration.
 pub async fn start_backup_garbage_collector(
     config: BackupConfig,
     metrics_runtime: &MetricsAndLoggingRuntime,
@@ -32,7 +37,7 @@ pub async fn start_backup_garbage_collector(
                 VERSION,
                 "walrus",
             ))
-            .unwrap();
+            .expect("Failed to register Prometheus uptime metric for backup garbage collector");
     });
 
     tracing::info!(version = VERSION, "Walrus backup binary version");

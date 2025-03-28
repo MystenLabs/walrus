@@ -262,6 +262,12 @@ impl WalrusColors for &str {
 pub struct HumanReadableBytes(pub u64);
 
 impl std::fmt::Display for HumanReadableBytes {
+    /// Format the value into human-readable form (e.g., "1.23 GiB").
+    ///
+    /// # Panics
+    ///
+    /// Panics if the system architecture cannot represent the required unit index,
+    /// though this should not occur on any 32-bit or 64-bit architecture.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         const BASE: u64 = 1024;
         const UNITS: [&str; 6] = ["KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
@@ -274,8 +280,8 @@ impl std::fmt::Display for HumanReadableBytes {
         // We know that `value >= 1024`, so `exponent >= 1`.
         let exponent = value.ilog(BASE);
         let normalized_value = value as f64 / BASE.pow(exponent) as f64;
-        let unit =
-            UNITS[usize::try_from(exponent - 1).expect("we assume at least a 32-bit architecture")];
+        let unit = UNITS[usize::try_from(exponent - 1)
+            .expect("we assume at least a 32-bit architecture")];
 
         // Get correct number of significant digits (not rounding integer part).
         let normalized_integer_digits = normalized_value.log10() as usize + 1;

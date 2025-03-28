@@ -71,6 +71,11 @@ fn generate_error_defs_for_contracts(contracts_dir: &Path, out_dir: &Path) {
 }
 
 /// Collect the error names and codes from the Move source code for each module.
+///
+/// # Panics
+///
+/// This function will panic if reading any `.move` file fails. This is expected to
+/// succeed because all contract source files should be accessible during the build process.
 fn collect_error_definitions(contracts_dir: &Path) -> Vec<ModuleErrorDefs> {
     let module_pattern =
         Regex::new(r"module\s+([a-z_]+::[a-z_]+)\s*;").expect("should be able to compile regex");
@@ -92,7 +97,8 @@ fn collect_error_definitions(contracts_dir: &Path) -> Vec<ModuleErrorDefs> {
                 && !components.contains("build")
         })
     {
-        let content = fs::read_to_string(entry.path()).unwrap();
+        let content = fs::read_to_string(entry.path())
+                .expect("Failed to read Move source file during error definition collection");
 
         let Some(module_captures) = module_pattern.captures(&content) else {
             continue;

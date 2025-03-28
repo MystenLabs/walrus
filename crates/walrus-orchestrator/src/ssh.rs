@@ -141,7 +141,7 @@ impl SshConnectionManager {
             }
             sleep(Self::RETRY_DELAY).await;
         }
-        Err(error.unwrap())
+        Err(error.expect("no SSH connection error captured"))
     }
 
     /// Execute the specified ssh command on all provided instances.
@@ -155,9 +155,7 @@ impl SshConnectionManager {
         I: IntoIterator<Item = Instance>,
         S: Into<String> + Clone + Send + 'static,
     {
-        let targets = instances
-            .into_iter()
-            .map(|instance| (instance, command.clone()));
+        let targets = instances.into_iter().map(|instance| (instance, command.clone()));
         self.execute_per_instance(targets, context).await
     }
 
@@ -175,7 +173,7 @@ impl SshConnectionManager {
 
         try_join_all(handles)
             .await
-            .unwrap()
+            .expect("task join failure")
             .into_iter()
             .collect::<SshResult<_>>()
     }
@@ -197,11 +195,11 @@ impl SshConnectionManager {
 
                 tokio::spawn(async move {
                     let connection = ssh_manager.connect(instance.ssh_address()).await?;
-                    // SshConnection::execute is a blocking call, needs to go to blocking pool
+                    // SshConnection::execute is a blocking call, needs to go to blocking pool.
                     Handle::current()
                         .spawn_blocking(move || connection.execute(context.apply(command)))
                         .await
-                        .unwrap()
+                        .expect("failed to spawn blocking task")
                 })
             })
             .collect::<Vec<_>>()
@@ -219,7 +217,7 @@ impl SshConnectionManager {
     {
         loop {
             sleep(Self::RETRY_DELAY).await;
-
+            
             let result = self
                 .execute(
                     instances.clone(),
@@ -359,7 +357,7 @@ impl SshConnection {
                 Err(e) => error = Some(e),
             }
         }
-        Err(error.unwrap())
+        Err(error.expect("no execution error captured"))
     }
 
     /// Execute an ssh command on the remote machine and return both stdout and stderr.
@@ -421,6 +419,6 @@ impl SshConnection {
                 Err(e) => error = Some(e),
             }
         }
-        Err(error.unwrap())
+        Err(error.expect("no SCP error captured"))
     }
 }

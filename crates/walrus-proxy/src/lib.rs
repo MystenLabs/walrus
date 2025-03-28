@@ -130,10 +130,17 @@ macro_rules! git_revision {
     };
 }
 
-/// var extracts environment variables at runtime with a default fallback value
-/// if a default is not provided, the value is simply an empty string if not
-/// found This function will return the provided default if env::var cannot find
-/// the key or if the key is somehow malformed.
+/// var extracts environment variables at runtime with a default fallback value.
+///
+/// If a default is not provided, the value is simply an empty string if not
+/// found. This function will return the provided default if `env::var` cannot
+/// find the key or if the key is malformed.
+///
+/// # Panics
+///
+/// When a default is provided and the environment variable exists but fails to
+/// parse, this macro will panic. This indicates that the variable was present
+/// but could not be parsed into the expected type.
 #[macro_export]
 macro_rules! var {
     ($key:expr) => {
@@ -144,7 +151,9 @@ macro_rules! var {
     };
     ($key:expr, $default:expr) => {
         match std::env::var($key) {
-            Ok(val) => val.parse::<_>().unwrap(),
+            Ok(val) => val
+                .parse::<_>()
+                .expect("Failed to parse environment variable"),
             Err(_) => $default,
         }
     };

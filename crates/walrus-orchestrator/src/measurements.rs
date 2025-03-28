@@ -39,9 +39,13 @@ pub struct Measurement {
 impl Measurement {
     /// Make new measurements from the text exposed by prometheus.
     /// Every measurement is identified by a unique label.
+    ///
+    /// # Panics
+    ///
+    /// Panics if prometheus scrape parsing fails.
     pub fn from_prometheus<M: ProtocolMetrics>(text: &str) -> HashMap<Label, Self> {
         let br = std::io::BufReader::new(text.as_bytes());
-        let parsed = Scrape::parse(br.lines()).unwrap();
+        let parsed = Scrape::parse(br.lines()).expect("Failed to parse prometheus scrape");
 
         let mut measurements = HashMap::new();
         for sample in &parsed.samples {
@@ -187,7 +191,7 @@ impl MeasurementsCollection {
         self.data.keys()
     }
 
-    /// Get the maximum result of a function applied to the measurements.
+    /// Get the maximum result of a function applied to the measurements. 
     fn max_result<T: Default + Ord>(
         &self,
         label: &Label,
@@ -208,7 +212,7 @@ impl MeasurementsCollection {
             .max()
             .unwrap_or_default()
     }
-
+    
     /// Aggregate the tps of multiple data points.
     pub fn aggregate_tps(&self, label: &Label) -> u64 {
         self.max_result(label, |x| x.count)
@@ -238,7 +242,7 @@ impl MeasurementsCollection {
         let json = serde_json::to_string_pretty(self).expect("Cannot serialize metrics");
         let mut file = PathBuf::from(path.as_ref());
         file.push(format!("measurements-{:?}.json", self.parameters));
-        fs::write(file, json).unwrap();
+        fs::write(file, json).expect("Cannot write metrics file");
     }
 
     /// Display a summary of the measurements.

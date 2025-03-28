@@ -30,6 +30,10 @@ use crate::{
     register_metric,
 };
 
+/// # Panics
+///
+/// These static initializers will panic if Prometheus metrics registration fails. 
+/// This indicates a coding or setup error in the metric configuration.
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
         Opts::new(
@@ -38,7 +42,7 @@ static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
         ),
         &["operation", "status"]
     )
-    .unwrap())
+    .expect("Failed to register middleware_operations counter"))
 });
 
 static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
@@ -49,10 +53,10 @@ static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
         ),
         &["header", "value"]
     )
-    .unwrap())
+    .expect("Failed to register middleware_headers counter"))
 });
 
-/// we expect walrus-node to send us an http header content-length encoding.
+/// We expect walrus-node to send us an http header content-length encoding.
 pub async fn expect_content_length(
     TypedHeader(content_length): TypedHeader<ContentLength>,
     request: Request<Body>,
@@ -67,7 +71,7 @@ pub async fn expect_content_length(
     Ok(next.run(request).await)
 }
 
-/// AuthInfo is an intermediate type used to decode the auth header
+/// AuthInfo is an intermediate type used to decode the auth header.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthInfo {
     /// base64 encoded via fastcrypto
@@ -77,8 +81,8 @@ pub struct AuthInfo {
 }
 
 impl AuthInfo {
-    /// recover will attempt to recover the pub key from a signature contained
-    /// in self
+    /// Recover will attempt to recover the pub key from a signature contained
+    /// in self.
     pub fn recover(&self) -> Result<secp256r1::Secp256r1PublicKey, Error> {
         let recovered_signature =
             secp256r1::recoverable::Secp256r1RecoverableSignature::decode_base64(&self.signature)
@@ -92,7 +96,7 @@ impl AuthInfo {
     }
 }
 
-/// we expect that calling walrus-nodes are known on the blockchain
+/// We expect that calling walrus-nodes are known on the blockchain.
 pub async fn expect_valid_recoverable_pubkey(
     Extension(allower): Extension<Arc<WalrusNodeProvider>>,
     mut request: Request<Body>,
@@ -104,7 +108,7 @@ pub async fn expect_valid_recoverable_pubkey(
         "begin-auth-verify"
     )
     .inc();
-    // Extract the Authorization header
+    // Extract the Authorization header.
     let Some(auth_header) = request.headers().get(header::AUTHORIZATION) else {
         walrus_utils::with_label!(
             MIDDLEWARE_OPS,
@@ -119,7 +123,7 @@ pub async fn expect_valid_recoverable_pubkey(
         .to_str()
         .map_err(|_| (StatusCode::FORBIDDEN, "authorization header is malformed"))?;
 
-    // split the scheme from our b64 data, delimited by ': '
+    // Split the scheme from our b64 data, delimited by ': '
     let (_scheme, base64_data) = auth_header_value_with_scheme
         .split_once(": ")
         .unwrap_or_default();
@@ -135,7 +139,7 @@ pub async fn expect_valid_recoverable_pubkey(
         error!("allower failed us; {}", e);
         (StatusCode::FORBIDDEN, "authorization header is malformed")
     })?) else {
-        // no errors from allower, we just didn't match
+        // No errors from allower, we just didn't match.
         walrus_utils::with_label!(
             MIDDLEWARE_OPS,
             "expect_valid_recoverable_pubkey",
@@ -155,7 +159,7 @@ pub async fn expect_valid_recoverable_pubkey(
 }
 
 /// MetricFamilyWithStaticLabels takes labels that were signaled to us from the node as well
-/// as their metrics and creates an axum Extension type param that can be used in middleware
+/// as their metrics and creates an axum Extension type param that can be used in middleware.
 #[derive(Debug)]
 pub struct MetricFamilyWithStaticLabels {
     /// static labels defined in config, eg host, network, etc
@@ -167,7 +171,7 @@ pub struct MetricFamilyWithStaticLabels {
 /// LenDelimProtobuf is an axum extractor that will consume protobuf content by
 /// decompressing it and decoding it into protobuf metrics. the body payload is
 /// a json payload that is snappy compressed.  it has a structure seen in
-/// MetricPayload.  The buf field is protobuf encoded `Vec<MetricFamily>`
+/// MetricPayload.  The buf field is protobuf encoded `Vec<MetricFamily>`.
 #[derive(Debug)]
 pub struct LenDelimProtobuf(pub MetricFamilyWithStaticLabels);
 

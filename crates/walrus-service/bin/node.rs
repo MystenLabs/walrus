@@ -520,7 +520,7 @@ mod commands {
                         VERSION,
                         "walrus",
                     ))
-                    .unwrap();
+                    .expect("Failed to register uptime metric");
             });
 
         tracing::info!(version = VERSION, "Walrus binary version");

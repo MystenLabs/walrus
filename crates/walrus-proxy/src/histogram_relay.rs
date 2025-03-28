@@ -28,17 +28,24 @@ use crate::{register_metric, var};
 
 const METRICS_ROUTE: &str = "/metrics";
 
+/// # Panics
+///
+/// This static initializer will panic if Prometheus metric registration fails.
 static RELAY_PRESSURE: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
         Opts::new(
             "relay_pressure",
-            "HistogramRelay's number of metric families submitted, exported, \
+            "HistogramRelay's number of metric families submitted, exported, \\
 overflowed to/from the queue.",
         ),
         &["histogram_relay"]
     )
-    .unwrap())
+    .expect("Failed to register relay_pressure metric"))
 });
+
+/// # Panics
+///
+/// This static initializer will panic if Prometheus metric registration fails.
 static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     register_metric!(HistogramVec::new(
         HistogramOpts::new(
@@ -46,18 +53,23 @@ static RELAY_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
             "HistogramRelay's submit/export fn latencies in seconds.",
         )
         .buckets(vec![
-            0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096, 0.8192,
-            1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0, 10.0, 12.5, 15.0
+            0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096,
+            0.8192, 1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0, 10.0, 12.5, 15.0
         ]),
         &["histogram_relay"]
     )
-    .unwrap())
+    .expect("Failed to register relay_duration_seconds metric"))
 });
 
 /// Creates a new http server that has as a sole purpose to expose
 /// and endpoint that prometheus agent can use to poll for the metrics.
 /// A RegistryService is returned that can be used to get access in prometheus
 /// Registries.
+///
+/// # Panics
+///
+/// This function will panic if the TCP listener cannot be set to non-blocking,
+/// or if it cannot be converted into a Tokio listener.
 pub fn start_prometheus_server(listener: TcpListener) -> HistogramRelay {
     let relay = HistogramRelay::new();
     let app = Router::new()
@@ -74,9 +86,14 @@ pub fn start_prometheus_server(listener: TcpListener) -> HistogramRelay {
         );
 
     tokio::spawn(async move {
-        listener.set_nonblocking(true).unwrap();
-        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-        axum::serve(listener, app).await.unwrap();
+        listener
+            .set_nonblocking(true)
+            .expect("Failed to set listener to non-blocking mode");
+        let listener = tokio::net::TcpListener::from_std(listener)
+            .expect("Failed to convert std listener to tokio listener");
+        axum::serve(listener, app)
+            .await
+            .expect("Axum server failed");
     });
     relay
 }
@@ -93,11 +110,11 @@ async fn metrics(Extension(relay): Extension<HistogramRelay>) -> (StatusCode, St
 
 struct Wrapper(i64, Vec<MetricFamily>);
 
-/// HistogramRelay manages the histograms we receive from nodes.  it exports
-/// them to a local agent for scraping we do this because histograms pose a
-/// challenge in the remote write protobuf we use.  our prometheus crate
+/// HistogramRelay manages the histograms we receive from nodes. It exports
+/// them to a local agent for scraping. We do this because histograms pose a
+/// challenge in the remote write protobuf we use. Our Prometheus crate
 /// does not support native histograms but the remote write protobuf expects
-/// them, so we have to export them this way
+/// them, so we have to export them this way.
 #[allow(missing_debug_implementations)]
 #[derive(Clone)]
 pub struct HistogramRelay(Arc<Mutex<VecDeque<Wrapper>>>);
@@ -108,34 +125,38 @@ impl Default for HistogramRelay {
     }
 }
 impl HistogramRelay {
-    /// create a new HistogramRelay
+    /// Create a new HistogramRelay.
     pub fn new() -> Self {
         Self::default()
     }
-    /// submit will take metric family submissions and store them for scraping
-    /// in doing so, it will also wrap each entry in a timestamp which will be
-    /// use for pruning old entries on each submission call. this may not be
-    /// ideal long term.
+
+    /// Submit will take metric family submissions and store them for scraping.
+    /// In doing so, it will also wrap each entry in a timestamp which will be
+    /// used for pruning old entries on each submission call.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if acquiring the mutex lock fails.
     pub fn submit(&self, data: Vec<MetricFamily>) {
         walrus_utils::with_label!(RELAY_PRESSURE, "submit").inc();
         let timer = walrus_utils::with_label!(RELAY_DURATION, "submit").start_timer();
         //  represents a collection timestamp
         let timestamp_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("Time went backwards")
             .as_secs() as i64;
         let mut queue = self
             .0
             .lock()
-            .expect("couldn't get mut lock on HistogramRelay");
+            .expect("Couldn't get mut lock on HistogramRelay");
         queue.retain(|v| {
-            // 5 mins is the max time in the queue allowed
+            // 5 mins is the max time in the queue allowed.
             if (timestamp_secs - v.0) < var!("MAX_QUEUE_TIME_SECS", 300) {
                 return true;
             }
             walrus_utils::with_label!(RELAY_PRESSURE, "overflow").inc();
             false
-        }); // drain anything 5 mins or older
+        }); // Drain anything 5 mins or older.
 
         // filter out our histograms from normal metrics
         let data: Vec<MetricFamily> = extract_histograms(data).collect();
@@ -143,17 +164,21 @@ impl HistogramRelay {
         queue.push_back(Wrapper(timestamp_secs, data));
         timer.observe_duration();
     }
-    /// export drains our histogram registry from the nodes and exports it to a
-    /// string format that we can send to mimir
+    /// Export drains our histogram registry from the nodes and exports it to a
+    /// string format that we can send to mimir.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if acquiring the mutex lock fails.
     pub fn export(&self) -> Result<String> {
         walrus_utils::with_label!(RELAY_PRESSURE, "export").inc();
         let timer = walrus_utils::with_label!(RELAY_DURATION, "export").start_timer();
-        // totally drain all metrics whenever we get a scrape request from the metrics
-        // handler
+        // totally drain all metrics whenever we get a scrape request from the metrics.
+        // handler.
         let mut queue = self
             .0
             .lock()
-            .expect("couldn't get mut lock on HistogramRelay");
+            .expect("Couldn't get mut lock on HistogramRelay");
 
         let data: Vec<Wrapper> = queue.drain(..).collect();
         let mut histograms = vec![];
@@ -177,8 +202,8 @@ impl HistogramRelay {
     }
 }
 
-/// extract_histograms just grabs the histograms from our metrics because we
-/// don't want to export non-histogram metric types here
+/// Extract histograms just grabs the histograms from our metrics because we
+/// don't want to export non-histogram metric types here.
 fn extract_histograms(data: Vec<MetricFamily>) -> impl Iterator<Item = MetricFamily> {
     data.into_iter().filter_map(|mf| {
         let metrics = mf.get_metric().iter().filter_map(|m| {

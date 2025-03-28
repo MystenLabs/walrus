@@ -186,6 +186,12 @@ pub enum SuiClientError {
     StakeBelowThreshold(u64),
 }
 
+/// Attempts to parse a shared object congestion error from an error string.
+///
+/// # Panics
+///
+/// This function will panic if the hardcoded regex pattern is invalid.
+/// Since the pattern is static and known at compile time, this should never happen.
 impl SuiClientError {
     /// Attempts to parse a shared object congestion error from an error string.
     /// Returns None if the string does not match the expected format.
@@ -196,7 +202,7 @@ impl SuiClientError {
             ExecutionCancelledDueToSharedObjectCongestion\x20\{\x20congested_objects:
             \x20CongestedObjects\(\[(0x[a-f0-9]+)\]\)\x20\}",
         )
-        .unwrap();
+        .expect("Regex pattern must be valid");
         re.captures(error)
             .and_then(|caps| caps.get(1))
             .map(|objects_match| {

@@ -98,7 +98,12 @@ impl Display for RawMoveError {
 
 impl FromStr for RawMoveError {
     type Err = anyhow::Error;
-
+    /// Parses a Move abort string into a `RawMoveError`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the hardcoded regex is invalid.
+    /// This is not expected to happen, as the regex is static and known to be valid.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // Taken with small modifications from
         // https://github.com/MystenLabs/sui/blob/main/crates/sui/src/clever_error_rendering.rs
@@ -107,7 +112,7 @@ impl FromStr for RawMoveError {
         let re = Regex::new(
             r#"MoveAbort.*address:\s*(.*?),.* name:.*Identifier\((.*?)\).*instruction:\s+(\d+),.*function_name:.*Some\((.*?)\).*},\s*(\d+).*in command\s*(\d+)"#, // editorconfig-checker-disable
         )
-        .unwrap();
+        .expect("Regex is hardcoded and known to be valid");
         let Some(captures) = re.captures(s) else {
             anyhow::bail!(
                 "Cannot parse abort status string: {} as a move abort string",
