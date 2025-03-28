@@ -45,7 +45,7 @@ metric_utils::define_metric_set! {
     #[namespace = "http_client"]
     pub(crate) struct HttpClientMetrics {
         #[help = "Time (in seconds) sending the request and waiting for the response"]
-        request_duration: HistogramVec {
+        request_duration_seconds: HistogramVec {
             // If "headers", time from request in to response headers being provided. If
             // "payload", time from response headers to the response body being consumed to be
             // written to the wire.
@@ -58,13 +58,13 @@ metric_utils::define_metric_set! {
         },
 
         #[help = "The size in bytes of the (compressed) request body."]
-        request_body_size: HistogramVec {
+        request_body_size_bytes: HistogramVec {
             labels: HttpLabels::LABEL_NAMES,
             buckets: metric_utils::default_buckets_for_bytes(),
         },
 
         #[help = "The size in bytes of the (compressed) response body."]
-        response_body_size: HistogramVec {
+        response_body_size_bytes: HistogramVec {
             labels: HttpLabels::LABEL_NAMES,
             buckets: metric_utils::default_buckets_for_bytes(),
         },
@@ -88,7 +88,7 @@ impl HttpClientMetrics {
         labels: &HttpLabels,
         http_response_part: &str,
     ) {
-        let request_duration = &self.request_duration;
+        let request_duration = &self.request_duration_seconds;
 
         let mut labels = labels.to_extended_array::<{ HttpLabels::LENGTH + 1 }>();
         labels[HttpLabels::LENGTH] = http_response_part;
@@ -101,14 +101,14 @@ impl HttpClientMetrics {
     }
 
     fn observe_request_body_size(&self, body_size: u64, labels: &HttpLabels) {
-        self.request_body_size
+        self.request_body_size_bytes
             .get_metric_with_label_values(&labels.to_array())
             .expect("label count is the same as definition")
             .observe(body_size as f64);
     }
 
     fn observe_response_body_size(&self, body_size: usize, labels: &HttpLabels) {
-        self.request_body_size
+        self.request_body_size_bytes
             .get_metric_with_label_values(&labels.to_array())
             .expect("label count is the same as definition")
             .observe(body_size as f64);
