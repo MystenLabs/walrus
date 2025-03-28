@@ -342,12 +342,14 @@ impl EventBlobWriterFactory {
             false,
         )?;
 
+        let blobs_path = Self::blobs_path(root_dir_path);
         Self::reset_uncertified_blobs(
             &pending,
             &attested,
             &failed_to_attest,
             num_uncertified_blob_threshold,
             last_certified_event_blob,
+            &blobs_path,
         )?;
 
         let event_cursor = pending
@@ -493,6 +495,7 @@ impl EventBlobWriterFactory {
         failed_to_attest_db: &DBMap<(), FailedToAttestEventBlobMetadata>,
         num_uncertified_blob_threshold: Option<u32>,
         last_certified_event_blob: Option<SuiEventBlob>,
+        blobs_path: &Path,
     ) -> Result<()> {
         let Some(last_certified_event_blob) = last_certified_event_blob else {
             return Ok(());
@@ -563,17 +566,38 @@ impl EventBlobWriterFactory {
             consecutive_uncertified,
             num_uncertified_blob_threshold
         );
+
+        let mut blobs_to_delete = Vec::new();
         let mut wb = pending_db.batch();
-        for (k, _) in pending {
+
+        for (k, metadata) in pending {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(pending_db, std::iter::once(k))?;
         }
-        if !attested.is_empty() {
+
+        for (_, metadata) in attested {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(attested_db, std::iter::once(()))?;
         }
-        if !failed_to_attest.is_empty() {
+
+        for (_, metadata) in failed_to_attest {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(failed_to_attest_db, std::iter::once(()))?;
         }
+
         wb.write()?;
+
+        for blob_index in blobs_to_delete {
+            let blob_path = blobs_path.join(blob_index.to_string());
+            if blob_path.exists() {
+                if let Err(e) = fs::remove_file(&blob_path) {
+                    tracing::warn!(?blob_path, ?e, "Failed to remove blob file");
+                } else {
+                    tracing::info!(?blob_path, "Removed uncertified blob file");
+                }
+            }
+        }
+
         Ok(())
     }
 }
