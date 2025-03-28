@@ -197,6 +197,58 @@ impl ParallelCheckpointDownloaderInner {
         Ok(())
     }
 
+    async fn adjust_workers(
+        next_worker_id: &mut usize,
+        current_workers: usize,
+        target_workers: usize,
+        channels: &PoolMonitorChannels,
+        config: &PoolMonitorConfig,
+        worker_count: &Arc<RwLock<usize>>,
+    ) -> Result<()> {
+        match current_workers.cmp(&target_workers) {
+            std::cmp::Ordering::Greater => {
+                let to_remove = current_workers - target_workers;
+                for _ in 0..to_remove {
+                    channels
+                        .message_sender
+                        .send(WorkerMessage::Shutdown)
+                        .await?;
+                    let new_count = {
+                        let mut count = worker_count.write().await;
+                        *count -= 1;
+                        *count
+                    };
+                    config.metrics.num_workers.set(new_count as i64);
+                }
+            }
+            std::cmp::Ordering::Less => {
+                let to_add = target_workers - current_workers;
+                for _ in 0..to_add {
+                    let cloned_client = config.client.clone();
+                    let cloned_receiver = channels.message_receiver.clone();
+                    let cloned_checkpoint_sender = channels.checkpoint_sender.clone();
+                    let cloned_config = config.downloader_config.base_config.clone();
+                    Self::spawn_new_worker(
+                        *next_worker_id,
+                        cloned_client,
+                        cloned_receiver,
+                        cloned_checkpoint_sender,
+                        cloned_config,
+                    );
+                    *next_worker_id += 1;
+                    let new_count = {
+                        let mut count = worker_count.write().await;
+                        *count += 1;
+                        *count
+                    };
+                    config.metrics.num_workers.set(new_count as i64);
+                }
+            }
+            std::cmp::Ordering::Equal => {}
+        }
+        Ok(())
+    }
+
     /// Pool monitor that scales the worker pool based on checkpoint lag.
     async fn pool_monitor(
         config: PoolMonitorConfig,
@@ -207,6 +259,9 @@ impl ParallelCheckpointDownloaderInner {
         let downloader_config = config.downloader_config.clone();
         let mut next_worker_id = downloader_config.initial_workers;
         let mut last_scale = Instant::now();
+        let mut consecutive_failures = 0;
+        let average_workers = (downloader_config.min_workers + downloader_config.max_workers) / 2;
+        const MAX_CONSECUTIVE_POOL_MONITOR_FAILURES: u32 = 10;
 
         loop {
             tokio::select! {
@@ -220,48 +275,76 @@ impl ParallelCheckpointDownloaderInner {
                         continue;
                     }
 
-                    let Ok(lag) = Self::current_checkpoint_lag(
-                        &config.checkpoint_store, &config.client).await else {
-                        tracing::warn!("failed to fetch current checkpoint lag");
+                    let result = Self::current_checkpoint_lag(
+                        &config.checkpoint_store, &config.client).await;
+                    let Ok(lag) = result else {
+                        let err = result.err();
+                        consecutive_failures += 1;
+                        tracing::warn!(
+                            error = ?err,
+                            consecutive_failures,
+                            max_failures = MAX_CONSECUTIVE_POOL_MONITOR_FAILURES,
+                            "failed to fetch checkpoint lag from full node"
+                        );
+                        if consecutive_failures >= MAX_CONSECUTIVE_POOL_MONITOR_FAILURES {
+                            tracing::error!(
+                                error = ?err,
+                                consecutive_failures,
+                                target_workers = average_workers,
+                                "checkpoint lag monitoring has failed repeatedly \
+                                - adjusting to average workers"
+                            );
+                            Self::adjust_workers(
+                                &mut next_worker_id,
+                                *worker_count.read().await,
+                                average_workers,
+                                &channels,
+                                &config,
+                                &worker_count,
+                            ).await?;
+                        }
                         continue;
                     };
 
+                    consecutive_failures = 0;
                     config.metrics.checkpoint_lag.set(lag as i64);
-                    let num_workers_before = *worker_count.read().await;
-                    let mut num_workers_after = num_workers_before;
+                    let current = *worker_count.read().await;
+
                     if lag > downloader_config.scale_up_lag_threshold &&
-                        num_workers_before < downloader_config.max_workers {
-                        num_workers_after = num_workers_before + 1;
+                        current < downloader_config.max_workers {
                         tracing::info!(
                             "scaling up checkpoint workers from {} to {} due to high lag ({})",
-                            num_workers_before,
-                            num_workers_after,
+                            current,
+                            current + 1,
                             lag
                         );
-                        let cloned_client = config.client.clone();
-                        let cloned_receiver = channels.message_receiver.clone();
-                        let cloned_checkpoint_sender = channels.checkpoint_sender.clone();
-                        let cloned_config = downloader_config.base_config.clone();
-                        Self::spawn_new_worker(next_worker_id, cloned_client, cloned_receiver,
-                            cloned_checkpoint_sender, cloned_config);
-                        *worker_count.write().await = num_workers_after;
+                        Self::adjust_workers(
+                            &mut next_worker_id,
+                            current,
+                            current + 1,
+                            &channels,
+                            &config,
+                            &worker_count,
+                        ).await?;
                         last_scale = now;
-                        next_worker_id += 1;
                     } else if lag < downloader_config.scale_down_lag_threshold &&
-                            num_workers_before > downloader_config.min_workers {
-                        num_workers_after = num_workers_before - 1;
+                        current > downloader_config.min_workers {
                         tracing::info!(
                             "scaling down checkpoint workers from {} to {} due to low lag ({})",
-                            num_workers_before,
-                            num_workers_after,
+                            current,
+                            current - 1,
                             lag
                         );
-                        channels.message_sender.send(WorkerMessage::Shutdown).await?;
-                        *worker_count.write().await = num_workers_after;
+                        Self::adjust_workers(
+                            &mut next_worker_id,
+                            current,
+                            current - 1,
+                            &channels,
+                            &config,
+                            &worker_count,
+                        ).await?;
                         last_scale = now;
                     }
-
-                    config.metrics.num_workers.set(num_workers_after as i64);
                 }
             }
         }
@@ -362,18 +445,25 @@ impl ParallelCheckpointDownloaderInner {
         _config: &ParallelDownloaderConfig,
         _rng: &mut StdRng,
     ) -> CheckpointEntry {
-        let res = client.get_full_checkpoint(sequence_number).await;
-        let Ok(checkpoint) = res else {
-            let err = res.err();
-            handle_checkpoint_error(err.as_ref(), sequence_number);
-            let err = err
-                .map(|e| e.into())
-                .unwrap_or_else(|| anyhow!("Failed to download checkpoint"));
-            return CheckpointEntry::new(sequence_number, Err(err));
-        };
-        CheckpointEntry {
-            sequence_number,
-            result: Ok(checkpoint),
+        let res = tokio::time::timeout(
+            Duration::from_secs(1),
+            client.get_full_checkpoint(sequence_number),
+        )
+        .await;
+        match res {
+            Ok(Ok(checkpoint)) => CheckpointEntry {
+                sequence_number,
+                result: Ok(checkpoint),
+            },
+            Ok(Err(e)) => {
+                handle_checkpoint_error(Some(&e), sequence_number);
+                CheckpointEntry::new(sequence_number, Err(e.into()))
+            }
+            Err(_) => {
+                let err = anyhow!("Timeout while downloading checkpoint");
+                handle_checkpoint_error(None, sequence_number);
+                CheckpointEntry::new(sequence_number, Err(err))
+            }
         }
     }
 }
