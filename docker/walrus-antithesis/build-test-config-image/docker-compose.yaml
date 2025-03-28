@@ -7,6 +7,7 @@
 # - A setup completion service
 # - 4 Walrus nodes for testing
 # - 1 stress client for testing
+# - TODO: add staking 
 services:
   # Runs a local Sui network with a single validator
   sui-localnet:
