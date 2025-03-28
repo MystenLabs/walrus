@@ -39,9 +39,13 @@ pub struct Measurement {
 impl Measurement {
     /// Make new measurements from the text exposed by prometheus.
     /// Every measurement is identified by a unique label.
+    ///
+    /// # Panics
+    ///
+    /// Panics if prometheus scrape parsing fails.
     pub fn from_prometheus<M: ProtocolMetrics>(text: &str) -> HashMap<Label, Self> {
         let br = std::io::BufReader::new(text.as_bytes());
-        let parsed = Scrape::parse(br.lines()).unwrap();
+        let parsed = Scrape::parse(br.lines()).expect("Failed to parse prometheus scrape");
 
         let mut measurements = HashMap::new();
         for sample in &parsed.samples {
@@ -105,32 +109,25 @@ impl Measurement {
 
     /// Compute the average latency.
     pub fn average_latency(&self) -> Duration {
-        self.sum.checked_div(self.count as u32).unwrap_or_default()
+        self.sum.checked_div(self.count as u32).unwrap_or_else(|| Duration::from_secs(0))
     }
 
     /// Compute the standard deviation from the sum of squared latencies:
     /// `stdev = sqrt( squared_sum / count - avg^2 )`
     pub fn stdev_latency(&self) -> Duration {
-        // Compute `squared_sum / count`.
-        let first_term = if self.count == 0 {
+        if self.count == 0 {
             return Duration::from_secs(0);
-        } else {
-            self.squared_sum / self.count as f64
-        };
+        }
 
-        // Compute `avg^2`.
-        let squared_avg = self.average_latency().as_secs_f64().powi(2_i32);
-
-        // Compute `squared_sum / count - avg^2`.
+        let first_term = self.squared_sum / self.count as f64;
+        let squared_avg = self.average_latency().as_secs_f64().powi(2);
         let variance = if squared_avg > first_term {
             0.0
         } else {
             first_term - squared_avg
         };
 
-        // Compute `sqrt( squared_sum / count - avg^2 )`.
-        let stdev = variance.sqrt();
-        Duration::from_secs_f64(stdev)
+        Duration::from_secs_f64(variance.sqrt())
     }
 }
 
@@ -179,7 +176,7 @@ impl MeasurementsCollection {
         self.data
             .get(label)
             .map(|data| data.values().cloned().collect())
-            .unwrap_or_default()
+            .unwrap_or_else(|| vec![])
     }
 
     /// Get all labels.
@@ -187,7 +184,7 @@ impl MeasurementsCollection {
         self.data.keys()
     }
 
-    /// Get the maximum result of a function applied to the measurements.
+    /// Get the maximum result of a function applied to the measurements. 
     fn max_result<T: Default + Ord>(
         &self,
         label: &Label,
@@ -206,9 +203,9 @@ impl MeasurementsCollection {
         self.labels()
             .map(|label| self.max_result(label, |x| x.timestamp))
             .max()
-            .unwrap_or_default()
+            .unwrap_or_else(|| Duration::from_secs(0))
     }
-
+  
     /// Aggregate the tps of multiple data points.
     pub fn aggregate_tps(&self, label: &Label) -> u64 {
         self.max_result(label, |x| x.count)
@@ -225,20 +222,20 @@ impl MeasurementsCollection {
             .map(|x| x.average_latency())
             .sum::<Duration>()
             .checked_div(last_data_points.len() as u32)
-            .unwrap_or_default()
+            .unwrap_or_else(|| Duration::from_secs(0))
     }
 
     /// Aggregate the stdev latency of multiple data points by taking the max.
     pub fn max_stdev_latency(&self, label: &Label) -> Duration {
         self.max_result(label, |x| x.stdev_latency())
     }
-
+  
     /// Save the collection of measurements as a json file.
     pub fn save<P: AsRef<Path>>(&self, path: P) {
         let json = serde_json::to_string_pretty(self).expect("Cannot serialize metrics");
         let mut file = PathBuf::from(path.as_ref());
         file.push(format!("measurements-{:?}.json", self.parameters));
-        fs::write(file, json).unwrap();
+        fs::write(file, json).expect("Cannot write metrics file");
     }
 
     /// Display a summary of the measurements.

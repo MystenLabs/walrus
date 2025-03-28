@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! - walrus-proxy service
 //!
-//! the walrus-proxy service acts as a relay for nodes to push metrics to and we
+//! The walrus-proxy service acts as a relay for nodes to push metrics to, and we
 //! in turn push them to a mimir cluster.
 
 use std::env;
@@ -22,7 +22,7 @@ use walrus_proxy::{
 // Define the `GIT_REVISION` and `VERSION` consts
 walrus_proxy::bin_version!();
 
-/// user agent we use when posting to mimir
+/// User agent we use when posting to mimir.
 static APP_USER_AGENT: &str = const_str::concat!(
     env!("CARGO_BIN_NAME"),
     "/",
@@ -45,7 +45,12 @@ struct Args {
     config: String,
 }
 
-/// main fn for walrus proxy
+/// Main function for walrus-proxy.
+///
+/// # Panics
+///
+/// This function will panic if any of the socket bindings fail (i.e., the address is invalid
+/// or in use), or if the admin server fails to start.
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -61,15 +66,19 @@ async fn main() -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(config.listen_address)
         .await
-        .unwrap();
-    let histogram_listener = std::net::TcpListener::bind(config.histogram_address).unwrap();
-    let metrics_listener = std::net::TcpListener::bind(config.metrics_address).unwrap();
+        .expect("Failed to bind main listener socket");
+    let histogram_listener =
+        std::net::TcpListener::bind(config.histogram_address)
+            .expect("Failed to bind histogram listener socket");
+    let metrics_listener =
+        std::net::TcpListener::bind(config.metrics_address)
+            .expect("Failed to bind metrics listener socket");
 
     let remote_write_client = admin::make_reqwest_client(config.remote_write, APP_USER_AGENT);
     let histogram_relay = histogram_relay::start_prometheus_server(histogram_listener);
     metrics::start_prometheus_server(metrics_listener);
 
-    // setup committee provider
+    // Setup committee provider. 
     let walrus_node_provider = providers::WalrusNodeProvider::new(
         &config.dynamic_peers.url,
         &config.dynamic_peers.interval,
@@ -77,10 +86,10 @@ async fn main() -> Result<()> {
         &config.dynamic_peers.staking_object_id,
         config.dynamic_peers.allowlist_path.clone(),
     );
-    // begin polling
+    // Begin polling.
     walrus_node_provider.poll_peer_list();
 
-    // you can override the bsae_labels if you want...or just provide more to use
+    // You can override the bsae_labels if you want...or just provide more to use.
     let labels = config
         .labels
         .into_iter()
@@ -94,6 +103,8 @@ async fn main() -> Result<()> {
         Some(walrus_node_provider),
     );
 
-    admin::server(listener, app).await.unwrap();
+    admin::server(listener, app)
+        .await
+        .expect("admin server failed to start");
     Ok(())
 }
