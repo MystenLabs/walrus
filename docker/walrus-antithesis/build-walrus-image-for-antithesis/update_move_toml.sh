@@ -4,7 +4,12 @@
 
 
 # List of contract directories to process
-contracts=("wal" "wal_exchange" "walrus" "subsidies")
+contracts=(
+  wal
+  wal_exchange
+  walrus
+  subsidies
+)
 
 for contract in "${contracts[@]}"; do
     toml_file="/contracts/${contract}/Move.toml"

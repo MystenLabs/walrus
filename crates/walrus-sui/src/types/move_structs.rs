@@ -13,8 +13,9 @@ use serde::{
     Serialize,
     Serializer,
 };
+pub use sui_types::base_types::ObjectID;
 use sui_types::{
-    base_types::{ObjectID, SuiAddress},
+    base_types::SuiAddress,
     collection_types::{Entry, VecMap},
     messages_checkpoint::CheckpointSequenceNumber,
 };

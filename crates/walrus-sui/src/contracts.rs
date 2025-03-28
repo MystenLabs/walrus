@@ -237,6 +237,8 @@ pub mod staking {
     contract_ident!(struct staking::Staking);
     contract_ident!(fn staking::register_candidate);
     contract_ident!(fn staking::stake_with_pool);
+    contract_ident!(fn staking::request_withdraw_stake);
+    contract_ident!(fn staking::withdraw_stake);
     contract_ident!(fn staking::voting_end);
     contract_ident!(fn staking::initiate_epoch_change);
     contract_ident!(fn staking::epoch_sync_done);

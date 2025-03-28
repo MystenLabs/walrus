@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) Walrus Foundation
+# Copyright (c) Mysten Labs, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 ## -----------------------------------------------------------------------------
@@ -15,10 +15,9 @@ mkdir -p /opt/walrus/outputs
 
 # copy from deploy outputs so that we can use `sui client` directly, otherwise, we don't really need
 # this copying.
-cp /opt/walrus/outputs/stress.yaml /root/.sui/sui_config/client.yaml
-cp /opt/walrus/outputs/stress.keystore /root/.sui/sui_config/sui.keystore
-cp /opt/walrus/outputs/stress.aliases /root/.sui/sui_config/sui.aliases
-
+cp /opt/walrus/outputs/staking.yaml /root/.sui/sui_config/client.yaml
+cp /opt/walrus/outputs/staking.keystore /root/.sui/sui_config/sui.keystore
+cp /opt/walrus/outputs/staking.aliases /root/.sui/sui_config/sui.aliases
 
 echo "Disk space usage:"
 df -h
@@ -33,15 +32,11 @@ while ! sui client balance; do
     sleep 5
 done
 
-echo "starting stress client"
+echo "starting staking client"
 ## -----------------------------------------------------------------------------
 ## Start the node
 ## -----------------------------------------------------------------------------
-RUST_BACKTRACE=1 RUST_LOG=info /opt/walrus/bin/walrus-stress \
-    --config-path /opt/walrus/outputs/client_config_stress.yaml \
+RUST_BACKTRACE=1 RUST_LOG=debug /opt/walrus/bin/walrus-stress \
+    --config-path /opt/walrus/outputs/client_config_staking.yaml \
     --sui-network "http://10.0.0.20:9000;http://10.0.0.20:9123/gas" \
-    stress \
-    --write-load 10 \
-    --read-load 10 \
-    --n-clients 2 \
-    --gas-refill-period-millis 60000
+    staking

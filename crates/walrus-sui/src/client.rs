@@ -613,6 +613,26 @@ impl SuiContractClient {
         .await
     }
 
+    /// Call to request a withdrawal of staked WAL.
+    pub async fn request_withdraw_stake(&self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .request_withdraw_stake(staked_wal_id)
+                .await
+        })
+        .await
+    }
+
+    /// Withdraw staked WAL that has already been requested.
+    pub async fn withdraw_stake(&self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner.lock().await.withdraw_stake(staked_wal_id).await
+        })
+        .await
+    }
+
     /// Call to end voting and finalize the next epoch parameters.
     ///
     /// Can be called once the voting period is over.
@@ -1749,6 +1769,30 @@ impl SuiContractClientInner {
         );
 
         self.sui_client().get_sui_objects(&staked_wal).await
+    }
+
+    /// Call to request withdrawal of stake from StakedWal object.
+    ///
+    /// StakedWal is available after an epoch has passed.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn request_withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.request_withdraw_stake(staked_wal_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
+    }
+
+    /// Call to request withdrawal of stake from StakedWal object.
+    ///
+    /// StakedWal is available after an epoch has passed.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder()?;
+        pt_builder.withdraw_stake(staked_wal_id).await?;
+        let (ptb, _sui_cost) = pt_builder.finish().await?;
+        self.sign_and_send_ptb(ptb).await?;
+        Ok(())
     }
 
     /// Call to end voting and finalize the next epoch parameters.

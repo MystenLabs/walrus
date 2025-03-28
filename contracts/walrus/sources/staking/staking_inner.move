@@ -441,7 +441,7 @@ public(package) fun destroy_empty_pool(
     self.pools.remove(node_id).destroy_empty()
 }
 
-/// Stakes the given amount of `T` with the pool, returning the `StakedWal`.
+/// Stakes the given amount of `WAL` with the pool, returning the `StakedWal`.
 public(package) fun stake_with_pool(
     self: &mut StakingInnerV1,
     to_stake: Coin<WAL>,

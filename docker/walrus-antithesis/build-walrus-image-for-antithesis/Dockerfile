@@ -38,15 +38,19 @@ RUN /tmp/update_move_toml.sh
 RUN wget -O /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so
 
 # Configure Rust flags for Antithesis instrumentation and coverage
-ENV RUSTFLAGS="-C target-feature=-crt-static -C codegen-units=1 -C passes=sancov-module \
+ARG RUSTFLAGS="-C target-feature=-crt-static -C codegen-units=1 -C passes=sancov-module \
 -C llvm-args=-sanitizer-coverage-level=3 \
 -C llvm-args=-sanitizer-coverage-trace-pc-guard \
 -C link-args=-Wl,--build-id -Ccodegen-units=1 \
 -L/usr/lib/libvoidstar.so -lvoidstar"
+ENV RUSTFLAGS="$RUSTFLAGS"
 
 # Build all binaries with Antithesis instrumentation
-RUN LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
-    cargo build --profile $PROFILE \
+ARG LD_LIBRARY_PATH="/usr/lib/libvoidstar.so"
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+RUN LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
+    cargo build \
+    --profile $PROFILE \
     --bin walrus \
     --bin walrus-node \
     --bin walrus-deploy \
