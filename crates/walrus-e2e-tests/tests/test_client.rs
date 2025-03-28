@@ -90,6 +90,7 @@ async_param_test! {
     ]
 }
 async fn test_store_and_read_blob_without_failures(blob_size: usize) {
+    telemetry_subscribers::init_for_testing();
     assert!(matches!(
         run_store_and_read_with_crash_failures(&[], &[], blob_size).await,
         Ok(()),
@@ -582,6 +583,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
         )
         .await?;
     for result in store_results {
+        tracing::info!("debug-store blob store result: {:?}", result);
         if result.blob_id() == &reuse_blob {
             assert!(matches!(
                 &result,
@@ -685,15 +687,11 @@ async fn test_store_with_existing_storage_resource(
         .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
     let encoded_sizes = encoded_blobs
         .iter()
-        .map(|encoded_blob| {
-            if let Some(metadata) = encoded_blob.metadata() {
-                metadata
-                    .metadata()
-                    .encoded_size()
-                    .expect("encoded size should be present")
-            } else {
-                panic!("metadata should be present");
-            }
+        .map(|(_, metadata)| {
+            metadata
+                .metadata()
+                .encoded_size()
+                .expect("encoded size should be present")
         })
         .collect::<Vec<_>>();
 
