@@ -683,6 +683,7 @@ async fn publish_with_default_system_with_epoch_duration(
         &[protocol_keypair],
         &[&admin_contract_client],
         &[1_000_000_000],
+        None,
     )
     .await?;
 

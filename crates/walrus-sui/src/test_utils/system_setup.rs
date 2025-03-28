@@ -186,42 +186,58 @@ pub async fn register_committee_and_stake(
     node_bls_keys: &[ProtocolKeyPair],
     node_contract_clients: &[&SuiContractClient],
     amounts_to_stake: &[u64],
+    batch_size: Option<usize>,
 ) -> Result<Vec<StorageNodeCap>> {
     let current_epoch = admin_contract_client.current_epoch().await?;
 
     // Note that it is important to return the node capabilities in the same order as the nodes
     // were registered, so that the node capabilities match the nodes in the node config.
-    let node_capabilities = (0..node_params.len())
-        .map(|i| async move {
-            let storage_node_params = &node_params[i];
-            let contract_client = node_contract_clients[i];
-            let bls_sk = &node_bls_keys[i];
-            let proof_of_possession =
-                crate::utils::generate_proof_of_possession(bls_sk, contract_client, current_epoch);
+    let batch_size = batch_size.unwrap_or(node_params.len());
+    let mut node_capabilities = HashMap::new();
 
-            #[cfg(msim)]
-            {
-                use rand::Rng;
-                // In simtest, have a small probability of storage node owning multiple capability
-                // objects
-                // for the same node.
-                if rand::thread_rng().gen_bool(0.1) {
-                    let _ = contract_client
-                        .register_candidate(storage_node_params, proof_of_possession.clone())
-                        .await?;
+    // Chunk the node params into batches of size `batch_size` and register the nodes in parallel.
+    // This is done to avoid overwhelming the staking object with too many requests in parallel
+    // causing shared object congestion to kick in.
+    for chunk in (0..node_params.len())
+        .collect::<Vec<_>>()
+        .chunks(batch_size)
+    {
+        let chunk_futures = chunk
+            .iter()
+            .map(|&i| async move {
+                let storage_node_params = &node_params[i];
+                let contract_client = node_contract_clients[i];
+                let bls_sk = &node_bls_keys[i];
+                let proof_of_possession = crate::utils::generate_proof_of_possession(
+                    bls_sk,
+                    contract_client,
+                    current_epoch,
+                );
+
+                #[cfg(msim)]
+                {
+                    use rand::Rng;
+                    // In simtest, have a small probability of storage node owning multiple
+                    // capability objects for the same node.
+                    if rand::thread_rng().gen_bool(0.1) {
+                        let _ = contract_client
+                            .register_candidate(storage_node_params, proof_of_possession.clone())
+                            .await?;
+                    }
                 }
-            }
 
-            SuiClientResult::<_>::Ok((
-                i,
-                contract_client
-                    .register_candidate(storage_node_params, proof_of_possession)
-                    .await?,
-            ))
-        })
-        .collect::<FuturesUnordered<_>>()
-        .try_collect::<HashMap<_, _>>()
-        .await?;
+                SuiClientResult::<_>::Ok((
+                    i,
+                    contract_client
+                        .register_candidate(storage_node_params, proof_of_possession)
+                        .await?,
+                ))
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        let chunk_results: HashMap<_, _> = chunk_futures.try_collect().await?;
+        node_capabilities.extend(chunk_results);
+    }
 
     let node_capabilities: Vec<_> = (0..node_params.len())
         .map(|i| {
