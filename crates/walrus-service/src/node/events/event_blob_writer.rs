@@ -4,6 +4,7 @@
 //! Event blob writer.
 
 use std::{
+    ffi::OsStr,
     fs::{self, File, OpenOptions},
     io::{self, BufWriter, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
@@ -64,8 +65,13 @@ const ATTESTED: &str = "attested_blob_store";
 const PENDING: &str = "pending_blob_store";
 /// The column family name for failed to attest event blobs.
 const FAILED_TO_ATTEST: &str = "failed_to_attest_blob_store";
+/// The file name for the current blob.
+const CURRENT_BLOB: &str = "current_blob";
+/// The maximum size of a blob file.
 const MAX_BLOB_SIZE: usize = 100 * 1024 * 1024;
+/// The number of checkpoints per blob.
 pub(crate) const NUM_CHECKPOINTS_PER_BLOB: u32 = 216_000;
+/// The default number of unattested blobs threshold.
 const DEFAULT_NUM_UNATTESTED_BLOBS_THRESHOLD: u32 = 3;
 
 pub(crate) fn certified_cf_name() -> &'static str {
@@ -270,6 +276,69 @@ impl EventBlobWriterFactory {
         root_dir_path.join("event_blob_writer").join("blobs")
     }
 
+    /// Cleans up orphaned blob files from the filesystem that don't exist in any database.
+    fn cleanup_orphaned_blobs(
+        blobs_path: &Path,
+        pending: &DBMap<u64, PendingEventBlobMetadata>,
+        attested: &DBMap<(), AttestedEventBlobMetadata>,
+        failed_to_attest: &DBMap<(), FailedToAttestEventBlobMetadata>,
+        certified: &DBMap<(), CertifiedEventBlobMetadata>,
+    ) -> Result<()> {
+        if !blobs_path.exists() {
+            return Ok(());
+        }
+        let blobs = fs::read_dir(blobs_path)?;
+        for blob in blobs {
+            let blob_path = blob?.path();
+            if !blob_path.is_file() {
+                continue;
+            }
+            if blob_path.file_name() == Some(OsStr::new(CURRENT_BLOB)) {
+                continue;
+            }
+            let event_index = blob_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.parse::<u64>().ok());
+            if let Some(event_index) = event_index {
+                // Check if blob exists in any database
+                let exists_in_db = pending.safe_iter().any(|result| {
+                    result
+                        .map(|(_, metadata)| metadata.event_cursor.element_index == event_index)
+                        .unwrap_or(false)
+                }) || attested
+                    .get(&())
+                    .ok()
+                    .flatten()
+                    .map(|metadata| metadata.event_cursor.element_index == event_index)
+                    .unwrap_or(false)
+                    || failed_to_attest
+                        .get(&())
+                        .ok()
+                        .flatten()
+                        .map(|metadata| metadata.event_cursor.element_index == event_index)
+                        .unwrap_or(false)
+                    || certified
+                        .get(&())
+                        .ok()
+                        .flatten()
+                        .map(|metadata| metadata.event_cursor.element_index == event_index)
+                        .unwrap_or(false);
+
+                if !exists_in_db {
+                    if let Err(e) = fs::remove_file(&blob_path) {
+                        tracing::warn!(?blob_path, ?e, "Failed to remove orphaned blob from disk");
+                    } else {
+                        tracing::info!(?blob_path, "Removed orphaned event blob from disk");
+                    }
+                }
+            } else {
+                tracing::warn!(?blob_path, "Orphaned event blob with no event index found");
+            }
+        }
+        Ok(())
+    }
+
     /// Create a new event blob writer factory.
     pub fn new(
         root_dir_path: &Path,
@@ -342,12 +411,22 @@ impl EventBlobWriterFactory {
             false,
         )?;
 
+        let blobs_path = Self::blobs_path(root_dir_path);
+        Self::cleanup_orphaned_blobs(
+            &blobs_path,
+            &pending,
+            &attested,
+            &failed_to_attest,
+            &certified,
+        )?;
+
         Self::reset_uncertified_blobs(
             &pending,
             &attested,
             &failed_to_attest,
             num_uncertified_blob_threshold,
             last_certified_event_blob,
+            &blobs_path,
         )?;
 
         let event_cursor = pending
@@ -493,6 +572,7 @@ impl EventBlobWriterFactory {
         failed_to_attest_db: &DBMap<(), FailedToAttestEventBlobMetadata>,
         num_uncertified_blob_threshold: Option<u32>,
         last_certified_event_blob: Option<SuiEventBlob>,
+        blobs_path: &Path,
     ) -> Result<()> {
         let Some(last_certified_event_blob) = last_certified_event_blob else {
             return Ok(());
@@ -563,17 +643,38 @@ impl EventBlobWriterFactory {
             consecutive_uncertified,
             num_uncertified_blob_threshold
         );
+
+        let mut blobs_to_delete = Vec::new();
         let mut wb = pending_db.batch();
-        for (k, _) in pending {
+
+        for (k, metadata) in pending {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(pending_db, std::iter::once(k))?;
         }
-        if !attested.is_empty() {
+
+        for (_, metadata) in attested {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(attested_db, std::iter::once(()))?;
         }
-        if !failed_to_attest.is_empty() {
+
+        for (_, metadata) in failed_to_attest {
+            blobs_to_delete.push(metadata.event_cursor.element_index);
             wb.delete_batch(failed_to_attest_db, std::iter::once(()))?;
         }
+
         wb.write()?;
+
+        for blob_index in blobs_to_delete {
+            let blob_path = blobs_path.join(blob_index.to_string());
+            if blob_path.exists() {
+                if let Err(e) = fs::remove_file(&blob_path) {
+                    tracing::warn!(?blob_path, ?e, "Failed to remove blob file");
+                } else {
+                    tracing::info!(?blob_path, "Removed uncertified blob file");
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -847,7 +948,7 @@ impl EventBlobWriter {
     /// This method creates a new file for the next blob, initializes it with the
     /// necessary header information, and prepares it for writing events.
     fn next_file(dir_path: &Path, epoch: Epoch) -> Result<File> {
-        let next_file_path = dir_path.join("current_blob");
+        let next_file_path = dir_path.join(CURRENT_BLOB);
         let mut file: File = Self::create_and_initialize_file(&next_file_path, epoch)?;
         drop(file);
         file = Self::reopen_file_with_permissions(&next_file_path)?;
