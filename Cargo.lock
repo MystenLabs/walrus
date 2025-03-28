@@ -11979,6 +11979,7 @@ dependencies = [
  "tracing-subscriber",
  "twox-hash 2.1.0",
  "typed-store",
+ "urlencoding",
  "utoipa",
  "utoipa-redoc",
  "uuid",

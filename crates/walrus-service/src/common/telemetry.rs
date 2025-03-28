@@ -37,6 +37,7 @@ use prometheus::{
     IntGaugeVec,
     Opts,
 };
+use telemetry_subscribers::TracingHandle;
 use tokio::time::Instant;
 use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
@@ -563,5 +564,26 @@ impl Default for CurrentEpochStateMetric {
 impl From<CurrentEpochStateMetric> for Box<dyn Collector> {
     fn from(value: CurrentEpochStateMetric) -> Self {
         Box::new(value.0)
+    }
+}
+
+pub struct WalrusTracingHandle(pub Arc<TracingHandle>);
+
+impl std::ops::Deref for WalrusTracingHandle {
+    type Target = Arc<TracingHandle>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<WalrusTracingHandle> for Arc<TracingHandle> {
+    fn from(value: WalrusTracingHandle) -> Self {
+        value.0
+    }
+}
+
+impl std::fmt::Debug for WalrusTracingHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WalrusTracingHandle")
     }
 }

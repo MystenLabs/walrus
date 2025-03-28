@@ -1152,7 +1152,11 @@ impl StorageNodeRuntime {
                 StorageNode::builder()
                     .with_system_event_manager(event_manager)
                     .with_config_loader(config_loader)
-                    .build(node_config, metrics_runtime.registry.clone()),
+                    .build(
+                        node_config,
+                        metrics_runtime.registry.clone(),
+                        metrics_runtime.tracing_handle.clone(),
+                    ),
             )?,
         );
 

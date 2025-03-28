@@ -19,7 +19,7 @@ pub(super) const GROUP_READING_BLOBS: &str = "Reading Blobs";
 pub(super) const GROUP_RECOVERY: &str = "Recovery";
 pub(super) const GROUP_STATUS: &str = "Status";
 pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
-
+pub(super) const GROUP_LOG_DIRECTIVE: &str = "Log Directive";
 #[derive(utoipa::OpenApi)]
 #[openapi(
     paths(
@@ -34,6 +34,7 @@ pub(super) const GROUP_SYNC_SHARD: &str = "Sync Shard";
         routes::list_recovery_symbols,
         routes::put_metadata,
         routes::put_sliver,
+        routes::set_log_directive,
     ),
     components(schemas(
         EpochSchema,

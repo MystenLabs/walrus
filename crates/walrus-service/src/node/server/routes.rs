@@ -1,10 +1,10 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{num::NonZeroU16, sync::Arc};
+use std::{net::SocketAddr, num::NonZeroU16, sync::Arc};
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -90,6 +90,7 @@ pub const INCONSISTENCY_PROOF_ENDPOINT: &str =
 pub const BLOB_STATUS_ENDPOINT: &str = "/v1/blobs/{blob_id}/status";
 pub const HEALTH_ENDPOINT: &str = "/v1/health";
 pub const SYNC_SHARD_ENDPOINT: &str = "/v1/migrate/sync_shard";
+pub const LOG_DIRECTIVE_ENDPOINT: &str = "/v1/log/directive";
 
 /// Convenience trait to apply bounds on the ServiceState.
 trait SyncServiceState: ServiceState + Send + Sync + 'static {}
@@ -685,4 +686,101 @@ pub async fn sync_shard<S: SyncServiceState>(
     Bcs(signed_request): Bcs<SignedSyncShardRequest>,
 ) -> Result<Response, OrRejection<SyncShardServiceError>> {
     Ok(Bcs(state.sync_shard(public_key, signed_request).await?).into_response())
+}
+
+#[derive(Debug, Clone, serde::Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct LogDirectiveQuery {
+    /// The log directive to set (e.g. "RUST_LOG=info;walrus=debug")
+    directive: String,
+}
+
+pub enum LogDirectiveError {
+    InvalidUrlEncoding(String),
+    UpdateFailed(String),
+    Unauthorized(String),
+}
+
+impl std::fmt::Display for LogDirectiveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidUrlEncoding(e) => write!(f, "Invalid URL encoding: {}", e),
+            Self::UpdateFailed(e) => write!(f, "Failed to update log directive: {}", e),
+            Self::Unauthorized(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl crate::common::api::RestApiError for LogDirectiveError {
+    fn status_code(&self) -> walrus_sdk::api::errors::StatusCode {
+        match self {
+            Self::InvalidUrlEncoding(_) => walrus_sdk::api::errors::StatusCode::InvalidArgument,
+            Self::UpdateFailed(_) => walrus_sdk::api::errors::StatusCode::Internal,
+            Self::Unauthorized(_) => walrus_sdk::api::errors::StatusCode::Unauthenticated,
+        }
+    }
+
+    fn domain(&self) -> String {
+        "log_directive".to_string()
+    }
+
+    fn reason(&self) -> String {
+        self.to_string()
+    }
+
+    fn response_descriptions() -> std::collections::HashMap<axum::http::StatusCode, Vec<String>> {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            axum::http::StatusCode::BAD_REQUEST,
+            vec!["Invalid URL encoding".to_string()],
+        );
+        map.insert(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            vec!["Failed to update log directive".to_string()],
+        );
+        map.insert(
+            axum::http::StatusCode::UNAUTHORIZED,
+            vec!["This endpoint can only be accessed from localhost".to_string()],
+        );
+        map
+    }
+
+    fn add_details(&self, _status: &mut walrus_sdk::api::errors::Status) {}
+}
+
+/// Change the logging verbosity level at runtime.
+#[tracing::instrument(skip_all)]
+#[utoipa::path(
+    post,
+    path = LOG_DIRECTIVE_ENDPOINT,
+    tag = openapi::GROUP_LOG_DIRECTIVE,
+    params(LogDirectiveQuery),
+    responses(
+        (status = 200, description = "Log directive updated successfully"),
+        (status = 400, description = "Invalid log directive"),
+        (status = 500, description = "Failed to update log directive")
+    )
+)]
+pub async fn set_log_directive<S: SyncServiceState>(
+    State(state): State<Arc<S>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(query): Query<LogDirectiveQuery>,
+) -> Result<ApiSuccess<String>, OrRejection<LogDirectiveError>> {
+    // Check if the request is from the server's bound IP
+    if !addr.ip().is_loopback() && addr.ip() != state.rest_api_address().ip() {
+        return Err(OrRejection::Err(LogDirectiveError::Unauthorized(
+            "This endpoint can only be accessed from localhost or the server's own IP".to_string(),
+        )));
+    }
+
+    let directive = urlencoding::decode(&query.directive)
+        .map_err(|e| OrRejection::Err(LogDirectiveError::InvalidUrlEncoding(e.to_string())))?;
+
+    tracing::info!("Setting log directive: {}", directive);
+    state
+        .update_log_directive(directive.as_ref())
+        .map_err(|e| OrRejection::Err(LogDirectiveError::UpdateFailed(e.to_string())))?;
+    Ok(ApiSuccess::ok(
+        "Log directive updated successfully".to_string(),
+    ))
 }

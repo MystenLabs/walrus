@@ -5,6 +5,7 @@
 
 use std::{
     future::Future,
+    net::SocketAddr,
     num::{NonZero, NonZeroU16},
     pin::Pin,
     str::FromStr,
@@ -45,6 +46,7 @@ use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
+use telemetry_subscribers::TracingHandle;
 use thread_pool::ThreadPoolBuilder;
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -155,6 +157,7 @@ use crate::{
     common::{
         active_committees::ActiveCommittees,
         config::SuiConfig,
+        telemetry::WalrusTracingHandle,
         utils::should_reposition_cursor,
     },
     utils::ShardDiffCalculator,
@@ -277,6 +280,9 @@ pub trait ServiceState {
     /// Returns the node health information of this ServiceState.
     fn health_info(&self, detailed: bool) -> ServiceHealthInfo;
 
+    /// Returns the server's bound address.
+    fn rest_api_address(&self) -> SocketAddr;
+
     /// Returns whether the sliver is stored in the shard.
     fn sliver_status<A: EncodingAxis>(
         &self,
@@ -290,6 +296,9 @@ pub trait ServiceState {
         public_key: PublicKey,
         signed_request: SignedSyncShardRequest,
     ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send;
+
+    /// Updates the log directive for the node.
+    fn update_log_directive<S: AsRef<str>>(&self, directive: S) -> Result<(), anyhow::Error>;
 }
 
 /// Builder to construct a [`StorageNode`].
@@ -368,6 +377,7 @@ impl StorageNodeBuilder {
         self,
         config: &StorageNodeConfig,
         metrics_registry: Registry,
+        tracing_handle: Arc<TracingHandle>,
     ) -> Result<StorageNode, anyhow::Error> {
         let protocol_key_pair = config
             .protocol_key_pair
@@ -460,15 +470,16 @@ impl StorageNodeBuilder {
             num_checkpoints_per_blob: self.num_checkpoints_per_blob,
         };
 
-        StorageNode::new(
+        StorageNode::new(StorageNodeArgs {
             config,
             event_manager,
             committee_service,
             contract_service,
-            &metrics_registry,
-            self.config_loader,
+            registry: &metrics_registry,
+            tracing_handle: WalrusTracingHandle(tracing_handle),
+            config_loader: self.config_loader,
             node_params,
-        )
+        })
         .await
     }
 }
@@ -509,6 +520,8 @@ pub struct StorageNodeInner {
     node_capability: ObjectID,
     blob_retirement_notifier: Arc<BlobRetirementNotifier>,
     symbol_service: RecoverySymbolService,
+    tracing_handle: WalrusTracingHandle,
+    rest_api_address: SocketAddr,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -524,15 +537,39 @@ pub struct NodeParameters {
     num_checkpoints_per_blob: Option<u32>,
 }
 
+/// Arguments for creating a new storage node.
+#[derive(Debug)]
+pub struct StorageNodeArgs<'a> {
+    /// Configuration for the storage node.
+    pub config: &'a StorageNodeConfig,
+    /// Event manager for handling system events.
+    pub event_manager: Box<dyn EventManager>,
+    /// Service for managing committee-related operations.
+    pub committee_service: Arc<dyn CommitteeService>,
+    /// Service for managing system contracts.
+    pub contract_service: Arc<dyn SystemContractService>,
+    /// Prometheus registry for metrics.
+    pub registry: &'a Registry,
+    /// Handle for tracing operations.
+    pub tracing_handle: WalrusTracingHandle,
+    /// Optional configuration loader.
+    pub config_loader: Option<Arc<dyn ConfigLoader>>,
+    /// Additional node parameters.
+    pub node_params: NodeParameters,
+}
+
 impl StorageNode {
     async fn new(
-        config: &StorageNodeConfig,
-        event_manager: Box<dyn EventManager>,
-        committee_service: Arc<dyn CommitteeService>,
-        contract_service: Arc<dyn SystemContractService>,
-        registry: &Registry,
-        config_loader: Option<Arc<dyn ConfigLoader>>,
-        node_params: NodeParameters,
+        StorageNodeArgs {
+            config,
+            event_manager,
+            committee_service,
+            contract_service,
+            registry,
+            tracing_handle,
+            config_loader,
+            node_params,
+        }: StorageNodeArgs<'_>,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
         let node_capability = contract_service
@@ -603,6 +640,8 @@ impl StorageNode {
                 registry,
             ),
             encoding_config,
+            tracing_handle,
+            rest_api_address: config.rest_api_address,
         });
 
         blocklist.start_refresh_task();
@@ -2127,6 +2166,10 @@ impl ServiceState for StorageNode {
         self.inner.health_info(detailed)
     }
 
+    fn rest_api_address(&self) -> SocketAddr {
+        self.inner.rest_api_address()
+    }
+
     fn sliver_status<A: EncodingAxis>(
         &self,
         blob_id: &BlobId,
@@ -2141,6 +2184,10 @@ impl ServiceState for StorageNode {
         signed_request: SignedSyncShardRequest,
     ) -> impl Future<Output = Result<SyncShardResponse, SyncShardServiceError>> + Send {
         self.inner.sync_shard(public_key, signed_request)
+    }
+
+    fn update_log_directive<S: AsRef<str>>(&self, directive: S) -> Result<(), anyhow::Error> {
+        self.inner.update_log_directive(directive)
     }
 }
 
@@ -2541,6 +2588,17 @@ impl ServiceState for StorageNodeInner {
         self.storage
             .handle_sync_shard_request(request, self.current_epoch())
             .await
+    }
+
+    fn update_log_directive<S: AsRef<str>>(&self, directive: S) -> Result<(), anyhow::Error> {
+        self.tracing_handle
+            .update_log(directive)
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    fn rest_api_address(&self) -> SocketAddr {
+        self.rest_api_address
     }
 }
 
