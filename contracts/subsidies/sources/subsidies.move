@@ -15,7 +15,7 @@ use sui::{balance::{Self, Balance}, coin::Coin};
 use wal::wal::WAL;
 use walrus::{blob::Blob, storage_resource::Storage, system::System};
 
-/// Track the current version of the module
+/// Track the current version of the module.
 const VERSION: u64 = 1;
 
 /// Subsidy rate is in basis points (1/100 of a percent).
@@ -33,7 +33,7 @@ const EWrongVersion: u64 = 2;
 
 /// Capability to perform admin operations, tied to a specific Subsidies object.
 ///
-/// Only the holder of this capability can modify subsidy rates
+/// Only the holder of this capability can modify subsidy rates.
 public struct AdminCap has key, store {
     id: UID,
     subsidies_id: ID,
@@ -135,7 +135,7 @@ public fun set_system_subsidy_rate(self: &mut Subsidies, cap: &AdminCap, new_rat
 
 /// Applies subsidies and sends rewards to the system.
 ///
-/// This will deduct funds from the subsidy pool,
+/// This will deduct funds from the subsidy pool
 /// and send the storage node subsidy to the system.
 fun apply_subsidies(
     self: &mut Subsidies,

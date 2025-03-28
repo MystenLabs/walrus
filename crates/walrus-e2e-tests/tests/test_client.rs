@@ -257,7 +257,7 @@ async_param_test! {
         f_failures: (&[4]),
     ]
 }
-/// Stores a blob that is inconsistent in 1 shard
+/// Stores a blob that is inconsistent in 1 shard.
 async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     telemetry_subscribers::init_for_testing();
 

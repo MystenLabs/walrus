@@ -37,7 +37,8 @@ public struct Staking has key {
 }
 
 /// Creates and shares a new staking object.
-/// Must only be called by the initialization function.
+///
+/// This function must only be called by the initialization function.
 public(package) fun create(
     epoch_zero_duration: u64,
     epoch_duration: u64,
@@ -231,14 +232,16 @@ public fun set_node_metadata(self: &mut Staking, cap: &StorageNodeCap, metadata:
 // === Epoch Change ===
 
 /// Ends the voting period and runs the apportionment if the current time allows.
-/// Permissionless, can be called by anyone.
-/// Emits: `EpochParametersSelected` event.
+///
+/// This function is permissionless and can be called by anyone.
+/// Emits the `EpochParametersSelected` event.
 public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
 /// Initiates the epoch change if the current time allows.
-/// Emits: `EpochChangeStart` event.
+///
+/// Emits the `EpochChangeStart` event.
 public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
     let staking_inner = staking.inner_mut();
     let rewards = system.advance_epoch(
@@ -271,9 +274,9 @@ public fun stake_with_pool(
     staking.inner_mut().stake_with_pool(to_stake, node_id, ctx)
 }
 
-/// Marks the amount as a withdrawal to be processed and removes it from the stake weight of the
-/// node. Allows the user to call withdraw_stake after the epoch change to the next epoch and
-/// shard transfer is done.
+/// Marks the amount as a withdrawal to be processed and removes it from the stake weight of the node.
+///
+/// Allows the user to call `withdraw_stake` after the epoch change to the next epoch and shard transfer is done.
 public fun request_withdraw_stake(
     staking: &mut Staking,
     staked_wal: &mut StakedWal,
@@ -292,10 +295,10 @@ public fun withdraw_stake(
 }
 
 /// Allows a node to join the active set if it has sufficient stake.
-/// This can be useful if another node in the active had its stake
-/// reduced to be lower than that of the current node.
-/// In that case, the current node will be added to the active set either
-/// the next time stake is added or by calling this function.
+///
+/// This can be useful if another node in the active set had its stake reduced
+/// below that of the current node. In that case, the current node will be added
+/// to the active set either the next time stake is added or by calling this function.
 public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
 }
@@ -322,11 +325,12 @@ public(package) fun is_quorum(staking: &Staking, weight: u16): bool {
 
 // === Utility functions ===
 
-/// Calculate the rewards for an amount with value `staked_principal`, staked in the pool with
-/// the given `node_id` between `activation_epoch` and `withdraw_epoch`.
+/// Calculates the rewards for an amount with value `staked_principal`, staked in the pool
+/// with the given `node_id` between `activation_epoch` and `withdraw_epoch`.
 ///
-/// This function can be used with `dev_inspect` to calculate the expected rewards for a `StakedWal`
-/// object or, more generally, the returns provided by a given node over a given period.
+/// This function can be used with `dev_inspect` to calculate the expected rewards for a
+/// `StakedWal` object or, more generally, the returns provided by a given node over a
+/// given period.
 public fun calculate_rewards(
     staking: &Staking,
     node_id: ID,

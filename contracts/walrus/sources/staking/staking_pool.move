@@ -28,7 +28,7 @@ const MAX_NETWORK_ADDRESS_LENGTH: u64 = 259;
 // The number of basis points in 100%.
 const N_BASIS_POINTS: u16 = 100_00;
 
-// Error codes
+// Error Codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
 /// The epoch of the pool has already been advanced.
 const EPoolAlreadyUpdated: u64 = 0;
@@ -462,7 +462,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
 
     // Process withdrawals.
 
-    // each value in pending withdrawals contains the principal which became
+    // Each value in pending withdrawals contains the principal which became
     // active in the previous epoch. so unlike other pending values, we need to
     // flush it one by one, recalculating the exchange rate and pool share amount
     // for each early withdrawal epoch.

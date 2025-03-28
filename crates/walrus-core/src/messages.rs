@@ -157,7 +157,7 @@ pub enum MessageVerificationError {
     EpochMismatch {
         /// Epoch for which the confirmation was expected.
         expected: Epoch,
-        /// Epoch of the confirmation
+        /// Epoch of the confirmation.
         actual: Epoch,
     },
     /// The signature verification on the message failed.
