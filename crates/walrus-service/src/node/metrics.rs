@@ -142,6 +142,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of certified blobs scanned during the blob info consistency check."]
         blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
+        #[help = "Status metric indicating the node's ID"]
+        node_id: IntGaugeVec["walrus_node_id"],
     }
 }
 

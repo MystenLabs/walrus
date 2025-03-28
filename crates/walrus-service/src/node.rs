@@ -535,9 +535,18 @@ impl StorageNode {
         node_params: NodeParameters,
     ) -> Result<Self, anyhow::Error> {
         let start_time = Instant::now();
+        let metrics = NodeMetricSet::new(registry);
+
         let node_capability = contract_service
             .get_node_capability_object(config.storage_node_cap)
             .await?;
+
+        tracing::info!(
+            walrus.node.id = %node_capability.id.to_hex_uncompressed(),
+            "selected storage node capability object"
+        );
+        walrus_utils::with_label!(metrics.node_id, node_capability.id.to_hex_uncompressed()).set(1);
+
         let config_synchronizer =
             config
                 .config_synchronizer
@@ -587,7 +596,7 @@ impl StorageNode {
             contract_service: contract_service.clone(),
             current_epoch: watch::Sender::new(committee_service.get_epoch()),
             committee_service,
-            metrics: NodeMetricSet::new(registry),
+            metrics,
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
