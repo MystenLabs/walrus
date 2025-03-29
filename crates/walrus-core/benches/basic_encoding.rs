@@ -37,7 +37,7 @@ fn basic_encoding(c: &mut Criterion) {
             let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(
-                u64::try_from(data_length).unwrap(),
+                u64::try_from(data_length).expect("data_length conversion failed"),
             ));
 
             group.bench_with_input(
@@ -50,11 +50,11 @@ fn basic_encoding(c: &mut Criterion) {
                     b.iter(|| {
                         let encoder = RaptorQEncoder::new(
                             data,
-                            (*symbol_count).try_into().unwrap(),
-                            N_SHARDS.try_into().unwrap(),
+                            (*symbol_count).try_into().expect("symbol_count conversion failed"),
+                            N_SHARDS.try_into().expect("N_SHARDS conversion failed"),
                             &encoding_plan,
                         )
-                        .unwrap();
+                        .expect("encoder creation failed");
                         let _encoded_symbols = encoder.encode_all().collect::<Vec<_>>();
                     });
                 },
@@ -75,15 +75,15 @@ fn basic_decoding(c: &mut Criterion) {
             let data_length = usize::from(symbol_size) * usize::from(symbol_count);
             let data = random_data(data_length);
             group.throughput(criterion::Throughput::Bytes(
-                u64::try_from(data_length).unwrap(),
+                u64::try_from(data_length).expect("data_length conversion failed"),
             ));
             let encoder = RaptorQEncoder::new(
                 &data,
-                symbol_count.try_into().unwrap(),
-                N_SHARDS.try_into().unwrap(),
+                symbol_count.try_into().expect("symbol_count conversion failed"),
+                N_SHARDS.try_into().expect("N_SHARDS conversion failed"),
                 &encoding_plan,
             )
-            .unwrap();
+            .expect("encoder creation failed");
             let symbols: Vec<_> = random_subset(
                 encoder
                     .encode_all()
@@ -103,11 +103,11 @@ fn basic_decoding(c: &mut Criterion) {
                         || symbols.clone(),
                         |symbols| {
                             let mut decoder = RaptorQDecoder::new(
-                                (*symbol_count).try_into().unwrap(),
-                                N_SHARDS.try_into().unwrap(),
-                                (*symbol_size).try_into().unwrap(),
+                                (*symbol_count).try_into().expect("symbol_count conversion failed"),
+                                N_SHARDS.try_into().expect("N_SHARDS conversion failed"),
+                                (*symbol_size).try_into().expect("symbol_size conversion failed"),
                             );
-                            let decoded_data = &decoder.decode(symbols).unwrap();
+                            let decoded_data = &decoder.decode(symbols).expect("decoding failed");
                             assert_eq!(data.len(), decoded_data.len());
                             assert_eq!(&data, decoded_data);
                         },
@@ -144,7 +144,7 @@ fn flatten_symbols(c: &mut Criterion) {
                 .collect();
 
             group.throughput(criterion::Throughput::Bytes(
-                u64::try_from(data_length).unwrap(),
+                u64::try_from(data_length).expect("data_length conversion failed"),
             ));
 
             group.bench_with_input(
@@ -197,14 +197,14 @@ fn merkle_tree(c: &mut Criterion) {
             let data = random_data(data_length);
             let encoder = RaptorQEncoder::new(
                 &data,
-                symbol_count.try_into().unwrap(),
-                N_SHARDS.try_into().unwrap(),
+                symbol_count.try_into().expect("symbol_count conversion failed"),
+                N_SHARDS.try_into().expect("N_SHARDS conversion failed"),
                 &encoding_plan,
             )
-            .unwrap();
+            .expect("encoder creation failed");
 
             group.throughput(criterion::Throughput::Bytes(
-                u64::try_from(data_length).unwrap(),
+                u64::try_from(data_length).expect("data_length conversion failed"),
             ));
 
             group.bench_with_input(

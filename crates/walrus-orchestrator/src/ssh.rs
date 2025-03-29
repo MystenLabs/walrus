@@ -118,19 +118,19 @@ impl SshConnectionManager {
             retries: 0,
         }
     }
-
+    
     /// Set a timeout duration for the connections.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
     }
-
+    
     /// Set the maximum number of times to retries to establish a connection and execute commands.
     pub fn with_retries(mut self, retries: usize) -> Self {
         self.retries = retries;
         self
     }
-
+ 
     /// Create a new ssh connection with the provided host.
     pub async fn connect(&self, address: SocketAddr) -> SshResult<SshConnection> {
         let mut error = None;
@@ -141,10 +141,9 @@ impl SshConnectionManager {
             }
             sleep(Self::RETRY_DELAY).await;
         }
-        Err(error.unwrap())
+        Err(error.expect("no SSH connection error captured"))
     }
 
-    /// Execute the specified ssh command on all provided instances.
     pub async fn execute<I, S>(
         &self,
         instances: I,
@@ -155,9 +154,7 @@ impl SshConnectionManager {
         I: IntoIterator<Item = Instance>,
         S: Into<String> + Clone + Send + 'static,
     {
-        let targets = instances
-            .into_iter()
-            .map(|instance| (instance, command.clone()));
+        let targets = instances.into_iter().map(|instance| (instance, command.clone()));
         self.execute_per_instance(targets, context).await
     }
 
@@ -172,10 +169,9 @@ impl SshConnectionManager {
         S: Into<String> + Send + 'static,
     {
         let handles = self.run_per_instance(instances, context);
-
         try_join_all(handles)
             .await
-            .unwrap()
+            .expect("task join failure")
             .into_iter()
             .collect::<SshResult<_>>()
     }
@@ -194,19 +190,18 @@ impl SshConnectionManager {
             .map(|(instance, command)| {
                 let ssh_manager = self.clone();
                 let context = context.clone();
-
                 tokio::spawn(async move {
                     let connection = ssh_manager.connect(instance.ssh_address()).await?;
-                    // SshConnection::execute is a blocking call, needs to go to blocking pool
+                    // SshConnection::execute is a blocking call, needs to go to blocking pool.
                     Handle::current()
                         .spawn_blocking(move || connection.execute(context.apply(command)))
                         .await
-                        .unwrap()
+                        .expect("failed to spawn blocking task")
                 })
             })
             .collect::<Vec<_>>()
     }
-
+ 
     /// Wait until a command running in the background returns or started.
     pub async fn wait_for_command<I>(
         &self,
@@ -219,7 +214,6 @@ impl SshConnectionManager {
     {
         loop {
             sleep(Self::RETRY_DELAY).await;
-
             let result = self
                 .execute(
                     instances.clone(),
@@ -244,7 +238,6 @@ impl SshConnectionManager {
     {
         loop {
             sleep(Self::RETRY_DELAY).await;
-
             if self
                 .execute_per_instance(instances.clone(), CommandContext::default())
                 .await
@@ -359,7 +352,7 @@ impl SshConnection {
                 Err(e) => error = Some(e),
             }
         }
-        Err(error.unwrap())
+        Err(error.expect("no execution error captured"))
     }
 
     /// Execute an ssh command on the remote machine and return both stdout and stderr.
@@ -421,6 +414,6 @@ impl SshConnection {
                 Err(e) => error = Some(e),
             }
         }
-        Err(error.unwrap())
+        Err(error.expect("no SCP error captured"))
     }
 }
