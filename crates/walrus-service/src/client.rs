@@ -26,32 +26,19 @@ use utils::WeightedResult;
 use walrus_core::{
     bft,
     encoding::{
-        BlobDecoderEnum,
-        EncodingAxis,
-        EncodingConfig,
-        EncodingConfigTrait as _,
-        SliverData,
+        BlobDecoderEnum, EncodingAxis, EncodingConfig, EncodingConfigTrait as _, SliverData,
         SliverPair,
     },
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    ShardIndex,
-    Sliver,
+    BlobId, EncodingType, Epoch, EpochCount, ShardIndex, Sliver,
 };
 use walrus_sdk::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
-        BlobPersistence,
-        CertifyAndExtendBlobParams,
-        ExpirySelectionPolicy,
-        PostStoreAction,
-        ReadClient,
-        SuiContractClient,
+        BlobPersistence, CertifyAndExtendBlobParams, ExpirySelectionPolicy, PostStoreAction,
+        ReadClient, SuiContractClient,
     },
     types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
 };
@@ -83,10 +70,7 @@ pub use error::{ClientError, ClientErrorKind};
 
 mod refresh;
 pub use refresh::{
-    CommitteesRefreshConfig,
-    CommitteesRefresher,
-    CommitteesRefresherHandle,
-    RequestKind,
+    CommitteesRefreshConfig, CommitteesRefresher, CommitteesRefresherHandle, RequestKind,
 };
 mod resource;
 
@@ -1245,7 +1229,7 @@ impl<T> Client<T> {
                 let value = progress_bar.clone();
                 move |result| {
                     if result.is_ok() && !value.is_finished() {
-                        value.inc(result.1.try_into().expect("the weight fits a usize"))
+                        value.inc(result.weight().try_into().expect("the weight fits a usize"))
                     }
                 }
             })
@@ -1371,7 +1355,13 @@ impl<T> Client<T> {
         let mut signers = Vec::with_capacity(confirmations.len());
         let mut signed_messages = Vec::with_capacity(confirmations.len());
 
-        for NodeResult(_, weight, node, result) in confirmations {
+        for NodeResult {
+            weight,
+            node,
+            result,
+            ..
+        } in confirmations
+        {
             match result {
                 Ok(confirmation) => {
                     aggregate_weight += weight;
@@ -1488,7 +1478,7 @@ impl<T> Client<T> {
         let slivers = requests
             .take_results()
             .into_iter()
-            .filter_map(|NodeResult(_, _, node, result)| {
+            .filter_map(|NodeResult { node, result, .. }| {
                 result
                     .map_err(|error| {
                         tracing::debug!(%node, %error, "retrieving sliver failed");
@@ -1549,7 +1539,7 @@ impl<T> Client<T> {
         I: Iterator<Item = Fut>,
         Fut: Future<Output = NodeResult<SliverData<U>, NodeError>>,
     {
-        while let Some(NodeResult(_, _, node, result)) = requests
+        while let Some(NodeResult { node, result, .. }) = requests
             .next(
                 self.communication_limits
                     .max_concurrent_sliver_reads_for_blob_size(
@@ -1648,7 +1638,13 @@ impl<T> Client<T> {
 
         let mut n_not_found = 0;
         let mut n_forbidden = 0;
-        for NodeResult(_, weight, node, result) in requests.into_results() {
+        for NodeResult {
+            weight,
+            node,
+            result,
+            ..
+        } in requests.into_results()
+        {
             match result {
                 Ok(metadata) => {
                     tracing::debug!(?node, "metadata received");
