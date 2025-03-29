@@ -89,7 +89,7 @@ impl Display for EventOrObjectId {
 }
 
 /// Blob store result with its file path.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobStoreResultWithPath {
     /// The result of the store operation.
@@ -100,7 +100,7 @@ pub struct BlobStoreResultWithPath {
 
 /// Result when attempting to store a blob.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobStoreResult {
     /// The blob already exists within Walrus, was certified, and is stored for at least the
@@ -146,6 +146,14 @@ pub enum BlobStoreResult {
         #[schema(value_type = EventIdSchema)]
         event: EventID,
     },
+    /// Operation failed.
+    Error {
+        /// The blob ID.
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The error message.
+        error_msg: String,
+    },
 }
 
 impl BlobStoreResult {
@@ -158,6 +166,7 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => blob_id,
+            Self::Error { blob_id, .. } => blob_id,
         }
     }
 
@@ -167,6 +176,7 @@ impl BlobStoreResult {
             Self::AlreadyCertified { end_epoch, .. } => Some(*end_epoch),
             Self::NewlyCreated { blob_object, .. } => Some(blob_object.storage.end_epoch),
             Self::MarkedInvalid { .. } => None,
+            Self::Error { .. } => None,
         }
     }
 }

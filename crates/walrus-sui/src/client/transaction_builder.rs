@@ -42,6 +42,7 @@ use super::{
     SuiReadClient,
 };
 use crate::{
+    client::ExtendBlobResult,
     contracts::{self, FunctionTag},
     types::{
         move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
@@ -599,10 +600,12 @@ impl WalrusPtbBuilder {
         blob_object: ArgumentOrOwnedObject,
         epochs_extended: EpochCount,
         encoded_size: u64,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<ExtendBlobResult> {
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_extended)
             .await?;
+        let current_epoch = self.read_client.current_epoch().await?;
+        let end_epoch = current_epoch + epochs_extended;
 
         self.fill_wal_balance(price).await?;
 
@@ -614,7 +617,7 @@ impl WalrusPtbBuilder {
         ];
         self.walrus_move_call(contracts::system::extend_blob, args)?;
         self.reduce_wal_balance(price)?;
-        Ok(())
+        Ok(ExtendBlobResult { price, end_epoch })
     }
 
     /// Adds a call to extend an owned blob with subsidies.
@@ -624,10 +627,12 @@ impl WalrusPtbBuilder {
         epochs_ahead: EpochCount,
         encoded_size: u64,
         subsidies_package_id: ObjectID,
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<ExtendBlobResult> {
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_ahead)
             .await?;
+        let current_epoch = self.read_client.current_epoch().await?;
+        let end_epoch = current_epoch + epochs_ahead;
 
         self.fill_wal_balance(price).await?;
 
@@ -644,7 +649,7 @@ impl WalrusPtbBuilder {
             args,
         )?;
         self.reduce_wal_balance(price)?;
-        Ok(())
+        Ok(ExtendBlobResult { price, end_epoch })
     }
 
     /// Adds a transfer to the PTB. If the recipient is `None`, the sender address is used.

@@ -49,6 +49,7 @@ use walrus_service::{
             NoValidStatusReceived,
             NotEnoughConfirmations,
             NotEnoughSlivers,
+            Other,
         },
         StoreWhen,
     },
@@ -90,6 +91,7 @@ async_param_test! {
     ]
 }
 async fn test_store_and_read_blob_without_failures(blob_size: usize) {
+    telemetry_subscribers::init_for_testing();
     assert!(matches!(
         run_store_and_read_with_crash_failures(&[], &[], blob_size).await,
         Ok(()),
@@ -175,8 +177,8 @@ async_param_test! {
         no_failures: (&[], &[], &[]),
         one_failure: (&[0], &[], &[]),
         f_failures: (&[4], &[], &[]),
-        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
-        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived]),
+        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9), Other("".into())]),
+        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived, Other("".into())]),
         f_plus_one_read_failures: (&[], &[0, 4], &[]),
         two_f_plus_one_read_failures: (
             &[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
@@ -323,12 +325,13 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .next()
         .expect("should register exactly one blob");
 
+    let pair_ref = pairs.iter().collect::<Vec<_>>();
     // Certify blob.
     let certificate = client
         .as_ref()
         .send_blob_data_and_get_certificate(
             &metadata,
-            &pairs,
+            &pair_ref,
             &BlobPersistenceType::Permanent,
             &MultiProgress::new(),
         )
@@ -581,6 +584,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
         )
         .await?;
     for result in store_results {
+        tracing::info!("debug-store blob store result: {:?}", result);
         if result.blob_id() == &reuse_blob {
             assert!(matches!(
                 &result,
@@ -679,12 +683,17 @@ async fn test_store_with_existing_storage_resource(
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
     let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
     let encoding_type = DEFAULT_ENCODING;
-    let pairs_and_metadata = client
+    let encoded_blobs = client
         .as_ref()
         .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
-    let encoded_sizes = pairs_and_metadata
+    let encoded_sizes = encoded_blobs
         .iter()
-        .map(|(_, metadata)| metadata.metadata().encoded_size().unwrap())
+        .map(|(_, metadata)| {
+            metadata
+                .metadata()
+                .encoded_size()
+                .expect("encoded size should be present")
+        })
         .collect::<Vec<_>>();
 
     // Reserve space for the blobs. Collect all original storage resource objects ids.
@@ -1053,7 +1062,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 ..
             } => {
                 assert_eq!(
-                    resource_operation.is_extend(),
+                    resource_operation.is_extend() || resource_operation.is_reuse_registration(),
                     is_already_certified,
                     "the blob should be newly stored"
                 );
