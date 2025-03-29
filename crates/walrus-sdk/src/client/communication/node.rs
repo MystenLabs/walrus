@@ -51,25 +51,43 @@ pub type NodeIndex = usize;
 ///
 /// Contains the epoch, the "weight" of the interaction (e.g., the number of shards for which an
 /// operation was performed), the storage node that issued it, and the result of the operation.
+
 #[derive(Debug, Clone)]
-pub struct NodeResult<T, E>(
-    #[allow(dead_code)] pub Epoch,
-    pub usize,
-    pub NodeIndex,
-    pub Result<T, E>,
-);
+pub struct NodeResult<T, E> {
+    #[allow(dead_code)]
+    pub committee_epoch: Epoch,
+    pub weight: usize,
+    pub node: NodeIndex,
+    pub result: Result<T, E>,
+}
+
+impl<T, E> NodeResult<T, E> {
+    pub fn new(
+        committee_epoch: Epoch,
+        weight: usize,
+        node: NodeIndex,
+        result: Result<T, E>,
+    ) -> Self {
+        Self {
+            committee_epoch,
+            weight,
+            node,
+            result,
+        }
+    }
+}
 
 impl<T, E> WeightedResult for NodeResult<T, E> {
     type Inner = T;
     type Error = E;
     fn weight(&self) -> usize {
-        self.1
+        self.weight
     }
     fn inner_result(&self) -> &Result<Self::Inner, Self::Error> {
-        &self.3
+        &self.result
     }
     fn take_inner_result(self) -> Result<Self::Inner, Self::Error> {
-        self.3
+        self.result
     }
 }
 
@@ -177,7 +195,7 @@ impl<W> NodeCommunication<'_, W> {
     }
 
     fn to_node_result<T, E>(&self, weight: usize, result: Result<T, E>) -> NodeResult<T, E> {
-        NodeResult(self.committee_epoch, weight, self.node_index, result)
+        NodeResult::new(self.committee_epoch, weight, self.node_index, result)
     }
 
     fn to_node_result_with_n_shards<T, E>(&self, result: Result<T, E>) -> NodeResult<T, E> {
