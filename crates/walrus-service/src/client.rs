@@ -1599,6 +1599,26 @@ impl Client<SuiContractClient> {
             }
         });
 
+        // A short circuit if all blobs have errors.
+        // This is not ideal since the actual error is wrapped in a `Other` error as a string.
+        let mut num_errors = 0;
+        let error_msgs: HashSet<_> = final_result
+            .iter()
+            .filter_map(|blob| {
+                let msg = blob.get_error_msg();
+                if msg.is_some() {
+                    num_errors += 1;
+                }
+                msg
+            })
+            .collect();
+
+        if num_errors == final_result.len() && error_msgs.len() == 1 {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                error_msgs.iter().next().unwrap().to_string().into(),
+            )));
+        }
+
         Ok(final_result)
     }
 
@@ -1679,24 +1699,6 @@ impl Client<SuiContractClient> {
             "get {} blobs certificates",
             blobs_with_certificates.iter().filter(|blob| blob.is_with_certificate()).count()
         );
-
-        let mut num_errors = 0;
-        let error_msgs: HashSet<_> = blobs_with_certificates
-            .iter()
-            .filter_map(|blob| {
-                let msg = blob.get_error_msg();
-                if msg.is_some() {
-                    num_errors += 1;
-                }
-                msg
-            })
-            .collect();
-
-        if num_errors == blobs_with_certificates.len() && error_msgs.len() == 1 {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                error_msgs.iter().next().unwrap().to_string().into(),
-            )));
-        }
 
         Ok(blobs_with_certificates)
     }

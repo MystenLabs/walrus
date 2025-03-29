@@ -226,14 +226,12 @@ impl<'a> ResourceManager<'a> {
         let mut results: Vec<WalrusStoreBlob<'a, T>> =
             Vec::with_capacity(encoded_blobs_with_status.len());
         let mut to_be_processed: Vec<WalrusStoreBlob<'a, T>> = Vec::new();
-        let mut noop_results: Vec<BlobStoreResult> = Vec::new();
         let num_blobs = encoded_blobs_with_status.len();
 
         for blob in encoded_blobs_with_status {
+            tracing::info!("debug-store: checking blob status: {:?}", blob.debug_info());
             if blob.is_completed() {
-                if let WalrusStoreBlob::Completed { result, .. } = blob {
-                    noop_results.push(result);
-                }
+                results.push(blob);
                 continue;
             }
 
