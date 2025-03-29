@@ -89,7 +89,7 @@ impl Display for EventOrObjectId {
 }
 
 /// Blob store result with its file path.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct BlobStoreResultWithPath {
     /// The result of the store operation.
@@ -100,7 +100,7 @@ pub struct BlobStoreResultWithPath {
 
 /// Result when attempting to store a blob.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobStoreResult {
     /// The blob already exists within Walrus, was certified, and is stored for at least the

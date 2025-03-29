@@ -227,6 +227,7 @@ impl<'a> ResourceManager<'a> {
             Vec::with_capacity(encoded_blobs_with_status.len());
         let mut to_be_processed: Vec<WalrusStoreBlob<'a, T>> = Vec::new();
         let mut noop_results: Vec<BlobStoreResult> = Vec::new();
+        let num_blobs = encoded_blobs_with_status.len();
 
         for blob in encoded_blobs_with_status {
             if blob.is_completed() {
@@ -272,10 +273,24 @@ impl<'a> ResourceManager<'a> {
             return Ok(results);
         }
 
+        let num_to_be_processed = to_be_processed.len();
+        tracing::info!(
+            num_blobs = ?num_blobs,
+            num_to_be_processed = ?num_to_be_processed,
+            "debug-store: registering blobs",
+        );
+
         let registered_blobs = self
             .register_or_reuse_resources(to_be_processed, epochs_ahead, persistence, store_when)
             .await?;
-
+        debug_assert_eq!(
+            registered_blobs.len(),
+            num_to_be_processed,
+            "the number of registered blobs and the number of blobs to store must be the same \
+            (num_registered_blobs = {}, num_to_be_processed = {})",
+            registered_blobs.len(),
+            num_to_be_processed
+        );
         results.extend(registered_blobs.into_iter());
         Ok(results)
     }
@@ -398,22 +413,39 @@ impl<'a> ResourceManager<'a> {
 
         debug_assert_eq!(results.len(), blobs.len());
 
-        let mut blob_id_map: HashMap<_, _> = blobs
+        let mut blob_id_map = HashMap::new();
+        results.into_iter().for_each(|(blob, op)| {
+            let blob_id = blob.blob_id;
+            blob_id_map
+                .entry(blob_id)
+                .or_insert_with(Vec::new)
+                .push((blob, op));
+        });
+
+        Ok(blobs
             .into_iter()
             .map(|blob| {
+                // Get the blob ID if available
                 let blob_id = blob.get_blob_id();
-                (blob_id, blob)
+
+                // Get the vec of (blob, op) pairs for this blob ID
+                let Some(entries) = blob_id_map.get_mut(&blob_id) else {
+                    panic!("missing blob ID: {}", blob.get_blob_id());
+                };
+
+                // Pop one (blob, op) pair from the vec
+                if let Some((blob_obj, operation)) = entries.pop() {
+                    // If vec is now empty, remove the entry from the map
+                    if entries.is_empty() {
+                        blob_id_map.remove(&blob_id);
+                    }
+
+                    blob.with_register_result(Ok(StoreOp::new(operation, blob_obj)))
+                } else {
+                    panic!("missing blob ID: {}", blob.get_blob_id());
+                }
             })
-            .collect();
-
-        let mut registered_blobs = Vec::with_capacity(results.len());
-        for (blob, op) in results {
-            if let Some(store_blob) = blob_id_map.remove(&blob.blob_id) {
-                registered_blobs.push(store_blob.with_register_result(Ok(StoreOp::new(op, blob))));
-            }
-        }
-
-        Ok(registered_blobs)
+            .collect())
     }
 
     async fn get_existing_or_register_with_resources(
@@ -589,6 +621,14 @@ impl<'a> ResourceManager<'a> {
                 persistence,
             )
             .await?;
+        debug_assert_eq!(
+            blobs.len(),
+            encoded_lengths.len(),
+            "the number of registered blobs and the number of encoded lengths must be the same \
+            (num_registered_blobs = {}, num_encoded_lengths = {})",
+            blobs.len(),
+            encoded_lengths.len()
+        );
         Ok(blobs
             .into_iter()
             .zip(encoded_lengths.iter())

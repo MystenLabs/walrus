@@ -3,7 +3,13 @@
 
 //! Client for the Walrus service.
 
-use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    path::PathBuf,
+    sync::Arc,
+    time::Instant,
+};
 
 use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
@@ -274,6 +280,17 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { identifier, .. } => identifier,
             WalrusStoreBlob::WithCertificate { identifier, .. } => identifier,
             WalrusStoreBlob::Completed { identifier, .. } => identifier,
+        }
+    }
+
+    /// Returns the error message if the blob is in the Completed state and the result is an error.
+    pub fn get_error_msg(&self) -> Option<&str> {
+        match self {
+            WalrusStoreBlob::Completed {
+                result: BlobStoreResult::Error { error_msg, .. },
+                ..
+            } => Some(error_msg),
+            _ => None,
         }
     }
 
@@ -1469,7 +1486,9 @@ impl Client<SuiContractClient> {
         let num_registered_blobs = registered_blobs.len();
         debug_assert_eq!(
             num_registered_blobs, num_encoded_blobs,
-            "the number of registered blobs and the number of blobs to store must be the same"
+            "the number of registered blobs and the number of blobs to store must be the same \
+            (num_registered_blobs = {}, num_encoded_blobs = {})",
+            num_registered_blobs, num_encoded_blobs
         );
 
         let mut final_result: Vec<WalrusStoreBlob<'_, T>> = Vec::with_capacity(num_encoded_blobs);
@@ -1624,7 +1643,7 @@ impl Client<SuiContractClient> {
 
         // TODO(joy): add concurrency limit with semaphore.
         let multi_pb = Arc::new(MultiProgress::new());
-        let results =
+        let blobs_with_certificates =
             futures::future::join_all(blobs_to_be_certified.into_iter().map(|registered_blob| {
                 let operation = registered_blob.get_operation().cloned();
                 let Some(StoreOp::RegisterNew { blob, operation }) = operation else {
@@ -1658,10 +1677,28 @@ impl Client<SuiContractClient> {
         tracing::info!(
             duration = ?get_cert_timer.elapsed(),
             "get {} blobs certificates",
-            results.iter().filter(|blob| blob.is_with_certificate()).count()
+            blobs_with_certificates.iter().filter(|blob| blob.is_with_certificate()).count()
         );
 
-        Ok(results)
+        let mut num_errors = 0;
+        let error_msgs: HashSet<_> = blobs_with_certificates
+            .iter()
+            .filter_map(|blob| {
+                let msg = blob.get_error_msg();
+                if msg.is_some() {
+                    num_errors += 1;
+                }
+                msg
+            })
+            .collect();
+
+        if num_errors == blobs_with_certificates.len() && error_msgs.len() == 1 {
+            return Err(ClientError::from(ClientErrorKind::Other(
+                error_msgs.iter().next().unwrap().to_string().into(),
+            )));
+        }
+
+        Ok(blobs_with_certificates)
     }
 
     async fn get_blob_certificate(

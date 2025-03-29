@@ -49,6 +49,7 @@ use walrus_service::{
             NoValidStatusReceived,
             NotEnoughConfirmations,
             NotEnoughSlivers,
+            Other,
         },
         StoreWhen,
     },
@@ -176,7 +177,7 @@ async_param_test! {
         no_failures: (&[], &[], &[]),
         one_failure: (&[0], &[], &[]),
         f_failures: (&[4], &[], &[]),
-        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
+        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9), Other("".into())]),
         all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived]),
         f_plus_one_read_failures: (&[], &[0, 4], &[]),
         two_f_plus_one_read_failures: (
