@@ -1062,7 +1062,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 ..
             } => {
                 assert_eq!(
-                    resource_operation.is_extend(),
+                    resource_operation.is_extend() || resource_operation.is_reuse_registration(),
                     is_already_certified,
                     "the blob should be newly stored"
                 );

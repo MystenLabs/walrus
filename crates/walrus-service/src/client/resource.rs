@@ -229,7 +229,7 @@ impl<'a> ResourceManager<'a> {
         let num_blobs = encoded_blobs_with_status.len();
 
         for blob in encoded_blobs_with_status {
-            tracing::info!("debug-store: checking blob status: {:?}", blob.debug_info());
+            tracing::info!("debug-store: checking blob status: {:?}", blob);
             if blob.is_completed() {
                 results.push(blob);
                 continue;
