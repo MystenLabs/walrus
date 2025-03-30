@@ -423,11 +423,14 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         }
     }
 
-    /// Processes the encoding result and transitions the blob to the appropriate next state.<'b>
+    /// Processes the encoding result and transitions the blob to the appropriate next state.
+    ///
+    /// If the encoding succeeds, the blob is transitioned to the Encoded state.
+    /// If the encoding fails, the blob is transitioned to the Completed state with an error.
     pub fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> Self {
+    ) -> ClientResult<Self> {
         {
             let _enter = self.get_span().enter();
             tracing::event!(
@@ -465,11 +468,11 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 },
             },
             _ => {
-                panic!(
-                    "Invalid state for with_encode_result {:?}, \
-                    encode result: {:?}",
+                return Err(ClientError::store_blob_internal(format!(
+                    "Invalid operation for blob {:?}, \
+                    encode_result: {:?}",
                     self, result
-                );
+                )));
             }
         };
 
@@ -482,7 +485,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             );
         }
 
-        new_state
+        Ok(new_state)
     }
 
     /// Processes the status result and transitions the blob to the appropriate next state.
@@ -523,7 +526,13 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     }
                 }
             },
-            _ => self,
+            _ => {
+                return Err(ClientError::store_blob_internal(format!(
+                    "Invalid operation for blob {:?}, \
+                    status: {:?}",
+                    self, status
+                )));
+            }
         };
 
         {
@@ -584,10 +593,13 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     }
                 }
             },
-            _ => panic!(
-                "Invalid state for with_register_result {:?}, register result: {:?}",
-                self, result
-            ),
+            _ => {
+                return Err(ClientError::store_blob_internal(format!(
+                    "Invalid operation for blob {:?}, \
+                    register_result: {:?}",
+                    self, result
+                )));
+            }
         };
 
         {
@@ -648,7 +660,13 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     }
                 }
             },
-            _ => self,
+            _ => {
+                return Err(ClientError::store_blob_internal(format!(
+                    "Invalid operation for blob {:?}, \
+                    certificate_result: {:?}",
+                    self, certificate_result
+                )));
+            }
         };
 
         {
@@ -803,9 +821,9 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         self,
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
-    ) -> Self {
-        let store_blob_result = self.compute_store_blob_result(result, price_computation);
-        self.complete_with(store_blob_result)
+    ) -> ClientResult<Self> {
+        let store_blob_result = self.compute_store_blob_result(result, price_computation)?;
+        Ok(self.complete_with(store_blob_result))
     }
 
     /// Computes the final store result based on the current state and operation.
@@ -813,40 +831,39 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         &self,
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
-    ) -> BlobStoreResult {
+    ) -> ClientResult<BlobStoreResult> {
         match self {
             WalrusStoreBlob::WithCertificate { operation, .. } => {
                 if let StoreOp::RegisterNew { operation, blob } = operation {
-                    BlobStoreResult::NewlyCreated {
+                    Ok(BlobStoreResult::NewlyCreated {
                         blob_object: blob.clone(),
                         resource_operation: operation.clone(),
                         cost: price_computation.operation_cost(operation),
                         shared_blob_object: result.shared_blob_object(),
-                    }
+                    })
                 } else {
-                    panic!(
-                        "Invalid state for computing store blob result {:?}",
-                        operation
-                    );
+                    Err(ClientError::store_blob_internal(format!(
+                        "Invalid operation for blob {:?}, operation: {:?}",
+                        self, operation
+                    )))
                 }
             }
             WalrusStoreBlob::Registered { operation, .. } => match operation {
-                StoreOp::RegisterNew { operation, blob } => BlobStoreResult::NewlyCreated {
+                StoreOp::RegisterNew { operation, blob } => Ok(BlobStoreResult::NewlyCreated {
                     blob_object: blob.clone(),
                     resource_operation: operation.clone(),
                     cost: price_computation.operation_cost(operation),
                     shared_blob_object: result.shared_blob_object(),
-                },
-                _ => {
-                    panic!(
-                        "Invalid state for computing store blob result {:?}",
-                        operation
-                    );
-                }
+                }),
+                _ => Err(ClientError::store_blob_internal(format!(
+                    "Invalid operation for blob {:?}, operation: {:?}",
+                    self, operation
+                ))),
             },
-            _ => {
-                panic!("Invalid state for computing store blob result");
-            }
+            _ => Err(ClientError::store_blob_internal(format!(
+                "Invalid state for computing store blob result {:?}",
+                self
+            ))),
         }
     }
 
@@ -1617,7 +1634,13 @@ impl Client<SuiContractClient> {
             })
             .collect::<Vec<_>>();
 
-        Ok(results)
+        let mut final_results = Vec::with_capacity(results.len());
+        for result in results {
+            let cur = result?;
+            final_results.push(cur);
+        }
+
+        Ok(final_results)
     }
 
     fn encode_pairs_and_metadata(
@@ -1809,28 +1832,28 @@ impl Client<SuiContractClient> {
         let price_computation = self.get_price_computation().await?;
 
         // Complete to_be_extended blobs.
-        to_be_extended.into_iter().for_each(|blob| {
+        for blob in to_be_extended {
             let Some(object_id) = blob.get_object_id() else {
                 panic!("Invalid blob state {:?}", blob);
             };
             if let Some(result) = result_map.get(&object_id) {
-                final_result.push(blob.complete(result.clone(), &price_computation));
+                final_result.push(blob.complete(result.clone(), &price_computation)?);
             } else {
                 panic!("Invalid blob state {:?}", blob);
             }
-        });
+        }
 
         // Complete to_be_certified blobs.
-        to_be_certified.into_iter().for_each(|blob| {
+        for blob in to_be_certified {
             let Some(object_id) = blob.get_object_id() else {
                 panic!("Invalid blob state {:?}", blob);
             };
             if let Some(result) = result_map.get(&object_id) {
-                final_result.push(blob.complete(result.clone(), &price_computation));
+                final_result.push(blob.complete(result.clone(), &price_computation)?);
             } else {
                 panic!("Invalid blob state {:?}", blob);
             }
-        });
+        }
 
         // A short circuit if all blobs have errors.
         // This is not ideal since the actual error is wrapped in a `Other` error as a string.

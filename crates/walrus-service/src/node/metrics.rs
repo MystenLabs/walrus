@@ -249,6 +249,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::StakeBelowThreshold(_) => "stake-below-threshold",
             ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
+            ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
         }
     }
 }
