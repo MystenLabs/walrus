@@ -301,6 +301,11 @@ impl NodeWriteCommunication<'_> {
         pairs: impl IntoIterator<Item = &SliverPair>,
         blob_persistence_type: &BlobPersistenceType,
     ) -> NodeResult<SignedStorageConfirmation, StoreError> {
+        tracing::info!(
+            "debug-store: storing metadata and sliver pairs {}, {}",
+            metadata.blob_id(),
+            self.node.node_id
+        );
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let result = async {
             let metadata_status = self

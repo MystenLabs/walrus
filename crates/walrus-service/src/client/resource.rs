@@ -439,6 +439,7 @@ impl<'a> ResourceManager<'a> {
                     }
 
                     blob.with_register_result(Ok(StoreOp::new(operation, blob_obj)))
+                        .expect("should succeed on a Ok( .. ) result")
                 } else {
                     panic!("missing blob ID: {}", blob.get_blob_id());
                 }
