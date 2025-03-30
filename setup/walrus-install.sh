@@ -94,7 +94,7 @@ curl \
   -o "$tmpdir"/walrus
 
 # Now, let's install this binary.
-install -Dm755 "$tmpdir"/walrus "$install_dir"
+install -m755 "$tmpdir"/walrus "$install_dir"
 msg "walrus binary has been installed to '$install_dir/walrus' [version='$("$install_dir"/walrus --version)']"
 
 resolved_walrus="$(command -v walrus)"
