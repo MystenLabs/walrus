@@ -224,8 +224,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     pub fn new_unencoded(blob: &'a [u8], identifier: T) -> Self {
         let span = tracing::span!(
             BLOB_SPAN_LEVEL,
-            "blob_lifecycle",
-            blob_id = %BlobId::ZERO,
+            "store_blob_tracing",
+            blob_id = %BlobId::ZERO,  // Initial placeholder value
             identifier = %identifier
         );
 
@@ -265,9 +265,9 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         } = self
         {
             match operation {
+                RegisterBlobOp::ReuseAndExtend { .. } => false,
                 RegisterBlobOp::ReuseRegistration { .. }
-                | RegisterBlobOp::ReuseAndExtend { .. } => false,
-                RegisterBlobOp::RegisterFromScratch { .. }
+                | RegisterBlobOp::RegisterFromScratch { .. }
                 | RegisterBlobOp::ReuseStorage { .. }
                 | RegisterBlobOp::ReuseAndExtendNonCertified { .. } => true,
             }
@@ -432,8 +432,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             let _enter = self.get_span().enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                identifier = %self.get_identifier(),
                 operation = "with_encode_result",
+                result = ?result
             );
         }
 
@@ -443,13 +443,17 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 identifier,
                 span,
             } => match result {
-                Ok((pairs, metadata)) => WalrusStoreBlob::Encoded {
-                    blob,
-                    identifier,
-                    pairs: Arc::new(pairs),
-                    metadata: Arc::new(metadata),
-                    span: span.clone(),
-                },
+                Ok((pairs, metadata)) => {
+                    let blob_id = *metadata.blob_id();
+                    span.record("blob_id", blob_id.to_string()); // Updates the existing field
+                    WalrusStoreBlob::Encoded {
+                        blob,
+                        identifier,
+                        pairs: Arc::new(pairs),
+                        metadata: Arc::new(metadata),
+                        span: span.clone(),
+                    }
+                }
                 Err(e) => WalrusStoreBlob::Completed {
                     blob,
                     identifier,
@@ -487,8 +491,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             let _enter = self.get_span().enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                identifier = %self.get_identifier(),
                 operation = "with_status",
+                status = ?status
             );
         }
 
@@ -541,8 +545,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             let _enter = self.get_span().enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                identifier = %self.get_identifier(),
                 operation = "with_register_result",
+                result = ?result
             );
         }
         let new_state = match self {
@@ -608,7 +612,6 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             let _enter = self.get_span().enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                identifier = %self.get_identifier(),
                 operation = "with_certificate_result",
                 certificate_result = ?certificate_result
             );
@@ -666,7 +669,6 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             let _enter = self.get_span().enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                identifier = %self.get_identifier(),
                 operation = "with_error",
                 error = ?error
             );
@@ -733,7 +735,6 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             let _enter = self.get_span().enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                identifier = %self.get_identifier(),
                 operation = "complete_with",
                 result = ?result
             );
@@ -856,9 +857,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::WithCertificate {
                 operation:
                     StoreOp::RegisterNew {
-                        operation:
-                            RegisterBlobOp::ReuseAndExtend { .. }
-                            | RegisterBlobOp::ReuseRegistration { .. },
+                        operation: RegisterBlobOp::ReuseAndExtend { .. },
                         ..
                     },
                 ..
@@ -886,7 +885,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     StoreOp::RegisterNew {
                         operation:
                             RegisterBlobOp::RegisterFromScratch { .. }
-                            | RegisterBlobOp::ReuseStorage { .. },
+                            | RegisterBlobOp::ReuseStorage { .. }
+                            | RegisterBlobOp::ReuseRegistration { .. },
                         blob,
                     },
                 certificate,
@@ -954,7 +954,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     /// Returns true if the given ClientResult should be returned as an error.
     /// This is used to determine if we should propagate an error or continue processing.
     fn get_error_msg_or_fail_early(error: ClientError) -> ClientResult<String> {
-        if error.may_be_caused_by_epoch_change() {
+        if error.may_be_caused_by_epoch_change() || error.is_no_valid_status_received() {
             return Err(error);
         }
         Ok(error.to_string())

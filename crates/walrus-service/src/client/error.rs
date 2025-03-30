@@ -68,6 +68,11 @@ impl ClientError {
         )
     }
 
+    /// Returns `true` if the error is a `NoValidStatusReceived` error.
+    pub fn is_no_valid_status_received(&self) -> bool {
+        matches!(&self.kind, ClientErrorKind::NoValidStatusReceived)
+    }
+
     /// Returns `true` if the error may have been caused by epoch change.
     pub fn may_be_caused_by_epoch_change(&self) -> bool {
         matches!(

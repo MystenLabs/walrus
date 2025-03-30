@@ -175,14 +175,20 @@ impl StoreOp {
     pub fn new(register_op: RegisterBlobOp, blob: Blob) -> Self {
         match register_op {
             RegisterBlobOp::ReuseRegistration { .. } => {
-                StoreOp::NoOp(BlobStoreResult::NewlyCreated {
-                    blob_object: blob,
-                    resource_operation: register_op,
-                    cost: 0,
-                    // TODO(heliu): Fix this to make sure it is shared when the post-op is
-                    // set to share.
-                    shared_blob_object: None,
-                })
+                if blob.certified_epoch.is_some() {
+                    StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
+                        blob_id: blob.blob_id,
+                        event_or_object: EventOrObjectId::Object(blob.id),
+                        end_epoch: blob
+                            .certified_epoch
+                            .expect("certified blob must have a certified epoch"),
+                    })
+                } else {
+                    StoreOp::RegisterNew {
+                        blob,
+                        operation: register_op,
+                    }
+                }
             }
             RegisterBlobOp::RegisterFromScratch { .. }
             | RegisterBlobOp::ReuseStorage { .. }

@@ -49,7 +49,6 @@ use walrus_service::{
             NoValidStatusReceived,
             NotEnoughConfirmations,
             NotEnoughSlivers,
-            Other,
         },
         StoreWhen,
     },
@@ -134,7 +133,11 @@ where
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await?;
+        .await;
+
+    tracing::info!("debug-store: store_result: {:?}", store_result);
+
+    let store_result = store_result?;
 
     for result in store_result {
         match result.blob_store_result {
@@ -177,8 +180,8 @@ async_param_test! {
         no_failures: (&[], &[], &[]),
         one_failure: (&[0], &[], &[]),
         f_failures: (&[4], &[], &[]),
-        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9), Other("".into())]),
-        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived, Other("".into())]),
+        f_plus_one_failures: (&[0, 4], &[], &[NotEnoughConfirmations(8, 9)]),
+        all_shard_failures: (&[0, 1, 2, 3, 4], &[], &[NoValidStatusReceived]),
         f_plus_one_read_failures: (&[], &[0, 4], &[]),
         two_f_plus_one_read_failures: (
             &[], &[1, 2, 4], &[NoMetadataReceived, NotEnoughSlivers]),
