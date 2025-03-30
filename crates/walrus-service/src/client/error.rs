@@ -189,6 +189,6 @@ pub enum ClientErrorKind {
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),
     /// An internal error occurred while storing a blob, usually indicating a bug.
-    #[error("client internal error: {0}")]
+    #[error("store blob internal error: {0}")]
     StoreBlobInternal(String),
 }

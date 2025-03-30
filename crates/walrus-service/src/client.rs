@@ -981,14 +981,23 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
 impl<T: Display + Send + Sync> std::fmt::Debug for WalrusStoreBlob<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let _enter = self.get_span().enter();
-        write!(
-            f,
-            "blob_id: {}, identifier: {}, state: {}, operation: {:?}",
-            self.get_blob_id(),
-            self.get_identifier(),
-            self.get_state(),
-            self.get_operation()
-        )
+        let mut debug = f.debug_struct("WalrusStoreBlob");
+
+        debug.field("blob_id", &self.get_blob_id());
+        debug.field("identifier", &self.get_identifier().to_string());
+        debug.field("state", &self.get_state());
+
+        if let Some(op) = self.get_operation() {
+            debug.field("operation", op);
+        }
+        if let Some(status) = self.get_status() {
+            debug.field("status", status);
+        }
+        if let Some(result) = self.get_result() {
+            debug.field("result", result);
+        }
+
+        debug.finish()
     }
 }
 
