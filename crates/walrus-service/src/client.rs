@@ -1483,10 +1483,7 @@ impl Client<SuiContractClient> {
             .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
-        let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
-            blobs_with_identifiers,
-            encoding_type,
-        )?;
+        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
         let mut results = self
             .retry_if_error_epoch_change(|| {
@@ -1531,12 +1528,7 @@ impl Client<SuiContractClient> {
             .map(|(i, (_, blob))| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
-        let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
-            blobs_with_identifiers,
-            encoding_type,
-        )?;
-
-        tracing::info!("debug-store encode results: {:?}", encoded_blobs);
+        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
         let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
@@ -1557,8 +1549,9 @@ impl Client<SuiContractClient> {
         for (blob, (path, _)) in completed_blobs.iter().zip(blobs_with_paths.iter()) {
             let store_result = blob.get_result().ok_or_else(|| {
                 ClientError::store_blob_internal(format!(
-                    "No result found for path: {}",
-                    path.display()
+                    "Invalid state for completedblob: {}, {:?}",
+                    path.display(),
+                    blob,
                 ))
             })?;
 
@@ -1590,10 +1583,7 @@ impl Client<SuiContractClient> {
             .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
-        let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
-            blobs_with_identifiers,
-            encoding_type,
-        )?;
+        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
         let mut results = self
             .reserve_and_store_encoded_blobs(
@@ -1604,6 +1594,8 @@ impl Client<SuiContractClient> {
                 post_store,
             )
             .await?;
+
+        debug_assert_eq!(results.len(), blobs.len());
 
         results.sort_by_key(|blob| blob.get_identifier().to_string());
 
@@ -1629,10 +1621,7 @@ impl Client<SuiContractClient> {
             .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
-        let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
-            blobs_with_identifiers,
-            encoding_type,
-        )?;
+        let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
         debug_assert_eq!(
             encoded_blobs.len(),
@@ -1664,7 +1653,7 @@ impl Client<SuiContractClient> {
     /// is in the same order as the input list.
     /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
     /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
-    pub fn encode_blobs_to_pairs_and_metadata_with_identifiers<'a, T: Display + Send + Sync>(
+    pub fn encode_blobs<'a, T: Display + Send + Sync>(
         &self,
         blobs_with_identifiers: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
@@ -1760,7 +1749,6 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        tracing::info!("storing {} blobs", encoded_blobs.len());
         let status_start_timer = Instant::now();
         let committees = self.get_committees().await?;
         let num_encoded_blobs = encoded_blobs.len();
@@ -1951,8 +1939,10 @@ impl Client<SuiContractClient> {
         Ok(final_result)
     }
 
-    /// Fetches the status of each blob, and returns a mapping of blob ID to
-    /// (pair, metadata, status).
+    /// Fetches the status of each blob.
+    ///
+    /// Input: a vector of WalrusStoreBlob::Encoded.
+    /// Output: a vector of WalrusStoreBlob::WithStatus or WalrusStoreBlob::Error.
     async fn get_blob_statuses<'a, T: Display + Send + Sync>(
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
