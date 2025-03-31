@@ -7,7 +7,6 @@ use std::{
     future::Future,
     num::{NonZero, NonZeroU16},
     pin::Pin,
-    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -19,10 +18,7 @@ use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
-use events::{
-    event_blob_writer::{EventBlobWriter, NUM_CHECKPOINTS_PER_BLOB},
-    CheckpointEventPosition,
-};
+use events::{event_blob_writer::EventBlobWriter, CheckpointEventPosition};
 use fastcrypto::traits::KeyPair;
 use futures::{
     stream::{self, FuturesOrdered},
@@ -185,8 +181,6 @@ mod storage;
 
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
-
-const NUM_CHECKPOINTS_PER_BLOB_ON_TESTNET: u32 = 18_000;
 
 // The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
@@ -633,11 +627,8 @@ impl StorageNode {
             NodeRecoveryHandler::new(inner.clone(), blob_sync_handler.clone());
         node_recovery_handler.restart_recovery().await?;
 
-        // TODO(WAL-667): remove special case
-        let num_checkpoints_per_blob = Self::get_num_checkpoints_per_blob(&config.sui).await?;
-        tracing::info!(
-            "num_checkpoints_per_blob for event blobs: {:?} {:?}",
-            num_checkpoints_per_blob,
+        tracing::debug!(
+            "num_checkpoints_per_blob for event blobs: {:?}",
             node_params.num_checkpoints_per_blob
         );
 
@@ -647,9 +638,7 @@ impl StorageNode {
                 &config.storage_path,
                 inner.clone(),
                 registry,
-                node_params
-                    .num_checkpoints_per_blob
-                    .or(num_checkpoints_per_blob),
+                node_params.num_checkpoints_per_blob,
                 last_certified_event_blob,
                 config.num_uncertified_blob_threshold,
             )?)
@@ -814,33 +803,6 @@ impl StorageNode {
             .get_event_cursor_and_next_index()?
             .map_or((None, 0), |e| (Some(e.event_id()), e.next_event_index()));
         Ok(EventStreamCursor::new(from_event_id, next_event_index))
-    }
-
-    async fn get_num_checkpoints_per_blob(
-        config: &Option<SuiConfig>,
-    ) -> anyhow::Result<Option<u32>> {
-        let Some(config) = config else {
-            return Ok(None);
-        };
-        let read_client = config.new_read_client().await?;
-        let retriable_client = read_client.sui_client();
-        let system_package_id = retriable_client
-            .get_package_id_from_object(read_client.get_system_object_id())
-            .await?;
-        let on_public_testnet = system_package_id
-            == ObjectID::from_str(
-                "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
-            )?;
-        let on_private_testnet = system_package_id
-            == ObjectID::from_str(
-                "0x11f5d87dab9494ce459299c7874e959ff121649fd2d4529965f6dea85c153d2d",
-            )?;
-
-        if on_public_testnet || on_private_testnet {
-            Ok(Some(NUM_CHECKPOINTS_PER_BLOB_ON_TESTNET))
-        } else {
-            Ok(Some(NUM_CHECKPOINTS_PER_BLOB))
-        }
     }
 
     #[cfg(not(msim))]

@@ -8,7 +8,6 @@ use std::{
     fmt::Debug,
     fs,
     path::{Path, PathBuf},
-    str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -20,7 +19,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use bincode::Options as _;
 use checkpoint_downloader::ParallelCheckpointDownloader;
-use chrono::Utc;
 use futures_util::future::try_join_all;
 use move_core_types::{
     account_address::AccountAddress,
@@ -447,17 +445,6 @@ impl EventProcessor {
             .checkpoint_downloader
             .start(next_checkpoint, cancel_token);
 
-        // TODO(WAL-667): remove special case
-        let on_public_testnet = self
-            .package_store
-            .get_original_package_id(self.system_pkg_id.into())
-            .await?
-            == ObjectID::from_str(
-                "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
-            )?;
-        let march_7_7_pm_utc =
-            chrono::DateTime::parse_from_rfc3339("2025-03-07T19:00:00+00:00")?.to_utc();
-
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
@@ -485,22 +472,14 @@ impl EventProcessor {
 
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
-            // TODO(WAL-667): remove special case
-            let checkpoint_datetime =
-                chrono::DateTime::<Utc>::from(verified_checkpoint.timestamp());
-            let before_march_7_7pm_utc = checkpoint_datetime < march_7_7_pm_utc;
+
             for tx in checkpoint.transactions.into_iter() {
                 self.update_package_store(&tx.output_objects)
                     .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
                 let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
-                        // TODO(WAL-667): remove special case
-                        let pkg_address = if on_public_testnet && before_march_7_7pm_utc {
-                            event.package_id.into()
-                        } else {
-                            event.type_.address
-                        };
+                        let pkg_address = event.type_.address;
                         self.package_store.get_original_package_id(pkg_address)
                     }))
                     .await?;
