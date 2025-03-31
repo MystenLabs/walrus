@@ -229,15 +229,6 @@ pub struct CertifyAndExtendBlobParams<'a> {
     pub epochs_extended: Option<EpochCount>,
 }
 
-/// Result of extending a blob.
-#[derive(Debug, Clone)]
-pub struct ExtendBlobResult {
-    /// The price of the extension.
-    pub price: u64,
-    /// The end epoch of the extension.
-    pub end_epoch: Epoch,
-}
-
 /// Result of certifying and extending a blob.
 #[derive(Debug, Clone)]
 pub struct CertifyAndExtendBlobResult {
@@ -245,8 +236,6 @@ pub struct CertifyAndExtendBlobResult {
     pub blob_object_id: ObjectID,
     /// The result of the post store action.
     pub post_store_action_result: PostStoreActionResult,
-    /// The result of the extension.
-    pub extend_blob_result: Option<ExtendBlobResult>,
 }
 
 impl CertifyAndExtendBlobResult {
@@ -2411,14 +2400,14 @@ impl SuiContractClientInner {
         &mut self,
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
-    ) -> SuiClientResult<ExtendBlobResult> {
+    ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
             .sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
-        let extend_blob_result = pt_builder
+        pt_builder
             .extend_blob_without_subsidies(
                 blob_obj_id.into(),
                 epochs_extended,
@@ -2428,7 +2417,7 @@ impl SuiContractClientInner {
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb, "extend_blob_without_subsidies")
             .await?;
-        Ok(extend_blob_result)
+        Ok(())
     }
 
     /// Extends the owned blob object by `epochs_extended` epochs with subsidies package id.
@@ -2437,14 +2426,14 @@ impl SuiContractClientInner {
         blob_obj_id: ObjectID,
         epochs_extended: EpochCount,
         subsidies_package_id: ObjectID,
-    ) -> SuiClientResult<ExtendBlobResult> {
+    ) -> SuiClientResult<()> {
         let blob: Blob = self
             .read_client
             .sui_client()
             .get_sui_object(blob_obj_id)
             .await?;
         let mut pt_builder = self.transaction_builder()?;
-        let extend_blob_result = pt_builder
+        pt_builder
             .extend_blob_with_subsidies(
                 blob_obj_id.into(),
                 epochs_extended,
@@ -2455,7 +2444,7 @@ impl SuiContractClientInner {
         let (ptb, _) = pt_builder.finish().await?;
         self.sign_and_send_ptb(ptb, "extend_blob_with_subsidies")
             .await?;
-        Ok(extend_blob_result)
+        Ok(())
     }
 
     /// Extends the owned blob object by `epochs_extended` epochs.
@@ -2627,7 +2616,7 @@ impl SuiContractClientInner {
                             subsidies_package_id,
                         )
                         .await
-                }) as BoxFuture<'_, SuiClientResult<ExtendBlobResult>>
+                }) as BoxFuture<'_, SuiClientResult<()>>
             },
         )
         .await
@@ -2650,7 +2639,7 @@ impl SuiContractClientInner {
                             storage_size,
                         )
                         .await
-                }) as BoxFuture<'_, SuiClientResult<ExtendBlobResult>>
+                }) as BoxFuture<'_, SuiClientResult<()>>
             },
         )
         .await
@@ -2669,11 +2658,10 @@ impl SuiContractClientInner {
                 ObjectID,
                 EpochCount,
                 u64,
-            ) -> BoxFuture<'a, SuiClientResult<ExtendBlobResult>>
+            ) -> BoxFuture<'a, SuiClientResult<()>>
             + Send,
     {
         let mut pt_builder = self.transaction_builder()?;
-        let mut extend_blob_results = Vec::new();
         for blob_params in blobs_with_certificates {
             if let Some(certificate) = blob_params.certificate.as_ref() {
                 pt_builder
@@ -2681,20 +2669,15 @@ impl SuiContractClientInner {
                     .await?;
             }
 
-            let extend_blob_result = if let Some(epochs_extended) = blob_params.epochs_extended {
-                Some(
-                    extend_blob_fn(
-                        &mut pt_builder,
-                        blob_params.blob.id,
-                        epochs_extended,
-                        blob_params.blob.storage.storage_size,
-                    )
-                    .await?,
+            if let Some(epochs_extended) = blob_params.epochs_extended {
+                extend_blob_fn(
+                    &mut pt_builder,
+                    blob_params.blob.id,
+                    epochs_extended,
+                    blob_params.blob.storage.storage_size,
                 )
-            } else {
-                None
-            };
-            extend_blob_results.push(extend_blob_result);
+                .await?;
+            }
 
             SuiContractClientInner::apply_post_store_action(
                 &mut pt_builder,
@@ -2728,14 +2711,10 @@ impl SuiContractClientInner {
         let results = blobs_with_certificates
             .iter()
             .zip(post_store_action_results.into_iter())
-            .zip(extend_blob_results.into_iter())
-            .map(
-                |((blob_params, r), extend_blob_result)| CertifyAndExtendBlobResult {
-                    blob_object_id: blob_params.blob.id,
-                    post_store_action_result: r,
-                    extend_blob_result,
-                },
-            )
+            .map(|(blob_params, r)| CertifyAndExtendBlobResult {
+                blob_object_id: blob_params.blob.id,
+                post_store_action_result: r,
+            })
             .collect();
 
         Ok(results)

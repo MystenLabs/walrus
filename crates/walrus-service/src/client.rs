@@ -106,7 +106,7 @@ mod multiplexer;
 type ClientResult<T> = Result<T, ClientError>;
 
 /// The log level for all WalrusStoreBlob spans
-pub(crate) const BLOB_SPAN_LEVEL: Level = Level::INFO;
+pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
 
 /// Represents a blob to be stored to the Walrus system.
 ///
@@ -242,6 +242,11 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         matches!(self, WalrusStoreBlob::Encoded { .. })
     }
 
+    /// Returns true if the blob has a status.
+    pub fn is_with_status(&self) -> bool {
+        matches!(self, WalrusStoreBlob::WithStatus { .. })
+    }
+
     /// Returns true if the blob has a certificate.
     pub fn is_with_certificate(&self) -> bool {
         matches!(self, WalrusStoreBlob::WithCertificate { .. })
@@ -252,21 +257,22 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         matches!(self, WalrusStoreBlob::Completed { .. })
     }
 
-    /// Returns true if the blob has a status.
-    pub fn is_with_status(&self) -> bool {
-        matches!(self, WalrusStoreBlob::WithStatus { .. })
-    }
-
     /// Returns true if the blob needs to be certified based on its current
     /// state and operation type.
     pub fn needs_certify(&self) -> bool {
         if let WalrusStoreBlob::Registered {
-            operation: StoreOp::RegisterNew { operation, .. },
+            operation: StoreOp::RegisterNew { operation, blob },
             ..
         } = self
         {
+            if blob.certified_epoch.is_some() {
+                return false;
+            }
+
             match operation {
                 RegisterBlobOp::ReuseAndExtend { .. } => false,
+                // The registered blobs with a longer lifetime have been converted to
+                // Complete state.
                 RegisterBlobOp::ReuseRegistration { .. }
                 | RegisterBlobOp::RegisterFromScratch { .. }
                 | RegisterBlobOp::ReuseStorage { .. }
@@ -278,6 +284,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Returns true if the blob needs to be extended based on its current state and operation type.
+    ///
+    /// Note: it returns false if the blob needs to be certified and extended.
     pub fn needs_extend(&self) -> bool {
         if let WalrusStoreBlob::Registered {
             operation: StoreOp::RegisterNew { operation, .. },
@@ -350,14 +358,14 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Returns the blob ID associated with this blob.
-    pub fn get_blob_id(&self) -> BlobId {
+    pub fn get_blob_id(&self) -> Option<BlobId> {
         match self {
-            WalrusStoreBlob::Unencoded { .. } => BlobId::ZERO,
-            WalrusStoreBlob::Encoded { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::WithStatus { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::Registered { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::WithCertificate { metadata, .. } => *metadata.blob_id(),
-            WalrusStoreBlob::Completed { result, .. } => *result.blob_id(),
+            WalrusStoreBlob::Unencoded { .. } => None,
+            WalrusStoreBlob::Encoded { metadata, .. } => Some(*metadata.blob_id()),
+            WalrusStoreBlob::WithStatus { metadata, .. } => Some(*metadata.blob_id()),
+            WalrusStoreBlob::Registered { metadata, .. } => Some(*metadata.blob_id()),
+            WalrusStoreBlob::WithCertificate { metadata, .. } => Some(*metadata.blob_id()),
+            WalrusStoreBlob::Completed { result, .. } => Some(*result.blob_id()),
         }
     }
 
@@ -462,7 +470,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     blob,
                     identifier,
                     result: BlobStoreResult::Error {
-                        blob_id: BlobId::ZERO,
+                        blob_id: None,
                         error_msg: e.to_string(),
                     },
                     span: span.clone(),
@@ -522,7 +530,10 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     WalrusStoreBlob::Completed {
                         blob,
                         identifier,
-                        result: BlobStoreResult::Error { blob_id, error_msg },
+                        result: BlobStoreResult::Error {
+                            blob_id: Some(blob_id),
+                            error_msg,
+                        },
                         span: span.clone(),
                     }
                 }
@@ -589,7 +600,10 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     WalrusStoreBlob::Completed {
                         blob,
                         identifier,
-                        result: BlobStoreResult::Error { blob_id, error_msg },
+                        result: BlobStoreResult::Error {
+                            blob_id: Some(blob_id),
+                            error_msg,
+                        },
                         span,
                     }
                 }
@@ -656,7 +670,10 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                     WalrusStoreBlob::Completed {
                         blob,
                         identifier,
-                        result: BlobStoreResult::Error { blob_id, error_msg },
+                        result: BlobStoreResult::Error {
+                            blob_id: Some(blob_id),
+                            error_msg,
+                        },
                         span,
                     }
                 }
@@ -1492,8 +1509,8 @@ impl Client<SuiContractClient> {
                     .and_then(|blob| blob.get_result())
                     .cloned()
                     .unwrap_or_else(|| BlobStoreResult::Error {
-                        blob_id: BlobId::ZERO,
-                        error_msg: "No result found".to_string(),
+                        blob_id: None,
+                        error_msg: format!("No result found for path: {}", path.display()),
                     });
 
                 BlobStoreResultWithPath {
@@ -1919,7 +1936,12 @@ impl Client<SuiContractClient> {
 
         let results =
             futures::future::join_all(encoded_blobs.into_iter().map(|encode_blob| async move {
-                let blob_id = encode_blob.get_blob_id();
+                let blob_id = encode_blob
+                    .get_blob_id()
+                    .ok_or(ClientError::store_blob_internal(format!(
+                        "missing blob ID from {:?}",
+                        encode_blob
+                    )))?;
                 if let Err(e) = self.check_blob_id(&blob_id) {
                     return encode_blob.with_error(e);
                 }

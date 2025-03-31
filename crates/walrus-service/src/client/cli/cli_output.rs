@@ -225,7 +225,7 @@ impl CliOutput for BlobStoreResultWithPath {
             }
             BlobStoreResult::Error { blob_id, error_msg } => {
                 println!(
-                    "{} Error storing blob.\nPath: {}\nBlob ID: {}\nError: {}",
+                    "{} Error storing blob.\nPath: {}\nBlob ID: {:?}\nError: {}",
                     error(),
                     self.path.display(),
                     blob_id,

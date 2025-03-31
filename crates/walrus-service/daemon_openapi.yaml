@@ -328,12 +328,13 @@ components:
             type: object
             description: Operation failed.
             required:
-            - blob_id
             - error_msg
             properties:
               blob_id:
-                $ref: '#/components/schemas/BlobId'
-                description: The blob ID.
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/BlobId'
+                  description: The blob ID.
               error_msg:
                 type: string
                 description: The error message.

@@ -149,8 +149,8 @@ pub enum BlobStoreResult {
     /// Operation failed.
     Error {
         /// The blob ID.
-        #[serde_as(as = "DisplayFromStr")]
-        blob_id: BlobId,
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        blob_id: Option<BlobId>,
         /// The error message.
         error_msg: String,
     },
@@ -166,7 +166,7 @@ impl BlobStoreResult {
                 blob_object: Blob { blob_id, .. },
                 ..
             } => blob_id,
-            Self::Error { blob_id, .. } => blob_id,
+            Self::Error { blob_id, .. } => blob_id.as_ref().unwrap_or(&BlobId::ZERO),
         }
     }
 
