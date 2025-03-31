@@ -5,8 +5,8 @@ governance.
 
 ## Documentation
 
-Our main documentation is available [as a Walrus Site](https://docs.walrus.site) (see [the
-documentation](https://docs.walrus.site/walrus-sites/intro.html) for further information on what
+Our main documentation is available [as a Walrus Site](https://docs.wal.app) (see [the
+documentation](https://docs.wal.app/walrus-sites/intro.html) for further information on what
 this means) and on [GitHub Pages](https://mystenlabs.github.io/walrus); it is generated using
 [mdBook](https://rust-lang.github.io/mdBook/) from source files in the [`docs/book`](./docs/book)
 directory.
@@ -43,6 +43,7 @@ This repository contains all Walrus-related code, tools, and documentation:
 - [`docs`](./docs) contains high-level technical and design documentation about Walrus.
 - [`scripts`](./scripts) contains tools used for evaluating and testing the code. In particular, this
   contains a script to run a local testbed, see [CONTRIBUTING.md](./CONTRIBUTING.md#run-a-local-walrus-testbed).
+- [`setup`](./setup) contains setup scripts and configuration files.
 - [`testnet-contracts`](./testnet-contracts) contains the Walrus contracts deployed for Walrus
   Testnet. The object IDs of the published contracts are included in the `Move.lock` files.
 
@@ -88,8 +89,8 @@ and more extensive tests:
 ## Using the Walrus client
 
 If you just want to use the Walrus Mainnet or Testnet, please follow the [setup instructions in our
-documentation](https://docs.walrus.site/usage/setup.html). Further information about the usage is
-also available in the [public documentation](https://docs.walrus.site/usage/interacting.html).
+documentation](https://docs.wal.app/usage/setup.html). Further information about the usage is
+also available in the [public documentation](https://docs.wal.app/usage/interacting.html).
 
 If you want to build the binary from source or run local tests, see the instructions
 [below](#building-from-source-and-testing).

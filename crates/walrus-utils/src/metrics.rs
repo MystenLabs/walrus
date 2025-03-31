@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::IntGauge;
@@ -67,23 +67,85 @@ macro_rules! define_metric_set {
             /// The namespace in which the metrics reside.
             pub const NAMESPACE: &'static str = $namespace;
 
-            /// Creates a new instance of the metric set.
-            pub fn new(registry: &prometheus::Registry) -> Self {
-                // Create a unique ID for this instance of the defined metric set, which will be
-                // used to separate multiple instantiations of the metric, so that they can be
-                // registered together.
+            /// Create a unique ID for this instance of the defined metric set, which will be used
+            /// to separate multiple instantiations of the metric, so that they can be registered
+            /// together.
+            fn metric_set_instance_id() -> String {
                 static TYPE_LOCAL_ID: std::sync::atomic::AtomicUsize =
                     std::sync::atomic::AtomicUsize::new(0);
-                let metric_set_instance_id = format!(
+                format!(
                     "{:?}::{}",
                     std::any::TypeId::of::<Self>(),
                     TYPE_LOCAL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                );
+                )
+            }
+
+            /// Creates a new instance of the metric set.
+            ///
+            /// The instance is created with a const-label of `metric_set_instance_id` set to a
+            /// unique value derived from the struct's type and an instance counter. This allows
+            /// multiple instances of this metric set to be registered on the same registry.
+            ///
+            /// See [`Self::new_with_const_labels`] for more information.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the metrics are not unique on the registry, or have different sets of
+            /// labels or constant labels.
+            pub fn new(registry: &::prometheus::Registry) -> Self {
+                Self::new_inner(registry, Default::default())
+            }
+
+            /// Creates a new instance of the metric set.
+            ///
+            /// The instance is created with a const-label of `custom_id` set to `id`.
+            ///
+            /// See [`Self::new_with_const_labels`] for more information.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the metrics are not unique on the registry, or have different sets of
+            /// labels or constant labels.
+            pub fn new_with_id(registry: &::prometheus::Registry, id: String) -> Self {
+                Self::new_with_const_labels(registry, [("custom_id".to_owned(), id)])
+            }
+
+            /// Creates a new instance of the metric set with the specified constant labels.
+            ///
+            /// Constant labels allow multiple instances of metrics to be registered on a
+            /// given prometheus registry. However, all instances of each metric must have the same
+            /// set of constant labels, and the values of the constant labels must be differ for
+            /// each instance.
+            ///
+            /// Therefore, when using this method, it is the callers responsibility to ensure that
+            /// for each metric defined in the set, its set of labels and constant labels are
+            /// consistent with the same metric being defined elsewhere and being registered to the
+            /// registry.
+            ///
+            /// # Panics
+            ///
+            /// Panics if the metrics are not unique on the registry, or have different sets of
+            /// labels or constant labels.
+            pub fn new_with_const_labels<I>(
+                registry: &::prometheus::Registry,
+                const_labels: I
+            ) -> Self
+                where I: ::std::iter::IntoIterator<Item = (String, String)>,
+            {
+                Self::new_inner(registry, const_labels.into_iter().collect())
+            }
+
+            fn new_inner(
+                registry: &::prometheus::Registry,
+                mut const_labels: ::std::collections::HashMap<String, String>
+            ) -> Self {
+                const_labels.entry("metric_set_instance_id".to_owned())
+                    .or_insert_with(|| Self::metric_set_instance_id());
 
                 Self { $(
                     $field_name: {
-                        let opts = prometheus::Opts::new(stringify!($field_name), $help_str)
-                            .const_label("metric_set_instance_id", &metric_set_instance_id)
+                        let opts = ::prometheus::Opts::new(stringify!($field_name), $help_str)
+                            .const_labels(const_labels.clone())
                             .namespace($namespace);
                         let metric = $crate::create_metric!($field_type, opts, $field_def);
                         registry
@@ -114,17 +176,17 @@ macro_rules! create_metric {
             .expect("this must be called with valid metrics type and options")
     }};
     (Histogram, $opts:expr, {buckets: $buckets:expr $(,)?}) => {{
-        let mut opts: prometheus::HistogramOpts = $opts.into();
+        let mut opts: ::prometheus::HistogramOpts = $opts.into();
         opts.buckets = $buckets.into();
 
-        prometheus::Histogram::with_opts(opts)
+        ::prometheus::Histogram::with_opts(opts)
             .expect("this must be called with valid metrics type and options")
     }};
     (HistogramVec, $opts:expr, {labels: $label_names:expr, buckets: $buckets:expr $(,)?}) => {{
-        let mut opts: prometheus::HistogramOpts = $opts.into();
+        let mut opts: ::prometheus::HistogramOpts = $opts.into();
         opts.buckets = $buckets.into();
 
-        prometheus::HistogramVec::new(opts, &$label_names)
+        ::prometheus::HistogramVec::new(opts, &$label_names)
             .expect("this must be called with valid metrics type and options")
     }};
     ($field_type:ty, $opts:expr, $label_names:expr) => {{
@@ -137,14 +199,8 @@ pub use create_metric;
 
 #[macro_export]
 macro_rules! with_label {
-    ($metric:expr, $label:expr) => {
-        $metric.with_label_values(&[$label.as_ref()])
-    };
-    ($metric:expr, $label1:expr, $label2:expr) => {
-        $metric.with_label_values(&[$label1.as_ref(), $label2.as_ref()])
-    };
-    ($metric:expr, $label1:expr, $label2:expr, $label3:expr) => {
-        $metric.with_label_values(&[$label1.as_ref(), $label2.as_ref(), $label3.as_ref()])
+    ($metric:expr, $($label:expr),+$(,)?) => {
+        $metric.with_label_values(&[$($label.as_ref()),+])
     };
 }
 

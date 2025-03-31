@@ -2,6 +2,11 @@
 
 Published on: 2025-01-16
 
+```admonish warning
+This blog post is shown in its original form. It may contain information that is no longer accurate
+and broken links.
+```
+
 We are today redeploying the Walrus Testnet to incorporate various improvements, including some
 backwards-incompatible changes. Make sure to get the latest binary and configuration as described
 in the [setup section](../usage/setup.md).

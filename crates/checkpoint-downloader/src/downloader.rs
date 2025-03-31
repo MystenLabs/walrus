@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Checkpoint downloader.
@@ -172,7 +172,7 @@ impl ParallelCheckpointDownloaderInner {
         let Ok(Some(current_checkpoint)) = checkpoint_store.get(&()) else {
             return Err(anyhow!("Failed to get current checkpoint"));
         };
-        let latest_checkpoint = client.get_latest_checkpoint().await?;
+        let latest_checkpoint = client.get_latest_checkpoint_summary().await?;
         let current_lag =
             latest_checkpoint.sequence_number - current_checkpoint.inner().sequence_number;
         Ok(current_lag)

@@ -1,4 +1,4 @@
-# Copyright (c) Mysten Labs, Inc.
+# Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 
 # Example of uploading and downloading a file to / from the Walrus service

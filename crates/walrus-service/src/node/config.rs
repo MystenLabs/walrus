@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Storage client configuration module.
@@ -961,6 +961,8 @@ pub struct Http2Config {
     /// Sets the max connection-level flow control for HTTP2.
     #[serde(skip_serializing_if = "defaults::is_none")]
     pub http2_initial_connection_window_size: Option<u32>,
+    /// Sets the maximum number of pending-accept remotely-reset streams.
+    pub http2_max_pending_accept_reset_streams: usize,
     /// Use adaptive flow control, overriding the `http2_initial_stream_window_size` and
     /// `http2_initial_connection_window_size` settings.
     pub http2_adaptive_window: bool,
@@ -970,6 +972,7 @@ impl Default for Http2Config {
     fn default() -> Self {
         Self {
             http2_max_concurrent_streams: 1000,
+            http2_max_pending_accept_reset_streams: 100,
             http2_initial_stream_window_size: None,
             http2_initial_connection_window_size: None,
             http2_adaptive_window: true,

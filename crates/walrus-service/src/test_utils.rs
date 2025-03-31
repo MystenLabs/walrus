@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Test utilities for using storage nodes in tests.
@@ -1923,8 +1923,10 @@ impl TestClusterBuilder {
 
                 let service = NodeCommitteeService::builder()
                     .local_identity(local_identity)
-                    .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
-                    .build(lookup_service.clone())
+                    .build_with_factory(
+                        lookup_service.clone(),
+                        DefaultNodeServiceFactory::avoid_system_services(),
+                    )
                     .await?;
                 builder.with_committee_service(Arc::new(service))
             };
@@ -2484,8 +2486,10 @@ pub mod test_cluster {
         let committee_services = future::join_all(contract_clients.iter().map(|_| async {
             let service: Arc<dyn CommitteeService> = Arc::new(
                 NodeCommitteeService::builder()
-                    .node_service_factory(DefaultNodeServiceFactory::avoid_system_services())
-                    .build(sui_read_client.clone())
+                    .build_with_factory(
+                        sui_read_client.clone(),
+                        DefaultNodeServiceFactory::avoid_system_services(),
+                    )
                     .await
                     .expect("service construction must succeed in tests"),
             );
@@ -2676,7 +2680,7 @@ async fn wait_for_event_processor_to_start(
 ) -> anyhow::Result<()> {
     // Wait until event processor is actually running and downloaded a few checkpoints
     tokio::time::sleep(Duration::from_secs(5)).await;
-    let checkpoint = client.get_latest_checkpoint().await?;
+    let checkpoint = client.get_latest_checkpoint_summary().await?;
     while let Some(event_processor_checkpoint) = event_processor.stores.checkpoint_store.get(&())? {
         if event_processor_checkpoint.inner().sequence_number >= checkpoint.sequence_number {
             break;
@@ -2691,8 +2695,13 @@ pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Sto
     let temp_dir =
         nondeterministic!(tempfile::tempdir().expect("temporary directory creation must succeed"));
     let db_config = DatabaseConfig::default();
-    let storage = Storage::open(temp_dir.path(), db_config, MetricConf::default())
-        .expect("storage creation must succeed");
+    let storage = Storage::open(
+        temp_dir.path(),
+        db_config,
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .expect("storage creation must succeed");
 
     storage
         .create_storage_for_shards(shards)

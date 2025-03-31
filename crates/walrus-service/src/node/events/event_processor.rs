@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Event processor for processing events from the full node.
@@ -662,7 +662,7 @@ impl EventProcessor {
 
         event_processor.update_checkpoint_cache(current_checkpoint);
 
-        let latest_checkpoint = retry_client.get_latest_checkpoint().await?;
+        let latest_checkpoint = retry_client.get_latest_checkpoint_summary().await?;
         if current_checkpoint > latest_checkpoint.sequence_number {
             tracing::error!(
                 current_checkpoint,
@@ -688,7 +688,7 @@ impl EventProcessor {
                 client: retry_client.clone(),
             };
             let recovery_path = runtime_config.db_path.join("recovery");
-            if let Err(e) = Self::catchup_using_event_blobs(
+            if let Err(error) = Self::catchup_using_event_blobs(
                 clients,
                 system_config.clone(),
                 stores.clone(),
@@ -697,9 +697,9 @@ impl EventProcessor {
             )
             .await
             {
-                tracing::error!(?e, "Failed to catch up using event blobs");
+                tracing::error!(?error, "failed to catch up using event blobs");
             } else {
-                tracing::info!("Successfully caught up using event blobs");
+                tracing::info!("successfully caught up using event blobs");
             }
         }
 
@@ -982,6 +982,8 @@ impl EventProcessor {
         clients: &SuiClientSet,
         next_event_index: Option<u64>,
     ) -> Result<()> {
+        tracing::info!("starting to process event blobs");
+
         let mut num_events_recovered = 0;
         let mut next_event_index = next_event_index;
         for blob_id in blobs.iter().rev() {
@@ -1081,13 +1083,13 @@ impl EventProcessor {
             fs::remove_file(blob_path)?;
             next_event_index = Some(last_event_index + 1);
             tracing::info!(
-                "Processed event blob {:?} with {} events, last event index: {}",
+                "processed event blob {} with {} events, last event index: {}",
                 blob_id,
                 events.len(),
                 last_event_index
             );
         }
-        tracing::info!("Recovered {} events from event blobs", num_events_recovered);
+        tracing::info!("recovered {} events from event blobs", num_events_recovered);
         Ok(())
     }
 

@@ -2,7 +2,7 @@
 
 ``` admonish warning title="Walrus Sites links are currently unavailable"
 This feature is currently unavailable on server-side portals. So if you are browsing a Walrus Site
-on <https://walrus.site>, you will not be able to use Walrus Sites links.
+on <https://wal.app>, you will not be able to use Walrus Sites links.
 
 We are working on enabling this feature. Stay tuned!
 ```
@@ -22,9 +22,9 @@ as usual.
 ## Linking to resources in other Walrus Sites
 
 Here is the part that is a bit different. Assume there is some image that you can browse at
-`https://gallery.walrus.site/walrus_arctic.webp`, and you want to link it from your own Walrus Site.
+`https://gallery.wal.app/walrus_arctic.webp`, and you want to link it from your own Walrus Site.
 
-Recall that, however, `https://walrus.site` is just one of the possibly many portals. I.e., the same
+Recall that, however, `https://wal.app` is just one of the possibly many portals. I.e., the same
 resource is browsable from a local portal (`http://gallery.localhost:8080/walrus_arctic.webp`).
 Therefore, how can you link the resource in a *portal-independent way*? This is important for
 interoperability, availability, and respecting the user's choice of portal.
