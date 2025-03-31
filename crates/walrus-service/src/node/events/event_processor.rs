@@ -758,13 +758,12 @@ impl EventProcessor {
             anyhow::bail!("No valid clients found after validation");
         }
 
-        let retriable_client = RetriableRpcClient::new(
+        RetriableRpcClient::new(
             valid_clients,
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
-        );
-        Ok(retriable_client)
+        )
     }
 
     /// Initializes the database for the event processor.
@@ -1322,7 +1321,7 @@ mod tests {
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        );
+        )?;
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(

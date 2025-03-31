@@ -431,7 +431,7 @@ mod tests {
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        );
+        )?;
         let parallel_config = ParallelDownloaderConfig {
             min_retries: 10,
             initial_delay: Duration::from_millis(250),

@@ -214,9 +214,12 @@ pub struct FailoverWrapper<T> {
 
 impl<T> FailoverWrapper<T> {
     /// Creates a new failover wrapper.
-    pub fn new(instances: Vec<(T, String)>) -> Self {
+    pub fn new(instances: Vec<(T, String)>) -> anyhow::Result<Self> {
         let count = instances.len();
-        Self {
+        if count == 0 {
+            return Err(anyhow::anyhow!("No clients available"));
+        }
+        Ok(Self {
             inner: Arc::new(
                 instances
                     .into_iter()
@@ -225,7 +228,7 @@ impl<T> FailoverWrapper<T> {
             ),
             current_index: Arc::new(AtomicUsize::new(0)),
             client_count: count,
-        }
+        })
     }
 
     /// Gets a client at the specified index (wrapped around if needed).
@@ -302,8 +305,16 @@ impl<T> FailoverWrapper<T> {
                         return Ok(result);
                     }
                     Err(e) => {
+                        // If the error is not retriable, return it immediately.
+                        if !e.is_retriable_rpc_error() {
+                            tracing::warn!(
+                                "Non-retriable error on client {}, returning last failure value",
+                                self.get_name(current_index).unwrap_or("unknown")
+                            );
+                            return Err(e);
+                        }
                         last_error = Some(e);
-                        tracing::info!(
+                        tracing::warn!(
                             "Failed to execute operation on client {}, retrying \
                             with next client {}",
                             self.get_name(current_index).unwrap_or("unknown"),
@@ -1060,14 +1071,15 @@ impl RetriableRpcClient {
         request_timeout: Duration,
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
             CheckpointBucketClient::new(url, request_timeout)
         });
 
-        Self {
-            client: Arc::new(FailoverWrapper::new(clients)),
+        let client = Arc::new(FailoverWrapper::new(clients)?);
+        Ok(Self {
+            client,
             request_timeout,
             main_backoff_config: backoff_config,
             fallback_client,
@@ -1080,7 +1092,7 @@ impl RetriableRpcClient {
                         Some(5),
                     )
                 }),
-        }
+        })
     }
 
     /// Gets a backoff strategy, seeded from the internal RNG.
@@ -1118,10 +1130,11 @@ impl RetriableRpcClient {
             .with_failover(
                 |client| {
                     Box::pin(async move {
-                        client
-                            .get_full_checkpoint(sequence)
-                            .await
-                            .map_err(RetriableClientError::from)
+                        retry_rpc_errors(self.get_strategy(), || async {
+                            client.get_full_checkpoint(sequence).await
+                        })
+                        .await
+                        .map_err(RetriableClientError::from)
                     })
                 },
                 self.request_timeout,
