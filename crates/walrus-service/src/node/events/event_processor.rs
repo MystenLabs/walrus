@@ -1121,7 +1121,7 @@ impl EventProcessor {
             _ => None,
         };
 
-        // Update cache if a value was found.
+        // Update the cache if we had to read from the store.
         if let Some(num) = seq_num {
             self.latest_checkpoint_seq_cache
                 .store(num, Ordering::SeqCst);
