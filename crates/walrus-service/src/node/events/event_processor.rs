@@ -1106,14 +1106,12 @@ impl EventProcessor {
 
     /// Updates the cached checkpoint sequence number.
     fn update_checkpoint_cache(&self, sequence_number: u64) {
-        // Use fetch_max to atomically update the value if sequence_number is greater
         self.latest_checkpoint_seq_cache
             .fetch_max(sequence_number, Ordering::SeqCst);
     }
 
     /// Gets the latest checkpoint sequence number, preferring the cache.
     pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
-        // Try to get from cache first.
         Some(self.latest_checkpoint_seq_cache.load(Ordering::SeqCst))
     }
 }
