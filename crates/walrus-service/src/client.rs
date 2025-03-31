@@ -106,7 +106,7 @@ mod multiplexer;
 type ClientResult<T> = Result<T, ClientError>;
 
 /// The log level for all WalrusStoreBlob spans
-pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
+pub(crate) const BLOB_SPAN_LEVEL: Level = Level::INFO;
 
 /// Represents a blob to be stored to the Walrus system.
 ///
@@ -247,6 +247,11 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         matches!(self, WalrusStoreBlob::WithStatus { .. })
     }
 
+    /// Returns true if the blob is registered.
+    pub fn is_registered(&self) -> bool {
+        matches!(self, WalrusStoreBlob::Registered { .. })
+    }
+
     /// Returns true if the blob has a certificate.
     pub fn is_with_certificate(&self) -> bool {
         matches!(self, WalrusStoreBlob::WithCertificate { .. })
@@ -288,10 +293,13 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     /// Note: it returns false if the blob needs to be certified and extended.
     pub fn needs_extend(&self) -> bool {
         if let WalrusStoreBlob::Registered {
-            operation: StoreOp::RegisterNew { operation, .. },
+            operation: StoreOp::RegisterNew { operation, blob },
             ..
         } = self
         {
+            if blob.certified_epoch.is_none() {
+                return false;
+            }
             matches!(operation, RegisterBlobOp::ReuseAndExtend { .. })
         } else {
             false
@@ -1429,7 +1437,7 @@ impl Client<SuiContractClient> {
         let blobs_with_identifiers = blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{}", i)))
+            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
         let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
@@ -1437,7 +1445,7 @@ impl Client<SuiContractClient> {
             encoding_type,
         )?;
 
-        let results = self
+        let mut results = self
             .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(
                     encoded_blobs.clone(),
@@ -1448,6 +1456,11 @@ impl Client<SuiContractClient> {
                 )
             })
             .await?;
+
+        debug_assert_eq!(results.len(), blobs.len());
+
+        // A trick to make sure the output order is the same as the input order.
+        results.sort_by_key(|blob| blob.get_identifier().to_string());
 
         Ok(results
             .into_iter()

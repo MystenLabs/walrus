@@ -384,7 +384,7 @@ impl<'a> ResourceManager<'a> {
                         metadata.metadata().encoded_size().ok_or_else(|| {
                             ClientError::other(ClientErrorKind::Other(
                                 anyhow!(
-                                    "the provided metadata is invalid: could not compute the
+                                    "the provided metadata is invalid: could not compute the \
                                     encoded size"
                                 )
                                 .into(),
@@ -417,16 +417,38 @@ impl<'a> ResourceManager<'a> {
 
         debug_assert_eq!(results.len(), blobs.len());
 
-        Ok(results
+        let mut blob_id_map = HashMap::new();
+        results.into_iter().for_each(|(blob, op)| {
+            let blob_id = blob.blob_id;
+            blob_id_map
+                .entry(blob_id)
+                .or_insert_with(Vec::new)
+                .push((blob, op));
+        });
+
+        Ok(blobs
             .into_iter()
-            .zip(blobs.into_iter())
-            .map(|((blob, operation), blob_store)| {
-                debug_assert!(
-                    blob.blob_id == blob_store.get_blob_id().expect("blob ID should be present")
-                );
-                blob_store
-                    .with_register_result(Ok(StoreOp::new(operation, blob)))
-                    .expect("Should succeed with an Ok result")
+            .map(|blob| {
+                // Get the blob ID if available
+                let blob_id = blob.get_blob_id().expect("blob ID should be present");
+
+                // Get the vec of (blob, op) pairs for this blob ID
+                let Some(entries) = blob_id_map.get_mut(&blob_id) else {
+                    panic!("missing blob ID: {}", blob_id);
+                };
+
+                // Pop one (blob, op) pair from the vec
+                if let Some((blob_obj, operation)) = entries.pop() {
+                    // If vec is now empty, remove the entry from the map
+                    if entries.is_empty() {
+                        blob_id_map.remove(&blob_id);
+                    }
+
+                    blob.with_register_result(Ok(StoreOp::new(operation, blob_obj)))
+                        .expect("should succeed on a Ok result")
+                } else {
+                    panic!("missing blob ID: {}", blob_id);
+                }
             })
             .collect())
     }
