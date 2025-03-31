@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
-use walrus_core::{BlobId, BlobMetadata, Epoch, ShardIndex};
+use walrus_core::{metadata::BlobMetadata, BlobId, Epoch, ShardIndex};
 
 use crate::node::{
     events::{

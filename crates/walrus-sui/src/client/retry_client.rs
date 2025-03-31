@@ -10,7 +10,8 @@ use std::{
     fmt::Debug,
     future::Future,
     str::FromStr,
-    time::{self, Duration},
+    sync::Arc,
+    time::Duration,
 };
 
 use futures::{
@@ -66,6 +67,7 @@ use sui_types::{
     TypeTag,
 };
 use thiserror::Error;
+use tokio::time::Instant;
 use tracing::Level;
 use url::ParseError;
 use walrus_core::ensure;
@@ -73,6 +75,7 @@ use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBack
 
 use super::{rpc_config::RpcFallbackConfig, SuiClientError, SuiClientResult};
 use crate::{
+    client::SuiClientMetricSet,
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
@@ -102,6 +105,12 @@ pub(crate) const MULTI_GET_OBJ_LIMIT: usize = 50;
 pub trait RetriableRpcError: Debug {
     /// Returns `true` if the error is a retriable network error.
     fn is_retriable_rpc_error(&self) -> bool;
+}
+
+/// Trait to convert an error to a string.
+pub trait ToErrorType {
+    /// Returns the error type as a string.
+    fn to_error_type(&self) -> String;
 }
 
 impl RetriableRpcError for anyhow::Error {
@@ -166,16 +175,80 @@ impl RetriableRpcError for RetriableClientError {
     }
 }
 
+/// A guard that records the number of retries and the result of an RPC call.
+struct RetryCountGuard {
+    method: String,
+    count: u64,
+    metrics: Arc<SuiClientMetricSet>,
+    status: String,
+}
+
+impl RetryCountGuard {
+    fn new(metrics: Arc<SuiClientMetricSet>, method: &str) -> Self {
+        Self {
+            method: method.to_string(),
+            count: 0,
+            metrics,
+            status: "success".to_string(),
+        }
+    }
+
+    pub fn record_result<T, E>(&mut self, value: Result<&T, &E>)
+    where
+        E: ToErrorType,
+    {
+        match value {
+            Ok(_) => self.status = "success".to_string(),
+            Err(e) => self.status = e.to_error_type(),
+        }
+        self.count += 1;
+    }
+}
+
+impl Drop for RetryCountGuard {
+    fn drop(&mut self) {
+        if self.count > 1 {
+            self.metrics
+                .record_rpc_retry_count(self.method.as_str(), self.count, &self.status);
+        }
+    }
+}
+
 /// Retries the given function while it returns retriable errors.[
-async fn retry_rpc_errors<S, F, T, E, Fut>(mut strategy: S, mut func: F) -> Result<T, E>
+async fn retry_rpc_errors<S, F, T, E, Fut>(
+    mut strategy: S,
+    mut func: F,
+    metrics: Option<Arc<SuiClientMetricSet>>,
+    method: &str,
+) -> Result<T, E>
 where
     S: BackoffStrategy,
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, E>>,
-    E: RetriableRpcError,
+    E: RetriableRpcError + ToErrorType,
 {
+    let mut retry_guard = metrics
+        .as_ref()
+        .map(|m| RetryCountGuard::new(m.clone(), method));
+
     loop {
+        let start = Instant::now();
         let value = func().await;
+
+        if let Some(metrics) = &metrics {
+            metrics.record_rpc_call(
+                method,
+                &match value.as_ref() {
+                    Ok(_) => "success".to_string(),
+                    Err(e) => e.to_error_type(),
+                },
+                start.elapsed(),
+            );
+        }
+
+        if let Some(retry_guard) = &mut retry_guard {
+            retry_guard.record_result(value.as_ref());
+        }
 
         match value {
             Ok(value) => return Ok(value),
@@ -212,6 +285,7 @@ where
 pub struct RetriableSuiClient {
     sui_client: SuiClient,
     backoff_config: ExponentialBackoffConfig,
+    metrics: Option<Arc<SuiClientMetricSet>>,
 }
 
 impl RetriableSuiClient {
@@ -225,7 +299,14 @@ impl RetriableSuiClient {
         RetriableSuiClient {
             sui_client,
             backoff_config,
+            metrics: None,
         }
+    }
+
+    /// Sets the metrics for the client.
+    pub fn with_metrics(mut self, metrics: Option<Arc<SuiClientMetricSet>>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// Returns a reference to the inner backoff configuration.
@@ -249,10 +330,25 @@ impl RetriableSuiClient {
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
         let strategy = backoff_config.get_strategy(ThreadRng::default().gen());
-        let client = retry_rpc_errors(strategy, || async { wallet.get_client().await }).await?;
+        let client = retry_rpc_errors(
+            strategy,
+            || async { wallet.get_client().await },
+            None,
+            "get_client",
+        )
+        .await?;
         Ok(Self::new(client, backoff_config))
     }
 
+    /// Creates a new retriable client from a wallet context with metrics.
+    pub async fn new_from_wallet_with_metrics(
+        wallet: &WalletContext,
+        backoff_config: ExponentialBackoffConfig,
+        metrics: Arc<SuiClientMetricSet>,
+    ) -> SuiClientResult<Self> {
+        let client = Self::new_from_wallet(wallet, backoff_config).await?;
+        Ok(client.with_metrics(Some(metrics)))
+    }
     // Reimplementation of the `SuiClient` methods.
 
     /// Return a list of coins for the given address, or an error upon failure.
@@ -267,10 +363,15 @@ impl RetriableSuiClient {
         amount: u128,
         exclude: Vec<ObjectID>,
     ) -> SuiRpcResult<Vec<Coin>> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "select_coins",
+        )
         .await
     }
 
@@ -324,12 +425,17 @@ impl RetriableSuiClient {
                 if let Some(item) = data.pop() {
                     Some((item, (data, cursor, /* has_next_page */ true, coin_type)))
                 } else if has_next_page {
-                    let page = retry_rpc_errors(self.get_strategy(), || async {
-                        self.sui_client
-                            .coin_read_api()
-                            .get_coins(owner, coin_type.clone(), cursor.clone(), Some(100))
-                            .await
-                    })
+                    let page = retry_rpc_errors(
+                        self.get_strategy(),
+                        || async {
+                            self.sui_client
+                                .coin_read_api()
+                                .get_coins(owner, coin_type.clone(), cursor.clone(), Some(100))
+                                .await
+                        },
+                        self.metrics.clone(),
+                        "get_coins",
+                    )
                     .await
                     .inspect_err(
                         |error| tracing::warn!(%error, "failed to get coins after retries"),
@@ -360,12 +466,17 @@ impl RetriableSuiClient {
         owner: SuiAddress,
         coin_type: Option<String>,
     ) -> SuiRpcResult<Balance> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .coin_read_api()
-                .get_balance(owner, coin_type.clone())
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .coin_read_api()
+                    .get_balance(owner, coin_type.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "get_balance",
+        )
         .await
     }
 
@@ -380,12 +491,17 @@ impl RetriableSuiClient {
         cursor: Option<ObjectID>,
         limit: Option<usize>,
     ) -> SuiRpcResult<ObjectsPage> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .read_api()
-                .get_owned_objects(address, query.clone(), cursor, limit)
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_owned_objects(address, query.clone(), cursor, limit)
+                    .await
+            },
+            self.metrics.clone(),
+            "get_owned_objects",
+        )
         .await
     }
 
@@ -398,12 +514,17 @@ impl RetriableSuiClient {
         object_id: ObjectID,
         options: SuiObjectDataOptions,
     ) -> SuiRpcResult<SuiObjectResponse> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .read_api()
-                .get_object_with_options(object_id, options.clone())
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_object_with_options(object_id, options.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "get_object",
+        )
         .await
     }
 
@@ -415,12 +536,17 @@ impl RetriableSuiClient {
         digest: TransactionDigest,
         options: SuiTransactionBlockResponseOptions,
     ) -> SuiRpcResult<SuiTransactionBlockResponse> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .read_api()
-                .get_transaction_with_options(digest, options.clone())
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_transaction_with_options(digest, options.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "get_transaction",
+        )
         .await
     }
 
@@ -433,12 +559,17 @@ impl RetriableSuiClient {
         object_ids: Vec<ObjectID>,
         options: SuiObjectDataOptions,
     ) -> SuiRpcResult<Vec<SuiObjectResponse>> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .read_api()
-                .multi_get_object_with_options(object_ids.clone(), options.clone())
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .multi_get_object_with_options(object_ids.clone(), options.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "multi_get_object",
+        )
         .await
     }
 
@@ -450,12 +581,17 @@ impl RetriableSuiClient {
         &self,
         package_id: ObjectID,
     ) -> SuiRpcResult<BTreeMap<String, SuiMoveNormalizedModule>> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .read_api()
-                .get_normalized_move_modules_by_package(package_id)
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_normalized_move_modules_by_package(package_id)
+                    .await
+            },
+            self.metrics.clone(),
+            "get_normalized_move_modules_by_package",
+        )
         .await
     }
 
@@ -466,12 +602,17 @@ impl RetriableSuiClient {
         &self,
         epoch: Option<BigInt<u64>>,
     ) -> SuiRpcResult<SuiCommittee> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .governance_api()
-                .get_committee_info(epoch)
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .governance_api()
+                    .get_committee_info(epoch)
+                    .await
+            },
+            self.metrics.clone(),
+            "get_committee_info",
+        )
         .await
     }
 
@@ -479,9 +620,12 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_reference_gas_price`] internally.
     pub async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client.read_api().get_reference_gas_price().await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async { self.sui_client.read_api().get_reference_gas_price().await },
+            self.metrics.clone(),
+            "get_reference_gas_price",
+        )
         .await
     }
 
@@ -492,12 +636,17 @@ impl RetriableSuiClient {
         &self,
         transaction: TransactionData,
     ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client
-                .read_api()
-                .dry_run_transaction_block(transaction.clone())
-                .await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .dry_run_transaction_block(transaction.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "dry_run_transaction_block",
+        )
         .await
     }
 
@@ -525,16 +674,21 @@ impl RetriableSuiClient {
     where
         U: AssociatedContractStruct,
     {
-        retry_rpc_errors(self.get_strategy(), || async {
-            get_sui_object_from_object_response(
-                &self
-                    .get_object_with_options(
-                        object_id,
-                        SuiObjectDataOptions::new().with_bcs().with_type(),
-                    )
-                    .await?,
-            )
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                get_sui_object_from_object_response(
+                    &self
+                        .get_object_with_options(
+                            object_id,
+                            SuiObjectDataOptions::new().with_bcs().with_type(),
+                        )
+                        .await?,
+                )
+            },
+            self.metrics.clone(),
+            "get_sui_object",
+        )
         .await
     }
 
@@ -542,9 +696,12 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_chain_identifier`] internally.
     pub async fn get_chain_identifier(&self) -> SuiRpcResult<String> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            self.sui_client.read_api().get_chain_identifier().await
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async { self.sui_client.read_api().get_chain_identifier().await },
+            self.metrics.clone(),
+            "get_chain_identifier",
+        )
         .await
     }
 
@@ -787,28 +944,34 @@ impl RetriableSuiClient {
     pub(crate) async fn execute_transaction(
         &self,
         transaction: Transaction,
+        method: &str,
     ) -> anyhow::Result<SuiTransactionBlockResponse> {
         // Retry here must use the exact same transaction to avoid locked objects.
-        retry_rpc_errors(self.get_strategy(), || async {
-            #[cfg(msim)]
-            {
-                maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
-            }
-            Ok(self
-                .sui_client
-                .quorum_driver_api()
-                .execute_transaction_block(
-                    transaction.clone(),
-                    SuiTransactionBlockResponseOptions::new()
-                        .with_effects()
-                        .with_input()
-                        .with_events()
-                        .with_object_changes()
-                        .with_balance_changes(),
-                    Some(WaitForLocalExecution),
-                )
-                .await?)
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                #[cfg(msim)]
+                {
+                    maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+                }
+                Ok(self
+                    .sui_client
+                    .quorum_driver_api()
+                    .execute_transaction_block(
+                        transaction.clone(),
+                        SuiTransactionBlockResponseOptions::new()
+                            .with_effects()
+                            .with_input()
+                            .with_events()
+                            .with_object_changes()
+                            .with_balance_changes(),
+                        Some(WaitForLocalExecution),
+                    )
+                    .await?)
+            },
+            self.metrics.clone(),
+            method,
+        )
         .await
     }
 
@@ -916,6 +1079,7 @@ pub struct RetriableRpcClient {
     main_backoff_config: ExponentialBackoffConfig,
     fallback_client: Option<CheckpointBucketClient>,
     quick_retry_config: ExponentialBackoffConfig,
+    metrics: Option<Arc<SuiClientMetricSet>>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
@@ -953,11 +1117,12 @@ impl RetriableRpcClient {
                 .map(|config| config.quick_retry_config)
                 .unwrap_or_else(|| {
                     ExponentialBackoffConfig::new(
-                        time::Duration::from_millis(100),
-                        time::Duration::from_millis(300),
+                        Duration::from_millis(100),
+                        Duration::from_millis(300),
                         Some(5),
                     )
                 }),
+            metrics: None,
         }
     }
 
@@ -1009,9 +1174,12 @@ impl RetriableRpcClient {
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
             tracing::debug!("no fallback client configured, retrying primary client");
-            return retry_rpc_errors(self.get_strategy(), || async {
-                self.get_full_checkpoint_from_primary(sequence_number).await
-            })
+            return retry_rpc_errors(
+                self.get_strategy(),
+                || async { self.get_full_checkpoint_from_primary(sequence_number).await },
+                self.metrics.clone(),
+                "get_full_checkpoint",
+            )
             .await;
         };
 
@@ -1026,9 +1194,12 @@ impl RetriableRpcClient {
 
         // Try a quick retry on the primary client before falling back
         tracing::debug!("performing a quick retry on primary client");
-        let quick_retry_result = retry_rpc_errors(self.get_quick_strategy(), || async {
-            self.get_full_checkpoint_from_primary(sequence_number).await
-        })
+        let quick_retry_result = retry_rpc_errors(
+            self.get_quick_strategy(),
+            || async { self.get_full_checkpoint_from_primary(sequence_number).await },
+            self.metrics.clone(),
+            "get_full_checkpoint_quick_retry",
+        )
         .await;
 
         let Err(quick_retry_error) = quick_retry_result else {
@@ -1050,12 +1221,17 @@ impl RetriableRpcClient {
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
         tracing::info!(sequence_number, "fetching checkpoint from fallback client");
-        return retry_rpc_errors(self.get_strategy(), || async {
-            fallback
-                .get_full_checkpoint(sequence_number)
-                .await
-                .map_err(RetriableClientError::from)
-        })
+        return retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                fallback
+                    .get_full_checkpoint(sequence_number)
+                    .await
+                    .map_err(RetriableClientError::from)
+            },
+            self.metrics.clone(),
+            "get_full_checkpoint_from_fallback_with_retries",
+        )
         .await;
     }
 
@@ -1064,13 +1240,18 @@ impl RetriableRpcClient {
         &self,
         sequence: u64,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        let primary_error = match retry_rpc_errors(self.get_strategy(), || async {
-            Ok(tokio::time::timeout(
-                self.request_timeout,
-                self.client.get_checkpoint_summary(sequence),
-            )
-            .await??)
-        })
+        let primary_error = match retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                Ok(tokio::time::timeout(
+                    self.request_timeout,
+                    self.client.get_checkpoint_summary(sequence),
+                )
+                .await??)
+            },
+            self.metrics.clone(),
+            "get_checkpoint_summary",
+        )
         .await
         {
             Ok(summary) => return Ok(summary),
@@ -1094,20 +1275,33 @@ impl RetriableRpcClient {
     pub async fn get_latest_checkpoint_summary(
         &self,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            Ok(
-                tokio::time::timeout(self.request_timeout, self.client.get_latest_checkpoint())
-                    .await??,
-            )
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                Ok(
+                    tokio::time::timeout(self.request_timeout, self.client.get_latest_checkpoint())
+                        .await??,
+                )
+            },
+            self.metrics.clone(),
+            "get_latest_checkpoint",
+        )
         .await
     }
 
     /// Gets the object with the given ID.
     pub async fn get_object(&self, id: ObjectID) -> Result<Object, RetriableClientError> {
-        retry_rpc_errors(self.get_strategy(), || async {
-            Ok(tokio::time::timeout(self.request_timeout, self.client.get_object(id)).await??)
-        })
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                Ok(
+                    tokio::time::timeout(self.request_timeout, self.client.get_object(id))
+                        .await??,
+                )
+            },
+            self.metrics.clone(),
+            "get_object",
+        )
         .await
     }
 }
@@ -1149,4 +1343,68 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
+}
+
+impl ToErrorType for anyhow::Error {
+    fn to_error_type(&self) -> String {
+        self.downcast_ref::<sui_sdk::error::Error>()
+            .map(|error| error.to_error_type())
+            .unwrap_or_else(|| "other".to_string())
+    }
+}
+
+impl ToErrorType for sui_sdk::error::Error {
+    fn to_error_type(&self) -> String {
+        match self {
+            Self::RpcError(e) => {
+                let err_str = e.to_string();
+                if err_str.contains("Call") {
+                    "rpc_call"
+                } else if err_str.contains("Transport") {
+                    "rpc_transport"
+                } else if err_str.contains("RequestTimeout") {
+                    "rpc_timeout"
+                } else {
+                    "rpc_other"
+                }
+                .to_string()
+            }
+            Self::JsonRpcError(_) => "json_rpc".to_string(),
+            Self::BcsSerialisationError(_) => "bcs_ser".to_string(),
+            Self::JsonSerializationError(_) => "json_ser".to_string(),
+            Self::UserInputError(_) => "user_input".to_string(),
+            Self::Subscription(_) => "subscription".to_string(),
+            Self::FailToConfirmTransactionStatus(_, _) => "tx_confirm".to_string(),
+            Self::DataError(_) => "data_error".to_string(),
+            Self::ServerVersionMismatch { .. } => "version_mismatch".to_string(),
+            Self::InsufficientFund { .. } => "insufficient_fund".to_string(),
+            Self::InvalidSignature => "invalid_sig".to_string(),
+        }
+    }
+}
+
+impl ToErrorType for SuiClientError {
+    fn to_error_type(&self) -> String {
+        match self {
+            Self::SuiSdkError(error) => error.to_error_type(),
+            _ => "sui_client_error_other".to_string(),
+        }
+    }
+}
+
+impl ToErrorType for tonic::Status {
+    fn to_error_type(&self) -> String {
+        "other".to_string()
+    }
+}
+
+impl ToErrorType for RetriableClientError {
+    fn to_error_type(&self) -> String {
+        match self {
+            Self::RpcError(status) => status.to_error_type(),
+            Self::FallbackError(_) => "fallback_error".to_string(),
+            Self::Other(_) => "other".to_string(),
+            Self::TimeoutError(_) => "timeout".to_string(),
+        }
+    }
 }

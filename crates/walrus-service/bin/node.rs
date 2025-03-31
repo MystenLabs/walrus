@@ -1119,7 +1119,7 @@ async fn get_contract_client_from_node_config(
     let Some(ref node_wallet_config) = storage_config.sui else {
         bail!("storage config does not contain Sui wallet configuration");
     };
-    Ok(node_wallet_config.new_contract_client().await?)
+    Ok(node_wallet_config.new_contract_client(None).await?)
 }
 
 struct StorageNodeRuntime {
