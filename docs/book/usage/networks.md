@@ -11,15 +11,7 @@ Mainnet. Finally, developers can operate local Walrus and Sui networks for testi
 The client parameters for the Walrus Mainnet are:
 
 ```yaml
-# These are the only mandatory fields. These objects are specific for a particular Walrus
-# deployment but then do not change over time.
-system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
-staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-
-# The subsidies object allows the client to use the subsidies contract to purchase storage
-# which will reduce the cost of obtaining a storage resource and extending blobs and also
-# adds subsidies to the rewards of the staking pools.
-subsidies_object: 0xb606eb177899edc2130c93bf65985af7ec959a2755dc126c953755e59324209e
+{{ #include ../setup/client_config_mainnet.yaml }}
 ```
 
 In case you wish to explore the Walrus contracts, their package IDs are the following:
@@ -33,16 +25,9 @@ them into the Walrus client configuration file. The latest published package IDs
 in the `Move.lock` files in the subdirectories of the [`contracts` directory on
 GitHub](https://github.com/MystenLabs/walrus/tree/main/contracts).
 
-<!-- markdownlint-disable code-fence-style -->
-~~~admonish tip
-The easiest way to obtain the latest configuration is by downloading it from GitHub:
-
-```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/book/config/client_config_mainnet.yaml \
-    -o ~/.config/walrus/client_config.yaml
-```
-~~~
-<!-- markdownlint-enable code-fence-style -->
+The configuration file described on the [setup page](./setup.md#configuration) includes both Mainnet
+and Testnet configuration. If you want *only* the Mainnet configuration, you can get the file
+[here](../setup/client_config_mainnet.yaml).
 
 ## Testnet configuration
 
@@ -119,21 +104,17 @@ or when [running the CLI](./interacting.md).
 
 ### Testnet parameters
 
-The configuration parameters for the Walrus Testnet can be found in the
-[client_config_testnet.yaml](../config/client_config_testnet.yaml) file. The current Testnet package
-IDs can be found in the `Move.lock` files in the subdirectories of the [`testnet-contracts`
-directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
+The configuration parameters for the Walrus Testnet are included in the configuration file described
+on the [setup page](./setup.md#configuration). If you want *only* the Testnet configuration, you can
+get the file [here](../setup/client_config_testnet.yaml). The parameters are:
 
-<!-- markdownlint-disable code-fence-style -->
-~~~admonish tip
-The easiest way to obtain the latest configuration is by downloading it from GitHub:
-
-```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus/refs/heads/main/docs/book/config/client_config_testnet.yaml \
-    -o ~/.config/walrus/client_config.yaml
+```yaml
+{{ #include ../setup/client_config_testnet.yaml }}
 ```
-~~~
-<!-- markdownlint-enable code-fence-style -->
+
+The current Testnet package IDs can be
+found in the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on
+GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
 
 ### Testnet WAL faucet
 

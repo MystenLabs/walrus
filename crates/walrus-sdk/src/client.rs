@@ -1,28 +1,18 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Client for interacting with the StorageNode API.
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
-use opentelemetry::propagation::Injector;
-use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
-    Client as ReqwestClient,
-    ClientBuilder as ReqwestClientBuilder,
-    Method,
-    Request,
-    Response,
-    Url,
-};
-use rustls::pki_types::CertificateDer;
-use rustls_native_certs::CertificateResult;
+use middleware::{HttpClientMetrics, HttpMiddleware, UrlTemplate};
+use reqwest::{header::HeaderValue, Client as ReqwestClient, Method, Request, Response, Url};
 use serde::{de::DeserializeOwned, Serialize, Serializer};
 use sui_types::base_types::ObjectID;
-use tracing::{field, Instrument as _, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tower::ServiceExt;
+use tracing::Level;
 use walrus_core::{
     encoding::{
         EncodingAxis,
@@ -61,10 +51,14 @@ use walrus_core::{
 
 use crate::{
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
-    error::{BuildErrorKind, ClientBuildError, ListAndVerifyRecoverySymbolsError, NodeError},
+    error::{ClientBuildError, ListAndVerifyRecoverySymbolsError, NodeError},
     node_response::NodeResponse,
-    tls::TlsCertificateVerifier,
 };
+
+mod builder;
+pub use builder::ClientBuilder;
+
+mod middleware;
 
 const METADATA_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata";
 const METADATA_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/metadata/status";
@@ -342,179 +336,17 @@ where
     serializer.collect_map(symbols.iter().map(|id| ("id", id)))
 }
 
-/// A builder that can be used to construct a [`Client`].
-///
-/// Can be created with [`Client::builder()`].
-#[derive(Debug, Default)]
-pub struct ClientBuilder {
-    inner: ReqwestClientBuilder,
-    server_public_key: Option<NetworkPublicKey>,
-    roots: Vec<CertificateDer<'static>>,
-    no_built_in_root_certs: bool,
-    connect_timeout: Option<Duration>,
-}
-
-impl ClientBuilder {
-    /// Default timeout that is configured for connecting to the remote server.
-    ///
-    /// Modern advice is that TCP implementations should have a retry timeout of 1 second
-    /// (previously, it was 3 seconds). In the event of a lossy network, the SYN/SYN-ACK
-    /// packets may be lost necessitating one or several retries until actually connecting to the
-    /// server. We therefore want to allow for several retries.
-    ///
-    /// The default of 5 seconds should allow for around 2-3 SYN attempts before failing.
-    ///
-    /// See RFC6298 for more information.
-    const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-    /// Creates a new builder to construct a [`Client`].
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Creates a new builder using an existing request client builder.
-    ///
-    /// This can be used to preconfigure options on the client. These options may be overwritten,
-    /// however, during construction of the final client.
-    ///
-    /// TLS settings are not preserved.
-    pub fn from_reqwest(builder: ReqwestClientBuilder) -> Self {
-        Self {
-            inner: builder,
-            ..Self::default()
-        }
-    }
-
-    /// Authenticate the server with the provided public key instead of the Web PKI.
-    ///
-    /// By default, to authenticate the connection to the storage node, the client verifies that the
-    /// storage node provides a valid, unexpired certificate which matches the `authority` provided
-    /// to [`build()`][Self::build]. Calling this method instead authenticates the storage node
-    /// solely on the basis that it is able to establish the TLS connection with the private key
-    /// corresponding to the provided public key.
-    pub fn authenticate_with_public_key(mut self, public_key: NetworkPublicKey) -> Self {
-        self.server_public_key = Some(public_key);
-        self
-    }
-
-    /// Clears proxy settings in the client, and disables fetching proxy settings from the OS.
-    ///
-    /// On some systems, this can speed up the construction of the client.
-    pub fn no_proxy(mut self) -> Self {
-        self.inner = self.inner.no_proxy();
-        self
-    }
-
-    /// Add a custom DER-encoded root certificate.
-    ///
-    /// It is the responsibility of the caller to check the certificate for validity.
-    pub fn add_root_certificate(mut self, certificate: &[u8]) -> Self {
-        self.roots
-            .push(CertificateDer::from(certificate).into_owned());
-        self
-    }
-
-    /// Add a custom DER-encoded root certificate.
-    ///
-    /// It is the responsibility of the caller to check the certificate for validity.
-    pub fn add_root_certificates(mut self, certificates: &[CertificateDer<'static>]) -> Self {
-        self.roots.extend(certificates.iter().cloned());
-        self
-    }
-
-    /// Controls the use of built-in/preloaded certificates during certificate validation.
-    ///
-    /// Defaults to true – built-in system certs will be used.
-    pub fn tls_built_in_root_certs(mut self, tls_built_in_root_certs: bool) -> Self {
-        self.no_built_in_root_certs = !tls_built_in_root_certs;
-        self
-    }
-
-    /// Set a timeout for only the connect phase of a Client.
-    ///
-    /// The default is 5 seconds.
-    pub fn connect_timeout(mut self, timeout: Duration) -> Self {
-        self.connect_timeout = Some(timeout);
-        self
-    }
-
-    /// Convenience function to build the client where the server is identified by a [`SocketAddr`].
-    ///
-    /// Equivalent `self.build(&remote.to_string())`
-    pub fn build_for_remote_ip(self, remote: SocketAddr) -> Result<Client, ClientBuildError> {
-        self.build(&remote.to_string())
-    }
-
-    /// Consume the `ClientBuilder` and return a configured [`Client`].
-    ///
-    /// This method fails if a valid URL cannot be created with the provided address, the
-    /// Rustls TLS backend cannot be initialized, or the resolver cannot load the system
-    /// configuration.
-    pub fn build(mut self, address: &str) -> Result<Client, ClientBuildError> {
-        #[cfg(msim)]
-        {
-            self = self.no_proxy();
-        }
-
-        let url = Url::parse(&format!("https://{address}"))
-            .map_err(|_| BuildErrorKind::InvalidHostOrPort)?;
-        // We extract the host from the URL, since the provided host string may have details like a
-        // username or password.
-        let host = url
-            .host_str()
-            .ok_or(BuildErrorKind::InvalidHostOrPort)?
-            .to_string();
-        let endpoints = UrlEndpoints(url);
-
-        if !self.no_built_in_root_certs {
-            let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
-            if certs.is_empty() {
-                return Err(BuildErrorKind::FailedToLoadCerts(errors).into());
-            };
-            if !errors.is_empty() {
-                tracing::warn!(
-                    "encountered {} errors when trying to load native certs",
-                    errors.len(),
-                );
-                tracing::debug!(?errors, "errors encountered when loading native certs");
-            }
-            self.roots.extend(certs);
-        }
-
-        let verifier = if let Some(public_key) = self.server_public_key {
-            TlsCertificateVerifier::new_with_pinned_public_key(public_key, host, self.roots)
-                .map_err(BuildErrorKind::Tls)?
-        } else {
-            TlsCertificateVerifier::new(self.roots).map_err(BuildErrorKind::Tls)?
-        };
-
-        let rustls_config = rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier))
-            .with_no_client_auth();
-
-        let inner = self
-            .inner
-            .https_only(true)
-            .http2_prior_knowledge()
-            .http2_adaptive_window(true)
-            .use_preconfigured_tls(rustls_config)
-            .connect_timeout(
-                self.connect_timeout
-                    .unwrap_or(Self::DEFAULT_CONNECT_TIMEOUT),
-            )
-            .build()
-            .map_err(ClientBuildError::reqwest)?;
-
-        Ok(Client { inner, endpoints })
-    }
-}
-
 /// A client for communicating with a StorageNode.
 #[derive(Debug, Clone)]
 pub struct Client {
-    inner: ReqwestClient,
+    inner: HttpMiddleware<ReqwestClient>,
     endpoints: UrlEndpoints,
+
+    /// A clone of the client used to create requests via the reqwest::RequestBuilder.
+    ///
+    /// This is needed, because the reqwest builder wants the client for the ergonmics of being
+    /// able to send the request directly from the builder.
+    client_clone: ReqwestClient,
 }
 
 impl Client {
@@ -542,7 +374,7 @@ impl Client {
 
     /// Converts this to the inner client.
     pub fn into_inner(self) -> ReqwestClient {
-        self.inner
+        self.inner.into_inner()
     }
 
     /// Requests the metadata for a blob ID from the node.
@@ -786,8 +618,9 @@ impl Client {
         filter: &RecoverySymbolsFilter,
     ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
         let (url, template) = self.endpoints.list_recovery_symbols(blob_id);
+
         let request = self
-            .inner
+            .client_clone
             .get(url)
             .query(&filter)
             .build()
@@ -903,7 +736,7 @@ impl Client {
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), NodeError> {
         let (url, template) = self.endpoints.metadata(metadata.blob_id());
-        let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref())?;
+        let request = self.create_request_with_payload(Method::PUT, url, metadata.as_ref());
         self.send_and_parse_service_response::<String>(request, template)
             .await?;
         Ok(())
@@ -927,7 +760,7 @@ impl Client {
     ) -> Result<(), NodeError> {
         tracing::trace!("starting to store sliver");
         let (url, template) = self.endpoints.sliver::<A>(blob_id, pair_index);
-        let request = self.create_request_with_payload(Method::PUT, url, &sliver)?;
+        let request = self.create_request_with_payload(Method::PUT, url, &sliver);
         self.send_and_parse_service_response::<String>(request, template)
             .await?;
 
@@ -956,7 +789,7 @@ impl Client {
         inconsistency_proof: &InconsistencyProof<A, MerkleProof>,
     ) -> Result<InvalidBlobIdAttestation, NodeError> {
         let (url, template) = self.endpoints.inconsistency_proof::<A>(blob_id);
-        let request = self.create_request_with_payload(Method::POST, url, &inconsistency_proof)?;
+        let request = self.create_request_with_payload(Method::POST, url, &inconsistency_proof);
 
         self.send_and_parse_service_response(request, template)
             .await
@@ -1063,61 +896,18 @@ impl Client {
     /// The HTTP span ends after the parsing of the headers, since the response may be streamed.
     async fn send_request(
         &self,
-        mut request: Request,
+        request: Request,
         url_template: &'static str,
-    ) -> Result<(Response, Span), NodeError> {
-        let url = request.url();
-        let span = tracing::info_span!(
-            parent: &Span::current(),
-            "http_request",
-            otel.name = format!("{} {}", request.method().as_str(), url_template),
-            otel.kind = "CLIENT",
-            otel.status_code = field::Empty,
-            otel.status_message = field::Empty,
-            http.request.method = request.method().as_str(),
-            http.response.status_code = field::Empty,
-            server.address = url.host_str(),
-            server.port = url.port_or_known_default(),
-            url.full = url.as_str(),
-            "error.type" = field::Empty,
-        );
+    ) -> Result<Response, NodeError> {
+        let output = self
+            .inner
+            .clone()
+            .oneshot((request, UrlTemplate(url_template)))
+            .await;
 
-        // We use the global propagator as in the examples, since this allows a client using the
-        // library to completely disable propagation for contextual information.
-        opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.inject_context(&span.context(), &mut HeaderInjector(request.headers_mut()));
-        });
-
-        let result = self.inner.execute(request).instrument(span.clone()).await;
-
-        match result {
-            Ok(response) => {
-                // Check that the response is using HTTP 2 when not in release mode.
-                debug_assert!(response.version() == reqwest::Version::HTTP_2);
-
-                let status_code = response.status();
-                span.record("http.response.status_code", status_code.as_str());
-
-                // We don't handle anything that is not a 2xx, so they're all failures to us.
-                if !status_code.is_success() {
-                    span.record("otel.status_code", "ERROR");
-                    // For HTTP errors, otel recommends not setting status_message.
-                    span.record("error.type", status_code.as_str());
-                }
-
-                response
-                    .response_error_for_status()
-                    .instrument(span.clone())
-                    .await
-                    .map(|response| (response, span))
-            }
-            Err(err) => {
-                span.record("otel.status_code", "ERROR");
-                span.record("otel.status_message", err.to_string());
-                span.record("error.type", "reqwest::Error");
-
-                Err(NodeError::reqwest(err))
-            }
+        match output {
+            Ok(response) => response.response_error_for_status().await,
+            Err(err) => Err(NodeError::reqwest(err)),
         }
     }
 
@@ -1127,7 +917,7 @@ impl Client {
         url_template: &'static str,
     ) -> Result<T, NodeError> {
         self.send_request(request, url_template)
-            .and_then(|(response, span)| response.bcs().instrument(span))
+            .and_then(|response| response.bcs())
             .inspect_err(|error| tracing::trace!(?error))
             .await
     }
@@ -1138,7 +928,7 @@ impl Client {
         url_template: &'static str,
     ) -> Result<T, NodeError> {
         self.send_request(request, url_template)
-            .and_then(|(response, span)| response.service_response().instrument(span))
+            .and_then(|response| response.service_response())
             .inspect_err(|error| tracing::trace!(?error))
             .await
     }
@@ -1148,12 +938,14 @@ impl Client {
         method: Method,
         url: Url,
         body: &T,
-    ) -> Result<Request, NodeError> {
-        self.inner
-            .request(method, url)
-            .body(bcs::to_bytes(body).expect("type must be bcs encodable"))
-            .build()
-            .map_err(NodeError::reqwest)
+    ) -> Request {
+        let mut request = Request::new(method, url);
+        *request.body_mut() = Some(
+            bcs::to_bytes(body)
+                .expect("type must be bcs encodable")
+                .into(),
+        );
+        request
     }
 
     // Creates a request with a payload and a public key in the Authorization header.
@@ -1164,27 +956,13 @@ impl Client {
         body: &T,
         public_key: &PublicKey,
     ) -> Result<Request, NodeError> {
-        let mut request = self.create_request_with_payload(method, url, body)?;
+        let mut request = self.create_request_with_payload(method, url, body);
         let encoded_key = public_key.encode_base64();
         let public_key_header = HeaderValue::from_str(&encoded_key).map_err(NodeError::other)?;
         request
             .headers_mut()
             .insert(reqwest::header::AUTHORIZATION, public_key_header);
         Ok(request)
-    }
-}
-
-// opentelemetry_http currently uses too low a version of the http crate,
-// so we reimplement the injector here.
-struct HeaderInjector<'a>(pub &'a mut HeaderMap);
-
-impl Injector for HeaderInjector<'_> {
-    fn set(&mut self, key: &str, value: String) {
-        if let Ok(name) = HeaderName::from_bytes(key.as_bytes()) {
-            if let Ok(val) = HeaderValue::from_str(&value) {
-                self.0.insert(name, val);
-            }
-        }
     }
 }
 

@@ -1,15 +1,15 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+// TODOs:
+// - consider using a different data structure for the active set (#714)
+// - consider removing `min_stake` field, use threshold from number of
+//   shards and total_staked (#715)
+//
 /// Contains an active set of storage nodes. The active set is a smart collection
 /// that only stores up to a 1000 nodes. The nodes are sorted by the amount of
 /// staked WAL. Additionally, the active set tracks the total amount of staked
 /// WAL to make the calculation of the rewards and voting power distribution easier.
-///
-/// TODOs:
-/// - consider using a different data structure for the active set (#714)
-/// - consider removing `min_stake` field, use threshold from number of
-///   shards and total_staked (#715)
 module walrus::active_set_tests;
 
 use std::unit_test::assert_eq;

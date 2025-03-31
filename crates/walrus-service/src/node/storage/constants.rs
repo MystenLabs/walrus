@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use walrus_core::ShardIndex;
@@ -21,7 +21,7 @@ const SHARD_SYNC_PROGRESS_COLUMN_FAMILY_NAME: &str = "sync-progress";
 const SHARD_PENDING_RECOVER_SLIVERS_COLUMN_FAMILY_NAME: &str = "pending-recover-slivers";
 
 /// Returns the base column family name for a shard.
-fn base_column_family_name(id: ShardIndex) -> String {
+pub fn base_column_family_name(id: ShardIndex) -> String {
     format!("{}-{}", SHARD_BASE_COLUMN_FAMILY_NAME, id.0)
 }
 

@@ -2,6 +2,11 @@
 
 Published on: 2024-10-17
 
+```admonish warning
+This blog post is shown in its original form. It may contain information that is no longer accurate
+and broken links.
+```
+
 Today, a community of operators launches the first public Walrus Testnet.
 This is an important milestone in validating the operation of Walrus as a decentralized blob store,
 by operating it on a set of independent storage nodes, that change over time through a delegated

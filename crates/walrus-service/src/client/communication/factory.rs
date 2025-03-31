@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Create the vectors of node communications objects.
@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::anyhow;
+use prometheus::Registry;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::Client as ReqwestClient;
 use rustls::pki_types::CertificateDer;
@@ -33,6 +34,7 @@ pub(crate) struct NodeCommunicationFactory {
     encoding_config: Arc<EncodingConfig>,
     client_cache: Arc<Mutex<HashMap<(NetworkAddress, NetworkPublicKey), StorageNodeClient>>>,
     native_certs: Vec<CertificateDer<'static>>,
+    metrics_registry: Option<Registry>,
 }
 
 /// Factory to create the vectors of [`NodeCommunication`][super::NodeCommunication] objects.
@@ -40,6 +42,7 @@ impl NodeCommunicationFactory {
     pub(crate) fn new(
         config: ClientCommunicationConfig,
         encoding_config: Arc<EncodingConfig>,
+        metrics_registry: Option<Registry>,
     ) -> ClientResult<Self> {
         let native_certs = if !config.disable_native_certs {
             let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
@@ -64,6 +67,7 @@ impl NodeCommunicationFactory {
             encoding_config,
             client_cache: Default::default(),
             native_certs,
+            metrics_registry,
         })
     }
 
@@ -213,6 +217,10 @@ impl NodeCommunicationFactory {
                 if self.config.disable_proxy {
                     builder = builder.no_proxy();
                 }
+                if let Some(registry) = self.metrics_registry.as_ref() {
+                    builder = builder.metric_registry(registry.clone());
+                }
+
                 let client = builder
                     .authenticate_with_public_key(node.network_public_key.clone())
                     .add_root_certificates(&self.native_certs)

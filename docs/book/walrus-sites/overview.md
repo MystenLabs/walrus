@@ -77,16 +77,23 @@ Currently, we provide the server-side and the service-worker based approaches.
 ### Browsing and domain isolation
 
 We must ensure that, when browsing multiple sites through a portal, for example the one hosted at
-<https://walrus.site>, these sites are isolated. Isolation is necessary for security, and to ensure
+<https://wal.app>, these sites are isolated. Isolation is necessary for security, and to ensure
 that the wallet connection in the browser works as expected.
 
 To do so, we give each Walrus Site a specific *subdomain* of the portal's domain. For example, the
-Flatland mint dApp is hosted at <https://flatland.walrus.site>, where the subdomain `flatland` is
+Flatland mint dApp is hosted at <https://flatland.wal.app>, where the subdomain `flatland` is
 uniquely associated to the object ID of the Walrus Site through SuiNS.
 
-Walrus Sites also work without SuiNS: a site can *always* be browsed by using as subdomain the
-Base36 encoding of the Sui object ID of the site. For the Flatland dApp, this URL is:
-<https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.walrus.site>.
+Walrus Sites also work *without* SuiNS: when a site is accessed through a self-hosted portal, or
+through a portal that supports Base36 domain resolution, a site can be browsed by using as
+subdomain the Base36 encoding of the Sui object ID of the site.
+
+``` admonish danger
+The `wal.app` portal does not support Base36 domain resolution; therefore,
+<https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app> is not a valid URL. If you
+want to access such a site, you should either use another portal or
+[host your own](./portal.md#running-a-local-portal).
+```
 
 Base36 was chosen for two reasons, forced by the subdomain standards:
 
@@ -100,7 +107,8 @@ Base36 was chosen for two reasons, forced by the subdomain standards:
 As mentioned before, we provide two types of portals to browse Walrus Sites:
 
 - The server-side portal, which is a server that resolves a Walrus Site, returning it to the
-  browser. The server-side portal is hosted at <https://walrus.site>.
+  browser. The server-side portal is hosted at <https://wal.app>. This portal only supports sites
+  that are associated with a SuiNS name.
 - The service-worker portal, which is a service worker that is installed in the browser and
   resolves a Walrus Site. The service-worker portal is no longer hosted at a specific domain, but
   the code is still maintained so that it can be used by anyone.
@@ -118,8 +126,8 @@ The steps below all reference the following figure:
 - **Site publishing** (step 0): The site developer publishes the Walrus Site using the
   [`site-builder`](#the-site-builder), or making use of a publisher. Assume the developer uses the
   SuiNS name `dapp.sui` to point to the object ID of the created Walrus Site.
-- **Browsing starts** (step 1): A client browses `dapp.walrus.site/index.html` in their browser.
-- **Site resolution** (steps 2-6): The portal interprets its *origin* `dapp.walrus.site`, and makes
+- **Browsing starts** (step 1): A client browses `dapp.wal.app/index.html` in their browser.
+- **Site resolution** (steps 2-6): The portal interprets its *origin* `dapp.wal.app`, and makes
   a SuiNS resolution for `dapp.sui`, obtaining the related object ID. Using the object ID, it then
   fetches the dynamic fields of the object (also checking [redirects](./portal.md)). From the
   dynamic fields, it selects the one for `/index.html`, and extracts its Walrus blob ID and headers

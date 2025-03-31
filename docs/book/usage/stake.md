@@ -1,4 +1,4 @@
-# Staking
+# Staking and unstaking
 
 In Walrus, anyone can delegate stake to storage nodes and, by doing so, influence, which storage
 nodes get selected for the committee in future epochs, and how many shards these nodes will hold.
@@ -29,7 +29,7 @@ balance and rewards will be available to withdraw at the start of epoch `e + 1`.
 The Walrus Staking dApp allows users to stake (or unstake) to any of the storage nodes of the
 system.
 
-To use the dApp, visit <https://stake.walrus.site> and connect your wallet:
+To use the dApp, visit <https://stake-wal.wal.app> and connect your wallet:
 
 - Click the `Connect Wallet` button at the top right corner.
 - Select the wallet (if the wallet was connected before, this and the next step won't be required).

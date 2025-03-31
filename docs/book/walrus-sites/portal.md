@@ -8,11 +8,11 @@ portals:
 1. custom local apps; and
 1. service-worker based portals running in the browser.
 
-Currently, only a server-side portal is served at <https://walrus.site>.
+Currently, only a server-side portal is served at <https://wal.app>.
 
 ```admonish warning
 We are sunsetting the testnet portal! From now on, you can only access the mainnet portal
-at <https://walrus.site>.
+at <https://wal.app>.
 ```
 
 ```admonish note title="Hosting of the service worker"
@@ -59,43 +59,32 @@ The environment variables are set in the `.env.local` file at the root of each p
 To just run a simple instance of a portal, you can use the environment variables specified
 in the `.env.<network>.example` file:
 
-{{#tabs }}
-
-{{#tab name="Mainnet" }}
+##### Mainnet Server Portal Environment Variables
 
 ```sh
 cp ./portal/server/.env.mainnet.example ./portal/server/.env.local
 ```
 
-{{#endtab }}
-{{#tab name="Testnet" }}
+##### Testnet Server Portal Environment Variables
 
 ```sh
 cp ./portal/server/.env.testnet.example ./portal/server/.env.local
 ```
 
-{{#endtab }}
-{{#endtabs }}
-
 Likewise, if you want to run the service-worker portal, you can copy the `.env.<network>.example`
 file to `.env.local` in the `portal/worker` directory.
 
-{{#tabs}}
-{{#tab name="Mainnet" }}
+##### Mainnet Service Worker Portal Environment Variables
 
 ```sh
 cp ./portal/worker/.env.mainnet.example ./portal/worker/.env.local
 ```
 
-{{#endtab }}
-{{#tab name="Testnet" }}
+##### Testnet Service Worker Portal Environment Variables
 
 ```sh
 cp ./portal/worker/.env.testnet.example ./portal/worker/.env.local
 ```
-
-{{#endtab }}
-{{#endtabs }}
 
 For a more detailed configuration, you can modify the `.env.local` files to suit your needs.
 As a reference, here are the definitions of the environment variables:

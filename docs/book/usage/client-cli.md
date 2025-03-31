@@ -3,7 +3,7 @@
 The `walrus` binary can be used to interact with Walrus as a client. See the [setup
 chapter](./setup.md) for prerequisites, installation, and configuration.
 
-Detailed usage information is available through
+Detailed usage information including a full list of available commands can be viewed with
 
 ```sh
 walrus --help
@@ -12,6 +12,10 @@ walrus --help
 Each sub-command of `walrus` can also be called with `--help` to print its specific arguments and
 their meaning.
 
+If you have multiple *contexts* in your configuration file (as in the default one included on the
+[setup page](./setup.md#configuration)), you can specify the context for each command through the
+`--context` option.
+
 ## Walrus system information
 
 Information about the Walrus system is available through the `walrus info` command. It provides an
@@ -19,27 +23,30 @@ overview of current system parameters such as the current epoch, the number of s
 shards in the system, the maximum blob size, and the current cost in WAL for storing
 blobs:
 
-<!-- TODO(WAL-710): Update after epoch 1 -->
-
 ```console
 $ walrus info
 
 Walrus system information
 
 Epochs and storage duration
-Current epoch: 0
-Start time: 2025-03-14 10:14:01.612 UTC
-End time: 2025-03-28 10:14:01.612 UTC
+Current epoch: 1
+Start time: 2025-03-25 15:00:24.408 UTC
+End time: 2025-04-08 15:00:24.408 UTC
 Epoch duration: 14days
 Blobs can be stored for at most 53 epochs in the future.
 
 Storage nodes
-Number of storage nodes: 0
+Number of storage nodes: 103
 Number of shards: 1000
 
 Blob size
 Maximum blob size: 13.6 GiB (14,599,533,452 B)
 Storage unit: 1.00 MiB
+
+Storage prices per epoch
+(Conversion rate: 1 WAL = 1,000,000,000 FROST)
+Price per encoded storage unit: 0.0001 WAL
+Additional price for each write: 20,000 FROST
 
 ...
 ```
@@ -80,10 +87,17 @@ Storing one or multiple blobs on Walrus can be achieved through the following co
 walrus store <FILES> --epochs <EPOCHS>
 ```
 
-The mandatory CLI argument `--epochs <EPOCHS>` indicates the number of epochs the blob should be
+A mandatory CLI argument must be set to specify the end epoch for the blob.
+The `--epochs <EPOCHS>` option indicates the number of epochs the blob should be
 stored for. There is an upper limit on the number of epochs a blob can be stored for, which is 53,
 corresponding to two years. In addition to a positive integer,
 you can also use `--epochs max` to store the blob for the maximum number of epochs.
+
+Moreover, the end epoch for the stored blob can be provided through other options. The
+`--earliest-expiry-time <EARLIEST_EXPIRY_TIME>` option takes a date in RFC3339 format
+(e.g., "2024-03-20T15:00:00Z") or a more relaxed format (e.g., "2024-03-20 15:00:00") and ensures
+the blob expires after that date if possible. Finally, the `--end-epoch <END_EPOCH>` option takes
+a specific end epoch for the blob.
 
 You can store a single file or multiple files, separated by spaces. Notably, this is compatible
 with glob patterns; for example, `walrus store *.png --epochs <EPOCHS>` will store all PNG files
@@ -106,6 +120,10 @@ following:
 - If the blob is already certified on Walrus but as a *deletable* blob or not for a sufficient
   number of epochs, the command skips sending encoded blob data to the storage nodes and just
   collects the availability certificate
+
+```admonish tip title="Costs"
+We have a [separate page](../dev-guide/costs.md) with some considerations regarding cost.
+```
 
 ## Querying blob status
 
@@ -218,9 +236,9 @@ and `--all-expired` burns all expired blobs under the user account.
 
 Walrus allows a set of key-value attribute pairs to be associated with a blob object. While the key
 and values may be arbitrary strings to accommodate any needs of dapps, specific keys are converted
-to HTTP headers when serving blobs through aggregators.
-
-<!-- TODO(WAL-710):  attributes about HTTP headers understood by the aggregator? -->
+to HTTP headers when serving blobs through aggregators. Each aggregator can decide which headers it
+allows through the `--allowed-headers` CLI option; the defaults can be viewed through `walrus
+aggregator --help`.
 
 The command
 
@@ -228,7 +246,7 @@ The command
 walrus set-blob-attribute <BLOB_OBJ_ID> --attr "key1" "value1" --attr "key2" "value2"
 ```
 
-sets attributes `key1` and `key2` to values `value1` and `value2` respectively. The command
+sets attributes `key1` and `key2` to values `value1` and `value2`, respectively. The command
 `walrus get-blob-attribute <BLOB_OBJ_ID>` returns all attributes associated with a blob ID. Finally,
 
 ```sh

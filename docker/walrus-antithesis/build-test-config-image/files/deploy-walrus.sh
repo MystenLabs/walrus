@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) Mysten Labs, Inc.
+# Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 
 # use EPOCH_DURATION to set the epoch duration, default is 10 minutes in antithesis test.

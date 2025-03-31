@@ -2,6 +2,11 @@
 
 Published on: 2024-08-12
 
+```admonish warning
+This blog post is shown in its original form. It may contain information that is no longer accurate
+and broken links.
+```
+
 We have redeployed the Walrus Devnet to incorporate various improvements to the Walrus storage nodes
 and clients. In this process, all blobs stored on Walrus were wiped. Note that this may happen again
 on Devnet and Testnet, but obviously *not on the future Mainnet*.
