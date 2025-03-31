@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Helper struct to run the Walrus client binary commands.
@@ -767,6 +767,7 @@ impl ClientCommandRunner {
             Arc::new(EncodingConfig::new(
                 sui_read_client.current_committee().await?.n_shards(),
             )),
+            None,
         )?;
         let rpc_client = sui_rpc_api::Client::new(rpc_url.expect("rpc_url is set"));
         let latest_seq = if let Ok(rpc_client) = rpc_client {

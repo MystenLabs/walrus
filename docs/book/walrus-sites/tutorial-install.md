@@ -17,13 +17,23 @@ Then, follow these additional setup steps.
 Similar to the `walrus` client CLI tool, we currently provide the `site-builder` client binary for
 macOS (Intel and Apple CPUs), Ubuntu, and Windows:
 
+### Mainnet Binaries
+
 | OS      | CPU                   | Architecture |
 |---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| Ubuntu  | Intel 64bit           | [`ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64)                |
-| Ubuntu  | Intel 64bit (generic) | [`ubuntu-x86_64-generic`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64-generic)|
-| MacOS   | Apple Silicon         | [`macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
-| MacOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
-| Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
+| Ubuntu  | Intel 64bit           | [`site-builder-mainnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-ubuntu-x86_64)                |
+| MacOS   | Apple Silicon         | [`site-builder-mainnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-arm64)                    |
+| MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
+| Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
+
+### Testnet Binaries
+
+| OS      | CPU                   | Architecture |
+|---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| Ubuntu  | Intel 64bit           | [`site-builder-testnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64)                |
+| MacOS   | Apple Silicon         | [`site-builder-testnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
+| MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
+| Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
 
 ```admonish title="Windows"
 We now offer a pre-built binary also for Windows. However, most of the remaining instructions assume
@@ -33,6 +43,16 @@ adapt most of those.
 
 You can download the latest build from our Google Cloud Storage (GCS) bucket (correctly setting the
 `$SYSTEM` variable):
+
+### Mainnet curl request
+
+``` sh
+SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
+curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-$SYSTEM -o site-builder
+chmod +x site-builder
+```
+
+### Testnet curl request
 
 ``` sh
 SYSTEM= # set this to your system: ubuntu-x86_64, ubuntu-x86_64-generic, macos-x86_64, macos-arm64, windows-x86_64.exe
@@ -72,46 +92,38 @@ Commands:
 
 The `site-builder` tool needs a configuration file to work. This file is called `sites-config.yaml`
 and looks like this:
-{{#tabs }}
-
-{{#tab name="Mainnet" }}
 
 ```yaml
-# module: site
-# portal: walrus.site
-package:
-# general:
-#   rpc_url:
-#   wallet:
-#   walrus_binary: /path/to/walrus
-#   walrus_config: /path/to/devnet_deployment/client_config.yaml
-#   gas_budget: 500000000
+contexts:
+  testnet:
+    # module: site
+    # portal: wal.app
+    package: 0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799
+    # general:
+    #   rpc_url: https://fullnode.testnet.sui.io:443
+    #   wallet: /path/to/.sui/sui_config/client.yaml
+    #   walrus_binary: /path/to/walrus
+    #   walrus_config: /path/to/testnet/client_config.yaml
+    #   gas_budget: 500000000
+  mainnet:
+    # module: site
+    # portal: wal.app
+    package: 0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27
+    # general:
+    #   rpc_url: https://fullnode.mainnet.sui.io:443
+    #   wallet: /path/to/.sui/sui_config/client.yaml
+    #   walrus_binary: /path/to/walrus
+    #   walrus_config: /path/to/mainnet/client_config.yaml
+    #   gas_budget: 500000000
+
+default_context: mainnet
 ```
 
-{{#endtab }}
-
-{{#tab name="Testnet" }}
-
-```yaml
-# module: site
-# portal: walrus.site
-package: 0xdf9033cac39b7a9b9f76fb6896c9fc5283ba730d6976a2b1d85ad1e6036c3272
-# general:
-#   rpc_url: https://fullnode.testnet.sui.io:443
-#   wallet: /path/to/.sui/sui_config/client.yaml
-#   walrus_binary: /path/to/walrus
-#   walrus_config: /path/to/devnet_deployment/client_config.yaml
-#   gas_budget: 500000000
-```
-
-{{#endtab }}
-
-{{#endtabs }}
-
-As you can see, the configuration file is quite simple. The only mandatory field is the `package`
-field, which represents the Sui object ID of the Walrus Sites smart contract. You can find the
-latest version of the package in the [Walrus Sites
-repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the `mainnet` branch.
+As you can see, the configuration file is quite simple. You can define here different contexts and
+their configurations, with just the package id field being the mandatory one, representing the Sui
+object ID of the Walrus Sites smart contract. You can find the latest version of the package in the
+[Walrus Sites repository](https://github.com/MystenLabs/walrus-sites/tree/mainnet) on the `mainnet`
+branch.
 
 ```admonish danger title="Walrus Sites stable branch"
 The stable branch of Walrus Sites is `mainnet`.

@@ -1,0 +1,24 @@
+name: Trigger Build Artifacts
+run-name: Trigger Build Artifacts → ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - devnet
+      - testnet
+      - mainnet
+
+concurrency: ${{ github.workflow }}-${{ github.ref_name }}
+
+jobs:
+  trigger-artifact-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Walrus Artifact Builds in MystenLabs/sui-operations
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # pin@v3.0.0
+        with:
+          repository: MystenLabs/sui-operations
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          event-type: walrus-build-artifacts
+          client-payload: '{"branch": "${{ github.ref_name }}"}'

@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use core::fmt::{self, Display};
@@ -8,11 +8,14 @@ use std::{
     ops::Bound::{Excluded, Included},
     path::Path,
     sync::Arc,
+    time::Instant,
 };
 
 use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
 use event_cursor_table::EventIdWithProgress;
 use itertools::Itertools;
+use metrics::{CommonDatabaseMetrics, Labels, OperationType};
+use prometheus::Registry;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
@@ -57,6 +60,7 @@ mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
 
 mod event_sequencer;
+mod metrics;
 mod shard;
 
 pub(crate) use shard::{
@@ -145,6 +149,8 @@ pub struct Storage {
     event_cursor: EventCursorTable,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     config: DatabaseConfig,
+    metrics: Arc<CommonDatabaseMetrics>,
+    metrics_registry: Registry,
 }
 
 /// An opaque lock object that can be required to later access the shards map.
@@ -168,6 +174,7 @@ impl Storage {
         path: &Path,
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
+        registry: Registry,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::from(&db_config.global);
         db_opts.create_missing_column_families(true);
@@ -258,7 +265,7 @@ impl Storage {
             existing_shards_ids
                 .into_iter()
                 .map(|id| {
-                    ShardStorage::create_or_reopen(id, &database, &db_config, None)
+                    ShardStorage::create_or_reopen(id, &database, &db_config, None, &registry)
                         .map(|shard| (id, Arc::new(shard)))
                 })
                 .collect::<Result<_, _>>()?,
@@ -272,6 +279,11 @@ impl Storage {
             event_cursor,
             shards,
             config: db_config,
+            metrics: Arc::new(CommonDatabaseMetrics::new_with_id(
+                &registry,
+                "storage".to_owned(),
+            )),
+            metrics_registry: registry,
         })
     }
 
@@ -310,24 +322,42 @@ impl Storage {
         mut locked_map: StorageShardLock,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
+        let start = Instant::now();
+        let labels = Labels {
+            collection_name: "shards",
+            operation_name: OperationType::Create,
+            query_summary: "CREATE shards",
+            ..Labels::default()
+        };
+        tracing::info!(count = new_shards.len(), "creating storage for shards");
+
         for &shard_index in new_shards {
             match locked_map.shards_guard.entry(shard_index) {
                 Entry::Vacant(entry) => {
-                    let shard_storage = Arc::new(ShardStorage::create_or_reopen(
+                    let shard_storage = ShardStorage::create_or_reopen(
                         shard_index,
                         &self.database,
                         &self.config,
                         Some(ShardStatus::None),
-                    )?);
+                        &self.metrics_registry,
+                    )
+                    .inspect_err(|error| {
+                        self.metrics
+                            .observe_operation_duration(labels.with_error(error), start.elapsed());
+                    })?;
+
                     tracing::info!(
                         walrus.shard_index = %shard_index,
                         "successfully created storage for shard"
                     );
-                    entry.insert(shard_storage);
+                    entry.insert(Arc::new(shard_storage));
                 }
                 Entry::Occupied(_) => (),
             }
         }
+
+        self.metrics
+            .observe_operation_duration(labels.with_response(Ok(&())), start.elapsed());
         Ok(())
     }
 
@@ -432,11 +462,23 @@ impl Storage {
         blob_id: &BlobId,
         metadata: &BlobMetadata,
     ) -> Result<(), TypedStoreError> {
+        let start = Instant::now();
+        let labels = Labels {
+            collection_name: metadata_cf_name(),
+            operation_name: OperationType::Insert,
+            query_summary: "INSERT metadata BY blob_id, UPDATE blob_info",
+            ..Default::default()
+        };
+
         let mut batch = self.metadata.batch();
         batch.insert_batch(&self.metadata, [(blob_id, metadata)])?;
         self.blob_info
             .set_metadata_stored(&mut batch, blob_id, true)?;
-        batch.write()
+        let response = batch.write();
+
+        self.metrics
+            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
+        response
     }
 
     /// Returns the blob info for `blob_id`.
@@ -525,9 +567,20 @@ impl Storage {
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<VerifiedBlobMetadataWithId>, TypedStoreError> {
-        Ok(self
-            .metadata
-            .get(blob_id)?
+        let start = Instant::now();
+        let labels = Labels {
+            collection_name: metadata_cf_name(),
+            operation_name: OperationType::Get,
+            query_summary: "GET metadata BY blob_id",
+            ..Labels::default()
+        };
+
+        let response = self.metadata.get(blob_id);
+
+        self.metrics
+            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
+
+        Ok(response?
             .map(|inner| VerifiedBlobMetadataWithId::new_verified_unchecked(*blob_id, inner)))
     }
 
@@ -1139,6 +1192,7 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                Registry::default(),
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1177,6 +1231,7 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                Registry::default(),
             )?;
 
             // Check that the shard status is restored correctly.
@@ -1301,6 +1356,7 @@ pub(crate) mod tests {
                 path_clone.as_path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                Registry::default(),
             )?;
 
             // Check shard files exist.
@@ -1319,6 +1375,7 @@ pub(crate) mod tests {
                 directory.path(),
                 DatabaseConfig::default(),
                 MetricConf::default(),
+                Registry::default(),
             )?;
 
             // Reload storage and the shard should not exist.
@@ -1589,6 +1646,55 @@ pub(crate) mod tests {
         for blob_id in blob_ids.iter().take(6).skip(5) {
             assert!(all_certified_blob_ids(&storage, Some(*blob_id), new_epoch)?.is_empty());
         }
+
+        Ok(())
+    }
+
+    // A sanity check to ensure that after certified_blob_info_iter_before_epoch is created,
+    // any update to the blob info table will not affect the iterator.
+    #[tokio::test]
+    async fn test_certified_blob_info_iter_before_epoch_is_isolated() -> TestResult {
+        let storage = empty_storage().await;
+        let blob_info = storage.inner.blob_info.clone();
+
+        let blob_ids = [
+            BlobId([0; 32]),
+            BlobId([1; 32]),
+            BlobId([2; 32]),
+            BlobId([3; 32]),
+            BlobId([4; 32]),
+        ];
+
+        let blob_info_map = HashMap::from([
+            (blob_ids[0], certified_blob_info(2)),
+            (blob_ids[1], certified_blob_info(5)),
+            (blob_ids[2], certified_blob_info(2)),
+            (blob_ids[3], certified_blob_info(2)),
+        ]);
+
+        let mut batch = blob_info.batch();
+        blob_info.insert_batch(&mut batch, blob_info_map.iter())?;
+        batch.write()?;
+
+        // Create the iterator, which should take the snapshot of the blob info table at the
+        // creation time.
+        let certified_blob_iter = storage
+            .inner
+            .blob_info
+            .certified_blob_info_iter_before_epoch(3, Unbounded);
+
+        // Update blob info table, and these updates should not be visible to the iterator.
+        blob_info.insert(&blob_ids[4], &certified_blob_info(2))?;
+        blob_info.remove(&blob_ids[0])?;
+
+        // Check that the certified blob list matches the state of the blob info table at the
+        // creation time.
+        assert_eq!(
+            certified_blob_iter
+                .map(|result| result.map(|(id, _info)| id))
+                .collect::<Result<Vec<_>, _>>()?,
+            vec![blob_ids[0], blob_ids[2], blob_ids[3]]
+        );
 
         Ok(())
     }

@@ -23,6 +23,9 @@ on:
         type: boolean
         required: true
         default: false
+  schedule:
+    # Update Walrus Site every first day of the month at 03:14 UTC.
+    - cron: "14 3 1 * *"
 
 concurrency: ci-${{ github.ref }}
 
@@ -54,12 +57,13 @@ jobs:
   publish-walrus:
     name: Update Walrus Site
     runs-on: ubuntu-ghcloud
-    # TODO(WAL-698): enable this when Mainnet is live and we have finished the setup.
-    # if: ${{ github.event_name == 'push' || inputs.update-walrus-site == true }}
-    if: false
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.update-walrus-site == true }}
     env:
       # Colors don't seem to work properly with the multiline commands.
       NO_COLOR: 1
+      RUST_LOG: info
+      EPOCHS: 10
+      BUILD_DIR: docs/build/html
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: ./.github/actions/build-mdbook
@@ -72,10 +76,17 @@ jobs:
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
           SUI_NETWORK: mainnet
 
+      # TODO: Remove this step once the site-builder supports supports storing multiple blobs
+      # simultaneously.
+      - name: Store blobs on Walrus
+        run: >
+          walrus store
+          $(find ${{ env.BUILD_DIR }} -type f -exec echo -n ' {}' \;)
+          --deletable --epochs ${{ env.EPOCHS }}
+
       - name: Update Walrus Site
         run: >
-          RUST_LOG=site_builder=debug,walrus=debug,info
           site-builder
-          update docs/build/html ${{ vars.WALRUS_SITE_OBJECT }}
-          --epochs 183
+          update ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_DOCS }}
+          --epochs ${{ env.EPOCHS }}
           --force

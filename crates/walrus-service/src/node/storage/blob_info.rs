@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Keeping track of the status of blob IDs and on-chain `Blob` objects.
@@ -213,7 +213,6 @@ impl BlobInfoTable {
         self.aggregate_blob_info.remove(blob_id)
     }
 
-    #[cfg(test)]
     pub fn keys(&self) -> Result<Vec<BlobId>, TypedStoreError> {
         self.aggregate_blob_info
             .safe_iter()

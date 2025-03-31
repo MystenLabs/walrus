@@ -31,11 +31,10 @@
 - [Developer guide](./dev-guide/dev-guide.md)
   - [Components](./dev-guide/components.md)
   - [Operations](./dev-guide/dev-operations.md)
+  - [Storage costs](./dev-guide/costs.md)
   - [Sui structures](./dev-guide/sui-struct.md)
-- [Operator guide](./operator-guide/operator-guide.md)
-  - [Storage node](./operator-guide/storage-node.md)
-  - [Aggregator](./operator-guide/aggregator.md)
-- [Stake and Unstake](./usage/stake.md)
+- [Operating an aggregator or publisher](./operator-guide/aggregator.md)
+- [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)
 
@@ -57,7 +56,6 @@
   - [Bring your own domain](./walrus-sites/bring-your-own-domain.md)
   - [Site data authentication](./walrus-sites/authentication.md)
   - [Known restrictions](./walrus-sites/restrictions.md)
-- [Terms of service](./walrus-sites/tos.md)
 
 ---
 
@@ -78,3 +76,4 @@
 [Glossary](./glossary.md)
 [Testnet terms of service](./legal/testnet_tos.md)
 [Privacy policy](./legal/privacy.md)
+[Walrus general terms of service](./legal/walrus_general_tos.md)

@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Utility functions for the Walrus service.
@@ -475,8 +475,9 @@ pub(crate) struct ShardDiffCalculator {
 }
 
 impl ShardDiffCalculator {
+    // TODO(WAL-657): Use `node_id` instead of `public_key`.
+    //
     /// Create a new `ShardDiffCalculator` for a storage node.
-    /// TODO(WAL-657): Use `node_id` instead of `public_key`.
     pub fn new(committees: &ActiveCommittees, id: &PublicKey, shards_exist: &[ShardIndex]) -> Self {
         let shards_assigned_prev_epoch = committees
             .previous_committee()
@@ -769,6 +770,8 @@ pub async fn collect_event_blobs_for_catchup(
     let blob_ids = blob_downloader
         .download(upto_checkpoint, None, recovery_path, metrics)
         .await?;
+
+    tracing::info!("successfully downloaded {} event blobs", blob_ids.len());
     Ok(blob_ids)
 }
 

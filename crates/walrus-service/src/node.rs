@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Walrus storage node.
@@ -45,6 +45,7 @@ use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
+use thread_pool::ThreadPoolBuilder;
 use tokio::{select, sync::watch, time::Instant};
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
@@ -171,6 +172,7 @@ pub(crate) mod metrics;
 
 mod blob_retirement_notifier;
 mod blob_sync;
+mod consistency_check;
 mod epoch_change_driver;
 mod node_recovery;
 mod recovery_symbol_service;
@@ -568,6 +570,7 @@ impl StorageNode {
                 config.storage_path.as_path(),
                 config.db_config.clone(),
                 MetricConf::new("storage"),
+                registry.clone(),
             )?
         };
         tracing::info!("successfully opened the node database");
@@ -593,7 +596,11 @@ impl StorageNode {
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
-                thread_pool::default_bounded(),
+                ThreadPoolBuilder::default()
+                    .max_concurrent(config.thread_pool.max_concurrent_tasks)
+                    .metrics_registry(registry.clone())
+                    .build_bounded(),
+                registry,
             ),
             encoding_config,
         });
@@ -1229,6 +1236,19 @@ impl StorageNode {
         self.start_epoch_change_finisher
             .wait_until_previous_task_done()
             .await;
+
+        if let Err(err) = consistency_check::schedule_background_consistency_check(
+            self.inner.clone(),
+            event.epoch,
+        )
+        .await
+        {
+            tracing::warn!(
+                ?err,
+                epoch = %event.epoch,
+                "failed to schedule background blob info consistency check"
+            );
+        }
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.

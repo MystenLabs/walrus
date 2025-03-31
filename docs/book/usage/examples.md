@@ -32,7 +32,7 @@ contains a number of examples:
   illustrates reading the Blob Sui object that certifies (see the [Walrus Sui
   reference](../dev-guide/sui-struct.md)).
 - How to [track Walrus related
-  Events](https://github.com/MystenLabs/walrus/blob/main/examples/docs/python/track_walrus_events.py).
+  Events](https://github.com/MystenLabs/walrus/blob/main/docs/examples/python/track_walrus_events.py).
 
 ## JavaScript
 

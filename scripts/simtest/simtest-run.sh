@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) Mysten Labs, Inc.
+# Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 
 echo "Running Walrus simtests at commit $(git rev-parse HEAD)"
@@ -43,6 +43,12 @@ WALRUS_TMP_DIR=~/walrus_simtest_tmp
 RUST_LIB_PATHS=$(find ~/.rustup/toolchains -type d -path "*/lib/rustlib/x86_64-unknown-linux-gnu/lib" 2>/dev/null)
 export LD_LIBRARY_PATH=$(echo "$RUST_LIB_PATHS" | tr '\n' ':')${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 
+# Use increased watch dog timeout in simtest.
+# Walrus simtest using default setup creates a sui cluster in a single thread, and when initializing
+# the cluster 5 seconds wall time of idle activity is common especially when initializing the
+# database. This often causes the simtest to be killed by the watchdog.
+WATCHDOG_TIMEOUT_MS=30000
+
 # By default run 1 iteration for each test, if not specified.
 : ${TEST_NUM:=1}
 
@@ -59,6 +65,7 @@ date
 TMPDIR="$WALRUS_TMP_DIR" \
 MSIM_TEST_SEED="$SEED" \
 MSIM_TEST_NUM=${TEST_NUM} \
+MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
 scripts/simtest/cargo-simtest simtest simtest \
   --color never \
   --test-threads "$NUM_CPUS" \

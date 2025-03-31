@@ -40,7 +40,7 @@ body:
     attributes:
       label: Deviation steps
       description: >
-        If you have deviated from the [setup instructions](https://docs.walrus.site/usage/setup.html), please describe how.
+        If you have deviated from the [setup instructions](https://docs.wal.app/usage/setup.html), please describe how.
     validations:
       required: false
   - type: textarea

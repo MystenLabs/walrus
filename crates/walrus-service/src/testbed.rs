@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Facilities to deploy a Walrus testbed.
@@ -759,6 +759,7 @@ pub async fn create_storage_node_configs(
             storage_node_cap: None,
             num_uncertified_blob_threshold: Some(10),
             balance_check: Default::default(),
+            thread_pool: Default::default(),
         });
     }
 

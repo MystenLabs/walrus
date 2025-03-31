@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Contains integration tests for the Sui bindings.
@@ -58,7 +58,7 @@ use walrus_test_utils::{async_param_test, WithTempDir};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 async fn initialize_contract_and_wallet() -> anyhow::Result<(
-    Arc<TestClusterHandle>,
+    Arc<tokio::sync::Mutex<TestClusterHandle>>,
     WithTempDir<SuiContractClient>,
     SystemContext,
 )> {
@@ -68,7 +68,7 @@ async fn initialize_contract_and_wallet() -> anyhow::Result<(
 async fn initialize_contract_and_wallet_with_epoch_duration(
     epoch_duration: Duration,
 ) -> anyhow::Result<(
-    Arc<TestClusterHandle>,
+    Arc<tokio::sync::Mutex<TestClusterHandle>>,
     WithTempDir<SuiContractClient>,
     SystemContext,
 )> {

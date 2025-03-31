@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Event blob writer.
@@ -533,20 +533,34 @@ impl EventBlobWriterFactory {
         let uncertified_blobs_after_last_certified =
             pending.len() + failed_to_attest.len() + attested.len();
 
-        let should_reset = total_uncertified_blobs == uncertified_blobs_after_last_certified
-            && uncertified_blobs_after_last_certified as u32 >= num_uncertified_blob_threshold;
+        let consecutive_uncertified = uncertified_blobs_after_last_certified as u32;
+
+        // We reset the node pending blobs if the local node has already certified the last
+        // certified blob on chain, and have pending blob greater than
+        // num_uncertified_blob_threshold to recover the possible local node event blob corruption.
+        // Node that we need to check either the local last certified blob is the same as the chain
+        // last certified blob or the local last certified blob is one checkpoint behind the chain
+        // last certified blob, to account for the situation where node is crashed after sending
+        // out the last certified blob and before receiving the certification event.
+        let should_reset = consecutive_uncertified >= num_uncertified_blob_threshold
+            && (total_uncertified_blobs == consecutive_uncertified as usize
+                || total_uncertified_blobs == consecutive_uncertified as usize + 1);
+
         if !should_reset {
             tracing::info!(
-                "No need to reset as number of uncertified blobs {} is less than the threshold {}",
-                uncertified_blobs_after_last_certified,
-                num_uncertified_blob_threshold
+                "Skipping reset: uncertified blobs ({}/{}) below threshold {}. Last certified at \
+                checkpoint {}",
+                consecutive_uncertified,
+                total_uncertified_blobs,
+                num_uncertified_blob_threshold,
+                last_certified_event_blob.ending_checkpoint_sequence_number
             );
             return Ok(());
         }
+
         tracing::info!(
-            "Resetting current event blob writer state as number of uncertified blobs {} \
-            is greater than the threshold {}",
-            uncertified_blobs_after_last_certified,
+            "Resetting event blob writer: uncertified blobs ({}) exceeded threshold ({})",
+            consecutive_uncertified,
             num_uncertified_blob_threshold
         );
         let mut wb = pending_db.batch();
@@ -1035,10 +1049,10 @@ impl EventBlobWriter {
             return Ok(());
         }
         tracing::info!(
-            "attesting event blob: {} in epoch: {}. Ending checkpoint sequence number: {}",
-            blob_id,
-            self.current_epoch,
-            checkpoint_sequence_number
+            blob_id = %blob_id,
+            epoch = self.current_epoch,
+            checkpoint = checkpoint_sequence_number,
+            "attesting event blob"
         );
 
         self.metrics
@@ -1056,7 +1070,15 @@ impl EventBlobWriter {
             )
             .await
         {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                tracing::info!(
+                    blob_id = %blob_id,
+                    epoch = self.current_epoch,
+                    checkpoint = checkpoint_sequence_number,
+                    "attesting event blob successfully"
+                );
+                Ok(())
+            }
             Err(err) => {
                 let result = match err {
                     SuiClientError::TransactionExecutionError(
