@@ -465,7 +465,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             } => match result {
                 Ok((pairs, metadata)) => {
                     let blob_id = *metadata.blob_id();
-                    span.record("blob_id", blob_id.to_string()); // Updates the existing field
+                    span.record("blob_id", blob_id.to_string());
                     WalrusStoreBlob::Encoded {
                         blob,
                         identifier,
@@ -493,7 +493,6 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             }
         };
 
-        // Use the span from the new state for logging
         {
             let _enter = new_state.get_span().enter();
             tracing::event!(BLOB_SPAN_LEVEL,
@@ -1481,14 +1480,11 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
-        let path_map = blobs_with_paths
-            .iter()
-            .enumerate()
-            .map(|(i, (path, _))| (path, format!("blob_{}", i)))
-            .collect::<HashMap<_, _>>();
+        // Not using Path as identifier because it's not unique.
         let blobs_with_identifiers = blobs_with_paths
             .iter()
-            .map(|(path, blob)| WalrusStoreBlob::new_unencoded(blob, path_map[path].clone()))
+            .enumerate()
+            .map(|(i, (_, blob))| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
         let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
@@ -1498,7 +1494,7 @@ impl Client<SuiContractClient> {
 
         tracing::info!("debug-store encode results: {:?}", encoded_blobs);
 
-        let store_results = self
+        let mut completed_blobs = self
             .retry_if_error_epoch_change(|| {
                 self.reserve_and_store_encoded_blobs(
                     encoded_blobs.clone(),
@@ -1510,30 +1506,23 @@ impl Client<SuiContractClient> {
             })
             .await?;
 
-        assert_eq!(store_results.len(), encoded_blobs.len());
+        assert_eq!(completed_blobs.len(), blobs_with_paths.len());
+        completed_blobs.sort_by_key(|blob| blob.get_identifier().to_string());
 
-        let results: Vec<BlobStoreResultWithPath> = blobs_with_paths
-            .iter()
-            .map(|(path, _)| {
-                let identifier = &path_map[path];
-                let store_result = store_results
-                    .iter()
-                    .find(|blob| blob.get_identifier() == identifier)
-                    .and_then(|blob| blob.get_result())
-                    .cloned()
-                    .unwrap_or_else(|| BlobStoreResult::Error {
-                        blob_id: None,
-                        error_msg: format!("No result found for path: {}", path.display()),
-                    });
+        let mut results: Vec<BlobStoreResultWithPath> = Vec::new();
+        for (blob, (path, _)) in completed_blobs.iter().zip(blobs_with_paths.iter()) {
+            let store_result = blob.get_result().ok_or_else(|| {
+                ClientError::store_blob_internal(format!(
+                    "No result found for path: {}",
+                    path.display()
+                ))
+            })?;
 
-                BlobStoreResultWithPath {
-                    path: path.clone(),
-                    blob_store_result: store_result,
-                }
-            })
-            .collect();
-
-        debug_assert_eq!(results.len(), blobs_with_paths.len());
+            results.push(BlobStoreResultWithPath {
+                path: path.clone(),
+                blob_store_result: store_result.clone(),
+            });
+        }
 
         Ok(results)
     }
@@ -1554,7 +1543,7 @@ impl Client<SuiContractClient> {
         let blobs_with_identifiers = blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{}", i)))
+            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
         let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
@@ -1580,35 +1569,11 @@ impl Client<SuiContractClient> {
             .collect())
     }
 
-    // async fn encode_blobs_to_pairs_and_metadata_with_path<'a> (
-    //     &self,
-    //     blobs_with_paths: &'a [(PathBuf, Vec<u8>)],
-    //     encoding_type: EncodingType,
-    // ) -> ClientResult<Vec<WalrusStoreBlob<'a, Path>>> {
-    //     let blobs_with_identifiers: Vec<_> = blobs_with_paths
-    //         .iter()
-    //         .map(|(path, b)| BlobWithIdentifier {
-    //             identifier: path.to_str().unwrap_or("invalid path"),
-    //             blob: b.as_slice(),
-    //         })
-    //         .collect();
-    //     let results = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
-    //         &blobs_with_identifiers,
-    //         encoding_type,
-    //     )?;
-
-    //     debug_assert_eq!(
-    //         results.len(),
-    //         blobs_with_paths.len(),
-    //         "the number of encoded blobs and the number of blobs with paths must be the same"
-    //     );
-
-    //     tracing::info!("encoded files to metadata: {:?}", results);
-
-    //     Ok(results)
-    // }
-
     /// Encodes multiple blobs into sliver pairs and metadata.
+    ///
+    /// Returns a list of sliver pairs and metadata for each blob.
+    ///
+    /// Failed blobs are filtered out.
     pub fn encode_blobs_to_pairs_and_metadata(
         &self,
         blobs: &[&[u8]],
@@ -1617,7 +1582,7 @@ impl Client<SuiContractClient> {
         let blobs_with_identifiers = blobs
             .iter()
             .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{}", i)))
+            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
             .collect::<Vec<_>>();
 
         let encoded_blobs = self.encode_blobs_to_pairs_and_metadata_with_identifiers(
@@ -1631,6 +1596,7 @@ impl Client<SuiContractClient> {
             "the number of encoded blobs and the number of blobs must be the same"
         );
 
+        // Failed blobs are filtered out.
         let result = encoded_blobs
             .into_iter()
             .filter_map(|encoded_blob| {
@@ -1648,8 +1614,12 @@ impl Client<SuiContractClient> {
         Ok(result)
     }
 
-    /// Encodes multiple blobs into sliver pairs and metadata, filtering out any that fail.
-    /// Returns the successful list of sliver and metadata and logs the indices of failed blobs.
+    /// Encodes multiple blobs.
+    ///
+    /// Returns a list of WalrusStoreBlob as the encoded result. The return list
+    /// is in the same order as the input list.
+    /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
+    /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
     pub fn encode_blobs_to_pairs_and_metadata_with_identifiers<'a, T: Display + Send + Sync>(
         &self,
         blobs_with_identifiers: Vec<WalrusStoreBlob<'a, T>>,
