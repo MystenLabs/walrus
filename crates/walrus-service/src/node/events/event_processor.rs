@@ -483,9 +483,6 @@ impl EventProcessor {
             let verified_checkpoint =
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
 
-            // Update the checkpoint cache immediately after verification.
-            self.update_checkpoint_cache(*verified_checkpoint.sequence_number());
-
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
             // TODO(WAL-667): remove special case
@@ -591,6 +588,7 @@ impl EventProcessor {
                 )
                 .map_err(|e| anyhow!("Failed to insert checkpoint into checkpoint store: {}", e))?;
             write_batch.write()?;
+            self.update_checkpoint_cache(*verified_checkpoint.sequence_number());
             prev_verified_checkpoint = verified_checkpoint;
             next_checkpoint += 1;
         }
@@ -688,14 +686,15 @@ impl EventProcessor {
                 client: retry_client.clone(),
             };
             let recovery_path = runtime_config.db_path.join("recovery");
-            if let Err(error) = Self::catchup_using_event_blobs(
-                clients,
-                system_config.clone(),
-                stores.clone(),
-                &recovery_path,
-                Some(&event_processor.metrics),
-            )
-            .await
+            if let Err(error) = event_processor
+                .catchup_using_event_blobs(
+                    clients,
+                    system_config.clone(),
+                    stores.clone(),
+                    &recovery_path,
+                    Some(&event_processor.metrics),
+                )
+                .await
             {
                 tracing::error!(?error, "failed to catch up using event blobs");
             } else {
@@ -911,6 +910,7 @@ impl EventProcessor {
     /// events from the earliest available event blob (in which case the first stored event index
     /// could be greater than `0`).
     pub async fn catchup_using_event_blobs(
+        &self,
         clients: SuiClientSet,
         system_objects: SystemConfig,
         stores: EventProcessorStores,
@@ -946,13 +946,14 @@ impl EventProcessor {
             .transpose()?
             .map(|(i, _)| i + 1);
 
-        Self::process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
+        self.process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
             .await?;
 
         Ok(())
     }
 
     async fn process_event_blobs(
+        &self,
         blobs: Vec<BlobId>,
         stores: &EventProcessorStores,
         recovery_path: &Path,
@@ -1057,6 +1058,7 @@ impl EventProcessor {
             )?;
 
             batch.write()?;
+            self.update_checkpoint_cache(last_checkpoint);
             fs::remove_file(blob_path)?;
             next_event_index = Some(last_event_index + 1);
             tracing::info!(
@@ -1112,24 +1114,7 @@ impl EventProcessor {
     /// Gets the latest checkpoint sequence number, preferring the cache.
     pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
         // Try to get from cache first.
-        let cached = self.latest_checkpoint_seq_cache.load(Ordering::SeqCst);
-        if cached > 0 {
-            return Some(cached);
-        }
-
-        // If cache is empty, query the store.
-        let seq_num = match self.stores.checkpoint_store.get(&()) {
-            Ok(Some(checkpoint)) => Some(*checkpoint.inner().sequence_number()),
-            _ => None,
-        };
-
-        // Update the cache if we had to read from the store.
-        if let Some(num) = seq_num {
-            self.latest_checkpoint_seq_cache
-                .store(num, Ordering::SeqCst);
-        }
-
-        seq_num
+        Some(self.latest_checkpoint_seq_cache.load(Ordering::SeqCst))
     }
 }
 
