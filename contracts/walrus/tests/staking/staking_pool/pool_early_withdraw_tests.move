@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 // Early withdrawal mechanics (for E0, E0', E1, E1', E2, E2'):

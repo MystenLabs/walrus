@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Client for the Walrus service.
@@ -16,6 +16,7 @@ use cli::{styled_progress_bar, styled_spinner};
 use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
+use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use refresh::are_current_previous_different;
@@ -1066,6 +1067,24 @@ impl Client<()> {
         config: Config,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
+        Self::new_inner(config, committees_handle, None).await
+    }
+
+    /// Creates a new Walrus client without a Sui client, that records metrics to the provided
+    /// registry.
+    pub async fn new_with_metrics(
+        config: Config,
+        committees_handle: CommitteesRefresherHandle,
+        metrics_registry: Registry,
+    ) -> ClientResult<Self> {
+        Self::new_inner(config, committees_handle, Some(metrics_registry)).await
+    }
+
+    async fn new_inner(
+        config: Config,
+        committees_handle: CommitteesRefresherHandle,
+        metrics_registry: Option<Registry>,
+    ) -> ClientResult<Self> {
         tracing::debug!(?config, "running client");
 
         // Request the committees and price computation from the cache.
@@ -1089,6 +1108,7 @@ impl Client<()> {
             communication_factory: NodeCommunicationFactory::new(
                 config.communication_config.clone(),
                 encoding_config,
+                metrics_registry,
             )?,
             config,
         })

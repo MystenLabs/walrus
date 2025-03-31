@@ -1,14 +1,14 @@
 <!-- markdownlint-disable proper-names -->
 # TESTNET TERMS OF SERVICE - WALRUS
 
-Last updated: October 17, 2024
+Last updated: March 26, 2025
 
-By using Mysten Labs Testnet software, technologies, tools, and other services (collectively
-**“Testnet”**), you agree to the general Terms of Service and these additional Testnet Terms of
-Service (together, the **“Terms”**). If you do not agree, do not participate in Testnet. If you are
-using Testnet on behalf of an organization, you represent and warrant that you are an authorized
-representative of that organization and have the authority to bind that business or entity to the
-Terms.
+By using Walrus Testnet software, technologies, tools, and other services (collectively
+**“Testnet”**) offered by Walrus Foundation ("Walrus Foundation", "we", "our"), you agree to the
+general Walrus Terms of Service and these additional Testnet Terms of Service (together, the
+**“Terms”**). If you do not agree, do not participate in Testnet. If you are using Testnet on behalf
+of an organization, you represent and warrant that you are an authorized representative of that
+organization and have the authority to bind that business or entity to the Terms.
 
 ## Privacy Policy
 
@@ -38,7 +38,7 @@ for any particular length of time and you may not rely upon the continued availa
 Testnet tokens. In the event of the expiration of Testnet, you acknowledge and agree that your
 access to and use of your Testnet tokens will be removed, and all accrued Testnet tokens will be
 deleted from the Testnet system. Testnet tokens will not be converted into any future rewards
-offered by Mysten Labs.
+offered by Walrus Foundation.
 
 ## Testnet Tokens
 
@@ -54,20 +54,16 @@ null and void.
 
 ## No Warranty
 
-Mysten Labs provides the Testnet platform solely as a developer test environment. Testnet is
-provided "as is" and "with all faults." We make no warranties, express or implied, regarding the
-reliability, accuracy, performance, or fitness for a particular purpose of the service provided. You
-accept all risks associated with the use of Testnet and agree that Mysten Labs, its affiliates, and
-its employees shall not be liable for any damages, whether direct, indirect, incidental, special,
-consequential, or punitive, arising out of the use or inability to use the service, including but
-not limited to lost profits, loss of business, or data loss.
-
-No employee or representative of Mysten Labs is authorized to make any warranties or representations
-beyond those stated in this agreement. Any statements made by employees or representatives of Mysten
-Labs regarding the service shall not be construed as warranties or representations, and customers
-agree to indemnify and hold harmless Mysten Labs from any such statements.
+Walrus Foundation and its service providers provide the Testnet platform solely as a developer test
+environment. Testnet is provided "as is" and "with all faults." We and our service providers make no
+warranties, express or implied, regarding the reliability, accuracy, performance, or fitness for a
+particular purpose of the service provided. You accept all risks associated with the use of Testnet
+and agree that Walrus Foundation, its affiliates, employees, and service providers shall not be
+liable for any damages, whether direct, indirect, incidental, special, consequential, or punitive,
+arising out of the use or inability to use the service, including but not limited to lost profits,
+loss of business, or data loss.
 
 Any deficiencies or errors in the Testnet platform shall not constitute a breach of this agreement,
 and customers agree to waive any right to seek a refund or compensation based on such deficiencies
 or errors. This "as is, no warranty" provision shall survive the termination or expiration of any
-other agreements between you and Mysten Labs.
+other agreements between you and Walrus Foundation.

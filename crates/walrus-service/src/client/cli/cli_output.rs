@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{io::stdout, num::NonZeroU16, path::PathBuf};
@@ -115,18 +115,25 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
             parts.push(format!("{} extended", reuse_and_extend_count));
         }
 
-        let summary = if !parts.is_empty() {
-            format!("({})", parts.join(", "))
+        if !parts.is_empty() {
+            println!(
+                "{} ({})",
+                "Summary for Modified or Created Blobs"
+                    .bold()
+                    .walrus_purple(),
+                parts.join(", ")
+            );
+            println!(
+                "Total encoded size: {}",
+                HumanReadableBytes(total_encoded_size)
+            );
+            println!("Total cost: {}", HumanReadableFrost::from(total_cost));
         } else {
-            String::new()
-        };
-
-        println!("Summary for Modified or Created Blobs {}", summary);
-        println!(
-            "Total encoded size: {}",
-            HumanReadableBytes(total_encoded_size)
-        );
-        println!("Total cost: {}", HumanReadableFrost::from(total_cost));
+            println!(
+                "{}",
+                "No blobs were modified or created".bold().walrus_purple()
+            );
+        }
     }
 }
 
@@ -149,7 +156,7 @@ impl CliOutput for BlobStoreResultWithPath {
                 println!(
                     "{} Blob was already available and certified within Walrus, \
                     for a sufficient number of epochs.\nPath: {}\n\
-                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}",
+                    Blob ID: {}\n{event_or_object}\nExpiry epoch (exclusive): {}\n",
                     success(),
                     self.path.display(),
                     blob_id,
@@ -209,7 +216,7 @@ impl CliOutput for BlobStoreResultWithPath {
             BlobStoreResult::MarkedInvalid { blob_id, event } => {
                 println!(
                     "{} Blob was marked as invalid.\nPath: {}\nBlob ID: {}\n
-                    Invalidation event ID: {}",
+                    Invalidation event ID: {}\n",
                     error(),
                     self.path.display(),
                     blob_id,

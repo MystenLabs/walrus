@@ -1,0 +1,21 @@
+name: GitHub Issues Monitor
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  comment:
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add Comment to New Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "Thank you for opening this issue, a team member will review it shortly. Until then, please do not interact with any users that claim to be from Sui or Walrus support and do not click on any links!"
+            })

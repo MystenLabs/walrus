@@ -27,7 +27,7 @@ following variables in the config file:
 - `package`: the object ID of the Walrus Sites package on Sui. This must always be specified in the
   config, and is already appropriately configured in `./sites-config.yaml`.
 - `portal`: the name of the portal through which the site will be viewed; this only affects the
-  output of the CLI, and nothing else (default: `walrus.site`). All Walrus Sites are accessible
+  output of the CLI, and nothing else (default: `wal.app`). All Walrus Sites are accessible
   through any portal independent of this setting.
 - `general`: these are general options that can be configured both through the CLI and the config:
   - `rpc_url`: The URL of the Sui RPC node to use. If not set, the `site-builder` will infer it from

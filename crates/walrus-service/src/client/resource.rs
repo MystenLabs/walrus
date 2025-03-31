@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Manages the storage and blob resources in the Wallet on behalf of the client.

@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 #![allow(clippy::mutable_key_type)]
 
@@ -62,46 +62,25 @@ use crate::{
     },
 };
 
-pub(crate) struct NodeCommitteeServiceBuilder<T> {
-    service_factory: Box<dyn NodeServiceFactory<Service = T>>,
+pub(crate) struct NodeCommitteeServiceBuilder {
     local_identity: Option<PublicKey>,
     rng: StdRng,
     config: CommitteeServiceConfig,
-    metrics: Option<CommitteeServiceMetricSet>,
+    registry: Option<Registry>,
 }
 
-impl Default for NodeCommitteeServiceBuilder<RemoteStorageNode> {
+impl Default for NodeCommitteeServiceBuilder {
     fn default() -> Self {
         Self {
-            service_factory: Box::new(DefaultNodeServiceFactory::default()),
             local_identity: None,
             rng: StdRng::seed_from_u64(rand::thread_rng().gen()),
             config: CommitteeServiceConfig::default(),
-            metrics: None,
+            registry: None,
         }
     }
 }
 
-impl<T> NodeCommitteeServiceBuilder<T>
-where
-    T: NodeService,
-{
-    pub fn node_service_factory<F>(
-        self,
-        service_factory: F,
-    ) -> NodeCommitteeServiceBuilder<F::Service>
-    where
-        F: NodeServiceFactory + 'static,
-    {
-        NodeCommitteeServiceBuilder {
-            local_identity: self.local_identity,
-            rng: self.rng,
-            config: self.config,
-            service_factory: Box::new(service_factory),
-            metrics: self.metrics,
-        }
-    }
-
+impl NodeCommitteeServiceBuilder {
     pub fn local_identity(mut self, id: PublicKey) -> Self {
         self.local_identity = Some(id);
         self
@@ -113,7 +92,7 @@ where
     }
 
     pub fn metrics_registry(mut self, registry: &Registry) -> Self {
-        self.metrics = Some(CommitteeServiceMetricSet::new(registry));
+        self.registry = Some(registry.clone());
         self
     }
 
@@ -124,11 +103,31 @@ where
     }
 
     pub async fn build<S>(
-        mut self,
+        self,
         lookup_service: S,
-    ) -> Result<NodeCommitteeService<T>, anyhow::Error>
+    ) -> Result<NodeCommitteeService<RemoteStorageNode>, anyhow::Error>
     where
         S: CommitteeLookupService + std::fmt::Debug + 'static,
+    {
+        let service_factory = if let Some(registry) = self.registry.as_ref() {
+            DefaultNodeServiceFactory::new_with_metrics(registry.clone())
+        } else {
+            DefaultNodeServiceFactory::default()
+        };
+
+        self.build_with_factory(lookup_service, service_factory)
+            .await
+    }
+
+    pub async fn build_with_factory<T, S, F>(
+        self,
+        lookup_service: S,
+        mut service_factory: F,
+    ) -> Result<NodeCommitteeService<T>, anyhow::Error>
+    where
+        T: NodeService,
+        S: CommitteeLookupService + std::fmt::Debug + 'static,
+        F: NodeServiceFactory<Service = T> + 'static,
     {
         // TODO(jsmith): Allow setting the local service factory.
         let committee_tracker: CommitteeTracker =
@@ -140,16 +139,16 @@ where
                 .n_shards(),
         ));
 
-        self.service_factory
-            .connect_timeout(self.config.node_connect_timeout);
+        service_factory.connect_timeout(self.config.node_connect_timeout);
 
         let inner = NodeCommitteeServiceInner::new(
             committee_tracker,
-            self.service_factory,
+            Box::new(service_factory),
             self.config,
             encoding_config,
             self.local_identity,
-            self.metrics,
+            self.registry
+                .map(|registry| CommitteeServiceMetricSet::new(&registry)),
             self.rng,
         )
         .await?;
@@ -167,7 +166,7 @@ pub(crate) struct NodeCommitteeService<T = RemoteStorageNode> {
 }
 
 impl NodeCommitteeService<RemoteStorageNode> {
-    pub fn builder() -> NodeCommitteeServiceBuilder<RemoteStorageNode> {
+    pub fn builder() -> NodeCommitteeServiceBuilder {
         Default::default()
     }
 }

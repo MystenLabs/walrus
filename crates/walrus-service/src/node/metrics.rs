@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
@@ -131,6 +131,17 @@ walrus_utils::metrics::define_metric_set! {
         recording of event source. The event source is the combination of checkpoint sequence \
         number and counter."]
         periodic_event_source_for_deterministic_events: IntGaugeVec["bucket"],
+
+        #[help = "The hash of the list of certified blobs at the beginning of the epoch. Note that \
+        the label is the last two digits of the epoch number."]
+        blob_info_consistency_check: IntGaugeVec["epoch"],
+
+        #[help = "The number of errors occurred when checking the consistency of the blob info \
+        table."]
+        blob_info_consistency_check_error: IntCounter[],
+
+        #[help = "The number of certified blobs scanned during the blob info consistency check."]
+        blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
     }
 }
 

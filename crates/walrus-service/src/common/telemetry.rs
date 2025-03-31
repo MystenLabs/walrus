@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Telemetry utilities for instrumenting walrus services.
@@ -64,7 +64,7 @@ walrus_utils::metrics::define_metric_set! {
         active_requests: IntGaugeVec["http_request_method", "url_scheme", "http_route"],
 
         #[help = "Time (in seconds) spent processing requests and serving the response."]
-        request_duration: HistogramVec {
+        request_duration_seconds: HistogramVec {
             labels: [
                 "http_request_method",
                 "url_scheme",
@@ -83,7 +83,7 @@ walrus_utils::metrics::define_metric_set! {
         },
 
         #[help = "The size in bytes of the (compressed) request body."]
-        request_body_size: HistogramVec{
+        request_body_size_bytes: HistogramVec{
             labels: [
                 "http_request_method",
                 "url_scheme",
@@ -96,7 +96,7 @@ walrus_utils::metrics::define_metric_set! {
         },
 
         #[help = "The size in bytes of the (compressed) response body."]
-        response_body_size: HistogramVec{
+        response_body_size_bytes: HistogramVec{
             labels: [
                 "http_request_method",
                 "url_scheme",
@@ -377,7 +377,7 @@ pub(crate) async fn metrics_middleware(
     };
 
     metrics
-        .request_body_size
+        .request_body_size_bytes
         .with_label_values(&[
             http_request_method.as_str(),
             url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
@@ -388,7 +388,7 @@ pub(crate) async fn metrics_middleware(
         ])
         .observe(body_size_total.load(Ordering::Relaxed) as f64);
 
-    let request_duration = metrics.request_duration.with_label_values(&[
+    let request_duration = metrics.request_duration_seconds.with_label_values(&[
         http_request_method.as_str(),
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         &http_route,
@@ -400,7 +400,7 @@ pub(crate) async fn metrics_middleware(
     request_duration.observe(response_available_at.duration_since(start).as_secs_f64());
 
     let exact_response_body_size = response.body().size_hint().exact();
-    let request_duration = metrics.request_duration.with_label_values(&[
+    let request_duration = metrics.request_duration_seconds.with_label_values(&[
         http_request_method.as_str(),
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         &http_route,
@@ -409,7 +409,7 @@ pub(crate) async fn metrics_middleware(
         http_response_status_code.as_str(),
         HTTP_RESPONSE_PART_PAYLOAD,
     ]);
-    let response_body_size = metrics.response_body_size.with_label_values(&[
+    let response_body_size = metrics.response_body_size_bytes.with_label_values(&[
         http_request_method.as_str(),
         url_scheme.as_ref().map(Scheme::as_str).unwrap_or_default(),
         &http_route,

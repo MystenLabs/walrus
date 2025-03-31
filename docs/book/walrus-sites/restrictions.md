@@ -20,7 +20,7 @@ portal (see [Portal configuration](./portal.md)). This measure ensures that load
 does not result in an infinite loading loop.
 
 Different portals can set this limit as they desire. The limit for the portal hosted at
-<https://walrus.site> has a maximum redirect depth of 3.
+<https://wal.app> has a maximum redirect depth of 3.
 
 ## There is a special `__wal__` path
 
@@ -64,9 +64,9 @@ possible on iOS through any browser.
 
 Given that you decided to use a service-worker portal as your main point of access to your sites,
 to provide a seamless experience for iOS users (and other users on browsers that do not support
-service workers), it is recommended to redirect to a server-side portal (<https://walrus.site>).
+service workers), it is recommended to redirect to a server-side portal (<https://wal.app>).
 Whenever a user on an iOS wallet browses a Walrus Site, the redirect will automatically take them
-to the `<site_name>.walrus.site` server-side portal. This way, the user can still use the wallet.
+to the `<site_name>.wal.app` server-side portal. This way, the user can still use the wallet.
 
 ### Service worker portals do not support progressive web apps (PWAs)
 

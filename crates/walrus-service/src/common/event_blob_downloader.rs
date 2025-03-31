@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 //! Responsible for downloading and managing event blobs
@@ -55,8 +55,7 @@ impl EventBlobDownloader {
         };
 
         tracing::info!(
-            "Starting downloading event blobs using event blobs from latest blob ID {:?} \
-            and going backwards",
+            "starting download of event blobs from latest blob ID {} and going backwards",
             prev_event_blob
         );
 
@@ -125,14 +124,13 @@ impl EventBlobDownloader {
                     - event_blob.start_checkpoint_sequence_number()
                     + 1;
                 tracing::info!(
-                    "Storing event blob {:?} with {} checkpoints",
+                    "storing event blob {} with {} checkpoints",
                     prev_event_blob,
                     num_checkpoints_stored
                 );
             } else {
                 tracing::info!(
-                    "Skipping event blob {:?} as it contains events only before the next \
-                    checkpoint",
+                    "skipping event blob {} as it contains events only before the next checkpoint",
                     prev_event_blob
                 );
                 break;
