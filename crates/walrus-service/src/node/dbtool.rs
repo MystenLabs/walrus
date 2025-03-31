@@ -40,7 +40,7 @@ use crate::node::{
             blob_info_cf_options,
             per_object_blob_info_cf_options,
             BlobInfo,
-            BlobInfoApi,
+            CertifiedBlobInfoApi,
             PerObjectBlobInfo,
         },
         constants::{

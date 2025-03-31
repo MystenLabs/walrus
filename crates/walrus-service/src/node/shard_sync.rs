@@ -25,7 +25,7 @@ use super::{
     NodeStatus,
     StorageNodeInner,
 };
-use crate::node::{errors::ShardNotAssigned, storage::blob_info::BlobInfoApi};
+use crate::node::{errors::ShardNotAssigned, storage::blob_info::CertifiedBlobInfoApi};
 
 /// The result of syncing a shard.
 enum SyncShardResult {

@@ -28,6 +28,18 @@ use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
 use super::{constants::*, database_config::DatabaseTableOptions, DatabaseConfig};
 
+pub type BlobInfoIterator<'a> = BlobInfoIter<
+    BlobId,
+    BlobInfo,
+    dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a,
+>;
+
+pub type PerObjectBlobInfoIterator<'a> = BlobInfoIter<
+    ObjectID,
+    PerObjectBlobInfo,
+    dyn Iterator<Item = Result<(ObjectID, PerObjectBlobInfo), TypedStoreError>> + Send + 'a,
+>;
+
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
@@ -174,6 +186,23 @@ impl BlobInfoTable {
         )
     }
 
+    /// Returns an iterator over all blobs that were certified before the specified epoch in the
+    /// per-object blob info table starting with the `starting_object_id` bound.
+    #[tracing::instrument(skip_all)]
+    pub fn certified_per_object_blob_info_iter_before_epoch(
+        &self,
+        before_epoch: Epoch,
+        starting_object_id_bound: Bound<ObjectID>,
+    ) -> PerObjectBlobInfoIterator {
+        BlobInfoIter::new(
+            Box::new(
+                self.per_object_blob_info
+                    .safe_range_iter((starting_object_id_bound, Unbounded)),
+            ),
+            before_epoch,
+        )
+    }
+
     /// Returns the blob info for `blob_id`.
     pub fn get(&self, blob_id: &BlobId) -> Result<Option<BlobInfo>, TypedStoreError> {
         self.aggregate_blob_info.get(blob_id)
@@ -228,29 +257,38 @@ impl BlobInfoTable {
         batch.insert_batch(&self.aggregate_blob_info, new_vals)?;
         Ok(())
     }
+
+    pub fn insert_per_object_batch<'a>(
+        &self,
+        batch: &mut DBBatch,
+        new_vals: impl IntoIterator<Item = (&'a ObjectID, &'a PerObjectBlobInfo)>,
+    ) -> Result<(), TypedStoreError> {
+        batch.insert_batch(&self.per_object_blob_info, new_vals)?;
+        Ok(())
+    }
 }
 
 /// An iterator over the blob info table.
-pub(crate) struct BlobInfoIter<I: ?Sized>
+pub(crate) struct BlobInfoIter<B, T: CertifiedBlobInfoApi, I: ?Sized>
 where
-    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+    I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
     iter: Box<I>,
     before_epoch: Epoch,
 }
 
-impl<I: ?Sized> BlobInfoIter<I>
+impl<B, T: CertifiedBlobInfoApi, I: ?Sized> BlobInfoIter<B, T, I>
 where
-    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+    I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
     pub fn new(iter: Box<I>, before_epoch: Epoch) -> Self {
         Self { iter, before_epoch }
     }
 }
 
-impl<I: ?Sized> Debug for BlobInfoIter<I>
+impl<B, T: CertifiedBlobInfoApi, I: ?Sized> Debug for BlobInfoIter<B, T, I>
 where
-    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+    I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BlobInfoIter")
@@ -259,11 +297,11 @@ where
     }
 }
 
-impl<I: ?Sized> Iterator for BlobInfoIter<I>
+impl<B, T: CertifiedBlobInfoApi, I: ?Sized> Iterator for BlobInfoIter<B, T, I>
 where
-    I: Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send,
+    I: Iterator<Item = Result<(B, T), TypedStoreError>> + Send,
 {
-    type Item = Result<(BlobId, BlobInfo), TypedStoreError>;
+    type Item = Result<(B, T), TypedStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         for item in self.iter.by_ref() {
@@ -287,9 +325,6 @@ where
         None
     }
 }
-
-pub type BlobInfoIterator<'a> =
-    BlobInfoIter<dyn Iterator<Item = Result<(BlobId, BlobInfo), TypedStoreError>> + Send + 'a>;
 
 pub(super) trait ToBytes: Serialize + Sized {
     /// Converts the value to a `Vec<u8>`.
@@ -327,15 +362,8 @@ pub(super) trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Siz
     }
 }
 
-/// Trait defining methods for retrieving information about a blob.
-// NB: Before adding functions to this trait, think twice if you really need it as it needs to be
-// implementable by future internal representations of the blob status as well.
 #[enum_dispatch]
-pub(crate) trait BlobInfoApi {
-    /// Returns a boolean indicating whether the metadata of the blob is stored.
-    fn is_metadata_stored(&self) -> bool;
-    /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
-    fn is_registered(&self, current_epoch: Epoch) -> bool;
+pub(crate) trait CertifiedBlobInfoApi {
     /// Returns true iff there exists at least one non-expired and certified deletable or permanent
     /// `Blob` object.
     fn is_certified(&self, current_epoch: Epoch) -> bool;
@@ -344,6 +372,18 @@ pub(crate) trait BlobInfoApi {
     ///
     /// Returns `None` if it isn't certified.
     fn initial_certified_epoch(&self) -> Option<Epoch>;
+}
+
+/// Trait defining methods for retrieving information about a blob.
+// NB: Before adding functions to this trait, think twice if you really need it as it needs to be
+// implementable by future internal representations of the blob status as well.
+#[enum_dispatch]
+pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
+    /// Returns a boolean indicating whether the metadata of the blob is stored.
+    fn is_metadata_stored(&self) -> bool;
+    /// Returns true iff there exists at least one non-expired deletable or permanent `Blob` object.
+    fn is_registered(&self, current_epoch: Epoch) -> bool;
+
     /// Returns the event through which this blob was marked invalid.
     ///
     /// Returns `None` if it isn't invalid.
@@ -960,6 +1000,28 @@ impl PermanentBlobInfoV1 {
     }
 }
 
+impl CertifiedBlobInfoApi for BlobInfoV1 {
+    fn is_certified(&self, current_epoch: Epoch) -> bool {
+        if let Self::Valid(valid_blob_info) = self {
+            valid_blob_info.is_certified(current_epoch)
+        } else {
+            false
+        }
+    }
+
+    fn initial_certified_epoch(&self) -> Option<Epoch> {
+        if let Self::Valid(ValidBlobInfoV1 {
+            initial_certified_epoch,
+            ..
+        }) = self
+        {
+            *initial_certified_epoch
+        } else {
+            None
+        }
+    }
+}
+
 impl BlobInfoApi for BlobInfoV1 {
     fn is_metadata_stored(&self) -> bool {
         matches!(
@@ -992,26 +1054,6 @@ impl BlobInfoApi for BlobInfoV1 {
             && latest_seen_deletable_registered_epoch.is_some_and(|l| l > current_epoch);
 
         exists_registered_permanent_blob || maybe_exists_registered_deletable_blob
-    }
-
-    fn is_certified(&self, current_epoch: Epoch) -> bool {
-        if let Self::Valid(valid_blob_info) = self {
-            valid_blob_info.is_certified(current_epoch)
-        } else {
-            false
-        }
-    }
-
-    fn initial_certified_epoch(&self) -> Option<Epoch> {
-        if let Self::Valid(ValidBlobInfoV1 {
-            initial_certified_epoch,
-            ..
-        }) = self
-        {
-            *initial_certified_epoch
-        } else {
-            None
-        }
     }
 
     fn invalidation_event(&self) -> Option<EventID> {
@@ -1146,6 +1188,7 @@ impl Ord for BlobCertificationStatus {
 
 /// Internal representation of the aggregate blob information for use in the database etc. Use
 /// [`walrus_sdk::api::BlobStatus`] for anything public facing (e.g., communication to the client).
+#[enum_dispatch(CertifiedBlobInfoApi)]
 #[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
 pub(crate) enum BlobInfo {
@@ -1240,7 +1283,7 @@ mod per_object_blob_info {
     // be implementable by future internal representations of the per-object blob status as well.
     #[enum_dispatch]
     #[allow(dead_code)]
-    pub(crate) trait PerObjectBlobInfoApi {
+    pub(crate) trait PerObjectBlobInfoApi: CertifiedBlobInfoApi {
         /// Returns the blob ID associated with this object.
         fn blob_id(&self) -> BlobId;
         /// Returns true iff the object is deletable.
@@ -1248,19 +1291,36 @@ mod per_object_blob_info {
 
         /// Returns true iff the object is not expired and not deleted.
         fn is_registered(&self, current_epoch: Epoch) -> bool;
-        /// Returns true iff the object is certified and not expired and not deleted.
-        fn is_certified(&self, current_epoch: Epoch) -> bool;
-
-        /// Returns the epoch at which this blob was first certified.
-        ///
-        /// Returns `None` if it was never certified.
-        fn certified_epoch(&self) -> Option<Epoch>;
     }
 
-    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
+    #[enum_dispatch(CertifiedBlobInfoApi)]
     #[enum_dispatch(PerObjectBlobInfoApi)]
+    #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]
     pub(crate) enum PerObjectBlobInfo {
         V1(PerObjectBlobInfoV1),
+    }
+
+    impl PerObjectBlobInfo {
+        #[cfg(test)]
+        pub(crate) fn new_for_testing(
+            blob_id: BlobId,
+            registered_epoch: Epoch,
+            certified_epoch: Option<Epoch>,
+            end_epoch: Epoch,
+            deletable: bool,
+            event: EventID,
+            deleted: bool,
+        ) -> Self {
+            Self::V1(PerObjectBlobInfoV1 {
+                blob_id,
+                registered_epoch,
+                certified_epoch,
+                end_epoch,
+                deletable,
+                event,
+                deleted,
+            })
+        }
     }
 
     impl ToBytes for PerObjectBlobInfo {}
@@ -1297,6 +1357,16 @@ mod per_object_blob_info {
         pub deleted: bool,
     }
 
+    impl CertifiedBlobInfoApi for PerObjectBlobInfoV1 {
+        fn is_certified(&self, current_epoch: Epoch) -> bool {
+            self.is_registered(current_epoch) && self.certified_epoch.is_some()
+        }
+
+        fn initial_certified_epoch(&self) -> Option<Epoch> {
+            self.certified_epoch
+        }
+    }
+
     impl PerObjectBlobInfoApi for PerObjectBlobInfoV1 {
         fn blob_id(&self) -> BlobId {
             self.blob_id
@@ -1308,14 +1378,6 @@ mod per_object_blob_info {
 
         fn is_registered(&self, current_epoch: Epoch) -> bool {
             self.end_epoch > current_epoch && !self.deleted
-        }
-
-        fn is_certified(&self, current_epoch: Epoch) -> bool {
-            self.is_registered(current_epoch) && self.certified_epoch.is_some()
-        }
-
-        fn certified_epoch(&self) -> Option<Epoch> {
-            self.certified_epoch
         }
     }
 

@@ -145,7 +145,11 @@ use self::{
     },
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
-    storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
+    storage::{
+        blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
+        ShardStatus,
+        ShardStorage,
+    },
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
