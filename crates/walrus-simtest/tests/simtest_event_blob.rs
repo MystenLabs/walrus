@@ -8,7 +8,7 @@
 #[cfg(msim)]
 mod tests {
     use std::{
-        sync::{atomic::AtomicBool, Arc},
+        sync::Arc,
         time::{Duration, Instant},
     };
 

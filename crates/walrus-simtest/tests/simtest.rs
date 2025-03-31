@@ -7,12 +7,7 @@
 #[cfg(msim)]
 mod tests {
     use std::{
-        collections::HashSet,
-        sync::{
-            atomic::{AtomicBool, AtomicU32, Ordering},
-            Arc,
-            Mutex,
-        },
+        sync::{atomic::AtomicBool, Arc},
         time::Duration,
     };
 
@@ -21,11 +16,9 @@ mod tests {
         clear_fail_point,
         register_fail_point,
         register_fail_point_async,
-        register_fail_point_if,
         register_fail_points,
     };
     use sui_protocol_config::ProtocolConfig;
-    use sui_rpc_api::Client as RpcClient;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::sync::RwLock;
     use walrus_proc_macros::walrus_simtest;
