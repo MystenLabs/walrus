@@ -218,6 +218,21 @@ pub enum WalrusStoreBlob<'a, T: Display + Send + Sync> {
         /// The span for this blob's lifecycle.
         span: Span,
     },
+    /// Error occurred during the blob lifecycle.
+    Error {
+        /// The raw blob data.
+        blob: &'a [u8],
+        /// A unique identifier for this blob.
+        identifier: T,
+        /// The blob ID.
+        blob_id: Option<BlobId>,
+        /// The phase where the error occurred.
+        failure_phase: String,
+        /// The error message.
+        error_msg: String,
+        /// The span for this blob's lifecycle.
+        span: Span,
+    },
 }
 
 impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
@@ -257,9 +272,12 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
         matches!(self, WalrusStoreBlob::WithCertificate { .. })
     }
 
-    /// Returns true if the blob operation is completed.
+    /// Returns true if the store blob operation is completed.
     pub fn is_completed(&self) -> bool {
-        matches!(self, WalrusStoreBlob::Completed { .. })
+        matches!(
+            self,
+            WalrusStoreBlob::Completed { .. } | WalrusStoreBlob::Error { .. }
+        )
     }
 
     /// Returns true if the blob needs to be certified based on its current
@@ -315,6 +333,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { .. } => "Registered",
             WalrusStoreBlob::WithCertificate { .. } => "WithCertificate",
             WalrusStoreBlob::Completed { .. } => "Completed",
+            WalrusStoreBlob::Error { .. } => "Error",
         }
     }
 
@@ -327,6 +346,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { blob, .. } => blob,
             WalrusStoreBlob::WithCertificate { blob, .. } => blob,
             WalrusStoreBlob::Completed { blob, .. } => blob,
+            WalrusStoreBlob::Error { blob, .. } => blob,
         }
     }
 
@@ -339,12 +359,14 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { identifier, .. } => identifier,
             WalrusStoreBlob::WithCertificate { identifier, .. } => identifier,
             WalrusStoreBlob::Completed { identifier, .. } => identifier,
+            WalrusStoreBlob::Error { identifier, .. } => identifier,
         }
     }
 
     /// Returns the error message if the blob is in the Completed state and the result is an error.
     pub fn get_error_msg(&self) -> Option<&str> {
         match self {
+            WalrusStoreBlob::Error { error_msg, .. } => Some(error_msg),
             WalrusStoreBlob::Completed {
                 result: BlobStoreResult::Error { error_msg, .. },
                 ..
@@ -362,6 +384,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { blob, .. } => blob.len(),
             WalrusStoreBlob::WithCertificate { blob, .. } => blob.len(),
             WalrusStoreBlob::Completed { blob, .. } => blob.len(),
+            WalrusStoreBlob::Error { blob, .. } => blob.len(),
         }
     }
 
@@ -374,6 +397,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { metadata, .. } => Some(*metadata.blob_id()),
             WalrusStoreBlob::WithCertificate { metadata, .. } => Some(*metadata.blob_id()),
             WalrusStoreBlob::Completed { result, .. } => Some(*result.blob_id()),
+            WalrusStoreBlob::Error { blob_id, .. } => *blob_id,
         }
     }
 
@@ -393,7 +417,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::WithStatus { pairs, .. } => Some(pairs),
             WalrusStoreBlob::Registered { pairs, .. } => Some(pairs),
             WalrusStoreBlob::WithCertificate { pairs, .. } => Some(pairs),
-            WalrusStoreBlob::Completed { .. } => None,
+            WalrusStoreBlob::Completed { .. } | WalrusStoreBlob::Error { .. } => None,
         }
     }
 
@@ -405,7 +429,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::WithStatus { metadata, .. } => Some(metadata),
             WalrusStoreBlob::Registered { metadata, .. } => Some(metadata),
             WalrusStoreBlob::WithCertificate { metadata, .. } => Some(metadata),
-            WalrusStoreBlob::Completed { .. } => None,
+            WalrusStoreBlob::Completed { .. } | WalrusStoreBlob::Error { .. } => None,
         }
     }
 
@@ -416,7 +440,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::WithStatus { status, .. } => Some(status),
             WalrusStoreBlob::Registered { status, .. } => Some(status),
             WalrusStoreBlob::WithCertificate { status, .. } => Some(status),
-            WalrusStoreBlob::Completed { .. } => None,
+            WalrusStoreBlob::Completed { .. } | WalrusStoreBlob::Error { .. } => None,
         }
     }
 
@@ -428,14 +452,20 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             | WalrusStoreBlob::WithStatus { .. } => None,
             WalrusStoreBlob::Registered { operation, .. } => Some(operation),
             WalrusStoreBlob::WithCertificate { operation, .. } => Some(operation),
-            WalrusStoreBlob::Completed { .. } => None,
+            WalrusStoreBlob::Completed { .. } | WalrusStoreBlob::Error { .. } => None,
         }
     }
 
     /// Returns a reference to the final result if the blob is in the Completed state.
-    pub fn get_result(&self) -> Option<&BlobStoreResult> {
+    pub fn get_result(&self) -> Option<BlobStoreResult> {
         match self {
-            WalrusStoreBlob::Completed { result, .. } => Some(result),
+            WalrusStoreBlob::Completed { result, .. } => Some(result.clone()),
+            WalrusStoreBlob::Error {
+                blob_id, error_msg, ..
+            } => Some(BlobStoreResult::Error {
+                blob_id: *blob_id,
+                error_msg: error_msg.clone(),
+            }),
             _ => None,
         }
     }
@@ -474,13 +504,12 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                         span: span.clone(),
                     }
                 }
-                Err(e) => WalrusStoreBlob::Completed {
+                Err(e) => WalrusStoreBlob::Error {
                     blob,
                     identifier,
-                    result: BlobStoreResult::Error {
-                        blob_id: None,
-                        error_msg: e.to_string(),
-                    },
+                    blob_id: None,
+                    failure_phase: "encode".to_string(),
+                    error_msg: e.to_string(),
                     span: span.clone(),
                 },
             },
@@ -534,13 +563,12 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 Err(e) => {
                     let error_msg = Self::get_error_msg_or_fail_early(e)?;
                     let blob_id = *metadata.blob_id();
-                    WalrusStoreBlob::Completed {
+                    WalrusStoreBlob::Error {
                         blob,
                         identifier,
-                        result: BlobStoreResult::Error {
-                            blob_id: Some(blob_id),
-                            error_msg,
-                        },
+                        blob_id: Some(blob_id),
+                        failure_phase: "status".to_string(),
+                        error_msg,
                         span: span.clone(),
                     }
                 }
@@ -604,14 +632,13 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 Err(e) => {
                     let error_msg = Self::get_error_msg_or_fail_early(e)?;
                     let blob_id = *metadata.blob_id();
-                    WalrusStoreBlob::Completed {
+                    WalrusStoreBlob::Error {
                         blob,
                         identifier,
-                        result: BlobStoreResult::Error {
-                            blob_id: Some(blob_id),
-                            error_msg,
-                        },
-                        span,
+                        blob_id: Some(blob_id),
+                        failure_phase: "register".to_string(),
+                        error_msg,
+                        span: span.clone(),
                     }
                 }
             },
@@ -674,14 +701,13 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 Err(e) => {
                     let error_msg = Self::get_error_msg_or_fail_early(e)?;
                     let blob_id = *metadata.blob_id();
-                    WalrusStoreBlob::Completed {
+                    WalrusStoreBlob::Error {
                         blob,
                         identifier,
-                        result: BlobStoreResult::Error {
-                            blob_id: Some(blob_id),
-                            error_msg,
-                        },
-                        span,
+                        blob_id: Some(blob_id),
+                        failure_phase: "certificate".to_string(),
+                        error_msg,
+                        span: span.clone(),
                     }
                 }
             },
@@ -754,12 +780,20 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 span,
                 ..
             } => (blob, identifier, span),
+            WalrusStoreBlob::Error {
+                blob,
+                identifier,
+                span,
+                ..
+            } => (blob, identifier, span),
         };
 
-        let new_state = WalrusStoreBlob::Completed {
+        let new_state = WalrusStoreBlob::Error {
             blob,
             identifier,
-            result: BlobStoreResult::Error { blob_id, error_msg },
+            blob_id,
+            failure_phase: "with_error".to_string(),
+            error_msg,
             span,
         };
 
@@ -773,6 +807,8 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
     }
 
     /// Updates the blob with the provided result and transitions to the Completed state.
+    ///
+    /// This update is forced, even if the blob is in the Error state.
     pub fn complete_with(self, result: BlobStoreResult) -> Self {
         {
             let _enter = self.get_span().enter();
@@ -814,6 +850,12 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
                 span,
             }
             | WalrusStoreBlob::Completed {
+                blob,
+                identifier,
+                span,
+                ..
+            }
+            | WalrusStoreBlob::Error {
                 blob,
                 identifier,
                 span,
@@ -979,6 +1021,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Encoded { .. } => None,
             WalrusStoreBlob::WithStatus { .. } => None,
             WalrusStoreBlob::Completed { .. } => None,
+            WalrusStoreBlob::Error { .. } => None,
         }
     }
 
@@ -990,6 +1033,7 @@ impl<'a, T: Display + Send + Sync> WalrusStoreBlob<'a, T> {
             WalrusStoreBlob::Registered { span, .. } => span,
             WalrusStoreBlob::WithCertificate { span, .. } => span,
             WalrusStoreBlob::Completed { span, .. } => span,
+            WalrusStoreBlob::Error { span, .. } => span,
         }
     }
 
@@ -1019,7 +1063,7 @@ impl<T: Display + Send + Sync> std::fmt::Debug for WalrusStoreBlob<'_, T> {
             debug.field("status", status);
         }
         if let Some(result) = self.get_result() {
-            debug.field("result", result);
+            debug.field("result", &result);
         }
 
         debug.finish()
@@ -1463,7 +1507,7 @@ impl Client<SuiContractClient> {
 
         Ok(results
             .into_iter()
-            .filter_map(|blob| blob.get_result().cloned())
+            .filter_map(|blob| blob.get_result())
             .collect())
     }
 
@@ -1565,7 +1609,7 @@ impl Client<SuiContractClient> {
 
         Ok(results
             .into_iter()
-            .filter_map(|blob| blob.get_result().cloned())
+            .filter_map(|blob| blob.get_result())
             .collect())
     }
 
