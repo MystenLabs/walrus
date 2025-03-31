@@ -187,7 +187,7 @@ impl RetryCountGuard {
     fn new(metrics: Arc<SuiClientMetricSet>, method: &str) -> Self {
         Self {
             method: method.to_string(),
-            count: 1,
+            count: 0,
             metrics,
             status: "success".to_string(),
         }
@@ -195,7 +195,7 @@ impl RetryCountGuard {
 
     pub fn record_result<T, E>(&mut self, value: Result<&T, &E>)
     where
-        E: RetriableRpcError + ToErrorType,
+        E: ToErrorType,
     {
         match value {
             Ok(_) => self.status = "success".to_string(),
@@ -1375,7 +1375,7 @@ impl ToErrorType for SuiClientError {
     fn to_error_type(&self) -> String {
         match self {
             Self::SuiSdkError(error) => error.to_error_type(),
-            _ => "other".to_string(),
+            _ => "sui_client_error_other".to_string(),
         }
     }
 }
