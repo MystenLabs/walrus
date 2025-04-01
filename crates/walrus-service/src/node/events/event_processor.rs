@@ -9,7 +9,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -169,6 +172,8 @@ pub struct EventProcessor {
     pub checkpoint_downloader: ParallelCheckpointDownloader,
     /// Local package store.
     pub package_store: LocalDBPackageStore,
+    /// The cached latest checkpoint sequence number.
+    latest_checkpoint_seq_cache: Arc<AtomicU64>,
 }
 
 impl Debug for LocalDBPackageStore {
@@ -477,6 +482,7 @@ impl EventProcessor {
                 .inc();
             let verified_checkpoint =
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
+
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
             // TODO(WAL-667): remove special case
@@ -582,6 +588,7 @@ impl EventProcessor {
                 )
                 .map_err(|e| anyhow!("Failed to insert checkpoint into checkpoint store: {}", e))?;
             write_batch.write()?;
+            self.update_checkpoint_cache(*verified_checkpoint.sequence_number());
             prev_verified_checkpoint = verified_checkpoint;
             next_checkpoint += 1;
         }
@@ -637,6 +644,7 @@ impl EventProcessor {
             metrics,
             checkpoint_downloader,
             package_store,
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -649,6 +657,8 @@ impl EventProcessor {
             .get(&())?
             .map(|t| *t.inner().sequence_number())
             .unwrap_or(0);
+
+        event_processor.update_checkpoint_cache(current_checkpoint);
 
         let latest_checkpoint = retry_client.get_latest_checkpoint_summary().await?;
         if current_checkpoint > latest_checkpoint.sequence_number {
@@ -676,14 +686,15 @@ impl EventProcessor {
                 client: retry_client.clone(),
             };
             let recovery_path = runtime_config.db_path.join("recovery");
-            if let Err(error) = Self::catchup_using_event_blobs(
-                clients,
-                system_config.clone(),
-                stores.clone(),
-                &recovery_path,
-                Some(&event_processor.metrics),
-            )
-            .await
+            if let Err(error) = event_processor
+                .catchup_using_event_blobs(
+                    clients,
+                    system_config.clone(),
+                    stores.clone(),
+                    &recovery_path,
+                    Some(&event_processor.metrics),
+                )
+                .await
             {
                 tracing::error!(?error, "failed to catch up using event blobs");
             } else {
@@ -706,6 +717,9 @@ impl EventProcessor {
                 .stores
                 .checkpoint_store
                 .insert(&(), verified_checkpoint.serializable_ref())?;
+
+            // Also update the cache with the bootstrap checkpoint sequence number.
+            event_processor.update_checkpoint_cache(*verified_checkpoint.sequence_number());
         }
 
         Ok(event_processor)
@@ -896,6 +910,7 @@ impl EventProcessor {
     /// events from the earliest available event blob (in which case the first stored event index
     /// could be greater than `0`).
     pub async fn catchup_using_event_blobs(
+        &self,
         clients: SuiClientSet,
         system_objects: SystemConfig,
         stores: EventProcessorStores,
@@ -931,13 +946,14 @@ impl EventProcessor {
             .transpose()?
             .map(|(i, _)| i + 1);
 
-        Self::process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
+        self.process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
             .await?;
 
         Ok(())
     }
 
     async fn process_event_blobs(
+        &self,
         blobs: Vec<BlobId>,
         stores: &EventProcessorStores,
         recovery_path: &Path,
@@ -1042,6 +1058,7 @@ impl EventProcessor {
             )?;
 
             batch.write()?;
+            self.update_checkpoint_cache(last_checkpoint);
             fs::remove_file(blob_path)?;
             next_event_index = Some(last_event_index + 1);
             tracing::info!(
@@ -1085,6 +1102,17 @@ impl EventProcessor {
             })
             .collect();
         (first_event, relevant_events)
+    }
+
+    /// Updates the cached checkpoint sequence number.
+    fn update_checkpoint_cache(&self, sequence_number: u64) {
+        self.latest_checkpoint_seq_cache
+            .fetch_max(sequence_number, Ordering::SeqCst);
+    }
+
+    /// Gets the latest checkpoint sequence number, preferring the cache.
+    pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        Some(self.latest_checkpoint_seq_cache.load(Ordering::SeqCst))
     }
 }
 
@@ -1283,6 +1311,7 @@ mod tests {
             metrics: EventProcessorMetrics::new(&Registry::default()),
             checkpoint_downloader,
             package_store,
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         })
     }
 

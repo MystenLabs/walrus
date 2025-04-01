@@ -680,6 +680,7 @@ mod tests {
                 event_progress: walrus_sdk::api::EventProgress::default(),
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
+                latest_checkpoint_sequence_number: None,
             }
         }
 

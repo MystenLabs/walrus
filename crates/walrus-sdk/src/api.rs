@@ -238,6 +238,9 @@ pub struct ServiceHealthInfo {
     /// The status of the shards for which the node is responsible.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shard_detail: Option<ShardStatusDetail>,
+    /// The latest checkpoint sequence number downloaded by the node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_checkpoint_sequence_number: Option<u64>,
 }
 
 /// The status of the shards for which the node is responsible.

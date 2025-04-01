@@ -757,7 +757,7 @@ impl ClientCommandRunner {
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
-            rpc_url,
+            rpc_url.clone(),
             self.wallet,
             !self.wallet_set_explicitly,
         )
@@ -769,10 +769,22 @@ impl ClientCommandRunner {
             )),
             None,
         )?;
-
+        let rpc_client = sui_rpc_api::Client::new(rpc_url.expect("rpc_url is set"));
+        let latest_seq = if let Ok(rpc_client) = rpc_client {
+            match rpc_client.get_latest_checkpoint().await {
+                Ok(checkpoint) => Some(checkpoint.sequence_number),
+                Err(e) => {
+                    tracing::error!("failed to get latest checkpoint sequence number: {:?}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,
+            latest_seq,
             detail,
             sort,
         )
