@@ -26,7 +26,7 @@ use walrus_core::{
     encoding::{EncodingConfigTrait as _, Primary},
     merkle::Node,
     messages::BlobPersistenceType,
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     EncodingType,
     EpochCount,
@@ -51,6 +51,7 @@ use walrus_service::{
             NotEnoughSlivers,
         },
         StoreWhen,
+        WalrusStoreBlob,
     },
     test_utils::{
         test_cluster::{self, FROST_PER_NODE_WEIGHT},
@@ -738,19 +739,18 @@ async fn test_store_with_existing_storage_resource(
     let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
 
     let blob_data = walrus_test_utils::random_data_list(31415, 4);
-    let blobs: Vec<&[u8]> = blob_data.iter().map(AsRef::as_ref).collect();
+    let unencoded_blobs = blob_data
+        .iter()
+        .enumerate()
+        .map(|(i, data)| WalrusStoreBlob::new_unencoded(data, format!("test-{:02}", i)))
+        .collect();
     let encoding_type = DEFAULT_ENCODING;
     let encoded_blobs = client
         .as_ref()
-        .encode_blobs_to_pairs_and_metadata(&blobs, encoding_type)?;
+        .encode_blobs(unencoded_blobs, encoding_type)?;
     let encoded_sizes = encoded_blobs
         .iter()
-        .map(|(_, metadata)| {
-            metadata
-                .metadata()
-                .encoded_size()
-                .expect("encoded size should be present")
-        })
+        .map(|blob| blob.encoded_size().expect("encoded size should be present"))
         .collect::<Vec<_>>();
 
     // Reserve space for the blobs. Collect all original storage resource objects ids.
@@ -768,6 +768,10 @@ async fn test_store_with_existing_storage_resource(
         .into_iter()
         .collect::<HashSet<_>>();
 
+    let blobs = encoded_blobs
+        .iter()
+        .map(|blob| blob.get_blob())
+        .collect::<Vec<_>>();
     // Now ask the client to store again.
     // Collect all object ids of the newly created blob object.
     let blob_store = client

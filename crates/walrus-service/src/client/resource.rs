@@ -265,8 +265,7 @@ impl<'a> ResourceManager<'a> {
                     to_be_processed.push(blob);
                 }
                 _ => {
-                    debug_assert!(blob.is_completed());
-                    results.push(blob);
+                    unreachable!("blob should be completed");
                 }
             }
         }
@@ -367,28 +366,13 @@ impl<'a> ResourceManager<'a> {
 
         let encoded_lengths: Result<Vec<_>, _> = blobs
             .iter()
-            .map(|b| {
-                b.get_metadata()
-                    .ok_or_else(|| {
-                        ClientError::other(ClientErrorKind::Other(
-                            anyhow!(
-                                "the provided metadata is invalid: could not compute the \
-                                encoded size"
-                            )
-                            .into(),
-                        ))
-                    })
-                    .and_then(|metadata| {
-                        metadata.metadata().encoded_size().ok_or_else(|| {
-                            ClientError::other(ClientErrorKind::Other(
-                                anyhow!(
-                                    "the provided metadata is invalid: could not compute the \
-                                    encoded size"
-                                )
-                                .into(),
-                            ))
-                        })
-                    })
+            .map(|blob| {
+                blob.encoded_size().ok_or_else(|| {
+                    ClientError::store_blob_internal(format!(
+                        "could not compute the encoded size of the blob: {}",
+                        blob.get_identifier()
+                    ))
+                })
             })
             .collect();
 
