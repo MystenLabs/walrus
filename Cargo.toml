@@ -3,7 +3,6 @@ default-members = [
   "crates/checkpoint-downloader",
   "crates/walrus-core",
   "crates/walrus-e2e-tests",
-  "crates/walrus-orchestrator",
   "crates/walrus-proc-macros",
   "crates/walrus-proxy",
   "crates/walrus-sdk",
