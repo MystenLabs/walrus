@@ -1608,10 +1608,6 @@ impl SuiContractClientInner {
             num_blobs = expected_num_blobs,
             "starting to reserve and register blobs"
         );
-        tracing::info!(
-            "debug-store: reserve and register blobs {}",
-            expected_num_blobs
-        );
 
         let mut pt_builder = self.transaction_builder()?;
         for blob_metadata in blob_metadata_list.into_iter() {

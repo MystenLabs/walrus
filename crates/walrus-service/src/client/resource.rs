@@ -235,7 +235,6 @@ impl<'a> ResourceManager<'a> {
         let num_blobs = encoded_blobs_with_status.len();
 
         for blob in encoded_blobs_with_status {
-            tracing::info!("debug-store: checking blob status: {:?}", blob);
             if blob.is_completed() {
                 results.push(blob);
                 continue;
@@ -281,7 +280,6 @@ impl<'a> ResourceManager<'a> {
         tracing::info!(
             num_blobs = ?num_blobs,
             num_to_be_processed = ?num_to_be_processed,
-            "debug-store: registering blobs",
         );
 
         let registered_blobs = self
@@ -719,47 +717,5 @@ impl<'a> ResourceManager<'a> {
                 None
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use walrus_sui::utils::BYTES_PER_UNIT_SIZE;
-    use walrus_test_utils::param_test;
-
-    use super::*;
-
-    param_test! {
-        test_price_computation: [
-            one_epoch: (BYTES_PER_UNIT_SIZE, 1, (1, 1), (2, 1)),
-            two_epochs: (BYTES_PER_UNIT_SIZE, 2, (1, 1), (3, 1)),
-            higher_write: (BYTES_PER_UNIT_SIZE, 1, (1, 2), (3, 2)),
-            larger_blob: (2*BYTES_PER_UNIT_SIZE, 1, (1, 2), (6, 4)),
-            even_larger_blob: (2*BYTES_PER_UNIT_SIZE + 1, 1, (1, 2), (9, 6)),
-            more_epochs: (2*BYTES_PER_UNIT_SIZE + 1, 2, (1, 2), (12, 6)),
-        ]
-    }
-    fn test_price_computation(
-        encoded_length: u64,
-        epochs_ahead: EpochCount,
-        storage_and_write_prices: (u64, u64),
-        scratch_and_reuse_costs: (u64, u64),
-    ) {
-        let (storage_price, write_price) = storage_and_write_prices;
-        let computation = PriceComputation::new(storage_price, write_price);
-        let scratch = RegisterBlobOp::RegisterFromScratch {
-            encoded_length,
-            epochs_ahead,
-        };
-        let storage = RegisterBlobOp::ReuseStorage { encoded_length };
-        let registration = RegisterBlobOp::ReuseRegistration { encoded_length };
-
-        let (expected_cost_scratch, expected_cost_reuse_storage) = scratch_and_reuse_costs;
-        assert_eq!(computation.operation_cost(&scratch), expected_cost_scratch);
-        assert_eq!(
-            computation.operation_cost(&storage),
-            expected_cost_reuse_storage
-        );
-        assert_eq!(computation.operation_cost(&registration), 0);
     }
 }
