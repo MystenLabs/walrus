@@ -135,8 +135,6 @@ where
         )
         .await;
 
-    tracing::info!("debug-store: store_result: {:?}", store_result);
-
     let store_result = store_result?;
 
     for result in store_result {
@@ -587,7 +585,6 @@ async fn test_store_with_existing_blobs() -> TestResult {
         )
         .await?;
     for result in store_results {
-        tracing::info!("debug-store blob store result: {:?}", result);
         if result.blob_id() == &reuse_blob {
             assert!(matches!(
                 &result,
@@ -1065,7 +1062,7 @@ async fn test_multiple_stores_same_blob() -> TestResult {
                 ..
             } => {
                 assert_eq!(
-                    resource_operation.is_extend() || resource_operation.is_reuse_registration(),
+                    resource_operation.is_extend(),
                     is_already_certified,
                     "the blob should be newly stored"
                 );
