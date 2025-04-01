@@ -555,6 +555,63 @@ async fn store_blob(
 /// Tests that blobs can be extended when possible.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
+pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
+    telemetry_subscribers::init_for_testing();
+
+    let (_sui_cluster_handle, _cluster, client) = test_cluster::default_setup().await?;
+    let client = client.as_ref();
+
+    // Generate random blobs.
+    let mut blob_data = walrus_test_utils::random_data_list(31415, 3);
+    blob_data.push(blob_data[0].clone());
+    blob_data.push(blob_data[1].clone());
+    blob_data.push(blob_data[0].clone());
+    let mut blobs_with_paths: Vec<(PathBuf, Vec<u8>)> = vec![];
+
+    // Create paths for each blob.
+    for (i, data) in blob_data.iter().enumerate() {
+        let path = PathBuf::from(format!("blob_{}", i));
+        blobs_with_paths.push((path, data.to_vec()));
+    }
+
+    let store_result_with_path = client
+        .reserve_and_store_blobs_retry_committees_with_path(
+            &blobs_with_paths,
+            DEFAULT_ENCODING,
+            1,
+            StoreWhen::Always,
+            BlobPersistence::Permanent,
+            PostStoreAction::Keep,
+        )
+        .await?;
+
+    let read_result =
+        futures::future::join_all(store_result_with_path.iter().map(|result| async {
+            let blob = client
+                .read_blob::<Primary>(result.blob_store_result.blob_id())
+                .await
+                .expect("should be able to read blob");
+            (result.blob_store_result.blob_id(), blob)
+        }))
+        .await;
+
+    assert_eq!(store_result_with_path.len(), blob_data.len());
+    store_result_with_path
+        .iter()
+        .zip(blobs_with_paths.iter())
+        .zip(read_result.iter())
+        .for_each(|((result, (path, data)), (blob_id, blob))| {
+            assert_eq!(&result.path, path);
+            assert_eq!(blob, data);
+            assert_eq!(blob_id, &result.blob_store_result.blob_id());
+        });
+
+    Ok(())
+}
+
+/// Tests that blobs can be extended when possible.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
 async fn test_store_with_existing_blobs() -> TestResult {
     telemetry_subscribers::init_for_testing();
 
