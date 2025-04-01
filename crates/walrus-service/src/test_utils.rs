@@ -24,6 +24,7 @@ use futures::{future, stream::FuturesUnordered, StreamExt};
 use prometheus::Registry;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
+use telemetry_subscribers::TelemetryConfig;
 use tempfile::TempDir;
 #[cfg(msim)]
 use tokio::sync::RwLock;
@@ -902,7 +903,7 @@ impl StorageNodeHandleBuilder {
             )
             .await?;
         }
-
+        let (_, tracing_handle) = TelemetryConfig::init(TelemetryConfig::default());
         let metrics_registry = Registry::default();
         let mut builder = StorageNode::builder();
         if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
@@ -915,7 +916,7 @@ impl StorageNodeHandleBuilder {
             )))
             .with_committee_service(committee_service)
             .with_system_contract_service(contract_service)
-            .build(&config, metrics_registry.clone())
+            .build(&config, metrics_registry.clone(), Arc::new(tracing_handle))
             .await?;
         let node = Arc::new(node);
 

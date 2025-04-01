@@ -387,6 +387,10 @@ where
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
+            .route(
+                routes::LOG_DIRECTIVE_ENDPOINT,
+                post(routes::set_log_directive),
+            )
     }
 }
 
@@ -425,6 +429,8 @@ fn to_pkcs8_key_pair(keypair: &NetworkKeyPair) -> RcGenKeyPair {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+
     use anyhow::anyhow;
     use axum::http::StatusCode;
     use fastcrypto::traits::KeyPair;
@@ -690,6 +696,14 @@ mod tests {
             _signed_request: SignedMessage<SyncShardMsg>,
         ) -> Result<SyncShardResponse, SyncShardServiceError> {
             Ok(SyncShardResponse::V1(vec![]))
+        }
+
+        fn rest_api_address(&self) -> SocketAddr {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080)
+        }
+
+        fn update_log_directive<S: AsRef<str>>(&self, _directive: S) -> Result<(), anyhow::Error> {
+            Ok(())
         }
     }
 

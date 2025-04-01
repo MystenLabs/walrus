@@ -251,7 +251,8 @@ pub struct MetricsAndLoggingRuntime {
     /// The Prometheus registry.
     pub registry: Registry,
     _telemetry_guards: TelemetryGuards,
-    _tracing_handle: TracingHandle,
+    /// The tracing handle.
+    pub tracing_handle: Arc<TracingHandle>,
     /// The runtime for metrics and logging.
     // INV: Runtime must be dropped last.
     pub runtime: Option<Runtime>,
@@ -291,7 +292,7 @@ impl MetricsAndLoggingRuntime {
             runtime,
             registry: walrus_registry,
             _telemetry_guards: telemetry_guards,
-            _tracing_handle: tracing_handle,
+            tracing_handle: Arc::new(tracing_handle),
         })
     }
 }
