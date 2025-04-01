@@ -1805,7 +1805,7 @@ impl Client<SuiContractClient> {
         let mut to_be_certified: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
         let mut to_be_extended: Vec<WalrusStoreBlob<'_, T>> = Vec::new();
 
-        registered_blobs.into_iter().for_each(|registered_blob| {
+        for registered_blob in registered_blobs {
             if registered_blob.is_completed() {
                 final_result.push(registered_blob);
             } else if registered_blob.needs_extend() {
@@ -1813,9 +1813,12 @@ impl Client<SuiContractClient> {
             } else if registered_blob.needs_certify() {
                 to_be_certified.push(registered_blob);
             } else {
-                panic!("unexpected blob state {:?}", registered_blob);
+                return Err(ClientError::store_blob_internal(format!(
+                    "unexpected blob state {:?}",
+                    registered_blob
+                )));
             }
-        });
+        }
 
         let num_to_be_certified = to_be_certified.len();
         debug_assert_eq!(
@@ -1833,21 +1836,12 @@ impl Client<SuiContractClient> {
             return Err(ClientError::from(ClientErrorKind::CommitteeChangeNotified));
         }
 
-        tracing::info!("debug-store: to_be_certified: {:?}", to_be_certified);
-        tracing::info!("debug-store: to_be_extended: {:?}", to_be_extended);
-        tracing::info!("debug-store: final_result: {:?}", final_result);
-
         // Get the blob certificates, possibly storing slivers, while checking if the committee has
         // changed in the meantime.
         // This operation can be safely interrupted as it does not require a wallet.
         let blobs_with_certificates = self
             .await_while_checking_notification(self.get_all_blob_certificates(to_be_certified))
             .await?;
-        tracing::info!(
-            "debug-store blobs with certificates: {:?}, blobs_completed: {:?}",
-            blobs_with_certificates.len(),
-            final_result.len()
-        );
         assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
 
         // Move completed blobs to final_result and keep only non-completed ones
@@ -1879,10 +1873,7 @@ impl Client<SuiContractClient> {
             "certified {} blobs on Sui",
             cert_and_extend_params.len()
         );
-        tracing::info!(
-            "debug-store: cert_and_extend_results: {:?}",
-            cert_and_extend_results
-        );
+
         // Build map from BlobId to CertifyAndExtendBlobResult
         let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
             .into_iter()
@@ -1979,7 +1970,7 @@ impl Client<SuiContractClient> {
     }
 
     /// Fetches the certificates for all the blobs, and returns a vector of
-    /// (blob, certificate) pair.
+    /// WalrusStoreBlob::WithCertificate or WalrusStoreBlob::Error.
     async fn get_all_blob_certificates<'a, T: Display + Send + Sync>(
         &'a self,
         blobs_to_be_certified: Vec<WalrusStoreBlob<'a, T>>,
@@ -1994,18 +1985,24 @@ impl Client<SuiContractClient> {
         let multi_pb = Arc::new(MultiProgress::new());
         let blobs_with_certificates =
             futures::future::join_all(blobs_to_be_certified.into_iter().map(|registered_blob| {
-                let operation = registered_blob.get_operation().cloned();
-                let Some(StoreOp::RegisterNew { blob, operation }) = operation else {
-                    panic!("Expected a RegisterNew operation");
-                };
                 let multi_pb_arc = Arc::clone(&multi_pb);
                 async move {
+                    let operation = registered_blob.get_operation().cloned();
+                    let Some(StoreOp::RegisterNew { blob, operation }) = operation else {
+                        return Err(ClientError::store_blob_internal(format!(
+                            "Expected a WalrusStoreBlob::RegisterNew, got {:?}",
+                            registered_blob
+                        )));
+                    };
                     let (Some(pairs), Some(metadata), Some(blob_status)) = (
                         registered_blob.get_sliver_pairs(),
                         registered_blob.get_metadata(),
                         registered_blob.get_status(),
                     ) else {
-                        panic!("Expected a blob with status");
+                        return Err(ClientError::store_blob_internal(format!(
+                            "Missing sliver pairs, metadata, or status for blob: {:?}",
+                            registered_blob
+                        )));
                     };
                     let pairs_ref = pairs.iter().collect::<Vec<_>>();
                     let certificate_result = self
