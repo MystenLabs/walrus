@@ -945,6 +945,7 @@ mod commands {
             event_stream_catchup_min_checkpoint_lag,
         };
 
+        // Since this is a manual catchup, we use a single RPC address.
         let runtime_config = EventProcessorRuntimeConfig {
             rpc_addresses: vec![sui_rpc_url.clone()],
             event_polling_interval: Duration::from_secs(1),

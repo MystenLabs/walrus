@@ -486,10 +486,8 @@ impl SimStorageNodeHandle {
         } else {
             let processor_config =
                 crate::node::events::event_processor::EventProcessorRuntimeConfig {
-                    rpc_addresses: sui_config
-                        .additional_rpc_endpoints
-                        .iter()
-                        .chain(std::iter::once(&sui_config.rpc))
+                    rpc_addresses: std::iter::once(&sui_config.rpc)
+                        .chain(sui_config.additional_rpc_endpoints.iter())
                         .cloned()
                         .collect(),
                     event_polling_interval: Duration::from_millis(100),

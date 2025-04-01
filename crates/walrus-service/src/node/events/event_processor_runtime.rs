@@ -38,11 +38,8 @@ impl EventProcessorRuntime {
         metrics_registry: &Registry,
     ) -> anyhow::Result<Arc<EventProcessor>> {
         let runtime_config = EventProcessorRuntimeConfig {
-            rpc_addresses: sui_reader_config
-                .additional_rpc_endpoints
-                .clone()
-                .into_iter()
-                .chain(vec![sui_reader_config.rpc.clone()])
+            rpc_addresses: std::iter::once(sui_reader_config.rpc.clone())
+                .chain(sui_reader_config.additional_rpc_endpoints.clone())
                 .collect(),
             event_polling_interval: sui_reader_config.event_polling_interval,
             db_path: db_path.join("events"),

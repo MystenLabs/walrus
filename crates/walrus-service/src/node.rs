@@ -399,11 +399,8 @@ impl StorageNodeBuilder {
                     sui_config.event_polling_interval,
                 ))
             } else {
-                let rpc_addresses = sui_config
-                    .additional_rpc_endpoints
-                    .clone()
-                    .into_iter()
-                    .chain(vec![sui_config.rpc.clone()])
+                let rpc_addresses = std::iter::once(sui_config.rpc.clone())
+                    .chain(sui_config.additional_rpc_endpoints.clone())
                     .collect();
                 let processor_config = EventProcessorRuntimeConfig {
                     rpc_addresses,

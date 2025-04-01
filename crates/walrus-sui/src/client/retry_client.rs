@@ -281,7 +281,6 @@ where
 pub struct FailoverWrapper<T> {
     inner: Arc<Vec<(Arc<T>, String)>>,
     current_index: Arc<AtomicUsize>,
-    client_count: usize,
 }
 
 impl<T> FailoverWrapper<T> {
@@ -299,26 +298,29 @@ impl<T> FailoverWrapper<T> {
                     .collect(),
             ),
             current_index: Arc::new(AtomicUsize::new(0)),
-            client_count: count,
         })
+    }
+
+    fn client_count(&self) -> usize {
+        self.inner.len()
     }
 
     /// Gets a client at the specified index (wrapped around if needed).
     async fn get_client(&self, index: usize) -> Option<Arc<T>> {
-        if self.client_count == 0 {
+        if self.client_count() == 0 {
             return None;
         }
 
-        let wrapped_index = index % self.client_count;
+        let wrapped_index = index % self.client_count();
         Some(self.inner[wrapped_index].0.clone())
     }
 
     /// Gets the name of the client at the specified index.
     fn get_name(&self, index: usize) -> Option<&str> {
-        if self.client_count == 0 {
+        if self.client_count() == 0 {
             return None;
         }
-        Some(&self.inner[index % self.client_count].1)
+        Some(&self.inner[index % self.client_count()].1)
     }
 
     /// Executes an operation on the current inner instance, falling back to the next one
@@ -339,11 +341,11 @@ impl<T> FailoverWrapper<T> {
                 .load(std::sync::atomic::Ordering::Relaxed);
             let mut current_index = start_index;
 
-            if self.client_count == 0 {
+            if self.client_count() == 0 {
                 panic!("No clients available in FailoverWrapper");
             }
 
-            for _ in 0..self.client_count {
+            for _ in 0..self.client_count() {
                 let instance = match self.get_client(current_index).await {
                     Some(client) => client,
                     None => break,

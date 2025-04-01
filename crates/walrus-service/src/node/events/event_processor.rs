@@ -735,14 +735,12 @@ impl EventProcessor {
             .map(
                 |rest_url| -> Result<(sui_rpc_api::Client, String), anyhow::Error> {
                     let client = sui_rpc_api::Client::new(rest_url)?;
-                    // Ensure the experimental REST endpoint exists - this needs to be awaited
-                    // so we'll handle it outside the closure
                     Ok((client, rest_url.clone()))
                 },
             )
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Validate each client and filter out invalid ones
+        // Validate each client and filter out invalid ones.
         let mut valid_clients = Vec::new();
         for (client, rest_url) in clients {
             match ensure_experimental_rest_endpoint_exists(client.clone()).await {
