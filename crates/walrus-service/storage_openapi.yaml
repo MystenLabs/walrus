@@ -754,7 +754,7 @@ components:
                     - integer
                     - 'null'
                     format: int64
-                    description: The latest checkpoint sequence number processed by the node.
+                    description: The latest checkpoint sequence number downloaded by the node.
                     minimum: 0
                   nodeStatus:
                     type: string
@@ -1075,7 +1075,7 @@ components:
           - integer
           - 'null'
           format: int64
-          description: The latest checkpoint sequence number processed by the node.
+          description: The latest checkpoint sequence number downloaded by the node.
           minimum: 0
         nodeStatus:
           type: string

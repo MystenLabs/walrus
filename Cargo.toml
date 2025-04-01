@@ -36,7 +36,7 @@ byteorder = "1.5.0"
 bytes = { version = "1.10.1", default-features = false, features = ["serde"] }
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
-clap = { version = "4.5.32", features = ["derive"] }
+clap = { version = "4.5.34", features = ["derive"] }
 colored = "2.2.0"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }
@@ -78,7 +78,7 @@ reed-solomon-simd = "3.0.1"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.21.0"
-rustls = { version = "0.23.23", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.25", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.1"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -103,7 +103,7 @@ sui-storage = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.
 sui-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
 syn = "2.0"
 telemetry-subscribers = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
-tempfile = "3.19.0"
+tempfile = "3.19.1"
 test-cluster = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.45.2" }
 thiserror = "2.0.12"
 tokio = { version = "=1.43.0", features = ["macros", "rt-multi-thread", "signal"] }

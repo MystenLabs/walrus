@@ -1,5 +1,5 @@
 name: Attach Walrus binaries to a release
-run-name: Attach Walrus binaries to a ${{ inputs.walrus_tag }} release
+run-name: Attach Walrus binaries to a ${{ github.event.inputs.walrus_tag || github.ref }} release
 
 on:
   release:
