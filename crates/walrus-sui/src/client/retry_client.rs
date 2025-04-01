@@ -325,6 +325,78 @@ impl<T> FailoverWrapper<T> {
 
     /// Executes an operation on the current inner instance, falling back to the next one
     /// if it fails.
+    async fn failover_inner<F, Fut, R>(&self, operation: F) -> Result<R, RetriableClientError>
+    where
+        F: for<'a> Fn(Arc<T>) -> Fut,
+        Fut: Future<Output = Result<R, RetriableClientError>>,
+    {
+        let mut last_error = None;
+        let start_index = self
+            .current_index
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let mut current_index = start_index;
+
+        if self.client_count() == 0 {
+            panic!("No clients available in FailoverWrapper");
+        }
+
+        for _ in 0..self.client_count() {
+            let instance = match self.get_client(current_index).await {
+                Some(client) => client,
+                None => break,
+            };
+
+            let result = {
+                #[cfg(msim)]
+                {
+                    let mut inject_error = false;
+                    fail_point_if!("fallback_client_inject_error", || {
+                        inject_error = should_inject_error(current_index);
+                    });
+                    if inject_error {
+                        Err(RetriableClientError::RpcError(tonic::Status::internal(
+                            "injected error for testing",
+                        )))
+                    } else {
+                        operation(instance).await
+                    }
+                }
+                #[cfg(not(msim))]
+                {
+                    operation(instance).await
+                }
+            };
+
+            match result {
+                Ok(result) => {
+                    self.current_index
+                        .store(current_index, std::sync::atomic::Ordering::Relaxed);
+                    return Ok(result);
+                }
+                Err(e) => {
+                    if !e.is_retriable_rpc_error() {
+                        tracing::warn!(
+                            "Non-retriable error on client {}, returning last failure value",
+                            self.get_name(current_index).unwrap_or("unknown")
+                        );
+                        return Err(e);
+                    }
+                    last_error = Some(e);
+                    tracing::warn!(
+                        "Failed to execute operation on client {}, retrying with next client {}",
+                        self.get_name(current_index).unwrap_or("unknown"),
+                        self.get_name(current_index + 1).unwrap_or("unknown")
+                    );
+                    current_index += 1;
+                }
+            }
+        }
+
+        Err(last_error.expect("No clients available or all operations failed"))
+    }
+
+    /// Executes an operation on the current inner instance, falling back to the next one
+    /// if it fails.
     pub async fn with_failover<F, Fut, R>(
         &self,
         operation: F,
@@ -334,75 +406,7 @@ impl<T> FailoverWrapper<T> {
         F: for<'a> Fn(Arc<T>) -> Fut,
         Fut: Future<Output = Result<R, RetriableClientError>>,
     {
-        match tokio::time::timeout(timeout, async {
-            let mut last_error = None;
-            let start_index = self
-                .current_index
-                .load(std::sync::atomic::Ordering::Relaxed);
-            let mut current_index = start_index;
-
-            if self.client_count() == 0 {
-                panic!("No clients available in FailoverWrapper");
-            }
-
-            for _ in 0..self.client_count() {
-                let instance = match self.get_client(current_index).await {
-                    Some(client) => client,
-                    None => break,
-                };
-
-                let result = {
-                    #[cfg(msim)]
-                    {
-                        let mut inject_error = false;
-                        fail_point_if!("fallback_client_inject_error", || {
-                            inject_error = should_inject_error(current_index);
-                        });
-                        if inject_error {
-                            Err(RetriableClientError::RpcError(tonic::Status::internal(
-                                "injected error for testing",
-                            )))
-                        } else {
-                            operation(instance).await
-                        }
-                    }
-                    #[cfg(not(msim))]
-                    {
-                        operation(instance).await
-                    }
-                };
-
-                match result {
-                    Ok(result) => {
-                        self.current_index
-                            .store(current_index, std::sync::atomic::Ordering::Relaxed);
-                        return Ok(result);
-                    }
-                    Err(e) => {
-                        // If the error is not retriable, return it immediately.
-                        if !e.is_retriable_rpc_error() {
-                            tracing::warn!(
-                                "Non-retriable error on client {}, returning last failure value",
-                                self.get_name(current_index).unwrap_or("unknown")
-                            );
-                            return Err(e);
-                        }
-                        last_error = Some(e);
-                        tracing::warn!(
-                            "Failed to execute operation on client {}, retrying \
-                            with next client {}",
-                            self.get_name(current_index).unwrap_or("unknown"),
-                            self.get_name(current_index + 1).unwrap_or("unknown")
-                        );
-                        current_index += 1;
-                    }
-                }
-            }
-
-            Err(last_error.expect("No clients available or all operations failed"))
-        })
-        .await
-        {
+        match tokio::time::timeout(timeout, self.failover_inner(operation)).await {
             Ok(result) => result,
             Err(_timeout) => Err(RetriableClientError::TimeoutError(_timeout)),
         }
