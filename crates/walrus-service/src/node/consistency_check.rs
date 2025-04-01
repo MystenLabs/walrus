@@ -42,11 +42,16 @@ pub(super) async fn schedule_background_consistency_check(
 
         // Create a blob info iterator that takes the current blob info table as the snapshot.
         let blob_info_iterator = node.storage.certified_blob_info_iter_before_epoch(epoch);
+
+        // Create a per-object blob info iterator that takes the current blob info table as the
+        // snapshot.
         let per_object_blob_info_iterator = node
             .storage
             .certified_per_object_blob_info_iter_before_epoch(epoch);
         let _ = tx.send(());
 
+        // Right now, the computing the two digests are sequential, given that scanning blob info
+        // table is quick. We may consider parallelizing them in the future.
         compose_certified_blob_list_digest(node.clone(), blob_info_iterator, epoch);
         compose_certified_object_blob_list_digest(
             node.clone(),
@@ -63,10 +68,13 @@ pub(super) async fn schedule_background_consistency_check(
     Ok(())
 }
 
+fn get_epoch_bucket(epoch: Epoch) -> String {
+    (epoch % 100).to_string()
+}
+
 /// Compose the digest of the blob list returned by the iterator.
+/// `scan_counter` keeps track of the number of blobs scanned.
 fn compose_blob_list_digest<B: AsRef<[u8]>, T: CertifiedBlobInfoApi>(
-    epoch_bucket: &str,
-    node: Arc<StorageNodeInner>,
     blob_info_iter: BlobInfoIter<
         B,
         T,
@@ -75,6 +83,8 @@ fn compose_blob_list_digest<B: AsRef<[u8]>, T: CertifiedBlobInfoApi>(
     epoch: Epoch,
     scan_counter: &IntCounterVec,
 ) -> Result<u64, TypedStoreError> {
+    let epoch_bucket = get_epoch_bucket(epoch);
+
     // xxhash is not a cryptographic hash function, but it is fast, has good collision
     // resistance, and is consistent across all platforms.
     let mut hasher = twox_hash::XxHash64::with_seed(epoch as u64);
@@ -87,15 +97,12 @@ fn compose_blob_list_digest<B: AsRef<[u8]>, T: CertifiedBlobInfoApi>(
             Err(error) => {
                 // Upon error, we can terminate the task and return immediately since
                 // we no longer can get a consistent view of the blob info table.
-                tracing::warn!(?error, "error when processing blob info");
-                node.metrics.blob_info_consistency_check_error.inc();
                 return Err(error);
             }
         }
     }
 
-    let value = hasher.finish();
-    Ok(value)
+    Ok(hasher.finish())
 }
 
 /// Compose the digest of the certified blob list.
@@ -107,10 +114,8 @@ fn compose_certified_blob_list_digest(
     let _scope = mysten_metrics::monitored_scope(
         "EpochChange::background_certified_blob_info_consistency_check",
     );
-    let epoch_bucket = (epoch % 100).to_string();
+    let epoch_bucket = get_epoch_bucket(epoch);
     let result = compose_blob_list_digest(
-        &epoch_bucket,
-        node.clone(),
         blob_info_iter,
         epoch,
         &node.metrics.blob_info_consistency_check_certified_scanned,
@@ -129,6 +134,7 @@ fn compose_certified_blob_list_digest(
     walrus_utils::with_label!(node.metrics.blob_info_consistency_check, epoch_bucket)
         .set(value as i64);
 
+    // No-op out side of simtest.
     sui_macros::fail_point_arg!("storage_node_certified_blob_digest", |digest_map: Arc<
         Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>,
     >| {
@@ -150,10 +156,8 @@ fn compose_certified_object_blob_list_digest(
     let _scope = mysten_metrics::monitored_scope(
         "EpochChange::background_certified_blob_object_info_consistency_check",
     );
-    let epoch_bucket = (epoch % 100).to_string();
+    let epoch_bucket = get_epoch_bucket(epoch);
     let result = compose_blob_list_digest(
-        &epoch_bucket,
-        node.clone(),
         per_object_blob_info_iter,
         epoch,
         &node
@@ -179,6 +183,7 @@ fn compose_certified_object_blob_list_digest(
     )
     .set(value as i64);
 
+    // No-op out side of simtest.
     sui_macros::fail_point_arg!(
         "storage_node_certified_blob_object_digest",
         |digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>| {

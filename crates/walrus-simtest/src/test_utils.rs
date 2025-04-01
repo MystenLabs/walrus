@@ -221,10 +221,10 @@ pub mod simtest_utils {
             self.checked
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
-            // Ensure that for all epochs, all nodes have the same certified blob digest
+            // Ensure that for all epochs, all nodes have the same certified blob digest.
             let digest_map = self.certified_blob_digest_map.lock().unwrap();
             for (epoch, node_digest_map) in digest_map.iter() {
-                // Ensure that for the same epoch, all nodes have the same certified blob digest
+                // Ensure that for the same epoch, all nodes have the same certified blob digest.
                 let mut epoch_digest = None;
                 for (node_id, digest) in node_digest_map.iter() {
                     tracing::info!(
@@ -239,10 +239,10 @@ pub mod simtest_utils {
                 }
             }
 
-            // Ensure that for all epochs, all nodes have the same per object blob digest
+            // Ensure that for all epochs, all nodes have the same per object blob digest.
             let digest_map = self.per_object_blob_digest_map.lock().unwrap();
             for (epoch, node_digest_map) in digest_map.iter() {
-                // Ensure that for the same epoch, all nodes have the same per object blob digest
+                // Ensure that for the same epoch, all nodes have the same per object blob digest.
                 let mut epoch_digest = None;
                 for (node_id, digest) in node_digest_map.iter() {
                     tracing::info!(

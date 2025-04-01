@@ -186,8 +186,8 @@ impl BlobInfoTable {
         )
     }
 
-    /// Returns an iterator over all blobs that were certified before the specified epoch in the
-    /// per-object blob info table starting with the `starting_object_id` bound.
+    /// Returns an iterator over all blob objects that were certified before the specified epoch in
+    /// the per-object blob info table starting with the `starting_object_id` bound.
     #[tracing::instrument(skip_all)]
     pub fn certified_per_object_blob_info_iter_before_epoch(
         &self,
@@ -362,6 +362,7 @@ pub(super) trait Mergeable: ToBytes + Debug + DeserializeOwned + Serialize + Siz
     }
 }
 
+/// Trait defining methods for retrieving information about a certified blob.
 #[enum_dispatch]
 pub(crate) trait CertifiedBlobInfoApi {
     /// Returns true iff there exists at least one non-expired and certified deletable or permanent
