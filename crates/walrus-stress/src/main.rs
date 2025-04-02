@@ -86,10 +86,10 @@ struct StressArgs {
     write_load: u64,
     /// The minimum duration of epoch (inclusive) to store the blob for.
     #[clap(long, default_value_t = 1)]
-    min_epoch_to_store: u32,
+    min_epochs_to_store: u32,
     /// The maximum duration of epoch (inclusive) to store the blob for.
     #[clap(long, default_value_t = 10)]
-    max_epoch_to_store: u32,
+    max_epochs_to_store: u32,
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
     #[clap(long, default_value_t = 60)]
@@ -174,8 +174,8 @@ async fn run_stress(
     let blob_config = WriteBlobConfig::new(
         args.min_size_log2,
         args.max_size_log2,
-        args.min_epoch_to_store,
-        args.max_epoch_to_store,
+        args.min_epochs_to_store,
+        args.max_epochs_to_store,
     );
     let mut load_generator = LoadGenerator::new(
         n_clients,

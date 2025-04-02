@@ -82,7 +82,7 @@ impl WriteClient {
     /// Stores a fresh blob and returns the blob id and elapsed time.
     ///
     /// If `epochs_to_store` is not provided, the blob will be stored for the number of epochs
-    /// randomly chosen between `min_epoch_to_store` and `max_epoch_to_store` specified in the
+    /// randomly chosen between `min_epochs_to_store` and `max_epochs_to_store` specified in the
     /// blob config.
     pub async fn write_fresh_blob_with_epochs(
         &mut self,
@@ -91,7 +91,7 @@ impl WriteClient {
         // Refresh the blob data, and get a new random number of epochs to store.
         self.blob.refresh();
         let blob = self.blob.random_size_slice();
-        let epochs_to_store = epochs_to_store.unwrap_or(self.blob.epoch_to_store());
+        let epochs_to_store = epochs_to_store.unwrap_or(self.blob.epochs_to_store());
 
         let now = Instant::now();
         let blob_id = self
@@ -113,8 +113,10 @@ impl WriteClient {
             .to_owned();
 
         tracing::info!(
-            "wrote blob {blob_id} to store {epochs_to_store} epochs in {} seconds",
-            now.elapsed().as_secs()
+            duration = now.elapsed().as_secs(),
+            ?blob_id,
+            epochs_to_store,
+            "wrote blob to store",
         );
         Ok((blob_id, now.elapsed()))
     }
@@ -128,7 +130,7 @@ impl WriteClient {
         let blob = self.blob.random_size_slice();
         let now = Instant::now();
         let blob_id = self
-            .reserve_and_store_inconsistent_blob(blob, self.blob.epoch_to_store())
+            .reserve_and_store_inconsistent_blob(blob, self.blob.epochs_to_store())
             .await?;
         Ok((blob_id, now.elapsed()))
     }

@@ -10,29 +10,29 @@ const TAG: &[u8] = b"TESTBLOB";
 pub struct WriteBlobConfig {
     min_size_log2: u8,
     max_size_log2: u8,
-    min_epoch_to_store: EpochCount,
-    max_epoch_to_store: EpochCount,
+    min_epochs_to_store: EpochCount,
+    max_epochs_to_store: EpochCount,
 }
 
 impl WriteBlobConfig {
     pub fn new(
         min_size_log2: u8,
         max_size_log2: u8,
-        min_epoch_to_store: EpochCount,
-        max_epoch_to_store: EpochCount,
+        min_epochs_to_store: EpochCount,
+        max_epochs_to_store: EpochCount,
     ) -> Self {
         Self {
             min_size_log2,
             max_size_log2,
-            min_epoch_to_store,
-            max_epoch_to_store,
+            min_epochs_to_store,
+            max_epochs_to_store,
         }
     }
 
-    /// Returns a random number of epochs to store between `min_epoch_to_store` and
-    /// `max_epoch_to_store`.
-    pub fn get_random_epoch_to_store(&self) -> EpochCount {
-        thread_rng().gen_range(self.min_epoch_to_store..=self.max_epoch_to_store)
+    /// Returns a random number of epochs to store between `min_epochs_to_store` and
+    /// `max_epochs_to_store`.
+    pub fn get_random_epochs_to_store(&self) -> EpochCount {
+        thread_rng().gen_range(self.min_epochs_to_store..=self.max_epochs_to_store)
     }
 }
 
@@ -40,7 +40,7 @@ impl WriteBlobConfig {
 pub(crate) struct BlobData {
     bytes: Vec<u8>,
     rng: StdRng,
-    epoch_to_store: EpochCount,
+    epochs_to_store: EpochCount,
     config: WriteBlobConfig,
 }
 
@@ -62,14 +62,14 @@ impl BlobData {
         Self {
             bytes,
             rng,
-            epoch_to_store: config.get_random_epoch_to_store(),
+            epochs_to_store: config.get_random_epochs_to_store(),
             config,
         }
     }
 
     /// Returns the number of epochs to store the blob for.
-    pub fn epoch_to_store(&self) -> EpochCount {
-        self.epoch_to_store
+    pub fn epochs_to_store(&self) -> EpochCount {
+        self.epochs_to_store
     }
 
     /// Changes the blob by incrementing (wrapping) a randomly chosen byte excluding
@@ -79,15 +79,15 @@ impl BlobData {
     pub fn refresh(&mut self) {
         let index = self.rng.gen_range(TAG.len()..self.bytes.len());
         self.bytes[index] = self.bytes[index].wrapping_add(1);
-        self.epoch_to_store = self.config.get_random_epoch_to_store();
+        self.epochs_to_store = self.config.get_random_epochs_to_store();
     }
 
     /// Returns a slice of the blob with a size `2^x`, where `x` is chosen uniformly at random
     /// between `min_size_log2` and `max_size_log2`.
     pub fn random_size_slice(&self) -> &[u8] {
-        let blob_size_log2 =
-            thread_rng().gen_range(self.config.min_size_log2..=self.config.max_size_log2);
-        let blob_size = 2_usize.pow(blob_size_log2 as u32);
+        let blob_size_min = 2_usize.pow(self.config.min_size_log2 as u32);
+        let blob_size_max = 2_usize.pow(self.config.max_size_log2 as u32);
+        let blob_size = thread_rng().gen_range(blob_size_min..=blob_size_max);
         &self.bytes[..blob_size]
     }
 }
