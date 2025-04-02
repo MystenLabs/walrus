@@ -312,6 +312,8 @@ mod tests {
             .get_latest_committees_in_test()
             .await
             .unwrap();
+        let current_committee = committees.current_committee();
+        assert!(current_committee.contains(&walrus_cluster.nodes[5].public_key));
 
         assert!(node_health_info[5].shard_detail.is_some());
 
