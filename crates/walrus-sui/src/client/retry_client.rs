@@ -373,7 +373,7 @@ impl<T> FailoverWrapper<T> {
                     if inject_error {
                         Err(RetriableClientError::RpcError(tonic::Status::internal(
                             "injected error for testing",
-                        )))
+                        ).into()))
                     } else {
                         operation(instance).await
                     }
