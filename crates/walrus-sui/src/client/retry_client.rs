@@ -293,16 +293,20 @@ where
 pub struct FailoverWrapper<T> {
     inner: Arc<Vec<(Arc<T>, String)>>,
     current_index: Arc<AtomicUsize>,
+    max_retries: usize,
 }
 
 impl<T> FailoverWrapper<T> {
+    /// The default maximum number of retries.
+    const DEFAULT_MAX_RETRIES: usize = 3;
+
     /// Creates a new failover wrapper.
     pub fn new(instances: Vec<(T, String)>) -> anyhow::Result<Self> {
-        let count = instances.len();
-        if count == 0 {
+        if instances.is_empty() {
             return Err(anyhow::anyhow!("No clients available"));
         }
         Ok(Self {
+            max_retries: Self::DEFAULT_MAX_RETRIES.min(instances.len()),
             inner: Arc::new(
                 instances
                     .into_iter()
@@ -318,26 +322,14 @@ impl<T> FailoverWrapper<T> {
     }
 
     /// Gets a client at the specified index (wrapped around if needed).
-    async fn get_client(&self, index: usize) -> Option<Arc<T>> {
-        if self.client_count() == 0 {
-            return None;
-        }
-
+    async fn get_client(&self, index: usize) -> Arc<T> {
         let wrapped_index = index % self.client_count();
-        Some(self.inner[wrapped_index].0.clone())
+        self.inner[wrapped_index].0.clone()
     }
 
     /// Gets the name of the client at the specified index.
-    fn get_name(&self, index: usize) -> Option<&str> {
-        if self.client_count() == 0 {
-            return None;
-        }
-        Some(&self.inner[index % self.client_count()].1)
-    }
-
-    /// Returns `true` if we should retry the operation on the next client.
-    fn should_retry(&self, error: &RetriableClientError) -> bool {
-        error.is_retriable_rpc_error() || error.is_timeout_error()
+    fn get_name(&self, index: usize) -> &str {
+        &self.inner[index % self.client_count()].1
     }
 
     /// Executes an operation on the current inner instance, falling back to the next one
@@ -353,15 +345,8 @@ impl<T> FailoverWrapper<T> {
             .load(std::sync::atomic::Ordering::Relaxed);
         let mut current_index = start_index;
 
-        if self.client_count() == 0 {
-            panic!("No clients available in FailoverWrapper");
-        }
-
-        for _ in 0..self.client_count() {
-            let instance = match self.get_client(current_index).await {
-                Some(client) => client,
-                None => break,
-            };
+        for _ in 0..self.max_retries.min(self.client_count()) {
+            let instance = self.get_client(current_index).await;
 
             let result = {
                 #[cfg(msim)]
@@ -391,18 +376,11 @@ impl<T> FailoverWrapper<T> {
                     return Ok(result);
                 }
                 Err(e) => {
-                    if !self.should_retry(&e) {
-                        tracing::warn!(
-                            "Non-retriable error on client {}, returning last failure value",
-                            self.get_name(current_index).unwrap_or("unknown")
-                        );
-                        return Err(e);
-                    }
                     last_error = Some(e);
                     tracing::warn!(
-                        "Failed to execute operation on client {}, retrying with next client {}",
-                        self.get_name(current_index).unwrap_or("unknown"),
-                        self.get_name(current_index + 1).unwrap_or("unknown")
+                        current_client = self.get_name(current_index),
+                        next_client = self.get_name(current_index + 1),
+                        "Failed to execute operation on client, retrying with next client",
                     );
                     current_index += 1;
                 }
@@ -411,23 +389,6 @@ impl<T> FailoverWrapper<T> {
 
         Err(last_error.expect("No clients available or all operations failed"))
     }
-
-    // /// Executes an operation on the current inner instance, falling back to the next one
-    // /// if it fails.
-    // pub async fn with_failover<F, Fut, R>(
-    //     &self,
-    //     operation: F,
-    //     timeout: Duration,
-    // ) -> Result<R, RetriableClientError>
-    // where
-    //     F: for<'a> Fn(Arc<T>) -> Fut,
-    //     Fut: Future<Output = Result<R, RetriableClientError>>,
-    //     {
-    //     match tokio::time::timeout(timeout, self.failover_inner(operation)).await {
-    //         Ok(result) => result,
-    //         Err(_timeout) => Err(RetriableClientError::NonRetryableTimeoutError(_timeout)),
-    //     }
-    // }
 }
 
 /// A [`SuiClient`] that retries RPC calls with backoff in case of network errors.
@@ -1209,16 +1170,6 @@ pub enum RetriableClientError {
     Other(#[from] anyhow::Error),
 }
 
-impl RetriableClientError {
-    /// Returns `true` if the error is a retriable timeout error.
-    fn is_timeout_error(&self) -> bool {
-        matches!(
-            self,
-            Self::RetryableTimeoutError(_) | Self::NonRetryableTimeoutError(_)
-        )
-    }
-}
-
 impl From<tokio::time::error::Elapsed> for RetriableClientError {
     fn from(error: tokio::time::error::Elapsed) -> Self {
         Self::RetryableTimeoutError(error)
@@ -1691,5 +1642,109 @@ fn should_inject_error(current_index: usize) -> bool {
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{atomic::AtomicUsize, Arc};
+
+    use super::*;
+
+    // Mock client that counts number of calls and returns configurable results.
+    #[derive(Debug)]
+    struct MockClient {
+        call_count: Arc<AtomicUsize>,
+        should_fail: bool,
+    }
+
+    impl MockClient {
+        fn new(should_fail: bool) -> Self {
+            Self {
+                call_count: Arc::new(AtomicUsize::new(0)),
+                should_fail,
+            }
+        }
+
+        async fn operation(&self) -> Result<String, RetriableClientError> {
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.should_fail {
+                Err(RetriableClientError::RpcError(CheckpointRpcError {
+                    status: tonic::Status::internal("mock error"),
+                    checkpoint_seq_num: None,
+                }))
+            } else {
+                Ok("success".to_string())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_failover_wrapper() {
+        // Create mock clients - first fails, second succeeds.
+        let failing_client = MockClient::new(true);
+        let succeeding_client = MockClient::new(false);
+
+        let failing_calls = failing_client.call_count.clone();
+        let succeeding_calls = succeeding_client.call_count.clone();
+
+        let clients = vec![
+            (failing_client, "failing".to_string()),
+            (succeeding_client, "succeeding".to_string()),
+        ];
+
+        let wrapper = FailoverWrapper::new(clients).unwrap();
+
+        // Execute operation that should failover from first to second client.
+        let result = wrapper
+            .with_failover(|client| {
+                Box::pin(async move {
+                    let client = client.as_ref();
+                    client.operation().await
+                })
+            })
+            .await;
+
+        assert!(matches!(result, Ok(ref s) if s == "success"));
+        assert_eq!(failing_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            succeeding_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(
+            wrapper
+                .current_index
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failover_wrapper_all_fail() {
+        // Create mock clients - both fail.
+        let clients = vec![
+            (MockClient::new(true), "failing1".to_string()),
+            (MockClient::new(true), "failing2".to_string()),
+        ];
+
+        let wrapper = FailoverWrapper::new(clients).unwrap();
+
+        // Execute operation that should try both clients and fail.
+        let result = wrapper
+            .with_failover(|client| {
+                Box::pin(async move {
+                    let client = client.as_ref();
+                    client.operation().await
+                })
+            })
+            .await;
+
+        // Verify result is error.
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RetriableClientError::RpcError(_)
+        ));
     }
 }
