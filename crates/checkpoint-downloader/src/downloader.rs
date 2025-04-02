@@ -392,13 +392,13 @@ fn create_backoff(
 /// If the error is due to a checkpoint that is already present on the server, it is logged as an
 /// error. Otherwise, it is logged as a debug.
 fn handle_checkpoint_error(err: Option<&RetriableClientError>, next_checkpoint: u64) {
-    if let Some(RetriableClientError::RpcError(status)) = err {
-        if let Some(checkpoint_height) = status.checkpoint_height() {
+    if let Some(RetriableClientError::RpcError(rpc_error)) = err {
+        if let Some(checkpoint_height) = rpc_error.status.checkpoint_height() {
             if next_checkpoint > checkpoint_height {
                 return tracing::trace!(
                     next_checkpoint,
                     checkpoint_height,
-                    message = status.message(),
+                    message = rpc_error.status.message(),
                     "failed to read next checkpoint, probably not produced yet",
                 );
             }
