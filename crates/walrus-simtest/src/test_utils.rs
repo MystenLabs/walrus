@@ -67,6 +67,7 @@ pub mod simtest_utils {
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
+                None
             )
             .await
             .context("store blob should not fail")?;
