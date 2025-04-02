@@ -11,24 +11,9 @@ To update the contracts, you need access to the wallet that published the contra
 
 1. Modify the source files in this directory and commit your changes.
 1. Create a draft PR and have it reviewed.
-1. Publish the updated contracts and update the version information in the `walrus/Move.lock`:
-
-   ```sh
-   WALRUS_ORIGINAL_PKG_ID=0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66
-   ADMIN_WALLET=/path/to/admin/wallet.yaml
-   sui client --client.config "$ADMIN_WALLET" switch --env testnet
-   UPGRADE_CAP=$(sui client --client.config "$ADMIN_WALLET" objects --json | jq -r '.[] | select(.data.type|test("UpgradeCap")) | .data.objectId')
-   sui client --client.config "$ADMIN_WALLET" upgrade --upgrade-capability "$UPGRADE_CAP" --with-unpublished-dependencies
-
-   # Take the latest package ID and version number from the output of the above command.
-   NEW_PKG_ID=
-   NEW_PKG_VERSION=
-
-   sui move manage-package --environment "$(sui client active-env)" \
-   --network-id "$(sui client --client.config "$ADMIN_WALLET" chain-identifier)" \
-   --original-id "$WALRUS_ORIGINAL_PKG_ID" \
-   --latest-id "$NEW_PKG_ID" \
-   --version-number "$NEW_PKG_VERSION"
-   ```
-
+1. Publish the updated contracts:
+   - Either as quorum-based upgrade by having the storage nodes vote on the upgrade (using the
+     `walrus node-admin vote-for-upgrade` command, and then deploying the upgrade using
+     `walrus-deploy upgrade`).
+   - Or by using the `walrus-deploy emergency-upgrade` command.
 1. Create a commit, push your changes, get the PR approved, and merge your changes.
