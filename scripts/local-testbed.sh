@@ -19,7 +19,7 @@ join_by() {
 }
 
 kill_tmux_sessions() {
-  { tmux ls || true; } | { grep -o "dryrun-node-\d*" || true; } | xargs -n1 tmux kill-session -t
+  { tmux ls || true; } | { grep -o "dryrun-node-\d*" || true; } | xargs -rn1 tmux kill-session -t
 }
 
 ctrl_c() {
