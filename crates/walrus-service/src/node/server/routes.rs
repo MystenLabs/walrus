@@ -258,7 +258,7 @@ pub async fn put_sliver<S: SyncServiceState>(
     };
 
     state
-        .store_sliver(&blob_id, sliver_pair_index, &sliver)
+        .store_sliver(blob_id, sliver_pair_index, sliver)
         .await?;
 
     // TODO(WAL-253): Change to CREATED.

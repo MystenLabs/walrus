@@ -980,12 +980,14 @@ impl EventBlobWriter {
         // TODO: Once shard assignment per storage node will be read from walrus
         // system object at the beginning of the walrus epoch, we can only store the blob for
         // shards that are locally assigned to this node. (#682)
+        let blob_metadata_clone = blob_metadata.clone();
+
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    &blob_metadata,
+                    blob_metadata_clone.clone(),
                     sliver_pair.index(),
-                    &Sliver::Primary(sliver_pair.primary.clone()),
+                    Sliver::Primary(sliver_pair.primary.clone()),
                 )
                 .await
                 .map_or_else(
@@ -1001,12 +1003,15 @@ impl EventBlobWriter {
         }))
         .await
         .map(|_| ())?;
+
+        let blob_metadata_clone = blob_metadata.clone();
+
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
                 .store_sliver_unchecked(
-                    &blob_metadata,
+                    blob_metadata_clone.clone(),
                     sliver_pair.index(),
-                    &Sliver::Secondary(sliver_pair.secondary.clone()),
+                    Sliver::Secondary(sliver_pair.secondary.clone()),
                 )
                 .await
                 .map_or_else(
