@@ -371,9 +371,9 @@ impl<T> FailoverWrapper<T> {
                         inject_error = should_inject_error(current_index);
                     });
                     if inject_error {
-                        Err(RetriableClientError::RpcError(tonic::Status::internal(
-                            "injected error for testing",
-                        ).into()))
+                        Err(RetriableClientError::RpcError(
+                            tonic::Status::internal("injected error for testing").into(),
+                        ))
                     } else {
                         operation(instance).await
                     }
