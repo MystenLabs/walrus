@@ -1,4 +1,4 @@
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
@@ -34,13 +34,8 @@ const TASK_METRICS_NAMESPACE: &str = "tokio_task_metrics";
 /// be retrieved with [`Self::get_or_insert_with_task_name`].
 #[derive(Debug, Clone)]
 pub struct TaskMonitorFamily<K> {
-    inner: Arc<TaskMonitorFamilyInner<K>>,
-}
-
-#[derive(Debug)]
-struct TaskMonitorFamilyInner<K> {
     registry: Registry,
-    task_monitors: RwLock<HashMap<K, TaskMonitor>>,
+    task_monitors: Arc<RwLock<HashMap<K, TaskMonitor>>>,
 }
 
 impl<K> TaskMonitorFamily<K>
@@ -51,10 +46,8 @@ where
     /// prometheus registry.
     pub fn new(registry: Registry) -> Self {
         Self {
-            inner: Arc::new(TaskMonitorFamilyInner {
-                registry,
-                task_monitors: Default::default(),
-            }),
+            registry,
+            task_monitors: Default::default(),
         }
     }
 
@@ -72,7 +65,6 @@ where
     {
         // In most cases, the route should already be defined so attempt to get it with a read-lock.
         if let Some(task_monitor) = self
-            .inner
             .task_monitors
             .read()
             .expect("mutex is not poisoned")
@@ -85,16 +77,14 @@ where
         // Between the above call, and the write-lock below, another thread may have also attempted
         // to create the same monitor. For this reason, when creating the monitor below, fall back
         // to any existing monitor.
-        self.inner
-            .task_monitors
+        self.task_monitors
             .write()
             .expect("mutex is not poisoned")
             .entry(key.clone())
             .or_insert_with(move || {
                 let collector = TaskMonitorCollector::new(task_name());
                 let monitor = collector.monitor().clone();
-                self.inner
-                    .registry
+                self.registry
                     .register(Box::new(collector))
                     .expect("collectors must be unique");
 
