@@ -3,13 +3,7 @@
 
 //! Client for the Walrus service.
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    path::PathBuf,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::anyhow;
 use cli::{styled_progress_bar, styled_spinner};
@@ -694,7 +688,7 @@ impl Client<SuiContractClient> {
     /// is in the same order as the input list.
     /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
     /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
-    pub fn encode_blobs<'a, T: Display + Send + Sync>(
+    pub fn encode_blobs<'a, T: Display + Clone + Send + Sync>(
         &self,
         blobs_with_identifiers: Vec<WalrusStoreBlob<'a, T>>,
         encoding_type: EncodingType,
@@ -782,7 +776,7 @@ impl Client<SuiContractClient> {
     ///
     /// Returns a [`ClientErrorKind::CommitteeChangeNotified`] error if, during the registration or
     /// store operations, the client is notified that the committee has changed.
-    async fn reserve_and_store_encoded_blobs<'a, T: Display + Send + Sync + 'a>(
+    async fn reserve_and_store_encoded_blobs<'a, T: Display + Clone + Send + Sync + 'a>(
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
@@ -852,7 +846,7 @@ impl Client<SuiContractClient> {
                 final_result.push(registered_blob);
             } else if registered_blob.needs_extend() {
                 to_be_extended.push(registered_blob);
-            } else if registered_blob.needs_certify() {
+            } else if registered_blob.needs_certificate() {
                 to_be_certified.push(registered_blob);
             } else {
                 return Err(ClientError::store_blob_internal(format!(
@@ -952,26 +946,6 @@ impl Client<SuiContractClient> {
             }
         }
 
-        // A short circuit if all blobs have errors.
-        // This is not ideal since the actual error is wrapped in a `Other` error as a string.
-        let mut num_errors = 0;
-        let error_msgs: HashSet<_> = final_result
-            .iter()
-            .filter_map(|blob| {
-                let msg = blob.get_error_msg();
-                if msg.is_some() {
-                    num_errors += 1;
-                }
-                msg
-            })
-            .collect();
-
-        if num_errors == final_result.len() && error_msgs.len() == 1 {
-            return Err(ClientError::from(ClientErrorKind::Other(
-                error_msgs.iter().next().unwrap().to_string().into(),
-            )));
-        }
-
         Ok(final_result)
     }
 
@@ -979,7 +953,7 @@ impl Client<SuiContractClient> {
     ///
     /// Input: a vector of WalrusStoreBlob::Encoded.
     /// Output: a vector of WalrusStoreBlob::WithStatus or WalrusStoreBlob::Error.
-    async fn get_blob_statuses<'a, T: Display + Send + Sync>(
+    async fn get_blob_statuses<'a, T: Display + Clone + Send + Sync>(
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
@@ -1017,7 +991,7 @@ impl Client<SuiContractClient> {
 
     /// Fetches the certificates for all the blobs, and returns a vector of
     /// WalrusStoreBlob::WithCertificate or WalrusStoreBlob::Error.
-    async fn get_all_blob_certificates<'a, T: Display + Send + Sync>(
+    async fn get_all_blob_certificates<'a, T: Display + Clone + Send + Sync>(
         &'a self,
         blobs_to_be_certified: Vec<WalrusStoreBlob<'a, T>>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {

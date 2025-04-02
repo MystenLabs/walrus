@@ -222,7 +222,7 @@ impl<'a> ResourceManager<'a> {
     /// The function considers the requirements given to the store operation (epochs ahead,
     /// persistence, force store), the status of the blob on chain, and the available resources in
     /// the wallet.
-    pub async fn register_walrus_store_blobs<T: Display + Send + Sync>(
+    pub async fn register_walrus_store_blobs<T: Display + Clone + Send + Sync>(
         &self,
         encoded_blobs_with_status: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
@@ -353,7 +353,7 @@ impl<'a> ResourceManager<'a> {
     }
 
     /// Registers or reuses resources for a list of blobs.
-    pub async fn register_or_reuse_resources<'b, T: Display + Send + Sync>(
+    pub async fn register_or_reuse_resources<'b, T: Display + Clone + Send + Sync>(
         &self,
         blobs: Vec<WalrusStoreBlob<'b, T>>,
         epochs_ahead: EpochCount,
