@@ -50,6 +50,7 @@ pub struct App {
     /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
+    /// 5. The environment variable `WALRUS_CONFIG` as complete path
     // NB: Keep this in sync with `crate::cli`.
     #[arg(long, verbatim_doc_comment, global = true)]
     #[serde(

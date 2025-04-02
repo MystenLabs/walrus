@@ -38,19 +38,23 @@ pub use self::{
 /// Returns the default paths for the Walrus configuration file.
 pub fn default_configuration_paths() -> Vec<PathBuf> {
     const WALRUS_CONFIG_FILE_NAMES: [&str; 2] = ["client_config.yaml", "client_config.yml"];
+    let mut rv = Vec::new();
     let mut directories = vec![PathBuf::from(".")];
-    if let Ok(xdg_config_dir) = std::env::var("XDG_CONFIG_HOME") {
+    if let Ok(xdg_config_dir) = env::var("XDG_CONFIG_HOME") {
         directories.push(xdg_config_dir.into());
     }
     if let Some(home_dir) = home::home_dir() {
         directories.push(home_dir.join(".config").join("walrus"));
         directories.push(home_dir.join(".walrus"));
     }
-    directories
+    rv.extend(directories
         .into_iter()
         .cartesian_product(WALRUS_CONFIG_FILE_NAMES)
-        .map(|(directory, file_name)| directory.join(file_name))
-        .collect()
+        .map(|(directory, file_name)| directory.join(file_name)));
+    if let Ok(wal_config) = env::var("WALRUS_CONFIG") {
+        rv.push(PathBuf::from(wal_config));
+    }
+    rv
 }
 
 /// Loads the Walrus configuration from the given path and context.
