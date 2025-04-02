@@ -14,6 +14,7 @@ use std::{
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use generator::blob::WriteBlobConfig;
 use rand::{seq::SliceRandom, RngCore};
 use sui_types::base_types::ObjectID;
 use walrus_service::{
@@ -83,6 +84,12 @@ struct StressArgs {
     /// If the write load is 0, a single write will be performed to enable reads.
     #[clap(long, default_value_t = 60)]
     write_load: u64,
+    /// The minimum duration of epoch (inclusive) to store the blob for.
+    #[clap(long, default_value_t = 1)]
+    min_epoch_to_store: u32,
+    /// The maximum duration of epoch (inclusive) to store the blob for.
+    #[clap(long, default_value_t = 10)]
+    max_epoch_to_store: u32,
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
     #[clap(long, default_value_t = 60)]
@@ -164,10 +171,15 @@ async fn run_stress(
         COIN_REFILL_AMOUNT,
         MIN_BALANCE,
     );
-    let mut load_generator = LoadGenerator::new(
-        n_clients,
+    let blob_config = WriteBlobConfig::new(
         args.min_size_log2,
         args.max_size_log2,
+        args.min_epoch_to_store,
+        args.max_epoch_to_store,
+    );
+    let mut load_generator = LoadGenerator::new(
+        n_clients,
+        blob_config,
         config,
         sui_network,
         gas_refill_period,
