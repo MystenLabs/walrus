@@ -41,6 +41,7 @@ usage() {
   echo "  -n <network>          Sui network to generate configs for (default: devnet)"
   echo "  -s <n_shards>         Number of shards (default: 10)"
   echo "  -t                    Use testnet contracts"
+  echo "  -a <ip_address>       Specify the IP address that is used for all nodes (default: 127.0.0.1)"
 }
 
 run_node() {
@@ -59,8 +60,9 @@ shards=10 # Default value of 4 if no argument is provided
 tail_logs=false
 use_existing_config=false
 contract_dir="./contracts"
+host_address="127.0.0.1"
 
-while getopts "b:c:d:efhn:s:t" arg; do
+while getopts "b:c:d:efhn:s:ta:" arg; do
   case "${arg}" in
     f)
       tail_logs=true
@@ -85,6 +87,9 @@ while getopts "b:c:d:efhn:s:t" arg; do
       ;;
     t)
       contract_dir="./testnet-contracts"
+      ;;
+    a)
+      host_address=${OPTARG}
       ;;
     h)
       usage
@@ -151,7 +156,7 @@ working_dir="./working_dir"
 # Derive the ip addresses for the storage nodes
 ips=( )
 for node_count in $(seq 1 "$committee_size"); do
-  ips+=( 127.0.0.1 )
+  ips+=( "${host_address}" )
 done
 
 # Initialize cleanup to be empty

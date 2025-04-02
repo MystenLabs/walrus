@@ -108,7 +108,7 @@ struct DeploySystemContractArgs {
     #[clap(flatten)]
     epoch_zero_config: EpochZeroConfig,
     /// The list of host names or public IP addresses of the storage nodes.
-    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(4..))]
+    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(1..))]
     host_addresses: Vec<String>,
     /// The port on which the REST API of the storage nodes will listen.
     #[clap(long, default_value_t = REST_API_PORT)]
