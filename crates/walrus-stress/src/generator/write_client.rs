@@ -67,8 +67,30 @@ impl WriteClient {
             max_size_log2,
         )
         .await;
-        let client = new_client(config, network, gas_budget, refresher_handle, refiller).await?;
-        Ok(Self { client, blob })
+        let mut attempt = 0;
+        loop {
+            let result = new_client(
+                config,
+                network,
+                gas_budget,
+                refresher_handle.clone(),
+                refiller.clone(),
+            )
+            .await;
+            match result {
+                Ok(client) => {
+                    return Ok(Self { client, blob });
+                }
+                Err(error) => {
+                    tracing::error!(?error, "failed to create client, attempt: {attempt}");
+                    attempt += 1;
+                    if attempt > 5 {
+                        return Err(error);
+                    }
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            }
+        }
     }
 
     /// Returns the active address of the client.

@@ -115,6 +115,7 @@ pub trait ToErrorType {
 
 impl RetriableRpcError for anyhow::Error {
     fn is_retriable_rpc_error(&self) -> bool {
+        tracing::warn!("anyhow::Error is_retriable_rpc_error: {:?}", self);
         self.downcast_ref::<sui_sdk::error::Error>()
             .map(|error| error.is_retriable_rpc_error())
             .unwrap_or(false)
@@ -123,13 +124,22 @@ impl RetriableRpcError for anyhow::Error {
 
 impl RetriableRpcError for sui_sdk::error::Error {
     fn is_retriable_rpc_error(&self) -> bool {
+        tracing::warn!("sui_sdk::error::Error is_retriable_rpc_error: {:?}", self);
         if let sui_sdk::error::Error::RpcError(rpc_error) = self {
-            let error_string = rpc_error.to_string();
-            if RETRIABLE_RPC_ERRORS
-                .iter()
-                .any(|&s| error_string.contains(s))
-            {
-                return true;
+            match rpc_error {
+                jsonrpsee::core::ClientError::RequestTimeout => {
+                    return true;
+                }
+                jsonrpsee::core::ClientError::Transport(error) => {
+                    let error_string = error.to_string();
+                    if RETRIABLE_RPC_ERRORS
+                        .iter()
+                        .any(|&s| error_string.contains(s))
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
             }
         }
         false
@@ -138,6 +148,7 @@ impl RetriableRpcError for sui_sdk::error::Error {
 
 impl RetriableRpcError for SuiClientError {
     fn is_retriable_rpc_error(&self) -> bool {
+        tracing::warn!("SuiClientError is_retriable_rpc_error: {:?}", self);
         match self {
             SuiClientError::SuiSdkError(error) => error.is_retriable_rpc_error(),
             SuiClientError::Internal(error) => error.is_retriable_rpc_error(),
@@ -148,6 +159,7 @@ impl RetriableRpcError for SuiClientError {
 
 impl RetriableRpcError for tonic::Status {
     fn is_retriable_rpc_error(&self) -> bool {
+        tracing::warn!("tonic::Status is_retriable_rpc_error: {:?}", self);
         RETRIABLE_GRPC_ERRORS.contains(&self.code())
     }
 }
@@ -1410,7 +1422,7 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
 
         // Simulate a retriable RPC error (502 Bad Gateway)
         Err(sui_sdk::error::Error::RpcError(
-            jsonrpsee::core::ClientError::Custom(
+            jsonrpsee::core::ClientError::Transport(
                 "server returned an error status code: 502".into(),
             ),
         ))?;

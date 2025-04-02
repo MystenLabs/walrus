@@ -37,7 +37,7 @@ const SECS_PER_LOAD_PERIOD: u64 = 60;
 mod blob;
 
 mod write_client;
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 use write_client::WriteClient;
 
 /// A load generator for Walrus writes.
@@ -271,13 +271,50 @@ impl LoadGenerator {
         let (reads_per_burst, read_interval) = burst_load(read_load);
         let read_blob_id = if reads_per_burst != 0 {
             tracing::info!("submitting initial write...");
+            let mut backoff = ExponentialBackoff::new_with_seed(
+                Duration::from_secs(5),
+                Duration::from_secs(20),
+                Some(5),
+                thread_rng().gen(),
+            );
+
             // Here we store read blob for 7 epochs ahead, which is longer than a walrus release,
             // so that the read workload shouldn't encounter blob not found errors.
             let epochs_to_store = 7;
-            let read_blob_id = self
-                .single_write(epochs_to_store)
-                .await
-                .inspect_err(|error| tracing::error!(?error, "initial write failed"))?;
+            let mut attempt = 0;
+            let read_blob_id;
+            loop {
+                let result = self
+                    .single_write(epochs_to_store)
+                    .await
+                    .inspect_err(|error| {
+                        tracing::error!(?error, "initial write failed, attempt: {attempt}")
+                    });
+
+                match result {
+                    Ok(blob_id) => {
+                        read_blob_id = blob_id;
+                        break;
+                    }
+                    Err(error) => match backoff.next_delay() {
+                        Some(delay) => {
+                            tracing::error!(
+                                ?error,
+                                "initial write failed, attempt: {:?}, retrying after {:?} ms",
+                                attempt,
+                                delay
+                            );
+                            tokio::time::sleep(delay).await;
+                            attempt += 1;
+                        }
+                        None => {
+                            tracing::error!(?error, "initial write failed, attempt: {attempt}");
+                            return Err(error.into());
+                        }
+                    },
+                }
+            }
+
             tracing::info!(
                 "initial write finished, created blob id: {read_blob_id} \
                 with {epochs_to_store} epochs ahead"
