@@ -94,7 +94,9 @@ curl \
   -o "$tmpdir"/walrus
 
 # Now, let's install this binary.
-install -Dm755 "$tmpdir"/walrus "$install_dir"
+mkdir -p "$install_dir" || die "failed to create $install_dir"
+cp "$tmpdir"/walrus "$install_dir"/ || die "failed to copy walrus binary to $install_dir"
+chmod 0755 "$install_dir"/walrus || die "failed to set permissions on $install_dir/walrus"
 msg "walrus binary has been installed to '$install_dir/walrus' [version='$("$install_dir"/walrus --version)']"
 
 resolved_walrus="$(command -v walrus)"
