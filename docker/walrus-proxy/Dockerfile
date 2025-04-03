@@ -1,4 +1,4 @@
-FROM rust:1.85-bookworm as builder
+FROM rust:1.86-bookworm as builder
 
 ARG PROFILE=release
 WORKDIR /work
