@@ -662,7 +662,7 @@ pub async fn health_info<S: SyncServiceState>(
     Query(query): Query<HealthInfoQuery>,
     State(state): State<Arc<S>>,
 ) -> ApiSuccess<ServiceHealthInfo> {
-    ApiSuccess::ok(state.health_info(query.detailed))
+    ApiSuccess::ok(state.health_info(query.detailed).await)
 }
 
 #[tracing::instrument(skip_all)]

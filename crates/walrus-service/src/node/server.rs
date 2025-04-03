@@ -671,7 +671,7 @@ mod tests {
             walrus_core::test_utils::encoding_config().n_shards()
         }
 
-        fn health_info(&self, _detailed: bool) -> ServiceHealthInfo {
+        async fn health_info(&self, _detailed: bool) -> ServiceHealthInfo {
             ServiceHealthInfo {
                 uptime: Duration::from_secs(0),
                 epoch: 0,

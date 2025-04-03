@@ -271,7 +271,7 @@ pub trait ServiceState {
     fn n_shards(&self) -> NonZeroU16;
 
     /// Returns the node health information of this ServiceState.
-    fn health_info(&self, detailed: bool) -> ServiceHealthInfo;
+    fn health_info(&self, detailed: bool) -> impl Future<Output = ServiceHealthInfo> + Send;
 
     /// Returns whether the sliver is stored in the shard.
     fn sliver_status<A: EncodingAxis>(
@@ -1814,13 +1814,13 @@ impl StorageNodeInner {
         self.protocol_key_pair.as_ref().public()
     }
 
-    fn shard_health_status(
+    async fn shard_health_status(
         &self,
         detailed: bool,
     ) -> (ShardStatusSummary, Option<ShardStatusDetail>) {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
-        let mut shard_statuses = self.storage.try_list_shard_status().unwrap_or_default();
+        let mut shard_statuses = self.storage.list_shard_status().await;
         let owned_shards = self.owned_shards();
         let mut summary = ShardStatusSummary::default();
 
@@ -2111,7 +2111,7 @@ impl ServiceState for StorageNode {
         self.inner.n_shards()
     }
 
-    fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
+    fn health_info(&self, detailed: bool) -> impl Future<Output = ServiceHealthInfo> + Send {
         self.inner.health_info(detailed)
     }
 
@@ -2465,8 +2465,8 @@ impl ServiceState for StorageNodeInner {
         self.encoding_config.n_shards()
     }
 
-    fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
-        let (shard_summary, shard_detail) = self.shard_health_status(detailed);
+    async fn health_info(&self, detailed: bool) -> ServiceHealthInfo {
+        let (shard_summary, shard_detail) = self.shard_health_status(detailed).await;
 
         // Get the latest checkpoint sequence number directly from the event manager.
         let latest_checkpoint_sequence_number = if let Some(event_processor) =
