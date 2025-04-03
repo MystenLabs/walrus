@@ -4704,6 +4704,93 @@ mod tests {
             Ok(())
         }
 
+        // Tests that restarting shard sync will retry shard transfer first, even though last sync
+        // entered recovery mode.
+        simtest_param_test! {
+            sync_shard_restart_recover_retry_transfer -> TestResult: [
+                primary5: (5, SliverType::Primary),
+                primary15: (15, SliverType::Primary),
+                secondary5: (5, SliverType::Secondary),
+                secondary15: (15, SliverType::Secondary),
+            ]
+        }
+        async fn sync_shard_restart_recover_retry_transfer(
+            break_index: u64,
+            sliver_type: SliverType,
+        ) -> TestResult {
+            let (cluster, blob_details, storage_dst, shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, None).await?;
+
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
+
+            // Register two fail points here. `fail_point_fetch_sliver` will cause shard transfer
+            // to fail in the middle, which makes node entering recover mode, and
+            // `fail_point_after_start_recovery` will cause the shard recovery to fail, which
+            // terminates the shard sync process. Upon restart, we should see that shards retry
+            // shard transfer first.
+            register_fail_point_arg(
+                "fail_point_fetch_sliver",
+                move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
+            );
+            register_fail_point_if("fail_point_after_start_recovery", || true);
+
+            // Starts the shard syncing process in the new shard, which will fail at the specified
+            // break index.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)], false)
+                .await?;
+
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+
+            // Check that shard sync process is not finished.
+            let shard_storage_src = cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .await
+                .expect("shard storage should exist");
+            assert!(
+                shard_storage_dst.sliver_count(SliverType::Primary)
+                    < shard_storage_src.sliver_count(SliverType::Primary)
+                    || shard_storage_dst.sliver_count(SliverType::Secondary)
+                        < shard_storage_src.sliver_count(SliverType::Secondary)
+            );
+
+            // Register a fail point to check that the node will not enter recovery mode from this
+            // point after restart.
+            register_fail_point("fail_point_shard_sync_recovery", move || {
+                panic!("shard sync should not enter recovery mode in this test");
+            });
+            clear_fail_point("fail_point_fetch_sliver");
+
+            // restart the shard syncing process, to simulate a reboot.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .clear_shard_sync_tasks()
+                .await;
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .restart_syncs()
+                .await?;
+
+            // Waits for the shard to be synced.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+
+            // Checks that the shard is completely migrated.
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+
+            clear_fail_point("fail_point_shard_sync_recovery");
+            clear_fail_point("fail_point_after_start_recovery");
+            Ok(())
+        }
+
         simtest_param_test! {
             sync_shard_src_abnormal_return -> TestResult: [
                 // Tests that there is a discrepancy between the source and destination shards in

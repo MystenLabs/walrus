@@ -160,7 +160,8 @@ impl ShardSyncProgress {
 }
 
 // Represents the last synced status of the shard after restart.
-enum ShardLastSyncStatus {
+#[derive(Debug)]
+pub(crate) enum ShardLastSyncStatus {
     // The last synced blob ID for the primary slivers.
     // If the last_synced_blob_id is None, it means the shard has not synced any primary slivers.
     Primary { last_synced_blob_id: Option<BlobId> },
@@ -533,6 +534,15 @@ impl ShardStorage {
         self.shard_status.insert(&(), &ShardStatus::Active)
     }
 
+    pub(crate) fn resume_active_shard_sync(&self) -> Result<ShardLastSyncStatus, TypedStoreError> {
+        // Note that when active shard sync is stopped in the middle and shard recover starts,
+        // the shard sync progress recorded in the db is not deleted, until the shard is completely
+        // synced. By setting the shard status to active sync, the shard will resume the sync from
+        // the last synced blob id.
+        self.shard_status.insert(&(), &ShardStatus::ActiveSync)?;
+        self.get_last_sync_status(&ShardStatus::ActiveSync)
+    }
+
     /// Fetches the slivers with `sliver_type` for the provided blob IDs.
     pub(crate) fn fetch_slivers(
         &self,
@@ -867,12 +877,20 @@ impl ShardStorage {
                         &self.primary_slivers,
                         [(blob_id, &PrimarySliverData::from(primary.clone()))],
                     )?;
+                    batch.delete_batch(
+                        &self.pending_recover_slivers,
+                        [(SliverType::Primary, *blob_id)],
+                    )?;
                 }
                 Sliver::Secondary(secondary) => {
                     assert_eq!(sliver_type, SliverType::Secondary);
                     batch.insert_batch(
                         &self.secondary_slivers,
                         [(blob_id, &SecondarySliverData::from(secondary.clone()))],
+                    )?;
+                    batch.delete_batch(
+                        &self.pending_recover_slivers,
+                        [(SliverType::Secondary, *blob_id)],
                     )?;
                 }
             }

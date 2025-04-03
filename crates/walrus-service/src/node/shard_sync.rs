@@ -295,10 +295,23 @@ impl ShardSyncHandler {
                 // Restart the syncing task for shards that were previously syncing (in ActiveSync
                 // status).
                 let shard_status = shard_storage.status()?;
-                if shard_status == ShardStatus::ActiveSync
-                    || shard_status == ShardStatus::ActiveRecover
-                {
-                    self.start_shard_sync_impl(shard_storage.clone()).await;
+                match shard_status {
+                    ShardStatus::ActiveSync => {
+                        self.start_shard_sync_impl(shard_storage.clone()).await;
+                    }
+                    ShardStatus::ActiveRecover => {
+                        if self.config.restart_shard_sync_always_retry_transfer_first {
+                            let shard_last_sync_status =
+                                shard_storage.resume_active_shard_sync()?;
+                            tracing::info!(
+                                walrus.shard_index = %shard_storage.id(),
+                                ?shard_last_sync_status,
+                                "resuming shard sync from the last synced blob id"
+                            );
+                        }
+                        self.start_shard_sync_impl(shard_storage.clone()).await;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -343,6 +356,12 @@ impl ShardSyncHandler {
             let mut directly_recover_shard = false;
             let mut shard_sync_success = false;
             loop {
+                tracing::info!(
+                    shard_index=%shard_index,
+                    ?directly_recover_shard,
+                    "syncing shard to the beginning of epoch {}",
+                    current_epoch
+                );
                 match shard_sync_handler_clone
                     .sync_shard_impl(shard_storage.clone(), current_epoch, directly_recover_shard)
                     .await
@@ -375,6 +394,10 @@ impl ShardSyncHandler {
                                 .shard_sync_retry_switch_to_recovery_interval
                             || force_recovery
                         {
+                            tracing::info!(
+                                shard_index=%shard_index,
+                                "shard sync failed; directly recovering shard"
+                            );
                             directly_recover_shard = true;
                         }
                     }
@@ -518,13 +541,23 @@ impl ShardSyncHandler {
 
     #[cfg(test)]
     pub async fn current_sync_task_count(&self) -> usize {
-        self.shard_sync_in_progress.lock().await.len()
+        self.shard_sync_in_progress
+            .lock()
+            .await
+            .values()
+            .filter(|task| !task.is_finished())
+            .count()
     }
 
     #[cfg(all(msim, test, feature = "test-utils"))]
     pub async fn no_pending_recover_metadata(&self) -> bool {
         let task_handle = self.task_handle.lock().await;
         task_handle.is_none() || task_handle.as_ref().unwrap().is_finished()
+    }
+
+    #[cfg(all(msim, test, feature = "test-utils"))]
+    pub async fn clear_shard_sync_tasks(&self) {
+        self.shard_sync_in_progress.lock().await.clear();
     }
 }
 

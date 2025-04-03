@@ -57,7 +57,7 @@ impl BlobData {
                 .collect()
         })
         .await
-        .expect("should be able to join spawned task testing PR");
+        .expect("should be able to join spawned task");
 
         Self {
             bytes,
