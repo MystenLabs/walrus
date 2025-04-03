@@ -352,7 +352,7 @@ impl<T> FailoverWrapper<T> {
             .load(std::sync::atomic::Ordering::Relaxed);
         let mut current_index = start_index;
 
-        for _ in 0..self.max_retries.min(self.client_count()) {
+        for _ in 0..self.max_retries {
             let instance = self.get_client(current_index).await;
 
             let result = {
@@ -1353,26 +1353,25 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        self.client
-            .with_failover(|client| {
-                Box::pin(async move {
-                    retry_rpc_errors(
-                        self.get_strategy(),
-                        || async {
-                            self.handle_checkpoint_timeout(
-                                self.request_timeout,
-                                client.get_checkpoint_summary(sequence_number),
-                                sequence_number,
-                            )
-                            .await
-                        },
-                        self.metrics.clone(),
-                        "get_checkpoint_summary",
-                    )
-                    .await
-                })
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_strategy(),
+                    || {
+                        self.handle_checkpoint_timeout(
+                            self.request_timeout,
+                            client.get_checkpoint_summary(sequence_number),
+                            sequence_number,
+                        )
+                    },
+                    self.metrics.clone(),
+                    "get_checkpoint_summary",
+                )
+                .await
             })
-            .await
+        };
+
+        self.client.with_failover(request).await
     }
 
     /// Gets the full checkpoint data for the given sequence number from the primary client.
@@ -1380,26 +1379,25 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        self.client
-            .with_failover(|client| {
-                Box::pin(async move {
-                    retry_rpc_errors(
-                        self.get_strategy(),
-                        || async {
-                            self.handle_checkpoint_timeout(
-                                self.request_timeout,
-                                client.get_full_checkpoint(sequence_number),
-                                sequence_number,
-                            )
-                            .await
-                        },
-                        self.metrics.clone(),
-                        "get_full_checkpoint",
-                    )
-                    .await
-                })
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_strategy(),
+                    || {
+                        self.handle_checkpoint_timeout(
+                            self.request_timeout,
+                            client.get_full_checkpoint(sequence_number),
+                            sequence_number,
+                        )
+                    },
+                    self.metrics.clone(),
+                    "get_full_checkpoint",
+                )
+                .await
             })
-            .await
+        };
+
+        self.client.with_failover(request).await
     }
 
     /// Gets the full checkpoint data for the given sequence number.
@@ -1482,45 +1480,41 @@ impl RetriableRpcClient {
     pub async fn get_latest_checkpoint_summary(
         &self,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        self.client
-            .with_failover(|client| {
-                Box::pin(async move {
-                    retry_rpc_errors(
-                        self.get_extended_strategy(),
-                        || async {
-                            Self::handle_rpc_timeout(
-                                self.request_timeout,
-                                client.get_latest_checkpoint(),
-                            )
-                            .await
-                        },
-                        self.metrics.clone(),
-                        "get_latest_checkpoint_summary",
-                    )
-                    .await
-                })
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_extended_strategy(),
+                    || {
+                        Self::handle_rpc_timeout(
+                            self.request_timeout,
+                            client.get_latest_checkpoint(),
+                        )
+                    },
+                    self.metrics.clone(),
+                    "get_latest_checkpoint_summary",
+                )
+                .await
             })
-            .await
+        };
+
+        self.client.with_failover(request).await
     }
 
     /// Gets the object with the given ID.
     pub async fn get_object(&self, id: ObjectID) -> Result<Object, RetriableClientError> {
-        self.client
-            .with_failover(|client| {
-                Box::pin(async move {
-                    retry_rpc_errors(
-                        self.get_extended_strategy(),
-                        || async {
-                            Self::handle_rpc_timeout(self.request_timeout, client.get_object(id))
-                                .await
-                        },
-                        self.metrics.clone(),
-                        "get_object",
-                    )
-                    .await
-                })
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_extended_strategy(),
+                    || Self::handle_rpc_timeout(self.request_timeout, client.get_object(id)),
+                    self.metrics.clone(),
+                    "get_object",
+                )
+                .await
             })
-            .await
+        };
+
+        self.client.with_failover(request).await
     }
 }
 

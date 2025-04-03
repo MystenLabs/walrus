@@ -210,7 +210,8 @@ mod tests {
         Ok(())
     }
 
-    /// This test verifies that the node can correctly recover from a forked event blob.
+    /// This test verifies that the node can correctly download checkpoints from
+    /// additional fullnodes.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_checkpoint_downloader_with_additional_fullnodes() {
