@@ -124,12 +124,19 @@ impl RetriableRpcError for anyhow::Error {
 impl RetriableRpcError for sui_sdk::error::Error {
     fn is_retriable_rpc_error(&self) -> bool {
         if let sui_sdk::error::Error::RpcError(rpc_error) = self {
-            let error_string = rpc_error.to_string();
-            if RETRIABLE_RPC_ERRORS
-                .iter()
-                .any(|&s| error_string.contains(s))
-            {
-                return true;
+            match rpc_error {
+                jsonrpsee::core::ClientError::RequestTimeout => {
+                    return true;
+                }
+                _ => {
+                    let error_string = rpc_error.to_string();
+                    if RETRIABLE_RPC_ERRORS
+                        .iter()
+                        .any(|&s| error_string.contains(s))
+                    {
+                        return true;
+                    }
+                }
             }
         }
         false
@@ -1525,6 +1532,8 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     transaction: &Transaction,
 ) -> anyhow::Result<()> {
     // Check if this transaction contains a stake_with_pool operation
+
+    use rand::thread_rng;
     let is_stake_pool_tx = transaction
         .transaction_data()
         .move_calls()
@@ -1545,12 +1554,17 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     if should_inject_error {
         tracing::warn!("injecting a retriable RPC error for stake pool transaction");
 
-        // Simulate a retriable RPC error (502 Bad Gateway)
-        Err(sui_sdk::error::Error::RpcError(
-            jsonrpsee::core::ClientError::Custom(
+        let retriable_error = if thread_rng().gen_bool(0.5) {
+            // Simulate a retriable RPC error (502 Bad Gateway).
+            jsonrpsee::core::ClientError::Transport(
                 "server returned an error status code: 502".into(),
-            ),
-        ))?;
+            )
+        } else {
+            // Simulate a request timeout error.
+            jsonrpsee::core::ClientError::RequestTimeout
+        };
+
+        Err(sui_sdk::error::Error::RpcError(retriable_error))?;
     }
 
     Ok(())

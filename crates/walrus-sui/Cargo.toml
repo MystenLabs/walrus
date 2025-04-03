@@ -27,6 +27,7 @@ clap.workspace = true
 fastcrypto.workspace = true
 futures.workspace = true
 home.workspace = true
+jsonrpsee.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
 prometheus.workspace = true
@@ -72,5 +73,4 @@ walkdir = "2.5.0"
 workspace = true
 
 [target.'cfg(msim)'.dependencies]
-jsonrpsee = { version = "0.24" }
 sui-simulator.workspace = true

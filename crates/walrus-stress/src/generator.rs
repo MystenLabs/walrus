@@ -37,7 +37,7 @@ const SECS_PER_LOAD_PERIOD: u64 = 60;
 mod blob;
 
 mod write_client;
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoffConfig};
 use write_client::WriteClient;
 
 /// A load generator for Walrus writes.
@@ -275,7 +275,7 @@ impl LoadGenerator {
             // so that the read workload shouldn't encounter blob not found errors.
             let epochs_to_store = 7;
             let read_blob_id = self
-                .single_write(epochs_to_store)
+                .initial_write_to_serve_read_workload(epochs_to_store)
                 .await
                 .inspect_err(|error| tracing::error!(?error, "initial write failed"))?;
             tracing::info!(
@@ -325,21 +325,52 @@ impl LoadGenerator {
         Ok(())
     }
 
-    async fn single_write(&mut self, epochs_to_store: EpochCount) -> Result<BlobId, ClientError> {
-        let mut client = self
-            .write_client_pool
-            .recv()
-            .await
-            .expect("write client should be available");
-        let result = client
-            .write_fresh_blob_with_epochs(epochs_to_store)
-            .await
-            .map(|(blob_id, _)| blob_id);
-        self.write_client_pool_tx
-            .send(client)
-            .await
-            .expect("channel should not be closed");
-        result
+    /// Write a blob to serve the read workload.
+    ///
+    /// This function does extensive retries since the initial write is critical to the read
+    /// workload.
+    async fn initial_write_to_serve_read_workload(
+        &mut self,
+        epochs_to_store: EpochCount,
+    ) -> Result<BlobId, ClientError> {
+        let mut retry_strategy =
+            ExponentialBackoffConfig::default().get_strategy(thread_rng().gen());
+        let mut attempt = 0;
+
+        loop {
+            attempt += 1;
+            let mut client = self
+                .write_client_pool
+                .recv()
+                .await
+                .expect("write client should be available");
+            let result = client
+                .write_fresh_blob_with_epochs(epochs_to_store)
+                .await
+                .map(|(blob_id, _)| blob_id);
+            self.write_client_pool_tx
+                .send(client)
+                .await
+                .expect("channel should not be closed");
+
+            match result {
+                Ok(blob_id) => return Ok(blob_id),
+                Err(error) => {
+                    tracing::error!(?error, "writing single blob failed, attempt: {}", attempt);
+                    // TODO(zhewu): return earlier if not a retriable error.
+                    match retry_strategy.next_delay() {
+                        Some(delay) => {
+                            tracing::info!("retrying write in {} ms", delay.as_millis());
+                            tokio::time::sleep(delay).await;
+                        }
+                        None => {
+                            tracing::error!("write retry strategy exhausted");
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

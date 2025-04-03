@@ -10749,6 +10749,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-metrics"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb2bb07a8451c4c6fa8b3497ad198510d8b8dffa5df5cfb97a64102a58b113c8"
+dependencies = [
+ "futures-util",
+ "pin-project-lite",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "tokio-postgres"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11947,6 +11959,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
+ "tokio-metrics",
  "tokio-stream",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower 0.5.2",
@@ -12089,6 +12102,7 @@ dependencies = [
  "serde_with",
  "tempfile",
  "tokio",
+ "tokio-metrics",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
  "walrus-test-utils",
