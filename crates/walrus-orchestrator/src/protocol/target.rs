@@ -188,10 +188,6 @@ impl ProtocolCommands for TargetProtocol {
                         "--metrics-port {}",
                         parameters.client_parameters.metrics_port
                     ),
-                    String::from("stress"),
-                    format!("--write-load {load_per_client}"),
-                    format!("--read-load {load_per_client}"),
-                    format!("--n-clients {number_of_tasks}"),
                     format!(
                         "--min-size-log2 {}",
                         parameters.client_parameters.min_size_log2
