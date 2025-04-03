@@ -13,7 +13,12 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
-use walrus_core::{metadata::BlobMetadata, BlobId, Epoch, ShardIndex};
+use walrus_core::{
+    metadata::{BlobMetadata, BlobMetadataApi},
+    BlobId,
+    Epoch,
+    ShardIndex,
+};
 
 use crate::node::{
     events::{
@@ -145,6 +150,9 @@ pub enum DbToolCommands {
         /// Number of entries to scan.
         #[clap(long, default_value = "1")]
         count: u64,
+        /// Output size only.
+        #[clap(long, default_value = "false")]
+        output_size_only: bool,
     },
 
     /// Read primary slivers from the RocksDB database.
@@ -247,7 +255,8 @@ impl DbToolCommands {
                 db_path,
                 start_blob_id,
                 count,
-            } => read_blob_metadata(db_path, start_blob_id, count),
+                output_size_only,
+            } => read_blob_metadata(db_path, start_blob_id, count, output_size_only),
             Self::ReadPrimarySlivers {
                 db_path,
                 start_blob_id,
@@ -463,7 +472,12 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn read_blob_metadata(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u64) -> Result<()> {
+fn read_blob_metadata(
+    db_path: PathBuf,
+    start_blob_id: Option<BlobId>,
+    count: u64,
+    output_size_only: bool,
+) -> Result<()> {
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
         db_path,
@@ -493,7 +507,15 @@ fn read_blob_metadata(db_path: PathBuf, start_blob_id: Option<BlobId>, count: u6
             Ok((key, value)) => {
                 let blob_id: BlobId = bcs::from_bytes(&key)?;
                 let metadata: BlobMetadata = bcs::from_bytes(&value)?;
-                println!("Blob ID: {}, Metadata: {:?}", blob_id, metadata);
+                if output_size_only {
+                    println!(
+                        "Blob ID: {}, unencoded size: {}",
+                        blob_id,
+                        metadata.unencoded_length()
+                    );
+                } else {
+                    println!("Blob ID: {}, Metadata: {:?}", blob_id, metadata);
+                }
             }
             Err(e) => {
                 println!("Error: {:?}", e);
