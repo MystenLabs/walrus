@@ -1429,7 +1429,7 @@ impl RetriableRpcClient {
         fallback: &FallbackClient,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        tracing::info!(sequence_number, "fetching checkpoint from fallback client");
+        tracing::debug!(sequence_number, "fetching checkpoint from fallback client");
         return retry_rpc_errors(
             self.get_extended_strategy(),
             || async {
