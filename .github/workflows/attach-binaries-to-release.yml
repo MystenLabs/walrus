@@ -71,13 +71,13 @@ jobs:
           ref: ${{ env.walrus_tag }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@6189d56e4096ee891640bb02ac264be376592d6a # pin@v2
+        uses: google-github-actions/setup-gcloud@77e7a554d41e2ee56fc945c52dfd3f33d12def9a # pin@v2
         with:
           version: ">= 363.0.0"
 
       - name: Configure GCP service user auth
         id: auth
-        uses: google-github-actions/auth@35b0e87d162680511bf346c299f71c9c5c379033 # pin@v1
+        uses: google-github-actions/auth@71f986410dfbc7added4569d411d040a91dc6935 # pin@v1
         with:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
@@ -196,14 +196,14 @@ jobs:
         run: ls -al ./tmp
 
       - name: Upload binaries for ${{ inputs.os }} platform to GCP
-        uses: google-github-actions/upload-cloud-storage@386ab77f37fdf51c0e38b3d229fad286861cc0d0 # pin@v2
+        uses: google-github-actions/upload-cloud-storage@7c6e11cb7291594c5dfe0bc1dd9cd905e31e600c # pin@v2
         with:
           path: "./tmp"
           destination: "mysten-walrus-releases"
           parent: false
 
       - name: Upload release artifacts for ${{ matrix.os }} platform
-        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # pin@4.4.3
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pin@4.6.2
         with:
           name: walrus-binaries-${{ matrix.os }}
           if-no-files-found: error
@@ -211,7 +211,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # pin@v1
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # pin@v2.2.1
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |
