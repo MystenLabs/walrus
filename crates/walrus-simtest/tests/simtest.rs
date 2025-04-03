@@ -74,6 +74,7 @@ mod tests {
                 Some(10),
                 ClientCommunicationConfig::default_for_test(),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -135,6 +136,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -238,6 +240,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -309,6 +312,8 @@ mod tests {
             .get_latest_committees_in_test()
             .await
             .unwrap();
+        let current_committee = committees.current_committee();
+        assert!(current_committee.contains(&walrus_cluster.nodes[5].public_key));
 
         assert!(node_health_info[5].shard_detail.is_some());
 
@@ -406,6 +411,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();

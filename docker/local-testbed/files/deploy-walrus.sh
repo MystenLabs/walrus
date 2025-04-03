@@ -24,7 +24,7 @@ rm -rf /opt/walrus/outputs/*
   --host-addresses 10.0.0.10 10.0.0.11 10.0.0.12 10.0.0.13 \
   --storage-price 5 \
   --write-price 1 \
-  --epoch-duration $EPOCH_DURATION >/opt/walrus/outputs/deploy
+  --epoch-duration "$EPOCH_DURATION" >/opt/walrus/outputs/deploy
 
 /opt/walrus/bin/walrus-deploy generate-dry-run-configs \
   --working-dir /opt/walrus/outputs

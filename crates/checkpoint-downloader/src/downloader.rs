@@ -424,13 +424,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
-        let client = Client::new("http://localhost:9000")?;
+        let rest_url = "http://localhost:9000";
+        let client = Client::new(rest_url)?;
         let retriable_client = RetriableRpcClient::new(
-            client,
+            vec![(client, rest_url.to_string())],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        );
+        )?;
         let parallel_config = ParallelDownloaderConfig {
             min_retries: 10,
             initial_delay: Duration::from_millis(250),

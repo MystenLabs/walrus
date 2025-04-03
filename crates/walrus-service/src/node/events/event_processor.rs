@@ -8,7 +8,6 @@ use std::{
     fmt::Debug,
     fs,
     path::{Path, PathBuf},
-    str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -20,7 +19,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use bincode::Options as _;
 use checkpoint_downloader::ParallelCheckpointDownloader;
-use chrono::Utc;
 use futures_util::future::try_join_all;
 use move_core_types::{
     account_address::AccountAddress,
@@ -226,7 +224,7 @@ impl SystemConfig {
 #[derive(Debug)]
 pub struct EventProcessorRuntimeConfig {
     /// The address of the RPC server.
-    pub rpc_address: String,
+    pub rpc_addresses: Vec<String>,
     /// The event polling interval.
     pub event_polling_interval: Duration,
     /// The path to the database.
@@ -447,17 +445,6 @@ impl EventProcessor {
             .checkpoint_downloader
             .start(next_checkpoint, cancel_token);
 
-        // TODO(WAL-667): remove special case
-        let on_public_testnet = self
-            .package_store
-            .get_original_package_id(self.system_pkg_id.into())
-            .await?
-            == ObjectID::from_str(
-                "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
-            )?;
-        let march_7_7_pm_utc =
-            chrono::DateTime::parse_from_rfc3339("2025-03-07T19:00:00+00:00")?.to_utc();
-
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
@@ -485,22 +472,14 @@ impl EventProcessor {
 
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
-            // TODO(WAL-667): remove special case
-            let checkpoint_datetime =
-                chrono::DateTime::<Utc>::from(verified_checkpoint.timestamp());
-            let before_march_7_7pm_utc = checkpoint_datetime < march_7_7_pm_utc;
+
             for tx in checkpoint.transactions.into_iter() {
                 self.update_package_store(&tx.output_objects)
                     .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
                 let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
-                        // TODO(WAL-667): remove special case
-                        let pkg_address = if on_public_testnet && before_march_7_7pm_utc {
-                            event.package_id.into()
-                        } else {
-                            event.type_.address
-                        };
+                        let pkg_address = event.type_.address;
                         self.package_store.get_original_package_id(pkg_address)
                     }))
                     .await?;
@@ -614,7 +593,7 @@ impl EventProcessor {
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         let retry_client = Self::create_and_validate_client(
-            &runtime_config.rpc_address,
+            &runtime_config.rpc_addresses,
             config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
         )
@@ -673,7 +652,7 @@ impl EventProcessor {
         }
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = runtime_config.rpc_address.clone();
+        let url = runtime_config.rpc_addresses[0].clone();
         let sui_client = SuiClientBuilder::default()
             .build(&url)
             .await
@@ -726,20 +705,41 @@ impl EventProcessor {
     }
 
     async fn create_and_validate_client(
-        rest_url: &str,
+        rest_urls: &[String],
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
-        let client = sui_rpc_api::Client::new(rest_url)?;
-        // Ensure the experimental REST endpoint exists
-        ensure_experimental_rest_endpoint_exists(client.clone()).await?;
-        let retriable_client = RetriableRpcClient::new(
-            client,
+        let clients = rest_urls
+            .iter()
+            .map(
+                |rest_url| -> Result<(sui_rpc_api::Client, String), anyhow::Error> {
+                    let client = sui_rpc_api::Client::new(rest_url)?;
+                    Ok((client, rest_url.clone()))
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Validate each client and filter out invalid ones.
+        let mut valid_clients = Vec::new();
+        for (client, rest_url) in clients {
+            match ensure_experimental_rest_endpoint_exists(client.clone()).await {
+                Ok(()) => valid_clients.push((client, rest_url)),
+                Err(e) => {
+                    tracing::warn!("Client validation failed for {:?}: {:?}", rest_url, e);
+                }
+            }
+        }
+
+        if valid_clients.is_empty() {
+            anyhow::bail!("No valid clients found after validation");
+        }
+
+        RetriableRpcClient::new(
+            valid_clients,
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
-        );
-        Ok(retriable_client)
+        )
     }
 
     /// Initializes the database for the event processor.
@@ -1278,13 +1278,14 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let client = sui_rpc_api::Client::new("http://localhost:8080")?;
+        let rest_url = "http://localhost:8080";
+        let client = sui_rpc_api::Client::new(rest_url)?;
         let retry_client = RetriableRpcClient::new(
-            client.clone(),
+            vec![(client, rest_url.to_string())],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        );
+        )?;
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(

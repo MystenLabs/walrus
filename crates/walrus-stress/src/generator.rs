@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use blob::WriteBlobConfig;
 use futures::future::try_join_all;
 use rand::{thread_rng, Rng};
 use sui_sdk::types::base_types::SuiAddress;
@@ -34,10 +35,10 @@ const MIN_BURST_DURATION: Duration = Duration::from_millis(100);
 /// Number of seconds per load period.
 const SECS_PER_LOAD_PERIOD: u64 = 60;
 
-mod blob;
+pub(crate) mod blob;
 
 mod write_client;
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoffConfig};
 use write_client::WriteClient;
 
 /// A load generator for Walrus writes.
@@ -55,8 +56,7 @@ impl LoadGenerator {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         n_clients: usize,
-        min_size_log2: u8,
-        max_size_log2: u8,
+        blob_config: WriteBlobConfig,
         client_config: Config,
         network: SuiNetwork,
         gas_refill_period: Duration,
@@ -101,8 +101,7 @@ impl LoadGenerator {
                     &client_config,
                     &network,
                     None,
-                    min_size_log2,
-                    max_size_log2,
+                    blob_config.clone(),
                     refresher_handle.clone(),
                     refiller.clone(),
                     metrics.clone(),
@@ -272,11 +271,10 @@ impl LoadGenerator {
         let (reads_per_burst, read_interval) = burst_load(read_load);
         let read_blob_id = if reads_per_burst != 0 {
             tracing::info!("submitting initial write...");
-            // Here we store read blob for 7 epochs ahead, which is longer than a walrus release,
-            // so that the read workload shouldn't encounter blob not found errors.
-            let epochs_to_store = 7;
+            // Sets a long enough number of epochs to store to avoid blob not found errors.
+            let epochs_to_store = 50;
             let read_blob_id = self
-                .single_write(epochs_to_store)
+                .initial_write_to_serve_read_workload(epochs_to_store)
                 .await
                 .inspect_err(|error| tracing::error!(?error, "initial write failed"))?;
             tracing::info!(
@@ -326,21 +324,52 @@ impl LoadGenerator {
         Ok(())
     }
 
-    async fn single_write(&mut self, epochs_to_store: EpochCount) -> Result<BlobId, ClientError> {
-        let mut client = self
-            .write_client_pool
-            .recv()
-            .await
-            .expect("write client should be available");
-        let result = client
-            .write_fresh_blob_with_epochs(epochs_to_store)
-            .await
-            .map(|(blob_id, _)| blob_id);
-        self.write_client_pool_tx
-            .send(client)
-            .await
-            .expect("channel should not be closed");
-        result
+    /// Write a blob to serve the read workload.
+    ///
+    /// This function does extensive retries since the initial write is critical to the read
+    /// workload.
+    async fn initial_write_to_serve_read_workload(
+        &mut self,
+        epochs_to_store: EpochCount,
+    ) -> Result<BlobId, ClientError> {
+        let mut retry_strategy =
+            ExponentialBackoffConfig::default().get_strategy(thread_rng().gen());
+        let mut attempt = 0;
+
+        loop {
+            attempt += 1;
+            let mut client = self
+                .write_client_pool
+                .recv()
+                .await
+                .expect("write client should be available");
+            let result = client
+                .write_fresh_blob_with_epochs(Some(epochs_to_store))
+                .await
+                .map(|(blob_id, _)| blob_id);
+            self.write_client_pool_tx
+                .send(client)
+                .await
+                .expect("channel should not be closed");
+
+            match result {
+                Ok(blob_id) => return Ok(blob_id),
+                Err(error) => {
+                    tracing::error!(?error, "writing single blob failed, attempt: {}", attempt);
+                    // TODO(zhewu): return earlier if not a retriable error.
+                    match retry_strategy.next_delay() {
+                        Some(delay) => {
+                            tracing::info!("retrying write in {} ms", delay.as_millis());
+                            tokio::time::sleep(delay).await;
+                        }
+                        None => {
+                            tracing::error!("write retry strategy exhausted");
+                            return Err(error);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

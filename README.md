@@ -81,7 +81,7 @@ and more extensive tests:
 - [walrus-simtest](crates/walrus-simtest/) contains simulation tests to ensure that Walrus works
   correctly for all interleavings of concurrent operations and in the presence of crashes.
 - [walrus-stress](crates/walrus-stress/) contains a stress client, which is used to put load on
-  storage nodes.
+  storage nodes and perform randomized staking re-assignments.
 - [walrus-test-utils](crates/walrus-test-utils/) contains test macros and other utilities used in
   the other crates.
 <!-- markdownlint-enable proper-names -->

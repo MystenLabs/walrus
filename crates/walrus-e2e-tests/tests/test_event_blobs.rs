@@ -28,6 +28,7 @@ async fn test_event_blobs() -> anyhow::Result<()> {
             Some(10),
             ClientCommunicationConfig::default_for_test(),
             false,
+            None,
         )
         .await?;
 
@@ -96,6 +97,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
             Some(10),
             ClientCommunicationConfig::default_for_test(),
             false,
+            None,
         )
         .await?;
 

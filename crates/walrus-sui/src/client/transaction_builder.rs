@@ -6,6 +6,7 @@
 use std::{
     collections::{BTreeSet, HashSet},
     fmt::Debug,
+    iter::once,
     str::FromStr,
     sync::Arc,
 };
@@ -818,6 +819,35 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Adds a call to `request_withdraw_stake` to the PTB.
+    pub async fn request_withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        let request_withdraw_stake_args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.pt_builder.obj(
+                self.read_client
+                    .object_arg_for_object(staked_wal_id)
+                    .await?,
+            )?,
+        ];
+        self.walrus_move_call(
+            contracts::staking::request_withdraw_stake,
+            request_withdraw_stake_args,
+        )?;
+        Ok(())
+    }
+
+    /// Adds a call to `withdraw_stake` to the PTB.
+    pub async fn withdraw_stake(&mut self, staked_wal_id: ObjectID) -> SuiClientResult<()> {
+        let withdraw_stake_args = vec![
+            self.staking_arg(Mutability::Mutable).await?,
+            self.argument_from_arg_or_obj(ArgumentOrOwnedObject::from(staked_wal_id))
+                .await?,
+        ];
+        let wal = self.walrus_move_call(contracts::staking::withdraw_stake, withdraw_stake_args)?;
+        self.add_result_to_be_consumed(wal);
+        Ok(())
+    }
+
     /// Adds a call to `stake_with_pool` to the PTB.
     pub async fn stake_with_pool(
         &mut self,
@@ -917,7 +947,7 @@ impl WalrusPtbBuilder {
         let split_coin = self
             .pt_builder
             .command(Command::SplitCoins(wal_coin_arg, vec![amount_arg]));
-        self.transfer(Some(recipient), vec![split_coin.into()])
+        self.transfer(Some(recipient), once(split_coin.into()))
             .await?;
         self.reduce_wal_balance(amount)?;
         Ok(())

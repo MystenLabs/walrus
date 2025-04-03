@@ -142,6 +142,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of certified blobs scanned during the blob info consistency check."]
         blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
+        #[help = "Status metric indicating the node's ID"]
+        node_id: IntGaugeVec["walrus_node_id"],
     }
 }
 
@@ -252,7 +255,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::InvalidConfig => "invalid-config",
             ClientErrorKind::BlobIdBlocked(_) => "blob-id-blocked",
             ClientErrorKind::NoCompatiblePaymentCoin => "no-compatible-payment-coin",
-            ClientErrorKind::NoCompatibleGasCoins => "no-compatible-gas-coins",
+            ClientErrorKind::NoCompatibleGasCoins(_) => "no-compatible-gas-coins",
             ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
             ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
             ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",

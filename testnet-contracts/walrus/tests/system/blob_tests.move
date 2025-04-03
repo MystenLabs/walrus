@@ -18,7 +18,7 @@ use walrus::{
     test_utils::{Self, bls_min_pk_sign, signers_to_bitmap}
 };
 
-const RED_STUFF_RAPTOR: u8 = 0;
+const RS2: u8 = 1;
 const MAX_EPOCHS_AHEAD: u32 = 104;
 
 const ROOT_HASH: u256 = 0xABC;
@@ -34,6 +34,8 @@ fun blob_register_happy_path() {
     let storage = get_storage_resource(&mut system, SIZE, 3, ctx);
 
     let blob = register_default_blob(&mut system, storage, false, ctx);
+
+    assert!(!blob.is_deletable());
 
     blob.burn();
     system.destroy_for_testing();
@@ -464,6 +466,7 @@ fun delete_blob() {
 
     // Assert certified
     assert!(blob.certified_epoch().is_some());
+    assert!(blob.is_deletable());
 
     // Now delete the blob
     let storage = system.delete_blob(blob);
@@ -568,7 +571,7 @@ fun get_storage_resource(
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
     let storage_size = encoding::encoded_blob_length(
         unencoded_size,
-        RED_STUFF_RAPTOR,
+        RS2,
         system.n_shards(),
     );
     let storage = system.reserve_space(
@@ -589,13 +592,13 @@ fun register_default_blob(
 ): Blob {
     let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
     // Register a Blob
-    let blob_id = blob::derive_blob_id(ROOT_HASH, RED_STUFF_RAPTOR, SIZE);
+    let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     let blob = system.register_blob(
         storage,
         blob_id,
         ROOT_HASH,
         SIZE,
-        RED_STUFF_RAPTOR,
+        RS2,
         deletable,
         &mut fake_coin,
         ctx,
@@ -606,7 +609,7 @@ fun register_default_blob(
 }
 
 fun default_blob_id(): u256 {
-    blob::derive_blob_id(ROOT_HASH, RED_STUFF_RAPTOR, SIZE)
+    blob::derive_blob_id(ROOT_HASH, RS2, SIZE)
 }
 
 /// Utiliy macro that calls the given function on a new Blob.

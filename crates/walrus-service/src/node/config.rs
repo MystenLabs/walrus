@@ -1052,6 +1052,7 @@ mod tests {
                 backoff_config: Default::default(),
                 gas_budget: None,
                 rpc_fallback_config: None,
+                additional_rpc_endpoints: Default::default(),
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),
