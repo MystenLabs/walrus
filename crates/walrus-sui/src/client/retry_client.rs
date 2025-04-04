@@ -20,6 +20,7 @@ use futures::{
     Stream,
     StreamExt,
 };
+use mysten_metrics::monitored_scope;
 use rand::{
     rngs::{StdRng, ThreadRng},
     Rng as _,
@@ -1409,32 +1410,6 @@ impl RetriableRpcClient {
         self.client.with_failover(request).await
     }
 
-    /// Records RPC latency metrics
-    fn record_rpc_latency(&self, method: &str, status: &str, duration: Duration) {
-        if let Some(metrics) = &self.metrics {
-            metrics
-                .rpc_latency
-                .with_label_values(&[method, self.client.get_current_client_name(), status])
-                .observe(duration.as_millis() as f64);
-        }
-    }
-
-    /// Records fallback metrics
-    fn record_fallback_metrics(
-        &self,
-        method: &str,
-        result: &Result<impl Sized, impl Sized>,
-        duration: Duration,
-    ) {
-        if let Some(metrics) = &self.metrics {
-            let status = if result.is_ok() { "success" } else { "failure" };
-            metrics
-                .rpc_latency
-                .with_label_values(&[method, "fallback", status])
-                .observe(duration.as_millis() as f64);
-        }
-    }
-
     /// Gets the full checkpoint data for the given sequence number.
     ///
     /// This function will first try to fetch the checkpoint from the primary client with retries.
@@ -1444,10 +1419,18 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
+        let _scope = monitored_scope("RetriableRpcClient::get_full_checkpoint");
         let start_time = Instant::now();
         let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
             Ok(checkpoint) => {
-                self.record_rpc_latency("get_full_checkpoint", "success", start_time.elapsed());
+                self.metrics.as_ref().inspect(|metrics| {
+                    metrics.record_rpc_latency(
+                        "get_full_checkpoint",
+                        self.client.get_current_client_name(),
+                        "success",
+                        start_time.elapsed(),
+                    )
+                });
                 return Ok(checkpoint);
             }
             Err(error) => error,
@@ -1455,7 +1438,14 @@ impl RetriableRpcClient {
 
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
-            self.record_rpc_latency("get_full_checkpoint", "failure", start_time.elapsed());
+            self.metrics.as_ref().inspect(|metrics| {
+                metrics.record_rpc_latency(
+                    "get_full_checkpoint",
+                    self.client.get_current_client_name(),
+                    "failure",
+                    start_time.elapsed(),
+                )
+            });
             return Err(error);
         };
 
@@ -1464,11 +1454,13 @@ impl RetriableRpcClient {
             .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
             .await;
 
-        self.record_fallback_metrics(
-            "get_full_checkpoint",
-            &result,
-            fallback_start_time.elapsed(),
-        );
+        self.metrics.as_ref().inspect(|metrics| {
+            metrics.record_fallback_metrics(
+                "get_full_checkpoint",
+                &result,
+                fallback_start_time.elapsed(),
+            )
+        });
 
         result
     }
