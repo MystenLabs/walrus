@@ -16,6 +16,8 @@ db_config:
     write_buffer_size: 67108864
     target_file_size_base: 67108864
     max_bytes_for_level_base: 536870912
+    block_cache_size: 67108864
+    pin_l0_filter_and_index_blocks_in_block_cache: true
   optimized_for_blobs:
     enable_blob_files: true
     min_blob_size: 1048576
@@ -28,10 +30,14 @@ db_config:
     write_buffer_size: 268435456
     target_file_size_base: 67108864
     max_bytes_for_level_base: 536870912
+    block_cache_size: 268435456
+    pin_l0_filter_and_index_blocks_in_block_cache: true
   node_status: null
   metadata: null
-  blob_info: null
-  per_object_blob_info: null
+  blob_info:
+    block_cache_size: 536870912
+  per_object_blob_info:
+    block_cache_size: 536870912
   event_cursor: null
   shard: null
   shard_status: null
