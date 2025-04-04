@@ -1,41 +1,4 @@
 {
-  "__inputs": [
-    {
-      "name": "DS_TESTBED",
-      "label": "testbed",
-      "description": "",
-      "type": "datasource",
-      "pluginId": "prometheus",
-      "pluginName": "Prometheus"
-    }
-  ],
-  "__elements": {},
-  "__requires": [
-    {
-      "type": "panel",
-      "id": "gauge",
-      "name": "Gauge",
-      "version": ""
-    },
-    {
-      "type": "grafana",
-      "id": "grafana",
-      "name": "Grafana",
-      "version": "11.0.0"
-    },
-    {
-      "type": "datasource",
-      "id": "prometheus",
-      "name": "Prometheus",
-      "version": "1.0.0"
-    },
-    {
-      "type": "panel",
-      "id": "timeseries",
-      "name": "Time series",
-      "version": ""
-    }
-  ],
   "annotations": {
     "list": [
       {
@@ -55,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": null,
+  "id": 1,
   "links": [],
   "panels": [
     {
@@ -74,7 +37,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_TESTBED}"
+        "uid": "Fixed-UID-testbed"
       },
       "fieldConfig": {
         "defaults": {
@@ -89,6 +52,7 @@
             "axisPlacement": "auto",
             "axisSoftMin": 0,
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -133,7 +97,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
+        "w": 7,
         "x": 0,
         "y": 1
       },
@@ -146,22 +110,23 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "maxHeight": 600,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "11.0.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_TESTBED}"
+            "uid": "Fixed-UID-testbed"
           },
           "disableTextWrap": false,
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(rate(latency_s_count[1m]))",
+          "expr": "rate(latency_s_count{workload=\"write\"}[$__rate_interval])",
           "fullMetaSearch": false,
           "includeNullMetadata": true,
           "instant": false,
@@ -170,15 +135,28 @@
           "range": true,
           "refId": "A",
           "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(latency_s_count{workload=\"write\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "Throughput",
+      "title": "Write Throughput",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_TESTBED}"
+        "uid": "Fixed-UID-testbed"
       },
       "fieldConfig": {
         "defaults": {
@@ -191,7 +169,9 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
+            "axisSoftMin": 0,
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -236,8 +216,8 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 7,
+        "x": 7,
         "y": 1
       },
       "id": 1,
@@ -249,20 +229,22 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "maxHeight": 600,
           "mode": "single",
           "sort": "none"
         }
       },
+      "pluginVersion": "11.5.2",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_TESTBED}"
+            "uid": "Fixed-UID-testbed"
           },
           "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum(rate(latency_s_bucket[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(latency_s_bucket{workload=\"write\"}[$__rate_interval])) by (le))",
           "fullMetaSearch": false,
           "includeNullMetadata": false,
           "instant": false,
@@ -274,11 +256,11 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_TESTBED}"
+            "uid": "Fixed-UID-testbed"
           },
           "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum(rate(latency_s_bucket[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(latency_s_bucket{workload=\"write\"}[$__rate_interval])) by (le))",
           "fullMetaSearch": false,
           "hide": false,
           "includeNullMetadata": false,
@@ -289,13 +271,417 @@
           "useBackend": false
         }
       ],
-      "title": "Latency",
+      "title": "Write Latency",
       "type": "timeseries"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_TESTBED}"
+        "uid": "Fixed-UID-testbed"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 14,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "expr": "avg(submitted{workload=\"write\"} - latency_s_count{workload=\"write\"})",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "In-Flight Write Transactions",
+      "type": "gauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 6,
+      "panels": [],
+      "title": "Read Operations",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Fixed-UID-testbed"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 0,
+        "y": 10
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "maxHeight": 600,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "rate(latency_s_count{workload=\"read\"}[$__rate_interval])",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(latency_s_count{workload=\"read\"}[$__rate_interval]))",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Read Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Fixed-UID-testbed"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "axisSoftMin": 0,
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 7,
+        "x": 7,
+        "y": 10
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "maxHeight": 600,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum(rate(latency_s_bucket{workload=\"read\"}[$__rate_interval])) by (le))",
+          "fullMetaSearch": false,
+          "includeNullMetadata": false,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.90, sum(rate(latency_s_bucket{workload=\"read\"}[$__rate_interval])) by (le))",
+          "fullMetaSearch": false,
+          "hide": false,
+          "includeNullMetadata": false,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "B",
+          "useBackend": false
+        }
+      ],
+      "title": "Read Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Fixed-UID-testbed"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 14,
+        "y": 10
+      },
+      "id": 5,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "pluginVersion": "11.5.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Fixed-UID-testbed"
+          },
+          "disableTextWrap": false,
+          "editorMode": "code",
+          "expr": "avg(submitted{workload=\"read\"} - latency_s_count{workload=\"read\"})",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": false,
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A",
+          "useBackend": false
+        }
+      ],
+      "title": "In-Flight Read Transactions",
+      "type": "gauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 10,
+      "panels": [],
+      "title": "Common",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Fixed-UID-testbed"
       },
       "fieldConfig": {
         "defaults": {
@@ -321,19 +707,17 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 12,
+        "w": 4,
         "x": 0,
-        "y": 9
+        "y": 19
       },
-      "id": 3,
+      "id": 9,
       "options": {
         "minVizHeight": 75,
         "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
+          "calcs": ["lastNotNull"],
           "fields": "",
           "values": false
         },
@@ -341,31 +725,23 @@
         "showThresholdMarkers": true,
         "sizing": "auto"
       },
-      "pluginVersion": "11.0.0",
+      "pluginVersion": "11.5.2",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_TESTBED}"
-          },
-          "disableTextWrap": false,
           "editorMode": "code",
-          "expr": "avg(submitted - latency_s_count)",
-          "fullMetaSearch": false,
-          "includeNullMetadata": true,
-          "instant": false,
+          "expr": "avg(execution_duration/60)",
           "legendFormat": "__auto",
           "range": true,
-          "refId": "A",
-          "useBackend": false
+          "refId": "A"
         }
       ],
-      "title": "In-Flight Transactions",
+      "title": "Benchmark Duration (min)",
       "type": "gauge"
     }
   ],
+  "preload": false,
   "refresh": "auto",
-  "schemaVersion": 39,
+  "schemaVersion": 40,
   "tags": [],
   "templating": {
     "list": []
@@ -374,11 +750,10 @@
     "from": "now-15m",
     "to": "now"
   },
-  "timeRangeUpdatedDuringEditOrView": false,
   "timepicker": {},
   "timezone": "browser",
   "title": "Walrus",
   "uid": "adoc7h3h63zeoa",
-  "version": 3,
+  "version": 12,
   "weekStart": ""
 }

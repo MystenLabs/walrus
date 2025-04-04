@@ -60,7 +60,7 @@ impl Display for AwsClient {
 
 impl AwsClient {
     const OS_IMAGE: &'static str =
-        "Canonical, Ubuntu, 22.04 LTS, amd64 jammy image build on 2023-02-16";
+        "Canonical, Ubuntu, 24.04 LTS, amd64 noble image build on 2024-04-23";
     const DEFAULT_EBS_SIZE_GB: i32 = 500; // Default size of the EBS volume in GB.
 
     /// Make a new AWS client.

@@ -104,6 +104,7 @@ impl LoadGenerator {
                     blob_config.clone(),
                     refresher_handle.clone(),
                     refiller.clone(),
+                    metrics.clone(),
                 )
                 .await?,
             )

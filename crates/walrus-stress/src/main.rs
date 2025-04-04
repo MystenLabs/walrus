@@ -32,7 +32,7 @@ use crate::generator::LoadGenerator;
 
 mod generator;
 
-/// The amount of gas or MIST to refil each time.
+/// The amount of gas or MIST to refill each time.
 const COIN_REFILL_AMOUNT: u64 = 500_000_000;
 /// The minimum balance to keep in the wallet.
 const MIN_BALANCE: u64 = 1_000_000_000;
