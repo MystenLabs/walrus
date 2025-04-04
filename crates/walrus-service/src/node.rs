@@ -1753,7 +1753,7 @@ impl StorageNodeInner {
             .get_and_verify_metadata(*blob_id, certified_epoch)
             .await;
 
-        self.storage.put_verified_metadata(&metadata)?;
+        self.storage.put_verified_metadata(&metadata).await?;
         tracing::debug!(%blob_id, "metadata successfully synced");
         Ok(metadata)
     }
@@ -2218,6 +2218,7 @@ impl ServiceState for StorageNodeInner {
 
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
+            .await
             .context("unable to store metadata")?;
 
         self.metrics
