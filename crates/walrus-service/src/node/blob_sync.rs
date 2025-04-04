@@ -631,7 +631,7 @@ impl BlobSynchronizer {
 
             match sliver_or_proof {
                 Ok(sliver) => {
-                    shard_storage.put_sliver(&self.blob_id, &sliver)?;
+                    shard_storage.put_sliver(self.blob_id, sliver).await?;
                     tracing::debug!("sliver successfully synced");
                     Ok(true)
                 }

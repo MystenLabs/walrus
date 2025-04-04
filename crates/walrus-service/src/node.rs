@@ -1900,13 +1900,15 @@ impl StorageNodeInner {
             })
             .await;
         let (metadata, sliver) = thread_pool::unwrap_or_resume_panic(result)?;
+        let sliver_type = sliver.r#type();
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage
-            .put_sliver(metadata.blob_id(), &sliver)
+            .put_sliver(*metadata.blob_id(), sliver)
+            .await
             .context("unable to store sliver")?;
 
-        walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
+        walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 
         Ok(true)
     }

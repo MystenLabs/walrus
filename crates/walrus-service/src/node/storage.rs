@@ -842,11 +842,15 @@ pub(crate) mod tests {
 
             for (blob_id, which) in sliver_list.iter() {
                 if matches!(*which, WhichSlivers::Primary | WhichSlivers::Both) {
-                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Primary, seed))?;
+                    shard_storage
+                        .put_sliver(*blob_id, get_sliver(SliverType::Primary, seed))
+                        .await?;
                     seed += 1;
                 }
                 if matches!(*which, WhichSlivers::Secondary | WhichSlivers::Both) {
-                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Secondary, seed))?;
+                    shard_storage
+                        .put_sliver(*blob_id, get_sliver(SliverType::Secondary, seed))
+                        .await?;
                     seed += 1;
                 }
             }
@@ -1464,7 +1468,7 @@ pub(crate) mod tests {
                     // are not stored, handle_sync_shard_request should continue getting following
                     // slivers until the count is reached.
                     if !(5..=6).contains(&index) {
-                        shard_storage.put_sliver(blob_id, &sliver_data)?;
+                        shard_storage.put_sliver(*blob_id, sliver_data).await?;
                     }
                 }
             }
