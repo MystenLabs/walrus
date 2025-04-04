@@ -83,10 +83,6 @@ pub(crate) fn node_status_options(db_config: &DatabaseConfig) -> Options {
     db_config.node_status().to_options()
 }
 
-/// Error returned if a requested operation would block.
-#[derive(Debug, Clone, Copy)]
-pub struct WouldBlockError;
-
 /// The status of the node.
 //
 //     Standby <--> RecoveryCatchUp --> RecoveryInProgress
@@ -405,25 +401,13 @@ impl Storage {
     ///
     /// For each shard, the status is returned if it can be determined, otherwise, `None` is
     /// returned.
-    ///
-    /// Returns an error if the operation would block.
-    pub fn try_list_shard_status(
-        &self,
-    ) -> Result<HashMap<ShardIndex, Option<ShardStatus>>, WouldBlockError> {
-        let shards = match self.shards.try_read() {
-            Ok(shards) => shards,
-            Err(_) => {
-                tracing::debug!("try_list_shard_status would block");
-                return Err(WouldBlockError);
-            }
-        };
+    pub async fn list_shard_status(&self) -> HashMap<ShardIndex, Option<ShardStatus>> {
+        let shards = self.shards.read().await;
 
-        let status_list = shards
+        shards
             .iter()
             .map(|(shard, storage)| (*shard, storage.status().ok()))
-            .collect();
-
-        Ok(status_list)
+            .collect()
     }
 
     /// Store the verified metadata without updating blob info. This is only

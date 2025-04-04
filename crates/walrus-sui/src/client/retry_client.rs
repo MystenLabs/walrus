@@ -10,7 +10,7 @@ use std::{
     fmt::Debug,
     future::Future,
     str::FromStr,
-    sync::Arc,
+    sync::{atomic::AtomicUsize, Arc},
     time::Duration,
 };
 
@@ -28,7 +28,7 @@ use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
-use sui_rpc_api::{client::ResponseExt as _, Client as RpcClient};
+use sui_rpc_api::Client as RpcClient;
 use sui_sdk::{
     apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
@@ -124,12 +124,19 @@ impl RetriableRpcError for anyhow::Error {
 impl RetriableRpcError for sui_sdk::error::Error {
     fn is_retriable_rpc_error(&self) -> bool {
         if let sui_sdk::error::Error::RpcError(rpc_error) = self {
-            let error_string = rpc_error.to_string();
-            if RETRIABLE_RPC_ERRORS
-                .iter()
-                .any(|&s| error_string.contains(s))
-            {
-                return true;
+            match rpc_error {
+                jsonrpsee::core::ClientError::RequestTimeout => {
+                    return true;
+                }
+                _ => {
+                    let error_string = rpc_error.to_string();
+                    if RETRIABLE_RPC_ERRORS
+                        .iter()
+                        .any(|&s| error_string.contains(s))
+                    {
+                        return true;
+                    }
+                }
             }
         }
         false
@@ -152,10 +159,21 @@ impl RetriableRpcError for tonic::Status {
     }
 }
 
-impl RetriableRpcError for CheckpointDownloadError {
+impl RetriableRpcError for CheckpointRpcError {
+    fn is_retriable_rpc_error(&self) -> bool {
+        if self.status.code() == tonic::Code::Internal {
+            // Only retry if the error is not due to missing events.
+            return !self.status.message().contains("missing event");
+        }
+
+        self.status.is_retriable_rpc_error()
+    }
+}
+
+impl RetriableRpcError for FallbackError {
     fn is_retriable_rpc_error(&self) -> bool {
         match self {
-            CheckpointDownloadError::RequestFailed(error) => error
+            FallbackError::RequestFailed(error) => error
                 .status()
                 .map(|status| status.is_server_error() || status.as_u16() == 429)
                 .unwrap_or(false),
@@ -167,8 +185,9 @@ impl RetriableRpcError for CheckpointDownloadError {
 impl RetriableRpcError for RetriableClientError {
     fn is_retriable_rpc_error(&self) -> bool {
         match self {
-            Self::RpcError(status) => status.is_retriable_rpc_error(),
-            Self::TimeoutError(_) => true,
+            Self::RpcError(rpc_error) => rpc_error.is_retriable_rpc_error(),
+            Self::RetryableTimeoutError(_) => true,
+            Self::NonRetryableTimeoutError(_) => false,
             Self::FallbackError(fallback_error) => fallback_error.is_retriable_rpc_error(),
             Self::Other(_) => false,
         }
@@ -272,6 +291,113 @@ where
                 return Err(error);
             }
         }
+    }
+}
+
+/// A wrapper that provides failover functionality for any inner type.
+/// When an operation fails on the current inner instance, it will try the next one.
+#[derive(Clone, Debug)]
+pub struct FailoverWrapper<T> {
+    inner: Arc<Vec<(Arc<T>, String)>>,
+    current_index: Arc<AtomicUsize>,
+    max_retries: usize,
+}
+
+impl<T> FailoverWrapper<T> {
+    /// The default maximum number of retries.
+    const DEFAULT_MAX_RETRIES: usize = 3;
+
+    /// Creates a new failover wrapper.
+    pub fn new(instances: Vec<(T, String)>) -> anyhow::Result<Self> {
+        if instances.is_empty() {
+            return Err(anyhow::anyhow!("No clients available"));
+        }
+        Ok(Self {
+            max_retries: Self::DEFAULT_MAX_RETRIES.min(instances.len()),
+            inner: Arc::new(
+                instances
+                    .into_iter()
+                    .map(|(client, name)| (Arc::new(client), name))
+                    .collect(),
+            ),
+            current_index: Arc::new(AtomicUsize::new(0)),
+        })
+    }
+
+    fn client_count(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Gets a client at the specified index (wrapped around if needed).
+    async fn get_client(&self, index: usize) -> Arc<T> {
+        let wrapped_index = index % self.client_count();
+        self.inner[wrapped_index].0.clone()
+    }
+
+    /// Gets the name of the client at the specified index.
+    fn get_name(&self, index: usize) -> &str {
+        &self.inner[index % self.client_count()].1
+    }
+
+    /// Executes an operation on the current inner instance, falling back to the next one
+    /// if it fails.
+    async fn with_failover<F, Fut, R>(&self, operation: F) -> Result<R, RetriableClientError>
+    where
+        F: for<'a> Fn(Arc<T>) -> Fut,
+        Fut: Future<Output = Result<R, RetriableClientError>>,
+    {
+        let mut last_error = None;
+        let start_index = self
+            .current_index
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let mut current_index = start_index;
+
+        for i in 0..self.max_retries {
+            let instance = self.get_client(current_index).await;
+
+            let result = {
+                #[cfg(msim)]
+                {
+                    let mut inject_error = false;
+                    fail_point_if!("fallback_client_inject_error", || {
+                        inject_error = should_inject_error(current_index);
+                    });
+                    if inject_error {
+                        Err(RetriableClientError::RpcError(
+                            tonic::Status::internal("injected error for testing").into(),
+                        ))
+                    } else {
+                        operation(instance).await
+                    }
+                }
+                #[cfg(not(msim))]
+                {
+                    operation(instance).await
+                }
+            };
+
+            match result {
+                Ok(result) => {
+                    self.current_index
+                        .store(current_index, std::sync::atomic::Ordering::Relaxed);
+                    return Ok(result);
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    if i < self.max_retries - 1 {
+                        tracing::warn!(
+                            ?last_error,
+                            current_client = self.get_name(current_index),
+                            next_client = self.get_name(current_index + 1),
+                            "Failed to execute operation on client, retrying with next client",
+                        );
+                        current_index += 1;
+                    }
+                }
+            }
+        }
+
+        Err(last_error.expect("No clients available or all operations failed"))
     }
 }
 
@@ -983,7 +1109,7 @@ impl RetriableSuiClient {
 
 /// Error type for checkpoint download errors.
 #[derive(Error, Debug)]
-pub enum CheckpointDownloadError {
+pub enum FallbackError {
     /// Failed to construct URL.
     #[error("failed to construct URL: {0}")]
     UrlConstruction(#[from] ParseError),
@@ -999,13 +1125,13 @@ pub enum CheckpointDownloadError {
 
 /// A client for downloading checkpoint data from a remote server.
 #[derive(Clone, Debug)]
-pub struct CheckpointBucketClient {
+pub struct FallbackClient {
     client: reqwest::Client,
     base_url: Url,
 }
 
-impl CheckpointBucketClient {
-    /// Creates a new checkpoint download client.
+impl FallbackClient {
+    /// Creates a new fallback client.
     pub fn new(base_url: Url, timeout: Duration) -> Self {
         let client = reqwest::Client::builder()
             .timeout(timeout)
@@ -1018,13 +1144,13 @@ impl CheckpointBucketClient {
     pub async fn get_full_checkpoint(
         &self,
         sequence_number: u64,
-    ) -> Result<CheckpointData, CheckpointDownloadError> {
+    ) -> Result<CheckpointData, FallbackError> {
         let url = self.base_url.join(&format!("{}.chk", sequence_number))?;
         tracing::debug!(%url, "downloading checkpoint from fallback bucket");
         let response = self.client.get(url).send().await?.error_for_status()?;
         let bytes = response.bytes().await?;
         let checkpoint = Blob::from_bytes::<CheckpointData>(&bytes)
-            .map_err(|e| CheckpointDownloadError::DeserializationError(e.to_string()))?;
+            .map_err(|e| FallbackError::DeserializationError(e.to_string()))?;
         tracing::debug!(sequence_number, "checkpoint download successful");
         Ok(checkpoint)
     }
@@ -1035,36 +1161,71 @@ impl CheckpointBucketClient {
 pub enum RetriableClientError {
     /// RPC error from the primary client.
     #[error("RPC error: {0}")]
-    RpcError(#[from] tonic::Status),
+    RpcError(#[from] CheckpointRpcError),
 
     /// Timeout error from the primary client.
     #[error("primary RPC timeout")]
-    TimeoutError(#[from] tokio::time::error::Elapsed),
+    RetryableTimeoutError(tokio::time::error::Elapsed),
+
+    /// Non-retryable timeout error from the primary client.
+    #[error("primary RPC timeout")]
+    NonRetryableTimeoutError(tokio::time::error::Elapsed),
 
     /// Error from the fallback client.
     #[error("fallback error: {0}")]
-    FallbackError(#[from] CheckpointDownloadError),
+    FallbackError(#[from] FallbackError),
 
     /// Generic error
     #[error("client error: {0}")]
     Other(#[from] anyhow::Error),
 }
 
-impl RetriableClientError {
-    /// Returns `true` if the error should be handled by the fallback client immediately instead of
-    /// retrying the primary client.
-    fn should_use_fallback_directly(&self, next_checkpoint: u64) -> bool {
-        match self {
-            Self::TimeoutError(_) => true,
-            Self::RpcError(status) => {
-                (status.code() == tonic::Code::NotFound
-                    && status
-                        .checkpoint_height()
-                        .is_some_and(|height| next_checkpoint < height))
-                    || (status.code() == tonic::Code::Internal
-                        && status.message().contains("missing event"))
-            }
-            _ => false,
+impl From<tokio::time::error::Elapsed> for RetriableClientError {
+    fn from(error: tokio::time::error::Elapsed) -> Self {
+        Self::RetryableTimeoutError(error)
+    }
+}
+
+impl From<tonic::Status> for RetriableClientError {
+    fn from(status: tonic::Status) -> Self {
+        Self::RpcError(CheckpointRpcError::from(status))
+    }
+}
+
+/// Error type for RPC operations
+#[derive(Error, Debug)]
+pub struct CheckpointRpcError {
+    /// The status of the RPC error.
+    pub status: tonic::Status,
+    /// The sequence number of the checkpoint.
+    pub checkpoint_seq_num: Option<u64>,
+}
+
+impl std::fmt::Display for CheckpointRpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "RPC error at checkpoint {}: {}",
+            self.checkpoint_seq_num.unwrap_or(0),
+            self.status
+        )
+    }
+}
+
+impl From<(tonic::Status, u64)> for CheckpointRpcError {
+    fn from((status, checkpoint_seq_num): (tonic::Status, u64)) -> Self {
+        Self {
+            status,
+            checkpoint_seq_num: Some(checkpoint_seq_num),
+        }
+    }
+}
+
+impl From<tonic::Status> for CheckpointRpcError {
+    fn from(status: tonic::Status) -> Self {
+        Self {
+            status,
+            checkpoint_seq_num: None,
         }
     }
 }
@@ -1074,10 +1235,10 @@ impl RetriableClientError {
 /// SuiClient is used for all other RPC calls.
 #[derive(Clone)]
 pub struct RetriableRpcClient {
-    client: RpcClient,
+    client: Arc<FailoverWrapper<RpcClient>>,
     request_timeout: Duration,
     main_backoff_config: ExponentialBackoffConfig,
-    fallback_client: Option<CheckpointBucketClient>,
+    fallback_client: Option<FallbackClient>,
     quick_retry_config: ExponentialBackoffConfig,
     metrics: Option<Arc<SuiClientMetricSet>>,
 }
@@ -1087,7 +1248,7 @@ impl std::fmt::Debug for RetriableRpcClient {
         f.debug_struct("RetriableRpcClient")
             .field("main_backoff_config", &self.main_backoff_config)
             // Skip detailed client debug info since it's not typically useful
-            .field("client", &"RpcClient")
+            .field("client", &"FailoverWrapper<RpcClient>")
             .field("fallback_client", &"CheckpointDownloadClient")
             .finish()
     }
@@ -1098,17 +1259,18 @@ impl RetriableRpcClient {
 
     /// Creates a new retriable client.
     pub fn new(
-        client: RpcClient,
+        clients: Vec<(RpcClient, String)>,
         request_timeout: Duration,
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
-    ) -> Self {
+    ) -> anyhow::Result<Self> {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
-            CheckpointBucketClient::new(url, request_timeout)
+            FallbackClient::new(url, request_timeout)
         });
 
-        Self {
+        let client = Arc::new(FailoverWrapper::new(clients)?);
+        Ok(Self {
             client,
             request_timeout,
             main_backoff_config: backoff_config,
@@ -1123,44 +1285,128 @@ impl RetriableRpcClient {
                     )
                 }),
             metrics: None,
+        })
+    }
+
+    /// Gets a default backoff strategy based on whether a fallback client is configured.
+    fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
+        if self.fallback_client.is_some() {
+            self.get_quick_strategy()
+        } else {
+            self.get_extended_strategy()
         }
     }
 
-    /// Gets a backoff strategy, seeded from the internal RNG.
-    fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
+    /// Gets an extended retry strategy, seeded from the internal RNG.
+    /// This strategy is used for primary client operations that are not supported
+    /// by the fallback client or when the fallback client is not configured.
+    ///
+    /// This strategy is also used for all fallback client operations.
+    fn get_extended_strategy(&self) -> ExponentialBackoff<StdRng> {
         self.main_backoff_config
             .get_strategy(ThreadRng::default().gen())
     }
 
     /// Gets a quick retry strategy, seeded from the internal RNG.
+    ///
+    /// This strategy is used for primary client operations that are supported
+    /// by the fallback client
     fn get_quick_strategy(&self) -> ExponentialBackoff<StdRng> {
         self.quick_retry_config
             .get_strategy(ThreadRng::default().gen())
     }
 
+    /// Helper function to handle timeout and error cases for checkpoint operations
+    async fn handle_checkpoint_timeout<T>(
+        &self,
+        timeout: Duration,
+        operation: impl Future<Output = Result<T, tonic::Status>>,
+        sequence_number: u64,
+    ) -> Result<T, RetriableClientError> {
+        match tokio::time::timeout(timeout, operation).await {
+            Ok(result) => match result {
+                Ok(data) => Ok(data),
+                Err(status) => Err(CheckpointRpcError::from((status, sequence_number)).into()),
+            },
+            Err(timeout_error) => {
+                if self.fallback_client.is_some() {
+                    Err(RetriableClientError::NonRetryableTimeoutError(
+                        timeout_error,
+                    ))
+                } else {
+                    Err(RetriableClientError::RetryableTimeoutError(timeout_error))
+                }
+            }
+        }
+    }
+
+    /// Helper function to handle timeout and error cases for RPC operations.
+    async fn handle_rpc_timeout<T>(
+        timeout: Duration,
+        operation: impl Future<Output = Result<T, tonic::Status>>,
+    ) -> Result<T, RetriableClientError> {
+        match tokio::time::timeout(timeout, operation).await {
+            Ok(result) => result.map_err(RetriableClientError::from),
+            Err(timeout_error) => Err(RetriableClientError::RetryableTimeoutError(timeout_error)),
+        }
+    }
+
+    /// Gets the checkpoint summary for the given sequence number from the primary client.
+    async fn get_checkpoint_summary_from_primary(
+        &self,
+        sequence_number: u64,
+    ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_strategy(),
+                    || {
+                        self.handle_checkpoint_timeout(
+                            self.request_timeout,
+                            client.get_checkpoint_summary(sequence_number),
+                            sequence_number,
+                        )
+                    },
+                    self.metrics.clone(),
+                    "get_checkpoint_summary",
+                )
+                .await
+            })
+        };
+
+        self.client.with_failover(request).await
+    }
+
+    /// Gets the full checkpoint data for the given sequence number from the primary client.
     async fn get_full_checkpoint_from_primary(
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        Ok(tokio::time::timeout(
-            self.request_timeout,
-            self.client.get_full_checkpoint(sequence_number),
-        )
-        .await??)
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_strategy(),
+                    || {
+                        self.handle_checkpoint_timeout(
+                            self.request_timeout,
+                            client.get_full_checkpoint(sequence_number),
+                            sequence_number,
+                        )
+                    },
+                    self.metrics.clone(),
+                    "get_full_checkpoint",
+                )
+                .await
+            })
+        };
+
+        self.client.with_failover(request).await
     }
 
     /// Gets the full checkpoint data for the given sequence number.
     ///
-    /// This function will first try to fetch the checkpoint from the primary client. If that fails,
-    /// it will try to fetch the checkpoint from the fallback client if configured. If that also
-    /// fails, it will return the error from the primary client.
-    ///
-    /// When the primary client returns a "not found" or "missing event" error, it will use the
-    /// fallback client to fetch the checkpoint immediately. For all other errors, it will first
-    /// try a quick retry on the primary client before falling back to the fallback client.
-    ///
-    /// If fallback is not configured, it will retry the primary client with the main retry
-    /// strategy.
+    /// This function will first try to fetch the checkpoint from the primary client with retries.
+    /// If that fails, it will try to fetch the checkpoint from the fallback client if configured.
     #[tracing::instrument(skip(self))]
     pub async fn get_full_checkpoint(
         &self,
@@ -1173,56 +1419,22 @@ impl RetriableRpcClient {
 
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
-            tracing::debug!("no fallback client configured, retrying primary client");
-            return retry_rpc_errors(
-                self.get_strategy(),
-                || async { self.get_full_checkpoint_from_primary(sequence_number).await },
-                self.metrics.clone(),
-                "get_full_checkpoint",
-            )
-            .await;
+            return Err(error);
         };
 
-        // For "not found" (pruned) and "missing event" errors, use fallback immediately as the
-        // events in full node get pruned by event digest and checkpoint sequence number and newer
-        // transactions could have events with the same digest (as the already pruned ones).
-        if error.should_use_fallback_directly(sequence_number) {
-            return self
-                .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
-                .await;
-        }
-
-        // Try a quick retry on the primary client before falling back
-        tracing::debug!("performing a quick retry on primary client");
-        let quick_retry_result = retry_rpc_errors(
-            self.get_quick_strategy(),
-            || async { self.get_full_checkpoint_from_primary(sequence_number).await },
-            self.metrics.clone(),
-            "get_full_checkpoint_quick_retry",
-        )
-        .await;
-
-        let Err(quick_retry_error) = quick_retry_result else {
-            tracing::debug!("quick retry on primary client succeeded");
-            return quick_retry_result;
-        };
-
-        // Fall back to the fallback client with the main retry strategy.
-        tracing::debug!("falling back to fallback client after quick retry failed");
         self.get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
             .await
-            // If fallback fails as well, return the error from the quick retry.
-            .map_err(|_| quick_retry_error)
     }
 
+    /// Gets the full checkpoint data for the given sequence number from the fallback client.
     async fn get_full_checkpoint_from_fallback_with_retries(
         &self,
-        fallback: &CheckpointBucketClient,
+        fallback: &FallbackClient,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        tracing::info!(sequence_number, "fetching checkpoint from fallback client");
+        tracing::debug!(sequence_number, "fetching checkpoint from fallback client");
         return retry_rpc_errors(
-            self.get_strategy(),
+            self.get_extended_strategy(),
             || async {
                 fallback
                     .get_full_checkpoint(sequence_number)
@@ -1236,38 +1448,34 @@ impl RetriableRpcClient {
     }
 
     /// Gets the checkpoint summary for the given sequence number.
+    ///
+    /// This function will first try to fetch the checkpoint summary from the primary client with
+    /// retries. If that fails, it will try to fetch the full checkpoint summary from the fallback
+    /// client if configured and return checkpoint summary.
+    #[tracing::instrument(skip(self))]
     pub async fn get_checkpoint_summary(
         &self,
         sequence: u64,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        let primary_error = match retry_rpc_errors(
-            self.get_strategy(),
-            || async {
-                Ok(tokio::time::timeout(
-                    self.request_timeout,
-                    self.client.get_checkpoint_summary(sequence),
-                )
-                .await??)
-            },
-            self.metrics.clone(),
-            "get_checkpoint_summary",
-        )
-        .await
-        {
-            Ok(summary) => return Ok(summary),
+        let error = match self.get_checkpoint_summary_from_primary(sequence).await {
+            Ok(checkpoint_summary) => return Ok(checkpoint_summary),
             Err(error) => error,
         };
 
+        tracing::debug!(
+            ?error,
+            "primary client error while fetching checkpoint summary"
+        );
         let Some(ref fallback) = self.fallback_client else {
-            return Err(primary_error);
+            return Err(error);
         };
 
         tracing::info!("falling back to fallback client to fetch checkpoint summary");
         let checkpoint = self
             .get_full_checkpoint_from_fallback_with_retries(fallback, sequence)
             .await
-            // If fallback fails as well, return the error from the quick retry.
-            .map_err(|_| primary_error)?;
+            // If fallback fails as well, return the error.
+            .map_err(|_| error)?;
         Ok(checkpoint.checkpoint_summary)
     }
 
@@ -1275,34 +1483,41 @@ impl RetriableRpcClient {
     pub async fn get_latest_checkpoint_summary(
         &self,
     ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
-        retry_rpc_errors(
-            self.get_strategy(),
-            || async {
-                Ok(
-                    tokio::time::timeout(self.request_timeout, self.client.get_latest_checkpoint())
-                        .await??,
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_extended_strategy(),
+                    || {
+                        Self::handle_rpc_timeout(
+                            self.request_timeout,
+                            client.get_latest_checkpoint(),
+                        )
+                    },
+                    self.metrics.clone(),
+                    "get_latest_checkpoint_summary",
                 )
-            },
-            self.metrics.clone(),
-            "get_latest_checkpoint",
-        )
-        .await
+                .await
+            })
+        };
+
+        self.client.with_failover(request).await
     }
 
     /// Gets the object with the given ID.
     pub async fn get_object(&self, id: ObjectID) -> Result<Object, RetriableClientError> {
-        retry_rpc_errors(
-            self.get_strategy(),
-            || async {
-                Ok(
-                    tokio::time::timeout(self.request_timeout, self.client.get_object(id))
-                        .await??,
+        let request = |client: Arc<RpcClient>| {
+            Box::pin(async move {
+                retry_rpc_errors(
+                    self.get_extended_strategy(),
+                    || Self::handle_rpc_timeout(self.request_timeout, client.get_object(id)),
+                    self.metrics.clone(),
+                    "get_object",
                 )
-            },
-            self.metrics.clone(),
-            "get_object",
-        )
-        .await
+                .await
+            })
+        };
+
+        self.client.with_failover(request).await
     }
 }
 
@@ -1314,6 +1529,8 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     transaction: &Transaction,
 ) -> anyhow::Result<()> {
     // Check if this transaction contains a stake_with_pool operation
+
+    use rand::thread_rng;
     let is_stake_pool_tx = transaction
         .transaction_data()
         .move_calls()
@@ -1334,12 +1551,17 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     if should_inject_error {
         tracing::warn!("injecting a retriable RPC error for stake pool transaction");
 
-        // Simulate a retriable RPC error (502 Bad Gateway)
-        Err(sui_sdk::error::Error::RpcError(
-            jsonrpsee::core::ClientError::Custom(
+        let retriable_error = if thread_rng().gen_bool(0.5) {
+            // Simulate a retriable RPC error (502 Bad Gateway).
+            jsonrpsee::core::ClientError::Transport(
                 "server returned an error status code: 502".into(),
-            ),
-        ))?;
+            )
+        } else {
+            // Simulate a request timeout error.
+            jsonrpsee::core::ClientError::RequestTimeout
+        };
+
+        Err(sui_sdk::error::Error::RpcError(retriable_error))?;
     }
 
     Ok(())
@@ -1401,10 +1623,139 @@ impl ToErrorType for tonic::Status {
 impl ToErrorType for RetriableClientError {
     fn to_error_type(&self) -> String {
         match self {
-            Self::RpcError(status) => status.to_error_type(),
+            Self::RpcError(_) => "checkpoint_rpc_error".to_string(),
             Self::FallbackError(_) => "fallback_error".to_string(),
             Self::Other(_) => "other".to_string(),
-            Self::TimeoutError(_) => "timeout".to_string(),
+            Self::RetryableTimeoutError(_) => "retryable_timeout".to_string(),
+            Self::NonRetryableTimeoutError(_) => "non_retryable_timeout".to_string(),
         }
+    }
+}
+
+#[cfg(msim)]
+fn should_inject_error(current_index: usize) -> bool {
+    // For odd indices, always inject error
+    if current_index % 2 == 1 {
+        tracing::warn!(
+            "Injecting a RPC error for fallback client {} (odd index)",
+            current_index
+        );
+        true
+    } else {
+        // For even indices, 50% chance
+        let should_fail = rand::random::<bool>();
+        if should_fail {
+            tracing::warn!(
+                "Injecting a RPC error for fallback client {} (even index, random)",
+                current_index
+            );
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{atomic::AtomicUsize, Arc};
+
+    use super::*;
+
+    // Mock client that counts number of calls and returns configurable results.
+    #[derive(Debug)]
+    struct MockClient {
+        call_count: Arc<AtomicUsize>,
+        should_fail: bool,
+    }
+
+    impl MockClient {
+        fn new(should_fail: bool) -> Self {
+            Self {
+                call_count: Arc::new(AtomicUsize::new(0)),
+                should_fail,
+            }
+        }
+
+        async fn operation(&self) -> Result<String, RetriableClientError> {
+            self.call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.should_fail {
+                Err(RetriableClientError::RpcError(CheckpointRpcError {
+                    status: tonic::Status::internal("mock error"),
+                    checkpoint_seq_num: None,
+                }))
+            } else {
+                Ok("success".to_string())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_failover_wrapper() {
+        // Create mock clients - first fails, second succeeds.
+        let failing_client = MockClient::new(true);
+        let succeeding_client = MockClient::new(false);
+
+        let failing_calls = failing_client.call_count.clone();
+        let succeeding_calls = succeeding_client.call_count.clone();
+
+        let clients = vec![
+            (failing_client, "failing".to_string()),
+            (succeeding_client, "succeeding".to_string()),
+        ];
+
+        let wrapper = FailoverWrapper::new(clients).unwrap();
+
+        // Execute operation that should failover from first to second client.
+        let result = wrapper
+            .with_failover(|client| {
+                Box::pin(async move {
+                    let client = client.as_ref();
+                    client.operation().await
+                })
+            })
+            .await;
+
+        assert!(matches!(result, Ok(ref s) if s == "success"));
+        assert_eq!(failing_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            succeeding_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(
+            wrapper
+                .current_index
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failover_wrapper_all_fail() {
+        // Create mock clients - both fail.
+        let clients = vec![
+            (MockClient::new(true), "failing1".to_string()),
+            (MockClient::new(true), "failing2".to_string()),
+        ];
+
+        let wrapper = FailoverWrapper::new(clients).unwrap();
+
+        // Execute operation that should try both clients and fail.
+        let result = wrapper
+            .with_failover(|client| {
+                Box::pin(async move {
+                    let client = client.as_ref();
+                    client.operation().await
+                })
+            })
+            .await;
+
+        // Verify result is error.
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            RetriableClientError::RpcError(_)
+        ));
     }
 }

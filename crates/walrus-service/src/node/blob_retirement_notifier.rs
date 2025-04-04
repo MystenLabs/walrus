@@ -308,9 +308,9 @@ mod tests {
         let notified_3 = notify3.notified();
         notifier.notify_blob_retirement(&blob_id2);
         notifier.notify_blob_retirement(&blob_id2);
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 0);
+        assert!(notifier.registered_blobs.lock().unwrap().is_empty());
         assert!(timeout(Duration::from_secs(1), notified_3).await.is_ok());
         drop(notify3);
-        assert!(notifier.registered_blobs.lock().unwrap().len() == 0);
+        assert!(notifier.registered_blobs.lock().unwrap().is_empty());
     }
 }

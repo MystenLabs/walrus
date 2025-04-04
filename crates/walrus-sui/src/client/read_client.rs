@@ -571,12 +571,9 @@ impl SuiReadClient {
             .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
             .await
             .map_err(|err| match err {
-                sui_sdk::error::Error::InsufficientFund {
-                    address: _,
-                    amount: _,
-                } => match coin_type {
+                sui_sdk::error::Error::InsufficientFund { address: _, amount } => match coin_type {
                     CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
-                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins,
+                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
                 },
                 err => SuiClientError::from(err),
             })

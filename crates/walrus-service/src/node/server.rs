@@ -28,7 +28,7 @@ use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding, keys::NetworkKeyPair};
 
-use self::telemetry::HttpServerMetrics;
+use self::telemetry::MetricsMiddlewareState;
 use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
 use crate::{
     common::telemetry::{self, MakeHttpSpan},
@@ -146,7 +146,7 @@ pub enum TlsCertificateSource {
 pub struct RestApiServer<S> {
     state: Arc<S>,
     config: RestApiConfig,
-    metrics: HttpServerMetrics,
+    metrics: MetricsMiddlewareState,
     cancel_token: CancellationToken,
     handle: Mutex<Option<Handle>>,
 }
@@ -164,7 +164,7 @@ where
     ) -> Self {
         Self {
             state,
-            metrics: HttpServerMetrics::new(registry),
+            metrics: MetricsMiddlewareState::new(registry),
             cancel_token,
             handle: Default::default(),
             config,
@@ -671,7 +671,7 @@ mod tests {
             walrus_core::test_utils::encoding_config().n_shards()
         }
 
-        fn health_info(&self, _detailed: bool) -> ServiceHealthInfo {
+        async fn health_info(&self, _detailed: bool) -> ServiceHealthInfo {
             ServiceHealthInfo {
                 uptime: Duration::from_secs(0),
                 epoch: 0,
@@ -680,6 +680,7 @@ mod tests {
                 event_progress: walrus_sdk::api::EventProgress::default(),
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
+                latest_checkpoint_sequence_number: None,
             }
         }
 

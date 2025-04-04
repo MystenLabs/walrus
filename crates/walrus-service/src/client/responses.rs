@@ -814,6 +814,7 @@ impl NodeHealthOutput {
 /// The output of the `walrus health` command.
 pub(crate) struct ServiceHealthInfoOutput {
     pub health_info: Vec<NodeHealthOutput>,
+    pub latest_seq: Option<u64>,
 }
 
 impl ServiceHealthInfoOutput {
@@ -821,6 +822,7 @@ impl ServiceHealthInfoOutput {
     pub async fn new_for_nodes(
         nodes: impl IntoIterator<Item = StorageNode>,
         communication_factory: &NodeCommunicationFactory,
+        latest_seq: Option<u64>,
         detail: bool,
         sort: SortBy<HealthSortBy>,
     ) -> anyhow::Result<Self> {
@@ -843,7 +845,10 @@ impl ServiceHealthInfoOutput {
             health_info.reverse();
         }
 
-        Ok(Self { health_info })
+        Ok(Self {
+            health_info,
+            latest_seq,
+        })
     }
 }
 

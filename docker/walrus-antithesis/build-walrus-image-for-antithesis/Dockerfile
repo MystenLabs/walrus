@@ -8,8 +8,7 @@
 
 # Stage 1: Base Build Environment + Builder
 # -------------------------------------
-FROM rust:1.85-bookworm AS builder
-ARG PROFILE=release-antithesis
+FROM rust:1.86-bookworm AS builder
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 WORKDIR "$WORKDIR/walrus"
@@ -38,27 +37,28 @@ RUN /tmp/update_move_toml.sh
 RUN wget -O /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so
 
 # Configure Rust flags for Antithesis instrumentation and coverage
-ENV RUSTFLAGS="-C target-feature=-crt-static -C codegen-units=1 -C passes=sancov-module \
+ARG RUSTFLAGS="-C target-feature=-crt-static -C codegen-units=1 -C passes=sancov-module \
 -C llvm-args=-sanitizer-coverage-level=3 \
 -C llvm-args=-sanitizer-coverage-trace-pc-guard \
 -C link-args=-Wl,--build-id -Ccodegen-units=1 \
 -L/usr/lib/libvoidstar.so -lvoidstar"
+ENV RUSTFLAGS="$RUSTFLAGS"
 
 # Build all binaries with Antithesis instrumentation
-RUN LD_LIBRARY_PATH=/usr/lib/libvoidstar.so \
-    cargo build --profile $PROFILE \
+ARG LD_LIBRARY_PATH="/usr/lib/libvoidstar.so"
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+RUN LD_LIBRARY_PATH=$LD_LIBRARY_PATH \
+    cargo build \
+    --profile release-antithesis \
+    --target-dir=/walrus/target \
     --bin walrus \
     --bin walrus-node \
     --bin walrus-deploy \
     --bin walrus-stress
+RUN find /walrus/target
 
-# Stage 2: Production Images
-# -------------------------------------
-
-# build walrus-service image containing all binaries
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates curl git
-ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 COPY --from=builder /walrus/target/release-antithesis/walrus /opt/walrus/bin/walrus
 COPY --from=builder /walrus/target/release-antithesis/walrus-node /opt/walrus/bin/walrus-node

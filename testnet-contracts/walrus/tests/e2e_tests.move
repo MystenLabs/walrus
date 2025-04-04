@@ -160,6 +160,7 @@ fun test_stake_after_committee_selection() {
         runner.tx!(node.sui_address(), |staking, _, ctx| {
             let coin = test_utils::mint_wal(1000, ctx);
             let staked_wal = staking.stake_with_pool(coin, node.node_id(), ctx);
+            assert!(staking.can_withdraw_staked_wal_early(&staked_wal));
             transfer::public_transfer(staked_wal, ctx.sender());
         });
     });

@@ -30,7 +30,7 @@ env:
   # Don't emit giant backtraces in the CI logs.
   RUST_BACKTRACE: short
   RUSTDOCFLAGS: -D warnings
-  SUI_TAG: testnet-v1.45.2
+  SUI_TAG: testnet-v1.46.0
 
 jobs:
   diff:
@@ -192,7 +192,7 @@ jobs:
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug sui
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_coverage.sh
       - name: Cache sui binary

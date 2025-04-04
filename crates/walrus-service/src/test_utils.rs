@@ -172,7 +172,7 @@ pub trait StorageNodeHandleTrait {
     fn build_and_run(
         builder: StorageNodeHandleBuilder,
         system_context: Option<SystemContext>,
-        sui_rpc_url: Option<String>,
+        sui_rpc_urls: Vec<String>,
         storage_dir: TempDir,
         start_node: bool,
         disable_event_blob_writer: bool,
@@ -252,7 +252,7 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
     async fn build_and_run(
         builder: StorageNodeHandleBuilder,
         _system_context: Option<SystemContext>,
-        _sui_rpc_url: Option<String>,
+        _sui_rpc_urls: Vec<String>,
         _storage_dir: TempDir,
         _start_node: bool,
         _disable_event_blob_writer: bool,
@@ -486,7 +486,10 @@ impl SimStorageNodeHandle {
         } else {
             let processor_config =
                 crate::node::events::event_processor::EventProcessorRuntimeConfig {
-                    rpc_address: sui_config.rpc.clone(),
+                    rpc_addresses: std::iter::once(&sui_config.rpc)
+                        .chain(sui_config.additional_rpc_endpoints.iter())
+                        .cloned()
+                        .collect(),
                     event_polling_interval: Duration::from_millis(100),
                     db_path: nondeterministic!(tempfile::tempdir()
                         .expect("temporary directory creation must succeed")
@@ -584,7 +587,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
     async fn build_and_run(
         builder: StorageNodeHandleBuilder,
         system_context: Option<SystemContext>,
-        sui_rpc_url: Option<String>,
+        sui_rpc_urls: Vec<String>,
         storage_dir: TempDir,
         start_node: bool,
         disable_event_blob_writer: bool,
@@ -597,7 +600,7 @@ impl StorageNodeHandleTrait for SimStorageNodeHandle {
         builder
             .start_node(
                 system_context.expect("System context must be provided"),
-                sui_rpc_url,
+                sui_rpc_urls,
                 storage_dir,
                 start_node,
                 disable_event_blob_writer,
@@ -994,7 +997,7 @@ impl StorageNodeHandleBuilder {
     pub async fn start_node(
         self,
         system_context: SystemContext,
-        sui_rpc_url: Option<String>,
+        sui_rpc_urls: Vec<String>,
         storage_dir: TempDir,
         start_node: bool,
         disable_event_blob_writer: bool,
@@ -1020,7 +1023,10 @@ impl StorageNodeHandleBuilder {
             use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
-                rpc: sui_rpc_url.expect("SUI RPC URL must be provided in integration test"),
+                rpc: sui_rpc_urls
+                    .first()
+                    .expect("SUI RPC URL must be provided in integration test")
+                    .to_string(),
                 contract_config: ContractConfig::new(
                     system_context.system_object,
                     system_context.staking_object,
@@ -1032,6 +1038,11 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
                 rpc_fallback_config: None,
+                additional_rpc_endpoints: sui_rpc_urls
+                    .iter()
+                    .skip(1)
+                    .map(|url| url.clone())
+                    .collect::<Vec<String>>(),
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
@@ -1625,7 +1636,7 @@ pub struct TestClusterBuilder {
     storage_node_configs: Vec<StorageNodeTestConfig>,
     shard_sync_config: Option<ShardSyncConfig>,
     system_context: Option<SystemContext>,
-    sui_rpc_url: Option<String>,
+    sui_rpc_urls: Vec<String>,
     use_distinct_ip: bool,
     // INV: Reset if shard_assignment is changed.
     event_providers: Vec<Option<Box<dyn SystemEventProvider>>>,
@@ -1780,8 +1791,8 @@ impl TestClusterBuilder {
     /// Sets the SUI RPC URL for the cluster.
     ///
     /// This is required for the storage nodes to connect to the SUI network.
-    pub fn with_sui_rpc_url(mut self, sui_rpc_url: String) -> Self {
-        self.sui_rpc_url = Some(sui_rpc_url);
+    pub fn with_sui_rpc_urls(mut self, sui_rpc_urls: Vec<String>) -> Self {
+        self.sui_rpc_urls = sui_rpc_urls;
         self
     }
 
@@ -1926,7 +1937,7 @@ impl TestClusterBuilder {
             node_futures.push(T::build_and_run(
                 builder,
                 self.system_context.clone(),
-                self.sui_rpc_url.clone(),
+                self.sui_rpc_urls.clone(),
                 nondeterministic!(
                     tempfile::tempdir().expect("temporary directory creation must succeed")
                 ),
@@ -2061,7 +2072,7 @@ impl Default for TestClusterBuilder {
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
                 .collect(),
             system_context: None,
-            sui_rpc_url: None,
+            sui_rpc_urls: vec![],
             use_distinct_ip: false,
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
@@ -2272,6 +2283,7 @@ pub mod test_cluster {
             Some(10),
             ClientCommunicationConfig::default_for_test(),
             with_subsidies,
+            None,
         )
         .await
     }
@@ -2284,6 +2296,7 @@ pub mod test_cluster {
         num_checkpoints_per_blob: Option<u32>,
         communication_config: ClientCommunicationConfig,
         with_subsidies: bool,
+        num_additional_fullnodes: Option<usize>,
     ) -> anyhow::Result<(
         Arc<TokioMutex<TestClusterHandle>>,
         TestCluster<T>,
@@ -2297,6 +2310,7 @@ pub mod test_cluster {
             with_subsidies,
             None,
             false,
+            num_additional_fullnodes,
         )
         .await?;
         Ok((handle, cluster, client))
@@ -2305,6 +2319,8 @@ pub mod test_cluster {
     // TODO(WAL-653): Refactor with builder pattern to make selecting different options cleaner.
     /// Performs the default setup with the input epoch duration for the test cluster with the
     /// specified storage node handle.
+    #[allow(unused)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn default_setup_with_deploy_directory_generic<T: StorageNodeHandleTrait>(
         epoch_duration: Duration,
         test_nodes_config: TestNodesConfig,
@@ -2313,6 +2329,7 @@ pub mod test_cluster {
         with_subsidies: bool,
         deploy_directory: Option<PathBuf>,
         delegate_governance_to_admin_wallet: bool,
+        num_additional_fullnodes: Option<usize>,
     ) -> anyhow::Result<(
         Arc<TokioMutex<TestClusterHandle>>,
         TestCluster<T>,
@@ -2322,9 +2339,19 @@ pub mod test_cluster {
         #[cfg(not(msim))]
         let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
         #[cfg(msim)]
-        let sui_cluster = test_utils::using_msim::global_sui_test_cluster().await;
+        let sui_cluster =
+            test_utils::using_msim::global_sui_test_cluster_with_additional_fullnodes(
+                num_additional_fullnodes,
+            )
+            .await;
 
-        let sui_rpc_url = sui_cluster.lock().await.cluster().rpc_url().to_string();
+        let sui_rpc_urls: Vec<String> = {
+            let cluster = sui_cluster.lock().await;
+            vec![cluster.rpc_url().to_string()]
+                .into_iter()
+                .chain(cluster.additional_rpc_urls().into_iter())
+                .collect()
+        };
 
         // Get a wallet on the global sui test cluster
         let mut admin_wallet =
@@ -2486,7 +2513,7 @@ pub mod test_cluster {
         } else {
             setup_checkpoint_based_event_processors(
                 &event_processor_config,
-                sui_rpc_url.as_str(),
+                sui_rpc_urls.as_slice(),
                 sui_read_client.clone(),
                 cluster_builder,
                 system_ctx.system_object,
@@ -2503,7 +2530,7 @@ pub mod test_cluster {
 
         let cluster_builder = cluster_builder
             .with_system_context(system_ctx.clone())
-            .with_sui_rpc_url(sui_rpc_url)
+            .with_sui_rpc_urls(sui_rpc_urls)
             .with_storage_capabilities(storage_capabilities)
             .with_node_wallet_dirs(node_wallet_dirs)
             .with_start_node_from_beginning(
@@ -2543,7 +2570,7 @@ pub mod test_cluster {
 
     async fn setup_checkpoint_based_event_processors(
         event_processor_config: &EventProcessorConfig,
-        rpc_url: &str,
+        rpc_urls: &[String],
         sui_read_client: SuiReadClient,
         test_cluster_builder: TestClusterBuilder,
         system_object_id: ObjectID,
@@ -2552,7 +2579,7 @@ pub mod test_cluster {
         let mut event_processors = vec![];
         for _ in test_cluster_builder.storage_node_test_configs().iter() {
             let processor_config = EventProcessorRuntimeConfig {
-                rpc_address: rpc_url.to_string(),
+                rpc_addresses: rpc_urls.to_vec(),
                 event_polling_interval: Duration::from_millis(100),
                 db_path: nondeterministic!(tempfile::tempdir()
                     .expect("temporary directory creation must succeed")

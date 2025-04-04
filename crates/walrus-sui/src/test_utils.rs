@@ -26,7 +26,7 @@ use sui_types::{
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::TransactionData,
 };
-use test_cluster::{TestCluster, TestClusterBuilder};
+use test_cluster::{FullNodeHandle, TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
 use tokio::runtime::Runtime;
 #[cfg(msim)]
@@ -119,6 +119,7 @@ impl LocalOrExternalTestCluster {
 pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
     cluster: LocalOrExternalTestCluster,
+    additional_fullnodes: Vec<FullNodeHandle>,
 
     #[cfg(msim)]
     node_handle: NodeHandle,
@@ -134,23 +135,37 @@ impl Debug for TestClusterHandle {
 impl TestClusterHandle {
     // Creates a test Sui cluster using tokio runtime.
     fn new(runtime: &Runtime) -> Self {
-        Self::from_env().unwrap_or_else(|| Self::new_on_runtime(runtime))
+        Self::from_env().unwrap_or_else(|| Self::new_on_runtime(runtime, None))
     }
 
     // Creates a test Sui cluster using tokio runtime.
-    fn new_on_runtime(runtime: &Runtime) -> Self {
+    #[cfg(not(msim))]
+    fn new_on_runtime(runtime: &Runtime, num_additional_fullnodes: Option<usize>) -> Self {
         tracing::debug!("building global Sui test cluster");
         let (tx, rx) = mpsc::channel();
         runtime.spawn(async move {
             let mut test_cluster = sui_test_cluster().await;
             let wallet_path = test_cluster.wallet().config.path().to_path_buf();
-            tx.send((test_cluster, wallet_path))
+
+            let mut full_node_handles = vec![];
+            if let Some(num_additional_fullnodes) = num_additional_fullnodes {
+                for _ in 0..num_additional_fullnodes {
+                    let full_node_handle = test_cluster.spawn_new_fullnode().await;
+                    full_node_handles.push(full_node_handle);
+                }
+            }
+
+            tx.send((test_cluster, wallet_path, full_node_handles))
                 .expect("can send test cluster");
         });
-        let (cluster, wallet_path) = rx.recv().expect("should receive test_cluster");
+
+        let (cluster, wallet_path, full_node_handles) =
+            rx.recv().expect("should receive test_cluster");
+
         Self {
             wallet_path: Mutex::new(wallet_path),
             cluster: LocalOrExternalTestCluster::Local { cluster },
+            additional_fullnodes: full_node_handles,
         }
     }
 
@@ -171,6 +186,7 @@ impl TestClusterHandle {
         Some(Self {
             cluster: LocalOrExternalTestCluster::External { rpc_url },
             wallet_path,
+            additional_fullnodes: Vec::new(),
         })
     }
 
@@ -184,6 +200,13 @@ impl TestClusterHandle {
 impl TestClusterHandle {
     // Creates a test Sui cluster using deterministic MSIM runtime.
     async fn new() -> Self {
+        Self::new_with_additional_fullnodes(None).await
+    }
+
+    /// Creates a test Sui cluster using deterministic MSIM runtime
+    /// with the specified number of fullnodes.
+    #[cfg(msim)]
+    async fn new_with_additional_fullnodes(num_additional_fullnodes: Option<usize>) -> Self {
         let (tx, mut rx) = mpsc::channel(10);
         let handle = sui_simulator::runtime::Handle::current();
         let builder = handle.create_node();
@@ -194,19 +217,27 @@ impl TestClusterHandle {
                 async move {
                     let mut test_cluster = sui_test_cluster().await;
                     let wallet_path = test_cluster.wallet().config.path().to_path_buf();
-                    tx.send((test_cluster, wallet_path))
+                    let mut full_node_handles = vec![];
+                    if let Some(num_additional_fullnodes) = num_additional_fullnodes {
+                        for _ in 0..num_additional_fullnodes {
+                            let full_node_handle = test_cluster.spawn_new_fullnode().await;
+                            full_node_handles.push(full_node_handle);
+                        }
+                    }
+                    tx.send((test_cluster, wallet_path, full_node_handles))
                         .await
                         .expect("Notifying cluster creation must succeed");
                 }
             })
             .build();
-        let Some((cluster, wallet_path)) = rx.recv().await else {
+        let Some((cluster, wallet_path, full_node_handles)) = rx.recv().await else {
             panic!("Unexpected end of channel");
         };
         Self {
             wallet_path: Mutex::new(wallet_path),
             cluster: LocalOrExternalTestCluster::Local { cluster },
             node_handle,
+            additional_fullnodes: full_node_handles,
         }
     }
 
@@ -233,6 +264,19 @@ impl TestClusterHandle {
     /// Returns the URL of the RPC node.
     pub fn rpc_url(&self) -> String {
         self.cluster.rpc_url()
+    }
+
+    /// Returns the additional fullnodes.
+    pub fn additional_rpc_urls(&self) -> Vec<String> {
+        self.additional_fullnodes
+            .iter()
+            .map(|node| node.rpc_url.clone())
+            .collect()
+    }
+
+    /// Returns the additional fullnodes.
+    pub fn additional_fullnodes(&self) -> &[FullNodeHandle] {
+        &self.additional_fullnodes
     }
 }
 
@@ -338,6 +382,16 @@ pub mod using_msim {
     /// Sui cluster internals.
     pub async fn global_sui_test_cluster() -> Arc<tokio::sync::Mutex<TestClusterHandle>> {
         Arc::new(tokio::sync::Mutex::new(TestClusterHandle::new().await))
+    }
+
+    /// Returns a handle to a newly created global instance of a Sui test cluster with the specified
+    /// number of fullnodes.
+    pub async fn global_sui_test_cluster_with_additional_fullnodes(
+        num_additional_fullnodes: Option<usize>,
+    ) -> Arc<tokio::sync::Mutex<TestClusterHandle>> {
+        Arc::new(tokio::sync::Mutex::new(
+            TestClusterHandle::new_with_additional_fullnodes(num_additional_fullnodes).await,
+        ))
     }
 }
 

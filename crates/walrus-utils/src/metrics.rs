@@ -3,14 +3,20 @@
 
 use prometheus::IntGauge;
 
+#[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
+mod tokio;
+
+#[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
+pub use tokio::{TaskMonitorCollector, TaskMonitorFamily};
+
 /// Defines a set of prometheus metrics.
 ///
 /// # Example
 ///
-/// ```
-/// define_metric_set! {
-///     /// Docstring applied to the containing struct.
+/// ```ignore
+/// walrus_utils::define_metric_set! {
 ///     #[namespace = "walrus"]
+///     /// Docstring applied to the containing struct.
 ///     struct MyMetricSet {
 ///         // Gauges, counters, and histograms can be defined with an empty `[]`.
 ///         #[help = "Help text and docstring for this metric"]

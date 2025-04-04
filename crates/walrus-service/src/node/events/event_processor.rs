@@ -8,8 +8,10 @@ use std::{
     fmt::Debug,
     fs,
     path::{Path, PathBuf},
-    str::FromStr,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -17,7 +19,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use bincode::Options as _;
 use checkpoint_downloader::ParallelCheckpointDownloader;
-use chrono::Utc;
 use futures_util::future::try_join_all;
 use move_core_types::{
     account_address::AccountAddress,
@@ -169,6 +170,8 @@ pub struct EventProcessor {
     pub checkpoint_downloader: ParallelCheckpointDownloader,
     /// Local package store.
     pub package_store: LocalDBPackageStore,
+    /// The cached latest checkpoint sequence number.
+    latest_checkpoint_seq_cache: Arc<AtomicU64>,
 }
 
 impl Debug for LocalDBPackageStore {
@@ -221,7 +224,7 @@ impl SystemConfig {
 #[derive(Debug)]
 pub struct EventProcessorRuntimeConfig {
     /// The address of the RPC server.
-    pub rpc_address: String,
+    pub rpc_addresses: Vec<String>,
     /// The event polling interval.
     pub event_polling_interval: Duration,
     /// The path to the database.
@@ -442,17 +445,6 @@ impl EventProcessor {
             .checkpoint_downloader
             .start(next_checkpoint, cancel_token);
 
-        // TODO(WAL-667): remove special case
-        let on_public_testnet = self
-            .package_store
-            .get_original_package_id(self.system_pkg_id.into())
-            .await?
-            == ObjectID::from_str(
-                "0x795ddbc26b8cfff2551f45e198b87fc19473f2df50f995376b924ac80e56f88b",
-            )?;
-        let march_7_7_pm_utc =
-            chrono::DateTime::parse_from_rfc3339("2025-03-07T19:00:00+00:00")?.to_utc();
-
         while let Some(entry) = rx.recv().await {
             let Ok(checkpoint) = entry.result else {
                 let error = entry.result.err().unwrap_or(anyhow!("unknown error"));
@@ -477,24 +469,17 @@ impl EventProcessor {
                 .inc();
             let verified_checkpoint =
                 self.verify_checkpoint(&checkpoint, prev_verified_checkpoint)?;
+
             let mut write_batch = self.stores.event_store.batch();
             let mut counter = 0;
-            // TODO(WAL-667): remove special case
-            let checkpoint_datetime =
-                chrono::DateTime::<Utc>::from(verified_checkpoint.timestamp());
-            let before_march_7_7pm_utc = checkpoint_datetime < march_7_7_pm_utc;
+
             for tx in checkpoint.transactions.into_iter() {
                 self.update_package_store(&tx.output_objects)
                     .map_err(|e| anyhow!("Failed to update walrus package store: {}", e))?;
                 let tx_events = tx.events.unwrap_or_default();
                 let original_package_ids: Vec<ObjectID> =
                     try_join_all(tx_events.data.iter().map(|event| {
-                        // TODO(WAL-667): remove special case
-                        let pkg_address = if on_public_testnet && before_march_7_7pm_utc {
-                            event.package_id.into()
-                        } else {
-                            event.type_.address
-                        };
+                        let pkg_address = event.type_.address;
                         self.package_store.get_original_package_id(pkg_address)
                     }))
                     .await?;
@@ -582,6 +567,7 @@ impl EventProcessor {
                 )
                 .map_err(|e| anyhow!("Failed to insert checkpoint into checkpoint store: {}", e))?;
             write_batch.write()?;
+            self.update_checkpoint_cache(*verified_checkpoint.sequence_number());
             prev_verified_checkpoint = verified_checkpoint;
             next_checkpoint += 1;
         }
@@ -607,7 +593,7 @@ impl EventProcessor {
         registry: &Registry,
     ) -> Result<Self, anyhow::Error> {
         let retry_client = Self::create_and_validate_client(
-            &runtime_config.rpc_address,
+            &runtime_config.rpc_addresses,
             config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
         )
@@ -637,6 +623,7 @@ impl EventProcessor {
             metrics,
             checkpoint_downloader,
             package_store,
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -649,6 +636,8 @@ impl EventProcessor {
             .get(&())?
             .map(|t| *t.inner().sequence_number())
             .unwrap_or(0);
+
+        event_processor.update_checkpoint_cache(current_checkpoint);
 
         let latest_checkpoint = retry_client.get_latest_checkpoint_summary().await?;
         if current_checkpoint > latest_checkpoint.sequence_number {
@@ -663,7 +652,7 @@ impl EventProcessor {
         }
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = runtime_config.rpc_address.clone();
+        let url = runtime_config.rpc_addresses[0].clone();
         let sui_client = SuiClientBuilder::default()
             .build(&url)
             .await
@@ -676,14 +665,15 @@ impl EventProcessor {
                 client: retry_client.clone(),
             };
             let recovery_path = runtime_config.db_path.join("recovery");
-            if let Err(error) = Self::catchup_using_event_blobs(
-                clients,
-                system_config.clone(),
-                stores.clone(),
-                &recovery_path,
-                Some(&event_processor.metrics),
-            )
-            .await
+            if let Err(error) = event_processor
+                .catchup_using_event_blobs(
+                    clients,
+                    system_config.clone(),
+                    stores.clone(),
+                    &recovery_path,
+                    Some(&event_processor.metrics),
+                )
+                .await
             {
                 tracing::error!(?error, "failed to catch up using event blobs");
             } else {
@@ -706,26 +696,50 @@ impl EventProcessor {
                 .stores
                 .checkpoint_store
                 .insert(&(), verified_checkpoint.serializable_ref())?;
+
+            // Also update the cache with the bootstrap checkpoint sequence number.
+            event_processor.update_checkpoint_cache(*verified_checkpoint.sequence_number());
         }
 
         Ok(event_processor)
     }
 
     async fn create_and_validate_client(
-        rest_url: &str,
+        rest_urls: &[String],
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
-        let client = sui_rpc_api::Client::new(rest_url)?;
-        // Ensure the experimental REST endpoint exists
-        ensure_experimental_rest_endpoint_exists(client.clone()).await?;
-        let retriable_client = RetriableRpcClient::new(
-            client,
+        let clients = rest_urls
+            .iter()
+            .map(
+                |rest_url| -> Result<(sui_rpc_api::Client, String), anyhow::Error> {
+                    let client = sui_rpc_api::Client::new(rest_url)?;
+                    Ok((client, rest_url.clone()))
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Validate each client and filter out invalid ones.
+        let mut valid_clients = Vec::new();
+        for (client, rest_url) in clients {
+            match ensure_experimental_rest_endpoint_exists(client.clone()).await {
+                Ok(()) => valid_clients.push((client, rest_url)),
+                Err(e) => {
+                    tracing::warn!("Client validation failed for {:?}: {:?}", rest_url, e);
+                }
+            }
+        }
+
+        if valid_clients.is_empty() {
+            anyhow::bail!("No valid clients found after validation");
+        }
+
+        RetriableRpcClient::new(
+            valid_clients,
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
-        );
-        Ok(retriable_client)
+        )
     }
 
     /// Initializes the database for the event processor.
@@ -896,6 +910,7 @@ impl EventProcessor {
     /// events from the earliest available event blob (in which case the first stored event index
     /// could be greater than `0`).
     pub async fn catchup_using_event_blobs(
+        &self,
         clients: SuiClientSet,
         system_objects: SystemConfig,
         stores: EventProcessorStores,
@@ -931,13 +946,14 @@ impl EventProcessor {
             .transpose()?
             .map(|(i, _)| i + 1);
 
-        Self::process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
+        self.process_event_blobs(blobs, &stores, recovery_path, &clients, next_event_index)
             .await?;
 
         Ok(())
     }
 
     async fn process_event_blobs(
+        &self,
         blobs: Vec<BlobId>,
         stores: &EventProcessorStores,
         recovery_path: &Path,
@@ -1042,6 +1058,7 @@ impl EventProcessor {
             )?;
 
             batch.write()?;
+            self.update_checkpoint_cache(last_checkpoint);
             fs::remove_file(blob_path)?;
             next_event_index = Some(last_event_index + 1);
             tracing::info!(
@@ -1085,6 +1102,17 @@ impl EventProcessor {
             })
             .collect();
         (first_event, relevant_events)
+    }
+
+    /// Updates the cached checkpoint sequence number.
+    fn update_checkpoint_cache(&self, sequence_number: u64) {
+        self.latest_checkpoint_seq_cache
+            .fetch_max(sequence_number, Ordering::SeqCst);
+    }
+
+    /// Gets the latest checkpoint sequence number, preferring the cache.
+    pub fn get_latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        Some(self.latest_checkpoint_seq_cache.load(Ordering::SeqCst))
     }
 }
 
@@ -1250,13 +1278,14 @@ mod tests {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let client = sui_rpc_api::Client::new("http://localhost:8080")?;
+        let rest_url = "http://localhost:8080";
+        let client = sui_rpc_api::Client::new(rest_url)?;
         let retry_client = RetriableRpcClient::new(
-            client.clone(),
+            vec![(client, rest_url.to_string())],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        );
+        )?;
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(
@@ -1283,6 +1312,7 @@ mod tests {
             metrics: EventProcessorMetrics::new(&Registry::default()),
             checkpoint_downloader,
             package_store,
+            latest_checkpoint_seq_cache: Arc::new(AtomicU64::new(0)),
         })
     }
 

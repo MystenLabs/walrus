@@ -71,7 +71,7 @@ impl ClientError {
     pub fn is_out_of_coin_error(&self) -> bool {
         matches!(
             &self.kind,
-            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins
+            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins(_)
         )
     }
 
@@ -104,7 +104,9 @@ impl From<SuiClientError> for ClientError {
     fn from(value: SuiClientError) -> Self {
         let kind = match value {
             SuiClientError::NoCompatibleWalCoins => ClientErrorKind::NoCompatiblePaymentCoin,
-            SuiClientError::NoCompatibleGasCoins => ClientErrorKind::NoCompatibleGasCoins,
+            SuiClientError::NoCompatibleGasCoins(desired_amount) => {
+                ClientErrorKind::NoCompatibleGasCoins(desired_amount)
+            }
             SuiClientError::StakeBelowThreshold(amount) => {
                 ClientErrorKind::StakeBelowThreshold(amount)
             }
@@ -154,8 +156,10 @@ pub enum ClientErrorKind {
     #[error("no compatible payment coin found")]
     NoCompatiblePaymentCoin,
     /// No gas coins with sufficient balance found for the transaction.
-    #[error("no compatible gas coins with sufficient total balance found")]
-    NoCompatibleGasCoins,
+    #[error(
+        "no compatible gas coins with sufficient total balance found [requested_amount={0:?}]"
+    )]
+    NoCompatibleGasCoins(Option<u128>),
     /// The client was unable to open connections to any storage node.
     #[error("connecting to all storage nodes failed: {0}")]
     AllConnectionsFailed(ClientBuildError),

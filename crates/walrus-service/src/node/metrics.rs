@@ -75,10 +75,7 @@ walrus_utils::metrics::define_metric_set! {
         sync_shard_recover_sliver_error_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers skipped during shard sync"]
-        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type"],
-
-        #[help = "Total number of cancelled sliver recoveries during shard sync"]
-        sync_shard_recover_sliver_cancellation_total: IntCounterVec["shard", "sliver_type"],
+        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type", "reason"],
 
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],
@@ -142,6 +139,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of certified blobs scanned during the blob info consistency check."]
         blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
+        #[help = "Status metric indicating the node's ID"]
+        node_id: IntGaugeVec["walrus_node_id"],
     }
 }
 
@@ -252,7 +252,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::InvalidConfig => "invalid-config",
             ClientErrorKind::BlobIdBlocked(_) => "blob-id-blocked",
             ClientErrorKind::NoCompatiblePaymentCoin => "no-compatible-payment-coin",
-            ClientErrorKind::NoCompatibleGasCoins => "no-compatible-gas-coins",
+            ClientErrorKind::NoCompatibleGasCoins(_) => "no-compatible-gas-coins",
             ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
             ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
             ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",

@@ -230,6 +230,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .expect("Failed to setup test cluster");
@@ -418,6 +419,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -499,6 +501,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();
@@ -744,6 +747,7 @@ mod tests {
                     Duration::from_secs(2),
                 ),
                 false,
+                None,
             )
             .await
             .unwrap();

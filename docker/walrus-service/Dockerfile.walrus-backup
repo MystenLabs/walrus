@@ -2,7 +2,7 @@
 #
 # Copy in all crates, Cargo.toml and Cargo.lock unmodified,
 # and build the application.
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.86-bookworm AS builder
 ARG PROFILE=release
 ARG RUST_LOG=info,walrus_service::common::event_blob_downloader=warn
 ARG GIT_REVISION
