@@ -33,6 +33,7 @@
   - [Operations](./dev-guide/dev-operations.md)
   - [Storage costs](./dev-guide/costs.md)
   - [Sui structures](./dev-guide/sui-struct.md)
+  - [Data security](./dev-guide/data-security.md)
 - [Operating an aggregator or publisher](./operator-guide/aggregator.md)
 - [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)

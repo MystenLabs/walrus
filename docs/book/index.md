@@ -45,7 +45,7 @@ details on how this works.
 ```admonish danger title="Public access"
 **All blobs stored in Walrus are public and discoverable by all.** Therefore you must not use Walrus
 to store anything that contains secrets or private data without additional measures to protect
-confidentiality.
+confidentiality. Refer to [Data Security](./dev-guide/data-security.md) for such use cases.
 ```
 
 ## Architecture and operations
