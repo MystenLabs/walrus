@@ -510,7 +510,7 @@ mod tests {
             }
         }
 
-        fn store_metadata(
+        async fn store_metadata(
             &self,
             _metadata: UnverifiedBlobMetadataWithId,
         ) -> Result<bool, StoreMetadataError> {

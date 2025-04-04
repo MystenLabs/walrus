@@ -204,7 +204,7 @@ pub trait ServiceState {
     fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
-    ) -> Result<bool, StoreMetadataError>;
+    ) -> impl Future<Output = Result<bool, StoreMetadataError>> + Send;
 
     /// Returns whether the metadata is stored in the shard.
     fn metadata_status(
@@ -2045,11 +2045,11 @@ impl ServiceState for StorageNode {
         self.inner.retrieve_metadata(blob_id)
     }
 
-    fn store_metadata(
+    async fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<bool, StoreMetadataError> {
-        self.inner.store_metadata(metadata)
+        self.inner.store_metadata(metadata).await
     }
 
     fn metadata_status(
@@ -2177,7 +2177,7 @@ impl ServiceState for StorageNodeInner {
             .inspect(|_| self.metrics.metadata_retrieved_total.inc())
     }
 
-    fn store_metadata(
+    async fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<bool, StoreMetadataError> {
@@ -2208,7 +2208,14 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::UnsupportedEncodingType(encoding_type));
         }
 
-        let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
+        let encoding_config = self.encoding_config.clone();
+        let verified_metadata_with_id = self
+            .thread_pool
+            .clone()
+            .oneshot(move || metadata.verify(&encoding_config))
+            .map(thread_pool::unwrap_or_resume_panic)
+            .await?;
+
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
             .context("unable to store metadata")?;
@@ -3063,7 +3070,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // store the metadata in the storage node
-        node.as_ref().store_metadata(metadata)?;
+        node.as_ref().store_metadata(metadata).await?;
 
         Ok(node)
     }
@@ -3877,7 +3884,8 @@ mod tests {
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
-            .store_metadata(blob.metadata.into_unverified())?;
+            .store_metadata(blob.metadata.into_unverified())
+            .await?;
 
         assert!(!is_newly_stored);
 

@@ -165,12 +165,14 @@ pub async fn put_metadata<S: SyncServiceState>(
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
     Bcs(metadata): Bcs<BlobMetadata>,
 ) -> Result<ApiSuccess<&'static str>, StoreMetadataError> {
-    let (code, message) =
-        if state.store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))? {
-            (StatusCode::CREATED, "metadata successfully stored")
-        } else {
-            (StatusCode::OK, "metadata already stored")
-        };
+    let (code, message) = if state
+        .store_metadata(UnverifiedBlobMetadataWithId::new(blob_id, metadata))
+        .await?
+    {
+        (StatusCode::CREATED, "metadata successfully stored")
+    } else {
+        (StatusCode::OK, "metadata already stored")
+    };
 
     Ok(ApiSuccess::new(code, message))
 }
