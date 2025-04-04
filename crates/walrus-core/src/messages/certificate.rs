@@ -13,15 +13,15 @@ use serde::{Deserialize, Serialize};
 
 use super::{Confirmation, InvalidBlobIdMsg, SignedMessage};
 
-/// A certificate from storage nodes over a [`super::storage_confirmation::Confirmation`]
+/// A certificate from storage nodes over a [`super::storage_confirmation::Confirmation`].
 pub type ConfirmationCertificate = ProtocolMessageCertificate<Confirmation>;
 
-/// A certificate from storage nodes over a [`super::invalid_blob_id::InvalidBlobIdMsg`]
+/// A certificate from storage nodes over a [`super::invalid_blob_id::InvalidBlobIdMsg`].
 pub type InvalidBlobCertificate = ProtocolMessageCertificate<InvalidBlobIdMsg>;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct ProtocolMessageCertificate<T> {
-    /// The indices of the signing nodes
+    /// The indices of the signing nodes.
     pub signers: Vec<u16>,
     /// The BCS-encoded message.
     pub serialized_message: Vec<u8>,

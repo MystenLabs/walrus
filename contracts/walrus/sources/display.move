@@ -25,7 +25,7 @@ public struct ObjectDisplay has key {
     inner: ObjectBag,
 }
 
-/// The dynamic field key to use
+/// The dynamic field key to use.
 public struct PublisherKey() has copy, drop, store;
 
 /// Creates the `ObjectDisplay` instance with default objects in it.
