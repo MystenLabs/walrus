@@ -352,7 +352,7 @@ impl<T> FailoverWrapper<T> {
             .load(std::sync::atomic::Ordering::Relaxed);
         let mut current_index = start_index;
 
-        for _ in 0..self.max_retries {
+        for i in 0..self.max_retries {
             let instance = self.get_client(current_index).await;
 
             let result = {
@@ -382,14 +382,17 @@ impl<T> FailoverWrapper<T> {
                         .store(current_index, std::sync::atomic::Ordering::Relaxed);
                     return Ok(result);
                 }
-                Err(e) => {
-                    last_error = Some(e);
-                    tracing::warn!(
-                        current_client = self.get_name(current_index),
-                        next_client = self.get_name(current_index + 1),
-                        "Failed to execute operation on client, retrying with next client",
-                    );
-                    current_index += 1;
+                Err(error) => {
+                    last_error = Some(error);
+                    if i < self.max_retries - 1 {
+                        tracing::warn!(
+                            ?last_error,
+                            current_client = self.get_name(current_index),
+                            next_client = self.get_name(current_index + 1),
+                            "Failed to execute operation on client, retrying with next client",
+                        );
+                        current_index += 1;
+                    }
                 }
             }
         }
