@@ -75,10 +75,7 @@ walrus_utils::metrics::define_metric_set! {
         sync_shard_recover_sliver_error_total: IntCounterVec["shard", "sliver_type"],
 
         #[help = "Total number of slivers skipped during shard sync"]
-        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type"],
-
-        #[help = "Total number of cancelled sliver recoveries during shard sync"]
-        sync_shard_recover_sliver_cancellation_total: IntCounterVec["shard", "sliver_type"],
+        sync_shard_recover_sliver_skip_total: IntCounterVec["shard", "sliver_type", "reason"],
 
         #[help = "The total number of slivers stored"]
         slivers_stored_total: IntCounterVec["sliver_type"],

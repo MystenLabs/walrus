@@ -877,20 +877,12 @@ impl ShardStorage {
                         &self.primary_slivers,
                         [(blob_id, &PrimarySliverData::from(primary.clone()))],
                     )?;
-                    batch.delete_batch(
-                        &self.pending_recover_slivers,
-                        [(SliverType::Primary, *blob_id)],
-                    )?;
                 }
                 Sliver::Secondary(secondary) => {
                     assert_eq!(sliver_type, SliverType::Secondary);
                     batch.insert_batch(
                         &self.secondary_slivers,
                         [(blob_id, &SecondarySliverData::from(secondary.clone()))],
-                    )?;
-                    batch.delete_batch(
-                        &self.pending_recover_slivers,
-                        [(SliverType::Secondary, *blob_id)],
                     )?;
                 }
             }
@@ -1021,21 +1013,19 @@ impl ShardStorage {
                 || { skip_certified_check_in_test = true }
             );
 
-            if skip_certified_check_in_test || node.is_blob_certified(&blob_id)? {
-                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
+            // Given that node may redo shard transfer, there may be pending recover slivers that
+            // are already stored in the shard. Check their existence before starting recovery.
+            let sliver_is_stored = match sliver_type {
+                SliverType::Primary => self.is_sliver_stored::<Primary>(&blob_id)?,
+                SliverType::Secondary => self.is_sliver_stored::<Secondary>(&blob_id)?,
+            };
+
+            if sliver_is_stored {
+                self.skip_recover_blob(blob_id, sliver_type, &node, "already_stored")?;
+            } else if !skip_certified_check_in_test && !node.is_blob_certified(&blob_id)? {
+                self.skip_recover_blob(blob_id, sliver_type, &node, "not_certified")?;
             } else {
-                tracing::info!(
-                    walrus.blob_id = %blob_id,
-                    "blob is not certified; skip recovering it"
-                );
-                walrus_utils::with_label!(
-                    node.metrics.sync_shard_recover_sliver_skip_total,
-                    &self.id.to_string(),
-                    &sliver_type.to_string()
-                )
-                .inc();
-                self.pending_recover_slivers
-                    .remove(&(sliver_type, blob_id))?;
+                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
             }
 
             total_blobs_pending_recovery -= 1;
@@ -1084,16 +1074,19 @@ impl ShardStorage {
         blob_id: BlobId,
         sliver_type: SliverType,
         node: &Arc<StorageNodeInner>,
+        reason: &str,
     ) -> Result<(), TypedStoreError> {
         tracing::debug!(
             %blob_id,
             shard_index = %self.id,
-            "blob is no longer certified during recovery; stop recovery"
+            skip_reason = %reason,
+            "skip blob recovery"
         );
         walrus_utils::with_label!(
-            node.metrics.sync_shard_recover_sliver_cancellation_total,
+            node.metrics.sync_shard_recover_sliver_skip_total,
             &self.id.to_string(),
-            &sliver_type.to_string()
+            &sliver_type.to_string(),
+            reason
         )
         .inc();
         self.pending_recover_slivers
@@ -1115,6 +1108,9 @@ impl ShardStorage {
             "start recovering missing blob"
         );
 
+        #[cfg(msim)]
+        sui_macros::fail_point!("fail_point_shard_sync_recover_blob");
+
         // Get the metadata for the blob. If metadata is not found, it will be recovered.
         let metadata = {
             let result = node
@@ -1127,7 +1123,7 @@ impl ShardStorage {
             match result {
                 ExecutionResultWithRetirementCheck::Executed(metadata) => metadata?,
                 ExecutionResultWithRetirementCheck::BlobRetired => {
-                    self.skip_recover_blob(blob_id, sliver_type, &node)?;
+                    self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired")?;
                     return Ok(());
                 }
             }
@@ -1172,7 +1168,7 @@ impl ShardStorage {
                     .remove(&(sliver_type, blob_id))?;
             }
             ExecutionResultWithRetirementCheck::BlobRetired => {
-                self.skip_recover_blob(blob_id, sliver_type, &node)?;
+                self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired")?;
             }
         };
 

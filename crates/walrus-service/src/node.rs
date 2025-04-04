@@ -4763,7 +4763,7 @@ mod tests {
 
             // Register a fail point to check that the node will not enter recovery mode from this
             // point after restart.
-            register_fail_point("fail_point_shard_sync_recovery", move || {
+            register_fail_point("fail_point_shard_sync_recover_blob", move || {
                 panic!("shard sync should not enter recovery mode in this test");
             });
             clear_fail_point("fail_point_fetch_sliver");
@@ -4786,7 +4786,7 @@ mod tests {
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
-            clear_fail_point("fail_point_shard_sync_recovery");
+            clear_fail_point("fail_point_shard_sync_recover_blob");
             clear_fail_point("fail_point_after_start_recovery");
             Ok(())
         }
