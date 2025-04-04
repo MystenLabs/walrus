@@ -64,7 +64,9 @@ public(package) fun insert_or_update(set: &mut ActiveSet, node_id: ID, staked_am
     };
 
     if (set.update(node_id, staked_amount)) true
-    else set.insert(node_id, staked_amount)
+    else {
+        set.insert(node_id, staked_amount)
+    }
 }
 
 /// Updates the staked amount of the storage node with the given `node_id` in
