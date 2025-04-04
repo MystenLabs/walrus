@@ -123,7 +123,7 @@ impl WalletConfig {
                 .any(|address| *address == active_address)
             {
                 return Err(anyhow!(
-                    "Address '{}' not found in wallet config file '{}'.",
+                    "Address '{}' not found in wallet keystore for file '{}'.",
                     active_address,
                     path.display()
                 ));
