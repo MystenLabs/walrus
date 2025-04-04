@@ -143,8 +143,8 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of certified blobs scanned during the blob info consistency check."]
         blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
 
-        #[help = "The number of errors occurred when checking the consistency of the per-object \
-        blob info table."]
+        #[help = "The hash of the list of certified per-object blobs at the beginning of the \
+        epoch. Note that the label is the last two digits of the epoch number."]
         per_object_blob_info_consistency_check: IntGaugeVec["epoch"],
 
         #[help = "The number of errors occurred when checking the consistency of the per-object \

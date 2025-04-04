@@ -115,19 +115,19 @@ fn compose_certified_blob_list_digest(
         "EpochChange::background_certified_blob_info_consistency_check",
     );
     let epoch_bucket = get_epoch_bucket(epoch);
-    let result = compose_blob_list_digest(
+
+    let value = match compose_blob_list_digest(
         blob_info_iter,
         epoch,
         &node.metrics.blob_info_consistency_check_certified_scanned,
-    );
-
-    if let Err(error) = result {
-        tracing::warn!(?error, "error when processing blob info");
-        node.metrics.blob_info_consistency_check_error.inc();
-        return;
-    }
-
-    let value = result.expect("just checked for error");
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(?error, "error when processing blob info");
+            node.metrics.blob_info_consistency_check_error.inc();
+            return;
+        }
+    };
 
     tracing::info!(?epoch, certified_blob_hash = ?value,
             "background blob info consistency check finished");
@@ -157,23 +157,23 @@ fn compose_certified_object_blob_list_digest(
         "EpochChange::background_certified_blob_object_info_consistency_check",
     );
     let epoch_bucket = get_epoch_bucket(epoch);
-    let result = compose_blob_list_digest(
+
+    let value = match compose_blob_list_digest(
         per_object_blob_info_iter,
         epoch,
         &node
             .metrics
             .per_object_blob_info_consistency_check_certified_scanned,
-    );
-
-    if let Err(error) = result {
-        tracing::warn!(?error, "error when processing per object blob info");
-        node.metrics
-            .per_object_blob_info_consistency_check_error
-            .inc();
-        return;
-    }
-
-    let value = result.expect("just checked for error");
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(?error, "error when processing per object blob info");
+            node.metrics
+                .per_object_blob_info_consistency_check_error
+                .inc();
+            return;
+        }
+    };
 
     tracing::info!(?epoch, certified_blob_hash = ?value,
             "background per-object blob info consistency check finished");
