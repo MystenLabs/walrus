@@ -13,7 +13,9 @@ with the [HTTP API](./web-api.md#http-api-usage) exposed by Walrus aggregators a
 - [Walrus Go SDK](https://github.com/namihq/walrus-go) (maintained by the *Nami Cloud* team)
 - [Walrus PHP SDK](https://github.com/suicore/walrus-sdk-php) (maintained by the *Suicore* team)
 
-For data security, there is the [Typescript SDK](https://www.npmjs.com/package/@mysten/seal) for [Seal](https://github.com/MystenLabs/seal), a decentralized secrets management service that secures your data using threshold encryption and on-chain access control. Also, refer to [Data security](../dev-guide/data-security.md) for details.
+For data security, use the [TypeScript SDK](https://www.npmjs.com/package/@mysten/seal) for Seal.
+It provides threshold encryption and onchain access control for decentralized data protection.
+Also, refer to [Data security](../dev-guide/data-security.md) for details.
 
 Finally, there is [Tusky](https://docs.tusky.io/about/about-tusky), a complete data storage platform
 built on Walrus, including encryption, HTTP APIs, sharing capabilities, and more.
