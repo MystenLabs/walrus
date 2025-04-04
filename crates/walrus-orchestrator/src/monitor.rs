@@ -149,9 +149,15 @@ impl Prometheus {
 
     /// Generate the prometheus configuration from the given metrics path.
     /// NOTE: The configuration file is a yaml file so spaces are important.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the given metrics path cannot be parsed as a socket address.
     fn scrape_configuration(id: &str, nodes_metrics_path: &str) -> String {
         let parts: Vec<_> = nodes_metrics_path.split('/').collect();
-        let address = parts[0].parse::<SocketAddr>().unwrap();
+        let address = parts[0]
+            .parse::<SocketAddr>()
+            .expect("Failed to parse socket address from metrics path");
         let ip = address.ip();
         let port = address.port();
         let path = parts[1];

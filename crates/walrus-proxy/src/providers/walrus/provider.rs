@@ -16,6 +16,12 @@ use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use super::query::{get_walrus_nodes, NodeInfo};
 use crate::{register_metric, Allower, NetworkPublicKey};
 
+/// JSON_RPC_STATE is a counter vector to track number of successful/failed RPC calls.
+///
+/// # Panics
+///
+/// This will panic if the `CounterVec` cannot be registered to the metrics registry.
+/// This usually indicates a programming error or conflicting metric name.
 static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(CounterVec::new(
         Opts::new(
@@ -24,8 +30,14 @@ static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
         ),
         &["rpc_method", "status"]
     )
-    .unwrap())
+    .expect("Failed to create and register json_rpc_state CounterVec"))
 });
+/// JSON_RPC_DURATION is a histogram vector to record latencies of RPC calls.
+///
+/// # Panics
+///
+/// This will panic if the `HistogramVec` cannot be registered to the metrics registry.
+/// This usually indicates a programming error or conflicting metric name.
 static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     register_metric!(HistogramVec::new(
         HistogramOpts::new(
@@ -35,10 +47,10 @@ static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
         .buckets(vec![
             0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096, 0.8192,
             1.0, 1.25, 1.5, 1.75, 2.0, 4.0, 8.0
-        ],),
+        ]),
         &["rpc_method"]
     )
-    .unwrap())
+    .expect("Failed to create and register json_rpc_duration_seconds HistogramVec"))
 });
 
 /// AllowedPeers is a mapping of public key to AllowedPeer data
@@ -59,16 +71,23 @@ pub struct WalrusNodeProvider {
 }
 
 impl Allower<NetworkPublicKey> for WalrusNodeProvider {
+    /// Checks if the given network public key is in the list of allowed Walrus nodes.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if acquiring a read lock on the node list fails.
+    /// This could occur due to poisoned `RwLock`, which indicates a previous panic
+    /// while the lock was held.
     fn allowed(&self, key: &NetworkPublicKey) -> bool {
         self.nodes
             .read()
-            .unwrap()
+            .expect("Failed to acquire read lock on known Walrus nodes")
             .contains_key(&stdlib_hash(key.as_ref()))
     }
 }
 
 impl WalrusNodeProvider {
-    /// create a new walrus provider that will poll for nodes in committee
+    /// Create a new WalrusNodeProvider that will poll for nodes in the committee.
     pub fn new(
         rpc_url: &str,
         rpc_poll_interval: &Duration,
@@ -85,7 +104,7 @@ impl WalrusNodeProvider {
             allowlist_path,
         }
     }
-    /// poll_peer_list will act as a refresh interval for our cache
+    /// Poll the peer list at regular intervals to refresh the internal cache.
     pub fn poll_peer_list(&self) {
         tracing::info!("Started polling for peers using rpc: {}", self.rpc_url);
 
@@ -104,7 +123,12 @@ impl WalrusNodeProvider {
             }
         });
     }
-    /// update the walrus node list that we will speak with
+    /// Update the Walrus node list used by the provider.
+    ///
+    /// # Panics
+    ///
+    /// Panics if acquiring a write lock on the node map fails. This indicates a poisoned lock,
+    /// which may result from a previous panic in a thread.
     async fn update_walrus_nodes(&self) {
         let committee = match get_walrus_nodes(
             &self.rpc_url,
@@ -154,7 +178,7 @@ impl WalrusNodeProvider {
                 );
             }
         });
-        let mut allow = self.nodes.write().unwrap();
+        let mut allow = self.nodes.write().expect("Failed to acquire write lock on nodes map");
         allow.clear();
         allow.extend(nodes);
         tracing::info!(
@@ -162,12 +186,21 @@ impl WalrusNodeProvider {
             allow.len()
         );
     }
-    /// get is used to retrieve peer info in our handlers
+    /// Get the peer info for a given public key if it exists.
+    ///
+    /// # Panics
+    ///
+    /// Panics if acquiring a read lock on the node map fails. This indicates a poisoned lock.
     pub fn get(&self, key: &NetworkPublicKey) -> Option<NodeInfo> {
         let encoded_pub_key = key.encode_base64();
         let cache_key = stdlib_hash(encoded_pub_key.clone().as_bytes());
         tracing::debug!("look for {} {}", &encoded_pub_key, &cache_key);
-        if let Some(v) = self.nodes.read().unwrap().get(&cache_key) {
+        if let Some(v) = self
+            .nodes
+            .read()
+            .expect("Failed to acquire read lock on nodes map")
+            .get(&cache_key)
+        {
             return Some(v.to_owned());
         }
         tracing::debug!("not found {} {}", &encoded_pub_key, &cache_key);
@@ -175,7 +208,7 @@ impl WalrusNodeProvider {
     }
 }
 
-/// use the stdlib hash to make stable, fixed length keys for our
+/// Use the stdlib hash to make stable, fixed length keys for our
 /// node cache.
 fn stdlib_hash(t: &[u8]) -> u64 {
     let mut s = DefaultHasher::new();
