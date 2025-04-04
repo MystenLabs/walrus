@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Use Node.js
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # pin@v4
-      - run: npm install @mysten/prettier-plugin-move@0.2.2
+      - run: npm install @mysten/prettier-plugin-move@0.3.0
       - run: npx prettier-move -c **/*.move
 
   typos:
