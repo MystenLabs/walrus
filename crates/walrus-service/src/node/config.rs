@@ -606,60 +606,48 @@ impl Default for CommitteeServiceConfig {
 #[serde(default)]
 pub struct ShardSyncConfig {
     /// The number of slivers to fetch in a single sync shard request.
-    #[serde(default = "defaults::sliver_count_per_sync_request")]
     pub sliver_count_per_sync_request: u64,
     /// The minimum backoff time for shard sync retries.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_min_backoff_secs")]
-    #[serde(default = "defaults::shard_sync_retry_min_backoff")]
     pub shard_sync_retry_min_backoff: Duration,
     /// The maximum backoff time for shard sync retries.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_max_backoff_secs")]
-    #[serde(default = "defaults::shard_sync_retry_max_backoff")]
     pub shard_sync_retry_max_backoff: Duration,
     /// The maximum number of concurrent blob recoveries during shard recovery.
-    #[serde(default = "defaults::max_concurrent_blob_recovery_during_shard_recovery")]
     pub max_concurrent_blob_recovery_during_shard_recovery: usize,
     /// The interval to check if the blob is still certified during recovery.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "blob_certified_check_interval_secs")]
-    #[serde(default = "defaults::blob_certified_check_interval")]
     pub blob_certified_check_interval: Duration,
     /// The number of metadata to fetch in parallel.
-    #[serde(default = "defaults::max_concurrent_metadata_fetch")]
     pub max_concurrent_metadata_fetch: usize,
     /// Maximum number of concurrent shard syncs allowed per node.
-    #[serde(default = "defaults::shard_sync_concurrency")]
     pub shard_sync_concurrency: usize,
     /// The interval to switch to recovery mode if the shard sync retries continue to fail.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_switch_to_recovery_interval_secs")]
-    #[serde(default = "defaults::shard_sync_retry_switch_to_recovery_interval")]
     pub shard_sync_retry_switch_to_recovery_interval: Duration,
     /// Whether to restart shard sync always retry shard transfer first. This is a fallback
     /// mechanism in case a shard recovery is initiated, restarting the node can resume shard
     /// transfer. This is the preferred option since it's always cheaper to scan the blob info
     /// table without transferring the shards.
-    #[serde(default = "defaults::restart_shard_sync_always_retry_transfer_first")]
     pub restart_shard_sync_always_retry_transfer_first: bool,
 }
 
 impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
-            sliver_count_per_sync_request: defaults::sliver_count_per_sync_request(),
-            shard_sync_retry_min_backoff: defaults::shard_sync_retry_min_backoff(),
-            shard_sync_retry_max_backoff: defaults::shard_sync_retry_max_backoff(),
-            max_concurrent_blob_recovery_during_shard_recovery:
-                defaults::max_concurrent_blob_recovery_during_shard_recovery(),
-            blob_certified_check_interval: defaults::blob_certified_check_interval(),
-            max_concurrent_metadata_fetch: defaults::max_concurrent_metadata_fetch(),
-            shard_sync_concurrency: defaults::shard_sync_concurrency(),
-            shard_sync_retry_switch_to_recovery_interval:
-                defaults::shard_sync_retry_switch_to_recovery_interval(),
-            restart_shard_sync_always_retry_transfer_first:
-                defaults::restart_shard_sync_always_retry_transfer_first(),
+            sliver_count_per_sync_request: 10,
+            shard_sync_retry_min_backoff: Duration::from_secs(60),
+            shard_sync_retry_max_backoff: Duration::from_secs(600),
+            max_concurrent_blob_recovery_during_shard_recovery: 5,
+            blob_certified_check_interval: Duration::from_secs(60),
+            max_concurrent_metadata_fetch: 10,
+            shard_sync_concurrency: 10,
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
+            restart_shard_sync_always_retry_transfer_first: true,
         }
     }
 }
@@ -748,51 +736,6 @@ pub mod defaults {
     /// Returns false in test mode.
     pub fn config_synchronizer_enabled() -> bool {
         !cfg!(test)
-    }
-
-    /// The default number of slivers to fetch in a single sync shard request.
-    pub fn sliver_count_per_sync_request() -> u64 {
-        10
-    }
-
-    /// The default minimum backoff time for shard sync retries.
-    pub fn shard_sync_retry_min_backoff() -> Duration {
-        Duration::from_secs(60)
-    }
-
-    /// The default maximum backoff time for shard sync retries.
-    pub fn shard_sync_retry_max_backoff() -> Duration {
-        Duration::from_secs(600)
-    }
-
-    /// The default maximum number of concurrent blob recoveries during shard recovery.
-    pub fn max_concurrent_blob_recovery_during_shard_recovery() -> usize {
-        5
-    }
-
-    /// The default interval to check if the blob is still certified during recovery.
-    pub fn blob_certified_check_interval() -> Duration {
-        Duration::from_secs(60)
-    }
-
-    /// The default number of metadata to fetch in parallel.
-    pub fn max_concurrent_metadata_fetch() -> usize {
-        10
-    }
-
-    /// The default maximum number of concurrent shard syncs allowed per node.
-    pub fn shard_sync_concurrency() -> usize {
-        10
-    }
-
-    /// The default interval to switch to recovery mode if the shard sync retries continue to fail.
-    pub fn shard_sync_retry_switch_to_recovery_interval() -> Duration {
-        Duration::from_secs(2 * 60 * 60) // 2hr
-    }
-
-    /// The default value for whether to restart shard sync always retry transfer first.
-    pub fn restart_shard_sync_always_retry_transfer_first() -> bool {
-        true
     }
 }
 
