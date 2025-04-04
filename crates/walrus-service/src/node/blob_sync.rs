@@ -589,7 +589,7 @@ impl BlobSynchronizer {
             .get_and_verify_metadata(self.blob_id, self.certified_epoch)
             .await;
 
-        self.storage().put_verified_metadata(&metadata)?;
+        self.storage().put_verified_metadata(&metadata).await?;
 
         tracing::debug!("metadata successfully synced");
         Ok((true, metadata))
@@ -631,7 +631,7 @@ impl BlobSynchronizer {
 
             match sliver_or_proof {
                 Ok(sliver) => {
-                    shard_storage.put_sliver(&self.blob_id, &sliver)?;
+                    shard_storage.put_sliver(self.blob_id, sliver).await?;
                     tracing::debug!("sliver successfully synced");
                     Ok(true)
                 }

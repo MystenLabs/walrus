@@ -13,6 +13,7 @@ use std::{
 
 use blob_info::{BlobInfoIterator, PerObjectBlobInfo};
 use event_cursor_table::EventIdWithProgress;
+use futures::FutureExt as _;
 use itertools::Itertools;
 use metrics::{CommonDatabaseMetrics, Labels, OperationType};
 use prometheus::Registry;
@@ -49,6 +50,7 @@ use self::{
     event_cursor_table::EventCursorTable,
 };
 use super::errors::{ShardNotAssigned, SyncShardServiceError};
+use crate::utils;
 
 pub(crate) mod blob_info;
 pub(crate) mod constants;
@@ -450,14 +452,15 @@ impl Storage {
 
     /// Store the verified metadata.
     #[tracing::instrument(skip_all)]
-    pub fn put_verified_metadata(
+    pub async fn put_verified_metadata(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
     ) -> Result<(), TypedStoreError> {
         self.put_metadata(metadata.blob_id(), metadata.metadata())
+            .await
     }
 
-    fn put_metadata(
+    async fn put_metadata(
         &self,
         blob_id: &BlobId,
         metadata: &BlobMetadata,
@@ -474,7 +477,10 @@ impl Storage {
         batch.insert_batch(&self.metadata, [(blob_id, metadata)])?;
         self.blob_info
             .set_metadata_stored(&mut batch, blob_id, true)?;
-        let response = batch.write();
+
+        let response = tokio::task::spawn_blocking(move || batch.write())
+            .map(utils::unwrap_or_resume_unwind)
+            .await;
 
         self.metrics
             .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
@@ -842,11 +848,15 @@ pub(crate) mod tests {
 
             for (blob_id, which) in sliver_list.iter() {
                 if matches!(*which, WhichSlivers::Primary | WhichSlivers::Both) {
-                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Primary, seed))?;
+                    shard_storage
+                        .put_sliver(*blob_id, get_sliver(SliverType::Primary, seed))
+                        .await?;
                     seed += 1;
                 }
                 if matches!(*which, WhichSlivers::Secondary | WhichSlivers::Both) {
-                    shard_storage.put_sliver(blob_id, &get_sliver(SliverType::Secondary, seed))?;
+                    shard_storage
+                        .put_sliver(*blob_id, get_sliver(SliverType::Secondary, seed))
+                        .await?;
                     seed += 1;
                 }
             }
@@ -868,7 +878,9 @@ pub(crate) mod tests {
 
         storage.update_blob_info(0, &BlobCertified::for_testing(*blob_id).into())?;
 
-        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+        storage
+            .put_metadata(metadata.blob_id(), metadata.metadata())
+            .await?;
         let retrieved = storage.get_metadata(blob_id)?;
 
         assert_eq!(retrieved, Some(expected));
@@ -886,7 +898,9 @@ pub(crate) mod tests {
         storage.update_blob_info(0, &BlobRegistered::for_testing(*blob_id).into())?;
         storage.update_blob_info(1, &BlobCertified::for_testing(*blob_id).into())?;
 
-        storage.put_metadata(metadata.blob_id(), metadata.metadata())?;
+        storage
+            .put_metadata(metadata.blob_id(), metadata.metadata())
+            .await?;
 
         assert!(storage.has_metadata(blob_id)?);
         assert!(storage.get_metadata(blob_id)?.is_some());
@@ -1464,7 +1478,7 @@ pub(crate) mod tests {
                     // are not stored, handle_sync_shard_request should continue getting following
                     // slivers until the count is reached.
                     if !(5..=6).contains(&index) {
-                        shard_storage.put_sliver(blob_id, &sliver_data)?;
+                        shard_storage.put_sliver(*blob_id, sliver_data).await?;
                     }
                 }
             }

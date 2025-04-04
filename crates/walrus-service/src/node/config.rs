@@ -1002,7 +1002,7 @@ impl Default for BalanceCheckConfig {
 }
 
 /// Configuration for the blocking thread pool.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadPoolConfig {
     /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
@@ -1010,6 +1010,17 @@ pub struct ThreadPoolConfig {
     /// Defaults to an amount calculated from the number of cores.
     #[serde(skip_serializing_if = "defaults::is_none")]
     pub max_concurrent_tasks: Option<usize>,
+    /// Specify the maximum number of blocking threads to use for I/O.
+    pub max_blocking_io_threads: usize,
+}
+
+impl Default for ThreadPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_tasks: None,
+            max_blocking_io_threads: 1024,
+        }
+    }
 }
 
 #[cfg(test)]
