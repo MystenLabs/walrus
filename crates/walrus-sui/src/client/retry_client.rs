@@ -324,6 +324,15 @@ impl<T> FailoverWrapper<T> {
         })
     }
 
+    /// Returns the name of the current client.
+    pub fn get_current_client_name(&self) -> &str {
+        &self.inner[self
+            .current_index
+            .load(std::sync::atomic::Ordering::Relaxed)
+            % self.client_count()]
+        .1
+    }
+
     fn client_count(&self) -> usize {
         self.inner.len()
     }
@@ -1409,18 +1418,62 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
+        let start_time = Instant::now();
         let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
-            Ok(checkpoint) => return Ok(checkpoint),
+            Ok(checkpoint) => {
+                if let Some(metrics) = &self.metrics {
+                    metrics
+                        .rpc_latency
+                        .with_label_values(&[
+                            "get_full_checkpoint",
+                            self.client.get_current_client_name(),
+                            "success",
+                        ])
+                        .observe(start_time.elapsed().as_millis() as f64);
+                }
+                return Ok(checkpoint);
+            }
             Err(error) => error,
         };
 
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
+            if let Some(metrics) = &self.metrics {
+                metrics
+                    .rpc_latency
+                    .with_label_values(&[
+                        "get_full_checkpoint",
+                        self.client.get_current_client_name(),
+                        "failure",
+                    ])
+                    .observe(start_time.elapsed().as_millis() as f64);
+            }
             return Err(error);
         };
 
-        self.get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
-            .await
+        let fallback_start_time = Instant::now();
+        let result = self
+            .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
+            .await;
+
+        if let Some(metrics) = &self.metrics {
+            match &result {
+                Ok(_) => {
+                    metrics
+                        .rpc_latency
+                        .with_label_values(&["get_full_checkpoint", "fallback", "success"])
+                        .observe(fallback_start_time.elapsed().as_millis() as f64);
+                }
+                Err(_) => {
+                    metrics
+                        .rpc_latency
+                        .with_label_values(&["get_full_checkpoint", "fallback", "failure"])
+                        .observe(fallback_start_time.elapsed().as_millis() as f64);
+                }
+            }
+        }
+
+        result
     }
 
     /// Gets the full checkpoint data for the given sequence number from the fallback client.

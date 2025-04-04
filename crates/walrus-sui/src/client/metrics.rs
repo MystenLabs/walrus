@@ -25,6 +25,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Number of retries for RPC call"]
         sui_rpc_retry_count: IntCounterVec["method", "status"],
+
+        #[help = "Latency of RPC calls in milliseconds"]
+        rpc_latency: HistogramVec["method", "endpoint", "status"],
     }
 }
 
