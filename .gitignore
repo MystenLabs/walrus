@@ -36,3 +36,6 @@ working_dir/
 *.log
 venv/
 **/tmp
+
+# asdf
+.tool-versions
