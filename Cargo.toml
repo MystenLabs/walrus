@@ -20,7 +20,7 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2021"
 license = "Apache-2.0"
-version = "1.20.0"
+version = "1.21.0"
 
 [workspace.dependencies]
 anyhow = "1.0.97"
