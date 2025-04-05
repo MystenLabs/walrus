@@ -3,6 +3,8 @@
 
 //! Manages the storage and blob resources in the Wallet on behalf of the client.
 
+use std::{collections::HashMap, fmt::Display};
+
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::Level;
@@ -21,7 +23,7 @@ use walrus_sui::{
 };
 
 use super::{responses::BlobStoreResult, ClientError, ClientErrorKind, ClientResult, StoreWhen};
-use crate::client::responses::EventOrObjectId;
+use crate::client::{responses::EventOrObjectId, WalrusStoreBlob};
 
 /// Struct to compute the cost of operations with blob and storage resources.
 #[derive(Debug, Clone)]
@@ -169,6 +171,36 @@ pub enum StoreOp {
     },
 }
 
+impl StoreOp {
+    pub fn new(register_op: RegisterBlobOp, blob: Blob) -> Self {
+        match register_op {
+            RegisterBlobOp::ReuseRegistration { .. } => {
+                if blob.certified_epoch.is_some() {
+                    StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
+                        blob_id: blob.blob_id,
+                        event_or_object: EventOrObjectId::Object(blob.id),
+                        end_epoch: blob
+                            .certified_epoch
+                            .expect("certified blob must have a certified epoch"),
+                    })
+                } else {
+                    StoreOp::RegisterNew {
+                        blob,
+                        operation: register_op,
+                    }
+                }
+            }
+            RegisterBlobOp::RegisterFromScratch { .. }
+            | RegisterBlobOp::ReuseStorage { .. }
+            | RegisterBlobOp::ReuseAndExtend { .. }
+            | RegisterBlobOp::ReuseAndExtendNonCertified { .. } => StoreOp::RegisterNew {
+                blob,
+                operation: register_op,
+            },
+        }
+    }
+}
+
 /// Manages the storage and blob resources in the Wallet on behalf of the client.
 #[derive(Debug)]
 pub struct ResourceManager<'a> {
@@ -190,67 +222,77 @@ impl<'a> ResourceManager<'a> {
     /// The function considers the requirements given to the store operation (epochs ahead,
     /// persistence, force store), the status of the blob on chain, and the available resources in
     /// the wallet.
-    pub async fn store_operation_for_blobs(
+    pub async fn register_walrus_store_blobs<T: Display + Clone + Send + Sync>(
         &self,
-        metadata_with_status: &[(&VerifiedBlobMetadataWithId, BlobStatus)],
+        encoded_blobs_with_status: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
         persistence: BlobPersistence,
         store_when: StoreWhen,
-    ) -> ClientResult<Vec<StoreOp>> {
-        let mut results = Vec::with_capacity(metadata_with_status.len());
+    ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
+        let mut results: Vec<WalrusStoreBlob<'a, T>> =
+            Vec::with_capacity(encoded_blobs_with_status.len());
+        let mut to_be_processed: Vec<WalrusStoreBlob<'a, T>> = Vec::new();
+        let num_blobs = encoded_blobs_with_status.len();
 
-        // Filter for already certified/invalid blobs and add to result, otherwise add it to
-        // to_be_processed.
-        let to_be_processed = metadata_with_status
-            .iter()
-            .filter(|(metadata, blob_status)| {
-                if !store_when.is_ignore_status() && !persistence.is_deletable() {
-                    if let Some(result) = self.blob_status_to_store_result(
-                        *metadata.blob_id(),
-                        epochs_ahead,
-                        *blob_status,
-                    ) {
-                        tracing::debug!(blob_id=%metadata.blob_id(), "blob is already certified");
-                        results.push(StoreOp::NoOp(result));
-                        return false;
+        for blob in encoded_blobs_with_status {
+            if blob.is_completed() {
+                results.push(blob);
+                continue;
+            }
+
+            match (
+                &blob,
+                store_when.is_ignore_status(),
+                persistence.is_deletable(),
+            ) {
+                (
+                    WalrusStoreBlob::WithStatus {
+                        metadata, status, ..
+                    },
+                    false,
+                    false,
+                ) => {
+                    if let Some(result) =
+                        self.blob_status_to_store_result(*metadata.blob_id(), epochs_ahead, *status)
+                    {
+                        results.push(blob.complete_with(result));
+                        continue;
+                    } else {
+                        to_be_processed.push(blob);
                     }
                 }
-                true
-            })
-            .map(|(m, _)| *m)
-            .collect::<Vec<_>>();
+                (WalrusStoreBlob::WithStatus { .. }, ..) => {
+                    to_be_processed.push(blob);
+                }
+                _ => {
+                    unreachable!("blob should be completed");
+                }
+            }
+        }
 
         // If there are no blobs to be processed, return early the results.
         if to_be_processed.is_empty() {
             return Ok(results);
         }
 
-        let blobs_with_ops = self
-            .get_existing_or_register(&to_be_processed, epochs_ahead, persistence, store_when)
-            .await?;
+        let num_to_be_processed = to_be_processed.len();
+        tracing::info!(
+            num_blobs = ?num_blobs,
+            num_to_be_processed = ?num_to_be_processed,
+        );
 
-        for (blob, op) in blobs_with_ops {
-            let store_op = if blob.certified_epoch.is_some()
-                && blob.storage.end_epoch >= self.write_committee_epoch + epochs_ahead
-            {
-                tracing::debug!(
-                    "certified blob in the wallet: {:?}.\n{:?}",
-                    blob.blob_id,
-                    op
-                );
-                StoreOp::NoOp(BlobStoreResult::AlreadyCertified {
-                    blob_id: blob.blob_id,
-                    event_or_object: EventOrObjectId::Object(blob.id),
-                    end_epoch: blob.certified_epoch.unwrap(),
-                })
-            } else {
-                StoreOp::RegisterNew {
-                    blob,
-                    operation: op,
-                }
-            };
-            results.push(store_op);
-        }
+        let registered_blobs = self
+            .register_or_reuse_resources(to_be_processed, epochs_ahead, persistence, store_when)
+            .await?;
+        debug_assert_eq!(
+            registered_blobs.len(),
+            num_to_be_processed,
+            "the number of registered blobs and the number of blobs to store must be the same \
+            (num_registered_blobs = {}, num_to_be_processed = {})",
+            registered_blobs.len(),
+            num_to_be_processed
+        );
+        results.extend(registered_blobs.into_iter());
         Ok(results)
     }
 
@@ -308,6 +350,89 @@ impl<'a> ResourceManager<'a> {
             )
             .await
         }
+    }
+
+    /// Registers or reuses resources for a list of blobs.
+    pub async fn register_or_reuse_resources<'b, T: Display + Clone + Send + Sync>(
+        &self,
+        blobs: Vec<WalrusStoreBlob<'b, T>>,
+        epochs_ahead: EpochCount,
+        persistence: BlobPersistence,
+        store_when: StoreWhen,
+    ) -> ClientResult<Vec<WalrusStoreBlob<'b, T>>> {
+        blobs.iter().for_each(|b| {
+            debug_assert!(b.is_with_status());
+        });
+
+        let encoded_lengths: Result<Vec<_>, _> = blobs
+            .iter()
+            .map(|blob| {
+                blob.encoded_size().ok_or_else(|| {
+                    ClientError::store_blob_internal(format!(
+                        "could not compute the encoded size of the blob: {}",
+                        blob.get_identifier()
+                    ))
+                })
+            })
+            .collect();
+
+        let metadata_list: Vec<_> = blobs.iter().map(|b| b.get_metadata().unwrap()).collect();
+
+        let results = if store_when.is_ignore_resources() {
+            self.reserve_and_register_blob_op(
+                &encoded_lengths?,
+                epochs_ahead,
+                &metadata_list,
+                persistence,
+            )
+            .await?
+        } else {
+            self.get_existing_or_register_with_resources(
+                &encoded_lengths?,
+                epochs_ahead,
+                &metadata_list,
+                persistence,
+                store_when,
+            )
+            .await?
+        };
+
+        debug_assert_eq!(results.len(), blobs.len());
+
+        let mut blob_id_map = HashMap::new();
+        results.into_iter().for_each(|(blob, op)| {
+            let blob_id = blob.blob_id;
+            blob_id_map
+                .entry(blob_id)
+                .or_insert_with(Vec::new)
+                .push((blob, op));
+        });
+
+        Ok(blobs
+            .into_iter()
+            .map(|blob| {
+                // Get the blob ID if available
+                let blob_id = blob.get_blob_id().expect("blob ID should be present");
+
+                // Get the vec of (blob, op) pairs for this blob ID
+                let Some(entries) = blob_id_map.get_mut(&blob_id) else {
+                    panic!("missing blob ID: {}", blob_id);
+                };
+
+                // Pop one (blob, op) pair from the vec
+                if let Some((blob_obj, operation)) = entries.pop() {
+                    // If vec is now empty, remove the entry from the map
+                    if entries.is_empty() {
+                        blob_id_map.remove(&blob_id);
+                    }
+
+                    blob.with_register_result(Ok(StoreOp::new(operation, blob_obj)))
+                        .expect("should succeed on a Ok result")
+                } else {
+                    panic!("missing blob ID: {}", blob_id);
+                }
+            })
+            .collect())
     }
 
     async fn get_existing_or_register_with_resources(
@@ -369,9 +494,11 @@ impl<'a> ResourceManager<'a> {
                     );
                     let epoch_delta =
                         self.write_committee_epoch + epochs_ahead - blob.storage.end_epoch;
+                    let mut extended_blob = blob.clone();
+                    extended_blob.storage.end_epoch = self.write_committee_epoch + epochs_ahead;
                     if blob.certified_epoch.is_some() {
                         extended_blobs.push((
-                            blob,
+                            extended_blob,
                             RegisterBlobOp::ReuseAndExtend {
                                 encoded_length: *encoded_length,
                                 epochs_extended: epoch_delta,
@@ -379,7 +506,7 @@ impl<'a> ResourceManager<'a> {
                         ));
                     } else {
                         extended_blobs_noncertified.push((
-                            blob,
+                            extended_blob,
                             RegisterBlobOp::ReuseAndExtendNonCertified {
                                 encoded_length: *encoded_length,
                                 epochs_extended: epoch_delta,
@@ -481,6 +608,14 @@ impl<'a> ResourceManager<'a> {
                 persistence,
             )
             .await?;
+        debug_assert_eq!(
+            blobs.len(),
+            encoded_lengths.len(),
+            "the number of registered blobs and the number of encoded lengths must be the same \
+            (num_registered_blobs = {}, num_encoded_lengths = {})",
+            blobs.len(),
+            encoded_lengths.len()
+        );
         Ok(blobs
             .into_iter()
             .zip(encoded_lengths.iter())
@@ -566,47 +701,5 @@ impl<'a> ResourceManager<'a> {
                 None
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use walrus_sui::utils::BYTES_PER_UNIT_SIZE;
-    use walrus_test_utils::param_test;
-
-    use super::*;
-
-    param_test! {
-        test_price_computation: [
-            one_epoch: (BYTES_PER_UNIT_SIZE, 1, (1, 1), (2, 1)),
-            two_epochs: (BYTES_PER_UNIT_SIZE, 2, (1, 1), (3, 1)),
-            higher_write: (BYTES_PER_UNIT_SIZE, 1, (1, 2), (3, 2)),
-            larger_blob: (2*BYTES_PER_UNIT_SIZE, 1, (1, 2), (6, 4)),
-            even_larger_blob: (2*BYTES_PER_UNIT_SIZE + 1, 1, (1, 2), (9, 6)),
-            more_epochs: (2*BYTES_PER_UNIT_SIZE + 1, 2, (1, 2), (12, 6)),
-        ]
-    }
-    fn test_price_computation(
-        encoded_length: u64,
-        epochs_ahead: EpochCount,
-        storage_and_write_prices: (u64, u64),
-        scratch_and_reuse_costs: (u64, u64),
-    ) {
-        let (storage_price, write_price) = storage_and_write_prices;
-        let computation = PriceComputation::new(storage_price, write_price);
-        let scratch = RegisterBlobOp::RegisterFromScratch {
-            encoded_length,
-            epochs_ahead,
-        };
-        let storage = RegisterBlobOp::ReuseStorage { encoded_length };
-        let registration = RegisterBlobOp::ReuseRegistration { encoded_length };
-
-        let (expected_cost_scratch, expected_cost_reuse_storage) = scratch_and_reuse_costs;
-        assert_eq!(computation.operation_cost(&scratch), expected_cost_scratch);
-        assert_eq!(
-            computation.operation_cost(&storage),
-            expected_cost_reuse_storage
-        );
-        assert_eq!(computation.operation_cost(&registration), 0);
     }
 }

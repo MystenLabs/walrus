@@ -60,12 +60,24 @@ impl ClientError {
         }
     }
 
+    /// Constructs a [`ClientError`] with `kind` [`ClientErrorKind::StoreBlobInternal`].
+    pub fn store_blob_internal(err: String) -> Self {
+        ClientError {
+            kind: ClientErrorKind::StoreBlobInternal(err),
+        }
+    }
+
     /// Whether the error is an out-of-gas error.
     pub fn is_out_of_coin_error(&self) -> bool {
         matches!(
             &self.kind,
             ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins(_)
         )
+    }
+
+    /// Returns `true` if the error is a `NoValidStatusReceived` error.
+    pub fn is_no_valid_status_received(&self) -> bool {
+        matches!(&self.kind, ClientErrorKind::NoValidStatusReceived)
     }
 
     /// Returns `true` if the error may have been caused by epoch change.
@@ -180,4 +192,7 @@ pub enum ClientErrorKind {
     /// A failure internal to the node.
     #[error("client internal error: {0}")]
     Other(Box<dyn std::error::Error + Send + Sync + 'static>),
+    /// An internal error occurred while storing a blob, usually indicating a bug.
+    #[error("store blob internal error: {0}")]
+    StoreBlobInternal(String),
 }

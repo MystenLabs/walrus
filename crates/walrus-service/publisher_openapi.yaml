@@ -231,6 +231,25 @@ components:
               event:
                 $ref: '#/components/schemas/EventID'
                 description: The event where the blob was marked as invalid.
+      - type: object
+        description: Operation failed.
+        required:
+        - error
+        properties:
+          error:
+            type: object
+            description: Operation failed.
+            required:
+            - error_msg
+            properties:
+              blob_id:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/BlobId'
+                  description: The blob ID.
+              error_msg:
+                type: string
+                description: The error message.
       description: Result when attempting to store a blob.
     EncodingType:
       type: string

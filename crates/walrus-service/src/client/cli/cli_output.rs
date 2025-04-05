@@ -223,6 +223,15 @@ impl CliOutput for BlobStoreResultWithPath {
                     format_event_id(event),
                 )
             }
+            BlobStoreResult::Error { blob_id, error_msg } => {
+                println!(
+                    "{} Error storing blob.\nPath: {}\nBlob ID: {:?}\nError: {}",
+                    error(),
+                    self.path.display(),
+                    blob_id,
+                    error_msg,
+                )
+            }
         }
     }
 }
