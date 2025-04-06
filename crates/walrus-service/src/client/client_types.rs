@@ -24,10 +24,10 @@ use super::{
     ClientResult,
 };
 
-/// The log level for all WalrusStoreBlob spans
+/// The log level for all WalrusStoreBlob spans.
 pub(crate) const BLOB_SPAN_LEVEL: Level = Level::INFO;
 
-/// API for all blob storage variants.
+/// API for a blob that is being stored to Walrus.
 #[enum_dispatch]
 pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     /// Returns a reference to the raw blob data.
@@ -36,7 +36,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     /// Returns a reference to the blob's identifier.
     fn get_identifier(&self) -> &T;
 
-    /// Returns the encoded size of the blob if available.
+    /// Returns the size of the encoded blob if available.
     fn encoded_size(&self) -> Option<u64>;
 
     /// Returns the length of the unencoded blob data in bytes.
@@ -61,7 +61,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn get_result(&self) -> Option<BlobStoreResult>;
 
     /// Returns a string representation of the current state.
-    fn get_state(&self) -> &str;
+    fn get_state(&self) -> &'static str;
 
     /// Returns the object ID if available from the current operation.
     fn get_object_id(&self) -> Option<ObjectID>;
@@ -243,7 +243,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         None
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "Unencoded"
     }
 
@@ -466,7 +466,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         Some(&self.pairs)
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "Encoded"
     }
 
@@ -623,17 +623,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> EncodedBlob<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 
@@ -689,7 +683,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         Some(&self.status)
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "WithStatus"
     }
 
@@ -898,17 +892,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> BlobWithStatus<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 
@@ -971,7 +959,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         Some(&self.operation)
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "Registered"
     }
 
@@ -1209,17 +1197,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> RegisteredBlob<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 
@@ -1284,7 +1266,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         Some(&self.operation)
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "WithCertificate"
     }
 
@@ -1460,17 +1442,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> BlobWithCertificate<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 
@@ -1515,7 +1491,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         Some(self.result.clone())
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "Completed"
     }
 
@@ -1643,17 +1619,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> CompletedBlob<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 
@@ -1706,7 +1676,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         })
     }
 
-    fn get_state(&self) -> &str {
+    fn get_state(&self) -> &'static str {
         "Error"
     }
 
@@ -1835,17 +1805,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> FailedBlob<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 

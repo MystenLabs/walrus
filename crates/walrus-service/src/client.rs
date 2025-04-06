@@ -535,7 +535,6 @@ impl Client<SuiContractClient> {
             })
             .await?;
 
-        #[cfg(debug_assertions)]
         debug_assert_eq!(results.len(), blobs.len());
 
         // A trick to make sure the output order is the same as the input order.
@@ -634,7 +633,6 @@ impl Client<SuiContractClient> {
             )
             .await?;
 
-        #[cfg(debug_assertions)]
         debug_assert_eq!(results.len(), blobs.len());
 
         results.sort_by_key(|blob| blob.get_identifier().to_string());
@@ -663,7 +661,6 @@ impl Client<SuiContractClient> {
 
         let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
-        #[cfg(debug_assertions)]
         debug_assert_eq!(
             encoded_blobs.len(),
             blobs.len(),
@@ -801,7 +798,6 @@ impl Client<SuiContractClient> {
             .await?;
 
         let num_encoded_blobs_with_status = encoded_blobs_with_status.len();
-        #[cfg(debug_assertions)]
         debug_assert_eq!(
             num_encoded_blobs_with_status, num_encoded_blobs,
             "the number of blob statuses and the number of blobs to store must be the same"
@@ -835,7 +831,6 @@ impl Client<SuiContractClient> {
                 .join("\n")
         );
         let num_registered_blobs = registered_blobs.len();
-        #[cfg(debug_assertions)]
         debug_assert_eq!(
             num_registered_blobs, num_encoded_blobs,
             "the number of registered blobs and the number of blobs to store must be the same \
@@ -864,7 +859,6 @@ impl Client<SuiContractClient> {
 
         #[cfg(debug_assertions)]
         let num_to_be_certified = to_be_certified.len();
-        #[cfg(debug_assertions)]
         debug_assert_eq!(
             num_to_be_certified + to_be_extended.len() + final_result.len(),
             num_registered_blobs,
@@ -886,7 +880,6 @@ impl Client<SuiContractClient> {
         let blobs_with_certificates = self
             .await_while_checking_notification(self.get_all_blob_certificates(to_be_certified))
             .await?;
-        #[cfg(debug_assertions)]
         assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
 
         // Move completed blobs to final_result and keep only non-completed ones
@@ -968,9 +961,9 @@ impl Client<SuiContractClient> {
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlob<'a, T>>,
     ) -> ClientResult<Vec<WalrusStoreBlob<'a, T>>> {
-        #[cfg(debug_assertions)]
+        #[cfg(debug_assertion)]
         encoded_blobs.iter().for_each(|blob| {
-            debug_assert!(blob.is_encoded());
+            assert!(blob.is_encoded());
         });
 
         let results =
