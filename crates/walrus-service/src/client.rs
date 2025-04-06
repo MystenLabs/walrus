@@ -847,7 +847,7 @@ impl Client<SuiContractClient> {
                 final_result.push(registered_blob);
             } else if registered_blob.ready_to_extend() {
                 to_be_extended.push(registered_blob);
-            } else if registered_blob.ready_to_get_certificate() {
+            } else if registered_blob.ready_to_store_to_nodes() {
                 to_be_certified.push(registered_blob);
             } else {
                 return Err(ClientError::store_blob_internal(format!(

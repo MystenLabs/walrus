@@ -45,6 +45,9 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     /// Returns a reference to the verified metadata if available.
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId>;
 
+    /// Returns the blob ID if available.
+    fn get_blob_id(&self) -> Option<BlobId>;
+
     /// Returns a reference to the sliver pairs if available.
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>>;
 
@@ -63,37 +66,40 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     /// Returns a string representation of the current state.
     fn get_state(&self) -> &'static str;
 
-    /// Returns the object ID if available from the current operation.
+    /// Returns the corresponding Sui object ID if available.
     fn get_object_id(&self) -> Option<ObjectID>;
 
-    /// Returns true if the blob needs to be certified.
-    fn ready_to_get_certificate(&self) -> bool;
+    /// Returns true if a blob is ready to be stored to nodes.
+    fn ready_to_store_to_nodes(&self) -> bool;
 
-    /// Returns true if the blob needs to be extended.
+    /// Returns true if the blob is ready to be extended.
     fn ready_to_extend(&self) -> bool;
 
     /// Returns the parameters for certifying and extending the blob.
     fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError>;
 
-    /// Returns the blob ID if available.
-    fn get_blob_id(&self) -> Option<BlobId>;
-
-    /// Processes the encoding result and transitions the blob to the appropriate next state.
+    /// Transitions the blob to the next state based on the encoding result.
     ///
     /// If the encoding succeeds, the blob is transitioned to the Encoded state.
-    /// If the encoding fails, the blob is transitioned to the Completed state with an error.
+    /// If the encoding fails, the blob is transitioned to the Failed state with an error.
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
 
-    /// Processes the status result and transitions the blob to the appropriate next state.
+    /// Transitions the blob to the next state based on the status result.
+    ///
+    /// If the status is obtained, the blob is transitioned to the WithStatus state.
+    /// If the get_status operation fails, the blob is transitioned to the Failed
+    /// state with an error.
     fn with_status(
         self,
         status: Result<BlobStatus, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
 
     /// Tries to complete the blob if it is certified beyond the given epoch.
+    ///
+    /// The existing blob is re-used and no new blob will be created.
     fn try_complete_if_certified_beyond_epoch(
         self,
         target_epoch: u32,
@@ -106,20 +112,12 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
         result: Result<StoreOp, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
 
-    /// Updates the blob with the result of the certificate operation and transitions
-    /// to the appropriate next state.
+    /// Updates the blob with the result of storing it to the Walrus storage nodes
+    /// and transitions to the appropriate next state.
     fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Converts the current blob state to a Completed state with an error result.
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
-    /// Updates the blob with the provided result and transitions to the Completed state.
-    ///
-    /// This update is forced, even if the blob is in the Error state.
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T>;
 
     /// Updates the blob with the result of the complete operation and
     /// transitions to the Completed state.
@@ -128,6 +126,14 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
+
+    /// Converts the current blob state to a Failed state.
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>>;
+
+    /// Updates the blob with the provided result and transitions to the Completed state.
+    ///
+    /// This update is forced, even if the blob is in the Error state.
+    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T>;
 }
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
@@ -283,7 +289,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         None
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         false
     }
 
@@ -494,7 +500,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         None
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         false
     }
 
@@ -711,7 +717,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         None
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         false
     }
 
@@ -988,7 +994,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         Some(blob.id)
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         let StoreOp::RegisterNew { operation, blob } = &self.operation else {
             return false;
         };
@@ -1294,7 +1300,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         Some(blob.id)
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         false
     }
 
@@ -1531,7 +1537,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         Some(blob_object.id)
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         false
     }
 
@@ -1708,7 +1714,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         None
     }
 
-    fn ready_to_get_certificate(&self) -> bool {
+    fn ready_to_store_to_nodes(&self) -> bool {
         false
     }
 
