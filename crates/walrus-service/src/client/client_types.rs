@@ -30,17 +30,20 @@ pub(crate) const BLOB_SPAN_LEVEL: Level = Level::INFO;
 /// API for a blob that is being stored to Walrus.
 #[enum_dispatch]
 pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
+    /// Returns a string representation of the current state.
+    fn get_state(&self) -> &'static str;
+
     /// Returns a reference to the raw blob data.
     fn get_blob(&self) -> &'a [u8];
 
     /// Returns a reference to the blob's identifier.
     fn get_identifier(&self) -> &T;
 
-    /// Returns the size of the encoded blob if available.
-    fn encoded_size(&self) -> Option<u64>;
-
     /// Returns the length of the unencoded blob data in bytes.
     fn unencoded_length(&self) -> usize;
+
+    /// Returns the size of the encoded blob if available.
+    fn encoded_size(&self) -> Option<u64>;
 
     /// Returns a reference to the verified metadata if available.
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId>;
@@ -54,6 +57,9 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     /// Returns a reference to the blob status if available.
     fn get_status(&self) -> Option<&BlobStatus>;
 
+    /// Returns the corresponding Sui object ID if available.
+    fn get_object_id(&self) -> Option<ObjectID>;
+
     /// Returns a reference to the store operation if available.
     fn get_operation(&self) -> Option<&StoreOp>;
 
@@ -62,12 +68,6 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
 
     /// Returns the final result if available.
     fn get_result(&self) -> Option<BlobStoreResult>;
-
-    /// Returns a string representation of the current state.
-    fn get_state(&self) -> &'static str;
-
-    /// Returns the corresponding Sui object ID if available.
-    fn get_object_id(&self) -> Option<ObjectID>;
 
     /// Returns true if a blob is ready to be stored to nodes.
     fn ready_to_store_to_nodes(&self) -> bool;
@@ -127,13 +127,13 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
 
-    /// Converts the current blob state to a Failed state.
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>>;
-
     /// Updates the blob with the provided result and transitions to the Completed state.
     ///
     /// This update is forced, even if the blob is in the Error state.
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T>;
+
+    /// Converts the current blob state to a Failed state.
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>>;
 }
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
@@ -237,6 +237,10 @@ pub struct UnencodedBlob<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for UnencodedBlob<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "Unencoded"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.blob
     }
@@ -245,31 +249,31 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         &self.identifier
     }
 
-    fn get_blob_id(&self) -> Option<BlobId> {
-        None
-    }
-
-    fn get_state(&self) -> &'static str {
-        "Unencoded"
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
+    fn unencoded_length(&self) -> usize {
+        self.blob.len()
     }
 
     fn encoded_size(&self) -> Option<u64> {
         None
     }
 
-    fn unencoded_length(&self) -> usize {
-        self.blob.len()
-    }
-
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
         None
     }
 
+    fn get_blob_id(&self) -> Option<BlobId> {
+        None
+    }
+
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
+        None
+    }
+
+    fn get_status(&self) -> Option<&BlobStatus> {
+        None
+    }
+
+    fn get_object_id(&self) -> Option<ObjectID> {
         None
     }
 
@@ -282,10 +286,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
     }
 
     fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
         None
     }
 
@@ -347,13 +347,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         Ok(new_state)
     }
 
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self,
-            result,
-        })
-    }
-
     fn with_status(
         self,
         status: Result<BlobStatus, ClientError>,
@@ -394,6 +387,24 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         )))
     }
 
+    fn with_certify_and_extend_result(
+        self,
+        result: CertifyAndExtendBlobResult,
+        _price_computation: &PriceComputation,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_certify_and_extend_result: {:?}", result),
+        ))
+    }
+
+    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
+        WalrusStoreBlob::Completed(CompletedBlob {
+            input_blob: self,
+            result,
+        })
+    }
+
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
         if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
             return Err(error);
@@ -405,17 +416,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
             failure_phase: "with_error".to_string(),
             error,
         }))
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {:?}", result),
-        ))
     }
 }
 
@@ -431,7 +431,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for UnencodedBlob<'_, T> {
 /// Encoded blob.
 #[derive(Clone)]
 pub struct EncodedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob
+    /// The base unencoded blob.
     pub input_blob: UnencodedBlob<'a, T>,
     /// The encoded sliver pairs generated from the blob.
     pub pairs: Arc<Vec<SliverPair>>,
@@ -440,6 +440,10 @@ pub struct EncodedBlob<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBlob<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "Encoded"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.input_blob.get_blob()
     }
@@ -448,28 +452,32 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         self.input_blob.get_identifier()
     }
 
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        Some(&self.metadata)
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        Some(&self.pairs)
-    }
-
-    fn get_state(&self) -> &'static str {
-        "Encoded"
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.unencoded_length()
     }
 
     fn encoded_size(&self) -> Option<u64> {
         self.metadata.metadata().encoded_size()
     }
 
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.unencoded_length()
+    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
+        Some(&self.metadata)
+    }
+
+    fn get_blob_id(&self) -> Option<BlobId> {
+        Some(*self.metadata.blob_id())
+    }
+
+    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
+        Some(&self.pairs)
+    }
+
+    fn get_status(&self) -> Option<&BlobStatus> {
+        None
+    }
+
+    fn get_object_id(&self) -> Option<ObjectID> {
+        None
     }
 
     fn get_operation(&self) -> Option<&StoreOp> {
@@ -481,10 +489,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
     }
 
     fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
         None
     }
 
@@ -503,8 +507,14 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         ))
     }
 
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
+    fn with_encode_result(
+        self,
+        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn with_status(
@@ -583,13 +593,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         ))
     }
 
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_error: {:?}", error),
-        ))
-    }
-
     fn with_certify_and_extend_result(
         self,
         result: CertifyAndExtendBlobResult,
@@ -601,21 +604,18 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         ))
     }
 
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {:?}", result),
-        ))
-    }
-
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
             input_blob: self.input_blob,
             result,
         })
+    }
+
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_error: {:?}", error),
+        ))
     }
 }
 
@@ -632,7 +632,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for EncodedBlob<'_, T> {
 /// Encoded blob with status information.
 #[derive(Clone)]
 pub struct BlobWithStatus<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob
+    /// The base unencoded blob.
     pub input_blob: UnencodedBlob<'a, T>,
     /// The encoded sliver pairs.
     pub pairs: Arc<Vec<SliverPair>>,
@@ -643,6 +643,10 @@ pub struct BlobWithStatus<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithStatus<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "WithStatus"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.input_blob.blob
     }
@@ -651,12 +655,20 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         &self.input_blob.identifier
     }
 
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.blob.len()
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        self.metadata.metadata().encoded_size()
     }
 
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
         Some(&self.metadata)
+    }
+
+    fn get_blob_id(&self) -> Option<BlobId> {
+        Some(*self.metadata.blob_id())
     }
 
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
@@ -667,16 +679,8 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         Some(&self.status)
     }
 
-    fn get_state(&self) -> &'static str {
-        "WithStatus"
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.blob.len()
+    fn get_object_id(&self) -> Option<ObjectID> {
+        None
     }
 
     fn get_operation(&self) -> Option<&StoreOp> {
@@ -688,10 +692,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
     }
 
     fn get_result(&self) -> Option<BlobStoreResult> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
         None
     }
 
@@ -708,6 +708,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
             "Invalid operation for blob {:?}",
             self,
         )))
+    }
+
+    fn with_encode_result(
+        self,
+        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn with_status(self, status: ClientResult<BlobStatus>) -> ClientResult<WalrusStoreBlob<'a, T>> {
@@ -829,19 +839,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         ))
     }
 
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            return Err(error);
-        }
-
-        Ok(WalrusStoreBlob::Error(FailedBlob {
-            input_blob: self.input_blob,
-            blob_id: Some(*self.metadata.blob_id()),
-            failure_phase: "register".to_string(),
-            error,
-        }))
-    }
-
     fn with_certify_and_extend_result(
         self,
         result: CertifyAndExtendBlobResult,
@@ -853,21 +850,24 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         ))
     }
 
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {:?}", result),
-        ))
-    }
-
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
             input_blob: self.input_blob,
             result,
         })
+    }
+
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            return Err(error);
+        }
+
+        Ok(WalrusStoreBlob::Error(FailedBlob {
+            input_blob: self.input_blob,
+            blob_id: Some(*self.metadata.blob_id()),
+            failure_phase: "register".to_string(),
+            error,
+        }))
     }
 }
 
@@ -885,7 +885,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for BlobWithStatus<'_, T> {
 /// Registered blob.
 #[derive(Clone)]
 pub struct RegisteredBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob
+    /// The base unencoded blob.
     pub input_blob: UnencodedBlob<'a, T>,
     /// The encoded sliver pairs.
     pub pairs: Arc<Vec<SliverPair>>,
@@ -898,6 +898,10 @@ pub struct RegisteredBlob<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for RegisteredBlob<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "Registered"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.input_blob.blob
     }
@@ -906,12 +910,20 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         &self.input_blob.identifier
     }
 
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.blob.len()
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        self.metadata.metadata().encoded_size()
     }
 
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
         Some(&self.metadata)
+    }
+
+    fn get_blob_id(&self) -> Option<BlobId> {
+        Some(*self.metadata.blob_id())
     }
 
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
@@ -922,20 +934,17 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         Some(&self.status)
     }
 
+    // TODO: Return the object ID from the blob.
+    fn get_object_id(&self) -> Option<ObjectID> {
+        let StoreOp::RegisterNew { blob, .. } = &self.operation else {
+            return None;
+        };
+
+        Some(blob.id)
+    }
+
     fn get_operation(&self) -> Option<&StoreOp> {
         Some(&self.operation)
-    }
-
-    fn get_state(&self) -> &'static str {
-        "Registered"
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.blob.len()
     }
 
     fn get_error(&self) -> Option<&ClientError> {
@@ -944,15 +953,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
 
     fn get_result(&self) -> Option<BlobStoreResult> {
         None
-    }
-
-    // TODO: Return the object ID from the blob.
-    fn get_object_id(&self) -> Option<ObjectID> {
-        let StoreOp::RegisterNew { blob, .. } = &self.operation else {
-            return None;
-        };
-
-        Some(blob.id)
     }
 
     fn ready_to_store_to_nodes(&self) -> bool {
@@ -1004,6 +1004,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
                 format!("get_certify_and_extend_params: {:?}", self.operation),
             ))
         }
+    }
+
+    fn with_encode_result(
+        self,
+        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(ClientError::store_blob_internal(format!(
+            "Invalid operation for blob {:?}, result: {:?}",
+            self, result,
+        )))
     }
 
     fn with_status(
@@ -1084,19 +1094,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         Ok(new_state)
     }
 
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            Err(error)
-        } else {
-            Ok(WalrusStoreBlob::Error(FailedBlob {
-                input_blob: self.input_blob,
-                blob_id: Some(*self.metadata.blob_id()),
-                failure_phase: "error".to_string(),
-                error,
-            }))
-        }
-    }
-
     fn with_certify_and_extend_result(
         self,
         result: CertifyAndExtendBlobResult,
@@ -1146,21 +1143,24 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         Ok(new_state)
     }
 
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
-    }
-
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
             input_blob: self.input_blob,
             result,
         })
+    }
+
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            Err(error)
+        } else {
+            Ok(WalrusStoreBlob::Error(FailedBlob {
+                input_blob: self.input_blob,
+                blob_id: Some(*self.metadata.blob_id()),
+                failure_phase: "error".to_string(),
+                error,
+            }))
+        }
     }
 }
 
@@ -1178,7 +1178,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for RegisteredBlob<'_, T> {
 /// Blob with certificate
 #[derive(Clone)]
 pub struct BlobWithCertificate<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob
+    /// The base unencoded blob.
     pub input_blob: UnencodedBlob<'a, T>,
     /// The encoded sliver pairs.
     pub pairs: Arc<Vec<SliverPair>>,
@@ -1193,6 +1193,10 @@ pub struct BlobWithCertificate<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithCertificate<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "WithCertificate"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.input_blob.blob
     }
@@ -1201,12 +1205,20 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         &self.input_blob.identifier
     }
 
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.metadata.blob_id())
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.blob.len()
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        self.metadata.metadata().encoded_size()
     }
 
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
         Some(&self.metadata)
+    }
+
+    fn get_blob_id(&self) -> Option<BlobId> {
+        Some(*self.metadata.blob_id())
     }
 
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
@@ -1217,20 +1229,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         Some(&self.status)
     }
 
+    fn get_object_id(&self) -> Option<ObjectID> {
+        let StoreOp::RegisterNew { blob, .. } = &self.operation else {
+            return None;
+        };
+
+        Some(blob.id)
+    }
+
     fn get_operation(&self) -> Option<&StoreOp> {
         Some(&self.operation)
-    }
-
-    fn get_state(&self) -> &'static str {
-        "WithCertificate"
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        self.metadata.metadata().encoded_size()
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.blob.len()
     }
 
     fn get_error(&self) -> Option<&ClientError> {
@@ -1239,14 +1247,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
 
     fn get_result(&self) -> Option<BlobStoreResult> {
         None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        let StoreOp::RegisterNew { blob, .. } = &self.operation else {
-            return None;
-        };
-
-        Some(blob.id)
     }
 
     fn ready_to_store_to_nodes(&self) -> bool {
@@ -1284,6 +1284,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
                 epochs_extended: None,
             }),
         }
+    }
+
+    fn with_encode_result(
+        self,
+        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn with_status(
@@ -1324,20 +1334,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
             &self,
             format!("with_get_certificate_result: {:?}", certificate_result),
         ))
-    }
-
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-            Err(error)
-        } else {
-            let blob_id = self.get_blob_id();
-            Ok(WalrusStoreBlob::Error(FailedBlob {
-                input_blob: self.input_blob,
-                blob_id,
-                failure_phase: "with_certificate".to_string(),
-                error,
-            }))
-        }
     }
 
     fn with_certify_and_extend_result(
@@ -1383,21 +1379,25 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         Ok(new_state)
     }
 
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {:?}", result),
-        ))
-    }
-
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
             input_blob: self.input_blob,
             result,
         })
+    }
+
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            Err(error)
+        } else {
+            let blob_id = self.get_blob_id();
+            Ok(WalrusStoreBlob::Error(FailedBlob {
+                input_blob: self.input_blob,
+                blob_id,
+                failure_phase: "with_certificate".to_string(),
+                error,
+            }))
+        }
     }
 }
 
@@ -1415,13 +1415,17 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for BlobWithCertificate<'_,
 /// Blob in completed state
 #[derive(Clone)]
 pub struct CompletedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob
+    /// The base unencoded blob.
     pub input_blob: UnencodedBlob<'a, T>,
     /// The final result of the store operation.
     pub result: BlobStoreResult,
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for CompletedBlob<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "Completed"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.input_blob.get_blob()
     }
@@ -1430,28 +1434,20 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         self.input_blob.get_identifier()
     }
 
-    fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.result.blob_id())
-    }
-
-    fn get_result(&self) -> Option<BlobStoreResult> {
-        Some(self.result.clone())
-    }
-
-    fn get_state(&self) -> &'static str {
-        "Completed"
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.unencoded_length()
     }
 
     fn encoded_size(&self) -> Option<u64> {
         None
     }
 
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.unencoded_length()
-    }
-
     fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
         None
+    }
+
+    fn get_blob_id(&self) -> Option<BlobId> {
+        Some(*self.result.blob_id())
     }
 
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
@@ -1462,6 +1458,14 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         None
     }
 
+    fn get_object_id(&self) -> Option<ObjectID> {
+        let BlobStoreResult::NewlyCreated { blob_object, .. } = &self.result else {
+            return None;
+        };
+
+        Some(blob_object.id)
+    }
+
     fn get_operation(&self) -> Option<&StoreOp> {
         None
     }
@@ -1470,12 +1474,8 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         None
     }
 
-    fn get_object_id(&self) -> Option<ObjectID> {
-        let BlobStoreResult::NewlyCreated { blob_object, .. } = &self.result else {
-            return None;
-        };
-
-        Some(blob_object.id)
+    fn get_result(&self) -> Option<BlobStoreResult> {
+        Some(self.result.clone())
     }
 
     fn ready_to_store_to_nodes(&self) -> bool {
@@ -1490,6 +1490,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         Err(invalid_operation_for_blob(
             &self,
             "get_certify_and_extend_params".to_string(),
+        ))
+    }
+
+    fn with_encode_result(
+        self,
+        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
         ))
     }
 
@@ -1533,13 +1543,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         ))
     }
 
-    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_error: {:?}", error),
-        ))
-    }
-
     fn with_certify_and_extend_result(
         self,
         result: CertifyAndExtendBlobResult,
@@ -1551,21 +1554,18 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         ))
     }
 
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {:?}", result),
-        ))
-    }
-
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
             input_blob: self.input_blob,
             result,
         })
+    }
+
+    fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_error: {:?}", error),
+        ))
     }
 }
 
@@ -1580,7 +1580,7 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for CompletedBlob<'_, T> {
 
 /// Failure occurred during the blob lifecycle.
 pub struct FailedBlob<'a, T: Debug + Clone + Send + Sync> {
-    /// The base unencoded blob
+    /// The base unencoded blob.
     pub input_blob: UnencodedBlob<'a, T>,
     /// The blob ID.
     pub blob_id: Option<BlobId>,
@@ -1591,6 +1591,10 @@ pub struct FailedBlob<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlob<'a, T> {
+    fn get_state(&self) -> &'static str {
+        "Error"
+    }
+
     fn get_blob(&self) -> &'a [u8] {
         self.input_blob.get_blob()
     }
@@ -1599,8 +1603,36 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         &self.input_blob.identifier
     }
 
+    fn unencoded_length(&self) -> usize {
+        self.input_blob.unencoded_length()
+    }
+
+    fn encoded_size(&self) -> Option<u64> {
+        None
+    }
+
+    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
+        None
+    }
+
     fn get_blob_id(&self) -> Option<BlobId> {
         self.blob_id
+    }
+
+    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
+        None
+    }
+
+    fn get_status(&self) -> Option<&BlobStatus> {
+        None
+    }
+
+    fn get_object_id(&self) -> Option<ObjectID> {
+        None
+    }
+
+    fn get_operation(&self) -> Option<&StoreOp> {
+        None
     }
 
     fn get_error(&self) -> Option<&ClientError> {
@@ -1612,38 +1644,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
             blob_id: self.blob_id,
             error_msg: self.error.to_string(),
         })
-    }
-
-    fn get_state(&self) -> &'static str {
-        "Error"
-    }
-
-    fn encoded_size(&self) -> Option<u64> {
-        None
-    }
-
-    fn unencoded_length(&self) -> usize {
-        self.input_blob.unencoded_length()
-    }
-
-    fn get_metadata(&self) -> Option<&VerifiedBlobMetadataWithId> {
-        None
-    }
-
-    fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
-        None
-    }
-
-    fn get_status(&self) -> Option<&BlobStatus> {
-        None
-    }
-
-    fn get_operation(&self) -> Option<&StoreOp> {
-        None
-    }
-
-    fn get_object_id(&self) -> Option<ObjectID> {
-        None
     }
 
     fn ready_to_store_to_nodes(&self) -> bool {
@@ -1659,6 +1659,16 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
             "Invalid operation for blob {:?}",
             self,
         )))
+    }
+
+    fn with_encode_result(
+        self,
+        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn with_status(
@@ -1701,6 +1711,24 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         )))
     }
 
+    fn with_certify_and_extend_result(
+        self,
+        result: CertifyAndExtendBlobResult,
+        _price_computation: &PriceComputation,
+    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_certify_and_extend_result: {:?}", result),
+        ))
+    }
+
+    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
+        WalrusStoreBlob::Completed(CompletedBlob {
+            input_blob: self.input_blob,
+            result,
+        })
+    }
+
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
         if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
             Err(error)
@@ -1713,34 +1741,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
                 error,
             }))
         }
-    }
-
-    fn with_certify_and_extend_result(
-        self,
-        result: CertifyAndExtendBlobResult,
-        _price_computation: &PriceComputation,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_certify_and_extend_result: {:?}", result),
-        ))
-    }
-
-    fn with_encode_result(
-        self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(invalid_operation_for_blob(
-            &self,
-            format!("with_encode_result: {:?}", result),
-        ))
-    }
-
-    fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
-        WalrusStoreBlob::Completed(CompletedBlob {
-            input_blob: self.input_blob,
-            result,
-        })
     }
 }
 
