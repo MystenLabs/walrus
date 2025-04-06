@@ -680,34 +680,33 @@ impl EventBlobWriterFactory {
 }
 
 /// EventBlobWriter manages the creation, storage, and certification of event blobs.
-/// ```
-///  +-------------------+
-///  |  EventBlobWriter  |
-///  +-------------------+
-///           |
-///           v
-///   +------------+    +-------------+    +-------------+    +---------------+
-///   |Current Blob|--->| Pending Blob|--->|Attested Blob|--->|System Contract|
-///   +------------+    +-------------+    +-------------+    +---------------+
-///         |                 |                  ^                   |
-///         |                 |                  |                   |
-///         |                 v                  |                   |
-///   +-----------------+    +------------------+                    |
-///   |Filesystem (tmp) |    | Failed to Attest |                    |
-///   +-----------------+    +------------------+                    |
-///                                                                  v
-///                  +------------------+                     +--------------+
-///                  | Database Storage |<------------------- |Certified Blob|
-///                  +------------------+                     +--------------+
-///                  (Blob removed from
-///                   filesystem after
-///                   certification)
 ///
-/// ```
-/// Flow: Current -> Pending -> Attested -> Certified
-///                     |
-///                     +-> Failed to Attest -> Attested -> Certified
 /// ```text
+/// +-------------------+
+/// |  EventBlobWriter  |
+/// +-------------------+
+///         |
+///         v
+/// +------------+    +-------------+    +-------------+    +---------------+
+/// |Current Blob|--->| Pending Blob|--->|Attested Blob|--->|System Contract|
+/// +------------+    +-------------+    +-------------+    +---------------+
+///       |                 |                  ^                   |
+///       |                 |                  |                   |
+///       |                 v                  |                   |
+/// +-----------------+    +------------------+                    |
+/// |Filesystem (tmp) |    | Failed to Attest |                    |
+/// +-----------------+    +------------------+                    |
+///                                                              v
+///              +------------------+                     +--------------+
+///              | Database Storage |<------------------- |Certified Blob|
+///              +------------------+                     +--------------+
+///              (Blob removed from
+///               filesystem after
+///               certification)
+/// ```
+/// Flow: Current -> Pending -> Attested -> Certified  
+///            |  
+///            +-> Failed to Attest -> Attested -> Certified
 ///
 /// Blob Lifecycle:
 ///
