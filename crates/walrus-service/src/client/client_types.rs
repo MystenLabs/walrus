@@ -157,6 +157,17 @@ pub enum WalrusStoreBlob<'a, T: Debug + Clone + Send + Sync> {
 }
 
 impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlob<'a, T> {
+    /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
+    pub fn default_unencoded_blobs_from_slice(
+        blobs: &'a [&[u8]],
+    ) -> Vec<WalrusStoreBlob<'a, String>> {
+        blobs
+            .iter()
+            .enumerate()
+            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
+            .collect()
+    }
+
     /// Returns true if we should fail early based on the error.
     fn should_fail_early(error: &ClientError) -> bool {
         error.may_be_caused_by_epoch_change() || error.is_no_valid_status_received()

@@ -515,12 +515,8 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let blobs_with_identifiers = blobs
-            .iter()
-            .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
-            .collect::<Vec<_>>();
-
+        let blobs_with_identifiers =
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
         let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
         let mut results = self
@@ -560,11 +556,12 @@ impl Client<SuiContractClient> {
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResultWithPath>> {
         // Not using Path as identifier because it's not unique.
-        let blobs_with_identifiers = blobs_with_paths
+        let blobs = blobs_with_paths
             .iter()
-            .enumerate()
-            .map(|(i, (_, blob))| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
+            .map(|(_, blob)| blob.as_slice())
             .collect::<Vec<_>>();
+        let blobs_with_identifiers =
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(&blobs);
 
         let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
@@ -615,11 +612,8 @@ impl Client<SuiContractClient> {
         persistence: BlobPersistence,
         post_store: PostStoreAction,
     ) -> ClientResult<Vec<BlobStoreResult>> {
-        let blobs_with_identifiers = blobs
-            .iter()
-            .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
-            .collect::<Vec<_>>();
+        let blobs_with_identifiers =
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
         let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
@@ -653,11 +647,8 @@ impl Client<SuiContractClient> {
         blobs: &[&[u8]],
         encoding_type: EncodingType,
     ) -> ClientResult<Vec<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>> {
-        let blobs_with_identifiers = blobs
-            .iter()
-            .enumerate()
-            .map(|(i, blob)| WalrusStoreBlob::new_unencoded(blob, format!("blob_{:06}", i)))
-            .collect::<Vec<_>>();
+        let blobs_with_identifiers =
+            WalrusStoreBlob::<String>::default_unencoded_blobs_from_slice(blobs);
 
         let encoded_blobs = self.encode_blobs(blobs_with_identifiers, encoding_type)?;
 
