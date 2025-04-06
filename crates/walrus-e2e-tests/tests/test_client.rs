@@ -38,6 +38,7 @@ use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::api::BlobStatus;
 use walrus_service::{
     client::{
+        client_types::WalrusStoreBlobApi as _,
         responses::BlobStoreResult,
         Blocklist,
         Client,

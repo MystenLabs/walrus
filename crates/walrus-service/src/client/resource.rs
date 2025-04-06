@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Manages the storage and blob resources in the Wallet on behalf of the client.
-
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -15,15 +14,20 @@ use walrus_core::{
     Epoch,
     EpochCount,
 };
-use walrus_sdk::api::BlobStatus;
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},
     types::Blob,
     utils::price_for_encoded_length,
 };
 
-use super::{responses::BlobStoreResult, ClientError, ClientErrorKind, ClientResult, StoreWhen};
-use crate::client::{responses::EventOrObjectId, WalrusStoreBlob};
+use super::{
+    client_types::{WalrusStoreBlob, WalrusStoreBlobApi as _},
+    responses::{BlobStoreResult, EventOrObjectId},
+    ClientError,
+    ClientErrorKind,
+    ClientResult,
+    StoreWhen,
+};
 
 /// Struct to compute the cost of operations with blob and storage resources.
 #[derive(Debug, Clone)]
@@ -222,7 +226,7 @@ impl<'a> ResourceManager<'a> {
     /// The function considers the requirements given to the store operation (epochs ahead,
     /// persistence, force store), the status of the blob on chain, and the available resources in
     /// the wallet.
-    pub async fn register_walrus_store_blobs<T: Display + Clone + Send + Sync>(
+    pub async fn register_walrus_store_blobs<T: Debug + Clone + Send + Sync>(
         &self,
         encoded_blobs_with_status: Vec<WalrusStoreBlob<'a, T>>,
         epochs_ahead: EpochCount,
@@ -235,38 +239,17 @@ impl<'a> ResourceManager<'a> {
         let num_blobs = encoded_blobs_with_status.len();
 
         for blob in encoded_blobs_with_status {
+            let blob = if !store_when.is_ignore_status() && !persistence.is_deletable() {
+                blob.try_complete_if_certified_beyond_epoch(
+                    self.write_committee_epoch + epochs_ahead,
+                )?
+            } else {
+                blob
+            };
             if blob.is_completed() {
                 results.push(blob);
-                continue;
-            }
-
-            match (
-                &blob,
-                store_when.is_ignore_status(),
-                persistence.is_deletable(),
-            ) {
-                (
-                    WalrusStoreBlob::WithStatus {
-                        metadata, status, ..
-                    },
-                    false,
-                    false,
-                ) => {
-                    if let Some(result) =
-                        self.blob_status_to_store_result(*metadata.blob_id(), epochs_ahead, *status)
-                    {
-                        results.push(blob.complete_with(result));
-                        continue;
-                    } else {
-                        to_be_processed.push(blob);
-                    }
-                }
-                (WalrusStoreBlob::WithStatus { .. }, ..) => {
-                    to_be_processed.push(blob);
-                }
-                _ => {
-                    unreachable!("blob should be completed");
-                }
+            } else {
+                to_be_processed.push(blob);
             }
         }
 
@@ -353,7 +336,7 @@ impl<'a> ResourceManager<'a> {
     }
 
     /// Registers or reuses resources for a list of blobs.
-    pub async fn register_or_reuse_resources<'b, T: Display + Clone + Send + Sync>(
+    pub async fn register_or_reuse_resources<'b, T: Debug + Clone + Send + Sync>(
         &self,
         blobs: Vec<WalrusStoreBlob<'b, T>>,
         epochs_ahead: EpochCount,
@@ -369,7 +352,7 @@ impl<'a> ResourceManager<'a> {
             .map(|blob| {
                 blob.encoded_size().ok_or_else(|| {
                     ClientError::store_blob_internal(format!(
-                        "could not compute the encoded size of the blob: {}",
+                        "could not compute the encoded size of the blob: {:?}",
                         blob.get_identifier()
                     ))
                 })
@@ -654,52 +637,5 @@ impl<'a> ResourceManager<'a> {
                     && (include_certified || blob.certified_epoch.is_none())
             })
             .cloned())
-    }
-
-    /// Checks if blob of the given status is already in a state for which we can return.
-    fn blob_status_to_store_result(
-        &self,
-        blob_id: BlobId,
-        epochs_ahead: EpochCount,
-        blob_status: BlobStatus,
-    ) -> Option<BlobStoreResult> {
-        match blob_status {
-            BlobStatus::Permanent {
-                end_epoch,
-                is_certified: true,
-                status_event,
-                ..
-            } => {
-                if end_epoch >= self.write_committee_epoch + epochs_ahead {
-                    tracing::debug!(end_epoch, blob_id=%blob_id, "blob is already certified");
-                    Some(BlobStoreResult::AlreadyCertified {
-                        blob_id,
-                        event_or_object: EventOrObjectId::Event(status_event),
-                        end_epoch,
-                    })
-                } else {
-                    tracing::debug!(
-                        end_epoch, blob_id=%blob_id,
-                        "blob is already certified but its lifetime is too short"
-                    );
-                    None
-                }
-            }
-            BlobStatus::Invalid { event } => {
-                tracing::debug!(blob_id=%blob_id, "blob is marked as invalid");
-                Some(BlobStoreResult::MarkedInvalid { blob_id, event })
-            }
-            status => {
-                // We intentionally don't check for "registered" blobs here: even if the blob is
-                // already registered, we cannot certify it without access to the corresponding
-                // Sui object. The check to see if we own the registered-but-not-certified Blob
-                // object is done in `reserve_and_register_blob`.
-                tracing::debug!(
-                    ?status, blob_id=%blob_id,
-                    "no corresponding permanent certified `Blob` object exists"
-                );
-                None
-            }
-        }
     }
 }
