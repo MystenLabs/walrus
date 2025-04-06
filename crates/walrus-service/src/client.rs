@@ -850,9 +850,9 @@ impl Client<SuiContractClient> {
         for registered_blob in registered_blobs {
             if registered_blob.is_completed() {
                 final_result.push(registered_blob);
-            } else if registered_blob.needs_extend() {
+            } else if registered_blob.ready_to_extend() {
                 to_be_extended.push(registered_blob);
-            } else if registered_blob.needs_certificate() {
+            } else if registered_blob.ready_to_get_certificate() {
                 to_be_certified.push(registered_blob);
             } else {
                 return Err(ClientError::store_blob_internal(format!(
@@ -1046,7 +1046,7 @@ impl Client<SuiContractClient> {
                             multi_pb_arc.as_ref(),
                         )
                         .await;
-                    registered_blob.with_certificate_result(certificate_result)
+                    registered_blob.with_get_certificate_result(certificate_result)
                 }
             }))
             .await;

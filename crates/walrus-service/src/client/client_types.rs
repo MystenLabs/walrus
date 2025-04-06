@@ -67,10 +67,10 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
     fn get_object_id(&self) -> Option<ObjectID>;
 
     /// Returns true if the blob needs to be certified.
-    fn needs_certificate(&self) -> bool;
+    fn ready_to_get_certificate(&self) -> bool;
 
     /// Returns true if the blob needs to be extended.
-    fn needs_extend(&self) -> bool;
+    fn ready_to_extend(&self) -> bool;
 
     /// Returns the parameters for certifying and extending the blob.
     fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError>;
@@ -108,7 +108,7 @@ pub trait WalrusStoreBlobApi<'a, T: Debug + Clone + Send + Sync> {
 
     /// Updates the blob with the result of the certificate operation and transitions
     /// to the appropriate next state.
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>>;
@@ -283,15 +283,15 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         None
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         false
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
         Err(ClientError::store_blob_internal(format!(
             "Invalid operation for blob {:?}",
             self,
@@ -300,7 +300,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
 
     fn with_encode_result(
         self,
-        result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
+        result: ClientResult<(Vec<SliverPair>, VerifiedBlobMetadataWithId)>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
         {
             let _enter = self.span.enter();
@@ -347,10 +347,10 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
         WalrusStoreBlob::Completed(CompletedBlob {
-            blob: self.get_blob(),
-            identifier: self.get_identifier().clone(),
+            blob: self.blob,
+            identifier: self.identifier,
             result,
-            span: self.get_span().clone(),
+            span: self.span,
         })
     }
 
@@ -384,7 +384,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
         )))
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
@@ -395,10 +395,18 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            return Err(error);
+        }
+
+        Ok(WalrusStoreBlob::Error(FailedBlob {
+            blob: self.blob,
+            identifier: self.identifier,
+            blob_id: None,
+            failure_phase: "with_error".to_string(),
+            error,
+            span: self.span,
+        }))
     }
 
     fn with_certify_and_extend_result(
@@ -410,12 +418,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Unencoded
             "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
             self, result, price_computation,
         )))
-    }
-}
-
-impl<T: Debug + Clone + Send + Sync> UnencodedBlob<'_, T> {
-    fn get_span(&self) -> &Span {
-        &self.span
     }
 }
 
@@ -492,19 +494,19 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         None
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         false
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         false
     }
 
     fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}",
-            self,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            "get_certify_and_extend_params".to_string(),
+        ))
     }
 
     fn get_status(&self) -> Option<&BlobStatus> {
@@ -515,68 +517,108 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for EncodedBl
         self,
         status: Result<BlobStatus, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, status: {:?}",
-            self, status,
-        )))
+        {
+            let _enter = self.span.enter();
+            tracing::event!(
+                BLOB_SPAN_LEVEL,
+                operation = "with_status",
+                status = ?status
+            );
+        }
+
+        let new_state = match status {
+            Ok(status) => WalrusStoreBlob::WithStatus(BlobWithStatus {
+                blob: self.blob,
+                identifier: self.identifier,
+                pairs: self.pairs,
+                metadata: self.metadata,
+                status,
+                span: self.span,
+            }),
+            Err(error) => {
+                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+                    return Err(error);
+                }
+                let blob_id = *self.metadata.blob_id();
+                WalrusStoreBlob::Error(FailedBlob {
+                    blob: self.blob,
+                    identifier: self.identifier,
+                    blob_id: Some(blob_id),
+                    failure_phase: "status".to_string(),
+                    error,
+                    span: self.span,
+                })
+            }
+        };
+
+        {
+            let _enter = new_state.get_span().enter();
+            tracing::event!(
+                BLOB_SPAN_LEVEL,
+                operation = "with_status completed",
+                state = ?new_state
+            );
+        }
+
+        Ok(new_state)
     }
 
     fn try_complete_if_certified_beyond_epoch(
         self,
         target_epoch: u32,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, target_epoch: {:?}",
-            self, target_epoch,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("try_complete_if_certified_beyond_epoch: {:?}", target_epoch),
+        ))
     }
 
     fn with_register_result(
         self,
         result: Result<StoreOp, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_register_result: {:?}", result),
+        ))
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, certificate_result: {:?}",
-            self, certificate_result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_get_certificate_result: {:?}", certificate_result),
+        ))
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_error: {:?}", error),
+        ))
     }
 
     fn with_certify_and_extend_result(
         self,
         result: CertifyAndExtendBlobResult,
-        price_computation: &PriceComputation,
+        _price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
-            self, result, price_computation,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_certify_and_extend_result: {:?}", result),
+        ))
     }
 
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
@@ -675,11 +717,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         None
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         false
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         false
     }
 
@@ -690,54 +732,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         )))
     }
 
-    fn with_status(
-        self,
-        status: Result<BlobStatus, ClientError>,
-    ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.span.enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_status",
-                status = ?status
-            );
-        }
-
-        let new_state = match status {
-            Ok(status) => WalrusStoreBlob::WithStatus(BlobWithStatus {
-                blob: self.blob,
-                identifier: self.identifier,
-                pairs: self.pairs.clone(),
-                metadata: self.metadata.clone(),
-                status,
-                span: self.span.clone(),
-            }),
-            Err(error) => {
-                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-                    return Err(error);
-                }
-                let blob_id = *self.metadata.blob_id();
-                WalrusStoreBlob::Error(FailedBlob {
-                    blob: self.blob,
-                    identifier: self.identifier,
-                    blob_id: Some(blob_id),
-                    failure_phase: "status".to_string(),
-                    error,
-                    span: self.span.clone(),
-                })
-            }
-        };
-
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_status completed",
-                state = ?new_state
-            );
-        }
-
-        Ok(new_state)
+    fn with_status(self, status: ClientResult<BlobStatus>) -> ClientResult<WalrusStoreBlob<'a, T>> {
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_status: {:?}", status),
+        ))
     }
 
     fn try_complete_if_certified_beyond_epoch(
@@ -763,44 +762,19 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
                 ..
             } => {
                 if end_epoch >= target_epoch {
-                    tracing::event!(
-                        BLOB_SPAN_LEVEL,
-                        operation = "try_complete_if_certified_beyond_epoch completed",
-                        end_epoch = ?end_epoch,
-                        blob_id = ?self.metadata.blob_id()
-                    );
                     self.complete_with(BlobStoreResult::AlreadyCertified {
                         blob_id,
                         event_or_object: EventOrObjectId::Event(status_event),
                         end_epoch,
                     })
                 } else {
-                    tracing::event!(
-                        BLOB_SPAN_LEVEL,
-                        operation = "try_complete_if_certified_beyond_epoch completed",
-                        end_epoch = ?end_epoch,
-                        blob_id = ?self.metadata.blob_id()
-                    );
                     WalrusStoreBlob::WithStatus(self)
                 }
             }
             BlobStatus::Invalid { event } => {
-                tracing::event!(
-                    BLOB_SPAN_LEVEL,
-                    operation = "try_complete_if_certified_beyond_epoch completed",
-                    blob_id = ?self.metadata.blob_id()
-                );
                 self.complete_with(BlobStoreResult::MarkedInvalid { blob_id, event })
             }
-            _ => {
-                tracing::event!(
-                    BLOB_SPAN_LEVEL,
-                    operation = "try_complete_if_certified_beyond_epoch completed",
-                    blob_id = ?self.metadata.blob_id(),
-                    "no corresponding permanent certified `Blob` object exists"
-                );
-                WalrusStoreBlob::WithStatus(self)
-            }
+            _ => WalrusStoreBlob::WithStatus(self),
         };
 
         {
@@ -815,9 +789,10 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         Ok(new_state)
     }
 
+    // TODO: Replace StoreOp with RegisterBlobOp and blob.
     fn with_register_result(
         self,
-        result: Result<StoreOp, ClientError>,
+        result: ClientResult<StoreOp>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
         {
             let _enter = self.span.enter();
@@ -838,8 +813,8 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
             Ok(store_op) => WalrusStoreBlob::Registered(RegisteredBlob {
                 blob: self.blob,
                 identifier: self.identifier,
-                pairs: self.pairs.clone(),
-                metadata: self.metadata.clone(),
+                pairs: self.pairs,
+                metadata: self.metadata,
                 status: self.status,
                 operation: store_op,
                 span: self.span,
@@ -855,7 +830,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
                     blob_id: Some(blob_id),
                     failure_phase: "register".to_string(),
                     error,
-                    span: self.span.clone(),
+                    span: self.span,
                 })
             }
         };
@@ -872,21 +847,29 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         Ok(new_state)
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, certificate_result: {:?}",
-            self, certificate_result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_get_certificate_result: {:?}", certificate_result),
+        ))
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            return Err(error);
+        }
+
+        Ok(WalrusStoreBlob::Error(FailedBlob {
+            blob: self.blob,
+            identifier: self.identifier,
+            blob_id: Some(*self.metadata.blob_id()),
+            failure_phase: "register".to_string(),
+            error,
+            span: self.span,
+        }))
     }
 
     fn with_certify_and_extend_result(
@@ -894,20 +877,23 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithS
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
-            self, result, price_computation,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!(
+                "with_certify_and_extend_result: {:?}, price_computation: {:?}",
+                result, price_computation
+            ),
+        ))
     }
 
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
@@ -1005,6 +991,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         None
     }
 
+    // TODO: Return the object ID from the blob.
     fn get_object_id(&self) -> Option<ObjectID> {
         let StoreOp::RegisterNew { blob, .. } = &self.operation else {
             return None;
@@ -1013,7 +1000,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         Some(blob.id)
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         let StoreOp::RegisterNew { operation, blob } = &self.operation else {
             return false;
         };
@@ -1030,7 +1017,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         }
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         let StoreOp::RegisterNew { operation, blob } = &self.operation else {
             return false;
         };
@@ -1042,17 +1029,14 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         matches!(operation, RegisterBlobOp::ReuseAndExtend { .. })
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
-        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
-            return Err(ClientError::store_blob_internal(format!(
-                "Invalid operation for blob {:?}",
-                self,
-            )));
-        };
-
-        if let RegisterBlobOp::ReuseAndExtend {
-            epochs_extended, ..
-        } = operation
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+        if let StoreOp::RegisterNew {
+            operation:
+                RegisterBlobOp::ReuseAndExtend {
+                    epochs_extended, ..
+                },
+            blob,
+        } = &self.operation
         {
             Ok(CertifyAndExtendBlobParams {
                 blob,
@@ -1060,10 +1044,10 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
                 epochs_extended: Some(*epochs_extended),
             })
         } else {
-            Err(ClientError::store_blob_internal(format!(
-                "Invalid operation for blob {:?}",
-                self,
-            )))
+            Err(invalid_operation_for_blob(
+                &self,
+                format!("get_certify_and_extend_params: {:?}", self.operation),
+            ))
         }
     }
 
@@ -1089,62 +1073,15 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
 
     fn with_register_result(
         self,
-        result: Result<StoreOp, ClientError>,
+        result: ClientResult<StoreOp>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.span.enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_register_result",
-                result = ?result
-            );
-        }
-
-        let new_state = match result {
-            Ok(StoreOp::NoOp(result)) => WalrusStoreBlob::Completed(CompletedBlob {
-                blob: self.blob,
-                identifier: self.identifier,
-                result,
-                span: self.span,
-            }),
-            Ok(store_op) => WalrusStoreBlob::Registered(RegisteredBlob {
-                blob: self.blob,
-                identifier: self.identifier,
-                pairs: self.pairs.clone(),
-                metadata: self.metadata.clone(),
-                status: self.status,
-                operation: store_op,
-                span: self.span,
-            }),
-            Err(error) => {
-                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-                    return Err(error);
-                }
-                let blob_id = *self.metadata.blob_id();
-                WalrusStoreBlob::Error(FailedBlob {
-                    blob: self.blob,
-                    identifier: self.identifier,
-                    blob_id: Some(blob_id),
-                    failure_phase: "register".to_string(),
-                    error,
-                    span: self.span.clone(),
-                })
-            }
-        };
-
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_register_result completed",
-                state = ?new_state
-            );
-        }
-
-        Ok(new_state)
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_register_result: {:?}", result),
+        ))
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
@@ -1152,7 +1089,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
             let _enter = self.span.enter();
             tracing::event!(
                 BLOB_SPAN_LEVEL,
-                operation = "with_certificate_result",
+                operation = "with_get_certificate_result",
                 certificate_result = ?certificate_result
             );
         }
@@ -1161,8 +1098,8 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
             Ok(certificate) => WalrusStoreBlob::WithCertificate(BlobWithCertificate {
                 blob: self.blob,
                 identifier: self.identifier,
-                pairs: self.pairs.clone(),
-                metadata: self.metadata.clone(),
+                pairs: self.pairs,
+                metadata: self.metadata,
                 status: self.status,
                 operation: self.operation,
                 certificate,
@@ -1179,7 +1116,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
                     blob_id: Some(blob_id),
                     failure_phase: "certificate".to_string(),
                     error,
-                    span: self.span.clone(),
+                    span: self.span,
                 })
             }
         };
@@ -1197,10 +1134,18 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            Err(error)
+        } else {
+            Ok(WalrusStoreBlob::Error(FailedBlob {
+                blob: self.blob,
+                identifier: self.identifier,
+                blob_id: Some(*self.metadata.blob_id()),
+                failure_phase: "error".to_string(),
+                error,
+                span: self.span,
+            }))
+        }
     }
 
     fn with_certify_and_extend_result(
@@ -1208,10 +1153,48 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
-            self, result, price_computation,
-        )))
+        {
+            let _enter = self.span.enter();
+            tracing::event!(
+                BLOB_SPAN_LEVEL,
+                operation = "with_certify_and_extend_result",
+                result = ?result
+            );
+        }
+
+        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
+            return Err(invalid_operation_for_blob(
+                &self,
+                format!("with_certify_and_extend_result: {:?}", self.operation),
+            ));
+        };
+
+        if !matches!(operation, RegisterBlobOp::ReuseAndExtend { .. }) {
+            return Err(invalid_operation_for_blob(
+                &self,
+                format!("with_certify_and_extend_result: {:?}", self.operation),
+            ));
+        }
+
+        let resource_operation = operation.clone();
+        let blob_object = blob.clone();
+        let new_state = self.complete_with(BlobStoreResult::NewlyCreated {
+            cost: price_computation.operation_cost(&resource_operation),
+            blob_object,
+            resource_operation,
+            shared_blob_object: result.shared_blob_object(),
+        });
+
+        {
+            let _enter = new_state.get_span().enter();
+            tracing::event!(
+                BLOB_SPAN_LEVEL,
+                operation = "certificate completed",
+                state = ?new_state
+            );
+        }
+
+        Ok(new_state)
     }
 
     fn with_encode_result(
@@ -1329,108 +1312,97 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         Some(blob.id)
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         false
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}",
-            self,
-        )))
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
+            return Err(invalid_operation_for_blob(
+                &self,
+                format!("get_certify_and_extend_params: {:?}", self.operation),
+            ));
+        };
+        match operation {
+            RegisterBlobOp::ReuseAndExtend { .. } => Err(invalid_operation_for_blob(
+                &self,
+                format!("get_certify_and_extend_params: {:?}", self.operation),
+            )),
+            RegisterBlobOp::ReuseAndExtendNonCertified {
+                epochs_extended, ..
+            } => Ok(CertifyAndExtendBlobParams {
+                blob,
+                certificate: Some(self.certificate.clone()),
+                epochs_extended: Some(*epochs_extended),
+            }),
+            RegisterBlobOp::RegisterFromScratch { .. }
+            | RegisterBlobOp::ReuseStorage { .. }
+            | RegisterBlobOp::ReuseRegistration { .. } => Ok(CertifyAndExtendBlobParams {
+                blob,
+                certificate: Some(self.certificate.clone()),
+                epochs_extended: None,
+            }),
+        }
     }
 
     fn with_status(
         self,
         status: Result<BlobStatus, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, status: {:?}",
-            self, status,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_status: {:?}", status),
+        ))
     }
 
     fn try_complete_if_certified_beyond_epoch(
         self,
         target_epoch: u32,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, target_epoch: {:?}",
-            self, target_epoch,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("try_complete_if_certified_beyond_epoch: {:?}", target_epoch),
+        ))
     }
 
     fn with_register_result(
         self,
         result: Result<StoreOp, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_register_result: {:?}", result),
+        ))
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        {
-            let _enter = self.span.enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "with_certificate_result",
-                certificate_result = ?certificate_result
-            );
-        }
-
-        let new_state = match certificate_result {
-            Ok(certificate) => WalrusStoreBlob::WithCertificate(BlobWithCertificate {
-                blob: self.blob,
-                identifier: self.identifier,
-                pairs: self.pairs.clone(),
-                metadata: self.metadata.clone(),
-                status: self.status,
-                operation: self.operation,
-                certificate,
-                span: self.span,
-            }),
-            Err(error) => {
-                if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
-                    return Err(error);
-                }
-                let blob_id = *self.metadata.blob_id();
-                WalrusStoreBlob::Error(FailedBlob {
-                    blob: self.blob,
-                    identifier: self.identifier,
-                    blob_id: Some(blob_id),
-                    failure_phase: "certificate".to_string(),
-                    error,
-                    span: self.span.clone(),
-                })
-            }
-        };
-
-        {
-            let _enter = new_state.get_span().enter();
-            tracing::event!(
-                BLOB_SPAN_LEVEL,
-                operation = "certificate completed",
-                state = ?new_state
-            );
-        }
-
-        Ok(new_state)
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_get_certificate_result: {:?}", certificate_result),
+        ))
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            Err(error)
+        } else {
+            let blob_id = self.get_blob_id();
+            Ok(WalrusStoreBlob::Error(FailedBlob {
+                blob: self.get_blob(),
+                identifier: self.identifier,
+                blob_id,
+                failure_phase: "with_certificate".to_string(),
+                error,
+                span: self.span,
+            }))
+        }
     }
 
     fn with_certify_and_extend_result(
@@ -1438,20 +1410,52 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
-            self, result, price_computation,
-        )))
+        {
+            let _enter = self.span.enter();
+            tracing::event!(
+            BLOB_SPAN_LEVEL,
+                operation = "with_certify_and_extend_result",
+                result = ?result
+            );
+        }
+
+        let StoreOp::RegisterNew { operation, blob } = &self.operation else {
+            return Err(invalid_operation_for_blob(
+                &self,
+                format!("with_certify_and_extend_result: {:?}", result),
+            ));
+        };
+
+        let store_result = BlobStoreResult::NewlyCreated {
+            blob_object: blob.clone(),
+            resource_operation: operation.clone(),
+            cost: price_computation.operation_cost(operation),
+            shared_blob_object: result.shared_blob_object(),
+        };
+
+        let new_state = self.complete_with(store_result);
+
+        {
+            let _enter = new_state.get_span().enter();
+            tracing::event!(
+            BLOB_SPAN_LEVEL,
+                operation = "with_certify_and_extend_result",
+                new_state = ?new_state,
+                result = ?result
+            );
+        }
+
+        Ok(new_state)
     }
 
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
@@ -1551,66 +1555,66 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         Some(blob_object.id)
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         false
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         false
     }
 
-    fn get_certify_and_extend_params(&self) -> Result<CertifyAndExtendBlobParams, ClientError> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}",
-            self,
-        )))
+    fn get_certify_and_extend_params(&self) -> ClientResult<CertifyAndExtendBlobParams> {
+        Err(invalid_operation_for_blob(
+            &self,
+            "get_certify_and_extend_params".to_string(),
+        ))
     }
 
     fn with_status(
         self,
         status: Result<BlobStatus, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, status: {:?}",
-            self, status,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_status: {:?}", status),
+        ))
     }
 
     fn try_complete_if_certified_beyond_epoch(
         self,
         target_epoch: u32,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, target_epoch: {:?}",
-            self, target_epoch,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("try_complete_if_certified_beyond_epoch: {:?}", target_epoch),
+        ))
     }
 
     fn with_register_result(
         self,
         result: Result<StoreOp, ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_register_result: {:?}", result),
+        ))
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, certificate_result: {:?}",
-            self, certificate_result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_get_certificate_result: {:?}", certificate_result),
+        ))
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_error: {:?}", error),
+        ))
     }
 
     fn with_certify_and_extend_result(
@@ -1618,20 +1622,23 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
-            self, result, price_computation,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!(
+                "with_certify_and_extend_result: {:?}, price_computation: {:?}",
+                result, price_computation
+            ),
+        ))
     }
 
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
@@ -1731,11 +1738,11 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         None
     }
 
-    fn needs_certificate(&self) -> bool {
+    fn ready_to_get_certificate(&self) -> bool {
         false
     }
 
-    fn needs_extend(&self) -> bool {
+    fn ready_to_extend(&self) -> bool {
         false
     }
 
@@ -1776,7 +1783,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         )))
     }
 
-    fn with_certificate_result(
+    fn with_get_certificate_result(
         self,
         certificate_result: ClientResult<ConfirmationCertificate>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
@@ -1787,10 +1794,19 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
     }
 
     fn with_error(self, error: ClientError) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, error: {:?}",
-            self, error,
-        )))
+        if WalrusStoreBlob::<'_, T>::should_fail_early(&error) {
+            Err(error)
+        } else {
+            let blob_id = self.get_blob_id();
+            Ok(WalrusStoreBlob::Error(FailedBlob {
+                blob: self.get_blob(),
+                identifier: self.identifier,
+                blob_id,
+                failure_phase: "with_certificate".to_string(),
+                error,
+                span: self.span,
+            }))
+        }
     }
 
     fn with_certify_and_extend_result(
@@ -1798,20 +1814,23 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for FailedBlo
         result: CertifyAndExtendBlobResult,
         price_computation: &PriceComputation,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}, price_computation: {:?}",
-            self, result, price_computation,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!(
+                "with_certify_and_extend_result: {:?}, price_computation: {:?}",
+                result, price_computation
+            ),
+        ))
     }
 
     fn with_encode_result(
         self,
         result: Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), ClientError>,
     ) -> ClientResult<WalrusStoreBlob<'a, T>> {
-        Err(ClientError::store_blob_internal(format!(
-            "Invalid operation for blob {:?}, result: {:?}",
-            self, result,
-        )))
+        Err(invalid_operation_for_blob(
+            &self,
+            format!("with_encode_result: {:?}", result),
+        ))
     }
 
     fn complete_with(self, result: BlobStoreResult) -> WalrusStoreBlob<'a, T> {
@@ -1845,6 +1864,13 @@ impl<T: Debug + Clone + Send + Sync> std::fmt::Debug for FailedBlob<'_, T> {
             .field("error", &self.error.to_string())
             .finish()
     }
+}
+
+fn invalid_operation_for_blob<B: Debug>(blob: &B, operation: String) -> ClientError {
+    ClientError::store_blob_internal(format!(
+        "Invalid operation for blob {:?}, operation: {:?}",
+        blob, operation,
+    ))
 }
 
 #[cfg(test)]
