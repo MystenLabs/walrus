@@ -85,7 +85,7 @@ use walrus_core::{
     SliverType,
     SymbolId,
 };
-use walrus_sdk::{
+use walrus_rest_client::{
     api::{
         BlobStatus,
         ServiceHealthInfo,
@@ -2590,7 +2590,7 @@ mod tests {
         DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
+    use walrus_rest_client::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{event_id_for_testing, EventForTesting},
@@ -3975,7 +3975,7 @@ mod tests {
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
                 .await?;
 
-        let error: walrus_sdk::error::NodeError = cluster.nodes[0]
+        let error: walrus_rest_client::error::NodeError = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(ShardIndex(0), BLOB_ID, 10, 0, &ProtocolKeyPair::generate())
             .await
@@ -5283,7 +5283,7 @@ mod tests {
                     assert!(matches!(
                         blob_info.unwrap().unwrap().to_blob_status(1),
                         BlobStatus::Deletable {
-                            deletable_counts: walrus_sdk::api::DeletableCounts {
+                            deletable_counts: walrus_rest_client::api::DeletableCounts {
                                 count_deletable_total: 1,
                                 count_deletable_certified: 0,
                             },

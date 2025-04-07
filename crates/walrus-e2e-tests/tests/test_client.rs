@@ -35,7 +35,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
 };
 use walrus_proc_macros::walrus_simtest;
-use walrus_sdk::api::BlobStatus;
+use walrus_rest_client::api::BlobStatus;
 use walrus_service::{
     client::{
         responses::BlobStoreResult,

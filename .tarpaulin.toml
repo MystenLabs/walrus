@@ -3,7 +3,7 @@ out = ["Html", "Xml"]
 packages = [
   "walrus-core",
   "walrus-e2e-tests",
-  "walrus-sdk",
+  "walrus-rest-client",
   "walrus-service",
   "walrus-sui",
   "walrus-utils",

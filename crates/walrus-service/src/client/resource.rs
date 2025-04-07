@@ -13,7 +13,7 @@ use walrus_core::{
     Epoch,
     EpochCount,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_rest_client::api::BlobStatus;
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},
     types::Blob,

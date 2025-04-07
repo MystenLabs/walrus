@@ -32,7 +32,7 @@ use walrus_core::{
     SliverType,
     SymbolId,
 };
-use walrus_sdk::{
+use walrus_rest_client::{
     api::{BlobStatus, ServiceHealthInfo, StoredOnNodeStatus},
     client::RecoverySymbolsFilter,
 };

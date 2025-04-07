@@ -21,7 +21,7 @@ use typed_store::{
     TypedStoreError,
 };
 use walrus_core::{BlobId, Epoch};
-use walrus_sdk::api::{BlobStatus, DeletableCounts};
+use walrus_rest_client::api::{BlobStatus, DeletableCounts};
 use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, InvalidBlobId};
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
@@ -1188,7 +1188,8 @@ impl Ord for BlobCertificationStatus {
 }
 
 /// Internal representation of the aggregate blob information for use in the database etc. Use
-/// [`walrus_sdk::api::BlobStatus`] for anything public facing (e.g., communication to the client).
+/// [`walrus_rest_client::api::BlobStatus`] for anything public facing (e.g., communication to the
+/// client).
 #[enum_dispatch(CertifiedBlobInfoApi)]
 #[enum_dispatch(BlobInfoApi)]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone)]

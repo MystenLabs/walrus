@@ -14,7 +14,7 @@ use tokio::{
     time::Instant,
 };
 use walrus_core::{BlobId, Epoch, ShardIndex};
-use walrus_sdk::error::ServiceError;
+use walrus_rest_client::error::ServiceError;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{

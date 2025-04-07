@@ -42,7 +42,7 @@ use walrus_core::{
     ShardIndex,
     Sliver,
 };
-use walrus_sdk::{api::BlobStatus, error::NodeError};
+use walrus_rest_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
         BlobPersistence,

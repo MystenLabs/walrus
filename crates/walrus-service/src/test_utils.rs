@@ -47,7 +47,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::client::Client;
+use walrus_rest_client::client::Client;
 use walrus_sui::{
     client::{
         retry_client::RetriableRpcClient,

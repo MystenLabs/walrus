@@ -35,7 +35,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     SUPPORTED_ENCODING_TYPES,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_rest_client::api::BlobStatus;
 use walrus_sui::{
     client::{
         BlobPersistence,

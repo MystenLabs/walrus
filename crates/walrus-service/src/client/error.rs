@@ -4,7 +4,7 @@
 //! The errors for the storage client and the communication with storage nodes.
 
 use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
-use walrus_sdk::error::{ClientBuildError, NodeError};
+use walrus_rest_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{SuiClientError, MIN_STAKING_THRESHOLD};
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the

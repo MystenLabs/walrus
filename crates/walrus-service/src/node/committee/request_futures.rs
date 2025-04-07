@@ -48,7 +48,7 @@ use walrus_core::{
     SliverType,
     SymbolId,
 };
-use walrus_sdk::client::RecoverySymbolsFilter;
+use walrus_rest_client::client::RecoverySymbolsFilter;
 use walrus_sui::types::Committee;
 use walrus_utils::backoff::ExponentialBackoffState;
 
