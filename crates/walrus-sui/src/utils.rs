@@ -422,7 +422,6 @@ pub async fn get_sui_from_wallet_or_faucet(
         min_balance = min_balance
     );
     if balance.total_balance >= u128::from(min_balance) {
-        tracing::debug!("funding from admin wallet");
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(sui_amount));
         let ptb = ptb.finish();
@@ -449,7 +448,6 @@ pub async fn get_sui_from_wallet_or_faucet(
             .await?;
         Ok(())
     } else {
-        tracing::debug!("funding from faucet");
         request_sui_from_faucet(address, network, &wallet.get_client().await?).await?;
         Ok(())
     }
