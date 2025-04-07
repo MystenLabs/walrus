@@ -87,9 +87,10 @@ async fn main() -> Result<()> {
         .map(|(k, v)| Label { name: k, value: v })
         .collect();
 
-    // convert remove_labels to a hashset for faster lookup
+    // convert optional remove_labels to a hashset for faster lookup
     let remove_labels = config
         .remove_labels
+        .unwrap_or_default()
         .into_iter()
         .collect::<std::collections::HashSet<_>>();
 
