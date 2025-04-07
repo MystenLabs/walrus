@@ -144,9 +144,7 @@ pub enum ClientErrorKind {
     #[error("no compatible payment coin found")]
     NoCompatiblePaymentCoin,
     /// No gas coins with sufficient balance found for the transaction.
-    #[error(
-        "no compatible gas coins with sufficient total balance found [requested_amount={0:?}]"
-    )]
+    #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
     NoCompatibleGasCoins(Option<u128>),
     /// The client was unable to open connections to any storage node.
     #[error("connecting to all storage nodes failed: {0}")]
