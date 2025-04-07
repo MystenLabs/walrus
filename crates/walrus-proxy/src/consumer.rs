@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::io::Read;
+use std::{collections::HashSet, io::Read};
 
 use anyhow::Result;
 use axum::{body::Bytes, http::StatusCode};
@@ -144,6 +144,8 @@ pub fn populate_labels(
     name: String,
     // labels to apply from local config from walrus-proxy
     labels: Vec<Label>,
+    // labels to remove from all metrics
+    remove_labels: HashSet<String>,
     // labels and metric data sent to use from the node
     data: MetricFamilyWithStaticLabels,
 ) -> Vec<proto::MetricFamily> {
@@ -174,7 +176,12 @@ pub fn populate_labels(
     metric_families
         .iter_mut()
         .flat_map(|mf| mf.mut_metric())
-        .for_each(|m| m.mut_label().extend(label_pairs.clone()));
+        .for_each(|m| {
+            m.mut_label().extend(label_pairs.clone());
+            // if the metric has a label that is in the remove_labels list, remove it
+            m.mut_label()
+                .retain(|label| !remove_labels.contains(&label.get_name().to_string()));
+        });
 
     timer.observe_duration();
     metric_families

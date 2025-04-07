@@ -16,6 +16,8 @@ use tracing::debug;
 pub struct ProxyConfig {
     /// labels that will be applied to all metrics a given proxy relays
     pub labels: HashMap<String, String>,
+    /// labels that will be removed from all metrics a given proxy relays
+    pub remove_labels: Vec<String>,
     /// what address to bind to
     pub listen_address: SocketAddr,
     /// remote write configuration
