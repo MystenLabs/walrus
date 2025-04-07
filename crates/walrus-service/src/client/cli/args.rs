@@ -798,7 +798,7 @@ pub struct PublisherArgs {
     #[clap(long)]
     #[serde(default)]
     pub jwt_decode_secret: Option<String>,
-    /// If unset, the JWT authentication algorithm will be HMAC.
+    /// If unset, the JWT authentication algorithm will be HMAC (HS256).
     ///
     /// The following algorithms are supported: "HS256", "HS384", "HS512", "ES256", "ES384",
     /// "RS256", "RS384", "PS256", "PS384", "PS512", "RS512", "EdDSA".
