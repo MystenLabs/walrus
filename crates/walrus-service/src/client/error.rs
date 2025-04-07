@@ -141,7 +141,7 @@ pub enum ClientErrorKind {
     #[error("the blob ID {0} is blocked")]
     BlobIdBlocked(BlobId),
     /// No matching payment coin found for the transaction.
-    #[error("no compatible payment coin found")]
+    #[error("could not find WAL coins with sufficient balance")]
     NoCompatiblePaymentCoin,
     /// No gas coins with sufficient balance found for the transaction.
     #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
