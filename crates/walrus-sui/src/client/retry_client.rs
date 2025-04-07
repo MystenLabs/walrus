@@ -29,7 +29,7 @@ use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
-use sui_rpc_api::Client as RpcClient;
+use sui_rpc_api::{client::ResponseExt, Client as RpcClient};
 use sui_sdk::{
     apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
@@ -1207,7 +1207,8 @@ impl RetriableClientError {
         match self {
             Self::RpcError(rpc_error) if rpc_error.status.code() == tonic::Code::NotFound => {
                 rpc_error
-                    .checkpoint_seq_num
+                    .status
+                    .checkpoint_height()
                     .is_some_and(|height| next_checkpoint < height)
             }
             _ => true,
