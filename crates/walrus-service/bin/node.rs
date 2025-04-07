@@ -473,6 +473,7 @@ mod commands {
                 event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
                 EventProcessorConfig,
             },
+            DatabaseConfig,
         },
         utils,
     };
@@ -585,6 +586,7 @@ mod commands {
             &config.storage_path,
             &metrics_runtime.registry,
             cancel_token.child_token(),
+            &config.db_config,
         )?;
 
         let node_runtime = StorageNodeRuntime::start(
@@ -950,6 +952,7 @@ mod commands {
             event_polling_interval: Duration::from_secs(1),
             db_path: db_path.clone(),
             rpc_fallback_config: rpc_fallback_config_args.and_then(|args| args.to_config()),
+            db_config: DatabaseConfig::default(),
         };
 
         // Create SuiClientSet

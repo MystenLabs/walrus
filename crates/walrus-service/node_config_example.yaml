@@ -43,6 +43,15 @@ db_config:
   shard_status: null
   shard_sync_progress: null
   pending_recover_slivers: null
+  certified: null
+  pending: null
+  attested: null
+  failed_to_attest: null
+  checkpoint_store: null
+  walrus_package_store: null
+  committee_store: null
+  event_store: null
+  init_state: null
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
 next_protocol_key_pair: null

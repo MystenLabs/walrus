@@ -72,15 +72,18 @@ use walrus_sui::{
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 use crate::{
-    node::events::{
-        ensure_experimental_rest_endpoint_exists,
-        event_blob::EventBlob,
-        CheckpointEventPosition,
-        EventProcessorConfig,
-        IndexedStreamEvent,
-        InitState,
-        PositionedStreamEvent,
-        StreamEventWithInitState,
+    node::{
+        events::{
+            ensure_experimental_rest_endpoint_exists,
+            event_blob::EventBlob,
+            CheckpointEventPosition,
+            EventProcessorConfig,
+            IndexedStreamEvent,
+            InitState,
+            PositionedStreamEvent,
+            StreamEventWithInitState,
+        },
+        DatabaseConfig,
     },
     utils::collect_event_blobs_for_catchup,
 };
@@ -231,6 +234,8 @@ pub struct EventProcessorRuntimeConfig {
     pub db_path: PathBuf,
     /// The path to the rpc fallback config.
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
+    /// The database config.
+    pub db_config: DatabaseConfig,
 }
 
 /// Struct to group client-related parameters.
@@ -746,8 +751,8 @@ impl EventProcessor {
     pub fn initialize_database(
         processor_config: &EventProcessorRuntimeConfig,
     ) -> Result<Arc<RocksDB>> {
-        let metric_conf = MetricConf::default();
-        let mut db_opts = Options::default();
+        let metric_conf = MetricConf::new("event_processor");
+        let mut db_opts = Options::from(&processor_config.db_config.global());
         db_opts.create_missing_column_families(true);
         db_opts.create_if_missing(true);
         let database = rocks::open_cf_opts(
@@ -755,37 +760,73 @@ impl EventProcessor {
             Some(db_opts),
             metric_conf,
             &[
-                (CHECKPOINT_STORE, Options::default()),
-                (WALRUS_PACKAGE_STORE, Options::default()),
-                (COMMITTEE_STORE, Options::default()),
-                (EVENT_STORE, Options::default()),
-                (INIT_STATE, Options::default()),
+                (
+                    CHECKPOINT_STORE,
+                    processor_config.db_config.checkpoint_store().to_options(),
+                ),
+                (
+                    WALRUS_PACKAGE_STORE,
+                    processor_config
+                        .db_config
+                        .walrus_package_store()
+                        .to_options(),
+                ),
+                (
+                    COMMITTEE_STORE,
+                    processor_config.db_config.committee_store().to_options(),
+                ),
+                (
+                    EVENT_STORE,
+                    processor_config.db_config.event_store().to_options(),
+                ),
+                (
+                    INIT_STATE,
+                    processor_config.db_config.init_state().to_options(),
+                ),
             ],
         )?;
 
         if database.cf_handle(CHECKPOINT_STORE).is_none() {
             database
-                .create_cf(CHECKPOINT_STORE, &Options::default())
+                .create_cf(
+                    CHECKPOINT_STORE,
+                    &processor_config.db_config.checkpoint_store().to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(WALRUS_PACKAGE_STORE).is_none() {
             database
-                .create_cf(WALRUS_PACKAGE_STORE, &Options::default())
+                .create_cf(
+                    WALRUS_PACKAGE_STORE,
+                    &processor_config
+                        .db_config
+                        .walrus_package_store()
+                        .to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(COMMITTEE_STORE).is_none() {
             database
-                .create_cf(COMMITTEE_STORE, &Options::default())
+                .create_cf(
+                    COMMITTEE_STORE,
+                    &processor_config.db_config.committee_store().to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(EVENT_STORE).is_none() {
             database
-                .create_cf(EVENT_STORE, &Options::default())
+                .create_cf(
+                    EVENT_STORE,
+                    &processor_config.db_config.event_store().to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         if database.cf_handle(INIT_STATE).is_none() {
             database
-                .create_cf(INIT_STATE, &Options::default())
+                .create_cf(
+                    INIT_STATE,
+                    &processor_config.db_config.init_state().to_options(),
+                )
                 .map_err(typed_store_err_from_rocks_err)?;
         }
         Ok(database)

@@ -51,6 +51,7 @@ use crate::{
         },
         metrics::TelemetryLabel as _,
         system_events::SystemEventProvider as _,
+        DatabaseConfig,
     },
 };
 
@@ -328,6 +329,7 @@ pub async fn start_backup_orchestrator(
         &config.backup_storage_path,
         &metrics_runtime.registry,
         cancel_token.child_token(),
+        &DatabaseConfig::default(),
     )
     .await?;
 

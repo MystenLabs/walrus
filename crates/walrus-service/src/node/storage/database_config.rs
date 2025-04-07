@@ -273,9 +273,32 @@ pub struct DatabaseConfig {
     pub(super) shard_sync_progress: Option<DatabaseTableOptions>,
     /// Pending recover slivers database options.
     pub(super) pending_recover_slivers: Option<DatabaseTableOptions>,
+    /// Event blob writer certified options.
+    pub(super) certified: Option<DatabaseTableOptions>,
+    /// Event blob writer pending options.
+    pub(super) pending: Option<DatabaseTableOptions>,
+    /// Event blob writer attested options.
+    pub(super) attested: Option<DatabaseTableOptions>,
+    /// Event blob writer failed to attest options.
+    pub(super) failed_to_attest: Option<DatabaseTableOptions>,
+    /// Checkpoint store database options.
+    pub(super) checkpoint_store: Option<DatabaseTableOptions>,
+    /// Walrus package store database options.
+    pub(super) walrus_package_store: Option<DatabaseTableOptions>,
+    /// Committee store database options.
+    pub(super) committee_store: Option<DatabaseTableOptions>,
+    /// Event store database options.
+    pub(super) event_store: Option<DatabaseTableOptions>,
+    /// Init state store database options.
+    pub(super) init_state: Option<DatabaseTableOptions>,
 }
 
 impl DatabaseConfig {
+    /// Returns the global database options.
+    pub fn global(&self) -> GlobalDatabaseOptions {
+        self.global.clone()
+    }
+
     /// Returns the node status database option.
     pub fn node_status(&self) -> DatabaseTableOptions {
         self.node_status
@@ -347,6 +370,69 @@ impl DatabaseConfig {
             .map(|options| options.inherit_from(self.standard.clone()))
             .unwrap_or_else(|| self.standard.clone())
     }
+
+    /// Returns the event blob writer certified database option.
+    pub fn certified(&self) -> DatabaseTableOptions {
+        self.certified
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the event blob writer pending database option.
+    pub fn pending(&self) -> DatabaseTableOptions {
+        self.pending
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the event blob writer attested database option.
+    pub fn attested(&self) -> DatabaseTableOptions {
+        self.attested
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the event blob writer failed to attest database option.
+    pub fn failed_to_attest(&self) -> DatabaseTableOptions {
+        self.failed_to_attest
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the checkpoint store database option.
+    pub fn checkpoint_store(&self) -> DatabaseTableOptions {
+        self.checkpoint_store
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the walrus package store database option.
+    pub fn walrus_package_store(&self) -> DatabaseTableOptions {
+        self.walrus_package_store
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the committee store database option.
+    pub fn committee_store(&self) -> DatabaseTableOptions {
+        self.committee_store
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the event store database option.
+    pub fn event_store(&self) -> DatabaseTableOptions {
+        self.event_store
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
+
+    /// Returns the init state store database option.
+    pub fn init_state(&self) -> DatabaseTableOptions {
+        self.init_state
+            .clone()
+            .unwrap_or_else(|| self.standard.clone())
+    }
 }
 
 impl Default for DatabaseConfig {
@@ -364,6 +450,15 @@ impl Default for DatabaseConfig {
             shard_status: None,
             shard_sync_progress: None,
             pending_recover_slivers: None,
+            certified: None,
+            pending: None,
+            attested: None,
+            failed_to_attest: None,
+            checkpoint_store: None,
+            walrus_package_store: None,
+            committee_store: None,
+            event_store: None,
+            init_state: None,
         }
     }
 }

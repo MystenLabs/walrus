@@ -499,6 +499,7 @@ impl SimStorageNodeHandle {
                         .path()
                         .to_path_buf()),
                     rpc_fallback_config: None,
+                    db_config: DatabaseConfig::default(),
                 };
             let system_config = crate::node::events::event_processor::SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
@@ -2585,6 +2586,7 @@ pub mod test_cluster {
                     .path()
                     .to_path_buf()),
                 rpc_fallback_config: None,
+                db_config: DatabaseConfig::default(),
             };
             let system_config = SystemConfig {
                 system_pkg_id: sui_read_client.get_system_package_id(),

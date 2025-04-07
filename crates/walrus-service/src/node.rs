@@ -406,6 +406,7 @@ impl StorageNodeBuilder {
                     event_polling_interval: sui_config.event_polling_interval,
                     db_path: config.storage_path.join("events"),
                     rpc_fallback_config: sui_config.rpc_fallback_config.clone(),
+                    db_config: config.db_config.clone(),
                 };
                 let system_config = SystemConfig {
                     system_pkg_id: read_client.get_system_package_id(),
@@ -658,6 +659,7 @@ impl StorageNode {
         let event_blob_writer_factory = if !config.disable_event_blob_writer {
             Some(EventBlobWriterFactory::new(
                 &config.storage_path,
+                &config.db_config,
                 inner.clone(),
                 registry,
                 node_params.num_checkpoints_per_blob,
