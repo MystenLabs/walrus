@@ -417,9 +417,11 @@ pub async fn get_sui_from_wallet_or_faucet(
         .get_balance(sender, None)
         .await?;
     tracing::debug!(
-        "funding {address} with {sui_amount} SUI, balance: {balance:?}, min_balance: {min_balance:?}",
-        balance = balance.total_balance,
-        min_balance = min_balance
+        address = %address,
+        sui_amount = %sui_amount,
+        balance = %balance.total_balance,
+        min_balance = %min_balance,
+        "funding address with SUI"
     );
     if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();
