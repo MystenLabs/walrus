@@ -10,7 +10,7 @@ backoff = ["dep:anyhow", "dep:rand", "dep:serde", "dep:serde_with", "dep:tracing
 config = ["dep:anyhow", "dep:home", "dep:serde", "dep:tracing"]
 default = []
 http = ["dep:bytes", "dep:http-body", "dep:pin-project"]
-metrics = ["dep:prometheus"]
+metrics = ["dep:prometheus", "dep:thiserror"]
 test-utils = ["dep:tempfile", "tokio/sync"]
 tokio-metrics = ["dep:tokio-metrics"]
 
@@ -26,6 +26,7 @@ serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
 serde_with = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"], optional = true }
 tokio-metrics = { version = "0.4.0", optional = true, default-features = false }
 tokio-util = { workspace = true, optional = true }

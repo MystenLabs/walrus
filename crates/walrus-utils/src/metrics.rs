@@ -1,13 +1,129 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use prometheus::IntGauge;
+use std::{
+    any::Any,
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use prometheus::{core::Collector, IntGauge};
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 mod tokio;
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 pub use tokio::{TaskMonitorCollector, TaskMonitorFamily};
+
+/// Errors returned during registration of a collector with [`Registry::register`].
+#[derive(Debug, thiserror::Error)]
+pub enum RegistrationError {
+    /// Error returned when collectors with the same name have different types (e.g., counter and
+    /// gauge with the same fully-qualified name).
+    #[error("a collector with the same ID was already registered but with a different type")]
+    InconsistentType,
+
+    /// Distinct collectors (such as a histogram) should not have an overlapping set of metrics
+    /// (i.e., metrics with the same fully-qualified name).
+    ///
+    /// This could also be raised if a collector was registered directly on the inner
+    /// [`prometheus::Registry`]. To avoid this, ensure that all registrations go through a clone
+    /// of a single registry.
+    #[error(
+        "at least one metric in the collector has already been registered, ensure no overlaps"
+    )]
+    MetricsOverlap,
+
+    /// Errors raised by the inner [`prometheus::Registry::register`].
+    ///
+    /// This will never be [`prometheus::Error::AlreadyReg`].
+    #[error(transparent)]
+    Prometheus(prometheus::Error),
+}
+
+/// A thin wrapper around [`prometheus::Registry`] that returns the existing metric on attempts
+/// to register the same metric twice.
+///
+// NB(jsmith): Can be removed if rust-prometheus issues #495 or #248 are ever resolved to provide an
+// alternative solution:
+// github.com/tikv/rust-prometheus/issues/495, github.com/tikv/rust-prometheus/issues/248
+#[derive(Debug, Clone, Default)]
+pub struct Registry {
+    inner: prometheus::Registry,
+    collectors_by_id: Arc<Mutex<HashMap<u64, Box<dyn Any>>>>,
+}
+
+impl Registry {
+    /// Returns a new instance of the registry wrapping the provided [`prometheus::Registry`]
+    pub fn new(inner: prometheus::Registry) -> Self {
+        Self {
+            inner,
+            collectors_by_id: Default::default(),
+        }
+    }
+
+    /// Gets a previously registered collector that matches the provided collector,
+    /// or registers that collector and returns it.
+    #[must_use = "use the returned value as the given collector may have already been registered"]
+    pub fn get_or_register<T>(&self, collector: T) -> Result<T, RegistrationError>
+    where
+        T: Collector + Clone + 'static,
+    {
+        let result = self.inner.register(Box::new(collector.clone()));
+
+        match result {
+            Err(prometheus::Error::AlreadyReg) => (), // This case is handled below
+            Ok(()) => {
+                let collector_id = Self::collector_id(&collector);
+                let prior_collector = self
+                    .collectors_by_id
+                    .lock()
+                    .expect("critical section shouldnt panic")
+                    .insert(collector_id, Box::new(collector.clone()));
+                assert!(
+                    prior_collector.is_none(),
+                    "collectors should not be unregistered"
+                );
+
+                return Ok(collector);
+            }
+            Err(other) => return Err(RegistrationError::Prometheus(other)),
+        }
+
+        // The registry returned AlreadyReg, which it does if ANY of the contained metrics in the
+        // collector is already registered. Therefore, we check if a collector with the same ID has
+        // already been registered. If so, then since the ID of the collector considers the IDs of
+        // the inner metrics, the conflict is likely caused by this exact collector being previously
+        // registered, and not two collectors with different IDs but overlapping metrics being
+        // registered.
+        let collector_id = Self::collector_id(&collector);
+        let collectors_by_id = self
+            .collectors_by_id
+            .lock()
+            .expect("critical section shouldnt panic");
+
+        let any_collector = collectors_by_id
+            .get(&collector_id)
+            .ok_or(RegistrationError::MetricsOverlap)?;
+
+        any_collector
+            .downcast_ref::<T>()
+            .cloned()
+            .ok_or(RegistrationError::InconsistentType)
+    }
+
+    /// Returns an ID for the collector.
+    fn collector_id<T: Collector>(collector: &T) -> u64 {
+        // This is the approach used by `prometheus::Registry::register` for constructing the ID of
+        // a collector (as of 2025-04-07).
+        collector
+            .desc()
+            .into_iter()
+            .fold(0u64, |collector_id, desc| {
+                collector_id.wrapping_add(desc.id)
+            })
+    }
+}
 
 /// Defines a set of prometheus metrics.
 ///
@@ -239,5 +355,43 @@ impl OwnedGaugeGuard {
 impl Drop for OwnedGaugeGuard {
     fn drop(&mut self) {
         self.0.dec();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use prometheus::{Counter, Gauge};
+
+    use super::*;
+
+    #[test]
+    fn allows_repeated_registrations() {
+        let registry = Registry::default();
+        let name = "my_counter";
+        let help = "a simple counter";
+
+        let _ = registry
+            .get_or_register(Counter::new(name, help).unwrap())
+            .expect("must register successfully");
+
+        let _ = registry
+            .get_or_register(Counter::new(name, help).unwrap())
+            .expect("must repeatedly register successfully");
+    }
+
+    #[test]
+    fn fails_for_collectors_with_different_types_but_same_name() {
+        let registry = Registry::default();
+        let name = "my_counter";
+        let help = "a simple counter";
+
+        let _ = registry
+            .get_or_register(Counter::new(name, help).unwrap())
+            .expect("must register successfully");
+
+        let error = registry
+            .get_or_register(Gauge::new(name, help).unwrap())
+            .expect_err("must fail for different type but same name");
+        assert!(matches!(error, RegistrationError::InconsistentType));
     }
 }
