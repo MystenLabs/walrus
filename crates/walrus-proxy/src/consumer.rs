@@ -180,7 +180,7 @@ pub fn populate_labels(
             m.mut_label().extend(label_pairs.clone());
             // if the metric has a label that is in the remove_labels list, remove it
             m.mut_label()
-                .retain(|label| !remove_labels.contains(&label.get_name().to_string()));
+                .retain(|label| !remove_labels.contains(label.get_name()));
         });
 
     timer.observe_duration();
