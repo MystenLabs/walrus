@@ -29,7 +29,6 @@ use futures::{
 };
 use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
-use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
@@ -113,7 +112,7 @@ use walrus_sui::{
         GENESIS_EPOCH,
     },
 };
-use walrus_utils::metrics::TaskMonitorFamily;
+use walrus_utils::metrics::{Registry, TaskMonitorFamily};
 
 use self::{
     blob_sync::BlobSyncHandler,

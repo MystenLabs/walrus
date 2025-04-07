@@ -14,7 +14,7 @@ use std::{
 use anyhow::{Context, Result};
 use byteorder::{BigEndian, WriteBytesExt};
 use futures_util::future::try_join_all;
-use prometheus::{register_int_gauge_with_registry, IntGauge, Registry};
+use prometheus::{register_int_gauge_with_registry, IntGauge};
 use rand::{thread_rng, Rng};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,7 @@ use walrus_sui::{
         EpochChangeEvent,
     },
 };
+use walrus_utils::metrics::Registry;
 
 use crate::node::{
     errors::StoreSliverError,
@@ -1615,7 +1616,6 @@ mod tests {
     };
 
     use anyhow::Result;
-    use prometheus::Registry;
     use sui_types::{digests::TransactionDigest, event::EventID};
     use typed_store::Map;
     use walrus_core::{BlobId, ShardIndex};
@@ -1623,6 +1623,7 @@ mod tests {
         test_utils::EventForTesting,
         types::{BlobCertified, ContractEvent, EpochChangeEvent, EpochChangeStart},
     };
+    use walrus_utils::metrics::Registry;
 
     use crate::{
         node::events::{
@@ -1640,7 +1641,7 @@ mod tests {
         const NUM_EVENTS_PER_CHECKPOINT: u64 = 2;
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
-        let registry = Registry::new();
+        let registry = Registry::default();
         let node = create_test_node().await?;
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
@@ -1692,7 +1693,7 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
         let node = create_test_node().await?;
-        let registry = Registry::new();
+        let registry = Registry::default();
 
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
@@ -1775,7 +1776,7 @@ mod tests {
 
         let dir: PathBuf = tempfile::tempdir()?.into_path();
         let node = create_test_node().await?;
-        let registry = Registry::new();
+        let registry = Registry::default();
         let blob_writer_factory = EventBlobWriterFactory::new(
             &dir,
             node.storage_node.inner().clone(),

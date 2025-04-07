@@ -17,7 +17,6 @@ use fastcrypto::{secp256r1::Secp256r1PrivateKey, traits::ToFromBytes};
 use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
-use prometheus::Registry;
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -27,6 +26,7 @@ use tracing::Instrument as _;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding, keys::NetworkKeyPair};
+use walrus_utils::metrics::Registry;
 
 use self::telemetry::MetricsMiddlewareState;
 use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
@@ -702,7 +702,7 @@ mod tests {
             Arc::new(MockServiceState),
             CancellationToken::new(),
             rest_api_config,
-            &Registry::new(),
+            &Registry::default(),
         );
         let server = Arc::new(server);
         let server_copy = server.clone();
@@ -1039,7 +1039,7 @@ mod tests {
             Arc::new(MockServiceState),
             cancel_token.clone(),
             config.as_ref().into(),
-            &Registry::new(),
+            &Registry::default(),
         );
         let handle = tokio::spawn(async move { server.run().await });
 

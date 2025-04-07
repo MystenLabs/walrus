@@ -26,7 +26,7 @@ use fastcrypto::{
 };
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-use prometheus::{Encoder, HistogramVec, Registry};
+use prometheus::{Encoder, HistogramVec};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -58,6 +58,7 @@ use walrus_sui::{
     client::{retry_client::RetriableSuiClient, SuiReadClient},
     utils::SuiNetwork,
 };
+use walrus_utils::metrics::Registry;
 
 use super::active_committees::ActiveCommittees;
 use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
@@ -289,7 +290,7 @@ impl MetricsAndLoggingRuntime {
 
         Ok(Self {
             runtime,
-            registry: walrus_registry,
+            registry: Registry::new(walrus_registry),
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
         })

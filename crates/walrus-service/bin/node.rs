@@ -459,7 +459,6 @@ mod commands {
         NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
     };
-    use prometheus::Registry;
     use sui_sdk::SuiClientBuilder;
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
@@ -487,7 +486,7 @@ mod commands {
         config::{load_wallet_context_from_path, WalletConfig},
         types::move_structs::NodeMetadata,
     };
-    use walrus_utils::backoff::ExponentialBackoffConfig;
+    use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
     use super::*;
 

@@ -16,7 +16,6 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use indicatif::MultiProgress;
 use itertools::Itertools as _;
-use prometheus::Registry;
 use rand::seq::SliceRandom;
 use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_sdk::wallet_context::WalletContext;
@@ -49,6 +48,7 @@ use walrus_sui::{
     types::move_structs::{Authorized, BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
+use walrus_utils::metrics::Registry;
 
 use super::args::{
     AggregatorArgs,

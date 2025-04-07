@@ -12208,6 +12208,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tempfile",
+ "thiserror 2.0.12",
  "tokio",
  "tokio-metrics",
  "tokio-util 0.7.13 (registry+https://github.com/rust-lang/crates.io-index)",

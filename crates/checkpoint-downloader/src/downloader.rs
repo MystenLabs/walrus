@@ -9,7 +9,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use prometheus::Registry;
 use rand::{rngs::StdRng, SeedableRng};
 use sui_rpc_api::client::ResponseExt;
 use sui_types::messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint};
@@ -22,6 +21,7 @@ use typed_store::{rocks::DBMap, Map};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
 #[cfg(not(test))]
 use walrus_utils::backoff::ExponentialBackoff;
+use walrus_utils::metrics::Registry;
 
 use crate::{
     config::{AdaptiveDownloaderConfig, PoolMonitorConfig},

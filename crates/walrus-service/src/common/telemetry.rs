@@ -36,7 +36,6 @@ use prometheus::{
     IntGauge,
     IntGaugeVec,
     Opts,
-    Registry,
 };
 use reqwest::Method;
 use tokio::time::Instant;
@@ -47,7 +46,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
 use walrus_utils::{
     http::{http_body::Frame, BodyVisitor, VisitBody},
-    metrics::TaskMonitorFamily,
+    metrics::{Registry, TaskMonitorFamily},
 };
 
 use super::active_committees::ActiveCommittees;
