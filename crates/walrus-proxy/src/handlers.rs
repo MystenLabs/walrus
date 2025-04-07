@@ -1,9 +1,10 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+use std::collections::HashSet;
+
 use axum::{extract::Extension, http::StatusCode};
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
-use std::collections::HashSet;
 
 use crate::{
     admin::ReqwestClient,
