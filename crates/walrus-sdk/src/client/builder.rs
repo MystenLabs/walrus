@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use prometheus::Registry;
 use reqwest::{ClientBuilder as ReqwestClientBuilder, Url};
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use walrus_core::NetworkPublicKey;
+use walrus_utils::metrics::Registry;
 
 use super::{HttpClientMetrics, HttpMiddleware};
 use crate::{
@@ -186,14 +186,12 @@ impl ClientBuilder {
             .build()
             .map_err(ClientBuildError::reqwest)?;
 
-        let registry = self
-            .registry
-            .as_ref()
-            .unwrap_or_else(|| prometheus::default_registry());
-
         Ok(Client {
             client_clone: inner.clone(),
-            inner: HttpMiddleware::new(inner, HttpClientMetrics::new(registry)),
+            inner: HttpMiddleware::new(
+                inner,
+                HttpClientMetrics::new(&self.registry.unwrap_or_default()),
+            ),
             endpoints,
         })
     }

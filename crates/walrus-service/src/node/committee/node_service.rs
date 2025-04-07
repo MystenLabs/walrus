@@ -24,7 +24,6 @@ use std::{
 };
 
 use futures::{future::BoxFuture, FutureExt};
-use prometheus::Registry;
 use tower::Service;
 use walrus_core::{
     encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
@@ -46,6 +45,7 @@ use walrus_sdk::{
     error::{ClientBuildError, NodeError},
 };
 use walrus_sui::types::StorageNode as SuiStorageNode;
+use walrus_utils::metrics::Registry;
 
 use super::{DefaultRecoverySymbol, NodeServiceFactory};
 

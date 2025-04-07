@@ -24,7 +24,7 @@ use move_core_types::{
     account_address::AccountAddress,
     annotated_value::{MoveDatatypeLayout, MoveTypeLayout},
 };
-use prometheus::{IntCounter, IntCounterVec, IntGauge, Registry};
+use prometheus::{IntCounter, IntCounterVec, IntGauge};
 use rocksdb::Options;
 use sui_package_resolver::{
     error::Error as PackageResolverError,
@@ -69,7 +69,7 @@ use walrus_sui::{
     },
     types::ContractEvent,
 };
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 use crate::{
     node::events::{

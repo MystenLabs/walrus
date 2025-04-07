@@ -21,7 +21,6 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{future, stream::FuturesUnordered, StreamExt};
-use prometheus::Registry;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
@@ -69,7 +68,7 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::WithTempDir;
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
 use crate::common::config::SuiConfig;

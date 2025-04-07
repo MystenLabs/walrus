@@ -15,7 +15,6 @@ use blob_info::{BlobInfoIterator, PerObjectBlobInfo, PerObjectBlobInfoIterator};
 use event_cursor_table::EventIdWithProgress;
 use itertools::Itertools;
 use metrics::{CommonDatabaseMetrics, Labels, OperationType};
-use prometheus::Registry;
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_sdk::types::event::EventID;
@@ -34,6 +33,7 @@ use walrus_core::{
     ShardIndex,
 };
 use walrus_sui::types::BlobEvent;
+use walrus_utils::metrics::Registry;
 
 use self::{
     blob_info::{BlobInfo, BlobInfoApi, BlobInfoTable},
@@ -764,7 +764,6 @@ pub(crate) mod tests {
         shard_status_column_family_name,
         shard_sync_progress_column_family_name,
     };
-    use prometheus::Registry;
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
@@ -797,7 +796,7 @@ pub(crate) mod tests {
 
     /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
     pub(crate) async fn empty_storage() -> WithTempDir<Storage> {
-        typed_store::metrics::DBMetrics::init(&Registry::new());
+        typed_store::metrics::DBMetrics::init(&prometheus::Registry::default());
         empty_storage_with_shards(&[SHARD_INDEX]).await
     }
 

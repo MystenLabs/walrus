@@ -9,7 +9,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use prometheus::Registry;
 use rand::{seq::SliceRandom, thread_rng};
 use reqwest::Client as ReqwestClient;
 use rustls::pki_types::CertificateDer;
@@ -21,6 +20,7 @@ use walrus_sdk::{
     error::ClientBuildError,
 };
 use walrus_sui::types::{Committee, NetworkAddress, StorageNode};
+use walrus_utils::metrics::Registry;
 
 use super::{NodeCommunication, NodeReadCommunication, NodeWriteCommunication};
 use crate::{

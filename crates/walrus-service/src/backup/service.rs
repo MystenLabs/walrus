@@ -20,10 +20,7 @@ use diesel_async::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use futures::{stream, StreamExt};
 use object_store::{gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, ObjectStore};
-use prometheus::{
-    core::{AtomicU64, GenericCounter},
-    Registry,
-};
+use prometheus::core::{AtomicU64, GenericCounter};
 use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
@@ -32,6 +29,7 @@ use walrus_sui::{
     client::{retry_client::RetriableSuiClient, SuiReadClient},
     types::{BlobEvent, ContractEvent, EpochChangeEvent, EpochChangeStart},
 };
+use walrus_utils::metrics::Registry;
 
 use super::{
     config::{BackupConfig, BackupDbConfig},

@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use prometheus::{core::Collector, IntGauge};
+use prometheus::{core::Collector, proto::MetricFamily, IntGauge};
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 mod tokio;
@@ -50,7 +50,7 @@ pub enum RegistrationError {
 #[derive(Debug, Clone, Default)]
 pub struct Registry {
     inner: prometheus::Registry,
-    collectors_by_id: Arc<Mutex<HashMap<u64, Box<dyn Any>>>>,
+    collectors_by_id: Arc<Mutex<HashMap<u64, Box<dyn Any + Send>>>>,
 }
 
 impl Registry {
@@ -67,7 +67,7 @@ impl Registry {
     #[must_use = "use the returned value as the given collector may have already been registered"]
     pub fn get_or_register<T>(&self, collector: T) -> Result<T, RegistrationError>
     where
-        T: Collector + Clone + 'static,
+        T: Collector + Send + Clone + 'static,
     {
         let result = self.inner.register(Box::new(collector.clone()));
 
@@ -112,6 +112,11 @@ impl Registry {
             .ok_or(RegistrationError::InconsistentType)
     }
 
+    /// Registers a metric on the underlying registry.
+    pub fn register(&self, collector: Box<dyn Collector>) -> Result<(), prometheus::Error> {
+        self.inner.register(collector)
+    }
+
     /// Returns an ID for the collector.
     fn collector_id<T: Collector>(collector: &T) -> u64 {
         // This is the approach used by `prometheus::Registry::register` for constructing the ID of
@@ -122,6 +127,11 @@ impl Registry {
             .fold(0u64, |collector_id, desc| {
                 collector_id.wrapping_add(desc.id)
             })
+    }
+
+    /// Calls `prometheus::Registry::gather()`.
+    pub fn gather(&self) -> Vec<MetricFamily> {
+        self.inner.gather()
     }
 }
 
@@ -189,32 +199,8 @@ macro_rules! define_metric_set {
             /// The namespace in which the metrics reside.
             pub const NAMESPACE: &'static str = $namespace;
 
-            /// Create a unique ID for this instance of the defined metric set, which will be used
-            /// to separate multiple instantiations of the metric, so that they can be registered
-            /// together.
-            fn metric_set_instance_id() -> String {
-                static TYPE_LOCAL_ID: std::sync::atomic::AtomicUsize =
-                    std::sync::atomic::AtomicUsize::new(0);
-                format!(
-                    "{:?}::{}",
-                    std::any::TypeId::of::<Self>(),
-                    TYPE_LOCAL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                )
-            }
-
             /// Creates a new instance of the metric set.
-            ///
-            /// The instance is created with a const-label of `metric_set_instance_id` set to a
-            /// unique value derived from the struct's type and an instance counter. This allows
-            /// multiple instances of this metric set to be registered on the same registry.
-            ///
-            /// See [`Self::new_with_const_labels`] for more information.
-            ///
-            /// # Panics
-            ///
-            /// Panics if the metrics are not unique on the registry, or have different sets of
-            /// labels or constant labels.
-            pub fn new(registry: &::prometheus::Registry) -> Self {
+            pub fn new(registry: &$crate::metrics::Registry) -> Self {
                 Self::new_inner(registry, Default::default())
             }
 
@@ -228,7 +214,7 @@ macro_rules! define_metric_set {
             ///
             /// Panics if the metrics are not unique on the registry, or have different sets of
             /// labels or constant labels.
-            pub fn new_with_id(registry: &::prometheus::Registry, id: String) -> Self {
+            pub fn new_with_id(registry: &$crate::metrics::Registry, id: String) -> Self {
                 Self::new_with_const_labels(registry, [("custom_id".to_owned(), id)])
             }
 
@@ -249,7 +235,7 @@ macro_rules! define_metric_set {
             /// Panics if the metrics are not unique on the registry, or have different sets of
             /// labels or constant labels.
             pub fn new_with_const_labels<I>(
-                registry: &::prometheus::Registry,
+                registry: &$crate::metrics::Registry,
                 const_labels: I
             ) -> Self
                 where I: ::std::iter::IntoIterator<Item = (String, String)>,
@@ -258,25 +244,21 @@ macro_rules! define_metric_set {
             }
 
             fn new_inner(
-                registry: &::prometheus::Registry,
-                mut const_labels: ::std::collections::HashMap<String, String>
+                registry: &$crate::metrics::Registry,
+                const_labels: ::std::collections::HashMap<String, String>
             ) -> Self {
-                const_labels.entry("metric_set_instance_id".to_owned())
-                    .or_insert_with(|| Self::metric_set_instance_id());
-
                 Self { $(
                     $field_name: {
                         let opts = ::prometheus::Opts::new(stringify!($field_name), $help_str)
                             .const_labels(const_labels.clone())
                             .namespace($namespace);
                         let metric = $crate::create_metric!($field_type, opts, $field_def);
-                        registry
-                            .register(Box::new(metric.clone()))
-                            .expect("metrics defined at compile time must be valid");
-                        metric
+                        registry.get_or_register(metric)
+                            .expect("metrics defined at compile time must be valid")
                     },
                 )* $(
                     $new_type_field: {
+                        // TODO(jsmith): See if it makes sense to cache this.
                         let metric = $new_type_field_type::default();
                         registry
                             .register(metric.clone().into())

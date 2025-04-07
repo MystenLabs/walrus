@@ -20,7 +20,6 @@ use axum_extra::{
     TypedHeader,
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
-use prometheus::Registry;
 use reqwest::StatusCode;
 pub use routes::PublisherQuery;
 use routes::{BLOB_GET_ENDPOINT, BLOB_OBJECT_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
@@ -39,6 +38,7 @@ use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::move_structs::BlobWithAttribute,
 };
+use walrus_utils::metrics::Registry;
 
 use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
 use crate::{

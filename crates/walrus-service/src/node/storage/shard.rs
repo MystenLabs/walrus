@@ -14,7 +14,6 @@ use std::{
 
 use fastcrypto::traits::KeyPair;
 use futures::{stream::FuturesUnordered, StreamExt};
-use prometheus::Registry;
 use regex::Regex;
 use rocksdb::{Options, DB};
 use serde::{Deserialize, Serialize};
@@ -40,6 +39,7 @@ use walrus_core::{
     Sliver,
     SliverType,
 };
+use walrus_utils::metrics::Registry;
 
 use super::{
     blob_info::{BlobInfo, BlobInfoIterator},

@@ -6,12 +6,12 @@
 use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
-use prometheus::Registry;
 use tokio::{
     runtime::{self, Runtime},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
+use walrus_utils::metrics::Registry;
 
 use crate::{
     common::config::SuiReaderConfig,
