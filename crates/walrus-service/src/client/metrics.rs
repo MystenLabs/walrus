@@ -21,6 +21,10 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
     1., 1.5, 2., 2.5, 3., 4., 5., 6., 7., 8., 9., 10., 20., 40., 80., 160.,
 ];
 
+const LATENCY_SEC_SMALL_BUCKETS: &[f64] = &[
+    0.05, 0.01, 0.03, 0.05, 0.07, 1., 1.3, 1.5, 1.7, 2., 2.3, 2.5, 2.7, 3.,
+];
+
 // Workload types for the client.
 /// The name of the write workload.
 pub const WRITE_WORKLOAD: &str = "write";
@@ -110,14 +114,14 @@ impl ClientMetrics {
             encoding_latency_s: register_histogram_with_registry!(
                 "encoding_latency_s",
                 "Time to encode a blob",
-                LATENCY_SEC_BUCKETS.to_vec(),
+                LATENCY_SEC_SMALL_BUCKETS.to_vec(),
                 registry,
             )
             .expect("this is a valid metrics registration"),
             checking_blob_status_latency_s: register_histogram_with_registry!(
                 "checking_blob_status_latency_s",
                 "Time to check the status of a blob",
-                LATENCY_SEC_BUCKETS.to_vec(),
+                LATENCY_SEC_SMALL_BUCKETS.to_vec(),
                 registry,
             )
             .expect("this is a valid metrics registration"),

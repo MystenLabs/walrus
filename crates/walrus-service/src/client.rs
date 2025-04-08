@@ -11,7 +11,6 @@ use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetrics;
-use prometheus::Registry;
 use rand::{rngs::ThreadRng, RngCore as _};
 use rayon::{
     iter::{IndexedParallelIterator, IntoParallelRefIterator},

@@ -43,7 +43,6 @@ use walrus_test_utils::WithTempDir;
 use super::blob::{BlobData, WriteBlobConfig};
 
 /// Client for writing test blobs to storage nodes
-/// Client for writing test blobs to storage nodes
 #[derive(Debug)]
 pub(crate) struct WriteClient {
     client: WithTempDir<Client<SuiContractClient>>,
