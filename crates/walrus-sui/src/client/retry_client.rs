@@ -108,7 +108,7 @@ pub trait RetriableRpcError: Debug {
     fn is_retriable_rpc_error(&self) -> bool;
 }
 
-/// Trait to convert an error to a string. This is a test
+/// Trait to convert an error to a string.
 pub trait ToErrorType {
     /// Returns the error type as a string.
     fn to_error_type(&self) -> String;
