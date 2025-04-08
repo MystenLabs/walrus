@@ -1148,6 +1148,7 @@ impl StorageNodeRuntime {
         let runtime = runtime::Builder::new_multi_thread()
             .thread_name("walrus-node-runtime")
             .enable_all()
+            .max_blocking_threads(node_config.thread_pool.max_blocking_io_threads)
             .build()
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();

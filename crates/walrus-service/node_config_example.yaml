@@ -137,3 +137,4 @@ balance_check:
   warning_threshold_mist: 5000000000
 thread_pool:
   max_concurrent_tasks: null
+  max_blocking_io_threads: 1024
