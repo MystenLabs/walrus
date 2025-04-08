@@ -10,7 +10,7 @@ on:
 jobs:
   pre-commit:
     name: "Update pre-commit hooks and run them on all files"
-    runs-on: ubuntu-ghcloud-2
+    runs-on: ubuntu-ghcloud
     permissions:
       contents: write
       pull-requests: write

@@ -20,7 +20,7 @@ jobs:
   # (https://github.com/MystenLabs/walrus/settings/secrets/actions).
   update-bin-walrus-site:
     name: Update Walrus Site bin.wal.app
-    runs-on: ubuntu-ghcloud-2
+    runs-on: ubuntu-ghcloud
     env:
       # Colors don't seem to work properly with the multiline commands.
       NO_COLOR: 1
