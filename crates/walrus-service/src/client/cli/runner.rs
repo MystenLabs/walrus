@@ -769,18 +769,21 @@ impl ClientCommandRunner {
             )),
             None,
         )?;
-        let rpc_client = sui_rpc_api::Client::new(rpc_url.expect("rpc_url is set"));
-        let latest_seq = if let Ok(rpc_client) = rpc_client {
-            match rpc_client.get_latest_checkpoint().await {
-                Ok(checkpoint) => Some(checkpoint.sequence_number),
-                Err(e) => {
-                    tracing::error!("failed to get latest checkpoint sequence number: {:?}", e);
-                    None
+
+        let latest_seq = if let Some(url) = rpc_url {
+            let rpc_client_result = sui_rpc_api::Client::new(url);
+            if let Ok(rpc_client) = rpc_client_result {
+                match rpc_client.get_latest_checkpoint().await {
+                    Ok(checkpoint) => Some(checkpoint.sequence_number),
+                    Err(_) => None,
                 }
+            } else {
+                None
             }
         } else {
             None
         };
+
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,
