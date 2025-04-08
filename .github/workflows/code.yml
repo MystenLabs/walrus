@@ -99,6 +99,11 @@ jobs:
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev
+
       - name: Build Rust code
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
