@@ -617,6 +617,37 @@ impl ShardStorage {
     }
 
     /// Syncs the shard to the current epoch from the previous shard owner.
+    ///
+    /// Returns a tuple of two elements:
+    /// - The first element is a boolean indicating whether the shard sync made progress.
+    /// - The second element is the result of the shard sync.
+    pub async fn start_sync_shard_before_epoch(
+        &self,
+        epoch: Epoch,
+        node: Arc<StorageNodeInner>,
+        config: &ShardSyncConfig,
+        directly_recover_shard: bool,
+    ) -> (bool, Result<(), SyncShardClientError>) {
+        let start_sync_progress = self.shard_sync_progress.get(&()).ok().flatten();
+
+        let result = self
+            .start_sync_shard_before_epoch_impl(epoch, node, config, directly_recover_shard)
+            .await;
+
+        let finish_sync_progress = self.shard_sync_progress.get(&()).ok().flatten();
+
+        let shard_sync_made_progress = match (start_sync_progress, finish_sync_progress) {
+            (Some(start), Some(finish)) => start != finish,
+            // Note that for (None, None) case, it may also be the case that the shard sync has
+            // finished. In this case, the result will be `Ok(())` and the shard sync progress
+            // will not be used.
+            (None, None) => false,
+            _ => true,
+        };
+
+        (shard_sync_made_progress, result)
+    }
+
     #[tracing::instrument(
         skip_all,
         fields(
@@ -625,7 +656,7 @@ impl ShardStorage {
         ),
         err
     )]
-    pub async fn start_sync_shard_before_epoch(
+    async fn start_sync_shard_before_epoch_impl(
         &self,
         epoch: Epoch,
         node: Arc<StorageNodeInner>,
@@ -1362,14 +1393,19 @@ pub fn pending_recover_slivers_column_family_options(db_config: &DatabaseConfig)
 }
 
 #[cfg(msim)]
-fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow::Error> {
+fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), SyncShardClientError> {
     // Inject a failure point to simulate a sync failure.
 
     let mut injected_status = Ok(());
     sui_macros::fail_point_arg!("fail_point_fetch_sliver", |(
         trigger_sliver_type,
         trigger_at,
-    ): (SliverType, u64)| {
+        retryable,
+    ): (
+        SliverType,
+        u64,
+        bool
+    )| {
         tracing::info!(
             ?trigger_sliver_type,
             trigger_index = ?trigger_at,
@@ -1377,7 +1413,11 @@ fn inject_failure(scan_count: u64, sliver_type: SliverType) -> Result<(), anyhow
             fail_point = "fail_point_fetch_sliver",
         );
         if trigger_sliver_type == sliver_type && trigger_at <= scan_count {
-            injected_status = Err(anyhow::anyhow!("fetch_sliver simulated sync failure"));
+            injected_status = Err(anyhow::anyhow!(
+                "fetch_sliver simulated sync failure, retryable: {}",
+                retryable
+            )
+            .into());
         }
     });
     injected_status

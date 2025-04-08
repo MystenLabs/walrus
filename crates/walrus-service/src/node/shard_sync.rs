@@ -32,8 +32,9 @@ enum SyncShardResult {
     /// The shard sync finished successfully.
     Success,
     /// The shard sync is not finished and should be retried after a backoff.
-    /// The bool indicates whether to directly recover the shard instead of using shard sync.
-    RetryAfterBackoff(bool),
+    /// The first bool indicates whether to directly recover the shard instead of using shard sync.
+    /// The second bool indicates whether the shard sync made progress.
+    RetryAfterBackoff(bool, bool),
     /// The shard sync contains errors and should be stopped.
     Failed,
 }
@@ -343,7 +344,7 @@ impl ShardSyncHandler {
         let shard_sync_handler_clone = self.clone();
         let shard_sync_task = tokio::spawn(async move {
             let shard_index = shard_storage.id();
-            let start_time = Instant::now();
+            let mut last_progress_time = Instant::now();
 
             let mut backoff = ExponentialBackoff::new_with_seed(
                 shard_sync_handler_clone.config.shard_sync_retry_min_backoff,
@@ -377,7 +378,10 @@ impl ShardSyncHandler {
                         );
                         break;
                     }
-                    SyncShardResult::RetryAfterBackoff(force_recovery) => {
+                    SyncShardResult::RetryAfterBackoff(
+                        force_recovery,
+                        shard_sync_made_progress,
+                    ) => {
                         let backoff_duration = backoff.next_delay();
                         let Some(backoff_duration) = backoff_duration else {
                             tracing::warn!(
@@ -388,7 +392,15 @@ impl ShardSyncHandler {
                             break;
                         };
                         tokio::time::sleep(backoff_duration).await;
-                        if start_time.elapsed()
+
+                        if shard_sync_made_progress {
+                            tracing::debug!(
+                                shard_index=%shard_index,
+                                "shard sync made progress"
+                            );
+                            last_progress_time = Instant::now();
+                        }
+                        if last_progress_time.elapsed()
                             > shard_sync_handler_clone
                                 .config
                                 .shard_sync_retry_switch_to_recovery_interval
@@ -440,12 +452,12 @@ impl ShardSyncHandler {
         // the priority of the syncs.
         let Ok(_permit) = self.shard_sync_semaphore.acquire().await else {
             tracing::error!("failed to acquire shard sync semaphore.");
-            return SyncShardResult::RetryAfterBackoff(false);
+            return SyncShardResult::RetryAfterBackoff(false, false);
         };
 
         walrus_utils::with_label!(self.node.metrics.shard_sync_total, "start").inc();
         let shard_index = shard_storage.id();
-        let sync_result = shard_storage
+        let (shard_sync_made_progress, sync_result) = shard_storage
             .start_sync_shard_before_epoch(
                 current_epoch,
                 self.node.clone(),
@@ -475,7 +487,12 @@ impl ShardSyncHandler {
                     return SyncShardResult::Success;
                 }
 
-                Self::handle_sync_error(&error, shard_index, directly_recover_shard)
+                Self::handle_sync_error(
+                    &error,
+                    shard_index,
+                    directly_recover_shard,
+                    shard_sync_made_progress,
+                )
             }
         }
     }
@@ -485,6 +502,7 @@ impl ShardSyncHandler {
         error: &SyncShardClientError,
         shard_index: ShardIndex,
         directly_recover_shard: bool,
+        shard_sync_made_progress: bool,
     ) -> SyncShardResult {
         if let SyncShardClientError::RequestError(node_error) = error {
             // Handle epoch-related errors
@@ -497,18 +515,20 @@ impl ShardSyncHandler {
                         tracing::info!(
                             request_epoch,
                             server_epoch,
+                            shard_sync_made_progress,
                             "source storage node hasn't reached the epoch yet"
                         );
-                        return SyncShardResult::RetryAfterBackoff(false);
+                        return SyncShardResult::RetryAfterBackoff(false, shard_sync_made_progress);
                     }
                 }
                 Some(ServiceError::RequestUnauthorized) => {
                     tracing::info!(
                         ?error,
+                        shard_sync_made_progress,
                         "source storage node may not reach to the epoch where the \
                         destination storage node is in the committee; retry shard sync"
                     );
-                    return SyncShardResult::RetryAfterBackoff(false);
+                    return SyncShardResult::RetryAfterBackoff(false, shard_sync_made_progress);
                 }
                 _ => {}
             }
@@ -516,9 +536,21 @@ impl ShardSyncHandler {
             // Handle network errors. This means to capture all the networking related errors.
             // We want to retry shard sync instead of directly recovering the shard.
             if node_error.is_reqwest() {
-                tracing::info!(?error, "encounter reqwest error; retry shard sync");
-                return SyncShardResult::RetryAfterBackoff(false);
+                tracing::info!(
+                    ?error,
+                    shard_sync_made_progress,
+                    "encounter reqwest error; retry shard sync"
+                );
+                return SyncShardResult::RetryAfterBackoff(false, shard_sync_made_progress);
             }
+        }
+
+        if cfg!(msim)
+            && error
+                .to_string()
+                .contains("fetch_sliver simulated sync failure, retryable: true")
+        {
+            return SyncShardResult::RetryAfterBackoff(false, shard_sync_made_progress);
         }
 
         // Shard sync encountered non-retryable error. Try direct recovery if not already doing so
@@ -526,13 +558,15 @@ impl ShardSyncHandler {
             tracing::warn!(
                 walrus.shard_index = %shard_index,
                 ?error,
+                shard_sync_made_progress,
                 "shard sync failed; directly recovering shard next time"
             );
-            SyncShardResult::RetryAfterBackoff(true)
+            SyncShardResult::RetryAfterBackoff(true, shard_sync_made_progress)
         } else {
             tracing::warn!(
                 walrus.shard_index = %shard_index,
                 ?error,
+                shard_sync_made_progress,
                 "shard recovery also failed; stop shard sync"
             );
             SyncShardResult::Failed

@@ -4675,7 +4675,9 @@ mod tests {
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
             register_fail_point_arg(
                 "fail_point_fetch_sliver",
-                move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
+                move || -> Option<(SliverType, u64, bool)> {
+                    Some((sliver_type, break_index, false))
+                },
             );
 
             // Skip retry loop in shard sync to simulate a reboot.
@@ -4752,7 +4754,9 @@ mod tests {
             // shard transfer first.
             register_fail_point_arg(
                 "fail_point_fetch_sliver",
-                move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
+                move || -> Option<(SliverType, u64, bool)> {
+                    Some((sliver_type, break_index, false))
+                },
             );
             register_fail_point_if("fail_point_after_start_recovery", || true);
 
@@ -4809,6 +4813,82 @@ mod tests {
 
             clear_fail_point("fail_point_shard_sync_recover_blob");
             clear_fail_point("fail_point_after_start_recovery");
+            Ok(())
+        }
+
+        // Tests that shard sync's behavior when encountering repeated sync failures.
+        // More specifically, it tests that
+        //   - When the shard sync repeatedly encounters retriable error, but the shard sync is
+        //     able to make progress, the node continue to use shard sync to sync the shard.
+        //   - When the shard sync repeatedly encounters retriable error, and the shard sync is
+        //     not able to make progress, the node will eventually enter recovery mode.
+        simtest_param_test! {
+            sync_shard_repeated_failures -> TestResult: [
+                // In this test case, we inject a retriable error fetching every 4 blobs. Since
+                // the size is larger than `sliver_count_per_sync_request`, shard sync will
+                // continue to make progress.
+                with_progress: (4, false),
+                // In this test case, we inject a retriable error fetching every 1 blob. Since
+                // the size is smaller than `sliver_count_per_sync_request`, shard sync will
+                // not be able to make progress.
+                without_progress: (1, true),
+            ]
+        }
+        async fn sync_shard_repeated_failures(
+            break_index: u64,
+            must_use_recovery: bool,
+        ) -> TestResult {
+            let shard_sync_config = ShardSyncConfig {
+                sliver_count_per_sync_request: 2,
+                shard_sync_retry_min_backoff: Duration::from_secs(1),
+                shard_sync_retry_max_backoff: Duration::from_secs(5),
+                shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(10),
+                ..Default::default()
+            };
+            let (cluster, blob_details, storage_dst, shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, Some(shard_sync_config)).await?;
+
+            assert_eq!(shard_storage_set.shard_storage.len(), 1);
+            let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
+
+            // Simulate repeated retriable errors. break_index indicates how many blobs fetched
+            // before generating the retriable error.
+            register_fail_point_arg(
+                "fail_point_fetch_sliver",
+                move || -> Option<(SliverType, u64, bool)> {
+                    Some((SliverType::Primary, break_index, true))
+                },
+            );
+
+            let enter_recovery_mode = Arc::new(AtomicBool::new(false));
+            let enter_recovery_mode_clone = enter_recovery_mode.clone();
+            // Fail point to track if the shard sync enters recovery mode.
+            register_fail_point("fail_point_shard_sync_recover_blob", move || {
+                enter_recovery_mode_clone.store(true, Ordering::SeqCst);
+            });
+
+            // Starts the shard syncing process in the new shard, which will fail at the specified
+            // break index.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)], false)
+                .await?;
+
+            // Waits for the shard sync process to stop.
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
+
+            // Checks that the shard is completely migrated.
+            check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+
+            if must_use_recovery {
+                assert!(enter_recovery_mode.load(Ordering::SeqCst));
+            } else {
+                assert!(!enter_recovery_mode.load(Ordering::SeqCst));
+            }
+
+            clear_fail_point("fail_point_fetch_sliver");
+
             Ok(())
         }
 
@@ -4965,7 +5045,9 @@ mod tests {
             if !restart_after_recovery {
                 register_fail_point_arg(
                     "fail_point_fetch_sliver",
-                    move || -> Option<(SliverType, u64)> { Some((sliver_type, break_index)) },
+                    move || -> Option<(SliverType, u64, bool)> {
+                        Some((sliver_type, break_index, false))
+                    },
                 );
             }
 
