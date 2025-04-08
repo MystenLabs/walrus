@@ -149,7 +149,7 @@ use self::{
         ShardStatus,
         ShardStorage,
     },
-    system_events::{EventManager, EventManagerApi as _, SuiSystemEventProvider},
+    system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
     client::Blocklist,
@@ -2475,19 +2475,8 @@ impl ServiceState for StorageNodeInner {
         let (shard_summary, shard_detail) = self.shard_health_status(detailed).await;
 
         // Get the latest checkpoint sequence number directly from the event manager.
-        let latest_checkpoint_sequence_number = if let Some(event_processor) =
-            self.event_manager.as_any().downcast_ref::<EventProcessor>()
-        {
-            let latest_checkpoint_sequence_number =
-                event_processor.latest_checkpoint_sequence_number();
-            tracing::info!(
-                "Latest checkpoint sequence number: {:?}",
-                latest_checkpoint_sequence_number
-            );
-            latest_checkpoint_sequence_number
-        } else {
-            None
-        };
+        let latest_checkpoint_sequence_number =
+            self.event_manager.latest_checkpoint_sequence_number();
 
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
