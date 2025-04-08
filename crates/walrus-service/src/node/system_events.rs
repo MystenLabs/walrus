@@ -228,14 +228,12 @@ pub trait EventRetentionManager: std::fmt::Debug + Sync + Send {
     async fn drop_events_before(&self, cursor: EventStreamCursor) -> Result<(), anyhow::Error>;
 }
 
-/// Public API for event manager.
-pub trait EventManagerApi {
+/// A manager for system events. This is used to start the event manager.
+#[async_trait]
+pub trait EventManager: SystemEventProvider + EventRetentionManager {
     /// Get the latest checkpoint sequence number.
     fn latest_checkpoint_sequence_number(&self) -> Option<u64>;
 }
-/// A manager for system events. This is used to start the event manager.
-#[async_trait]
-pub trait EventManager: SystemEventProvider + EventRetentionManager + EventManagerApi {}
 
 #[async_trait]
 impl SystemEventProvider for SuiSystemEventProvider {
@@ -274,9 +272,7 @@ impl EventRetentionManager for SuiSystemEventProvider {
 }
 
 #[async_trait]
-impl EventManager for SuiSystemEventProvider {}
-
-impl EventManagerApi for SuiSystemEventProvider {
+impl EventManager for SuiSystemEventProvider {
     fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
         None
     }
@@ -338,9 +334,7 @@ impl EventRetentionManager for EventProcessor {
 }
 
 #[async_trait]
-impl EventManager for EventProcessor {}
-
-impl EventManagerApi for EventProcessor {
+impl EventManager for EventProcessor {
     fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
         self.get_latest_checkpoint_sequence_number()
     }
@@ -375,9 +369,7 @@ impl EventRetentionManager for Arc<EventProcessor> {
 }
 
 #[async_trait]
-impl EventManager for Arc<EventProcessor> {}
-
-impl EventManagerApi for Arc<EventProcessor> {
+impl EventManager for Arc<EventProcessor> {
     fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
         self.as_ref().get_latest_checkpoint_sequence_number()
     }

@@ -96,12 +96,7 @@ use crate::{
             PositionedStreamEvent,
         },
         server::{RestApiConfig, RestApiServer},
-        system_events::{
-            EventManager,
-            EventManagerApi,
-            EventRetentionManager,
-            SystemEventProvider,
-        },
+        system_events::{EventManager, EventRetentionManager, SystemEventProvider},
         DatabaseConfig,
         Storage,
         StorageNode,
@@ -158,9 +153,7 @@ impl EventRetentionManager for DefaultSystemEventManager {
 }
 
 #[async_trait]
-impl EventManager for DefaultSystemEventManager {}
-
-impl EventManagerApi for DefaultSystemEventManager {
+impl EventManager for DefaultSystemEventManager {
     fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
         None
     }
