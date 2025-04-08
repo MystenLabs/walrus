@@ -749,6 +749,7 @@ impl ShardStorage {
             );
 
         let mut next_blob_info = blob_info_iter.next().transpose()?;
+
         // For transitioning from GENESIS epoch to epoch 1, since GENESIS epoch does not have
         // any committees and should not receive any user blobs, there shouldn't be any certified
         // blobs. In case, the shard sync should finish immediately and transition to Active state.

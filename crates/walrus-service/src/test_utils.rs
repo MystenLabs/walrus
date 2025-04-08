@@ -140,8 +140,8 @@ impl SystemEventProvider for DefaultSystemEventManager {
     ) -> Result<Option<InitState>, anyhow::Error> {
         Ok(None)
     }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        self.event_provider.as_event_processor()
     }
 }
 
@@ -518,19 +518,18 @@ impl SimStorageNodeHandle {
 
         // Starts the event processor thread if it is configured, otherwise it produces a JoinHandle
         // that never returns.
-        let event_processor_handle = if let Some(event_processor) =
-            event_provider.as_any().downcast_ref::<EventProcessor>()
-        {
-            let cloned_cancel_token = cancel_token.clone();
-            let cloned_event_processor = event_processor.clone();
-            tokio::spawn(
-                async move { cloned_event_processor.start(cloned_cancel_token).await }
-                    .instrument(tracing::info_span!("cluster-event-processor",
+        let event_processor_handle =
+            if let Some(event_processor) = event_provider.as_event_processor() {
+                let cloned_cancel_token = cancel_token.clone();
+                let cloned_event_processor = event_processor.clone();
+                tokio::spawn(
+                    async move { cloned_event_processor.start(cloned_cancel_token).await }
+                        .instrument(tracing::info_span!("cluster-event-processor",
                     address = %config.rest_api_address)),
-            )
-        } else {
-            tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
-        };
+                )
+            } else {
+                tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
+            };
 
         // Build storage node with the current configuration and event manager.
         let mut builder = StorageNode::builder();
@@ -890,11 +889,7 @@ impl StorageNodeHandleBuilder {
 
         let cancel_token = CancellationToken::new();
 
-        if let Some(event_processor) = self
-            .event_provider
-            .as_any()
-            .downcast_ref::<EventProcessor>()
-        {
+        if let Some(event_processor) = self.event_provider.as_event_processor() {
             let cloned_cancel_token = cancel_token.clone();
             let cloned_event_processor = event_processor.clone();
             spawn_event_processor(
@@ -1543,8 +1538,8 @@ impl SystemEventProvider for Vec<ContractEvent> {
         Ok(None)
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        None
     }
 }
 
@@ -1572,8 +1567,8 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
         Ok(None)
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        None
     }
 }
 

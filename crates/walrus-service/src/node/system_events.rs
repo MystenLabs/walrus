@@ -3,7 +3,7 @@
 
 //! Walrus events observed by the storage node.
 
-use std::{any::Any, fmt::Debug, future::ready, pin::Pin, sync::Arc, thread, time::Duration};
+use std::{fmt::Debug, future::ready, pin::Pin, sync::Arc, thread, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -217,8 +217,8 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     async fn init_state(&self, from: EventStreamCursor)
         -> Result<Option<InitState>, anyhow::Error>;
 
-    /// Return a reference to this provider as a [`dyn Any`].
-    fn as_any(&self) -> &dyn Any;
+    /// Return a reference to this provider as a [`EventProcessor`].
+    fn as_event_processor(&self) -> Option<&EventProcessor>;
 }
 
 /// A manager for event retention. This is used to drop events that are no longer needed.
@@ -259,8 +259,8 @@ impl SystemEventProvider for SuiSystemEventProvider {
         Ok(None)
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        None
     }
 }
 
@@ -317,8 +317,8 @@ impl SystemEventProvider for EventProcessor {
         Ok(pinned_stream.next().await.flatten())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        Some(self)
     }
 }
 
@@ -356,8 +356,8 @@ impl SystemEventProvider for Arc<EventProcessor> {
         self.as_ref().init_state(from).await
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        Some(self.as_ref())
     }
 }
 
