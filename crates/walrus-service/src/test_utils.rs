@@ -96,7 +96,12 @@ use crate::{
             PositionedStreamEvent,
         },
         server::{RestApiConfig, RestApiServer},
-        system_events::{EventManager, EventRetentionManager, SystemEventProvider},
+        system_events::{
+            EventManager,
+            EventManagerApi,
+            EventRetentionManager,
+            SystemEventProvider,
+        },
         DatabaseConfig,
         Storage,
         StorageNode,
@@ -154,6 +159,12 @@ impl EventRetentionManager for DefaultSystemEventManager {
 
 #[async_trait]
 impl EventManager for DefaultSystemEventManager {}
+
+impl EventManagerApi for DefaultSystemEventManager {
+    fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        None
+    }
+}
 
 /// Trait representing a storage node handle.
 /// The trait is used to abstract over the different types of storage node handles.
