@@ -462,10 +462,14 @@ impl BlobSynchronizer {
             .await
             .expect("database operations should not fail");
 
-        let futures_iter = this.node.owned_shards().into_iter().map(|shard| {
-            this.clone()
-                .recover_slivers_for_shard(shared_metadata.clone(), shard)
-        });
+        let futures_iter = this
+            .node
+            .owned_shards(this.certified_epoch)
+            .into_iter()
+            .map(|shard| {
+                this.clone()
+                    .recover_slivers_for_shard(shared_metadata.clone(), shard)
+            });
 
         let mut futures_with_permits = stream::iter(futures_iter).then(move |future| {
             let permits = sliver_permits.clone();

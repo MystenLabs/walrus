@@ -1129,7 +1129,10 @@ impl StorageNode {
 
         if !self.inner.is_blob_certified(&event.blob_id)?
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
-            || self.inner.is_stored_at_all_shards(&event.blob_id).await?
+            || self
+                .inner
+                .is_stored_at_all_shards(&event.blob_id, event.epoch)
+                .await?
         {
             event_handle.mark_as_complete();
 
@@ -1138,6 +1141,8 @@ impl StorageNode {
 
             return Ok(());
         }
+
+        sui_macros::fail_point!("blob_certified_event_sync");
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
@@ -1419,7 +1424,7 @@ impl StorageNode {
         // status. We need to set the status of all currently owned shards to `Active` despite
         // their current status. Node recovery will recover all the missing certified blobs in these
         // shards in a crash-tolerant manner.
-        for shard in self.inner.owned_shards() {
+        for shard in self.inner.owned_shards(event.epoch) {
             storage
                 .shard_storage(shard)
                 .await
@@ -1716,16 +1721,44 @@ impl StorageNodeInner {
         self.node_capability
     }
 
-    pub(crate) fn owned_shards(&self) -> Vec<ShardIndex> {
-        self.committee_service
-            .active_committees()
-            .current_committee()
-            .shards_for_node_public_key(self.public_key())
-            .to_vec()
+    pub(crate) fn owned_shards(&self, epoch: Epoch) -> Vec<ShardIndex> {
+        // if true {
+        //     return self
+        //         .committee_service
+        //         .active_committees()
+        //         .current_committee()
+        //         .shards_for_node_public_key(self.public_key())
+        //         .to_vec();
+        // }
+
+        if self.committee_service.get_epoch() == epoch + 1
+            && self
+                .committee_service
+                .active_committees()
+                .previous_committee()
+                .is_some()
+        {
+            self.committee_service
+                .active_committees()
+                .previous_committee()
+                .expect("previous committee should be set")
+                .shards_for_node_public_key(self.public_key())
+                .to_vec()
+        } else {
+            self.committee_service
+                .active_committees()
+                .current_committee()
+                .shards_for_node_public_key(self.public_key())
+                .to_vec()
+        }
     }
 
-    pub(crate) async fn is_stored_at_all_shards(&self, blob_id: &BlobId) -> anyhow::Result<bool> {
-        for shard in self.owned_shards() {
+    pub(crate) async fn is_stored_at_all_shards(
+        &self,
+        blob_id: &BlobId,
+        epoch: Epoch,
+    ) -> anyhow::Result<bool> {
+        for shard in self.owned_shards(epoch) {
             match self.storage.is_stored_at_shard(blob_id, shard).await {
                 Ok(false) => return Ok(false),
                 Ok(true) => continue,
@@ -1832,7 +1865,7 @@ impl StorageNodeInner {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.list_shard_status().await;
-        let owned_shards = self.owned_shards();
+        let owned_shards = self.owned_shards(self.committee_service.get_epoch());
         let mut summary = ShardStatusSummary::default();
 
         let mut detail = detailed.then(|| {
@@ -2317,7 +2350,7 @@ impl ServiceState for StorageNodeInner {
             ComputeStorageConfirmationError::NotCurrentlyRegistered,
         );
         ensure!(
-            self.is_stored_at_all_shards(blob_id)
+            self.is_stored_at_all_shards(blob_id, self.committee_service.get_epoch())
                 .await
                 .context("database error when checkingstorage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
@@ -2383,7 +2416,7 @@ impl ServiceState for StorageNodeInner {
         self.check_index(secondary_index)?;
         let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
 
-        let owned_shards = self.owned_shards();
+        let owned_shards = self.owned_shards(self.committee_service.get_epoch());
 
         // In the event that neither of the slivers are assigned to this shard use this error,
         // otherwise it is overwritten.
@@ -2443,17 +2476,23 @@ impl ServiceState for StorageNodeInner {
             SymbolIdFilter::Recovers {
                 target_sliver: target,
                 target_type,
-            } => Either::Right(self.owned_shards().into_iter().map(|shard_id| {
-                let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
-                match *target_type {
-                    SliverType::Primary => {
-                        SymbolId::new(*target, pair_stored.to_sliver_index::<Secondary>(n_shards))
-                    }
-                    SliverType::Secondary => {
-                        SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
-                    }
-                }
-            })),
+            } => Either::Right(
+                self.owned_shards(self.committee_service.get_epoch())
+                    .into_iter()
+                    .map(|shard_id| {
+                        let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
+                        match *target_type {
+                            SliverType::Primary => SymbolId::new(
+                                *target,
+                                pair_stored.to_sliver_index::<Secondary>(n_shards),
+                            ),
+                            SliverType::Secondary => SymbolId::new(
+                                pair_stored.to_sliver_index::<Primary>(n_shards),
+                                *target,
+                            ),
+                        }
+                    }),
+            ),
         };
 
         let mut output = vec![];
@@ -2839,7 +2878,7 @@ mod tests {
         assert_eq!(
             node.storage_node
                 .inner
-                .is_stored_at_all_shards(&BLOB_ID)
+                .is_stored_at_all_shards(&BLOB_ID, node.storage_node.inner.current_epoch())
                 .await
                 .expect("error checking is stord at all shards"),
             is_stored_at_all_shards
@@ -2879,7 +2918,11 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        assert!(inner.is_stored_at_all_shards(&BLOB_ID).await?);
+        assert!(
+            inner
+                .is_stored_at_all_shards(&BLOB_ID, inner.current_epoch())
+                .await?,
+        );
         events.send(
             BlobRegistered {
                 deletable: true,
@@ -2900,7 +2943,11 @@ mod tests {
         events.send(event.into())?;
 
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!inner.is_stored_at_all_shards(&BLOB_ID).await?);
+        assert!(
+            !inner
+                .is_stored_at_all_shards(&BLOB_ID, inner.current_epoch())
+                .await?
+        );
         Ok(())
     }
 

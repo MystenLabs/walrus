@@ -74,7 +74,10 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
-                    if let Ok(stored_at_all_shards) = node.is_stored_at_all_shards(&blob_id).await {
+                    if let Ok(stored_at_all_shards) = node
+                        .is_stored_at_all_shards(&blob_id, node.current_epoch())
+                        .await
+                    {
                         if stored_at_all_shards {
                             tracing::debug!(
                                 walrus.blob_certified_before_epoch = certified_before_epoch,
