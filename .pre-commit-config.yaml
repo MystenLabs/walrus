@@ -109,7 +109,7 @@ repos:
         language: node
         additional_dependencies:
           - "prettier@3.4.1"
-          - "@mysten/prettier-plugin-move@0.2.2"
+          - "@mysten/prettier-plugin-move@0.3.0"
         files: "^contracts/.*\\.move"
       - id: mdBook
         name: Build docs if mdBook is installed

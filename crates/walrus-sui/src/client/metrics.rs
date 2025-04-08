@@ -4,6 +4,8 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use std::time::Duration;
+
 use prometheus::{HistogramVec, IntCounterVec};
 
 fn default_buckets_for_slow_operations() -> Vec<f64> {
@@ -25,6 +27,9 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Number of retries for RPC call"]
         sui_rpc_retry_count: IntCounterVec["method", "status"],
+
+        #[help = "Latency of RPC calls in milliseconds"]
+        rpc_latency: HistogramVec["method", "endpoint", "status"],
     }
 }
 
@@ -47,5 +52,29 @@ impl SuiClientMetricSet {
         self.sui_rpc_retry_count
             .with_label_values(&[method, error_str])
             .inc_by(count);
+    }
+
+    /// Record the latency of an RPC call with the given method and status.
+    pub fn record_rpc_latency(
+        &self,
+        method: &str,
+        endpoint: &str,
+        status: &str,
+        duration: Duration,
+    ) {
+        walrus_utils::with_label!(self.rpc_latency, method, endpoint, status)
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Records fallback metrics
+    pub fn record_fallback_metrics(
+        &self,
+        method: &str,
+        result: &Result<impl Sized, impl Sized>,
+        duration: Duration,
+    ) {
+        let status = if result.is_ok() { "success" } else { "failure" };
+        walrus_utils::with_label!(self.rpc_latency, method, "fallback", status)
+            .observe(duration.as_secs_f64());
     }
 }

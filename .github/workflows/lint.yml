@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Set up Python
-        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # pin@v5.4.0
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # pin@v5.5.0
         with:
           python-version: "3.x"
 
@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - name: Use Node.js
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # pin@v4
-      - run: npm install @mysten/prettier-plugin-move@0.2.2
+      - run: npm install @mysten/prettier-plugin-move@0.3.0
       - run: npx prettier-move -c **/*.move
 
   typos:
@@ -78,7 +78,7 @@ jobs:
     name: Check spelling
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: crate-ci/typos@72f3776b6edc3a10a567b8e43fd0524b2a3f1419 # pin@v1.30.1
+      - uses: crate-ci/typos@b1a1ef3893ff35ade0cfa71523852a49bfd05d19 # pin@v1.31.1
 
   shellcheck:
     name: ShellCheck

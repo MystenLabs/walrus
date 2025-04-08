@@ -16,7 +16,6 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use indicatif::MultiProgress;
 use itertools::Itertools as _;
-use prometheus::Registry;
 use rand::seq::SliceRandom;
 use sui_config::{sui_config_dir, SUI_CLIENT_CONFIG};
 use sui_sdk::wallet_context::WalletContext;
@@ -36,7 +35,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
     SUPPORTED_ENCODING_TYPES,
 };
-use walrus_sdk::api::BlobStatus;
+use walrus_rest_client::api::BlobStatus;
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -49,6 +48,7 @@ use walrus_sui::{
     types::move_structs::{Authorized, BlobAttribute, EpochState},
     utils::SuiNetwork,
 };
+use walrus_utils::metrics::Registry;
 
 use super::args::{
     AggregatorArgs,
@@ -769,18 +769,21 @@ impl ClientCommandRunner {
             )),
             None,
         )?;
-        let rpc_client = sui_rpc_api::Client::new(rpc_url.expect("rpc_url is set"));
-        let latest_seq = if let Ok(rpc_client) = rpc_client {
-            match rpc_client.get_latest_checkpoint().await {
-                Ok(checkpoint) => Some(checkpoint.sequence_number),
-                Err(e) => {
-                    tracing::error!("failed to get latest checkpoint sequence number: {:?}", e);
-                    None
+
+        let latest_seq = if let Some(url) = rpc_url {
+            let rpc_client_result = sui_rpc_api::Client::new(url);
+            if let Ok(rpc_client) = rpc_client_result {
+                match rpc_client.get_latest_checkpoint().await {
+                    Ok(checkpoint) => Some(checkpoint.sequence_number),
+                    Err(_) => None,
                 }
+            } else {
+                None
             }
         } else {
             None
         };
+
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
             &communication_factory,

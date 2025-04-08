@@ -87,8 +87,16 @@ async fn main() -> Result<()> {
         .map(|(k, v)| Label { name: k, value: v })
         .collect();
 
+    // convert optional remove_labels to a hashset for faster lookup
+    let remove_labels = config
+        .remove_labels
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+
     let app = admin::app(
         labels,
+        remove_labels,
         remote_write_client,
         histogram_relay,
         Some(walrus_node_provider),

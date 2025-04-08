@@ -10,7 +10,7 @@ use itertools::Itertools as _;
 use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
-use walrus_sdk::api::{BlobStatus, DeletableCounts, EventProgress};
+use walrus_rest_client::api::{BlobStatus, DeletableCounts, EventProgress};
 use walrus_sui::types::Blob;
 
 use super::warning;

@@ -40,7 +40,7 @@ use walrus_core::{
     SliverType,
     DEFAULT_ENCODING,
 };
-use walrus_sdk::error::ClientBuildError;
+use walrus_rest_client::error::ClientBuildError;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{async_param_test, Result as TestResult};
 

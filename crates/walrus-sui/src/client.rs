@@ -127,7 +127,7 @@ pub enum SuiClientError {
     #[error("could not find WAL coins with sufficient balance")]
     NoCompatibleWalCoins,
     /// No matching gas coin found for the transaction.
-    #[error("could not find gas coins with sufficient balance [requested_amount={0:?}]")]
+    #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
     NoCompatibleGasCoins(Option<u128>),
     /// The Walrus system object does not exist.
     #[error(

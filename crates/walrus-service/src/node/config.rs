@@ -629,6 +629,11 @@ pub struct ShardSyncConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_switch_to_recovery_interval_secs")]
     pub shard_sync_retry_switch_to_recovery_interval: Duration,
+    /// Whether to restart shard sync always retry shard transfer first. This is a fallback
+    /// mechanism in case a shard recovery is initiated, restarting the node can resume shard
+    /// transfer. This is the preferred option since it's always cheaper to scan the blob info
+    /// table without transferring the shards.
+    pub restart_shard_sync_always_retry_transfer_first: bool,
 }
 
 impl Default for ShardSyncConfig {
@@ -642,6 +647,7 @@ impl Default for ShardSyncConfig {
             max_concurrent_metadata_fetch: 10,
             shard_sync_concurrency: 10,
             shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
+            restart_shard_sync_always_retry_transfer_first: true,
         }
     }
 }
@@ -1002,7 +1008,7 @@ impl Default for BalanceCheckConfig {
 }
 
 /// Configuration for the blocking thread pool.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadPoolConfig {
     /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
@@ -1010,6 +1016,17 @@ pub struct ThreadPoolConfig {
     /// Defaults to an amount calculated from the number of cores.
     #[serde(skip_serializing_if = "defaults::is_none")]
     pub max_concurrent_tasks: Option<usize>,
+    /// Specify the maximum number of blocking threads to use for I/O.
+    pub max_blocking_io_threads: usize,
+}
+
+impl Default for ThreadPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_tasks: None,
+            max_blocking_io_threads: 1024,
+        }
+    }
 }
 
 #[cfg(test)]

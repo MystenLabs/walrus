@@ -16,7 +16,7 @@ mod tests {
     use rand::Rng;
     use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::api::ShardStatus;
+    use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},

@@ -60,7 +60,7 @@ pub(crate) struct EventProgress {
     pub highest_finished_event_index: u64,
 }
 
-impl From<EventProgress> for walrus_sdk::api::EventProgress {
+impl From<EventProgress> for walrus_rest_client::api::EventProgress {
     fn from(progress: EventProgress) -> Self {
         Self {
             persisted: progress.persisted,

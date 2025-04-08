@@ -17,7 +17,6 @@ use fastcrypto::{secp256r1::Secp256r1PrivateKey, traits::ToFromBytes};
 use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
-use prometheus::Registry;
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -27,6 +26,7 @@ use tracing::Instrument as _;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
 use walrus_core::{encoding, keys::NetworkKeyPair};
+use walrus_utils::metrics::Registry;
 
 use self::telemetry::MetricsMiddlewareState;
 use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
@@ -394,7 +394,7 @@ fn create_self_signed_certificate(
     key_pair: &NetworkKeyPair,
     public_server_name: String,
 ) -> CertifiedKey {
-    let generated_server_name = walrus_sdk::server_name_from_public_key(key_pair.public());
+    let generated_server_name = walrus_rest_client::server_name_from_public_key(key_pair.public());
     let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
 
     let mut params =
@@ -459,7 +459,7 @@ mod tests {
         SliverType,
         SymbolId,
     };
-    use walrus_sdk::{
+    use walrus_rest_client::{
         api::{
             BlobStatus,
             DeletableCounts,
@@ -510,7 +510,7 @@ mod tests {
             }
         }
 
-        fn store_metadata(
+        async fn store_metadata(
             &self,
             _metadata: UnverifiedBlobMetadataWithId,
         ) -> Result<bool, StoreMetadataError> {
@@ -520,12 +520,12 @@ mod tests {
         fn metadata_status(
             &self,
             blob_id: &BlobId,
-        ) -> Result<walrus_sdk::api::StoredOnNodeStatus, RetrieveMetadataError> {
+        ) -> Result<walrus_rest_client::api::StoredOnNodeStatus, RetrieveMetadataError> {
             if blob_id.0[0] == 0 {
                 // A blob ID starting with 0 triggers a valid response.
-                Ok(walrus_sdk::api::StoredOnNodeStatus::Stored)
+                Ok(walrus_rest_client::api::StoredOnNodeStatus::Stored)
             } else {
-                Ok(walrus_sdk::api::StoredOnNodeStatus::Nonexistent)
+                Ok(walrus_rest_client::api::StoredOnNodeStatus::Nonexistent)
             }
         }
 
@@ -588,9 +588,9 @@ mod tests {
         /// Successful only for the pair index 0, otherwise, returns an internal error.
         async fn store_sliver(
             &self,
-            _blob_id: &BlobId,
+            _blob_id: BlobId,
             sliver_pair_index: SliverPairIndex,
-            _sliver: &Sliver,
+            _sliver: Sliver,
         ) -> Result<bool, StoreSliverError> {
             if sliver_pair_index.as_usize() == 0 {
                 Ok(true)
@@ -677,7 +677,7 @@ mod tests {
                 epoch: 0,
                 public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
                 node_status: "Active".to_string(),
-                event_progress: walrus_sdk::api::EventProgress::default(),
+                event_progress: walrus_rest_client::api::EventProgress::default(),
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
                 latest_checkpoint_sequence_number: None,
@@ -702,7 +702,7 @@ mod tests {
             Arc::new(MockServiceState),
             CancellationToken::new(),
             rest_api_config,
-            &Registry::new(),
+            &Registry::default(),
         );
         let server = Arc::new(server);
         let server_copy = server.clone();
@@ -1039,7 +1039,7 @@ mod tests {
             Arc::new(MockServiceState),
             cancel_token.clone(),
             config.as_ref().into(),
-            &Registry::new(),
+            &Registry::default(),
         );
         let handle = tokio::spawn(async move { server.run().await });
 
@@ -1086,7 +1086,7 @@ mod tests {
     }
 
     mod tls {
-        use walrus_sdk::error::NodeError;
+        use walrus_rest_client::error::NodeError;
 
         use super::*;
 

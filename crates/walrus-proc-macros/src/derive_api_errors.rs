@@ -164,8 +164,8 @@ fn try_derive(input: DeriveInput) -> Result<TokenStream> {
             use std::collections::HashMap;
             use axum::response::{IntoResponse, Response};
             use reqwest::StatusCode;
-            use walrus_sdk::api::errors::{Status, StatusCode as ApiStatusCode};
-            use walrus_sdk::error::ServiceError;
+            use walrus_rest_client::api::errors::{Status, StatusCode as ApiStatusCode};
+            use walrus_rest_client::error::ServiceError;
             use utoipa::{
                 openapi::{response::Response as OpenApiResponse, RefOr},
                 IntoResponses,

@@ -22,7 +22,7 @@ use walrus_core::{
     SUPPORTED_ENCODING_TYPES,
 };
 use walrus_proc_macros::RestApiError;
-use walrus_sdk::{
+use walrus_rest_client::{
     api::errors::{
         DebugInfo,
         Status,

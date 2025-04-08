@@ -9,7 +9,7 @@ use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
 use super::{blob_sync::BlobSyncHandler, StorageNodeInner};
-use crate::node::{storage::blob_info::BlobInfoApi, NodeStatus};
+use crate::node::{storage::blob_info::CertifiedBlobInfoApi, NodeStatus};
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {

@@ -20,6 +20,7 @@ use futures::{
     Stream,
     StreamExt,
 };
+use mysten_metrics::monitored_scope;
 use rand::{
     rngs::{StdRng, ThreadRng},
     Rng as _,
@@ -28,7 +29,7 @@ use reqwest::Url;
 use serde::{de::DeserializeOwned, Serialize};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
-use sui_rpc_api::Client as RpcClient;
+use sui_rpc_api::{client::ResponseExt, Client as RpcClient};
 use sui_sdk::{
     apis::{EventApi, GovernanceApi},
     error::SuiRpcResult,
@@ -324,6 +325,15 @@ impl<T> FailoverWrapper<T> {
         })
     }
 
+    /// Returns the name of the current client.
+    pub fn get_current_client_name(&self) -> &str {
+        &self.inner[self
+            .current_index
+            .load(std::sync::atomic::Ordering::Relaxed)
+            % self.client_count()]
+        .1
+    }
+
     fn client_count(&self) -> usize {
         self.inner.len()
     }
@@ -352,7 +362,7 @@ impl<T> FailoverWrapper<T> {
             .load(std::sync::atomic::Ordering::Relaxed);
         let mut current_index = start_index;
 
-        for _ in 0..self.max_retries {
+        for i in 0..self.max_retries {
             let instance = self.get_client(current_index).await;
 
             let result = {
@@ -382,14 +392,17 @@ impl<T> FailoverWrapper<T> {
                         .store(current_index, std::sync::atomic::Ordering::Relaxed);
                     return Ok(result);
                 }
-                Err(e) => {
-                    last_error = Some(e);
-                    tracing::warn!(
-                        current_client = self.get_name(current_index),
-                        next_client = self.get_name(current_index + 1),
-                        "Failed to execute operation on client, retrying with next client",
-                    );
-                    current_index += 1;
+                Err(error) => {
+                    last_error = Some(error);
+                    if i < self.max_retries - 1 {
+                        tracing::warn!(
+                            ?last_error,
+                            current_client = self.get_name(current_index),
+                            next_client = self.get_name(current_index + 1),
+                            "Failed to execute operation on client, retrying with next client",
+                        );
+                        current_index += 1;
+                    }
                 }
             }
         }
@@ -1189,6 +1202,20 @@ impl From<tonic::Status> for RetriableClientError {
     }
 }
 
+impl RetriableClientError {
+    fn is_eligible_for_fallback(&self, next_checkpoint: u64) -> bool {
+        match self {
+            Self::RpcError(rpc_error) if rpc_error.status.code() == tonic::Code::NotFound => {
+                rpc_error
+                    .status
+                    .checkpoint_height()
+                    .is_some_and(|height| next_checkpoint < height)
+            }
+            _ => true,
+        }
+    }
+}
+
 /// Error type for RPC operations
 #[derive(Error, Debug)]
 pub struct CheckpointRpcError {
@@ -1409,18 +1436,65 @@ impl RetriableRpcClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
+        let _scope = monitored_scope("RetriableRpcClient::get_full_checkpoint");
+        let start_time = Instant::now();
         let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
-            Ok(checkpoint) => return Ok(checkpoint),
+            Ok(checkpoint) => {
+                self.metrics.as_ref().inspect(|metrics| {
+                    metrics.record_rpc_latency(
+                        "get_full_checkpoint",
+                        self.client.get_current_client_name(),
+                        "success",
+                        start_time.elapsed(),
+                    )
+                });
+                return Ok(checkpoint);
+            }
             Err(error) => error,
         };
 
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
+            self.metrics.as_ref().inspect(|metrics| {
+                metrics.record_rpc_latency(
+                    "get_full_checkpoint",
+                    self.client.get_current_client_name(),
+                    "failure",
+                    start_time.elapsed(),
+                )
+            });
             return Err(error);
         };
 
-        self.get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
-            .await
+        if !error.is_eligible_for_fallback(sequence_number) {
+            tracing::debug!(
+                "primary client error while fetching checkpoint is not eligible for fallback"
+            );
+            self.metrics.as_ref().inspect(|metrics| {
+                metrics.record_rpc_latency(
+                    "get_full_checkpoint",
+                    self.client.get_current_client_name(),
+                    "failure",
+                    start_time.elapsed(),
+                )
+            });
+            return Err(error);
+        }
+
+        let fallback_start_time = Instant::now();
+        let result = self
+            .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
+            .await;
+
+        self.metrics.as_ref().inspect(|metrics| {
+            metrics.record_fallback_metrics(
+                "get_full_checkpoint",
+                &result,
+                fallback_start_time.elapsed(),
+            )
+        });
+
+        result
     }
 
     /// Gets the full checkpoint data for the given sequence number from the fallback client.
@@ -1429,7 +1503,7 @@ impl RetriableRpcClient {
         fallback: &FallbackClient,
         sequence_number: u64,
     ) -> Result<CheckpointData, RetriableClientError> {
-        tracing::info!(sequence_number, "fetching checkpoint from fallback client");
+        tracing::debug!(sequence_number, "fetching checkpoint from fallback client");
         return retry_rpc_errors(
             self.get_extended_strategy(),
             || async {

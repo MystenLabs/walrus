@@ -14,8 +14,8 @@ use prometheus::{
     Histogram,
     HistogramVec,
     IntCounter,
-    Registry,
 };
+use walrus_utils::metrics::Registry;
 
 const LATENCY_SEC_BUCKETS: &[f64] = &[
     1., 1.5, 2., 2.5, 3., 4., 5., 6., 7., 8., 9., 10., 20., 40., 80., 160.,

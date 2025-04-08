@@ -11,7 +11,6 @@ use std::{
 };
 
 use futures::TryFutureExt;
-use prometheus::Registry;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use tokio::sync::{watch, Mutex as TokioMutex};
 use tower::ServiceExt as _;
@@ -32,6 +31,7 @@ use walrus_core::{
     SliverType,
 };
 use walrus_sui::types::Committee;
+use walrus_utils::metrics::Registry;
 
 use super::{
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},

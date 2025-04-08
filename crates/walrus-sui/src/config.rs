@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use sui_keys::keystore::AccountKeystore;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::SuiAddress;
 use walrus_utils::config::{path_or_defaults_if_exist, resolve_home_dir};
@@ -114,6 +115,20 @@ impl WalletConfig {
         if let Some(active_address) =
             wallet_config.and_then(|wallet_config| wallet_config.active_address())
         {
+            if !wallet_context
+                .config
+                .keystore
+                .addresses()
+                .iter()
+                .any(|address| *address == active_address)
+            {
+                return Err(anyhow!(
+                    "Address '{}' not found in wallet keystore for file '{}'.",
+                    active_address,
+                    path.display()
+                ));
+            }
+
             wallet_context.config.active_address = Some(active_address);
         }
         Ok(wallet_context)

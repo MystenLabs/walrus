@@ -1,5 +1,5 @@
 [package]
-name = "walrus-sdk"
+name = "walrus-rest-client"
 publish = false
 authors.workspace = true
 version.workspace = true

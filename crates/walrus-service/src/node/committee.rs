@@ -21,7 +21,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::error::ClientBuildError;
+use walrus_rest_client::error::ClientBuildError;
 use walrus_sui::{
     client::ReadClient,
     types::{Committee, StorageNode},

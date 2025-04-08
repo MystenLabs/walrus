@@ -13,7 +13,7 @@ use reqwest::header::AUTHORIZATION;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use walrus_core::PublicKey;
 use walrus_proc_macros::RestApiError;
-use walrus_sdk::api::errors::STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN;
+use walrus_rest_client::api::errors::STORAGE_NODE_ERROR_DOMAIN as ERROR_DOMAIN;
 
 use crate::common::api::RestApiError;
 
