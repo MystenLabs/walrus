@@ -93,6 +93,11 @@ jobs:
     name: Build Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
+    env:
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
     runs-on: ubuntu-ghcloud-2
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
@@ -102,8 +107,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev
-
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Build Rust code
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
@@ -114,6 +118,9 @@ jobs:
     runs-on: ubuntu-ghcloud-2
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
@@ -123,6 +130,10 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Run tests
         run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all
 
