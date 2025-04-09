@@ -22,7 +22,7 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
 ];
 
 const LATENCY_SEC_SMALL_BUCKETS: &[f64] = &[
-    0.05, 0.01, 0.03, 0.05, 0.07, 1., 1.3, 1.5, 1.7, 2., 2.3, 2.5, 2.7, 3.,
+    0.005, 0.01, 0.03, 0.05, 0.07, 1., 1.3, 1.5, 1.7, 2., 2.3, 2.5, 2.7, 3.,
 ];
 
 // Workload types for the client.
