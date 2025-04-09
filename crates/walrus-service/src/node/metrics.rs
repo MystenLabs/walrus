@@ -10,6 +10,7 @@ use prometheus::{
     IntGauge,
     IntGaugeVec,
 };
+use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{
     BlobCertified,
     BlobEvent,
@@ -20,7 +21,6 @@ use walrus_sui::types::{
 };
 
 use crate::{
-    client::ClientErrorKind,
     common::telemetry::{CurrentEpochMetric, CurrentEpochStateMetric},
     node::events::EventStreamElement,
 };

@@ -323,10 +323,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_ahead:
                 type: integer
                 format: int32
+                description: The number of epochs ahead for which the blob is registered.
                 minimum: 0
       - type: object
         description: The storage is reused, but the blob was not registered.
@@ -342,6 +344,7 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
         description: A registration was already present.
@@ -357,6 +360,7 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
       - type: object
         description: The blob was already certified, but its lifetime is too short.
@@ -373,10 +377,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_extended:
                 type: integer
                 format: int32
+                description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
       - type: object
         description: |-
@@ -397,10 +403,12 @@ components:
               encoded_length:
                 type: integer
                 format: int64
+                description: The size of the encoded blob in bytes.
                 minimum: 0
               epochs_extended:
                 type: integer
                 format: int32
+                description: The number of epochs extended wrt the original epoch end.
                 minimum: 0
       description: The operation performed on blob and storage resources to register a blob.
     Status:

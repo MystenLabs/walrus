@@ -22,6 +22,7 @@ pub enum StoreError {
     Confirmation(NodeError),
 }
 
+/// The JWT secret could not be decoded from the provided string.
 #[derive(Debug, thiserror::Error, PartialEq)]
 #[error("the JWT secret could not be decoded from the provided string")]
 pub struct JwtDecodeError;
@@ -30,10 +31,16 @@ pub struct JwtDecodeError;
 #[derive(Debug, thiserror::Error)]
 #[error("the sliver could not be stored")]
 pub struct SliverStoreError {
+    /// The sliver's pair index.
     pub pair_index: SliverPairIndex,
+    /// The sliver's type.
     pub sliver_type: SliverType,
+    /// The error raised by the node.
     pub error: NodeError,
 }
+
+/// A helper type for the client to handle errors.
+pub type ClientResult<T> = Result<T, ClientError>;
 
 /// Error raised by a client interacting with the storage system.
 #[derive(Debug, thiserror::Error)]

@@ -11864,6 +11864,7 @@ dependencies = [
  "walrus-core",
  "walrus-proc-macros",
  "walrus-rest-client",
+ "walrus-sdk",
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",
@@ -11988,6 +11989,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-sdk"
+version = "1.21.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "fastcrypto",
+ "home",
+ "indoc",
+ "itertools 0.13.0",
+ "jsonwebtoken",
+ "rand 0.8.5",
+ "reqwest",
+ "rustls-native-certs 0.8.1",
+ "serde",
+ "serde_with",
+ "serde_yaml 0.9.34+deprecated",
+ "sui-sdk",
+ "sui-types",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "utoipa",
+ "walrus-core",
+ "walrus-rest-client",
+ "walrus-sui",
+ "walrus-test-utils",
+ "walrus-utils",
+]
+
+[[package]]
 name = "walrus-service"
 version = "1.21.0"
 dependencies = [
@@ -12081,6 +12113,7 @@ dependencies = [
  "walrus-core",
  "walrus-proc-macros",
  "walrus-rest-client",
+ "walrus-sdk",
  "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
@@ -12105,6 +12138,7 @@ dependencies = [
  "walrus-core",
  "walrus-proc-macros",
  "walrus-rest-client",
+ "walrus-sdk",
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",
@@ -12127,6 +12161,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walrus-core",
+ "walrus-sdk",
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",

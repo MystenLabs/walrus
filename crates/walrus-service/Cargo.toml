@@ -102,7 +102,7 @@ indicatif.workspace = true
 indoc.workspace = true
 integer-encoding.workspace = true
 itertools.workspace = true
-jsonwebtoken = "9.3.1"
+jsonwebtoken.workspace = true
 md5 = { workspace = true, optional = true }
 mime = { workspace = true, optional = true }
 moka = { version = "0.12.10", features = ["future"] }
@@ -158,6 +158,7 @@ uuid.workspace = true
 walrus-core = { workspace = true, features = ["sui-types", "utoipa"] }
 walrus-proc-macros = { workspace = true, features = ["derive-api-errors"] }
 walrus-rest-client.workspace = true
+walrus-sdk = { workspace = true, features = ["test-utils"] }
 walrus-sui = { workspace = true, features = ["utoipa"] }
 walrus-test-utils = { workspace = true, optional = true }
 walrus-utils = { workspace = true, features = ["backoff", "config", "http", "metrics", "tokio-metrics"] }

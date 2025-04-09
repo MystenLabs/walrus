@@ -24,15 +24,15 @@ use walrus_rest_client::{
     client::Client as StorageNodeClient,
     error::NodeError,
 };
+use walrus_sdk::{
+    config::RequestRateConfig,
+    error::{SliverStoreError, StoreError},
+};
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use crate::{
-    client::{
-        config::RequestRateConfig,
-        error::{SliverStoreError, StoreError},
-        utils::{string_prefix, WeightedResult},
-    },
+    client::utils::{string_prefix, WeightedResult},
     common::utils::FutureHelpers,
 };
 

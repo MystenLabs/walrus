@@ -18,7 +18,7 @@ use generator::blob::WriteBlobConfig;
 use rand::{seq::SliceRandom, RngCore};
 use sui_types::base_types::ObjectID;
 use walrus_service::{
-    client::{metrics::ClientMetrics, Config, Refiller},
+    client::{metrics::ClientMetrics, ClientConfig, Refiller},
     utils::load_from_yaml,
 };
 use walrus_sui::{
@@ -120,7 +120,7 @@ struct StressArgs {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _ = tracing_subscriber::fmt::try_init();
-    let mut config: Config =
+    let mut config: ClientConfig =
         load_from_yaml(args.config_path).context("Failed to load client config")?;
 
     // Start the metrics server.
@@ -149,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_stress(
-    config: Config,
+    config: ClientConfig,
     metrics: Arc<ClientMetrics>,
     sui_network: SuiNetwork,
     args: StressArgs,
@@ -202,7 +202,7 @@ enum StakingModeAtEpoch {
     Withdraw(u32),
 }
 
-async fn run_staking(config: Config, _metrics: Arc<ClientMetrics>) -> anyhow::Result<()> {
+async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyhow::Result<()> {
     tracing::info!("Starting the staking stress runner.");
     // Start the re-staking machine.
     let restaking_period = Duration::from_secs(15);

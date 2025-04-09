@@ -34,13 +34,14 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 use walrus_core::{encoding::Primary, BlobId, EncodingType, EpochCount, DEFAULT_ENCODING};
+use walrus_sdk::responses::BlobStoreResult;
 use walrus_sui::{
     client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::move_structs::BlobWithAttribute,
 };
 use walrus_utils::metrics::Registry;
 
-use super::{responses::BlobStoreResult, Client, ClientResult, StoreWhen};
+use super::{Client, ClientResult, StoreWhen};
 use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},

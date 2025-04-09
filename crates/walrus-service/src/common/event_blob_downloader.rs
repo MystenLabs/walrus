@@ -8,10 +8,11 @@ use std::path::Path;
 use anyhow::Result;
 use walrus_core::BlobId;
 use walrus_rest_client::api::BlobStatus;
+use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
 use crate::{
-    client::{Client as WalrusClient, ClientErrorKind::BlobIdDoesNotExist},
+    client::Client as WalrusClient,
     node::events::{
         event_blob::EventBlob as LocalEventBlob,
         event_processor::EventProcessorMetrics,
@@ -67,7 +68,7 @@ impl EventBlobDownloader {
 
             let Ok(blob_status) = result else {
                 let err = result.err().unwrap();
-                if matches!(err.kind(), BlobIdDoesNotExist) {
+                if matches!(err.kind(), ClientErrorKind::BlobIdDoesNotExist) {
                     // We've reached an expired blob, safe to terminate
                     break;
                 } else {

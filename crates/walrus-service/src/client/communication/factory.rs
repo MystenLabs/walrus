@@ -19,14 +19,15 @@ use walrus_rest_client::{
     client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
     error::ClientBuildError,
 };
+use walrus_sdk::{
+    active_committees::ActiveCommittees,
+    config::ClientCommunicationConfig,
+    error::{ClientError, ClientErrorKind, ClientResult},
+};
 use walrus_sui::types::{Committee, NetworkAddress, StorageNode};
 use walrus_utils::metrics::Registry;
 
 use super::{NodeCommunication, NodeReadCommunication, NodeWriteCommunication};
-use crate::{
-    client::{ClientCommunicationConfig, ClientError, ClientErrorKind, ClientResult},
-    common::active_committees::ActiveCommittees,
-};
 
 #[derive(Clone, Debug)]
 pub(crate) struct NodeCommunicationFactory {

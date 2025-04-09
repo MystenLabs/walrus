@@ -97,6 +97,7 @@ use walrus_rest_client::{
     },
     client::{RecoverySymbolsFilter, SymbolIdFilter},
 };
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
     client::SuiReadClient,
     types::{
@@ -153,11 +154,7 @@ use self::{
 };
 use crate::{
     client::Blocklist,
-    common::{
-        active_committees::ActiveCommittees,
-        config::SuiConfig,
-        utils::should_reposition_cursor,
-    },
+    common::{config::SuiConfig, utils::should_reposition_cursor},
     utils::ShardDiffCalculator,
 };
 

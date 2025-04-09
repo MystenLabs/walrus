@@ -9,11 +9,12 @@ use std::{
 use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::ShardIndex;
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::types::EpochChangeStart;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{system_events::EventHandle, StorageNodeInner};
-use crate::{common::active_committees::ActiveCommittees, node::system_events::CompletableHandle};
+use crate::node::system_events::CompletableHandle;
 
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {

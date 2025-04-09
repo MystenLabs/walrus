@@ -30,6 +30,12 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_sdk::active_committees::{
+    ActiveCommittees,
+    ChangeNotInProgress,
+    CommitteeTracker,
+    StartChangeError,
+};
 use walrus_sui::types::Committee;
 use walrus_utils::metrics::Registry;
 
@@ -48,18 +54,10 @@ use super::{
     EndCommitteeChangeError,
     NodeServiceFactory,
 };
-use crate::{
-    common::active_committees::{
-        ActiveCommittees,
-        ChangeNotInProgress,
-        CommitteeTracker,
-        StartChangeError,
-    },
-    node::{
-        config::CommitteeServiceConfig,
-        errors::SyncShardClientError,
-        metrics::CommitteeServiceMetricSet,
-    },
+use crate::node::{
+    config::CommitteeServiceConfig,
+    errors::SyncShardClientError,
+    metrics::CommitteeServiceMetricSet,
 };
 
 pub(crate) struct NodeCommitteeServiceBuilder {

@@ -11,18 +11,16 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
 use indicatif::{ProgressBar, ProgressStyle};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
-use sui_types::event::EventID;
 use walrus_core::BlobId;
 use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient};
-use walrus_utils::config::path_or_defaults_if_exist;
 
-use super::{default_configuration_paths, Blocklist, Client, Config};
+use super::{Blocklist, Client, ClientConfig};
 
 mod args;
 mod cli_output;
@@ -48,31 +46,12 @@ pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
 pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 
-/// Loads the Walrus configuration from the given path and context.
-///
-/// If no path is provided, tries to load the configuration first from the local folder, and then
-/// from the standard Walrus configuration directory. If the context is not provided, the default
-/// context is used.
-// NB: When making changes to the logic, make sure to update the argument docs in
-// `crates/walrus-service/bin/client.rs`.
-pub fn load_configuration(path: Option<impl AsRef<Path>>, context: Option<&str>) -> Result<Config> {
-    let path = path_or_defaults_if_exist(path, &default_configuration_paths())
-        .ok_or(anyhow!("could not find a valid Walrus configuration file"))?;
-    let (config, context) = Config::load_from_multi_config(&path, context)?;
-    tracing::info!(
-        "using Walrus configuration from '{}' with {} context",
-        path.display(),
-        context.map_or("default".to_string(), |c| format!("'{}'", c))
-    );
-    Ok(config)
-}
-
-/// Creates a [`Client`] based on the provided [`Config`] with read-only access to Sui.
+/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to Sui.
 ///
 /// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
 /// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
 pub async fn get_read_client(
-    config: Config,
+    config: ClientConfig,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
@@ -99,10 +78,10 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`Client<SuiContractClient>`] based on the provided [`Config`] with write access to
-/// Sui.
+/// Creates a [`Client<SuiContractClient>`] based on the provided [`ClientConfig`] with write access
+/// to Sui.
 pub async fn get_contract_client(
-    config: Config,
+    config: ClientConfig,
     wallet: Result<WalletContext>,
     gas_budget: Option<u64>,
     blocklist_path: &Option<PathBuf>,
@@ -129,7 +108,7 @@ pub async fn get_contract_client(
 // NB: When making changes to the logic, make sure to update the docstring of `get_read_client` and
 // the argument docs in `crates/walrus-service/bin/client.rs`.
 pub async fn get_sui_read_client_from_rpc_node_or_wallet(
-    config: &Config,
+    config: &ClientConfig,
     rpc_url: Option<String>,
     wallet: Result<WalletContext>,
     allow_fallback_to_default: bool,
@@ -413,11 +392,6 @@ pub fn read_blob_from_file(path: impl AsRef<Path>) -> anyhow::Result<Vec<u8>> {
         "unable to read blob from '{}'",
         path.as_ref().display()
     ))
-}
-
-/// Format the event ID as the transaction digest and the sequence number.
-pub fn format_event_id(event_id: &EventID) -> String {
-    format!("(tx: {}, seq: {})", event_id.tx_digest, event_id.event_seq)
 }
 
 /// Error type distinguishing between a decimal value that corresponds to a valid blob ID and any

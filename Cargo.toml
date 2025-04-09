@@ -6,6 +6,7 @@ default-members = [
   "crates/walrus-proc-macros",
   "crates/walrus-proxy",
   "crates/walrus-rest-client",
+  "crates/walrus-sdk",
   "crates/walrus-service",
   "crates/walrus-simtest",
   "crates/walrus-stress",
@@ -58,6 +59,7 @@ indoc = "2.0.6"
 integer-encoding = "4.0.2"
 itertools = "0.13.0"
 jsonrpsee = "0.24.9"
+jsonwebtoken = "9.3.1"
 md5 = "0.7.0"
 mime = "0.3.17"
 mockall = "0.12.1"
@@ -125,6 +127,7 @@ uuid = { version = "1.16.0", features = ["fast-rng", "macro-diagnostics", "v7"] 
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-rest-client = { path = "crates/walrus-rest-client" }
+walrus-sdk = { path = "crates/walrus-sdk" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }

@@ -11,13 +11,13 @@ use prettytable::{format, row, Table};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
 use walrus_rest_client::api::{BlobStatus, DeletableCounts, EventProgress};
+use walrus_sdk::{format_event_id, resource::RegisterBlobOp};
 use walrus_sui::types::Blob;
 
 use super::warning;
 use crate::client::{
     cli::{
         error,
-        format_event_id,
         success,
         thousands_separator,
         HumanReadableBytes,
@@ -25,7 +25,6 @@ use crate::client::{
         HumanReadableMist,
         WalrusColors,
     },
-    resource::RegisterBlobOp,
     responses::{
         BlobIdConversionOutput,
         BlobIdOutput,

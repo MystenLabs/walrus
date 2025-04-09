@@ -49,6 +49,7 @@ use walrus_core::{
     SymbolId,
 };
 use walrus_rest_client::client::RecoverySymbolsFilter;
+use walrus_sdk::active_committees::CommitteeTracker;
 use walrus_sui::types::Committee;
 use walrus_utils::backoff::ExponentialBackoffState;
 
@@ -56,7 +57,6 @@ use super::{
     committee_service::NodeCommitteeServiceInner,
     node_service::{NodeService, NodeServiceError, Request, Response},
 };
-use crate::common::active_committees::CommitteeTracker;
 
 pub(super) struct GetAndVerifyMetadata<'a, T> {
     blob_id: BlobId,

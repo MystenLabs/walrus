@@ -36,13 +36,8 @@ use walrus_core::{
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_rest_client::api::BlobStatus;
-use walrus_service::{
-    client::{
-        client_types::WalrusStoreBlobApi as _,
-        responses::BlobStoreResult,
-        Blocklist,
-        Client,
-        ClientCommunicationConfig,
+use walrus_sdk::{
+    error::{
         ClientError,
         ClientErrorKind::{
             self,
@@ -51,9 +46,12 @@ use walrus_service::{
             NotEnoughConfirmations,
             NotEnoughSlivers,
         },
-        StoreWhen,
-        WalrusStoreBlob,
     },
+    responses::BlobStoreResult,
+    store_when::StoreWhen,
+};
+use walrus_service::{
+    client::{Blocklist, Client, ClientCommunicationConfig},
     test_utils::{
         test_cluster::{self, FROST_PER_NODE_WEIGHT},
         StorageNodeHandle,

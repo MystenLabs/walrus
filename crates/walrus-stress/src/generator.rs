@@ -17,11 +17,11 @@ use tokio::{
     time::{Interval, MissedTickBehavior},
 };
 use walrus_core::{encoding::Primary, BlobId, EpochCount};
+use walrus_sdk::error::ClientResult;
 use walrus_service::client::{
     metrics::{self, ClientMetrics},
     Client,
-    ClientError,
-    Config,
+    ClientConfig,
     RefillHandles,
     Refiller,
 };
@@ -57,7 +57,7 @@ impl LoadGenerator {
     pub async fn new(
         n_clients: usize,
         blob_config: WriteBlobConfig,
-        client_config: Config,
+        client_config: ClientConfig,
         network: SuiNetwork,
         gas_refill_period: Duration,
         metrics: Arc<ClientMetrics>,
@@ -331,7 +331,7 @@ impl LoadGenerator {
     async fn initial_write_to_serve_read_workload(
         &mut self,
         epochs_to_store: EpochCount,
-    ) -> Result<BlobId, ClientError> {
+    ) -> ClientResult<BlobId> {
         let mut retry_strategy =
             ExponentialBackoffConfig::default().get_strategy(thread_rng().gen());
         let mut attempt = 0;

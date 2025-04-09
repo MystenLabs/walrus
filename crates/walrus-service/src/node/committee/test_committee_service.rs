@@ -41,11 +41,11 @@ use walrus_core::{
     DEFAULT_ENCODING,
 };
 use walrus_rest_client::error::ClientBuildError;
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::types::{Committee, StorageNode as SuiStorageNode};
 use walrus_test_utils::{async_param_test, Result as TestResult};
 
 use crate::{
-    common::active_committees::ActiveCommittees,
     node::{
         self,
         committee::{
@@ -147,6 +147,7 @@ impl CommitteeLookupService for TestLookupService {
 #[derive(Debug)]
 struct TestLookupServiceHandle(Arc<Mutex<ActiveCommittees>>);
 
+#[cfg(test)]
 impl TestLookupServiceHandle {
     fn set_active_committees(&self, committees: ActiveCommittees) {
         let mut current = self.0.lock().unwrap();

@@ -36,6 +36,7 @@ use walrus_core::{
     SUPPORTED_ENCODING_TYPES,
 };
 use walrus_rest_client::api::BlobStatus;
+use walrus_sdk::{config::load_configuration, error::ClientErrorKind, resource::RegisterBlobOp};
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -75,7 +76,6 @@ use crate::{
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
-            load_configuration,
             read_blob_from_file,
             success,
             warning,
@@ -85,7 +85,6 @@ use crate::{
             HumanReadableMist,
         },
         communication::NodeCommunicationFactory,
-        error::ClientErrorKind,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -112,8 +111,8 @@ use crate::{
         },
         styled_spinner,
         Client,
+        ClientConfig,
         ClientDaemon,
-        Config,
         StoreWhen,
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
@@ -125,7 +124,7 @@ pub struct ClientCommandRunner {
     /// The Sui wallet for the client.
     wallet: Result<WalletContext>,
     /// The config for the client.
-    config: Result<Config>,
+    config: Result<ClientConfig>,
     /// Whether to output JSON.
     json: bool,
     /// The gas budget for the client commands.
@@ -150,7 +149,7 @@ impl ClientCommandRunner {
             .or(config
                 .as_ref()
                 .ok()
-                .and_then(|config: &Config| config.wallet_config.clone()));
+                .and_then(|config: &ClientConfig| config.wallet_config.clone()));
         let wallet = WalletConfig::load_wallet_context(wallet_config.as_ref());
 
         Self {
@@ -615,7 +614,7 @@ impl ClientCommandRunner {
             )
             .expect("must be valid as the encoding succeeded");
             let storage_cost = client.get_price_computation().await?.operation_cost(
-                &crate::client::resource::RegisterBlobOp::RegisterFromScratch {
+                &RegisterBlobOp::RegisterFromScratch {
                     encoded_length: encoded_size,
                     epochs_ahead,
                 },

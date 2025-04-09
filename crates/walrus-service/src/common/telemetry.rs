@@ -44,12 +44,11 @@ use tower_http::trace::{MakeSpan, OnResponse};
 use tracing::{field, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
+use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_utils::{
     http::{http_body::Frame, BodyVisitor, VisitBody},
     metrics::{Registry, TaskMonitorFamily},
 };
-
-use super::active_committees::ActiveCommittees;
 
 /// Route string used in metrics for invalid routes.
 pub(crate) const UNMATCHED_ROUTE: &str = "invalid-route";

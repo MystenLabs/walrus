@@ -47,6 +47,15 @@ use walrus_core::{
     Sliver,
 };
 use walrus_rest_client::{api::BlobStatus, error::NodeError};
+use walrus_sdk::{
+    active_committees::ActiveCommittees,
+    config::CommunicationLimits,
+    error::{ClientError, ClientErrorKind, ClientResult},
+    refresh::{are_current_previous_different, CommitteesRefresherHandle, RequestKind},
+    resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
+    responses::BlobStoreResult,
+    store_when::StoreWhen,
+};
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -63,14 +72,12 @@ use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
 use self::{
     communication::NodeResult,
-    config::CommunicationLimits,
-    responses::BlobStoreResult,
     utils::{CompletedReasonWeight, WeightedFutures},
 };
-use crate::common::active_committees::ActiveCommittees;
 
 pub mod cli;
 pub mod responses;
+pub mod resource;
 
 pub mod client_types;
 pub use client_types::{WalrusStoreBlob, WalrusStoreBlobApi};
@@ -80,22 +87,14 @@ pub use crate::common::blocklist::Blocklist;
 mod communication;
 
 pub(crate) mod config;
-pub use config::{default_configuration_paths, ClientCommunicationConfig, Config};
+pub use walrus_sdk::config::{
+    default_configuration_paths,
+    ClientCommunicationConfig,
+    ClientConfig,
+};
 
 mod daemon;
 pub use daemon::{auth::Claim, ClientDaemon, PublisherQuery, WalrusWriteClient};
-
-mod error;
-pub use error::{ClientError, ClientErrorKind};
-
-mod refresh;
-pub use refresh::{
-    CommitteesRefreshConfig,
-    CommitteesRefresher,
-    CommitteesRefresherHandle,
-    RequestKind,
-};
-mod resource;
 
 mod utils;
 pub use utils::string_prefix;
@@ -106,57 +105,10 @@ mod refill;
 pub use refill::{RefillHandles, Refiller};
 mod multiplexer;
 
-type ClientResult<T> = Result<T, ClientError>;
-
-/// Represents how the store operation should be carried out by the client.
-#[derive(Debug, Clone, Copy)]
-pub enum StoreWhen {
-    /// Store the blob if not stored, but do not check the resources in the current wallet.
-    ///
-    /// With this command, the client does not check for usable registrations or
-    /// storage space. This is useful when using the publisher, to avoid wasting multiple round
-    /// trips to the fullnode.
-    NotStoredIgnoreResources,
-    /// Check the status of the blob before storing it, and store it only if it is not already.
-    NotStored,
-    /// Store the blob always, without checking the status.
-    Always,
-    /// Store the blob always, without checking the status, and ignore the resources in the wallet.
-    AlwaysIgnoreResources,
-}
-
-impl StoreWhen {
-    /// Returns `true` if the operation ignore the blob status.
-    ///
-    /// If `true`, the client should store the blob, even if the blob is already stored on Walrus
-    /// for a sufficient number of epochs.
-    pub fn is_ignore_status(&self) -> bool {
-        matches!(self, Self::Always | Self::AlwaysIgnoreResources)
-    }
-
-    /// Returns `true` if the operation should ignore the resources in the wallet.
-    pub fn is_ignore_resources(&self) -> bool {
-        matches!(
-            self,
-            Self::NotStoredIgnoreResources | Self::AlwaysIgnoreResources
-        )
-    }
-
-    /// Returns [`Self`] based on the value of the `force` and `ignore-resources` flags.
-    pub fn from_flags(force: bool, ignore_resources: bool) -> Self {
-        match (force, ignore_resources) {
-            (true, true) => Self::AlwaysIgnoreResources,
-            (true, false) => Self::Always,
-            (false, true) => Self::NotStoredIgnoreResources,
-            (false, false) => Self::NotStored,
-        }
-    }
-}
-
 /// A client to communicate with Walrus shards and storage nodes.
 #[derive(Debug, Clone)]
 pub struct Client<T> {
-    config: Config,
+    config: ClientConfig,
     sui_client: T,
     communication_limits: CommunicationLimits,
     committees_handle: CommitteesRefresherHandle,
@@ -170,7 +122,7 @@ pub struct Client<T> {
 impl Client<()> {
     /// Creates a new Walrus client without a Sui client.
     pub async fn new(
-        config: Config,
+        config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
     ) -> ClientResult<Self> {
         Self::new_inner(config, committees_handle, None).await
@@ -179,7 +131,7 @@ impl Client<()> {
     /// Creates a new Walrus client without a Sui client, that records metrics to the provided
     /// registry.
     pub async fn new_with_metrics(
-        config: Config,
+        config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Registry,
     ) -> ClientResult<Self> {
@@ -187,7 +139,7 @@ impl Client<()> {
     }
 
     async fn new_inner(
-        config: Config,
+        config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         metrics_registry: Option<Registry>,
     ) -> ClientResult<Self> {
@@ -246,7 +198,7 @@ impl Client<()> {
 impl<T: ReadClient> Client<T> {
     /// Creates a new read client starting from a config file.
     pub async fn new_read_client(
-        config: Config,
+        config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_read_client: T,
     ) -> ClientResult<Self> {
@@ -260,7 +212,7 @@ impl<T: ReadClient> Client<T> {
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
     pub async fn new_read_client_with_refresher(
-        config: Config,
+        config: ClientConfig,
         sui_read_client: T,
     ) -> ClientResult<Self>
     where
@@ -476,7 +428,7 @@ impl<T: ReadClient> Client<T> {
 impl Client<SuiContractClient> {
     /// Creates a new client starting from a config file.
     pub async fn new_contract_client(
-        config: Config,
+        config: ClientConfig,
         committees_handle: CommitteesRefresherHandle,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
@@ -490,7 +442,7 @@ impl Client<SuiContractClient> {
     ///
     /// This is useful when only one client is needed, and the refresher handle is not useful.
     pub async fn new_contract_client_with_refresher(
-        config: Config,
+        config: ClientConfig,
         sui_client: SuiContractClient,
     ) -> ClientResult<Self> {
         let committees_handle = config
@@ -939,6 +891,7 @@ impl Client<SuiContractClient> {
             metrics.observe_upload_certificate(sui_cert_timer_duration);
         }
 
+<<<<<<< HEAD
         // Build map from BlobId to CertifyAndExtendBlobResult
         let result_map: HashMap<ObjectID, CertifyAndExtendBlobResult> = cert_and_extend_results
             .into_iter()
@@ -947,6 +900,11 @@ impl Client<SuiContractClient> {
 
         // Get price computation for completing blobs
         let price_computation = self.get_price_computation().await?;
+=======
+        // Construct BlobStoreResult for all newly created blobs with cost and certified epoch.
+        let write_committee_epoch = committees.write_committee().epoch;
+        let price_computation: PriceComputation = self.get_price_computation().await?;
+>>>>>>> df11ef9f (refactor: move walrus_service::client::load_configuration into walrus_sdk)
 
         // Complete to_be_extended blobs.
         for blob in to_be_extended {
@@ -1895,7 +1853,7 @@ impl<T> Client<T> {
     }
 
     /// Returns the config used by the client.
-    pub fn config(&self) -> &Config {
+    pub fn config(&self) -> &ClientConfig {
         &self.config
     }
 

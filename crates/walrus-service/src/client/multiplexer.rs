@@ -18,6 +18,7 @@ use sui_sdk::{
 };
 use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EncodingType, EpochCount};
+use walrus_sdk::{responses::BlobStoreResult, store_when::StoreWhen};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
@@ -37,12 +38,10 @@ use super::{
     daemon::{WalrusReadClient, WalrusWriteClient},
     metrics::ClientMetrics,
     refill::{RefillHandles, Refiller},
-    responses::BlobStoreResult,
     Client,
     ClientResult,
-    StoreWhen,
 };
-use crate::client::{refill::should_refill, CommitteesRefresherHandle, Config};
+use crate::client::{refill::should_refill, ClientConfig, CommitteesRefresherHandle};
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,
@@ -54,7 +53,7 @@ pub struct ClientMultiplexer {
 impl ClientMultiplexer {
     pub async fn new(
         wallet: WalletContext,
-        config: &Config,
+        config: &ClientConfig,
         gas_budget: Option<u64>,
         prometheus_registry: &Registry,
         args: &PublisherArgs,
@@ -229,7 +228,7 @@ pub struct WriteClientPool {
 impl WriteClientPool {
     /// Creates a new client pool with `n_client`, based on the given `config` and `sui_env`.
     pub async fn new(
-        config: &Config,
+        config: &ClientConfig,
         pool_config: WriteClientPoolConfig,
         refiller: &Refiller,
         refresh_handle: CommitteesRefresherHandle,
@@ -277,7 +276,7 @@ impl WriteClientPool {
 
 /// Helper struct to build or load sub clients for the client multiplexer.
 struct SubClientLoader<'a> {
-    config: &'a Config,
+    config: &'a ClientConfig,
     sub_wallets_dir: &'a Path,
     sui_env: SuiEnv,
     gas_budget: Option<u64>,
@@ -288,7 +287,7 @@ struct SubClientLoader<'a> {
 
 impl<'a> SubClientLoader<'a> {
     fn new(
-        config: &'a Config,
+        config: &'a ClientConfig,
         sub_wallets_dir: &'a Path,
         sui_env: SuiEnv,
         gas_budget: Option<u64>,

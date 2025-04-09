@@ -294,7 +294,7 @@ mod commands {
             gas_budget,
         }: RegisterNodesArgs,
     ) -> anyhow::Result<()> {
-        let config: walrus_service::client::Config = load_from_yaml(client_config)?;
+        let config: walrus_service::client::ClientConfig = load_from_yaml(client_config)?;
         let contract_client = config
             .new_contract_client_with_wallet_in_config(gas_budget)
             .await?;

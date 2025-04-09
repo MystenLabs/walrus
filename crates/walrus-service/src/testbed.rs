@@ -513,7 +513,7 @@ pub async fn create_client_config(
     exchange_objects: Vec<ObjectID>,
     sui_amount: u64,
     wallet_name: &str,
-) -> anyhow::Result<client::Config> {
+) -> anyhow::Result<client::ClientConfig> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
 
@@ -558,7 +558,7 @@ pub async fn create_client_config(
     let contract_config = system_ctx.contract_config();
 
     // Create the client config.
-    let client_config = client::Config {
+    let client_config = client::ClientConfig {
         contract_config,
         exchange_objects,
         wallet_config: Some(WalletConfig::from_path(wallet_path)),

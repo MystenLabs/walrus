@@ -65,7 +65,6 @@ impl ActiveCommittees {
     ///
     /// Panics if the previous committee's epoch does not precede that of the current committees, or
     /// if they have a different number of shards.
-    #[cfg(test)]
     pub fn new_transitioning(current_committee: Committee, previous_committee: Committee) -> Self {
         let this = Self {
             current_committee: Arc::new(current_committee),
@@ -103,7 +102,7 @@ impl ActiveCommittees {
     }
 
     /// Construct a new set of `ActiveCommittees` from the [`CommitteesAndState`] returned by the
-    /// [`ReadClient`].
+    /// [`walrus_sui::client::ReadClient`].
     ///
     /// # Panics
     ///
@@ -313,7 +312,7 @@ impl TryFrom<CommitteesAndState> for ActiveCommittees {
 
 /// Errors returned when the next committee is inconsistent with the provided committee.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) struct NextCommitteeInconsistent(String);
+pub struct NextCommitteeInconsistent(String);
 
 impl std::fmt::Display for NextCommitteeInconsistent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -323,7 +322,8 @@ impl std::fmt::Display for NextCommitteeInconsistent {
 
 /// Errors returned when starting a committee change.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum StartChangeError {
+pub enum StartChangeError {
+    /// Error returned when the next committee is not known.
     #[error("the next committee is unknown")]
     UnknownNextCommittee,
     /// Error returned when attempting to start a committee change while one is already in progress.
@@ -331,13 +331,14 @@ pub(crate) enum StartChangeError {
     ChangeInProgress,
 }
 
+/// Errors returned when ending a committee change.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("cannot end a committee change as it is not in progress")]
-pub(crate) struct ChangeNotInProgress;
+pub struct ChangeNotInProgress;
 
 /// Track committee changes on top [`ActiveCommittees`].
 #[derive(Debug)]
-pub(crate) struct CommitteeTracker(ActiveCommittees);
+pub struct CommitteeTracker(ActiveCommittees);
 
 impl CommitteeTracker {
     /// Constructs a new instance of [`CommitteeTracker`].
