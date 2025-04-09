@@ -34,6 +34,12 @@ use crate::{
 /// The capacity of the event channel.
 pub const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
+/// The event ID for checkpoint events.
+pub const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
+    tx_digest: TransactionDigest::ZERO,
+    event_seq: 0,
+};
+
 /// Represents a Walrus event and the obligation to completely process that event.
 ///
 /// A function that obtains an `EventHandle` must do one of the following:
@@ -59,15 +65,10 @@ pub(super) struct EventHandle {
 }
 
 impl EventHandle {
-    const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
-        tx_digest: TransactionDigest::ZERO,
-        event_seq: 0,
-    };
-
     pub fn new(index: u64, event_id: Option<EventID>, node: Arc<StorageNodeInner>) -> Self {
         Self {
             index,
-            event_id: event_id.unwrap_or(Self::EVENT_ID_FOR_CHECKPOINT_EVENTS),
+            event_id: event_id.unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
             node,
             can_be_dropped: false,
         }

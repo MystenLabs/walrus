@@ -39,7 +39,7 @@ pub use storage::{DatabaseConfig, NodeStatus, Storage};
 use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
-use system_events::{CompletableHandle, EventHandle};
+use system_events::{CompletableHandle, EventHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS};
 use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_metrics::TaskMonitor;
@@ -789,7 +789,10 @@ impl StorageNode {
                 actual_event_index
             );
             self.inner.reposition_event_cursor(
-                init_state.event_cursor.event_id.expect("EventID expected"),
+                init_state
+                    .event_cursor
+                    .event_id
+                    .unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
                 actual_event_index,
             )?;
             storage_node_cursor_repositioned = true;
