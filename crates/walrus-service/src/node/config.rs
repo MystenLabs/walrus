@@ -639,14 +639,14 @@ pub struct ShardSyncConfig {
 impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
-            sliver_count_per_sync_request: 10,
+            sliver_count_per_sync_request: 1000,
             shard_sync_retry_min_backoff: Duration::from_secs(60),
             shard_sync_retry_max_backoff: Duration::from_secs(600),
-            max_concurrent_blob_recovery_during_shard_recovery: 5,
+            max_concurrent_blob_recovery_during_shard_recovery: 100,
             blob_certified_check_interval: Duration::from_secs(60),
-            max_concurrent_metadata_fetch: 10,
+            max_concurrent_metadata_fetch: 100,
             shard_sync_concurrency: 10,
-            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
         }
     }
@@ -1008,7 +1008,7 @@ impl Default for BalanceCheckConfig {
 }
 
 /// Configuration for the blocking thread pool.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ThreadPoolConfig {
     /// Specify the maximum number of concurrent tasks that will be pending on the thread pool.
@@ -1016,6 +1016,17 @@ pub struct ThreadPoolConfig {
     /// Defaults to an amount calculated from the number of cores.
     #[serde(skip_serializing_if = "defaults::is_none")]
     pub max_concurrent_tasks: Option<usize>,
+    /// Specify the maximum number of blocking threads to use for I/O.
+    pub max_blocking_io_threads: usize,
+}
+
+impl Default for ThreadPoolConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent_tasks: None,
+            max_blocking_io_threads: 1024,
+        }
+    }
 }
 
 #[cfg(test)]

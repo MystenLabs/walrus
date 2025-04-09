@@ -5,7 +5,7 @@ default-members = [
   "crates/walrus-e2e-tests",
   "crates/walrus-proc-macros",
   "crates/walrus-proxy",
-  "crates/walrus-sdk",
+  "crates/walrus-rest-client",
   "crates/walrus-service",
   "crates/walrus-simtest",
   "crates/walrus-stress",
@@ -20,7 +20,7 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2021"
 license = "Apache-2.0"
-version = "1.20.0"
+version = "1.21.0"
 
 [workspace.dependencies]
 anyhow = "1.0.97"
@@ -124,7 +124,7 @@ utoipa-redoc = { version = "6.0", features = ["axum"] }
 uuid = { version = "1.16.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
-walrus-sdk = { path = "crates/walrus-sdk" }
+walrus-rest-client = { path = "crates/walrus-rest-client" }
 walrus-service = { path = "crates/walrus-service" }
 walrus-sui = { path = "crates/walrus-sui" }
 walrus-test-utils = { path = "crates/walrus-test-utils" }

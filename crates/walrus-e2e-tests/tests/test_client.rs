@@ -35,7 +35,7 @@ use walrus_core::{
     DEFAULT_ENCODING,
 };
 use walrus_proc_macros::walrus_simtest;
-use walrus_sdk::api::BlobStatus;
+use walrus_rest_client::api::BlobStatus;
 use walrus_service::{
     client::{
         client_types::WalrusStoreBlobApi as _,
@@ -1504,6 +1504,7 @@ async fn test_post_store_action(
             StoreWhen::Always,
             BlobPersistence::Permanent,
             post_store,
+            None,
         )
         .await?;
 
@@ -1654,6 +1655,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             StoreWhen::Always,
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
+            None,
         )
         .await?;
 

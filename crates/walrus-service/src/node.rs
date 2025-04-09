@@ -29,7 +29,6 @@ use futures::{
 };
 use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
-use prometheus::Registry;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
@@ -41,7 +40,7 @@ use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
 use system_events::{CompletableHandle, EventHandle};
-use thread_pool::ThreadPoolBuilder;
+use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
@@ -86,7 +85,7 @@ use walrus_core::{
     SliverType,
     SymbolId,
 };
-use walrus_sdk::{
+use walrus_rest_client::{
     api::{
         BlobStatus,
         ServiceHealthInfo,
@@ -113,7 +112,7 @@ use walrus_sui::{
         GENESIS_EPOCH,
     },
 };
-use walrus_utils::metrics::TaskMonitorFamily;
+use walrus_utils::metrics::{Registry, TaskMonitorFamily};
 
 use self::{
     blob_sync::BlobSyncHandler,
@@ -145,7 +144,11 @@ use self::{
     },
     metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
     shard_sync::ShardSyncHandler,
-    storage::{blob_info::BlobInfoApi as _, ShardStatus, ShardStorage},
+    storage::{
+        blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
+        ShardStatus,
+        ShardStorage,
+    },
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
@@ -204,7 +207,7 @@ pub trait ServiceState {
     fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
-    ) -> Result<bool, StoreMetadataError>;
+    ) -> impl Future<Output = Result<bool, StoreMetadataError>> + Send;
 
     /// Returns whether the metadata is stored in the shard.
     fn metadata_status(
@@ -223,9 +226,9 @@ pub trait ServiceState {
     /// Stores the primary or secondary encoding for a blob for a shard held by this storage node.
     fn store_sliver(
         &self,
-        blob_id: &BlobId,
+        blob_id: BlobId,
         sliver_pair_index: SliverPairIndex,
-        sliver: &Sliver,
+        sliver: Sliver,
     ) -> impl Future<Output = Result<bool, StoreSliverError>> + Send;
 
     /// Retrieves a signed confirmation over the identifiers of the shards storing their respective
@@ -508,6 +511,7 @@ pub struct StorageNodeInner {
     node_capability: ObjectID,
     blob_retirement_notifier: Arc<BlobRetirementNotifier>,
     symbol_service: RecoverySymbolService,
+    thread_pool: BoundedThreadPool,
     registry: Registry,
 }
 
@@ -584,6 +588,10 @@ impl StorageNode {
         };
         tracing::info!("successfully opened the node database");
 
+        let thread_pool = ThreadPoolBuilder::default()
+            .max_concurrent(config.thread_pool.max_concurrent_tasks)
+            .metrics_registry(registry.clone())
+            .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
@@ -605,12 +613,10 @@ impl StorageNode {
             symbol_service: RecoverySymbolService::new(
                 config.blob_recovery.max_proof_cache_elements,
                 encoding_config.clone(),
-                ThreadPoolBuilder::default()
-                    .max_concurrent(config.thread_pool.max_concurrent_tasks)
-                    .metrics_registry(registry.clone())
-                    .build_bounded(),
+                thread_pool.clone(),
                 registry,
             ),
+            thread_pool,
             encoding_config,
             registry: registry.clone(),
         });
@@ -1753,7 +1759,7 @@ impl StorageNodeInner {
             .get_and_verify_metadata(*blob_id, certified_epoch)
             .await;
 
-        self.storage.put_verified_metadata(&metadata)?;
+        self.storage.put_verified_metadata(&metadata).await?;
         tracing::debug!(%blob_id, "metadata successfully synced");
         Ok(metadata)
     }
@@ -1867,9 +1873,9 @@ impl StorageNodeInner {
 
     pub(crate) async fn store_sliver_unchecked(
         &self,
-        metadata: &VerifiedBlobMetadataWithId,
+        metadata: VerifiedBlobMetadataWithId,
         sliver_pair_index: SliverPairIndex,
-        sliver: &Sliver,
+        sliver: Sliver,
     ) -> Result<bool, StoreSliverError> {
         let shard_storage = self
             .get_shard_for_sliver_pair(sliver_pair_index, metadata.blob_id())
@@ -1890,14 +1896,25 @@ impl StorageNodeInner {
             return Ok(false);
         }
 
-        sliver.verify(&self.encoding_config, metadata.as_ref())?;
+        let encoding_config = self.encoding_config.clone();
+        let result = self
+            .thread_pool
+            .clone()
+            .oneshot(move || {
+                sliver.verify(&encoding_config, metadata.as_ref())?;
+                Result::<_, StoreSliverError>::Ok((metadata, sliver))
+            })
+            .await;
+        let (metadata, sliver) = thread_pool::unwrap_or_resume_panic(result)?;
+        let sliver_type = sliver.r#type();
 
         // Finally store the sliver in the appropriate shard storage.
         shard_storage
-            .put_sliver(metadata.blob_id(), sliver)
+            .put_sliver(*metadata.blob_id(), sliver)
+            .await
             .context("unable to store sliver")?;
 
-        walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver.r#type()).inc();
+        walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 
         Ok(true)
     }
@@ -2034,11 +2051,11 @@ impl ServiceState for StorageNode {
         self.inner.retrieve_metadata(blob_id)
     }
 
-    fn store_metadata(
+    async fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<bool, StoreMetadataError> {
-        self.inner.store_metadata(metadata)
+        self.inner.store_metadata(metadata).await
     }
 
     fn metadata_status(
@@ -2060,9 +2077,9 @@ impl ServiceState for StorageNode {
 
     fn store_sliver(
         &self,
-        blob_id: &BlobId,
+        blob_id: BlobId,
         sliver_pair_index: SliverPairIndex,
-        sliver: &Sliver,
+        sliver: Sliver,
     ) -> impl Future<Output = Result<bool, StoreSliverError>> + Send {
         self.inner.store_sliver(blob_id, sliver_pair_index, sliver)
     }
@@ -2166,7 +2183,7 @@ impl ServiceState for StorageNodeInner {
             .inspect(|_| self.metrics.metadata_retrieved_total.inc())
     }
 
-    fn store_metadata(
+    async fn store_metadata(
         &self,
         metadata: UnverifiedBlobMetadataWithId,
     ) -> Result<bool, StoreMetadataError> {
@@ -2197,9 +2214,17 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::UnsupportedEncodingType(encoding_type));
         }
 
-        let verified_metadata_with_id = metadata.verify(&self.encoding_config)?;
+        let encoding_config = self.encoding_config.clone();
+        let verified_metadata_with_id = self
+            .thread_pool
+            .clone()
+            .oneshot(move || metadata.verify(&encoding_config))
+            .map(thread_pool::unwrap_or_resume_panic)
+            .await?;
+
         self.storage
             .put_verified_metadata(&verified_metadata_with_id)
+            .await
             .context("unable to store metadata")?;
 
         self.metrics
@@ -2252,21 +2277,21 @@ impl ServiceState for StorageNodeInner {
 
     async fn store_sliver(
         &self,
-        blob_id: &BlobId,
+        blob_id: BlobId,
         sliver_pair_index: SliverPairIndex,
-        sliver: &Sliver,
+        sliver: Sliver,
     ) -> Result<bool, StoreSliverError> {
         self.check_index(sliver_pair_index)?;
 
         ensure!(
-            self.is_blob_registered(blob_id)?,
+            self.is_blob_registered(&blob_id)?,
             StoreSliverError::NotCurrentlyRegistered,
         );
 
         // Get metadata first to check encoding type.
         let metadata = self
             .storage
-            .get_metadata(blob_id)
+            .get_metadata(&blob_id)
             .context("database error when storing sliver")?
             .ok_or(StoreSliverError::MissingMetadata)?;
 
@@ -2276,7 +2301,7 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreSliverError::UnsupportedEncodingType(encoding_type));
         }
 
-        self.store_sliver_unchecked(&metadata, sliver_pair_index, sliver)
+        self.store_sliver_unchecked(metadata, sliver_pair_index, sliver)
             .await
     }
 
@@ -2472,13 +2497,8 @@ impl ServiceState for StorageNodeInner {
         let (shard_summary, shard_detail) = self.shard_health_status(detailed).await;
 
         // Get the latest checkpoint sequence number directly from the event manager.
-        let latest_checkpoint_sequence_number = if let Some(event_processor) =
-            self.event_manager.as_any().downcast_ref::<EventProcessor>()
-        {
-            event_processor.get_latest_checkpoint_sequence_number()
-        } else {
-            None
-        };
+        let latest_checkpoint_sequence_number =
+            self.event_manager.latest_checkpoint_sequence_number();
 
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
@@ -2587,7 +2607,7 @@ mod tests {
         DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
+    use walrus_rest_client::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
     use walrus_sui::{
         client::FixedSystemParameters,
         test_utils::{event_id_for_testing, EventForTesting},
@@ -3052,7 +3072,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // store the metadata in the storage node
-        node.as_ref().store_metadata(metadata)?;
+        node.as_ref().store_metadata(metadata).await?;
 
         Ok(node)
     }
@@ -3866,7 +3886,8 @@ mod tests {
 
         let is_newly_stored = cluster.nodes[0]
             .storage_node
-            .store_metadata(blob.metadata.into_unverified())?;
+            .store_metadata(blob.metadata.into_unverified())
+            .await?;
 
         assert!(!is_newly_stored);
 
@@ -3882,9 +3903,9 @@ mod tests {
         let is_newly_stored = cluster.nodes[0]
             .storage_node
             .store_sliver(
-                blob.blob_id(),
+                *blob.blob_id(),
                 assigned_sliver_pair.index(),
-                &Sliver::Primary(assigned_sliver_pair.primary.clone()),
+                Sliver::Primary(assigned_sliver_pair.primary.clone()),
             )
             .await?;
 
@@ -3972,7 +3993,7 @@ mod tests {
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1], &[2, 3]], &[BLOB], 1, None)
                 .await?;
 
-        let error: walrus_sdk::error::NodeError = cluster.nodes[0]
+        let error: walrus_rest_client::error::NodeError = cluster.nodes[0]
             .client
             .sync_shard::<Primary>(ShardIndex(0), BLOB_ID, 10, 0, &ProtocolKeyPair::generate())
             .await
@@ -4122,9 +4143,9 @@ mod tests {
             cluster.nodes[0]
                 .storage_node
                 .store_sliver(
-                    blob.blob_id(),
+                    *blob.blob_id(),
                     assigned_sliver_pair.index(),
-                    &Sliver::Primary(assigned_sliver_pair.primary.clone()),
+                    Sliver::Primary(assigned_sliver_pair.primary.clone()),
                 )
                 .await,
             Err(StoreSliverError::ShardNotAssigned(..))
@@ -5280,7 +5301,7 @@ mod tests {
                     assert!(matches!(
                         blob_info.unwrap().unwrap().to_blob_status(1),
                         BlobStatus::Deletable {
-                            deletable_counts: walrus_sdk::api::DeletableCounts {
+                            deletable_counts: walrus_rest_client::api::DeletableCounts {
                                 count_deletable_total: 1,
                                 count_deletable_certified: 0,
                             },

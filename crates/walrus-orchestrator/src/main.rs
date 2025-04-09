@@ -12,7 +12,7 @@ use eyre::Context;
 use measurements::MeasurementsCollection;
 use orchestrator::Orchestrator;
 use protocol::{
-    target::{ProtocolClientParameters, ProtocolNodeParameters, TargetProtocol},
+    target::{ProtocolClientParameters, TargetProtocol},
     ProtocolParameters,
 };
 use settings::{CloudProvider, Settings};
@@ -23,7 +23,6 @@ mod benchmark;
 mod client;
 mod display;
 mod error;
-mod faults;
 mod logs;
 mod measurements;
 mod monitor;
@@ -35,7 +34,6 @@ mod testbed;
 
 /// NOTE: Link these types to the correct protocol.
 type Protocol = TargetProtocol;
-type NodeParameters = ProtocolNodeParameters;
 type ClientParameters = ProtocolClientParameters;
 
 /// The orchestrator command line options.
@@ -68,17 +66,11 @@ pub enum Operation {
         #[clap(subcommand)]
         action: TestbedAction,
     },
-    /// Deploy nodes and run a benchmark on the specified testbed.
+    /// Deploy clients and run a benchmark using the specified testbed.
     Benchmark {
-        /// The committee size to deploy.
+        /// The number of clients to deploy.
         #[clap(long, value_name = "INT", default_value_t = 4, global = true)]
-        committee: usize,
-
-        /// The set of loads to submit to the system (reads/writes per minunte). Each load triggers
-        /// a separate benchmark run. Setting a load to zero will not deploy any benchmark clients
-        /// (useful to boot testbeds designed to run with external clients and load generators).
-        #[clap(long, value_name = "[INT]", default_value = "200", global = true)]
-        loads: Vec<usize>,
+        clients: usize,
 
         /// Whether to skip testbed updates before running benchmarks. This is a dangerous
         /// operation as it may lead to running benchmarks on outdated nodes. It is however
@@ -202,8 +194,7 @@ async fn run<C: ServerProviderClient>(
 
         // Run benchmarks.
         Operation::Benchmark {
-            committee,
-            loads,
+            clients,
             skip_testbed_update,
             skip_testbed_configuration,
         } => {
@@ -222,12 +213,6 @@ async fn run<C: ServerProviderClient>(
                 .wrap_err("Failed to load testbed setup commands")?;
 
             let protocol_commands = Protocol {};
-            let node_parameters = match &settings.node_parameters_path {
-                Some(path) => {
-                    NodeParameters::load(path).wrap_err("Failed to load node's parameters")?
-                }
-                None => NodeParameters::default(),
-            };
             let client_parameters = match &settings.client_parameters_path {
                 Some(path) => {
                     ClientParameters::load(path).wrap_err("Failed to load client's parameters")?
@@ -235,13 +220,8 @@ async fn run<C: ServerProviderClient>(
                 None => ClientParameters::default(),
             };
 
-            let set_of_benchmark_parameters = BenchmarkParameters::new_from_loads(
-                settings.clone(),
-                node_parameters,
-                client_parameters,
-                committee,
-                loads,
-            );
+            let benchmark_parameters =
+                BenchmarkParameters::new(settings.clone(), client_parameters, clients);
 
             Orchestrator::new(
                 settings,
@@ -252,7 +232,7 @@ async fn run<C: ServerProviderClient>(
             )
             .skip_testbed_update(skip_testbed_update)
             .skip_testbed_configuration(skip_testbed_configuration)
-            .run_benchmarks(set_of_benchmark_parameters)
+            .run_benchmarks(benchmark_parameters)
             .await
             .wrap_err("Failed to run benchmarks")?;
         }

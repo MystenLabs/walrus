@@ -19,7 +19,7 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
 };
-use walrus_sdk::{
+use walrus_rest_client::{
     api::{BlobStatus, StoredOnNodeStatus},
     client::Client as StorageNodeClient,
     error::NodeError,

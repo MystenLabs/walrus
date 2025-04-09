@@ -3,7 +3,7 @@
 
 //! Walrus events observed by the storage node.
 
-use std::{any::Any, fmt::Debug, future::ready, pin::Pin, sync::Arc, thread, time::Duration};
+use std::{fmt::Debug, future::ready, pin::Pin, sync::Arc, thread, time::Duration};
 
 use anyhow::Error;
 use async_trait::async_trait;
@@ -217,8 +217,8 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     async fn init_state(&self, from: EventStreamCursor)
         -> Result<Option<InitState>, anyhow::Error>;
 
-    /// Return a reference to this provider as a [`dyn Any`].
-    fn as_any(&self) -> &dyn Any;
+    /// Return a reference to this provider as a [`EventProcessor`].
+    fn as_event_processor(&self) -> Option<&EventProcessor>;
 }
 
 /// A manager for event retention. This is used to drop events that are no longer needed.
@@ -230,7 +230,10 @@ pub trait EventRetentionManager: std::fmt::Debug + Sync + Send {
 
 /// A manager for system events. This is used to start the event manager.
 #[async_trait]
-pub trait EventManager: SystemEventProvider + EventRetentionManager {}
+pub trait EventManager: SystemEventProvider + EventRetentionManager {
+    /// Get the latest checkpoint sequence number.
+    fn latest_checkpoint_sequence_number(&self) -> Option<u64>;
+}
 
 #[async_trait]
 impl SystemEventProvider for SuiSystemEventProvider {
@@ -256,8 +259,8 @@ impl SystemEventProvider for SuiSystemEventProvider {
         Ok(None)
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        None
     }
 }
 
@@ -269,7 +272,11 @@ impl EventRetentionManager for SuiSystemEventProvider {
 }
 
 #[async_trait]
-impl EventManager for SuiSystemEventProvider {}
+impl EventManager for SuiSystemEventProvider {
+    fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        None
+    }
+}
 
 #[async_trait]
 impl SystemEventProvider for EventProcessor {
@@ -310,8 +317,8 @@ impl SystemEventProvider for EventProcessor {
         Ok(pinned_stream.next().await.flatten())
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        Some(self)
     }
 }
 
@@ -327,7 +334,11 @@ impl EventRetentionManager for EventProcessor {
 }
 
 #[async_trait]
-impl EventManager for EventProcessor {}
+impl EventManager for EventProcessor {
+    fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        self.get_latest_checkpoint_sequence_number()
+    }
+}
 
 #[async_trait]
 impl SystemEventProvider for Arc<EventProcessor> {
@@ -345,8 +356,8 @@ impl SystemEventProvider for Arc<EventProcessor> {
         self.as_ref().init_state(from).await
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        Some(self.as_ref())
     }
 }
 
@@ -358,4 +369,8 @@ impl EventRetentionManager for Arc<EventProcessor> {
 }
 
 #[async_trait]
-impl EventManager for Arc<EventProcessor> {}
+impl EventManager for Arc<EventProcessor> {
+    fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        self.as_ref().get_latest_checkpoint_sequence_number()
+    }
+}

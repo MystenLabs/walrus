@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use walrus_core::{messages::SignedMessage, EpochSchema, SliverPairIndex, SliverType, SymbolId};
-use walrus_sdk::api::{
+use walrus_rest_client::api::{
     errors::Status,
     ServiceHealthInfo,
     ShardHealthInfo,

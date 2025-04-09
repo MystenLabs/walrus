@@ -32,7 +32,7 @@ use crate::generator::LoadGenerator;
 
 mod generator;
 
-/// The amount of gas or MIST to refil each time.
+/// The amount of gas or MIST to refill each time.
 const COIN_REFILL_AMOUNT: u64 = 500_000_000;
 /// The minimum balance to keep in the wallet.
 const MIN_BALANCE: u64 = 1_000_000_000;
@@ -128,7 +128,9 @@ async fn main() -> anyhow::Result<()> {
     let metrics_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), args.metrics_port);
     let registry_service = mysten_metrics::start_prometheus_server(metrics_address);
     let prometheus_registry = registry_service.default_registry();
-    let metrics = Arc::new(ClientMetrics::new(&prometheus_registry));
+    let metrics = Arc::new(ClientMetrics::new(&walrus_utils::metrics::Registry::new(
+        prometheus_registry,
+    )));
     tracing::info!("starting metrics server on {metrics_address}");
 
     if let Some(wallet_path) = &args.wallet_path {

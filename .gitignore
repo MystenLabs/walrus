@@ -36,3 +36,8 @@ working_dir/
 *.log
 venv/
 **/tmp
+
+# Deployment assets
+crates/walrus-orchestrator/assets/
+!crates/walrus-orchestrator/assets/dashboard-template.json
+!crates/walrus-orchestrator/assets/settings-template.yaml

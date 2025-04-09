@@ -11,10 +11,7 @@ use std::{
 
 use anyhow::Context as _;
 use async_trait::async_trait;
-use prometheus::{
-    core::{AtomicU64, GenericGaugeVec},
-    Registry,
-};
+use prometheus::core::{AtomicU64, GenericGaugeVec};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Mutex as TokioMutex, task::JoinSet, time::MissedTickBehavior};
@@ -37,7 +34,10 @@ use walrus_sui::{
         UpdatePublicKeyParams,
     },
 };
-use walrus_utils::backoff::{self, ExponentialBackoff};
+use walrus_utils::{
+    backoff::{self, ExponentialBackoff},
+    metrics::Registry,
+};
 
 use super::{
     committee::CommitteeService,
@@ -225,9 +225,7 @@ impl SuiSystemContractServiceBuilder {
         service.start_balance_monitor(
             self.balance_check_frequency,
             self.balance_check_warning_threshold,
-            self.metrics_registry
-                .as_ref()
-                .unwrap_or_else(|| prometheus::default_registry()),
+            &self.metrics_registry.clone().unwrap_or_default(),
         );
 
         service

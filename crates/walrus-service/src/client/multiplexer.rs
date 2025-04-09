@@ -11,7 +11,6 @@ use std::{
     },
 };
 
-use prometheus::Registry;
 use sui_sdk::{
     sui_client_config::SuiEnv,
     types::base_types::SuiAddress,
@@ -31,6 +30,7 @@ use walrus_sui::{
     types::move_structs::BlobWithAttribute,
     utils::create_wallet,
 };
+use walrus_utils::metrics::Registry;
 
 use super::{
     cli::PublisherArgs,

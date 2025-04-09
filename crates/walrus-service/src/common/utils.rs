@@ -26,7 +26,7 @@ use fastcrypto::{
 };
 use futures::future::FusedFuture;
 use pin_project::pin_project;
-use prometheus::{Encoder, HistogramVec, Registry};
+use prometheus::{Encoder, HistogramVec};
 use serde::{
     de::{DeserializeOwned, Error},
     Deserialize,
@@ -39,7 +39,7 @@ use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
     sync::{oneshot, Semaphore},
-    task::JoinHandle,
+    task::{JoinError, JoinHandle},
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
@@ -58,6 +58,7 @@ use walrus_sui::{
     client::{retry_client::RetriableSuiClient, SuiReadClient},
     utils::SuiNetwork,
 };
+use walrus_utils::metrics::Registry;
 
 use super::active_committees::ActiveCommittees;
 use crate::node::{config::MetricsPushConfig, events::event_processor::EventProcessorMetrics};
@@ -289,7 +290,7 @@ impl MetricsAndLoggingRuntime {
 
         Ok(Self {
             runtime,
-            registry: walrus_registry,
+            registry: Registry::new(walrus_registry),
             _telemetry_guards: telemetry_guards,
             _tracing_handle: tracing_handle,
         })
@@ -867,6 +868,15 @@ where
 {
     let unready_clone = svc.clone();
     mem::replace(svc, unready_clone)
+}
+
+/// Unwraps the return value from a call to [`tokio::task::spawn_blocking`],
+/// or resumes a panic if the function had panicked.
+pub(crate) fn unwrap_or_resume_unwind<T>(result: Result<T, JoinError>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => std::panic::resume_unwind(error.into_panic()),
+    }
 }
 
 #[cfg(test)]

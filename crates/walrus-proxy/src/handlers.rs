@@ -1,5 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
+use std::collections::HashSet;
+
 use axum::{extract::Extension, http::StatusCode};
 use once_cell::sync::Lazy;
 use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
@@ -41,6 +43,7 @@ static HTTP_HANDLER_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
 /// a response after successfully relaying the metrics upstream
 pub async fn publish_metrics(
     Extension(labels): Extension<Vec<Label>>,
+    Extension(remove_labels): Extension<HashSet<String>>,
     Extension(remote_write_client): Extension<ReqwestClient>,
     Extension(NodeInfo {
         name,
@@ -53,7 +56,7 @@ pub async fn publish_metrics(
     walrus_utils::with_label!(HANDLER_HITS, "publish_metrics", &name).inc();
     let timer =
         walrus_utils::with_label!(HTTP_HANDLER_DURATION, "publish_metrics", &name).start_timer();
-    let data = populate_labels(name, labels, data);
+    let data = populate_labels(name, labels, remove_labels, data);
     relay.submit(data.clone());
     let response = convert_to_remote_write(
         remote_write_client.clone(),

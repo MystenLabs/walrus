@@ -20,7 +20,7 @@ pub mod simtest_utils {
         Epoch,
         DEFAULT_ENCODING,
     };
-    use walrus_sdk::api::ServiceHealthInfo;
+    use walrus_rest_client::api::ServiceHealthInfo;
     use walrus_service::{
         client::{responses::BlobStoreResult, Client, StoreWhen},
         test_utils::SimStorageNodeHandle,
@@ -67,6 +67,7 @@ pub mod simtest_utils {
                 StoreWhen::Always,
                 BlobPersistence::Permanent,
                 PostStoreAction::Keep,
+                None,
             )
             .await
             .context("store blob should not fail")?;
@@ -184,6 +185,7 @@ pub mod simtest_utils {
     #[derive(Debug)]
     pub struct BlobInfoConsistencyCheck {
         certified_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
+        per_object_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         checked: Arc<AtomicBool>,
     }
 
@@ -192,6 +194,8 @@ pub mod simtest_utils {
         pub fn new() -> Self {
             let certified_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
             let certified_blob_digest_map_clone = certified_blob_digest_map.clone();
+            let per_object_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
+            let per_object_blob_digest_map_clone = per_object_blob_digest_map.clone();
 
             sui_macros::register_fail_point_arg(
                 "storage_node_certified_blob_digest",
@@ -200,8 +204,15 @@ pub mod simtest_utils {
                 },
             );
 
+            sui_macros::register_fail_point_arg(
+                "storage_node_certified_blob_object_digest",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>> {
+                    Some(per_object_blob_digest_map_clone.clone())
+                },
+            );
             Self {
                 certified_blob_digest_map,
+                per_object_blob_digest_map,
                 checked: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -211,10 +222,28 @@ pub mod simtest_utils {
             self.checked
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
-            // Ensure that for all epochs, all nodes have the same certified blob digest
+            // Ensure that for all epochs, all nodes have the same certified blob digest.
             let digest_map = self.certified_blob_digest_map.lock().unwrap();
             for (epoch, node_digest_map) in digest_map.iter() {
-                // Ensure that for the same epoch, all nodes have the same certified blob digest
+                // Ensure that for the same epoch, all nodes have the same certified blob digest.
+                let mut epoch_digest = None;
+                for (node_id, digest) in node_digest_map.iter() {
+                    tracing::info!(
+                        "blob info consistency check: node {node_id} has digest \
+                        {digest} in epoch {epoch}",
+                    );
+                    if epoch_digest.is_none() {
+                        epoch_digest = Some(digest);
+                    } else {
+                        assert_eq!(epoch_digest, Some(digest));
+                    }
+                }
+            }
+
+            // Ensure that for all epochs, all nodes have the same per object blob digest.
+            let digest_map = self.per_object_blob_digest_map.lock().unwrap();
+            for (epoch, node_digest_map) in digest_map.iter() {
+                // Ensure that for the same epoch, all nodes have the same per object blob digest.
                 let mut epoch_digest = None;
                 for (node_id, digest) in node_digest_map.iter() {
                     tracing::info!(
@@ -235,6 +264,7 @@ pub mod simtest_utils {
         fn drop(&mut self) {
             assert!(self.checked.load(std::sync::atomic::Ordering::SeqCst));
             sui_macros::clear_fail_point("storage_node_certified_blob_digest");
+            sui_macros::clear_fail_point("storage_node_certified_blob_object_digest");
         }
     }
 
@@ -243,7 +273,7 @@ pub mod simtest_utils {
         node: &SimStorageNodeHandle,
         timeout: Duration,
     ) -> anyhow::Result<ServiceHealthInfo> {
-        let client = walrus_sdk::client::Client::builder()
+        let client = walrus_rest_client::client::Client::builder()
             .authenticate_with_public_key(node.network_public_key.clone())
             // Disable proxy and root certs from the OS for tests.
             .no_proxy()
@@ -283,7 +313,7 @@ pub mod simtest_utils {
             nodes
                 .iter()
                 .map(|node_handle| async {
-                    let client = walrus_sdk::client::Client::builder()
+                    let client = walrus_rest_client::client::Client::builder()
                         .authenticate_with_public_key(node_handle.network_public_key.clone())
                         // Disable proxy and root certs from the OS for tests.
                         .no_proxy()

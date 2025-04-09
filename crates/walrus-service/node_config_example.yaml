@@ -16,6 +16,8 @@ db_config:
     write_buffer_size: 67108864
     target_file_size_base: 67108864
     max_bytes_for_level_base: 536870912
+    block_cache_size: 67108864
+    pin_l0_filter_and_index_blocks_in_block_cache: true
   optimized_for_blobs:
     enable_blob_files: true
     min_blob_size: 1048576
@@ -28,10 +30,14 @@ db_config:
     write_buffer_size: 268435456
     target_file_size_base: 67108864
     max_bytes_for_level_base: 536870912
+    block_cache_size: 268435456
+    pin_l0_filter_and_index_blocks_in_block_cache: true
   node_status: null
   metadata: null
-  blob_info: null
-  per_object_blob_info: null
+  blob_info:
+    block_cache_size: 536870912
+  per_object_blob_info:
+    block_cache_size: 536870912
   event_cursor: null
   shard: null
   shard_status: null
@@ -81,14 +87,14 @@ tls:
   disable_tls: false
   certificate_path: null
 shard_sync_config:
-  sliver_count_per_sync_request: 10
+  sliver_count_per_sync_request: 1000
   shard_sync_retry_min_backoff_secs: 60
   shard_sync_retry_max_backoff_secs: 600
-  max_concurrent_blob_recovery_during_shard_recovery: 5
+  max_concurrent_blob_recovery_during_shard_recovery: 100
   blob_certified_check_interval_secs: 60
-  max_concurrent_metadata_fetch: 10
+  max_concurrent_metadata_fetch: 100
   shard_sync_concurrency: 10
-  shard_sync_retry_switch_to_recovery_interval_secs: 7200
+  shard_sync_retry_switch_to_recovery_interval_secs: 43200
   restart_shard_sync_always_retry_transfer_first: true
 event_processor_config:
   pruning_interval_secs: 3600
@@ -131,3 +137,4 @@ balance_check:
   warning_threshold_mist: 5000000000
 thread_pool:
   max_concurrent_tasks: null
+  max_blocking_io_threads: 1024

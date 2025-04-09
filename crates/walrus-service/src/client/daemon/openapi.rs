@@ -3,7 +3,7 @@
 
 use utoipa::OpenApi;
 use walrus_core::{BlobId, EncodingType, EpochSchema};
-use walrus_sdk::api::errors::Status;
+use walrus_rest_client::api::errors::Status;
 use walrus_sui::{
     types::{Blob, StorageResource},
     EventIdSchema,

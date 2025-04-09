@@ -14,7 +14,7 @@ use tokio::{
     time::Instant,
 };
 use walrus_core::{BlobId, Epoch, ShardIndex};
-use walrus_sdk::error::ServiceError;
+use walrus_rest_client::error::ServiceError;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
@@ -25,7 +25,7 @@ use super::{
     NodeStatus,
     StorageNodeInner,
 };
-use crate::node::{errors::ShardNotAssigned, storage::blob_info::BlobInfoApi};
+use crate::node::{errors::ShardNotAssigned, storage::blob_info::CertifiedBlobInfoApi};
 
 /// The result of syncing a shard.
 enum SyncShardResult {

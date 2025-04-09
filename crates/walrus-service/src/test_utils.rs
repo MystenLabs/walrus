@@ -21,7 +21,6 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::{future, stream::FuturesUnordered, StreamExt};
-use prometheus::Registry;
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
@@ -48,7 +47,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
-use walrus_sdk::client::Client;
+use walrus_rest_client::client::Client;
 use walrus_sui::{
     client::{
         retry_client::RetriableRpcClient,
@@ -69,7 +68,7 @@ use walrus_sui::{
     },
 };
 use walrus_test_utils::WithTempDir;
-use walrus_utils::backoff::ExponentialBackoffConfig;
+use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
 use crate::common::config::SuiConfig;
@@ -141,8 +140,8 @@ impl SystemEventProvider for DefaultSystemEventManager {
     ) -> Result<Option<InitState>, anyhow::Error> {
         Ok(None)
     }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        self.event_provider.as_event_processor()
     }
 }
 
@@ -154,7 +153,11 @@ impl EventRetentionManager for DefaultSystemEventManager {
 }
 
 #[async_trait]
-impl EventManager for DefaultSystemEventManager {}
+impl EventManager for DefaultSystemEventManager {
+    fn latest_checkpoint_sequence_number(&self) -> Option<u64> {
+        None
+    }
+}
 
 /// Trait representing a storage node handle.
 /// The trait is used to abstract over the different types of storage node handles.
@@ -515,19 +518,18 @@ impl SimStorageNodeHandle {
 
         // Starts the event processor thread if it is configured, otherwise it produces a JoinHandle
         // that never returns.
-        let event_processor_handle = if let Some(event_processor) =
-            event_provider.as_any().downcast_ref::<EventProcessor>()
-        {
-            let cloned_cancel_token = cancel_token.clone();
-            let cloned_event_processor = event_processor.clone();
-            tokio::spawn(
-                async move { cloned_event_processor.start(cloned_cancel_token).await }
-                    .instrument(tracing::info_span!("cluster-event-processor",
+        let event_processor_handle =
+            if let Some(event_processor) = event_provider.as_event_processor() {
+                let cloned_cancel_token = cancel_token.clone();
+                let cloned_event_processor = event_processor.clone();
+                tokio::spawn(
+                    async move { cloned_event_processor.start(cloned_cancel_token).await }
+                        .instrument(tracing::info_span!("cluster-event-processor",
                     address = %config.rest_api_address)),
-            )
-        } else {
-            tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
-        };
+                )
+            } else {
+                tokio::spawn(async { std::future::pending::<Result<(), anyhow::Error>>().await })
+            };
 
         // Build storage node with the current configuration and event manager.
         let mut builder = StorageNode::builder();
@@ -887,11 +889,7 @@ impl StorageNodeHandleBuilder {
 
         let cancel_token = CancellationToken::new();
 
-        if let Some(event_processor) = self
-            .event_provider
-            .as_any()
-            .downcast_ref::<EventProcessor>()
-        {
+        if let Some(event_processor) = self.event_provider.as_event_processor() {
             let cloned_cancel_token = cancel_token.clone();
             let cloned_event_processor = event_processor.clone();
             spawn_event_processor(
@@ -1540,8 +1538,8 @@ impl SystemEventProvider for Vec<ContractEvent> {
         Ok(None)
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        None
     }
 }
 
@@ -1569,8 +1567,8 @@ impl SystemEventProvider for tokio::sync::broadcast::Sender<ContractEvent> {
         Ok(None)
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+    fn as_event_processor(&self) -> Option<&EventProcessor> {
+        None
     }
 }
 
@@ -2461,6 +2459,7 @@ pub mod test_cluster {
             &protocol_keypairs,
             &contract_clients_refs,
             &amounts_to_stake,
+            None,
         )
         .await?;
 

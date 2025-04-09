@@ -11,9 +11,10 @@ use std::{
 use prometheus::{
     core::{Collector, Desc},
     proto::{Counter, LabelPair, Metric, MetricFamily, MetricType},
-    Registry,
 };
 use tokio_metrics::TaskMonitor;
+
+use super::Registry;
 
 /// Default duration at which polls cross the threshold into being categorized as 'slow' is 1ms.
 ///

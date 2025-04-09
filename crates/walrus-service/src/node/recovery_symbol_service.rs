@@ -9,7 +9,7 @@ use std::{
 use fastcrypto::hash::Blake2b256;
 use futures::{future::BoxFuture, FutureExt as _, TryFutureExt};
 use moka::future::Cache;
-use prometheus::{IntCounter, Registry};
+use prometheus::IntCounter;
 use tower::Service;
 use walrus_core::{
     by_axis::{self, ByAxis},
@@ -22,6 +22,7 @@ use walrus_core::{
     SliverPairIndex,
     SliverType,
 };
+use walrus_utils::metrics::Registry;
 
 use super::thread_pool::{self, BoundedThreadPool};
 use crate::utils;

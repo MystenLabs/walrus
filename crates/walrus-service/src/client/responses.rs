@@ -41,7 +41,7 @@ use walrus_core::{
     ShardIndex,
     DEFAULT_ENCODING,
 };
-use walrus_sdk::api::{BlobStatus, ServiceHealthInfo};
+use walrus_rest_client::api::{BlobStatus, ServiceHealthInfo};
 use walrus_sui::{
     client::ReadClient,
     types::{

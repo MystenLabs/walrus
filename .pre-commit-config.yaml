@@ -75,6 +75,12 @@ repos:
         language: rust
         files: (^crates/|Cargo\.(toml|lock)$|nextest\.toml$)
         pass_filenames: false
+      - id: cargo-doctests
+        name: cargo-doctests
+        entry: cargo test --doc
+        language: rust
+        files: (^crates/|Cargo\.(toml|lock)$)
+        pass_filenames: false
       - id: clippy-with-tests
         name: clippy-with-tests
         entry: cargo clippy
@@ -109,7 +115,7 @@ repos:
         language: node
         additional_dependencies:
           - "prettier@3.4.1"
-          - "@mysten/prettier-plugin-move@0.2.2"
+          - "@mysten/prettier-plugin-move@0.3.0"
         files: "^contracts/.*\\.move"
       - id: mdBook
         name: Build docs if mdBook is installed
