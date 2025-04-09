@@ -2828,8 +2828,8 @@ impl SuiContractClientInner {
         if object_ids.len() == 1 {
             Ok(HashMap::from([(blobs_ids[0], object_ids[0])]))
         } else {
-            // Fetch all SharedBlob objects and collect them as a mapping blob id
-            // to shared blob object id
+            // Fetch all SharedBlob objects and collect them as a mapping from blob object ID
+            // to shared blob object ID.
             let shared_blobs = self
                 .sui_client()
                 .get_sui_objects::<SharedBlob>(&object_ids)

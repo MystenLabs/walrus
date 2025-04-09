@@ -1019,12 +1019,11 @@ impl Client<SuiContractClient> {
                             registered_blob
                         )));
                     };
-                    let pairs_ref = pairs.iter().collect::<Vec<_>>();
                     let certificate_result = self
                         .get_blob_certificate(
                             &blob,
                             &operation,
-                            &pairs_ref,
+                            pairs.as_slice(),
                             metadata,
                             blob_status,
                             multi_pb_arc.as_ref(),
@@ -1053,7 +1052,7 @@ impl Client<SuiContractClient> {
         &self,
         blob_object: &Blob,
         resource_operation: &RegisterBlobOp,
-        pairs: &[&SliverPair],
+        pairs: &[SliverPair],
         metadata: &VerifiedBlobMetadataWithId,
         blob_status: &BlobStatus,
         multi_pb: &MultiProgress,
@@ -1205,7 +1204,7 @@ impl<T> Client<T> {
     pub async fn send_blob_data_and_get_certificate(
         &self,
         metadata: &VerifiedBlobMetadataWithId,
-        pairs: &[&SliverPair],
+        pairs: &[SliverPair],
         blob_persistence_type: &BlobPersistenceType,
         multi_pb: &MultiProgress,
     ) -> ClientResult<ConfirmationCertificate> {
@@ -1827,7 +1826,7 @@ impl<T> Client<T> {
     async fn pairs_per_node<'a>(
         &'a self,
         blob_id: &'a BlobId,
-        pairs: &'a [&'a SliverPair],
+        pairs: &'a [SliverPair],
         committees: &ActiveCommittees,
     ) -> HashMap<usize, Vec<&'a SliverPair>> {
         committees
@@ -1841,7 +1840,6 @@ impl<T> Client<T> {
                         node.shard_ids
                             .contains(&pair.index().to_shard_index(committees.n_shards(), blob_id))
                     })
-                    .copied()
                     .collect::<Vec<_>>()
             })
             .enumerate()

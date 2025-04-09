@@ -110,7 +110,7 @@ impl WriteClient {
             .first()
             .expect("should have one blob store result")
             .blob_id()
-            .to_owned();
+            .expect("blob id should be present");
 
         tracing::info!(
             duration = now.elapsed().as_secs(),
@@ -209,13 +209,12 @@ impl WriteClient {
         // Wait to ensure that the storage nodes received the registration event.
         tokio::time::sleep(Duration::from_secs(1)).await;
 
-        let pair_ref = pairs.iter().collect::<Vec<_>>();
         let certificate = self
             .client
             .as_ref()
             .send_blob_data_and_get_certificate(
                 &metadata,
-                &pair_ref,
+                &pairs,
                 &blob_sui_object.blob_persistence_type(),
                 &MultiProgress::new(),
             )

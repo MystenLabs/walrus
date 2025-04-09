@@ -158,15 +158,15 @@ pub enum BlobStoreResult {
 
 impl BlobStoreResult {
     /// Returns the blob ID.
-    pub fn blob_id(&self) -> &BlobId {
+    pub fn blob_id(&self) -> Option<BlobId> {
         match self {
-            Self::AlreadyCertified { blob_id, .. } => blob_id,
-            Self::MarkedInvalid { blob_id, .. } => blob_id,
+            Self::AlreadyCertified { blob_id, .. } => Some(*blob_id),
+            Self::MarkedInvalid { blob_id, .. } => Some(*blob_id),
             Self::NewlyCreated {
                 blob_object: Blob { blob_id, .. },
                 ..
-            } => blob_id,
-            Self::Error { blob_id, .. } => blob_id.as_ref().unwrap_or(&BlobId::ZERO),
+            } => Some(*blob_id),
+            Self::Error { blob_id, .. } => *blob_id,
         }
     }
 

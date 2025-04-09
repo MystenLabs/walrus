@@ -135,9 +135,7 @@ where
             BlobPersistence::Permanent,
             PostStoreAction::Keep,
         )
-        .await;
-
-    let store_result = store_result?;
+        .await?;
 
     for result in store_result {
         match result.blob_store_result {
@@ -328,13 +326,12 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .next()
         .expect("should register exactly one blob");
 
-    let pair_ref = pairs.iter().collect::<Vec<_>>();
     // Certify blob.
     let certificate = client
         .as_ref()
         .send_blob_data_and_get_certificate(
             &metadata,
-            &pair_ref,
+            &pairs,
             &BlobPersistenceType::Permanent,
             &MultiProgress::new(),
         )
@@ -551,10 +548,10 @@ async fn store_blob(
         .next()
         .expect("should have one blob store result")
         .blob_id()
-        .to_owned())
+        .expect("blob id should be present"))
 }
 
-/// Tests that blobs can be extended when possible.
+/// Tests that the client can store and read duplicate blobs.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
@@ -590,7 +587,12 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
     let read_result =
         futures::future::join_all(store_result_with_path.iter().map(|result| async {
             let blob = client
-                .read_blob::<Primary>(result.blob_store_result.blob_id())
+                .read_blob::<Primary>(
+                    &result
+                        .blob_store_result
+                        .blob_id()
+                        .expect("blob id should be present"),
+                )
                 .await
                 .expect("should be able to read blob");
             (result.blob_store_result.blob_id(), blob)
@@ -644,7 +646,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
         )
         .await?;
     for result in store_results {
-        if result.blob_id() == &reuse_blob {
+        if result.blob_id() == Some(reuse_blob) {
             assert!(matches!(
                 &result,
                 BlobStoreResult::NewlyCreated{blob_object:_, resource_operation, ..
@@ -658,7 +660,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
                 epochs_ahead,
                 result.end_epoch().unwrap_or(0)
             );
-        } else if result.blob_id() == &certify_and_extend_blob {
+        } else if result.blob_id() == Some(certify_and_extend_blob) {
             assert!(matches!(
                 &result,
                 BlobStoreResult::NewlyCreated {
@@ -672,7 +674,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
                     .is_some_and(|end| end == epoch + epochs_ahead),
                 "end_epoch should exist and be equal to epoch + epochs_ahead"
             );
-        } else if result.blob_id() == &already_certified_blob {
+        } else if result.blob_id() == Some(already_certified_blob) {
             assert!(matches!(&result, BlobStoreResult::AlreadyCertified { .. }));
             assert!(
                 result
@@ -680,7 +682,7 @@ async fn test_store_with_existing_blobs() -> TestResult {
                     .is_some_and(|end| end >= epoch + epochs_ahead),
                 "end_epoch should exist and be at least epoch + epochs_ahead"
             );
-        } else if result.blob_id() == &extended_blob {
+        } else if result.blob_id() == Some(extended_blob) {
             assert!(matches!(
                 &result,
                 BlobStoreResult::NewlyCreated {
@@ -853,7 +855,10 @@ async fn test_delete_blob(blobs_to_create: u32) -> TestResult {
     assert_eq!(blobs.len(), blobs_to_create as usize + 1);
 
     // Delete the blobs
-    let deleted = client.as_ref().delete_owned_blob(blob_id).await?;
+    let deleted = client
+        .as_ref()
+        .delete_owned_blob(&blob_id.expect("blob id should be present"))
+        .await?;
     assert_eq!(deleted, blobs_to_create as usize);
 
     // Only one blob should remain: The non-deletable one.
@@ -890,21 +895,30 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
     let blob_id = store_result.blob_id();
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
-    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blob);
+    assert_eq!(
+        client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .await?,
+        blob
+    );
 
-    client.delete_owned_blob(blob_id).await?;
+    client
+        .delete_owned_blob(&blob_id.expect("blob id should be present"))
+        .await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let status_result = client
         .get_verified_blob_status(
-            blob_id,
+            &blob_id.expect("blob id should be present"),
             client.sui_client().read_client(),
             Duration::from_secs(1),
         )
         .await?;
     assert!(matches!(status_result, BlobStatus::Nonexistent));
 
-    let read_result = client.read_blob::<Primary>(blob_id).await;
+    let read_result = client
+        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .await;
     assert!(matches!(
         read_result.unwrap_err().kind(),
         ClientErrorKind::BlobIdDoesNotExist,
@@ -951,7 +965,12 @@ async fn test_blocklist() -> TestResult {
     let blob_id = store_result.blob_id();
     assert!(matches!(store_result, BlobStoreResult::NewlyCreated { .. }));
 
-    assert_eq!(client.read_blob::<Primary>(blob_id).await?, blob);
+    assert_eq!(
+        client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .await?,
+        blob
+    );
 
     let mut blocklists = vec![];
 
@@ -965,13 +984,17 @@ async fn test_blocklist() -> TestResult {
     tracing::info!("Adding blob to blocklist");
 
     for blocklist in blocklists.iter_mut() {
-        blocklist.insert(*blob_id)?;
+        blocklist.insert(blob_id.expect("blob id should be present"))?;
     }
 
     // Read the blob using the client until it fails with forbidden
-    let mut blob_read_result = client.read_blob::<Primary>(blob_id).await;
+    let mut blob_read_result = client
+        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .await;
     while let Ok(_blob) = blob_read_result {
-        blob_read_result = client.read_blob::<Primary>(blob_id).await;
+        blob_read_result = client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .await;
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
@@ -986,15 +1009,19 @@ async fn test_blocklist() -> TestResult {
 
     // Remove the blob from the blocklist
     for blocklist in blocklists.iter_mut() {
-        blocklist.remove(blob_id)?;
+        blocklist.remove(&blob_id.expect("blob id should be present"))?;
     }
 
     tracing::info!("Removing blob from blocklist");
 
     // Read the blob again until it succeeds
-    let mut blob_read_result = client.read_blob::<Primary>(blob_id).await;
+    let mut blob_read_result = client
+        .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+        .await;
     while blob_read_result.is_err() {
-        blob_read_result = client.read_blob::<Primary>(blob_id).await;
+        blob_read_result = client
+            .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
+            .await;
         // sleep for a bit to allow the nodes to sync
         tokio::time::sleep(Duration::from_secs(30)).await;
     }

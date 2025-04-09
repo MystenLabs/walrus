@@ -578,7 +578,10 @@ impl ClientCommandRunner {
                 .collect::<Vec<_>>();
             tracing::warn!(
                 "some blobs ({}) are not stored",
-                not_stored.into_iter().join(", ")
+                not_stored
+                    .into_iter()
+                    .map(|blob_id| blob_id.map_or("N/A".to_string(), |id| id.to_string()))
+                    .join(", ")
             );
         }
         tracing::info!(

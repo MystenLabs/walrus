@@ -1458,7 +1458,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Completed
     }
 
     fn get_blob_id(&self) -> Option<BlobId> {
-        Some(*self.result.blob_id())
+        self.result.blob_id()
     }
 
     fn get_sliver_pairs(&self) -> Option<&Vec<SliverPair>> {
