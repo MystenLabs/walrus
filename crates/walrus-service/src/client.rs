@@ -848,7 +848,6 @@ impl Client<SuiContractClient> {
             }
         }
 
-        #[cfg(debug_assertions)]
         let num_to_be_certified = to_be_certified.len();
         debug_assert_eq!(
             num_to_be_certified + to_be_extended.len() + final_result.len(),
@@ -871,7 +870,7 @@ impl Client<SuiContractClient> {
         let blobs_with_certificates = self
             .await_while_checking_notification(self.get_all_blob_certificates(to_be_certified))
             .await?;
-        assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
+        debug_assert_eq!(blobs_with_certificates.len(), num_to_be_certified);
 
         // Move completed blobs to final_result and keep only non-completed ones
         let (completed_blobs, to_be_certified): (Vec<_>, Vec<_>) = blobs_with_certificates
