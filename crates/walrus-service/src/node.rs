@@ -2475,7 +2475,6 @@ impl ServiceState for StorageNodeInner {
 
                 // Callers may request symbols that are not stored with this shard, or
                 // completely invalid symbols. These are ignored unless there are no successes.
-                // test.
                 Err(error) => {
                     tracing::debug!(%error, %symbol_id, "failed to get requested symbol");
                     last_error = error.into();

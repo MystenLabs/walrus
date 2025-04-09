@@ -44,7 +44,8 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests:
+        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
@@ -96,7 +97,6 @@ jobs:
     env:
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
     runs-on: ubuntu-ghcloud
     steps:
@@ -120,7 +120,6 @@ jobs:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
