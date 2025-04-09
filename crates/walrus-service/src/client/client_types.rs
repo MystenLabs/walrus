@@ -1139,6 +1139,7 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for Registere
             cost: price_computation.operation_cost(&resource_operation),
             blob_object,
             resource_operation,
+            // TODO: pass error back to the caller.
             shared_blob_object: result.shared_blob_object(),
         });
 
