@@ -1,125 +1,1553 @@
 {
   "mainnet": {
     "aggregators": {
-      "https://aggregator.mainnet.walrus.mirai.cloud": {},
-      "https://aggregator.suicore.com": {},
-      "https://aggregator.walrus-mainnet.tududes.com": {},
-      "https://aggregator.walrus-mainnet.walrus.space": {},
-      "https://aggregator.walrus.atalma.io": {},
-      "https://aggregator.walrus.mainnet.mozcomputing.dev": {},
-      "https://aggregator.walrus.silentvalidator.com": {},
-      "https://mainnet-aggregator.hoh.zone": {},
-      "https://mainnet-aggregator.walrus.graphyte.dev": {},
-      "https://mainnet-walrus-aggregator.kiliglab.io": {},
-      "https://sm1-walrus-mainnet-aggregator.stakesquid.com": {},
-      "https://sui-walrus-mainnet-aggregator.bwarelabs.com": {},
-      "https://suiftly.mhax.io": {},
-      "https://wal-aggregator-mainnet.staketab.org": {},
-      "https://walmain.agg.chainflow.io": {},
-      "https://walrus-agg-main.bucketprotocol.io": {},
-      "https://walrus-agg.mainnet.obelisk.sh": {},
-      "https://walrus-aggregator-mainnet.chainode.tech:9002": {},
-      "https://walrus-aggregator.chainbase.online": {},
-      "https://walrus-aggregator.n1stake.com": {},
-      "https://walrus-aggregator.natsai.xyz": {},
-      "https://walrus-aggregator.rockfin.io": {},
-      "https://walrus-aggregator.rubynodes.io": {},
-      "https://walrus-aggregator.stakely.io": {},
-      "https://walrus-aggregator.stakin-nodes.com": {},
-      "https://walrus-aggregator.staking4all.org": {},
-      "https://walrus-aggregator.starduststaking.com": {},
-      "https://walrus-aggregator.talentum.id": {},
-      "https://walrus-aggregator.thcloud.ai": {},
-      "https://walrus-aggregator.thepassivetrust.com": {},
-      "https://walrus-cache-mainnet.latitude.sh": {},
-      "https://walrus-cache-mainnet.overclock.run": {},
-      "https://walrus-main-aggregator.4everland.org": {},
-      "https://walrus-mainnet-aggregator-1.zkv.xyz": {},
-      "https://walrus-mainnet-aggregator.crouton.digital": {},
-      "https://walrus-mainnet-aggregator.dzdaic.com": {},
-      "https://walrus-mainnet-aggregator.everstake.one": {},
-      "https://walrus-mainnet-aggregator.imperator.co": {},
-      "https://walrus-mainnet-aggregator.luckyresearch.org": {},
-      "https://walrus-mainnet-aggregator.nami.cloud": {},
-      "https://walrus-mainnet-aggregator.nodeinfra.com": {},
-      "https://walrus-mainnet-aggregator.redundex.com": {},
-      "https://walrus-mainnet-aggregator.rpc101.org": {},
-      "https://walrus-mainnet-aggregator.stakecraft.com": {},
-      "https://walrus-mainnet-aggregator.stakeengine.co.uk": {},
-      "https://walrus-mainnet-aggregator.stakingdefenseleague.com": {},
-      "https://walrus-mainnet-aggregator.trusted-point.com": {},
-      "https://walrus.aggregator.stakepool.dev.br": {},
-      "https://walrus.blockscope.net": {},
-      "https://walrus.globalstake.io": {},
-      "https://walrus.lakestake.io": {},
-      "https://walrus.prostaking.com:9443": {},
-      "https://walrus.veera.com": {},
-      "https://walrusagg.pops.one": {},
-      "http://cvchfgpvfth0e3ss0dkg.bdnodes.net:9000": {},
-      "http://walrus-aggregator.brightlystake.com:9000": {},
-      "http://walrus-aggregator.winsnip.site:9000": {},
-      "http://walrus.equinoxdao.xyz:9000": {},
-      "http://67.220.194.10:9000": {}
+      "https://aggregator.mainnet.walrus.mirai.cloud": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://aggregator.suicore.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus-mainnet.tududes.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus-mainnet.walrus.space": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus.atalma.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus.mainnet.mozcomputing.dev": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus.silentvalidator.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://mainnet-aggregator.hoh.zone": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://mainnet-aggregator.walrus.graphyte.dev": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://mainnet-walrus-aggregator.kiliglab.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://sm1-walrus-mainnet-aggregator.stakesquid.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://sui-walrus-mainnet-aggregator.bwarelabs.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://suiftly.mhax.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cdn-cache",
+              "value": "HIT"
+            },
+            {
+              "key": "cdn-cachedat",
+              "value": "04/07/2025 10:43:05"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://wal-aggregator-mainnet.staketab.org": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walmain.agg.chainflow.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-agg-main.bucketprotocol.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://walrus-agg.mainnet.obelisk.sh": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator-mainnet.chainode.tech:9002": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.chainbase.online": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.n1stake.com": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "https://walrus-aggregator.natsai.xyz": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.rockfin.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cache-status",
+              "value": "Souin; hit; ttl=86265; key=GET-https-walrus-aggregator.rockfin.io-/v1/blobs/fYCyNKdhQx-gKXNqzkgrz7UFDEB8nKlVCEjJSNtqEYY; detail=BADGER"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.rubynodes.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.stakely.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.stakin-nodes.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.staking4all.org": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.starduststaking.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.talentum.id": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.thcloud.ai": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.thepassivetrust.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://walrus-cache-mainnet.latitude.sh": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-cache-mainnet.overclock.run": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-main-aggregator.4everland.org": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator-1.zkv.xyz": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.crouton.digital": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.dzdaic.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.everstake.one": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.imperator.co": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.luckyresearch.org": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.nami.cloud": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.nodeinfra.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cache-status",
+              "value": "Souin; hit; ttl=86293; key=GET-https-walrus-mainnet-aggregator.nodeinfra.com-/v1/blobs/fYCyNKdhQx-gKXNqzkgrz7UFDEB8nKlVCEjJSNtqEYY; detail=DEFAULT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.redundex.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.rpc101.org": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.stakecraft.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.stakeengine.co.uk": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.stakingdefenseleague.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://walrus-mainnet-aggregator.trusted-point.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus.aggregator.stakepool.dev.br": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus.blockscope.net": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus.globalstake.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cache-status",
+              "value": "Souin; hit; ttl=86310; key=GET-https-walrus.globalstake.io-/v1/blobs/fYCyNKdhQx-gKXNqzkgrz7UFDEB8nKlVCEjJSNtqEYY; detail=BADGER"
+            }
+          ]
+        }
+      },
+      "https://walrus.lakestake.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus.prostaking.com:9443": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus.veera.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrusagg.pops.one": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "http://cvchfgpvfth0e3ss0dkg.bdnodes.net:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-aggregator.brightlystake.com:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-aggregator.winsnip.site:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus.equinoxdao.xyz:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://67.220.194.10:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      }
     }
   },
   "testnet": {
     "aggregators": {
-      "https://aggregator.testnet.walrus.atalma.io": {},
-      "https://aggregator.testnet.walrus.mirai.cloud": {},
-      "https://aggregator.walrus-01.tududes.com": {},
-      "https://aggregator.walrus-testnet.walrus.space": {},
-      "https://aggregator.walrus.banansen.dev": {},
-      "https://sui-walrus-testnet.bwarelabs.com/aggregator": { "cache": true },
-      "https://suiftly-testnet-agg.mhax.io": {},
-      "https://testnet-aggregator-walrus.kiliglab.io": { "cache": true },
-      "https://testnet-aggregator.walrus.graphyte.dev": {},
-      "https://testnet.aggregator.walrus.silentvalidator.com": {},
-      "https://wal-aggregator-testnet.staketab.org": { "cache": true },
-      "https://walrus-agg-testnet.chainode.tech:9002": {},
-      "https://walrus-agg.testnet.obelisk.sh": {},
-      "https://walrus-aggregator-testnet.cetus.zone": {},
-      "https://walrus-aggregator-testnet.n1stake.com": {},
-      "https://walrus-aggregator-testnet.suisec.tech": {},
-      "https://walrus-aggregator.rubynodes.io": {},
-      "https://walrus-cache-testnet.latitude-sui.com": { "cache": true },
-      "https://walrus-cache-testnet.overclock.run": {},
-      "https://walrus-test-aggregator.thepassivetrust.com": {},
-      "https://walrus-testnet-aggregator-1.zkv.xyz": {},
-      "https://walrus-testnet-aggregator.brightlystake.com": {},
-      "https://walrus-testnet-aggregator.dzdaic.com": {},
-      "https://walrus-testnet-aggregator.everstake.one": { "cache": true },
-      "https://walrus-testnet-aggregator.imperator.co": {},
-      "https://walrus-testnet-aggregator.nami.cloud": {},
-      "https://walrus-testnet-aggregator.nodeinfra.com": { "cache": true },
-      "https://walrus-testnet-aggregator.nodes.guru": { "cache": true },
-      "https://walrus-testnet-aggregator.redundex.com": {},
-      "https://walrus-testnet-aggregator.stakecraft.com": {},
-      "https://walrus-testnet-aggregator.stakely.io": {},
-      "https://walrus-testnet-aggregator.stakin-nodes.com": {},
-      "https://walrus-testnet-aggregator.stakingdefenseleague.com": {},
-      "https://walrus-testnet-aggregator.starduststaking.com": { "cache": false },
-      "https://walrus-testnet-aggregator.talentum.id": {},
+      "https://aggregator.testnet.walrus.atalma.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://aggregator.testnet.walrus.mirai.cloud": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus-01.tududes.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus-testnet.walrus.space": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://aggregator.walrus.banansen.dev": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://sui-walrus-testnet.bwarelabs.com/aggregator": {
+        "cache": {
+          "hasCache": true,
+          "headers": []
+        }
+      },
+      "https://suiftly-testnet-agg.mhax.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cdn-cache",
+              "value": "HIT"
+            },
+            {
+              "key": "cdn-cachedat",
+              "value": "04/07/2025 08:11:07"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://testnet-aggregator-walrus.kiliglab.io": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "https://testnet-aggregator.walrus.graphyte.dev": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://testnet.aggregator.walrus.silentvalidator.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://wal-aggregator-testnet.staketab.org": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-agg-testnet.chainode.tech:9002": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://walrus-agg.testnet.obelisk.sh": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator-testnet.cetus.zone": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator-testnet.n1stake.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator-testnet.suisec.tech": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-aggregator.rubynodes.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "max-age=7200"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-cache-testnet.latitude-sui.com": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "https://walrus-cache-testnet.overclock.run": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "https://walrus-test-aggregator.thepassivetrust.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator-1.zkv.xyz": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.brightlystake.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.dzdaic.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.everstake.one": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.imperator.co": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.nami.cloud": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cf-cache-status",
+              "value": "DYNAMIC"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.nodeinfra.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cache-status",
+              "value": "Souin; hit; ttl=78453; key=GET-https-walrus-testnet-aggregator.nodeinfra.com-/v1/blobs/21sN7yxaIPbjBr3izQiIdLBaS0sbsdJwd-Xf-odhsT8; detail=DEFAULT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.nodes.guru": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.redundex.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.stakecraft.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.stakely.io": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "private, max-age=0, no-store, no-cache, must-revalidate, post-check=0, pre-check=0"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.stakin-nodes.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.stakingdefenseleague.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "cf-cache-status",
+              "value": "HIT"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "MISS"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.starduststaking.com": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet-aggregator.talentum.id": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
       "https://walrus-testnet-aggregator.unemployedstake.co.uk": {},
       "https://walrus-testnet-aggregator.veera.com": {},
-      "https://walrus-testnet.blockscope.net": {},
-      "https://walrus-testnet.validators.services.kyve.network/aggregate": {},
-      "https://walrus-tn.juicystake.io:9443": { "cache": true },
-      "https://walrus.testnet.aggregator.stakepool.dev.br": {},
-      "http://aggregator.testnet.sui.rpcpool.com:9000": {},
+      "https://walrus-testnet.blockscope.net": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus-testnet.validators.services.kyve.network/aggregate": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "https://walrus-tn.juicystake.io:9443": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "https://walrus.testnet.aggregator.stakepool.dev.br": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            },
+            {
+              "key": "x-cache-status",
+              "value": "HIT"
+            }
+          ]
+        }
+      },
+      "http://aggregator.testnet.sui.rpcpool.com:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
       "http://scarlet-brussels-376c2.walrus.bdnodes.net:9000": {},
-      "http://walrus-aggregator.stakeme.pro:9000": {},
-      "http://walrus-storage.testnet.nelrann.org:9000": {},
-      "http://walrus-testnet.equinoxdao.xyz:9000": {},
-      "http://walrus-testnet.rpc101.org:9000": {},
-      "http://walrus-testnet.staking4all.org:9000": {},
-      "http://walrus-testnet.suicore.com:9000": {},
-      "http://walrus.globalstake.io:9000": { "cache": true },
+      "http://walrus-aggregator.stakeme.pro:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-storage.testnet.nelrann.org:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-testnet.equinoxdao.xyz:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-testnet.rpc101.org:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-testnet.staking4all.org:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus-testnet.suicore.com:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://walrus.globalstake.io:9000": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
       "http://walrus.krates.ai:9000": {},
-      "http://walrus.testnet.pops.one:9000": {},
-      "http://waltest.chainflow.io:9000": {},
-      "http://37.27.230.228:9000": {},
-      "http://65.21.139.112:9000": {},
-      "http://93.115.27.108:9000": {}
+      "http://walrus.testnet.pops.one:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://waltest.chainflow.io:9000": {
+        "cache": {
+          "hasCache": true,
+          "headers": [
+            {
+              "key": "cache-control",
+              "value": "public, max-age=86400, stale-while-revalidate=3600"
+            }
+          ]
+        }
+      },
+      "http://37.27.230.228:9000": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "http://65.21.139.112:9000": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      },
+      "http://93.115.27.108:9000": {
+        "cache": {
+          "hasCache": false,
+          "headers": []
+        }
+      }
     },
     "publishers": {
       "https://publisher.testnet.walrus.atalma.io": {},
