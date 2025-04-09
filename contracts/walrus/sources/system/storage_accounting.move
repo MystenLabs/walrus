@@ -21,7 +21,7 @@ public struct FutureAccounting has store {
     rewards_to_distribute: Balance<WAL>,
 }
 
-/// Constructor for FutureAccounting
+/// Constructor for FutureAccounting.
 public(package) fun new_future_accounting(
     epoch: u32,
     used_capacity: u64,
@@ -30,7 +30,7 @@ public(package) fun new_future_accounting(
     FutureAccounting { epoch, used_capacity, rewards_to_distribute }
 }
 
-/// Accessor for epoch, read-only
+/// Accessor for epoch, read-only.
 public(package) fun epoch(accounting: &FutureAccounting): u32 {
     *&accounting.epoch
 }
@@ -73,7 +73,7 @@ public struct FutureAccountingRingBuffer has store {
     ring_buffer: vector<FutureAccounting>,
 }
 
-/// Constructor for FutureAccountingRingBuffer
+/// Constructor for FutureAccountingRingBuffer.
 public(package) fun ring_new(length: u32): FutureAccountingRingBuffer {
     let ring_buffer = vector::tabulate!(
         length as u64,

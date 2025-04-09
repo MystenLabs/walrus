@@ -6,7 +6,7 @@ use serde::Serialize;
 use super::{Intent, InvalidIntent, ProtocolMessage, SignedMessage};
 use crate::{messages::IntentType, Epoch, PublicKey};
 
-/// The message body for a `ProofOfPossessionMsg`,
+/// The message body for a `ProofOfPossessionMsg`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProofOfPossessionBody {
     /// The sui address of the signer as bytes.

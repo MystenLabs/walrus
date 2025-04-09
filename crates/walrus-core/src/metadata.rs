@@ -309,7 +309,7 @@ impl BlobMetadataApi for BlobMetadataV1 {
     /// This infers the number of shards from the length of the `hashes` vector.
     ///
     /// Returns `None` if `hashes.len()` is not between `1` and `u16::MAX` or if the
-    /// `unencoded_length` cannot be encoded
+    /// `unencoded_length` cannot be encoded.
     fn encoded_size(&self) -> Option<u64> {
         encoded_blob_length_for_n_shards(
             NonZeroU16::new(self.hashes.len().try_into().ok()?)?,
