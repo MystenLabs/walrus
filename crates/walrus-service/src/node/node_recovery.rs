@@ -74,6 +74,8 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
+                    // The node will only enter recovery mode if it has caught up to the latest
+                    // epoch. So we only need to check the latest epoch for the shard assignment.
                     if let Ok(stored_at_all_shards) = node
                         .is_stored_at_all_shards(&blob_id, node.current_epoch())
                         .await

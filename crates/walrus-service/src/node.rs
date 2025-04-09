@@ -1142,8 +1142,6 @@ impl StorageNode {
             return Ok(());
         }
 
-        sui_macros::fail_point!("blob_certified_event_sync");
-
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
         self.blob_sync_handler
             .start_sync(event.blob_id, event.epoch, Some(event_handle))
@@ -1722,15 +1720,6 @@ impl StorageNodeInner {
     }
 
     pub(crate) fn owned_shards(&self, epoch: Epoch) -> Vec<ShardIndex> {
-        // if true {
-        //     return self
-        //         .committee_service
-        //         .active_committees()
-        //         .current_committee()
-        //         .shards_for_node_public_key(self.public_key())
-        //         .to_vec();
-        // }
-
         if self.committee_service.get_epoch() == epoch + 1
             && self
                 .committee_service
@@ -1738,6 +1727,8 @@ impl StorageNodeInner {
                 .previous_committee()
                 .is_some()
         {
+            // If epoch is the previous epoch, return the shard assignment based on the previous
+            // committee.
             self.committee_service
                 .active_committees()
                 .previous_committee()
@@ -1745,6 +1736,11 @@ impl StorageNodeInner {
                 .shards_for_node_public_key(self.public_key())
                 .to_vec()
         } else {
+            // Otherwise, return the shard assignment based on the current committee.
+            //
+            // Here we don't validate the epoch given that there are already multiple places
+            // in the node logic where storage node cannot be more than 2 epoch lagging. If so,
+            // it'll enter recovery mode.
             self.committee_service
                 .active_committees()
                 .current_committee()
@@ -1865,7 +1861,7 @@ impl StorageNodeInner {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.list_shard_status().await;
-        let owned_shards = self.owned_shards(self.committee_service.get_epoch());
+        let owned_shards = self.owned_shards(self.current_epoch());
         let mut summary = ShardStatusSummary::default();
 
         let mut detail = detailed.then(|| {
@@ -2349,8 +2345,12 @@ impl ServiceState for StorageNodeInner {
             self.is_blob_registered(blob_id)?,
             ComputeStorageConfirmationError::NotCurrentlyRegistered,
         );
+
+        // Storage confirmation must use the last shard assignment, even though the node hasn't
+        // processed to the latest epoch yet. This is because if the onchain committee has moved
+        // on to the new epoch, confirmation from the old epoch is not longer valid.
         ensure!(
-            self.is_stored_at_all_shards(blob_id, self.committee_service.get_epoch())
+            self.is_stored_at_all_shards(blob_id, self.current_epoch())
                 .await
                 .context("database error when checkingstorage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
@@ -2416,7 +2416,7 @@ impl ServiceState for StorageNodeInner {
         self.check_index(secondary_index)?;
         let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
 
-        let owned_shards = self.owned_shards(self.committee_service.get_epoch());
+        let owned_shards = self.owned_shards(self.current_epoch());
 
         // In the event that neither of the slivers are assigned to this shard use this error,
         // otherwise it is overwritten.
@@ -2476,23 +2476,20 @@ impl ServiceState for StorageNodeInner {
             SymbolIdFilter::Recovers {
                 target_sliver: target,
                 target_type,
-            } => Either::Right(
-                self.owned_shards(self.committee_service.get_epoch())
-                    .into_iter()
-                    .map(|shard_id| {
-                        let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
-                        match *target_type {
-                            SliverType::Primary => SymbolId::new(
-                                *target,
-                                pair_stored.to_sliver_index::<Secondary>(n_shards),
-                            ),
-                            SliverType::Secondary => SymbolId::new(
-                                pair_stored.to_sliver_index::<Primary>(n_shards),
-                                *target,
-                            ),
+            } => Either::Right(self.owned_shards(self.current_epoch()).into_iter().map(
+                |shard_id| {
+                    let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
+                    match *target_type {
+                        SliverType::Primary => SymbolId::new(
+                            *target,
+                            pair_stored.to_sliver_index::<Secondary>(n_shards),
+                        ),
+                        SliverType::Secondary => {
+                            SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
                         }
-                    }),
-            ),
+                    }
+                },
+            )),
         };
 
         let mut output = vec![];

@@ -13,8 +13,8 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use rand::{Rng, SeedableRng};
-    use sui_macros::register_fail_point_async;
+    use rand::{thread_rng, Rng, SeedableRng};
+    use sui_macros::{clear_fail_point, register_fail_point_async};
     use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
     use walrus_rest_client::api::ShardStatus;
@@ -338,6 +338,7 @@ mod tests {
 
     // This integration test simulates a scenario where a node is repeatedly crashing and
     // recovering.
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
@@ -364,19 +365,24 @@ mod tests {
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
-        let node_index_to_crash = 4;
+        let node_index_to_crash = thread_rng().gen_range(0..walrus_cluster.nodes.len());
         let target_fail_node_id = walrus_cluster.nodes[node_index_to_crash]
             .node_id
             .expect("node id should be set");
 
-        register_fail_point_async("epoch_change_start_entry", move || async move {
-            if sui_simulator::current_simnode_id() == target_fail_node_id {
-                tokio::time::sleep(Duration::from_secs(
-                    rand::rngs::StdRng::from_entropy().gen_range(2..=7),
-                ))
-                .await;
-            }
-        });
+        // We probabilistically cause the target shard to slow down processing events, so that
+        // certified blob events require blob recovery, and mix with epoch change.
+        let cause_target_shard_slow_processing_event = thread_rng().gen_bool(0.5);
+        if cause_target_shard_slow_processing_event {
+            register_fail_point_async("epoch_change_start_entry", move || async move {
+                if sui_simulator::current_simnode_id() == target_fail_node_id {
+                    tokio::time::sleep(Duration::from_secs(
+                        rand::rngs::StdRng::from_entropy().gen_range(2..=7),
+                    ))
+                    .await;
+                }
+            });
+        }
 
         let client_arc = Arc::new(client);
         let client_clone = client_arc.clone();
@@ -481,5 +487,9 @@ mod tests {
         );
 
         blob_info_consistency_check.check_storage_node_consistency();
+
+        if cause_target_shard_slow_processing_event {
+            clear_fail_point("epoch_change_start_entry");
+        }
     }
 }
