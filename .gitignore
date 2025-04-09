@@ -36,6 +36,8 @@ working_dir/
 *.log
 venv/
 **/tmp
+result*
+.direnv/
 
 # Deployment assets
 crates/walrus-orchestrator/assets/
