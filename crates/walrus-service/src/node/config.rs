@@ -639,14 +639,14 @@ pub struct ShardSyncConfig {
 impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
-            sliver_count_per_sync_request: 10,
+            sliver_count_per_sync_request: 1000,
             shard_sync_retry_min_backoff: Duration::from_secs(60),
             shard_sync_retry_max_backoff: Duration::from_secs(600),
-            max_concurrent_blob_recovery_during_shard_recovery: 5,
+            max_concurrent_blob_recovery_during_shard_recovery: 100,
             blob_certified_check_interval: Duration::from_secs(60),
-            max_concurrent_metadata_fetch: 10,
+            max_concurrent_metadata_fetch: 100,
             shard_sync_concurrency: 10,
-            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(2 * 60 * 60), // 2hr
+            shard_sync_retry_switch_to_recovery_interval: Duration::from_secs(12 * 60 * 60), // 12hr
             restart_shard_sync_always_retry_transfer_first: true,
         }
     }

@@ -87,14 +87,14 @@ tls:
   disable_tls: false
   certificate_path: null
 shard_sync_config:
-  sliver_count_per_sync_request: 10
+  sliver_count_per_sync_request: 1000
   shard_sync_retry_min_backoff_secs: 60
   shard_sync_retry_max_backoff_secs: 600
-  max_concurrent_blob_recovery_during_shard_recovery: 5
+  max_concurrent_blob_recovery_during_shard_recovery: 100
   blob_certified_check_interval_secs: 60
-  max_concurrent_metadata_fetch: 10
+  max_concurrent_metadata_fetch: 100
   shard_sync_concurrency: 10
-  shard_sync_retry_switch_to_recovery_interval_secs: 7200
+  shard_sync_retry_switch_to_recovery_interval_secs: 43200
   restart_shard_sync_always_retry_transfer_first: true
 event_processor_config:
   pruning_interval_secs: 3600
