@@ -681,7 +681,8 @@ impl EventBlobWriterFactory {
 }
 
 /// EventBlobWriter manages the creation, storage, and certification of event blobs.
-/// ```
+///
+/// ```text
 ///  +-------------------+
 ///  |  EventBlobWriter  |
 ///  +-------------------+
@@ -705,10 +706,6 @@ impl EventBlobWriterFactory {
 ///                   certification)
 ///
 /// ```
-/// Flow: Current -> Pending -> Attested -> Certified
-///                     |
-///                     +-> Failed to Attest -> Attested -> Certified
-/// ```text
 ///
 /// Blob Lifecycle:
 ///

@@ -44,8 +44,7 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests:
-        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
@@ -135,6 +134,8 @@ jobs:
           sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Run tests
         run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all
+      - name: Run doctests
+        run: cargo test --doc
 
   test-coverage:
     name: Run all Rust tests and report coverage
@@ -207,7 +208,8 @@ jobs:
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
       - name: Install sui
         if: steps.cache-sui-restore.outputs.cache-hit != 'true'
-        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing sui
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+          sui
       - name: Run Move tests and check coverage
         run: bash ./scripts/move_coverage.sh
       - name: Cache sui binary
