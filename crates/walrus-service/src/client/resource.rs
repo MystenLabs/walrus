@@ -382,6 +382,7 @@ impl<'a> ResourceManager<'a> {
 
         debug_assert_eq!(results.len(), blobs.len());
 
+        // TODO(WAL-754): Check if we can make sure results and blobs have the same order.
         let mut blob_id_map = HashMap::new();
         results.into_iter().for_each(|(blob, op)| {
             let blob_id = blob.blob_id;

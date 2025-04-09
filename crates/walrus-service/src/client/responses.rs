@@ -179,6 +179,11 @@ impl BlobStoreResult {
             Self::Error { .. } => None,
         }
     }
+
+    /// Returns true if the blob is not stored.
+    pub fn is_not_stored(&self) -> bool {
+        matches!(self, Self::MarkedInvalid { .. } | Self::Error { .. })
+    }
 }
 
 /// The output of the `read` command.
