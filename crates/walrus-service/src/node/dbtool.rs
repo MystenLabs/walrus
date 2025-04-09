@@ -20,6 +20,7 @@ use walrus_core::{
     ShardIndex,
 };
 
+use super::events::event_processor::INIT_STATE;
 use crate::node::{
     events::{
         event_blob_writer::{
@@ -32,7 +33,8 @@ use crate::node::{
             FailedToAttestEventBlobMetadata,
             PendingEventBlobMetadata,
         },
-        event_processor::event_store_cf_name,
+        event_processor::EVENT_STORE,
+        InitState,
         PositionedStreamEvent,
     },
     storage::{
@@ -198,6 +200,16 @@ pub enum DbToolCommands {
         #[command(subcommand)]
         command: EventBlobWriterCommands,
     },
+
+    /// Read event processor metadata from the RocksDB database.
+    EventProcessor {
+        /// Path to the RocksDB database directory.
+        #[clap(long)]
+        db_path: PathBuf,
+        /// Commands to read event processor metadata.
+        #[command(subcommand)]
+        command: EventProcessorCommands,
+    },
 }
 
 /// Commands for reading event blob writer metadata.
@@ -223,6 +235,15 @@ pub enum EventBlobWriterCommands {
 
     /// Read failed-to-attest event blob metadata.
     ReadFailedToAttest,
+}
+
+/// Commands for reading event processor metadata.
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[serde_as]
+#[clap(rename_all = "kebab-case")]
+pub enum EventProcessorCommands {
+    /// Read event processor metadata.
+    ReadInitState,
 }
 
 impl DbToolCommands {
@@ -279,6 +300,9 @@ impl DbToolCommands {
                     read_failed_to_attest_event_blobs(db_path)
                 }
             },
+            Self::EventProcessor { db_path, command } => match command {
+                EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
+            },
         }
     }
 }
@@ -293,9 +317,9 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
 fn scan_events(db_path: PathBuf, start_event_index: u64, count: u64) -> Result<()> {
     println!("Scanning events from event index {}", start_event_index);
     let opts = RocksdbOptions::default();
-    let db = DB::open_cf_for_read_only(&opts, db_path, [event_store_cf_name()], false)?;
+    let db = DB::open_cf_for_read_only(&opts, db_path, [EVENT_STORE], false)?;
     let cf = db
-        .cf_handle(event_store_cf_name())
+        .cf_handle(EVENT_STORE)
         .expect("Event store column family should exist");
 
     let iter = db.iterator_cf(
@@ -624,6 +648,28 @@ fn read_secondary_slivers(
                 return Err(e.into());
             }
         }
+    }
+
+    Ok(())
+}
+
+fn read_event_processor_init_state(db_path: PathBuf) -> Result<()> {
+    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [INIT_STATE], false)?;
+
+    let Some(cf) = db.cf_handle(INIT_STATE) else {
+        println!("Event processor init state column family not found");
+        return Ok(());
+    };
+
+    let iter = db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
+    let config = bincode::DefaultOptions::new()
+        .with_big_endian()
+        .with_fixint_encoding();
+    for result in iter {
+        let (key, value) = result?;
+        let init_state: InitState = bcs::from_bytes(&value)?;
+        let key: u64 = config.deserialize(&key)?;
+        println!("Key: {}, Init state: {:?}", key, init_state);
     }
 
     Ok(())
