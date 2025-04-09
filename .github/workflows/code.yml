@@ -44,7 +44,8 @@ jobs:
       isDenyConfig: ${{ steps.diff.outputs.isDenyConfig }}
       isTestConfig: ${{ steps.diff.outputs.isTestConfig }}
       isOpenapi: ${{ steps.diff.outputs.isOpenapi }}
-      isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
+      isRelevantForRustTests:
+        ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
@@ -93,12 +94,20 @@ jobs:
     name: Build Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
+    env:
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
+
     runs-on: ubuntu-ghcloud
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # pin@v2.7.8
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Build Rust code
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
@@ -109,6 +118,8 @@ jobs:
     runs-on: ubuntu-ghcloud
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
     steps:
       - uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
         with:
@@ -118,6 +129,10 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
           shared-key: v0-rust-test
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
       - name: Run tests
         run: cargo nextest run --workspace --features "walrus-service/backup" --profile ci --run-ignored all
 
