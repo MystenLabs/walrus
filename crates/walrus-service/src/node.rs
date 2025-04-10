@@ -8,7 +8,7 @@ use std::{
     num::{NonZero, NonZeroU16},
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
 };
@@ -514,6 +514,7 @@ pub struct StorageNodeInner {
     symbol_service: RecoverySymbolService,
     thread_pool: BoundedThreadPool,
     registry: Registry,
+    latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
 }
 
 /// Parameters for configuring and initializing a node.
@@ -620,6 +621,7 @@ impl StorageNode {
             thread_pool,
             encoding_config,
             registry: registry.clone(),
+            latest_event_epoch: AtomicU32::new(0),
         });
 
         blocklist.start_refresh_task();
@@ -913,9 +915,16 @@ impl StorageNode {
                     if let Some(epoch_at_start) = maybe_epoch_at_start {
                         if let EventStreamElement::ContractEvent(ref event) = stream_element.element
                         {
+                            // Update initial latest event epoch. This is the first event the node
+                            // processes.
+                            self.inner
+                                .latest_event_epoch
+                                .store(event.event_epoch(), Ordering::SeqCst);
+
                             tracing::debug!(
                                 "checking the first contract event if we're severely lagging"
                             );
+
                             // Clear the starting epoch, so that we never make this check again.
                             maybe_epoch_at_start = None;
 
@@ -1258,15 +1267,23 @@ impl StorageNode {
 
         if self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp {
             self.process_epoch_change_start_while_catching_up(event_handle, event, shard_map_lock)
-                .await
+                .await?;
         } else {
             self.process_epoch_change_start_when_node_is_in_sync(
                 event_handle,
                 event,
                 shard_map_lock,
             )
-            .await
+            .await?;
         }
+
+        // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
+        // check for shard ownership.
+        self.inner
+            .latest_event_epoch
+            .store(event.epoch, Ordering::SeqCst);
+
+        Ok(())
     }
 
     /// Processes the epoch change start event while the node is in
@@ -1835,6 +1852,10 @@ impl StorageNodeInner {
         self.storage.put_verified_metadata(&metadata).await?;
         tracing::debug!(%blob_id, "metadata successfully synced");
         Ok(metadata)
+    }
+
+    fn current_event_epoch(&self) -> Epoch {
+        self.latest_event_epoch.load(Ordering::SeqCst)
     }
 
     fn current_epoch(&self) -> Epoch {
@@ -5343,9 +5364,23 @@ mod tests {
                     .expect("getting blob status should succeed"),
                 BlobStatus::Nonexistent
             );
-            events.send(BlobRegistered::for_testing(OTHER_BLOB_ID).into())?;
-            events.send(BlobCertified::for_testing(OTHER_BLOB_ID).into())?;
 
+            // Must send the blob registered and certified events with the same epoch as the
+            // epoch change start event.
+            events.send(
+                BlobRegistered {
+                    epoch: 3,
+                    ..BlobRegistered::for_testing(OTHER_BLOB_ID)
+                }
+                .into(),
+            )?;
+            events.send(
+                BlobCertified {
+                    epoch: 3,
+                    ..BlobCertified::for_testing(OTHER_BLOB_ID)
+                }
+                .into(),
+            )?;
             tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
                     if cluster.nodes[0]

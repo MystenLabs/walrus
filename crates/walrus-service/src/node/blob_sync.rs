@@ -477,11 +477,11 @@ impl BlobSynchronizer {
         // recovering all the missing blobs.
         let futures_iter = this
             .node
-            .owned_shards_at_epoch(this.certified_epoch)
+            .owned_shards_at_epoch(this.node.current_event_epoch())
             .unwrap_or_else(|_| {
                 panic!(
                     "shard assignment must be found at the certified epoch {}",
-                    this.certified_epoch
+                    this.node.current_event_epoch()
                 )
             })
             .into_iter()
