@@ -470,9 +470,20 @@ impl BlobSynchronizer {
         //   - The node may not have created the new shards yet.
         //   - Since the blob is certified in an earlier epoch, it is this node's responsibility to
         //     hold, recover, and transfer the shard to the new owner.
+        //
+        // If the node is severally lagging behind and the certified_epoch is 2 epochs older,
+        // this function panics since no shard assignment info is found. Upon restarting the node,
+        // the node will enter recovery mode until catching up with all the events and start
+        // recovering all the missing blobs.
         let futures_iter = this
             .node
-            .owned_shards(this.certified_epoch)
+            .owned_shards_at_epoch(this.certified_epoch)
+            .unwrap_or_else(|_| {
+                panic!(
+                    "shard assignment must be found at the certified epoch {}",
+                    this.certified_epoch
+                )
+            })
             .into_iter()
             .map(|shard| {
                 this.clone()

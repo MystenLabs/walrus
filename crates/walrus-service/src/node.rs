@@ -1131,7 +1131,7 @@ impl StorageNode {
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
             || self
                 .inner
-                .is_stored_at_all_shards(&event.blob_id, event.epoch)
+                .is_stored_at_all_shards_at_epoch(&event.blob_id, event.epoch)
                 .await?
         {
             event_handle.mark_as_complete();
@@ -1422,7 +1422,8 @@ impl StorageNode {
         // status. We need to set the status of all currently owned shards to `Active` despite
         // their current status. Node recovery will recover all the missing certified blobs in these
         // shards in a crash-tolerant manner.
-        for shard in self.inner.owned_shards(event.epoch) {
+        // Note that node recovery can only start if the event epoch matches the latest epoch.
+        for shard in self.inner.owned_shards_at_latest_epoch() {
             storage
                 .shard_storage(shard)
                 .await
@@ -1719,42 +1720,63 @@ impl StorageNodeInner {
         self.node_capability
     }
 
-    pub(crate) fn owned_shards(&self, epoch: Epoch) -> Vec<ShardIndex> {
-        if self.committee_service.get_epoch() == epoch + 1
-            && self
+    /// Returns the shards that are owned by the node at the latest epoch in the committee info
+    /// fetched from the chain.
+    pub(crate) fn owned_shards_at_latest_epoch(&self) -> Vec<ShardIndex> {
+        self.committee_service
+            .active_committees()
+            .current_committee()
+            .shards_for_node_public_key(self.public_key())
+            .to_vec()
+    }
+
+    /// Returns the shards that are owned by the node at the given epoch. Since the committee
+    /// only contains the shard assignment for the current and previous epoch, this function
+    /// returns an error if the given epoch is not the current or previous epoch.
+    pub(crate) fn owned_shards_at_epoch(&self, epoch: Epoch) -> anyhow::Result<Vec<ShardIndex>> {
+        let latest_epoch = self.committee_service.get_epoch();
+
+        if latest_epoch == epoch + 1 {
+            return self
                 .committee_service
                 .active_committees()
                 .previous_committee()
-                .is_some()
-        {
-            // If epoch is the previous epoch, return the shard assignment based on the previous
-            // committee.
-            self.committee_service
-                .active_committees()
-                .previous_committee()
-                .expect("previous committee should be set")
-                .shards_for_node_public_key(self.public_key())
-                .to_vec()
-        } else {
-            // Otherwise, return the shard assignment based on the current committee.
-            //
-            // Here we don't validate the epoch given that there are already multiple places
-            // in the node logic where storage node cannot be more than 2 epoch lagging. If so,
-            // it'll enter recovery mode.
-            self.committee_service
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "previous committee is not set when checking shard assignment at epoch {}",
+                        epoch
+                    )
+                })
+                .map(|committee| {
+                    committee
+                        .shards_for_node_public_key(self.public_key())
+                        .to_vec()
+                });
+        }
+
+        if latest_epoch == epoch {
+            return Ok(self
+                .committee_service
                 .active_committees()
                 .current_committee()
                 .shards_for_node_public_key(self.public_key())
-                .to_vec()
+                .to_vec());
         }
+
+        anyhow::bail!("unknown epoch {} when checking shard assignment", epoch);
     }
 
-    pub(crate) async fn is_stored_at_all_shards(
+    async fn is_stored_at_all_shards_impl(
         &self,
         blob_id: &BlobId,
-        epoch: Epoch,
+        epoch: Option<Epoch>,
     ) -> anyhow::Result<bool> {
-        for shard in self.owned_shards(epoch) {
+        let shards = match epoch {
+            Some(e) => self.owned_shards_at_epoch(e)?,
+            None => self.owned_shards_at_latest_epoch(),
+        };
+
+        for shard in shards {
             match self.storage.is_stored_at_shard(blob_id, shard).await {
                 Ok(false) => return Ok(false),
                 Ok(true) => continue,
@@ -1765,6 +1787,26 @@ impl StorageNodeInner {
             }
         }
         Ok(true)
+    }
+
+    /// Returns true if the blob is stored at all shards at the latest epoch.
+    pub(crate) async fn is_stored_at_all_shards_at_latest_epoch(
+        &self,
+        blob_id: &BlobId,
+    ) -> anyhow::Result<bool> {
+        self.is_stored_at_all_shards_impl(blob_id, None).await
+    }
+
+    /// Returns true if the blob is stored at all shards at the given epoch.
+    /// Note that since shard assignment is only available for the current and previous epoch,
+    /// this function will return false if the given epoch is not the current or previous epoch.
+    pub(crate) async fn is_stored_at_all_shards_at_epoch(
+        &self,
+        blob_id: &BlobId,
+        epoch: Epoch,
+    ) -> anyhow::Result<bool> {
+        self.is_stored_at_all_shards_impl(blob_id, Some(epoch))
+            .await
     }
 
     pub(crate) fn storage(&self) -> &Storage {
@@ -1861,7 +1903,7 @@ impl StorageNodeInner {
         // NOTE: It is possible that the committee or shards change between this and the next call.
         // As this is for admin consumption, this is not considered a problem.
         let mut shard_statuses = self.storage.list_shard_status().await;
-        let owned_shards = self.owned_shards(self.current_epoch());
+        let owned_shards = self.owned_shards_at_latest_epoch();
         let mut summary = ShardStatusSummary::default();
 
         let mut detail = detailed.then(|| {
@@ -2350,7 +2392,7 @@ impl ServiceState for StorageNodeInner {
         // processed to the latest epoch yet. This is because if the onchain committee has moved
         // on to the new epoch, confirmation from the old epoch is not longer valid.
         ensure!(
-            self.is_stored_at_all_shards(blob_id, self.current_epoch())
+            self.is_stored_at_all_shards_at_latest_epoch(blob_id)
                 .await
                 .context("database error when checkingstorage status")?,
             ComputeStorageConfirmationError::NotFullyStored,
@@ -2416,7 +2458,7 @@ impl ServiceState for StorageNodeInner {
         self.check_index(secondary_index)?;
         let secondary_pair_index = secondary_index.to_pair_index::<Secondary>(n_shards);
 
-        let owned_shards = self.owned_shards(self.current_epoch());
+        let owned_shards = self.owned_shards_at_latest_epoch();
 
         // In the event that neither of the slivers are assigned to this shard use this error,
         // otherwise it is overwritten.
@@ -2470,27 +2512,29 @@ impl ServiceState for StorageNodeInner {
     ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
         let n_shards = self.n_shards();
 
-        let symbol_id_iter = match filter.id_filter() {
-            SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
+        let symbol_id_iter =
+            match filter.id_filter() {
+                SymbolIdFilter::Ids(symbol_ids) => Either::Left(symbol_ids.iter().copied()),
 
-            SymbolIdFilter::Recovers {
-                target_sliver: target,
-                target_type,
-            } => Either::Right(self.owned_shards(self.current_epoch()).into_iter().map(
-                |shard_id| {
-                    let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
-                    match *target_type {
-                        SliverType::Primary => SymbolId::new(
-                            *target,
-                            pair_stored.to_sliver_index::<Secondary>(n_shards),
-                        ),
-                        SliverType::Secondary => {
-                            SymbolId::new(pair_stored.to_sliver_index::<Primary>(n_shards), *target)
+                SymbolIdFilter::Recovers {
+                    target_sliver: target,
+                    target_type,
+                } => Either::Right(self.owned_shards_at_latest_epoch().into_iter().map(
+                    |shard_id| {
+                        let pair_stored = shard_id.to_pair_index(n_shards, blob_id);
+                        match *target_type {
+                            SliverType::Primary => SymbolId::new(
+                                *target,
+                                pair_stored.to_sliver_index::<Secondary>(n_shards),
+                            ),
+                            SliverType::Secondary => SymbolId::new(
+                                pair_stored.to_sliver_index::<Primary>(n_shards),
+                                *target,
+                            ),
                         }
-                    }
-                },
-            )),
-        };
+                    },
+                )),
+            };
 
         let mut output = vec![];
         let mut last_error = ListSymbolsError::NoSymbolsSpecified;
@@ -2875,7 +2919,7 @@ mod tests {
         assert_eq!(
             node.storage_node
                 .inner
-                .is_stored_at_all_shards(&BLOB_ID, node.storage_node.inner.current_epoch())
+                .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
                 .await
                 .expect("error checking is stord at all shards"),
             is_stored_at_all_shards
@@ -2917,7 +2961,7 @@ mod tests {
 
         assert!(
             inner
-                .is_stored_at_all_shards(&BLOB_ID, inner.current_epoch())
+                .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
                 .await?,
         );
         events.send(
@@ -2942,7 +2986,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert!(
             !inner
-                .is_stored_at_all_shards(&BLOB_ID, inner.current_epoch())
+                .is_stored_at_all_shards_at_latest_epoch(&BLOB_ID)
                 .await?
         );
         Ok(())
