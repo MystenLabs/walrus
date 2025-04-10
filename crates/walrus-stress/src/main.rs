@@ -38,27 +38,26 @@ const COIN_REFILL_AMOUNT: u64 = 500_000_000;
 const MIN_BALANCE: u64 = 1_000_000_000;
 
 #[derive(Parser)]
-#[clap(rename_all = "kebab-case")]
-#[clap(name = env!("CARGO_BIN_NAME"))]
+#[command(name = env!("CARGO_BIN_NAME"), rename_all = "kebab-case")]
 #[derive(Debug)]
 struct Args {
     /// The path to the client configuration file containing the system object address.
-    #[clap(long, default_value = "./working_dir/client_config.yaml")]
+    #[arg(long, default_value = "./working_dir/client_config.yaml")]
     config_path: PathBuf,
 
     /// Sui network for which the config is generated.
-    #[clap(long, default_value = "testnet")]
+    #[arg(long, default_value = "testnet")]
     sui_network: SuiNetwork,
 
     /// The port on which metrics are exposed.
-    #[clap(long, default_value = "9584")]
+    #[arg(long, default_value = "9584")]
     metrics_port: u16,
 
     /// The path to the Sui Wallet to be used for funding the gas.
     ///
     /// If specified, the funds to run the stress client will be taken from this wallet. Otherwise,
     /// the stress client will try to use the faucet.
-    #[clap(long)]
+    #[arg(long)]
     wallet_path: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -66,7 +65,7 @@ struct Args {
 }
 
 #[derive(Subcommand, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 enum Commands {
     /// Register nodes based on parameters exported by the `walrus-node setup` command, send the
     /// storage-node capability to the respective node's wallet, and optionally stake with them.
@@ -76,44 +75,44 @@ enum Commands {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 #[command(author, version, about = "Walrus stress load generator", long_about = None)]
 struct StressArgs {
     /// The target write load to submit to the system (writes/minute).
     /// The actual load may be limited by the number of clients.
     /// If the write load is 0, a single write will be performed to enable reads.
-    #[clap(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 60)]
     write_load: u64,
     /// The minimum duration of epoch (inclusive) to store the blob for.
-    #[clap(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 1)]
     min_epochs_to_store: u32,
     /// The maximum duration of epoch (inclusive) to store the blob for.
-    #[clap(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 10)]
     max_epochs_to_store: u32,
     /// The target read load to submit to the system (reads/minute).
     /// The actual load may be limited by the number of clients.
-    #[clap(long, default_value_t = 60)]
+    #[arg(long, default_value_t = 60)]
     read_load: u64,
     /// The number of clients to use for the load generation for reads and writes.
-    #[clap(long, default_value = "10")]
+    #[arg(long, default_value = "10")]
     n_clients: NonZeroUsize,
     /// The binary logarithm of the minimum blob size to use for the load generation.
     ///
     /// Blobs sizes are uniformly distributed across the powers of two between
     /// this and the maximum blob size.
-    #[clap(long, default_value = "10")]
+    #[arg(long, default_value = "10")]
     min_size_log2: u8,
     /// The binary logarithm of the maximum blob size to use for the load generation.
-    #[clap(long, default_value = "20")]
+    #[arg(long, default_value = "20")]
     max_size_log2: u8,
     /// The period in milliseconds to check if gas needs to be refilled.
     ///
     /// This is useful for continuous load testing where the gas budget need to be refilled
     /// periodically.
-    #[clap(long, default_value = "1000")]
+    #[arg(long, default_value = "1000")]
     gas_refill_period_millis: NonZeroU64,
     /// The fraction of writes that write inconsistent blobs.
-    #[clap(long, default_value_t = 0.0)]
+    #[arg(long, default_value_t = 0.0)]
     inconsistent_blob_rate: f64,
 }
 

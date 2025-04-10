@@ -64,14 +64,14 @@ const VERSION: &str = version!();
 
 /// Manage and run a Walrus storage node.
 #[derive(Debug, Parser)]
-#[clap(rename_all = "kebab-case", name = env!("CARGO_BIN_NAME"), version = VERSION)]
+#[command(rename_all = "kebab-case", name = env!("CARGO_BIN_NAME"), version = VERSION)]
 struct Args {
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 enum Commands {
     /// Generate Sui wallet, keys, and configuration for a Walrus node and optionally generates a
     /// YAML file that can be used to register the node by a third party.
@@ -83,24 +83,24 @@ enum Commands {
     /// Register a new node with the Walrus storage network.
     Register {
         /// The path to the node's configuration file.
-        #[clap(long)]
+        #[arg(long)]
         config_path: PathBuf,
         /// Overwrite existing storage node capability object if the input config already has one.
-        #[clap(long)]
+        #[arg(long)]
         force: bool,
     },
 
     /// Run a storage node with the provided configuration.
     Run {
         /// Path to the Walrus node configuration file.
-        #[clap(long)]
+        #[arg(long)]
         config_path: PathBuf,
         /// Whether to cleanup the storage directory before starting the node.
-        #[clap(long, action, default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         cleanup_storage: bool,
         /// Whether to ignore the failures from node parameter synchronization with on-chain values.
         #[deprecated(note = "This flag is being removed and will have no effect")]
-        #[clap(long, action, default_value_t = false)]
+        #[arg(long, default_value_t = false)]
         ignore_sync_failures: bool,
     },
 
@@ -110,39 +110,39 @@ enum Commands {
         ///
         /// If the file already exists, it is not overwritten and the operation will fail unless
         /// the `--force` option is provided.
-        #[clap(long)]
+        #[arg(long)]
         out: Option<PathBuf>,
         /// Which type of key to generate.
-        #[clap(long, value_enum)]
+        #[arg(long, value_enum)]
         key_type: KeyType,
         /// Output the key in the specified format.
-        #[clap(long, value_enum, default_value_t = KeyFormat::Tagged)]
+        #[arg(long, value_enum, default_value_t = KeyFormat::Tagged)]
         format: KeyFormat,
         /// Overwrite existing files.
-        #[clap(long)]
+        #[arg(long)]
         force: bool,
         /// Convert an existing key instead of generating a new key.
         ///
         /// Provide a path to an existing key in a supported format. The key is converted to the
         /// format specified by `--format` before being written.
-        #[clap(long, value_name = "INPUT_KEY_PATH")]
+        #[arg(long, value_name = "INPUT_KEY_PATH")]
         convert: Option<PathBuf>,
     },
 
     /// Generate a new node configuration.
     GenerateConfig {
-        #[clap(flatten)]
+        #[command(flatten)]
         path_args: PathArgs,
-        #[clap(flatten)]
+        #[command(flatten)]
         config_args: ConfigArgs,
         /// Overwrite existing files.
-        #[clap(long)]
+        #[arg(long)]
         force: bool,
     },
 
     /// Database inspection and maintenance tools.
     /// Hidden command for emergency use only.
-    #[clap(hide = true)]
+    #[command(hide = true)]
     DbTool {
         #[command(subcommand)]
         command: DbToolCommands,
@@ -150,7 +150,7 @@ enum Commands {
 
     /// Catchup events using event blobs.
     /// Hidden command for emergency use only.
-    #[clap(hide = true)]
+    #[command(hide = true)]
     Catchup(CatchupArgs),
 }
 
@@ -201,23 +201,23 @@ impl Display for KeyFormat {
 #[derive(Debug, Clone, clap::Args)]
 struct SetupArgs {
     /// The path to the directory in which to set up wallet and node configuration.
-    #[clap(long)]
+    #[arg(long)]
     config_directory: PathBuf,
     /// The path where the Walrus database will be stored.
-    #[clap(long)]
+    #[arg(long)]
     storage_path: PathBuf,
     /// Sui network for which the config is generated.
     ///
     /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`, or a custom Sui
     /// network. To specify a custom Sui network, pass a string of the format
     /// `<RPC_URL>(;<FAUCET_URL>)?`.
-    #[clap(long, default_value = "testnet")]
+    #[arg(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// Whether to attempt to get SUI tokens from the faucet.
-    #[clap(long, action)]
+    #[arg(long)]
     use_faucet: bool,
     /// Timeout for the faucet call.
-    #[clap(
+    #[arg(
         long,
         value_parser = humantime::parse_duration,
         default_value = "1min",
@@ -225,22 +225,22 @@ struct SetupArgs {
     )]
     faucet_timeout: Duration,
     /// Additional arguments for the generated configuration.
-    #[clap(flatten)]
+    #[command(flatten)]
     config_args: ConfigArgs,
     /// Path to an existing network key. If not specified, a new key will be generated.
-    #[clap(long)]
+    #[arg(long)]
     network_key_path: Option<PathBuf>,
     /// Overwrite existing files.
-    #[clap(long)]
+    #[arg(long)]
     force: bool,
     /// The wallet address of the third party that will register the node.
     ///
     /// If this is set, a YAML file is generated that can be used to register the node by a
     /// third party.
-    #[clap(long)]
+    #[arg(long)]
     registering_third_party: Option<SuiAddress>,
     /// The epoch at which the node will be registered.
-    #[clap(long, requires = "registering_third_party", default_value_t = 0)]
+    #[arg(long, requires = "registering_third_party", default_value_t = 0)]
     registration_epoch: Epoch,
 }
 
@@ -248,24 +248,24 @@ struct SetupArgs {
 struct ConfigArgs {
     /// Object ID of the Walrus system object. If not provided, a dummy value is used and the
     /// system object needs to be manually added to the configuration file at a later time.
-    #[clap(long)]
+    #[arg(long)]
     system_object: Option<ObjectID>,
     /// Object ID of the Walrus staking object. If not provided, a dummy value is used and the
     /// staking object needs to be manually added to the configuration file at a later time.
-    #[clap(long)]
+    #[arg(long)]
     staking_object: Option<ObjectID>,
     /// Initial storage capacity of this node in bytes.
     ///
     /// The value can either by unitless; have suffixes for powers of 1000, such as (B),
     /// kilobytes (K), etc.; or have suffixes for the IEC units such as kibibytes (Ki),
     /// mebibytes (Mi), etc.
-    #[clap(long)]
+    #[arg(long)]
     node_capacity: ByteCount,
     /// The host name or public IP address of the node.
-    #[clap(long)]
+    #[arg(long)]
     public_host: String,
     /// The name of the storage node used in the registration.
-    #[clap(long)]
+    #[arg(long)]
     name: String,
 
     // ***************************
@@ -275,52 +275,52 @@ struct ConfigArgs {
     /// processing.
     ///
     /// If not provided, the RPC node from the wallet's active environment will be used.
-    #[clap(long)]
+    #[arg(long)]
     sui_rpc: Option<String>,
     /// The port on which the storage node will serve requests.
-    #[clap(long, default_value_t = REST_API_PORT)]
+    #[arg(long, default_value_t = REST_API_PORT)]
     public_port: u16,
     /// Socket address on which the REST API listens.
-    #[clap(long, default_value_t = config::defaults::rest_api_address())]
+    #[arg(long, default_value_t = config::defaults::rest_api_address())]
     rest_api_address: SocketAddr,
     /// Socket address on which the Prometheus server should export its metrics.
-    #[clap(long, default_value_t = config::defaults::metrics_address())]
+    #[arg(long, default_value_t = config::defaults::metrics_address())]
     metrics_address: SocketAddr,
     /// URL of the Walrus proxy to push metrics to.
-    #[clap(long)]
+    #[arg(long)]
     metrics_push_url: Option<String>,
     /// Path to an existing TLS certificate. If not specified, the node will automatically generate
     /// self-signed certificates.
-    #[clap(long)]
+    #[arg(long)]
     certificate_path: Option<PathBuf>,
     /// Gas budget for transactions.
     ///
     /// If not specified, the gas budget is estimated automatically.
-    #[clap(long)]
+    #[arg(long)]
     gas_budget: Option<u64>,
     /// Initial vote for the storage price in FROST per MiB per epoch.
-    #[clap(long, default_value_t = config::defaults::storage_price())]
+    #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
     /// Initial vote for the write price in FROST per MiB.
-    #[clap(long, default_value_t = config::defaults::write_price())]
+    #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
     /// The commission rate of the storage node, in basis points (1% = 100 basis points).
-    #[clap(long, default_value_t = config::defaults::commission_rate())]
+    #[arg(long, default_value_t = config::defaults::commission_rate())]
     commission_rate: u16,
     /// The image URL of the storage node.
-    #[clap(long, default_value = "")]
+    #[arg(long, default_value = "")]
     image_url: String,
     /// The project URL of the storage node.
-    #[clap(long, default_value = "")]
+    #[arg(long, default_value = "")]
     project_url: String,
     /// The description of the storage node.
-    #[clap(long, default_value = "")]
+    #[arg(long, default_value = "")]
     description: String,
     /// The config for rpc fallback.
-    #[clap(flatten)]
+    #[command(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
     /// Additional Sui full-node RPC endpoints.
-    #[clap(long, default_values_t = Vec::<String>::new())]
+    #[arg(long, default_values_t = Vec::<String>::new())]
     additional_rpc_endpoints: Vec<String>,
 }
 
@@ -328,46 +328,46 @@ struct ConfigArgs {
 struct PathArgs {
     /// The output path for the generated configuration file. If the file already exists, it is
     /// not overwritten and the operation will fail unless the `--force` option is provided.
-    #[clap(long)]
+    #[arg(long)]
     config_path: PathBuf,
     /// The path where the Walrus database will be stored.
-    #[clap(long)]
+    #[arg(long)]
     storage_path: PathBuf,
     /// The path to the key pair used in Walrus protocol messages.
-    #[clap(long)]
+    #[arg(long)]
     protocol_key_path: PathBuf,
     /// The path to the key pair used to authenticate nodes in network communication.
-    #[clap(long)]
+    #[arg(long)]
     network_key_path: PathBuf,
     /// Location of the node's wallet config.
-    #[clap(long)]
+    #[arg(long)]
     wallet_config: PathBuf,
 }
 
 #[derive(Debug, Clone, clap::Args)]
 struct CatchupArgs {
-    #[clap(long)]
+    #[arg(long)]
     /// Path to the RocksDB database directory.
     db_path: PathBuf,
-    #[clap(long)]
+    #[arg(long)]
     /// Object ID of the Walrus system object.
     system_object_id: ObjectID,
-    #[clap(long)]
+    #[arg(long)]
     /// Object ID of the Walrus staking object.
     staking_object_id: ObjectID,
-    #[clap(long, default_value = "http://localhost:9000")]
+    #[arg(long, default_value = "http://localhost:9000")]
     /// The Sui RPC URL to use for catchup.
     sui_rpc_url: String,
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "10s")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "10s")]
     /// The timeout for each request to the Sui RPC node.
     checkpoint_request_timeout: Duration,
-    #[clap(long, value_parser = humantime::parse_duration, default_value = "1min")]
+    #[arg(long, value_parser = humantime::parse_duration, default_value = "1min")]
     /// The duration to run the event processor for.
     runtime_duration: Duration,
-    #[clap(long)]
+    #[arg(long)]
     /// The minimum checkpoint lag to use for event stream catchup.
     event_stream_catchup_min_checkpoint_lag: u64,
-    #[clap(flatten)]
+    #[command(flatten)]
     /// The config for RPC fallback.
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
 }

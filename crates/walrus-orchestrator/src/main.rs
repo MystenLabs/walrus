@@ -38,12 +38,17 @@ type ClientParameters = ProtocolClientParameters;
 
 /// The orchestrator command line options.
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Testbed orchestrator", long_about = None)]
-#[clap(rename_all = "kebab-case")]
+#[command(
+    author,
+    version,
+    about = "Testbed orchestrator",
+    long_about = None,
+    rename_all = "kebab-case"
+)]
 pub struct Opts {
     /// The path to the settings file. This file contains basic information to deploy testbeds
     /// and run benchmarks such as the url of the git repo, the commit to deploy, etc.
-    #[clap(
+    #[arg(
         long,
         value_name = "FILE",
         default_value = "crates/walrus-orchestrator/assets/settings.yaml",
@@ -52,49 +57,49 @@ pub struct Opts {
     settings_path: String,
 
     /// The type of operation to run.
-    #[clap(subcommand)]
+    #[command(subcommand)]
     operation: Operation,
 }
 
 /// The type of operation to run.
 #[derive(Parser, Debug)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum Operation {
     /// Read or modify the status of the testbed.
     Testbed {
         /// The action to perform on the testbed.
-        #[clap(subcommand)]
+        #[command(subcommand)]
         action: TestbedAction,
     },
     /// Deploy clients and run a benchmark using the specified testbed.
     Benchmark {
         /// The number of clients to deploy.
-        #[clap(long, value_name = "INT", default_value_t = 4, global = true)]
+        #[arg(long, value_name = "INT", default_value_t = 4, global = true)]
         clients: usize,
 
         /// Whether to skip testbed updates before running benchmarks. This is a dangerous
         /// operation as it may lead to running benchmarks on outdated nodes. It is however
         /// useful when debugging in some specific scenarios.
-        #[clap(long, action, default_value_t = false, global = true)]
+        #[arg(long, global = true)]
         skip_testbed_update: bool,
 
         /// Whether to skip testbed configuration before running benchmarks. This is a dangerous
         /// operation as it may lead to running benchmarks on misconfigured nodes. It is however
         /// useful when debugging in some specific scenarios.
-        #[clap(long, action, default_value_t = false, global = true)]
+        #[arg(long, global = true)]
         skip_testbed_configuration: bool,
     },
     /// Print a summary of the specified measurements collection.
     Summarize {
         /// The path to the settings file.
-        #[clap(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE")]
         path: PathBuf,
     },
 }
 
 /// The action to perform on the testbed.
 #[derive(Parser, Debug)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum TestbedAction {
     /// Display the testbed status.
     Status,
@@ -102,20 +107,20 @@ pub enum TestbedAction {
     /// Deploy the specified number of instances in all regions specified by in the setting file.
     Deploy {
         /// Number of instances to deploy.
-        #[clap(long)]
+        #[arg(long)]
         instances: usize,
 
         /// The region where to deploy the instances. If this parameter is not specified, the
         /// command deploys the specified number of instances in all regions listed in the
         /// setting file.
-        #[clap(long)]
+        #[arg(long)]
         region: Option<String>,
     },
 
     /// Start at most the specified number of instances per region on an existing testbed.
     Start {
         /// Number of instances to deploy.
-        #[clap(long, default_value_t = 10)]
+        #[arg(long, default_value_t = 10)]
         instances: usize,
     },
 

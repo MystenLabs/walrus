@@ -21,14 +21,16 @@ use walrus_service::{
 
 /// Manage and run Walrus backup nodes
 #[derive(Parser)]
-#[clap(rename_all = "kebab-case")]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
+#[command(
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+    rename_all = "kebab-case",
+)]
 #[derive(Debug)]
 struct Args {
-    #[clap(long, short, help = "Specify the config file path to use")]
+    #[arg(long, short, help = "Specify the config file path to use")]
     config: PathBuf,
-    #[clap(
+    #[arg(
         long,
         short,
         help = "Override the metrics address to use (ie: 127.0.0.1:9184)"
@@ -39,7 +41,7 @@ struct Args {
 }
 
 #[derive(Subcommand, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 enum BackupCommands {
     /// Run a backup orchestrator with the provided configuration.
     Orchestrator,

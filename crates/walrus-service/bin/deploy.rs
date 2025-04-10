@@ -29,18 +29,19 @@ use walrus_sui::{
 };
 
 const VERSION: &str = version!();
-#[derive(Parser)]
-#[clap(rename_all = "kebab-case")]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
-#[derive(Debug)]
+#[derive(Parser, Debug)]
+#[command(
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+    rename_all = "kebab-case"
+)]
 struct Args {
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand, Debug, Clone)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 enum Commands {
     /// Register nodes based on parameters exported by the `walrus-node setup` command, send the
     /// storage-node capability to the respective node's wallet, and optionally stake with them.
@@ -57,100 +58,100 @@ enum Commands {
 }
 
 #[derive(Debug, Clone, clap::Args)]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 struct RegisterNodesArgs {
     /// The path to the client config.
-    #[clap(long)]
+    #[arg(long)]
     client_config: PathBuf,
     /// The files containing the registration parameters exported by the `walrus-node setup`
     /// command.
-    #[clap(long, alias("files"), num_args(1..))]
+    #[arg(long, alias("files"), num_args(1..))]
     param_files: Vec<PathBuf>,
     /// The (optional) amount of WAL to stake with the newly registered nodes.
     ///
     /// The stake amount is staked with all nodes.
     // For simplicity and to prevent mistakes, we only allow a single stake amount here. Different
     // stake amounts are supported with the `walrus stake` command.
-    #[clap(long)]
+    #[arg(long)]
     stake_amount: Option<u64>,
     /// Gas budget for Sui transactions to register the nodes.
-    #[clap(long)]
+    #[arg(long)]
     gas_budget: Option<u64>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
 struct DeploySystemContractArgs {
     /// The directory where the storage nodes will be deployed.
-    #[clap(long, default_value = "./working_dir")]
+    #[arg(long, default_value = "./working_dir")]
     working_dir: PathBuf,
     /// Sui network for which the config is generated.
     ///
     /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`, or a custom Sui
     /// network. To specify a custom Sui network, pass a string of the format
     /// `<RPC_URL>(;<FAUCET_URL>)?`.
-    #[clap(long, default_value = "testnet")]
+    #[arg(long, default_value = "testnet")]
     sui_network: SuiNetwork,
     /// The directory in which the contracts are located.
-    #[clap(long, default_value = "./contracts")]
+    #[arg(long, default_value = "./contracts")]
     contract_dir: PathBuf,
     /// Gas budget for sui transactions to publish the contracts and set up the system.
     ///
     /// If not specified, the gas budget is estimated automatically.
-    #[clap(long)]
+    #[arg(long)]
     gas_budget: Option<u64>,
     /// The total number of shards. The shards are distributed evenly among the storage nodes.
-    #[clap(long, default_value = "1000")]
+    #[arg(long, default_value = "1000")]
     n_shards: NonZeroU16,
     /// The epoch duration.
-    #[clap(long, default_value = "1h", value_parser = humantime::parse_duration)]
+    #[arg(long, default_value = "1h", value_parser = humantime::parse_duration)]
     epoch_duration: Duration,
     /// Configuration for epoch 0.
-    #[clap(flatten)]
+    #[command(flatten)]
     epoch_zero_config: EpochZeroConfig,
     /// The list of host names or public IP addresses of the storage nodes.
-    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(1..))]
+    #[arg(long, value_name = "ADDR", value_delimiter = ' ', num_args(1..))]
     host_addresses: Vec<String>,
     /// The port on which the REST API of the storage nodes will listen.
-    #[clap(long, default_value_t = REST_API_PORT)]
+    #[arg(long, default_value_t = REST_API_PORT)]
     rest_api_port: u16,
     /// The path to the configuration file of the Walrus testbed.
     /// [default: <WORKING_DIR>/testbed_config.yaml]
-    #[clap(long)]
+    #[arg(long)]
     testbed_config_path: Option<PathBuf>,
     // Note: The storage unit is set in `crates/walrus-sui/utils.rs`. Change the unit in
     // the doc comment here if it changes.
     /// The price in FROST to set per unit of storage (1 MiB) per epoch.
-    #[clap(long, default_value_t = config::defaults::storage_price())]
+    #[arg(long, default_value_t = config::defaults::storage_price())]
     storage_price: u64,
     /// The price in FROST to set for writing one unit of storage (1 MiB).
-    #[clap(long, default_value_t = config::defaults::write_price())]
+    #[arg(long, default_value_t = config::defaults::write_price())]
     write_price: u64,
     /// The storage capacity in bytes to deploy the system with.
-    #[clap(long, default_value_t = 1_000_000_000_000)]
+    #[arg(long, default_value_t = 1_000_000_000_000)]
     storage_capacity: u64,
     /// If set, generates the protocol key pairs of the nodes deterministically.
-    #[clap(long, action)]
+    #[arg(long)]
     deterministic_keys: bool,
     /// The maximum number of epochs ahead for which storage can be obtained.
-    #[clap(long, default_value_t = 53)]
+    #[arg(long, default_value_t = 53)]
     max_epochs_ahead: EpochCount,
     /// The path to the admin wallet. If not provided, a new wallet is created.
-    #[clap(long)]
+    #[arg(long)]
     admin_wallet_path: Option<PathBuf>,
     /// If not set, contracts are copied to `working_dir` and published from there to keep the
     /// `Move.toml` unchanged. Use this flag to publish from the original directory and update
     /// the `Move.toml` to point to the new contracts.
-    #[clap(long, action)]
+    #[arg(long)]
     do_not_copy_contracts: bool,
     /// If set, creates a WAL exchange.
-    #[clap(long, action)]
+    #[arg(long)]
     with_wal_exchange: bool,
     /// If set, the deployment reuses the token deployed at the address specified in the `Move.lock`
     /// file of the WAL contract. Otherwise, a new WAL token is created.
-    #[clap(long, action)]
+    #[arg(long)]
     use_existing_wal_token: bool,
     /// If set, creates a subsidies package.
-    #[clap(long, action)]
+    #[arg(long)]
     with_subsidies: bool,
 }
 
@@ -160,70 +161,70 @@ struct DeploySystemContractArgs {
 pub struct EpochZeroConfig {
     /// The minimum duration of epoch 0. If neither this nor `--epoch-zero-end` is set, the duration
     /// of epoch 0 will be 0.
-    #[clap(long, value_parser = humantime::parse_duration)]
+    #[arg(long, value_parser = humantime::parse_duration)]
     epoch_zero_duration: Option<Duration>,
     /// The earliest time when epoch 0 can end, in RFC3339 format (e.g., "2024-03-20T15:00:00Z")
     /// or a more relaxed format (e.g., "2024-03-20 15:00:00").
-    #[clap(long, value_parser = humantime::parse_rfc3339_weak)]
+    #[arg(long, value_parser = humantime::parse_rfc3339_weak)]
     epoch_zero_end: Option<SystemTime>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
 struct GenerateDryRunConfigsArgs {
     /// The directory where the storage nodes will be deployed.
-    #[clap(long, default_value = "./working_dir")]
+    #[arg(long, default_value = "./working_dir")]
     working_dir: PathBuf,
     /// The path to the configuration file of the Walrus testbed.
     /// [default: <WORKING_DIR>/testbed_config.yaml]
-    #[clap(long)]
+    #[arg(long)]
     testbed_config_path: Option<PathBuf>,
     /// The list of listening IP addresses of the storage nodes.
     /// If not set, defaults to the addresses or (resolved) host names set in the testbed config.
-    #[clap(long, value_name = "ADDR", value_delimiter = ' ', num_args(..))]
+    #[arg(long, value_name = "ADDR", value_delimiter = ' ', num_args(..))]
     listening_ips: Option<Vec<IpAddr>>,
     /// The port on which the metrics server of the storage nodes will listen.
-    #[clap(long, default_value_t = METRICS_PORT)]
+    #[arg(long, default_value_t = METRICS_PORT)]
     metrics_port: u16,
     /// Path of the directory in which the config files will be stored on deployed nodes.
     ///
     /// If specified, the working directory in the paths contained in the node, client,
     /// and wallet configs will be replaced with this directory.
-    #[clap(long)]
+    #[arg(long)]
     set_config_dir: Option<PathBuf>,
     /// Path of the node database.
     ///
     /// If specified the database path of all nodes will be set to this path, otherwise it
     /// will be located in the config directory and have the same name as the node it belongs to.
-    #[clap(long)]
+    #[arg(long)]
     set_db_path: Option<PathBuf>,
     /// Cooldown duration for the faucet.
     ///
     /// Setting this makes sure that we wait at least this duration after a faucet request, before
     /// sending another request.
-    #[clap(long, value_parser = humantime::parse_duration)]
+    #[arg(long, value_parser = humantime::parse_duration)]
     faucet_cooldown: Option<Duration>,
     /// Use the legacy event processor instead of the standard checkpoint-based event processor.
-    #[clap(long, action)]
+    #[arg(long)]
     use_legacy_event_provider: bool,
     /// Disable the event blob writer.
     /// This will disable the event blob writer and the event blob writer service.
-    #[clap(long, action)]
+    #[arg(long)]
     disable_event_blob_writer: bool,
     /// Configure the Postgres database URL for the Backup service.
-    #[clap(long)]
+    #[arg(long)]
     backup_database_url: Option<String>,
     /// The path to the admin wallet. If not provided, the default wallet path in the
     /// working directory is used.
-    #[clap(long)]
+    #[arg(long)]
     admin_wallet_path: Option<PathBuf>,
     /// The amount of SUI (in MIST) to send to all created wallets.
-    #[clap(long, default_value_t = 1_000_000_000, requires = "admin_wallet_path")]
+    #[arg(long, default_value_t = 1_000_000_000, requires = "admin_wallet_path")]
     sui_amount: u64,
     /// The config for rpc fallback.
-    #[clap(flatten)]
+    #[command(flatten)]
     rpc_fallback_config_args: Option<RpcFallbackConfigArgs>,
     /// Any extra client wallets to generate. Each will get 1 Million WAL and some Sui.
-    #[clap(long)]
+    #[arg(long)]
     extra_client_wallets: Option<String>,
 }
 
@@ -231,19 +232,19 @@ struct GenerateDryRunConfigsArgs {
 struct UpgradeArgs {
     /// The path to the wallet used to perform the upgrade. If not provided, the default
     /// wallet path is used.
-    #[clap(long)]
+    #[arg(long)]
     wallet_path: Option<PathBuf>,
     /// The path to the contract directory.
-    #[clap(long)]
+    #[arg(long)]
     contract_dir: PathBuf,
     /// The staking object ID.
-    #[clap(long)]
+    #[arg(long)]
     staking_object_id: ObjectID,
     /// The system object ID.
-    #[clap(long)]
+    #[arg(long)]
     system_object_id: ObjectID,
     /// The upgrade manager object ID.
-    #[clap(long)]
+    #[arg(long)]
     upgrade_manager_object_id: ObjectID,
 }
 

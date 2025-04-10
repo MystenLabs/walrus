@@ -62,70 +62,70 @@ use crate::node::{
 /// Database inspection and maintenance tools.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[serde_as]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum DbToolCommands {
     /// Repair a corrupted RocksDB database due to non-clean shutdowns.
     RepairDb {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
     },
 
     /// Scan events from the event_store table in RocksDB.
     ScanEvents {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Start index of the events to scan.
-        #[clap(long)]
+        #[arg(long)]
         start_event_index: u64,
         /// Number of events to scan.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
     },
 
     /// Read blob info from the RocksDB database.
     ReadBlobInfo {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Start blob ID in URL-safe base64 format (no padding).
-        #[clap(long)]
+        #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
     },
 
     /// Read object blob info from the RocksDB database.
     ReadObjectBlobInfo {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Start object ID to read.
-        #[clap(long)]
+        #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
         start_object_id: Option<ObjectID>,
         /// Count of objects to read.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
     },
 
     /// Count the number of certified blobs in the RocksDB database.
     CountCertifiedBlobs {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Epoch the blobs are in certified status.
-        #[clap(long)]
+        #[arg(long)]
         epoch: Epoch,
     },
 
     /// Drop a column family from the RocksDB database.
     DropColumnFamily {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Column family to drop.
         column_family_name: String,
@@ -134,65 +134,65 @@ pub enum DbToolCommands {
     /// List all column families in the RocksDB database.
     ListColumnFamilies {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
     },
 
     /// Scan blob metadata from the RocksDB database.
     ReadBlobMetadata {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Start blob ID in URL-safe base64 format (no padding).
-        #[clap(long)]
+        #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
         /// Output size only.
-        #[clap(long, default_value = "false")]
+        #[arg(long, default_value = "false")]
         output_size_only: bool,
     },
 
     /// Read primary slivers from the RocksDB database.
     ReadPrimarySlivers {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Start blob ID in URL-safe base64 format (no padding).
-        #[clap(long)]
+        #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
         /// Shard index to read from.
-        #[clap(long)]
+        #[arg(long)]
         shard_index: u16,
     },
 
     /// Read secondary slivers from the RocksDB database.
     ReadSecondarySlivers {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Start blob ID in URL-safe base64 format (no padding).
-        #[clap(long)]
+        #[arg(long)]
         #[serde_as(as = "Option<DisplayFromStr>")]
         start_blob_id: Option<BlobId>,
         /// Number of entries to scan.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
         /// Shard index to read from.
-        #[clap(long)]
+        #[arg(long)]
         shard_index: u16,
     },
 
     /// Read event blob writer metadata from the RocksDB database.
     EventBlobWriter {
         /// Path to the RocksDB database directory.
-        #[clap(long)]
+        #[arg(long)]
         db_path: PathBuf,
         /// Commands to read event blob writer metadata.
         #[command(subcommand)]
@@ -203,7 +203,7 @@ pub enum DbToolCommands {
 /// Commands for reading event blob writer metadata.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[serde_as]
-#[clap(rename_all = "kebab-case")]
+#[command(rename_all = "kebab-case")]
 pub enum EventBlobWriterCommands {
     /// Read certified event blob metadata.
     ReadCertified,
@@ -214,10 +214,10 @@ pub enum EventBlobWriterCommands {
     /// Read pending event blob metadata.
     ReadPending {
         /// Start sequence number.
-        #[clap(long)]
+        #[arg(long)]
         start_seq: Option<u64>,
         /// Number of entries to scan.
-        #[clap(long, default_value = "1")]
+        #[arg(long, default_value = "1")]
         count: u64,
     },
 

@@ -32,11 +32,13 @@ static APP_USER_AGENT: &str = const_str::concat!(
 );
 
 #[derive(Parser, Debug)]
-#[clap(rename_all = "kebab-case")]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
+#[command(
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+    rename_all = "kebab-case"
+)]
 struct Args {
-    #[clap(
+    #[arg(
         long,
         short,
         default_value = "./walrus-proxy.yaml",

@@ -19,13 +19,17 @@ pub const VERSION: &str = walrus_service::utils::version!();
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
-#[command(author, version, about = "Walrus client", long_about = None)]
-#[clap(name = env!("CARGO_BIN_NAME"))]
-#[clap(version = VERSION)]
-#[clap(rename_all = "kebab-case")]
+#[command(
+    author,
+    about = "Walrus client",
+    long_about = None,
+    name = env!("CARGO_BIN_NAME"),
+    version = VERSION,
+    rename_all = "kebab-case"
+)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientArgs {
-    #[clap(flatten)]
+    #[command(flatten)]
     inner: App,
 }
 
