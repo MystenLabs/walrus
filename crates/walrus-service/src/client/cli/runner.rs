@@ -252,21 +252,17 @@ impl ClientCommandRunner {
                 let wallet_path = if let Some(path) = path {
                     path
                 } else {
-                    // Check if the Sui configuration directory exists.
+                    // This automatically creates the Sui configuration directory if it doesn't
+                    // exist.
                     let config_dir = sui_config_dir()?;
-                    if config_dir.exists() {
-                        anyhow::bail!(
-                            "Sui configuration directory already exists; please specify a \
-                            different path using `--path` or manage the wallet using the Sui CLI."
-                        );
-                    } else {
-                        tracing::debug!(
-                            config_dir = ?config_dir.display(),
-                            "creating the Sui configuration directory"
-                        );
-                        std::fs::create_dir_all(&config_dir)?;
-                        config_dir.join(SUI_CLIENT_CONFIG)
-                    }
+                    anyhow::ensure!(
+                        config_dir.read_dir()?.next().is_none(),
+                        "The Sui configuration directory {} is not empty; please specify a \
+                        different wallet path using `--path` or manage the wallet using the Sui \
+                        CLI.",
+                        config_dir.display()
+                    );
+                    config_dir.join(SUI_CLIENT_CONFIG)
                 };
 
                 self.generate_sui_wallet(&wallet_path, sui_network, use_faucet, faucet_timeout)

@@ -411,7 +411,7 @@ pub enum CliCommands {
         path: Option<PathBuf>,
         /// Sui network for which the wallet is generated.
         ///
-        /// Available options are `devnet`, `testnet`, and `localnet`.
+        /// Available options are `devnet`, `testnet`, `mainnet`, and `localnet`.
         #[arg(long, default_value_t = default::sui_network())]
         #[serde(default = "default::sui_network")]
         sui_network: SuiNetwork,
