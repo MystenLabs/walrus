@@ -20,7 +20,6 @@ use walrus_core::{
     ShardIndex,
 };
 
-use super::events::event_processor::INIT_STATE;
 use crate::node::{
     events::{
         event_blob_writer::{
@@ -33,7 +32,7 @@ use crate::node::{
             FailedToAttestEventBlobMetadata,
             PendingEventBlobMetadata,
         },
-        event_processor::EVENT_STORE,
+        event_processor::constants::{self as event_processor_constants},
         InitState,
         PositionedStreamEvent,
     },
@@ -317,9 +316,14 @@ fn repair_db(db_path: PathBuf) -> Result<()> {
 fn scan_events(db_path: PathBuf, start_event_index: u64, count: u64) -> Result<()> {
     println!("Scanning events from event index {}", start_event_index);
     let opts = RocksdbOptions::default();
-    let db = DB::open_cf_for_read_only(&opts, db_path, [EVENT_STORE], false)?;
+    let db = DB::open_cf_for_read_only(
+        &opts,
+        db_path,
+        [event_processor_constants::EVENT_STORE],
+        false,
+    )?;
     let cf = db
-        .cf_handle(EVENT_STORE)
+        .cf_handle(event_processor_constants::EVENT_STORE)
         .expect("Event store column family should exist");
 
     let iter = db.iterator_cf(
@@ -654,9 +658,14 @@ fn read_secondary_slivers(
 }
 
 fn read_event_processor_init_state(db_path: PathBuf) -> Result<()> {
-    let db = DB::open_cf_for_read_only(&RocksdbOptions::default(), db_path, [INIT_STATE], false)?;
+    let db = DB::open_cf_for_read_only(
+        &RocksdbOptions::default(),
+        db_path,
+        [event_processor_constants::INIT_STATE],
+        false,
+    )?;
 
-    let Some(cf) = db.cf_handle(INIT_STATE) else {
+    let Some(cf) = db.cf_handle(event_processor_constants::INIT_STATE) else {
         println!("Event processor init state column family not found");
         return Ok(());
     };
