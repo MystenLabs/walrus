@@ -300,6 +300,10 @@ fn node_communications<'a, W>(
     committee: &Committee,
     constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
 ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
+    if committee.n_members() == 0 {
+        return Err(ClientError::from(ClientErrorKind::EmptyCommittee));
+    }
+
     let mut comms: Vec<_> = (0..committee.n_members())
         .map(|i| (i, constructor(i)))
         .collect();

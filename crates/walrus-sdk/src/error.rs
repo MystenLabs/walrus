@@ -185,6 +185,9 @@ pub enum ClientErrorKind {
     /// The client was notified that the committee has changed.
     #[error("the client was notified that the committee has changed")]
     CommitteeChangeNotified,
+    /// The committee has no members.
+    #[error("the committee has no members; most likely, the system is in the genesis epoch")]
+    EmptyCommittee,
     /// The amount of stake is below the threshold for staking.
     #[error(
         "the stake amount {0} FROST is below the minimum threshold of {MIN_STAKING_THRESHOLD} \

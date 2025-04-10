@@ -269,6 +269,7 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
             ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",
             ClientErrorKind::CommitteeChangeNotified => "committee-change-notified",
+            ClientErrorKind::EmptyCommittee => "empty-committee",
             ClientErrorKind::StakeBelowThreshold(_) => "stake-below-threshold",
             ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
