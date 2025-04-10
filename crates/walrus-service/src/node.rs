@@ -97,20 +97,23 @@ use walrus_rest_client::{
     },
     client::{RecoverySymbolsFilter, SymbolIdFilter},
 };
-use walrus_sdk::active_committees::ActiveCommittees;
-use walrus_sui::{
-    client::SuiReadClient,
-    types::{
-        BlobCertified,
-        BlobDeleted,
-        BlobEvent,
-        ContractEvent,
-        EpochChangeDone,
-        EpochChangeEvent,
-        EpochChangeStart,
-        InvalidBlobId,
-        PackageEvent,
-        GENESIS_EPOCH,
+use walrus_sdk::{
+    active_committees::ActiveCommittees,
+    blocklist::Blocklist,
+    sui::{
+        client::SuiReadClient,
+        types::{
+            BlobCertified,
+            BlobDeleted,
+            BlobEvent,
+            ContractEvent,
+            EpochChangeDone,
+            EpochChangeEvent,
+            EpochChangeStart,
+            InvalidBlobId,
+            PackageEvent,
+            GENESIS_EPOCH,
+        },
     },
 };
 use walrus_utils::metrics::{Registry, TaskMonitorFamily};
@@ -153,7 +156,6 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    client::Blocklist,
     common::{config::SuiConfig, utils::should_reposition_cursor},
     utils::ShardDiffCalculator,
 };

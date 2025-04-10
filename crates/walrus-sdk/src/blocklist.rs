@@ -1,6 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+//! Blocklist for blob IDs.
 use std::{
     collections::HashSet,
     path::PathBuf,

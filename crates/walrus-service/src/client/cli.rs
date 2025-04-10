@@ -8,19 +8,20 @@ use std::{
     fs,
     path::{Path, PathBuf},
     str::FromStr,
-    time::Duration,
 };
 
 use anyhow::{Context, Result};
 use colored::{Color, ColoredString, Colorize};
-use indicatif::{ProgressBar, ProgressStyle};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
 use walrus_core::BlobId;
-use walrus_sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient};
-
-use super::{Blocklist, Client, ClientConfig};
+use walrus_sdk::{
+    blocklist::Blocklist,
+    client::Client,
+    config::ClientConfig,
+    sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient},
+};
 
 mod args;
 mod cli_output;
@@ -481,32 +482,6 @@ impl Display for BlobIdDecimal {
     }
 }
 
-/// Returns a progress bar with the given length and stlyle already applied
-pub(crate) fn styled_progress_bar(length: u64) -> ProgressBar {
-    let pb = ProgressBar::new(length);
-    pb.set_style(
-        ProgressStyle::with_template(
-            " {spinner:.122} {msg} [{elapsed_precise}] [{wide_bar:.122/177}] {pos}/{len} ({eta})",
-        )
-        .expect("the template is valid")
-        .tick_chars("•◉◎○◌○◎◉")
-        .progress_chars("#>-"),
-    );
-    pb.enable_steady_tick(Duration::from_millis(100));
-    pb
-}
-
-/// Returns a pre-configured spinner.
-pub(crate) fn styled_spinner() -> ProgressBar {
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::with_template(" {spinner:.122} {msg} [{elapsed_precise}]")
-            .expect("the template is valid")
-            .tick_chars("•◉◎○◌○◎◉"),
-    );
-    spinner.enable_steady_tick(Duration::from_millis(100));
-    spinner
-}
 #[cfg(test)]
 mod tests {
     use walrus_test_utils::param_test;

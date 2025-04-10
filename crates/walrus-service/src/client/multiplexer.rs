@@ -18,7 +18,17 @@ use sui_sdk::{
 };
 use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EncodingType, EpochCount};
-use walrus_sdk::{responses::BlobStoreResult, store_when::StoreWhen};
+use walrus_sdk::{
+    client::{
+        metrics::ClientMetrics,
+        refresh::CommitteesRefresherHandle,
+        responses::BlobStoreResult,
+        Client,
+    },
+    config::ClientConfig,
+    error::ClientResult,
+    store_when::StoreWhen,
+};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
@@ -36,12 +46,9 @@ use walrus_utils::metrics::Registry;
 use super::{
     cli::PublisherArgs,
     daemon::{WalrusReadClient, WalrusWriteClient},
-    metrics::ClientMetrics,
     refill::{RefillHandles, Refiller},
-    Client,
-    ClientResult,
 };
-use crate::client::{refill::should_refill, ClientConfig, CommitteesRefresherHandle};
+use crate::client::refill::should_refill;
 
 pub struct ClientMultiplexer {
     client_pool: WriteClientPool,

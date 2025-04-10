@@ -17,8 +17,9 @@ use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
 use rand::{seq::SliceRandom, RngCore};
 use sui_types::base_types::ObjectID;
+use walrus_sdk::client::metrics::ClientMetrics;
 use walrus_service::{
-    client::{metrics::ClientMetrics, ClientConfig, Refiller},
+    client::{ClientConfig, Refiller},
     utils::load_from_yaml,
 };
 use walrus_sui::{

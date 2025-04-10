@@ -4,7 +4,6 @@
 //! Service functionality for Walrus shared by client and storage node.
 
 pub(crate) mod api;
-pub(crate) mod blocklist;
 pub mod config;
 pub(crate) mod telemetry;
 pub mod utils;

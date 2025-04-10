@@ -21,8 +21,11 @@ pub mod simtest_utils {
         DEFAULT_ENCODING,
     };
     use walrus_rest_client::api::ServiceHealthInfo;
-    use walrus_sdk::{responses::BlobStoreResult, store_when::StoreWhen};
-    use walrus_service::{client::Client, test_utils::SimStorageNodeHandle};
+    use walrus_sdk::{
+        client::{responses::BlobStoreResult, Client},
+        store_when::StoreWhen,
+    };
+    use walrus_service::test_utils::SimStorageNodeHandle;
     use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 

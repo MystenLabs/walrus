@@ -17,9 +17,12 @@ mod tests {
     use tokio::sync::RwLock;
     use walrus_core::test_utils;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_service::{
-        client::{Client, ClientCommunicationConfig},
-        test_utils::{test_cluster, SimStorageNodeHandle, TestCluster, TestNodesConfig},
+    use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
+    use walrus_service::test_utils::{
+        test_cluster,
+        SimStorageNodeHandle,
+        TestCluster,
+        TestNodesConfig,
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
     use walrus_sui::{

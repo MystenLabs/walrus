@@ -14,11 +14,8 @@ use chrono::{DateTime, Utc};
 use tokio::sync::{mpsc, oneshot, Notify};
 use walrus_sui::{client::ReadClient, types::move_structs::EpochState};
 
-use crate::{
-    active_committees::ActiveCommittees,
-    config::CommitteesRefreshConfig,
-    resource::PriceComputation,
-};
+use super::resource::PriceComputation;
+use crate::{active_committees::ActiveCommittees, config::CommitteesRefreshConfig};
 
 pub(crate) type CommitteesRequestChannel =
     oneshot::Sender<(Arc<ActiveCommittees>, PriceComputation)>;

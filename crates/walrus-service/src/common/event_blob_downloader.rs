@@ -8,15 +8,12 @@ use std::path::Path;
 use anyhow::Result;
 use walrus_core::BlobId;
 use walrus_rest_client::api::BlobStatus;
-use walrus_sdk::error::ClientErrorKind;
+use walrus_sdk::{client::Client as WalrusClient, error::ClientErrorKind};
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
-use crate::{
-    client::Client as WalrusClient,
-    node::events::{
-        event_blob::EventBlob as LocalEventBlob,
-        event_processor::EventProcessorMetrics,
-    },
+use crate::node::events::{
+    event_blob::EventBlob as LocalEventBlob,
+    event_processor::EventProcessorMetrics,
 };
 
 /// Responsible for downloading and managing event blobs

@@ -457,7 +457,7 @@ impl BlobSynchronizer {
         let shared_metadata = this
             .clone()
             .recover_metadata()
-            .observe(histograms.clone(), labels_from_metadata_result)
+            .observe_future(histograms.clone(), labels_from_metadata_result)
             .map_ok(|(_, metadata)| Arc::new(metadata))
             .await
             .expect("database operations should not fail");
@@ -501,7 +501,8 @@ impl BlobSynchronizer {
                             tracing::warn!("received an inconsistency proof");
                             // No need to recover other slivers, sync the proof and return
                             this.sync_inconsistency_proof(&inconsistency_proof)
-                                .observe(histograms.clone(), labels_from_inconsistency_sync_result)
+                                .observe_future(histograms.clone(),
+                                                labels_from_inconsistency_sync_result)
                                 .await;
                             break;
                         }
@@ -561,10 +562,10 @@ impl BlobSynchronizer {
         future::try_join(
             self.clone()
                 .recover_sliver::<Primary>(shard, metadata.clone())
-                .observe(histograms.clone(), labels_from_sliver_result::<Primary>),
+                .observe_future(histograms.clone(), labels_from_sliver_result::<Primary>),
             self.clone()
                 .recover_sliver::<Secondary>(shard, metadata.clone())
-                .observe(histograms.clone(), labels_from_sliver_result::<Secondary>),
+                .observe_future(histograms.clone(), labels_from_sliver_result::<Secondary>),
         )
         .await?;
 

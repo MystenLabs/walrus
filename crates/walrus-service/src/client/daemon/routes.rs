@@ -33,6 +33,11 @@ use utoipa::IntoParams;
 use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_proc_macros::RestApiError;
 use walrus_rest_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
+use walrus_sdk::{
+    client::responses::BlobStoreResult,
+    error::{ClientError, ClientErrorKind},
+    store_when::StoreWhen,
+};
 use walrus_sui::{
     client::BlobPersistence,
     types::move_structs::{BlobAttribute, BlobWithAttribute},
@@ -42,15 +47,9 @@ use walrus_sui::{
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
-    client::{
-        daemon::{
-            auth::{Claim, PublisherAuthError},
-            PostStoreAction,
-        },
-        BlobStoreResult,
-        ClientError,
-        ClientErrorKind,
-        StoreWhen,
+    client::daemon::{
+        auth::{Claim, PublisherAuthError},
+        PostStoreAction,
     },
     common::api::{Binary, BlobIdString, RestApiError},
 };

@@ -1049,7 +1049,7 @@ mod tests {
     /// This test ensures that the `node_config_example.yaml` is kept in sync with the config struct
     /// in this file.
     #[test]
-    fn check_and_update_example_config() -> TestResult {
+    fn check_and_update_example_storage_node_config() -> TestResult {
         const EXAMPLE_CONFIG_PATH: &str = "node_config_example.yaml";
 
         let mut rng = StdRng::seed_from_u64(42);

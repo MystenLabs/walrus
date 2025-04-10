@@ -17,14 +17,15 @@ use tokio::{
     time::{Interval, MissedTickBehavior},
 };
 use walrus_core::{encoding::Primary, BlobId, EpochCount};
-use walrus_sdk::error::ClientResult;
-use walrus_service::client::{
-    metrics::{self, ClientMetrics},
-    Client,
-    ClientConfig,
-    RefillHandles,
-    Refiller,
+use walrus_sdk::{
+    client::{
+        metrics::{self, ClientMetrics},
+        Client,
+    },
+    config::ClientConfig,
+    error::ClientResult,
 };
+use walrus_service::client::{RefillHandles, Refiller};
 use walrus_sui::{
     client::{retry_client::RetriableSuiClient, SuiReadClient},
     utils::SuiNetwork,

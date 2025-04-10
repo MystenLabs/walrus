@@ -9,7 +9,7 @@ use serde_with::{serde_as, DurationSeconds};
 use tokio::sync::{mpsc, Notify};
 use walrus_sui::client::ReadClient;
 
-use crate::refresh::{CommitteesRefresher, CommitteesRefresherHandle};
+use crate::client::refresh::{CommitteesRefresher, CommitteesRefresherHandle};
 
 /// The configuration for the committees refresher.
 #[serde_as]

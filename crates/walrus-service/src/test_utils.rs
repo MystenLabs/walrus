@@ -2207,30 +2207,30 @@ pub mod test_cluster {
 
     use futures::future;
     use tokio::sync::Mutex as TokioMutex;
-    use walrus_sui::{
-        client::{SuiContractClient, SuiReadClient},
-        test_utils::{
-            self,
-            system_setup::{
-                create_and_init_system_for_test,
-                end_epoch_zero,
-                register_committee_and_stake,
+    use walrus_sdk::{
+        client::{self, ClientCommunicationConfig, ClientConfig},
+        sui::{
+            client::{SuiContractClient, SuiReadClient},
+            test_utils::{
+                self,
+                system_setup::{
+                    create_and_init_system_for_test,
+                    end_epoch_zero,
+                    register_committee_and_stake,
+                },
+                TestClusterHandle,
             },
-            TestClusterHandle,
+            types::move_structs::Authorized,
         },
-        types::move_structs::Authorized,
     };
 
     use super::*;
-    use crate::{
-        client::{self, ClientCommunicationConfig, ClientConfig},
-        node::{
-            committee::DefaultNodeServiceFactory,
-            contract_service::SuiSystemContractService,
-            events::{
-                event_processor::{EventProcessorRuntimeConfig, SystemConfig},
-                EventProcessorConfig,
-            },
+    use crate::node::{
+        committee::DefaultNodeServiceFactory,
+        contract_service::SuiSystemContractService,
+        events::{
+            event_processor::{EventProcessorRuntimeConfig, SystemConfig},
+            EventProcessorConfig,
         },
     };
 

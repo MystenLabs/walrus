@@ -13,7 +13,7 @@ use std::{
 use anyhow;
 use chrono::{DateTime, Utc};
 use futures::{stream, StreamExt as _};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_with::{base64::Base64, serde_as, DisplayFromStr};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
@@ -37,34 +37,23 @@ use walrus_core::{
     DEFAULT_ENCODING,
 };
 use walrus_rest_client::api::{BlobStatus, ServiceHealthInfo};
-use walrus_sdk::responses::BlobStoreResult;
-use walrus_sui::{
-    client::ReadClient,
-    types::{
-        move_structs::{Blob, BlobAttribute, EpochState},
-        Committee,
-        NetworkAddress,
-        StakedWal,
-        StorageNode,
+use walrus_sdk::{
+    client::NodeCommunicationFactory,
+    sui::{
+        client::ReadClient,
+        types::{
+            move_structs::{Blob, BlobAttribute, EpochState},
+            Committee,
+            NetworkAddress,
+            StakedWal,
+            StorageNode,
+        },
+        utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
     },
-    utils::{price_for_encoded_length, storage_units_from_size, BYTES_PER_UNIT_SIZE},
 };
 
-use super::{
-    cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes},
-    communication::NodeCommunicationFactory,
-};
+use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
-
-/// Blob store result with its file path.
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct BlobStoreResultWithPath {
-    /// The result of the store operation.
-    pub blob_store_result: BlobStoreResult,
-    /// The file path to the blob.
-    pub path: PathBuf,
-}
 
 /// The output of the `read` command.
 #[serde_as]

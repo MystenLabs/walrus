@@ -3,7 +3,7 @@
 
 //! Structures of client results returned by the daemon or through the JSON API.
 
-use std::fmt::Display;
+use std::{fmt::Display, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 use walrus_core::{BlobId, Epoch};
 use walrus_sui::{types::move_structs::Blob, EventIdSchema, ObjectIdSchema};
 
-use crate::resource::RegisterBlobOp;
+use super::resource::RegisterBlobOp;
 
 /// Either an event ID or an object ID.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -41,6 +41,16 @@ impl Display for EventOrObjectId {
             }
         }
     }
+}
+
+/// Blob store result with its file path.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobStoreResultWithPath {
+    /// The result of the store operation.
+    pub blob_store_result: BlobStoreResult,
+    /// The file path to the blob.
+    pub path: PathBuf,
 }
 
 /// Result when attempting to store a blob.

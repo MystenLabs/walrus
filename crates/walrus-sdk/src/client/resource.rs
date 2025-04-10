@@ -20,9 +20,13 @@ use walrus_sui::{
     utils::price_for_encoded_length,
 };
 
-use crate::{
-    error::{ClientError, ClientErrorKind, ClientResult},
+use super::{
+    client_types::WalrusStoreBlob,
     responses::{BlobStoreResult, EventOrObjectId},
+};
+use crate::{
+    client::WalrusStoreBlobApi,
+    error::{ClientError, ClientErrorKind, ClientResult},
     store_when::StoreWhen,
 };
 
@@ -185,6 +189,7 @@ pub enum StoreOp {
 }
 
 impl StoreOp {
+    /// Creates a new store operation.
     pub fn new(register_op: RegisterBlobOp, blob: Blob) -> Self {
         match register_op {
             RegisterBlobOp::ReuseRegistration { .. } => {

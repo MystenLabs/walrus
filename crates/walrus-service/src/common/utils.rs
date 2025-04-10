@@ -33,7 +33,7 @@ use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
 use tokio::{
     runtime::{self, Runtime},
-    sync::{oneshot, Semaphore},
+    sync::oneshot,
     task::{JoinError, JoinHandle},
     time::Instant,
 };
@@ -95,21 +95,8 @@ use crate::common::event_blob_downloader::EventBlobDownloader;
 
 /// Helper functions applied to futures.
 pub(crate) trait FutureHelpers: Future {
-    /// Limits the number of simultaneously executing futures.
-    async fn batch_limit(self, permits: Arc<Semaphore>) -> Self::Output
-    where
-        Self: Future,
-        Self: Sized,
-    {
-        let _permit = permits
-            .acquire_owned()
-            .await
-            .expect("semaphore never closed");
-        self.await
-    }
-
     /// Reports metrics for the future.
-    fn observe<F, const N: usize>(
+    fn observe_future<F, const N: usize>(
         self,
         histograms: HistogramVec,
         get_labels: F,
@@ -145,7 +132,7 @@ where
     Fut: Future,
     F: FnOnce(Option<&Fut::Output>) -> [&'static str; N],
 {
-    fn new(inner: Fut, histograms: HistogramVec, get_labels: F) -> Self {
+    pub fn new(inner: Fut, histograms: HistogramVec, get_labels: F) -> Self {
         Self {
             inner,
             histograms,
@@ -745,7 +732,7 @@ pub async fn collect_event_blobs_for_catchup(
     };
 
     let walrus_client =
-        crate::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
+        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
             .await?;
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);

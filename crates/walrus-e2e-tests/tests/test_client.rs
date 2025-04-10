@@ -37,6 +37,8 @@ use walrus_core::{
 use walrus_proc_macros::walrus_simtest;
 use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
+    client::{responses::BlobStoreResult, Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi},
+    config::ClientCommunicationConfig,
     error::{
         ClientError,
         ClientErrorKind::{
@@ -47,18 +49,14 @@ use walrus_sdk::{
             NotEnoughSlivers,
         },
     },
-    responses::BlobStoreResult,
     store_when::StoreWhen,
 };
-use walrus_service::{
-    client::{Blocklist, Client, ClientCommunicationConfig},
-    test_utils::{
-        test_cluster::{self, FROST_PER_NODE_WEIGHT},
-        StorageNodeHandle,
-        StorageNodeHandleTrait,
-        TestNodesConfig,
-        DEFAULT_SUBSIDY_FUNDS,
-    },
+use walrus_service::test_utils::{
+    test_cluster::{self, FROST_PER_NODE_WEIGHT},
+    StorageNodeHandle,
+    StorageNodeHandleTrait,
+    TestNodesConfig,
+    DEFAULT_SUBSIDY_FUNDS,
 };
 use walrus_sui::{
     client::{

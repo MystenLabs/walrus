@@ -63,7 +63,7 @@ runs:
             - 'contracts/**'
           isExampleConfig:
             - 'crates/walrus-service/node_config_example.yaml'
-            - 'crates/walrus-service/client_config_example.yaml'
+            - 'crates/walrus-sdk/client_config_example.yaml'
           isOpenapi:
             - 'crates/walrus-service/*_openapi.html'
             - 'crates/walrus-service/*_openapi.yaml'

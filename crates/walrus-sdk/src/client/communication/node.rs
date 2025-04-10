@@ -24,16 +24,13 @@ use walrus_rest_client::{
     client::Client as StorageNodeClient,
     error::NodeError,
 };
-use walrus_sdk::{
-    config::RequestRateConfig,
-    error::{SliverStoreError, StoreError},
-};
 use walrus_sui::types::StorageNode;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use crate::{
-    client::utils::{string_prefix, WeightedResult},
-    common::utils::FutureHelpers,
+    config::RequestRateConfig,
+    error::{SliverStoreError, StoreError},
+    utils::{string_prefix, WeightedResult},
 };
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
@@ -509,9 +506,24 @@ impl NodeWriteCommunication<'_> {
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, E>>,
     {
-        backoff::retry(self.backoff_strategy(), f)
-            .batch_limit(self.node_write_limit.clone())
-            .batch_limit(self.sliver_write_limit.clone())
-            .await
+        batch_limit(
+            self.sliver_write_limit.clone(),
+            batch_limit(
+                self.node_write_limit.clone(),
+                backoff::retry(self.backoff_strategy(), f),
+            ),
+        )
+        .await
     }
+}
+
+async fn batch_limit<F>(permits: Arc<Semaphore>, f: F) -> F::Output
+where
+    F: Future + Sized,
+{
+    let _permit = permits
+        .acquire_owned()
+        .await
+        .expect("semaphore never closed");
+    f.await
 }

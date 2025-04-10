@@ -116,7 +116,7 @@ pin-project.workspace = true
 prettytable = { workspace = true, optional = true }
 prometheus.workspace = true
 rand.workspace = true
-rayon = "1.10.0"
+rayon.workspace = true
 rcgen.workspace = true
 regex.workspace = true
 reqwest.workspace = true

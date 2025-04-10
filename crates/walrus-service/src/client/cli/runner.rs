@@ -36,18 +36,24 @@ use walrus_core::{
     SUPPORTED_ENCODING_TYPES,
 };
 use walrus_rest_client::api::BlobStatus;
-use walrus_sdk::{config::load_configuration, error::ClientErrorKind, resource::RegisterBlobOp};
-use walrus_sui::{
-    client::{
-        BlobPersistence,
-        ExpirySelectionPolicy,
-        PostStoreAction,
-        ReadClient,
-        SuiContractClient,
+use walrus_sdk::{
+    client::{resource::RegisterBlobOp, Client, NodeCommunicationFactory},
+    config::load_configuration,
+    error::ClientErrorKind,
+    store_when::StoreWhen,
+    sui::{
+        client::{
+            BlobPersistence,
+            ExpirySelectionPolicy,
+            PostStoreAction,
+            ReadClient,
+            SuiContractClient,
+        },
+        config::WalletConfig,
+        types::move_structs::{Authorized, BlobAttribute, EpochState},
+        utils::SuiNetwork,
     },
-    config::WalletConfig,
-    types::move_structs::{Authorized, BlobAttribute, EpochState},
-    utils::SuiNetwork,
+    utils::styled_spinner,
 };
 use walrus_utils::metrics::Registry;
 
@@ -84,7 +90,6 @@ use crate::{
             HumanReadableFrost,
             HumanReadableMist,
         },
-        communication::NodeCommunicationFactory,
         multiplexer::ClientMultiplexer,
         responses::{
             BlobIdConversionOutput,
@@ -109,11 +114,8 @@ use crate::{
             StakeOutput,
             WalletOutput,
         },
-        styled_spinner,
-        Client,
         ClientConfig,
         ClientDaemon,
-        StoreWhen,
     },
     utils::{self, generate_sui_wallet, MetricsAndLoggingRuntime},
 };

@@ -18,8 +18,12 @@ use walrus_core::{
     SliverPairIndex,
     DEFAULT_ENCODING,
 };
-use walrus_sdk::{error::ClientError, refresh::CommitteesRefresherHandle, store_when::StoreWhen};
-use walrus_service::client::{metrics::ClientMetrics, Client, ClientConfig, Refiller};
+use walrus_sdk::{
+    client::{metrics::ClientMetrics, refresh::CommitteesRefresherHandle, Client},
+    error::ClientError,
+    store_when::StoreWhen,
+};
+use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
     client::{
         retry_client::RetriableSuiClient,
