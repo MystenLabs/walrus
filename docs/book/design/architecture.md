@@ -20,7 +20,7 @@ The key actors in the Walrus architecture are the following:
   all slivers of the shard and is ready to serve them.
 
   A Sui smart contract controls the assignment of shards to storage nodes within
-  **storage epochs**, and Walrus assumes that more than 2/3 of the
+  **storage epochs** (2 weeks on Mainnet), and Walrus assumes that more than 2/3 of the
   shards are managed by correct storage nodes within each storage epoch. This means that Walrus must
   tolerate up to 1/3 of the shards managed by Byzantine storage nodes (approximately 1/3 of the
   storage nodes being Byzantine) within each storage epoch and across storage epochs.

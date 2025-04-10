@@ -51,6 +51,11 @@ Additional price for each write: 20,000 FROST
 ...
 ```
 
+```admonish tip title="Epoch duration"
+The epoch duration on Mainnet is 2 weeks. See [here](./networks.md#network-parameters) for other
+parameters on Mainnet and Testnet.
+```
+
 ```admonish tip title="FROST and WAL"
 FROST is the smaller unit of WAL, similar to MIST for SUI. The conversion is also the same as for
 SUI: `1 WAL = 1 000 000 000 FROST`.
