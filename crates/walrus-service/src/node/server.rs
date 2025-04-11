@@ -18,7 +18,6 @@ use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
-use reqwest::Method;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -183,7 +182,6 @@ where
         }
 
         let request_layers = ServiceBuilder::new()
-            .layer(Self::cors_layer())
             .layer(middleware::from_fn_with_state(
                 self.metrics.clone(),
                 telemetry::metrics_middleware,
@@ -196,7 +194,8 @@ where
                     // specifically this error, we disable it.
                     .on_failure(())
                     .on_response(MakeHttpSpan::new()),
-            );
+            )
+            .layer(Self::cors_layer());
 
         let app = self
             .define_routes()
@@ -395,11 +394,10 @@ where
     }
 
     /// Returns the CORS leayer for the server.
-    // NOTE: The allowed methods should be kept in sync with the methods used in the routes.
     fn cors_layer() -> CorsLayer {
         CorsLayer::new()
             .allow_origin(Any)
-            .allow_methods([Method::GET, Method::PUT, Method::POST, Method::HEAD])
+            .allow_methods(Any)
             .allow_headers(Any)
     }
 }

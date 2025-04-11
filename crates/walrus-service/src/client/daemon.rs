@@ -23,7 +23,7 @@ use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 pub use routes::PublisherQuery;
 use routes::{
-    store_blob_cors_layer,
+    daemon_cors_layer,
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
@@ -214,7 +214,8 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 TraceLayer::new_for_http()
                     .make_span_with(MakeHttpSpan::new())
                     .on_response(MakeHttpSpan::new()),
-            );
+            )
+            .layer(daemon_cors_layer());
 
         axum::serve(
             listener,
@@ -280,11 +281,11 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         );
 
         let base_layers = ServiceBuilder::new()
-            .layer(DefaultBodyLimit::max(max_body_limit))
             .layer(HandleErrorLayer::new(handle_publisher_error))
             .layer(LoadShedLayer::new())
             .layer(BufferLayer::new(max_request_buffer_size))
-            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
+            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests))
+            .layer(DefaultBodyLimit::max(max_body_limit));
 
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
@@ -293,7 +294,6 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 BLOB_PUT_ENDPOINT,
                 put(routes::put_blob).route_layer(
                     ServiceBuilder::new()
-                        .layer(store_blob_cors_layer())
                         .layer(axum::middleware::from_fn_with_state(
                             (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
                             auth_layer,
@@ -304,9 +304,7 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         } else {
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
-                put(routes::put_blob)
-                    .layer(store_blob_cors_layer())
-                    .route_layer(base_layers),
+                put(routes::put_blob).route_layer(base_layers),
             );
         }
         self

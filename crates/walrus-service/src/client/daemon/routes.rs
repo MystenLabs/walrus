@@ -16,10 +16,7 @@ use axum_extra::{
     TypedHeader,
 };
 use jsonwebtoken::{DecodingKey, Validation};
-use reqwest::{
-    header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS},
-    Method,
-};
+use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
 use serde::Deserialize;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
@@ -380,10 +377,10 @@ impl From<ClientError> for StoreBlobError {
 }
 
 /// Returns a `CorsLayer` for the blob store endpoint.
-pub(super) fn store_blob_cors_layer() -> CorsLayer {
+pub(super) fn daemon_cors_layer() -> CorsLayer {
     CorsLayer::new()
         .allow_origin(Any)
-        .allow_methods([Method::GET, Method::PUT])
+        .allow_methods(Any)
         .max_age(Duration::from_secs(86400))
         .allow_headers(Any)
 }
