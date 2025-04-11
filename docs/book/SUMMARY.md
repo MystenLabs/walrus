@@ -35,6 +35,7 @@
   - [Sui structures](./dev-guide/sui-struct.md)
   - [Data security](./dev-guide/data-security.md)
 - [Operating an aggregator or publisher](./operator-guide/aggregator.md)
+  - [The authenticated Publisher](./operator-guide/auth-publisher.md)
 - [Staking and unstaking](./usage/stake.md)
 - [Examples](./usage/examples.md)
 - [Troubleshooting](./usage/troubleshooting.md)

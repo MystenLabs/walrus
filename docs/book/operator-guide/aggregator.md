@@ -121,3 +121,7 @@ configuration:
     Since no one has requested the object, and the availability of the data on Walrus is independent
     of the existence of such object, it is safe to do so. This is to avoid cluttering the sub-wallet
     with many blob objects.
+
+### Advanced publisher uses
+
+The setup and use of an "authenticated publisher" is covered in a [separate section](./auth-publisher).
