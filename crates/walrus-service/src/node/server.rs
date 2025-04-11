@@ -18,10 +18,14 @@ use futures::{future::Either, FutureExt};
 use openapi::RestApiDoc;
 use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
+use reqwest::Method;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::Instrument as _;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
@@ -179,6 +183,7 @@ where
         }
 
         let request_layers = ServiceBuilder::new()
+            .layer(Self::cors_layer())
             .layer(middleware::from_fn_with_state(
                 self.metrics.clone(),
                 telemetry::metrics_middleware,
@@ -387,6 +392,15 @@ where
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
+    }
+
+    /// Returns the CORS leayer for the server.
+    // NOTE: The allowed methods should be kept in sync with the methods used in the routes.
+    fn cors_layer() -> CorsLayer {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods([Method::GET, Method::PUT, Method::POST, Method::HEAD])
+            .allow_headers(Any)
     }
 }
 

@@ -115,7 +115,7 @@ tokio-stream = "0.1.17"
 tokio-util = "0.7.13"
 tonic = { version = "0.12.3", default-features = false }
 tower = "0.5"
-tower-http = { version = "0.5.2", features = ["timeout", "trace"] }
+tower-http = { version = "0.5.2", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.41"
 tracing-opentelemetry = { version = "=0.28.0", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["fmt"] }

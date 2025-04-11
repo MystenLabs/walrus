@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, str::FromStr, sync::Arc};
+use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
@@ -16,18 +16,13 @@ use axum_extra::{
     TypedHeader,
 };
 use jsonwebtoken::{DecodingKey, Validation};
-use reqwest::header::{
-    ACCESS_CONTROL_ALLOW_HEADERS,
-    ACCESS_CONTROL_ALLOW_METHODS,
-    ACCESS_CONTROL_ALLOW_ORIGIN,
-    ACCESS_CONTROL_MAX_AGE,
-    CACHE_CONTROL,
-    CONTENT_TYPE,
-    ETAG,
-    X_CONTENT_TYPE_OPTIONS,
+use reqwest::{
+    header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS},
+    Method,
 };
 use serde::Deserialize;
 use sui_types::base_types::{ObjectID, SuiAddress};
+use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{BlobId, EncodingType, EpochCount};
@@ -89,8 +84,6 @@ pub(super) async fn get_blob<T: WalrusReadClient>(
             tracing::debug!("successfully retrieved blob");
             let mut response = (StatusCode::OK, blob).into_response();
             let headers = response.headers_mut();
-            // Allow requests from any origin, s.t. content can be loaded in browsers.
-            headers.insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
             // Prevent the browser from trying to guess the MIME type to avoid dangerous inferences.
             headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
             // Insert headers that help caches distribute Walrus blobs.
@@ -290,7 +283,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     };
     tracing::debug!(?post_store_action, "starting to store received blob");
 
-    let mut response = match client
+    match client
         .write_blob(
             &blob[..],
             encoding_type,
@@ -315,12 +308,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
             tracing::error!(?error, "error storing blob");
             StoreBlobError::from(error).into_response()
         }
-    };
-
-    response
-        .headers_mut()
-        .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
-    response
+    }
 }
 
 /// Checks if the JWT claim has a maximum size and if the blob exceeds it.
@@ -391,14 +379,13 @@ impl From<ClientError> for StoreBlobError {
     }
 }
 
-#[tracing::instrument(level = Level::ERROR, skip_all)]
-pub(super) async fn store_blob_options() -> impl IntoResponse {
-    [
-        (ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-        (ACCESS_CONTROL_ALLOW_METHODS, "PUT, OPTIONS"),
-        (ACCESS_CONTROL_MAX_AGE, "86400"),
-        (ACCESS_CONTROL_ALLOW_HEADERS, "*"),
-    ]
+/// Returns a `CorsLayer` for the blob store endpoint.
+pub(super) fn store_blob_cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::PUT])
+        .max_age(Duration::from_secs(86400))
+        .allow_headers(Any)
 }
 
 #[tracing::instrument(level = Level::ERROR, skip_all)]

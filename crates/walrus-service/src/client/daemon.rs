@@ -22,7 +22,13 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 pub use routes::PublisherQuery;
-use routes::{BLOB_GET_ENDPOINT, BLOB_OBJECT_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
+use routes::{
+    store_blob_cors_layer,
+    BLOB_GET_ENDPOINT,
+    BLOB_OBJECT_GET_ENDPOINT,
+    BLOB_PUT_ENDPOINT,
+    STATUS_ENDPOINT,
+};
 use sui_types::base_types::ObjectID;
 use tower::{
     buffer::BufferLayer,
@@ -285,23 +291,22 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
-                put(routes::put_blob)
-                    .route_layer(
-                        ServiceBuilder::new()
-                            .layer(axum::middleware::from_fn_with_state(
-                                (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                                auth_layer,
-                            ))
-                            .layer(base_layers),
-                    )
-                    .options(routes::store_blob_options),
+                put(routes::put_blob).route_layer(
+                    ServiceBuilder::new()
+                        .layer(store_blob_cors_layer())
+                        .layer(axum::middleware::from_fn_with_state(
+                            (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                            auth_layer,
+                        ))
+                        .layer(base_layers),
+                ),
             );
         } else {
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
                 put(routes::put_blob)
-                    .route_layer(base_layers)
-                    .options(routes::store_blob_options),
+                    .layer(store_blob_cors_layer())
+                    .route_layer(base_layers),
             );
         }
         self
