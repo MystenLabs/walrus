@@ -144,7 +144,7 @@ Download the `sites-config.yaml` file from the repository, and place it in one o
 default locations. To illustrate, we will use the `~/.config/walrus` directory, like so:
 
 ```sh
-curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/testnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
+curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/mainnet/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
 ```
 
 You are now ready to start working on your Walrus Sites! 🎉

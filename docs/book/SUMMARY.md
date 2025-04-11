@@ -49,7 +49,7 @@
 - [Advanced functionality](./walrus-sites/advanced.md)
   - [Site builder commands](./walrus-sites/commands.md)
   - [Advanced site-builder configuration](./walrus-sites/builder-config.md)
-  - [Specifying headers and routing](./walrus-sites/routing.md)
+  - [Specifying headers, routing, and metadata](./walrus-sites/routing.md)
   - [Linking from and to Walrus Sites](./walrus-sites/linking.md)
   - [Redirecting objects to Walrus Sites](./walrus-sites/redirects.md)
 - [Technical overview](./walrus-sites/overview.md)

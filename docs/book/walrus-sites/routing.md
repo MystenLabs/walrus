@@ -1,8 +1,4 @@
-# Specifying headers and routing
-
-``` admonish tip title="New with Walrus Sites Testnet version"
-The following features have been released with the Walrus Sites Testnet version.
-```
+# Specifying headers, routing, and metadata
 
 In its base configuration, Walrus Sites serves static assets through a portal. However, many modern
 web applications require more advanced features, such as custom headers and client-side routing.

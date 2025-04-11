@@ -26,7 +26,7 @@ Since we have placed the `walrus` and `site-builder` binaries and configuration 
 locations, publishing the `./walrus-snake` site is as simple as calling the publishing command:
 
 ``` sh
-site-builder publish ./walrus-snake --epochs 100
+site-builder publish ./walrus-snake --epochs 1 
 ```
 
 ``` admonish tip
@@ -81,7 +81,7 @@ where to find the updated files (still `./walrus-snake`) and the object ID of th
 (`0x407a3081...`):
 
 ``` sh
-site-builder update --epochs 100 ./walrus-snake 0xe674c14...
+site-builder update --epochs 1 ./walrus-snake 0xe674c14...
 ```
 
 The output this time should be:
