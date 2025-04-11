@@ -723,7 +723,13 @@ pub async fn create_storage_node_configs(
         let protocol_key_pair = if let Some(path) = &node.protocol_key_pair_path {
             fs::write(path, node.keypair.to_base64().as_bytes())
                 .context("Failed to write protocol key pair")?;
-            PathOrInPlace::from_path(path)
+            if let Some(set_config_dir) = set_config_dir {
+                PathOrInPlace::from_path(
+                    set_config_dir.join(path.file_name().expect("file name should exist")),
+                )
+            } else {
+                PathOrInPlace::from_path(path)
+            }
         } else {
             node.keypair.into()
         };
