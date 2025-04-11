@@ -1460,6 +1460,12 @@ async fn test_share_blobs() -> TestResult {
         .await?;
     assert_eq!(shared_blob.blob.storage.end_epoch, end_epoch + 100);
     assert_eq!(shared_blob.funds, 999999500);
+
+    // Read the blob object with attributes from the shared blob object id
+    let _blob_with_attribute = client
+        .as_ref()
+        .get_blob_by_object_id(&shared_blob_object_id)
+        .await?;
     Ok(())
 }
 

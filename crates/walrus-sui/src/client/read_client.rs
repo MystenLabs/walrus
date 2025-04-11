@@ -58,6 +58,7 @@ use crate::{
             EpochState,
             EventBlob,
             NodeMetadata,
+            SharedBlob,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
@@ -1002,13 +1003,28 @@ impl ReadClient for SuiReadClient {
         &self,
         blob_object_id: &ObjectID,
     ) -> SuiClientResult<BlobWithAttribute> {
-        Ok(BlobWithAttribute {
-            blob: self
-                .sui_client
-                .get_sui_object::<Blob>(*blob_object_id)
-                .await?,
-            attribute: self.get_blob_attribute(blob_object_id).await?,
-        })
+        let blob_object_response = self
+            .sui_client
+            .get_object_with_options(
+                *blob_object_id,
+                SuiObjectDataOptions::new().with_bcs().with_type(),
+            )
+            .await?;
+        let blob = if let Ok(blob) =
+            get_sui_object_from_object_response::<Blob>(&blob_object_response)
+        {
+            blob
+        } else {
+            let shared_blob = get_sui_object_from_object_response::<SharedBlob>(
+                &blob_object_response,
+            )
+            .map_err(|_| {
+                anyhow!("could not retrieve blob or shared blob from object id {blob_object_id}")
+            })?;
+            shared_blob.blob
+        };
+        let attribute = self.get_blob_attribute(&blob.id).await?;
+        Ok(BlobWithAttribute { blob, attribute })
     }
 
     async fn epoch_state(&self) -> SuiClientResult<EpochState> {
