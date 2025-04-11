@@ -463,10 +463,10 @@ impl BlobSynchronizer {
             .expect("database operations should not fail");
 
         // Note that we only need to recover the slivers in the shards that are assigned to the
-        // node at the time of the blob certification. Due to slow event processing, the contract
+        // node at the time of the start of blob sync. Due to slow event processing, the contract
         // might have entered the new epoch with new shard assignment. Upon discovery of the new
         // shard assignment, the node only needs to recover the slivers assigned in the epoch
-        // of blob certification due to that:
+        // of the current event due to that:
         //   - The node may not have created the new shards yet.
         //   - Since the blob is certified in an earlier epoch, it is this node's responsibility to
         //     hold, recover, and transfer the shard to the new owner.
