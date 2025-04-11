@@ -113,6 +113,8 @@ The wallet you are using must be the *owner* of the Walrus Site object to be abl
 
 ```admonish danger title="Extending the expiration date of an existing site"
 To extend the expiration date of a previously-stored site, use the `update` command with the
-`--force` flag, and specify the number of additional epochs (from the current epoch) with the
-`--epochs` flag.
+`--check-extend` flag. With this flag, the site-builder will force a check of the status of
+all the Walrus blobs composing the site, and will extend the ones that expire before `--epochs`
+epochs. This is useful to ensure all the resources in the site are available for the same amount
+of epochs.
 ```
