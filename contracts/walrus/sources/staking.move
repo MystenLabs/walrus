@@ -26,7 +26,7 @@ const EInvalidMigration: u64 = 0;
 const EWrongVersion: u64 = 1;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 
 /// The one and only staking object.
 public struct Staking has key {

@@ -11,7 +11,7 @@ use std::sync::{
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroU16,
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::Duration,
 };
 
@@ -66,6 +66,8 @@ use walrus_sui::{
         SuiContractClient,
         UpgradeType,
     },
+    system_setup::copy_recursively,
+    test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
     types::{
         move_errors::{MoveExecutionError, RawMoveError},
         move_structs::{BlobAttribute, SharedBlob, Subsidies},
@@ -1567,16 +1569,31 @@ async fn test_quorum_contract_upgrade() -> TestResult {
         test_cluster::E2eTestSetupBuilder::new()
             .with_deploy_directory(deploy_dir.path().to_path_buf())
             .with_delegate_governance_to_admin_wallet()
+            .with_contract_directory(testnet_contract_dir()?)
             .build()
             .await?;
 
-    // TODO(WAL-654): once mainnet upgrades follow testnet, upgrade from testnet-contracts instead
+    let previous_version = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .system_object_version()
+        .await?;
+
+    // Copy new contracts to fresh directory
+    let upgrade_dir = TempDir::new()?;
+    copy_recursively(development_contract_dir()?, upgrade_dir.path())?;
+
+    // Copy Move.lock files of walrus contract and dependencies to new directory
+    for contract in ["wal", "walrus"] {
+        std::fs::copy(
+            deploy_dir.path().join(contract).join("Move.lock"),
+            upgrade_dir.path().join(contract).join("Move.lock"),
+        )?;
+    }
+
     // Change the version in the contracts
-    let walrus_package_path = deploy_dir.path().join("walrus");
-    let staking_path = walrus_package_path.join("sources/staking.move");
-    let system_path = walrus_package_path.join("sources/system.move");
-    replace_version(&staking_path)?;
-    replace_version(&system_path)?;
+    let walrus_package_path = upgrade_dir.path().join("walrus");
 
     // Vote for the upgrade
     // We can vote on behalf of all nodes from the client wallet since the client
@@ -1626,7 +1643,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
             .read_client()
             .system_object_version()
             .await?,
-        2
+        previous_version + 1
     );
 
     // Store a blob after the upgrade to check if everything works after the upgrade.
@@ -1645,13 +1662,6 @@ async fn test_quorum_contract_upgrade() -> TestResult {
         )
         .await?;
 
-    Ok(())
-}
-
-fn replace_version(contract_file: &Path) -> anyhow::Result<()> {
-    let contents = std::fs::read_to_string(contract_file)?;
-    let contents = contents.replace("const VERSION: u64 = 1;", "const VERSION: u64 = 2;");
-    std::fs::write(contract_file, contents)?;
     Ok(())
 }
 

@@ -26,8 +26,8 @@ use crate::{
 
 const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
 
-/// Provides the default contract directory for testing.
-pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
+/// Provides the path of the latest development contracts directory.
+pub fn development_contract_dir() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
         .unwrap()
@@ -36,7 +36,7 @@ pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
         .join("contracts"))
 }
 
-/// Provides the directory path of the testnet contracts directory.
+/// Provides the path of the testnet contracts directory.
 pub fn testnet_contract_dir() -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
         .parent()
@@ -112,7 +112,7 @@ pub async fn create_and_init_system_for_test(
     let contract_dir = if let Some(contract_dir) = contract_dir {
         contract_dir
     } else {
-        contract_dir_for_testing()?
+        development_contract_dir()?
     };
     create_and_init_system(
         admin_wallet,
