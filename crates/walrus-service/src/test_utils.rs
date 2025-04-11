@@ -2237,333 +2237,387 @@ pub mod test_cluster {
     /// The weight of each storage node in the test cluster.
     pub const FROST_PER_NODE_WEIGHT: u64 = 1_000_000_000_000;
 
-    /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
-    /// node handle.
-    pub async fn default_setup() -> anyhow::Result<(
-        Arc<TokioMutex<TestClusterHandle>>,
-        TestCluster,
-        WithTempDir<client::Client<SuiContractClient>>,
-    )> {
-        default_setup_with_epoch_duration(Duration::from_secs(60 * 60), false).await
-    }
+    /// The default epoch duration for tests
+    pub const DEFAULT_EPOCH_DURATION_FOR_TESTS: Duration = Duration::from_secs(60 * 60);
 
-    /// Performs the default setup for the test cluster using StorageNodeHandle as default storage
-    /// node handle.
-    pub async fn default_setup_with_subsidies() -> anyhow::Result<(
-        Arc<TokioMutex<TestClusterHandle>>,
-        TestCluster,
-        WithTempDir<client::Client<SuiContractClient>>,
-    )> {
-        default_setup_with_epoch_duration(Duration::from_secs(60 * 60), true).await
-    }
-
-    /// Performs the default setup with the input epoch duration for the test cluster using
-    /// StorageNodeHandle as default storage node handle.
-    pub async fn default_setup_with_epoch_duration(
-        epoch_duration: Duration,
-        with_subsidies: bool,
-    ) -> anyhow::Result<(
-        Arc<TokioMutex<TestClusterHandle>>,
-        TestCluster,
-        WithTempDir<client::Client<SuiContractClient>>,
-    )> {
-        let test_nodes_config = TestNodesConfig {
-            node_weights: vec![1, 2, 3, 3, 4],
-            use_legacy_event_processor: true,
-            disable_event_blob_writer: false,
-            blocklist_dir: None,
-            enable_node_config_synchronizer: false,
-        };
-        default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            epoch_duration,
-            test_nodes_config,
-            Some(10),
-            ClientCommunicationConfig::default_for_test(),
-            with_subsidies,
-            None,
-        )
-        .await
-    }
-
-    /// Performs the default setup with the input epoch duration for the test cluster with the
-    /// specified storage node handle.
-    pub async fn default_setup_with_num_checkpoints_generic<T: StorageNodeHandleTrait>(
-        epoch_duration: Duration,
-        test_nodes_config: TestNodesConfig,
+    #[derive(Debug)]
+    /// Builder for the E2E test setup.
+    pub struct E2eTestSetupBuilder {
+        epoch_duration: Option<Duration>,
+        test_nodes_config: Option<TestNodesConfig>,
         num_checkpoints_per_blob: Option<u32>,
-        communication_config: ClientCommunicationConfig,
-        with_subsidies: bool,
-        num_additional_fullnodes: Option<usize>,
-    ) -> anyhow::Result<(
-        Arc<TokioMutex<TestClusterHandle>>,
-        TestCluster<T>,
-        WithTempDir<client::Client<SuiContractClient>>,
-    )> {
-        let (handle, cluster, client, _) = default_setup_with_deploy_directory_generic(
-            epoch_duration,
-            test_nodes_config,
-            num_checkpoints_per_blob,
-            communication_config,
-            with_subsidies,
-            None,
-            false,
-            num_additional_fullnodes,
-        )
-        .await?;
-        Ok((handle, cluster, client))
-    }
-
-    // TODO(WAL-653): Refactor with builder pattern to make selecting different options cleaner.
-    /// Performs the default setup with the input epoch duration for the test cluster with the
-    /// specified storage node handle.
-    #[allow(unused)]
-    #[allow(clippy::too_many_arguments)]
-    pub async fn default_setup_with_deploy_directory_generic<T: StorageNodeHandleTrait>(
-        epoch_duration: Duration,
-        test_nodes_config: TestNodesConfig,
-        num_checkpoints_per_blob: Option<u32>,
-        communication_config: ClientCommunicationConfig,
+        communication_config: Option<ClientCommunicationConfig>,
         with_subsidies: bool,
         deploy_directory: Option<PathBuf>,
         delegate_governance_to_admin_wallet: bool,
+        #[allow(unused)]
         num_additional_fullnodes: Option<usize>,
-    ) -> anyhow::Result<(
-        Arc<TokioMutex<TestClusterHandle>>,
-        TestCluster<T>,
-        WithTempDir<client::Client<SuiContractClient>>,
-        SystemContext,
-    )> {
-        #[cfg(not(msim))]
-        let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
-        #[cfg(msim)]
-        let sui_cluster =
-            test_utils::using_msim::global_sui_test_cluster_with_additional_fullnodes(
-                num_additional_fullnodes,
-            )
-            .await;
+        contract_directory: Option<PathBuf>,
+    }
 
-        let sui_rpc_urls: Vec<String> = {
-            let cluster = sui_cluster.lock().await;
-            vec![cluster.rpc_url().to_string()]
-                .into_iter()
-                .chain(cluster.additional_rpc_urls().into_iter())
-                .collect()
-        };
-
-        // Get a wallet on the global sui test cluster
-        let mut admin_wallet =
-            test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
-
-        // Specify an empty assignment to ensure that storage nodes are not created with invalid
-        // shard assignments.
-        let n_shards = NonZeroU16::new(test_nodes_config.node_weights.iter().sum())
-            .expect("sum of non-zero weights is not zero");
-        let cluster_builder = TestCluster::<T>::builder()
-            .with_shard_assignment(&vec![[]; test_nodes_config.node_weights.len()]);
-
-        // Get the default committee from the test cluster builder
-        let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
-            .storage_node_test_configs()
-            .iter()
-            .enumerate()
-            .map(|(i, info)| {
-                (
-                    info.to_node_registration_params(&format!("node-{i}")),
-                    info.key_pair.to_owned(),
-                )
-            })
-            .unzip();
-
-        let system_ctx = create_and_init_system_for_test(
-            &mut admin_wallet.inner,
-            n_shards,
-            Duration::from_secs(0),
-            epoch_duration,
-            None,
-            with_subsidies,
-            deploy_directory,
-        )
-        .await
-        .context("failed to create and init system for test")?;
-
-        let n_nodes = members.len();
-        let mut contract_clients = Vec::with_capacity(n_nodes);
-        let mut node_wallet_dirs = Vec::with_capacity(n_nodes);
-        let mut blocklist_files = Vec::with_capacity(n_nodes);
-        let mut disable_event_blob_writers = Vec::with_capacity(n_nodes);
-
-        for (i, wallet) in
-            test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), n_nodes)
-                .await?
-                .into_iter()
-                .enumerate()
-        {
-            let client = wallet
-                .and_then_async(|wallet| {
-                    system_ctx.new_contract_client(wallet, Default::default(), None)
-                })
-                .await?;
-            let temp_dir = client.temp_dir.path().to_owned();
-            node_wallet_dirs.push(temp_dir.clone());
-            contract_clients.push(client.inner);
-            let blocklist_dir = test_nodes_config.blocklist_dir.clone().unwrap_or(temp_dir);
-            blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
-            disable_event_blob_writers.push(test_nodes_config.disable_event_blob_writer);
-            // In simtest, storage nodes load the Sui wallet config from the `temp_dir`. We
-            // need to keep the directory alive throughout the test.
-            #[cfg(msim)]
-            Box::leak(Box::new(client.temp_dir));
-        }
-        let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
-
-        let contract_config = system_ctx.contract_config();
-
-        let admin_contract_client = admin_wallet
-            .and_then_async(|wallet| {
-                SuiContractClient::new(
-                    wallet,
-                    &contract_config,
-                    ExponentialBackoffConfig::default(),
-                    None,
-                )
-            })
-            .await?;
-
-        if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
-            let (subsidies_object_id, _) = admin_contract_client
-                .as_ref()
-                .create_and_fund_subsidies(
-                    subsidies_pkg_id,
-                    DEFAULT_BUYER_SUBSIDY_RATE,
-                    DEFAULT_SYSTEM_SUBSIDY_RATE,
-                    DEFAULT_SUBSIDY_FUNDS,
-                )
-                .await?;
-
-            admin_contract_client
-                .inner
-                .read_client()
-                .set_subsidies_object(subsidies_object_id)
-                .await?;
-        }
-
-        let amounts_to_stake = test_nodes_config
-            .node_weights
-            .iter()
-            .map(|&weight| FROST_PER_NODE_WEIGHT * weight as u64)
-            .collect::<Vec<_>>();
-        let storage_capabilities = register_committee_and_stake(
-            admin_contract_client.as_ref(),
-            &members,
-            &protocol_keypairs,
-            &contract_clients_refs,
-            &amounts_to_stake,
-            None,
-        )
-        .await?;
-
-        if delegate_governance_to_admin_wallet {
-            let authorized = Authorized::Address(admin_contract_client.as_ref().address());
-            for (cap, client) in storage_capabilities
-                .iter()
-                .zip(contract_clients_refs.iter())
-            {
-                client
-                    .set_governance_authorized(cap.node_id, authorized.clone())
-                    .await?;
+    impl Default for E2eTestSetupBuilder {
+        fn default() -> Self {
+            Self {
+                epoch_duration: None,
+                test_nodes_config: None,
+                num_checkpoints_per_blob: Some(10),
+                communication_config: None,
+                with_subsidies: false,
+                deploy_directory: None,
+                delegate_governance_to_admin_wallet: false,
+                num_additional_fullnodes: None,
+                contract_directory: None,
             }
         }
+    }
 
-        end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
+    impl E2eTestSetupBuilder {
+        /// Creates a new default builder for the e2e setup.
+        pub fn new() -> Self {
+            Self::default()
+        }
 
-        // Build the walrus cluster
-        let sui_read_client = admin_contract_client.as_ref().read_client().clone();
+        /// Performs the default e2e setup the test cluster with the settings specified in the
+        /// builder or the e2e test defaults if not specified.
+        ///
+        /// Creates a [`TestCluster<StorageNodeHandle>`] as part of the setup.
+        pub async fn build(
+            self,
+        ) -> anyhow::Result<(
+            Arc<TokioMutex<TestClusterHandle>>,
+            TestCluster<StorageNodeHandle>,
+            WithTempDir<client::Client<SuiContractClient>>,
+            SystemContext,
+        )> {
+            self.build_generic().await
+        }
 
-        let committee_services = future::join_all(contract_clients.iter().map(|_| async {
-            let service: Arc<dyn CommitteeService> = Arc::new(
-                NodeCommitteeService::builder()
-                    .build_with_factory(
-                        sui_read_client.clone(),
-                        DefaultNodeServiceFactory::avoid_system_services(),
-                    )
-                    .await
-                    .expect("service construction must succeed in tests"),
-            );
-            service
-        }))
-        .await;
+        /// Performs the default e2e setup the test cluster with the settings specified in the
+        /// builder or the e2e test defaults if not specified.
+        ///
+        /// Creates a cluster for a generic [`StorageNodeHandleTrait`].
+        pub async fn build_generic<T: StorageNodeHandleTrait>(
+            self,
+        ) -> anyhow::Result<(
+            Arc<TokioMutex<TestClusterHandle>>,
+            TestCluster<T>,
+            WithTempDir<client::Client<SuiContractClient>>,
+            SystemContext,
+        )> {
+            #[cfg(not(msim))]
+            let sui_cluster = test_utils::using_tokio::global_sui_test_cluster();
+            #[cfg(msim)]
+            let sui_cluster =
+                test_utils::using_msim::global_sui_test_cluster_with_additional_fullnodes(
+                    self.num_additional_fullnodes,
+                )
+                .await;
 
-        // Create a contract service for the storage nodes using a wallet in a temp dir.
-        let node_contract_services = contract_clients
-            .into_iter()
-            .zip(committee_services.iter())
-            .map(|(client, committee_service)| {
-                SuiSystemContractService::builder().build(client, committee_service.clone())
+            let sui_rpc_urls: Vec<String> = {
+                let cluster = sui_cluster.lock().await;
+                vec![cluster.rpc_url().to_string()]
+                    .into_iter()
+                    .chain(cluster.additional_rpc_urls().into_iter())
+                    .collect()
+            };
+
+            // Get a wallet on the global sui test cluster
+            let mut admin_wallet =
+                test_utils::new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+
+            let test_nodes_config = self.test_nodes_config.unwrap_or_else(|| TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
             });
 
-        let cluster_builder = cluster_builder
-            .with_committee_services(&committee_services)
-            .with_system_contract_services(node_contract_services);
+            // Specify an empty assignment to ensure that storage nodes are not created with invalid
+            // shard assignments.
+            let n_shards = NonZeroU16::new(test_nodes_config.node_weights.iter().sum())
+                .expect("sum of non-zero weights is not zero");
+            let cluster_builder = TestCluster::<T>::builder()
+                .with_shard_assignment(&vec![[]; test_nodes_config.node_weights.len()]);
 
-        let event_processor_config = Default::default();
-        let cluster_builder = if test_nodes_config.use_legacy_event_processor {
-            setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
-        } else {
-            setup_checkpoint_based_event_processors(
-                &event_processor_config,
-                sui_rpc_urls.as_slice(),
-                sui_read_client.clone(),
-                cluster_builder,
-                system_ctx.system_object,
-                system_ctx.staking_object,
+            // Get the default committee from the test cluster builder
+            let (members, protocol_keypairs): (Vec<_>, Vec<_>) = cluster_builder
+                .storage_node_test_configs()
+                .iter()
+                .enumerate()
+                .map(|(i, info)| {
+                    (
+                        info.to_node_registration_params(&format!("node-{i}")),
+                        info.key_pair.to_owned(),
+                    )
+                })
+                .unzip();
+
+            let system_ctx = create_and_init_system_for_test(
+                &mut admin_wallet.inner,
+                n_shards,
+                Duration::from_secs(0),
+                self.epoch_duration
+                    .unwrap_or(DEFAULT_EPOCH_DURATION_FOR_TESTS),
+                None,
+                self.with_subsidies,
+                self.deploy_directory,
+                self.contract_directory,
             )
-            .await?
-        };
+            .await
+            .context("failed to create and init system for test")?;
 
-        let cluster_builder = if let Some(num_checkpoints_per_blob) = num_checkpoints_per_blob {
-            cluster_builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
-        } else {
-            cluster_builder
-        };
+            let n_nodes = members.len();
+            let mut contract_clients = Vec::with_capacity(n_nodes);
+            let mut node_wallet_dirs = Vec::with_capacity(n_nodes);
+            let mut blocklist_files = Vec::with_capacity(n_nodes);
+            let mut disable_event_blob_writers = Vec::with_capacity(n_nodes);
 
-        let cluster_builder = cluster_builder
-            .with_system_context(system_ctx.clone())
-            .with_sui_rpc_urls(sui_rpc_urls)
-            .with_storage_capabilities(storage_capabilities)
-            .with_node_wallet_dirs(node_wallet_dirs)
-            .with_start_node_from_beginning(
-                amounts_to_stake
-                    .iter()
-                    .map(|&initial_staking_amount| initial_staking_amount > 0)
-                    .collect(),
+            for (i, wallet) in
+                test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), n_nodes)
+                    .await?
+                    .into_iter()
+                    .enumerate()
+            {
+                let client = wallet
+                    .and_then_async(|wallet| {
+                        system_ctx.new_contract_client(wallet, Default::default(), None)
+                    })
+                    .await?;
+                let temp_dir = client.temp_dir.path().to_owned();
+                node_wallet_dirs.push(temp_dir.clone());
+                contract_clients.push(client.inner);
+                let blocklist_dir = test_nodes_config.blocklist_dir.clone().unwrap_or(temp_dir);
+                blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
+                disable_event_blob_writers.push(test_nodes_config.disable_event_blob_writer);
+                // In simtest, storage nodes load the Sui wallet config from the `temp_dir`. We
+                // need to keep the directory alive throughout the test.
+                #[cfg(msim)]
+                Box::leak(Box::new(client.temp_dir));
+            }
+            let contract_clients_refs = contract_clients.iter().collect::<Vec<_>>();
+
+            let contract_config = system_ctx.contract_config();
+
+            let admin_contract_client = admin_wallet
+                .and_then_async(|wallet| {
+                    SuiContractClient::new(
+                        wallet,
+                        &contract_config,
+                        ExponentialBackoffConfig::default(),
+                        None,
+                    )
+                })
+                .await?;
+
+            if let Some(subsidies_pkg_id) = system_ctx.subsidies_pkg_id {
+                let (subsidies_object_id, _) = admin_contract_client
+                    .as_ref()
+                    .create_and_fund_subsidies(
+                        subsidies_pkg_id,
+                        DEFAULT_BUYER_SUBSIDY_RATE,
+                        DEFAULT_SYSTEM_SUBSIDY_RATE,
+                        DEFAULT_SUBSIDY_FUNDS,
+                    )
+                    .await?;
+
+                admin_contract_client
+                    .inner
+                    .read_client()
+                    .set_subsidies_object(subsidies_object_id)
+                    .await?;
+            }
+
+            let amounts_to_stake = test_nodes_config
+                .node_weights
+                .iter()
+                .map(|&weight| FROST_PER_NODE_WEIGHT * weight as u64)
+                .collect::<Vec<_>>();
+            let storage_capabilities = register_committee_and_stake(
+                admin_contract_client.as_ref(),
+                &members,
+                &protocol_keypairs,
+                &contract_clients_refs,
+                &amounts_to_stake,
+                None,
             )
-            .with_disable_event_blob_writer(disable_event_blob_writers)
-            .with_blocklist_files(blocklist_files)
-            .with_enable_node_config_synchronizer(
-                test_nodes_config.enable_node_config_synchronizer,
-            );
-        let cluster = {
-            // Lock to avoid race conditions.
-            let _lock = global_test_lock().lock().await;
-            cluster_builder.build().await?
-        };
-
-        // Create the client with the admin wallet to ensure that we have some WAL.
-        let config = ClientConfig {
-            contract_config,
-            exchange_objects: vec![],
-            wallet_config: None,
-            communication_config,
-            refresh_config: Default::default(),
-        };
-
-        let client = admin_contract_client
-            .and_then_async(|contract_client| {
-                client::Client::new_contract_client_with_refresher(config, contract_client)
-            })
             .await?;
 
-        Ok((sui_cluster, cluster, client, system_ctx))
+            if self.delegate_governance_to_admin_wallet {
+                let authorized = Authorized::Address(admin_contract_client.as_ref().address());
+                for (cap, client) in storage_capabilities
+                    .iter()
+                    .zip(contract_clients_refs.iter())
+                {
+                    client
+                        .set_governance_authorized(cap.node_id, authorized.clone())
+                        .await?;
+                }
+            }
+
+            end_epoch_zero(contract_clients_refs.first().unwrap()).await?;
+
+            // Build the walrus cluster
+            let sui_read_client = admin_contract_client.as_ref().read_client().clone();
+
+            let committee_services = future::join_all(contract_clients.iter().map(|_| async {
+                let service: Arc<dyn CommitteeService> = Arc::new(
+                    NodeCommitteeService::builder()
+                        .build_with_factory(
+                            sui_read_client.clone(),
+                            DefaultNodeServiceFactory::avoid_system_services(),
+                        )
+                        .await
+                        .expect("service construction must succeed in tests"),
+                );
+                service
+            }))
+            .await;
+
+            // Create a contract service for the storage nodes using a wallet in a temp dir.
+            let node_contract_services = contract_clients
+                .into_iter()
+                .zip(committee_services.iter())
+                .map(|(client, committee_service)| {
+                    SuiSystemContractService::builder().build(client, committee_service.clone())
+                });
+
+            let cluster_builder = cluster_builder
+                .with_committee_services(&committee_services)
+                .with_system_contract_services(node_contract_services);
+
+            let event_processor_config = Default::default();
+            let cluster_builder = if test_nodes_config.use_legacy_event_processor {
+                setup_legacy_event_processors(sui_read_client.clone(), cluster_builder).await?
+            } else {
+                setup_checkpoint_based_event_processors(
+                    &event_processor_config,
+                    sui_rpc_urls.as_slice(),
+                    sui_read_client.clone(),
+                    cluster_builder,
+                    system_ctx.system_object,
+                    system_ctx.staking_object,
+                )
+                .await?
+            };
+
+            let cluster_builder =
+                if let Some(num_checkpoints_per_blob) = self.num_checkpoints_per_blob {
+                    cluster_builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob)
+                } else {
+                    cluster_builder
+                };
+
+            let cluster_builder = cluster_builder
+                .with_system_context(system_ctx.clone())
+                .with_sui_rpc_urls(sui_rpc_urls)
+                .with_storage_capabilities(storage_capabilities)
+                .with_node_wallet_dirs(node_wallet_dirs)
+                .with_start_node_from_beginning(
+                    amounts_to_stake
+                        .iter()
+                        .map(|&initial_staking_amount| initial_staking_amount > 0)
+                        .collect(),
+                )
+                .with_disable_event_blob_writer(disable_event_blob_writers)
+                .with_blocklist_files(blocklist_files)
+                .with_enable_node_config_synchronizer(
+                    test_nodes_config.enable_node_config_synchronizer,
+                );
+            let cluster = {
+                // Lock to avoid race conditions.
+                let _lock = global_test_lock().lock().await;
+                cluster_builder.build().await?
+            };
+
+            // Create the client with the admin wallet to ensure that we have some WAL.
+            let config = ClientConfig {
+                contract_config,
+                exchange_objects: vec![],
+                wallet_config: None,
+                communication_config: self
+                    .communication_config
+                    .unwrap_or_else(ClientCommunicationConfig::default_for_test),
+                refresh_config: Default::default(),
+            };
+
+            let client = admin_contract_client
+                .and_then_async(|contract_client| {
+                    client::Client::new_contract_client_with_refresher(config, contract_client)
+                })
+                .await?;
+
+            Ok((sui_cluster, cluster, client, system_ctx))
+        }
+
+        /// Sets the epoch duration for the tests, if not set, defaults to
+        /// [`DEFAULT_EPOCH_DURATION_FOR_TESTS`]
+        pub fn with_epoch_duration(mut self, epoch_duration: Duration) -> Self {
+            self.epoch_duration = Some(epoch_duration);
+            self
+        }
+
+        /// Sets the [`TestNodesConfig`] for the cluster.
+        pub fn with_test_nodes_config(mut self, test_nodes_config: TestNodesConfig) -> Self {
+            self.test_nodes_config = Some(test_nodes_config);
+            self
+        }
+
+        /// Sets the number of checkpoints per event blob for the nodes in the cluster.
+        ///
+        /// The default in [`Self`] is 10, to use the default for the storage
+        /// nodes, use [`Self::with_default_num_checkpoints_per_blob`]
+        pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
+            self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
+            self
+        }
+
+        /// Use the storage node default for the number of checkpoints per event blob.
+        pub fn with_default_num_checkpoints_per_blob(mut self) -> Self {
+            self.num_checkpoints_per_blob = None;
+            self
+        }
+
+        /// Sets the communication config to use in the client for the test setup.
+        pub fn with_communication_config(
+            mut self,
+            communication_config: ClientCommunicationConfig,
+        ) -> Self {
+            self.communication_config = Some(communication_config);
+            self
+        }
+
+        /// Deploy the system with subsidies.
+        pub fn with_subsidies(mut self) -> Self {
+            self.with_subsidies = true;
+            self
+        }
+
+        /// Sets the deploy directory for the contracts. If not set a temp directory is used.
+        pub fn with_deploy_directory(mut self, deploy_directory: PathBuf) -> Self {
+            self.deploy_directory = Some(deploy_directory);
+            self
+        }
+
+        /// Delegate the governance authorization for all nodes to the admin wallet.
+        pub fn with_delegate_governance_to_admin_wallet(mut self) -> Self {
+            self.delegate_governance_to_admin_wallet = true;
+            self
+        }
+
+        /// Use additional full nodes in the sui test cluster.
+        ///
+        /// Currently ignored except in simtests.
+        pub fn with_additional_fullnodes(mut self, num_additional_fullnodes: usize) -> Self {
+            self.num_additional_fullnodes = Some(num_additional_fullnodes);
+            self
+        }
+
+        /// Set the source directory of the contracts to be deployed.
+        pub fn with_contract_directory(mut self, contract_directory: PathBuf) -> Self {
+            self.contract_directory = Some(contract_directory);
+            self
+        }
     }
 
     async fn setup_checkpoint_based_event_processors(

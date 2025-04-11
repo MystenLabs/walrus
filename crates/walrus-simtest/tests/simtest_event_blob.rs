@@ -126,22 +126,22 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_event_blob_fork_recovery() {
-        let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(15),
-                TestNodesConfig {
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(15))
+                .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![2, 2, 3, 3, 3],
                     ..Default::default()
-                },
-                Some(20),
-                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(2),
-                ),
-                false,
-                None,
-            )
-            .await
-            .unwrap();
+                })
+                .with_num_checkpoints_per_blob(20)
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
@@ -218,20 +218,20 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_checkpoint_downloader_with_additional_fullnodes() {
-        let (sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(15),
-                TestNodesConfig {
-                    node_weights: vec![2, 2, 3, 3, 3],
-                    ..Default::default()
-                },
-                Some(20),
+        let (sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(15))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![2, 2, 3, 3, 3],
+                ..Default::default()
+            })
+            .with_num_checkpoints_per_blob(20)
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                false,
-                Some(4),
             )
+            .with_additional_fullnodes(4)
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 

@@ -215,25 +215,24 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_sync_node_config_params_basic() {
-        let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
-                TestNodesConfig {
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(30))
+                .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
                     enable_node_config_synchronizer: true,
-                },
-                Some(10),
-                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(2),
-                ),
-                false,
-                None,
-            )
-            .await
-            .expect("Failed to setup test cluster");
+                })
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .expect("Failed to setup test cluster");
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
@@ -404,23 +403,21 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_registered_node_update_protocol_key() {
-        let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(10),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 2],
-                    use_legacy_event_processor: false,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
-                    enable_node_config_synchronizer: true,
-                },
-                Some(10),
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(10))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4, 2],
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: true,
+            })
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                false,
-                None,
             )
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 
@@ -486,25 +483,24 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_node_config_synchronizer() {
-        let (_sui_cluster, mut walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
-                TestNodesConfig {
+        let (_sui_cluster, mut walrus_cluster, client, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(Duration::from_secs(30))
+                .with_test_nodes_config(TestNodesConfig {
                     node_weights: vec![1, 2, 3, 3, 4, 0],
                     use_legacy_event_processor: false,
                     disable_event_blob_writer: false,
                     blocklist_dir: None,
                     enable_node_config_synchronizer: true,
-                },
-                Some(10),
-                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
-                    Duration::from_secs(2),
-                ),
-                false,
-                None,
-            )
-            .await
-            .unwrap();
+                })
+                .with_communication_config(
+                    ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                        Duration::from_secs(2),
+                    ),
+                )
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
 
         let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
 
@@ -732,23 +728,21 @@ mod tests {
         ]
     }
     async fn test_sync_node_params(update_params: &TestUpdateParams) {
-        let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(10),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4, 2],
-                    use_legacy_event_processor: false,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
-                    enable_node_config_synchronizer: true,
-                },
-                Some(10),
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(10))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4, 2],
+                use_legacy_event_processor: false,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: true,
+            })
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                false,
-                None,
             )
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 

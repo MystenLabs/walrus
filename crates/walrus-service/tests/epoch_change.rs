@@ -11,28 +11,21 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
 
     use tokio::time;
     use walrus_core::Epoch;
-    use walrus_service::{
-        client::ClientCommunicationConfig,
-        test_utils::{test_cluster, StorageNodeHandle, StorageNodeHandleTrait, TestNodesConfig},
-    };
+    use walrus_service::test_utils::{test_cluster, StorageNodeHandleTrait, TestNodesConfig};
 
     telemetry_subscribers::init_for_testing();
     let epoch_duration = Duration::from_secs(5);
-    let (_sui, storage_nodes, _) =
-        test_cluster::default_setup_with_num_checkpoints_generic::<StorageNodeHandle>(
-            epoch_duration,
-            TestNodesConfig {
-                node_weights: vec![1, 1],
-                use_legacy_event_processor: true,
-                disable_event_blob_writer: false,
-                blocklist_dir: None,
-                enable_node_config_synchronizer: false,
-            },
-            None,
-            ClientCommunicationConfig::default_for_test(),
-            false,
-            None,
-        )
+    let (_sui, storage_nodes, _, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(epoch_duration)
+        .with_test_nodes_config(TestNodesConfig {
+            node_weights: vec![1, 1],
+            use_legacy_event_processor: true,
+            disable_event_blob_writer: false,
+            blocklist_dir: None,
+            enable_node_config_synchronizer: false,
+        })
+        .with_default_num_checkpoints_per_blob()
+        .build()
         .await?;
 
     let target_epoch: Epoch = 3;
