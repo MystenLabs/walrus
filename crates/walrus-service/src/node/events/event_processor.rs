@@ -64,7 +64,7 @@ use typed_store::{
 use walrus_core::{ensure, BlobId};
 use walrus_sui::{
     client::{
-        retry_client::{RetriableRpcClient, RetriableSuiClient},
+        retry_client::{FallibleRpcClient, RetriableRpcClient, RetriableSuiClient},
         rpc_config::RpcFallbackConfig,
     },
     types::ContractEvent,
@@ -721,9 +721,9 @@ impl EventProcessor {
         let clients = rest_urls
             .iter()
             .map(
-                |rest_url| -> Result<(sui_rpc_api::Client, String), anyhow::Error> {
-                    let client = sui_rpc_api::Client::new(rest_url)?;
-                    Ok((client, rest_url.clone()))
+                |rest_url| -> Result<(FallibleRpcClient, String), anyhow::Error> {
+                    let fallible = FallibleRpcClient::new(rest_url.clone())?;
+                    Ok((fallible, rest_url.clone()))
                 },
             )
             .collect::<Result<Vec<_>, _>>()?;
@@ -731,7 +731,7 @@ impl EventProcessor {
         // Validate each client and filter out invalid ones.
         let mut valid_clients = Vec::new();
         for (client, rest_url) in clients {
-            match ensure_experimental_rest_endpoint_exists(client.clone()).await {
+            match ensure_experimental_rest_endpoint_exists(client.inner().await).await {
                 Ok(()) => valid_clients.push((client, rest_url)),
                 Err(e) => {
                     tracing::warn!("Client validation failed for {:?}: {:?}", rest_url, e);
@@ -1331,8 +1331,9 @@ mod tests {
         )?;
         let rest_url = "http://localhost:8080";
         let client = sui_rpc_api::Client::new(rest_url)?;
+        let fallible = FallibleRpcClient::new(rest_url.to_string())?;
         let retry_client = RetriableRpcClient::new(
-            vec![(client, rest_url.to_string())],
+            vec![(fallible, rest_url.to_string())],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
