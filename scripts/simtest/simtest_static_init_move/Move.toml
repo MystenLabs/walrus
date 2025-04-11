@@ -1,0 +1,7 @@
+[package]
+name = "simtest_static_init_move"
+edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
+
+[addresses]
+simtest_static_init_move = "0x0"
+
