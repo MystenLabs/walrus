@@ -36,6 +36,16 @@ pub fn contract_dir_for_testing() -> anyhow::Result<PathBuf> {
         .join("contracts"))
 }
 
+/// Provides the directory path of the testnet contracts directory.
+pub fn testnet_contract_dir() -> anyhow::Result<PathBuf> {
+    Ok(PathBuf::from_str(env!("CARGO_MANIFEST_DIR"))?
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("testnet-contracts"))
+}
+
 /// Helper struct to pass around all needed object IDs when setting up the system.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemContext {
@@ -81,6 +91,7 @@ impl SystemContext {
 /// deploy directory. If not specified a fresh temp directory is used.
 ///
 /// Returns the package id and the object IDs of the system object and the staking object.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_and_init_system_for_test(
     admin_wallet: &mut WalletContext,
     n_shards: NonZeroU16,
@@ -89,6 +100,7 @@ pub async fn create_and_init_system_for_test(
     max_epochs_ahead: Option<EpochCount>,
     with_subsidies: bool,
     deploy_directory: Option<PathBuf>,
+    contract_dir: Option<PathBuf>,
 ) -> Result<SystemContext> {
     let temp_dir; // make sure the temp_dir is in scope until the end of the function
     let deploy_directory = if deploy_directory.is_none() {
@@ -97,6 +109,11 @@ pub async fn create_and_init_system_for_test(
     } else {
         deploy_directory
     };
+    let contract_dir = if let Some(contract_dir) = contract_dir {
+        contract_dir
+    } else {
+        contract_dir_for_testing()?
+    };
     create_and_init_system(
         admin_wallet,
         InitSystemParams {
@@ -104,7 +121,7 @@ pub async fn create_and_init_system_for_test(
             epoch_zero_duration,
             epoch_duration,
             max_epochs_ahead: max_epochs_ahead.unwrap_or(DEFAULT_MAX_EPOCHS_AHEAD),
-            contract_dir: contract_dir_for_testing()?,
+            contract_dir,
             deploy_directory,
             with_wal_exchange: true,
             use_existing_wal_token: false,

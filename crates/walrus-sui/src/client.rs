@@ -1954,8 +1954,19 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<[u8; 32]> {
         // Compile package to get the digest.
         let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (_dependencies, compiled_package, _build_config) =
-            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
+        let protocol_version = self
+            .sui_client()
+            .get_protocol_config(None)
+            .await?
+            .protocol_version;
+
+        let (_dependencies, compiled_package, _build_config) = compile_package(
+            package_path,
+            MoveBuildConfig::default(),
+            chain_id,
+            protocol_version,
+        )
+        .await?;
         let digest = compiled_package.get_package_digest(false);
 
         let mut pt_builder = self.transaction_builder()?;
@@ -1979,8 +1990,19 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         // Compile package
         let chain_id = self.sui_client().get_chain_identifier().await.ok();
-        let (dependencies, compiled_package, build_config) =
-            compile_package(package_path, MoveBuildConfig::default(), chain_id).await?;
+        let protocol_version = self
+            .sui_client()
+            .get_protocol_config(None)
+            .await?
+            .protocol_version;
+
+        let (dependencies, compiled_package, build_config) = compile_package(
+            package_path,
+            MoveBuildConfig::default(),
+            chain_id,
+            protocol_version,
+        )
+        .await?;
 
         let digest = compiled_package.get_package_digest(false);
         let mut pt_builder = self.transaction_builder()?;
