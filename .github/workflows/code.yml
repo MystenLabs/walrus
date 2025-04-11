@@ -47,6 +47,7 @@ jobs:
       isRelevantForRustTests: ${{ steps.diff.outputs.isRust == 'true' || steps.diff.outputs.isMove == 'true' || steps.diff.outputs.isTestConfig
         == 'true' }}
       isTestnetContracts: ${{ steps.diff.outputs.isTestnetContracts }}
+      isMainnetContracts: ${{ steps.diff.outputs.isMainnetContracts }}
       isExampleConfig: ${{ steps.diff.outputs.isExampleConfig }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
@@ -234,6 +235,25 @@ jobs:
         with:
           message: >
             **Warning:** This PR touches the `testnet-contracts` directory. This should only be
+            done if the Testnet contracts are updated.
+
+            cc @karlwuest @mlegner
+
+  mainnet-contracts-warning:
+    name: Check if the PR touches the mainnet-contracts directory
+    runs-on: ubuntu-latest
+    needs: diff
+    if: ${{ needs.diff.outputs.isMainnetContracts == 'true' && github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'}}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+      - name: Post a warning if the PR touches the mainnet-contracts directory
+        uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # pin@v2
+        with:
+          message: >
+            **Warning:** This PR touches the `mainnet-contracts` directory. This should only be
             done if the Testnet contracts are updated.
 
             cc @karlwuest @mlegner
