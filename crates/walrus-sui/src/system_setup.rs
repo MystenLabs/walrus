@@ -225,7 +225,7 @@ pub(crate) struct PublishSystemPackageResult {
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
 #[tracing::instrument(err, skip(source, destination))]
-fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
     std::fs::create_dir_all(destination.as_ref())?;
     for entry in WalkDir::new(source.as_ref()) {
         let entry = entry?;
