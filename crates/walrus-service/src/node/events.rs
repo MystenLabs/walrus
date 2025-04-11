@@ -8,6 +8,7 @@ use std::{
     fmt::Debug,
     fs::File,
     io::{BufReader, BufWriter},
+    sync::Arc,
     time::Duration,
 };
 
@@ -301,7 +302,7 @@ impl Ord for EventStreamCursor {
 }
 
 /// Checks if the full node provides the required REST endpoint for event processing.
-async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<bool> {
+async fn check_experimental_rest_endpoint_exists(client: Arc<Client>) -> anyhow::Result<bool> {
     // TODO: https://github.com/MystenLabs/walrus/issues/1049
     // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
     // cyclic dependency errors
@@ -327,7 +328,7 @@ async fn check_experimental_rest_endpoint_exists(client: Client) -> anyhow::Resu
 }
 
 /// Ensures that the full node provides the required REST endpoint for event processing.
-async fn ensure_experimental_rest_endpoint_exists(client: Client) -> anyhow::Result<()> {
+async fn ensure_experimental_rest_endpoint_exists(client: Arc<Client>) -> anyhow::Result<()> {
     if !check_experimental_rest_endpoint_exists(client.clone()).await? {
         bail!(
             "the configured full node *does not* provide the required REST endpoint for event \
