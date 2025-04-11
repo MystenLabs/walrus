@@ -41,18 +41,13 @@ mod tests {
             config
         });
 
-        let (sui_cluster, _walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(60 * 60),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4],
-                    ..Default::default()
-                },
-                Some(10),
-                ClientCommunicationConfig::default_for_test(),
-                false,
-                None,
-            )
+        let (sui_cluster, _walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                ..Default::default()
+            })
+            .with_num_checkpoints_per_blob(10)
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 
@@ -185,23 +180,21 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_lagging_node_recovery() {
-        let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(30),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4],
-                    use_legacy_event_processor: true,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
-                    enable_node_config_synchronizer: false,
-                },
-                None,
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            })
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(2),
                 ),
-                false,
-                None,
             )
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 
@@ -342,23 +335,21 @@ mod tests {
     async fn test_repeated_node_crash() {
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
         // changes in the test.
-        let (_sui_cluster, walrus_cluster, client) =
-            test_cluster::default_setup_with_num_checkpoints_generic::<SimStorageNodeHandle>(
-                Duration::from_secs(10),
-                TestNodesConfig {
-                    node_weights: vec![1, 2, 3, 3, 4],
-                    use_legacy_event_processor: true,
-                    disable_event_blob_writer: false,
-                    blocklist_dir: None,
-                    enable_node_config_synchronizer: false,
-                },
-                None,
+        let (_sui_cluster, walrus_cluster, client, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(10))
+            .with_test_nodes_config(TestNodesConfig {
+                node_weights: vec![1, 2, 3, 3, 4],
+                use_legacy_event_processor: true,
+                disable_event_blob_writer: false,
+                blocklist_dir: None,
+                enable_node_config_synchronizer: false,
+            })
+            .with_communication_config(
                 ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
                     Duration::from_secs(1),
                 ),
-                false,
-                None,
             )
+            .build_generic::<SimStorageNodeHandle>()
             .await
             .unwrap();
 

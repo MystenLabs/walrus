@@ -38,6 +38,7 @@ use sui_sdk::{
         Coin,
         DryRunTransactionBlockResponse,
         ObjectsPage,
+        ProtocolConfigResponse,
         SuiCommittee,
         SuiMoveNormalizedModule,
         SuiMoveNormalizedType,
@@ -486,6 +487,28 @@ impl RetriableSuiClient {
         Ok(client.with_metrics(Some(metrics)))
     }
     // Reimplementation of the `SuiClient` methods.
+
+    /// Return the protocol config, or an error upon failure.
+    ///
+    /// Reimplements the functionality of [`sui_sdk::apis::ReadApi::get_protocol_config`] with the
+    /// addition of retries on network errors.
+    pub async fn get_protocol_config(
+        &self,
+        version: Option<BigInt<u64>>,
+    ) -> SuiRpcResult<ProtocolConfigResponse> {
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .get_protocol_config(version)
+                    .await
+            },
+            self.metrics.clone(),
+            "get_protocol_config",
+        )
+        .await
+    }
 
     /// Return a list of coins for the given address, or an error upon failure.
     ///

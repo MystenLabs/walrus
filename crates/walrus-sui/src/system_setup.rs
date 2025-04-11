@@ -12,16 +12,18 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use move_core_types::account_address::AccountAddress;
-use move_package::BuildConfig as MoveBuildConfig;
+use move_package::{source_package::parsed_manifest::Dependencies, BuildConfig as MoveBuildConfig};
 use sui_move_build::{
     build_from_resolution_graph,
     check_invalid_dependencies,
     check_unpublished_dependencies,
     gather_published_ids,
+    implicit_deps,
     BuildConfig,
     CompiledPackage,
     PackageDependencies,
 };
+use sui_package_management::system_package_versions::system_packages_for_protocol;
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
@@ -33,6 +35,7 @@ use sui_sdk::{
     wallet_context::WalletContext,
 };
 use sui_types::{
+    committee::ProtocolVersion,
     transaction::{ObjectArg, TransactionKind},
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
@@ -82,9 +85,12 @@ pub(crate) async fn publish_package_with_default_build_config(
 /// Compiles a package and returns the dependencies, compiled package, and build config.
 pub(crate) async fn compile_package(
     package_path: PathBuf,
-    build_config: MoveBuildConfig,
+    mut build_config: MoveBuildConfig,
     chain_id: Option<String>,
+    protocol_version: ProtocolVersion,
 ) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+    build_config.implicit_dependencies = implicit_deps_for_protocol_version(protocol_version)?;
+
     let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
@@ -140,6 +146,12 @@ pub(crate) async fn compile_package(
     Ok((dependencies, compiled_package, build_config))
 }
 
+pub(crate) fn implicit_deps_for_protocol_version(
+    version: ProtocolVersion,
+) -> anyhow::Result<Dependencies> {
+    Ok(implicit_deps(system_packages_for_protocol(version)?.0))
+}
+
 #[tracing::instrument(err, skip(wallet, build_config))]
 pub(crate) async fn publish_package(
     wallet: &mut WalletContext,
@@ -150,9 +162,14 @@ pub(crate) async fn publish_package(
     let sender = wallet.active_address()?;
     let client = wallet.get_client().await?;
     let chain_id = client.read_api().get_chain_identifier().await.ok();
+    let protocol_version = client
+        .read_api()
+        .get_protocol_config(None)
+        .await?
+        .protocol_version;
 
     let (dependencies, compiled_package, build_config) =
-        compile_package(package_path, build_config, chain_id).await?;
+        compile_package(package_path, build_config, chain_id, protocol_version).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
@@ -225,7 +242,7 @@ pub(crate) struct PublishSystemPackageResult {
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
 #[tracing::instrument(err, skip(source, destination))]
-fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
     std::fs::create_dir_all(destination.as_ref())?;
     for entry in WalkDir::new(source.as_ref()) {
         let entry = entry?;

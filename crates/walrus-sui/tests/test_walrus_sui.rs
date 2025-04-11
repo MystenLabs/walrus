@@ -660,6 +660,7 @@ async fn publish_with_default_system_with_epoch_duration(
         None,
         false,
         None,
+        None,
     )
     .await?;
 
