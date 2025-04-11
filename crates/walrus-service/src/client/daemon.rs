@@ -22,7 +22,13 @@ use axum_extra::{
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 pub use routes::PublisherQuery;
-use routes::{BLOB_GET_ENDPOINT, BLOB_OBJECT_GET_ENDPOINT, BLOB_PUT_ENDPOINT, STATUS_ENDPOINT};
+use routes::{
+    daemon_cors_layer,
+    BLOB_GET_ENDPOINT,
+    BLOB_OBJECT_GET_ENDPOINT,
+    BLOB_PUT_ENDPOINT,
+    STATUS_ENDPOINT,
+};
 use sui_types::base_types::ObjectID;
 use tower::{
     buffer::BufferLayer,
@@ -208,7 +214,8 @@ impl<T: WalrusReadClient + Send + Sync + 'static> ClientDaemon<T> {
                 TraceLayer::new_for_http()
                     .make_span_with(MakeHttpSpan::new())
                     .on_response(MakeHttpSpan::new()),
-            );
+            )
+            .layer(daemon_cors_layer());
 
         axum::serve(
             listener,
@@ -274,34 +281,30 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
         );
 
         let base_layers = ServiceBuilder::new()
-            .layer(DefaultBodyLimit::max(max_body_limit))
             .layer(HandleErrorLayer::new(handle_publisher_error))
             .layer(LoadShedLayer::new())
             .layer(BufferLayer::new(max_request_buffer_size))
-            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests));
+            .layer(ConcurrencyLimitLayer::new(max_concurrent_requests))
+            .layer(DefaultBodyLimit::max(max_body_limit));
 
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
             let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
-                put(routes::put_blob)
-                    .route_layer(
-                        ServiceBuilder::new()
-                            .layer(axum::middleware::from_fn_with_state(
-                                (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
-                                auth_layer,
-                            ))
-                            .layer(base_layers),
-                    )
-                    .options(routes::store_blob_options),
+                put(routes::put_blob).route_layer(
+                    ServiceBuilder::new()
+                        .layer(axum::middleware::from_fn_with_state(
+                            (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                            auth_layer,
+                        ))
+                        .layer(base_layers),
+                ),
             );
         } else {
             self.router = self.router.route(
                 BLOB_PUT_ENDPOINT,
-                put(routes::put_blob)
-                    .route_layer(base_layers)
-                    .options(routes::store_blob_options),
+                put(routes::put_blob).route_layer(base_layers),
             );
         }
         self

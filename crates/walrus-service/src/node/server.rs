@@ -21,7 +21,10 @@ use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use tracing::Instrument as _;
 use utoipa::OpenApi as _;
 use utoipa_redoc::{Redoc, Servable as _};
@@ -191,7 +194,8 @@ where
                     // specifically this error, we disable it.
                     .on_failure(())
                     .on_response(MakeHttpSpan::new()),
-            );
+            )
+            .layer(Self::cors_layer());
 
         let app = self
             .define_routes()
@@ -387,6 +391,14 @@ where
             .route(routes::BLOB_STATUS_ENDPOINT, get(routes::get_blob_status))
             .route(routes::HEALTH_ENDPOINT, get(routes::health_info))
             .route(routes::SYNC_SHARD_ENDPOINT, post(routes::sync_shard))
+    }
+
+    /// Returns the CORS leayer for the server.
+    fn cors_layer() -> CorsLayer {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any)
     }
 }
 
