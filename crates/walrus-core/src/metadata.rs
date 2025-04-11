@@ -3,8 +3,11 @@
 
 //! Metadata associated with a Blob and stored by storage nodes.
 
-use alloc::vec::Vec;
-use core::num::NonZeroU16;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{fmt::Debug, num::NonZeroU16};
 
 use enum_dispatch::enum_dispatch;
 use fastcrypto::hash::{Blake2b256, HashFunction};
@@ -18,6 +21,7 @@ use crate::{
         EncodingAxis,
         EncodingConfig,
         EncodingConfigTrait as _,
+        QuiltError,
     },
     merkle::{MerkleTree, Node as MerkleNode, DIGEST_LEN},
     BlobId,
@@ -44,6 +48,100 @@ pub enum VerificationError {
     /// available in the configuration provided.
     #[error("the unencoded blob length is too large for the given config")]
     UnencodedLengthTooLarge,
+}
+
+/// Represents a blob quilted into a single quilt blob.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltBlockV1 {
+    /// The unencoded length of the blob.
+    pub unencoded_length: u64,
+    /// The start sliver index of the block.
+    #[serde(skip)]
+    pub start_index: u16,
+    /// The end sliver index of the block.
+    pub end_index: u16,
+    /// The identifier of the block, it can be used to locate the blob in the quilt.
+    identifier: String,
+}
+
+impl QuiltBlockV1 {
+    /// Returns a new [`QuiltBlockV1`].
+    pub fn new(unencoded_length: u64, identifier: String) -> Self {
+        Self {
+            unencoded_length,
+            start_index: 0,
+            end_index: 0,
+            identifier,
+        }
+    }
+
+    /// Returns the identifier of the block.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+/// An index over the blobs in a quilt.
+///
+/// Each quilt block represents a blob stored in the quilt. And each blob is
+/// mapped to a contiguous index range.
+///
+/// INV: The blocks are sorted by their end index, as well as their identifier.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltIndexV1 {
+    /// Location/identity index of the blob in the quilt.
+    pub quilt_blocks: Vec<QuiltBlockV1>,
+}
+
+impl QuiltIndexV1 {
+    /// Returns the quilt block with the given blob identifier.
+    pub fn get_quilt_block_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> Result<&QuiltBlockV1, QuiltError> {
+        self.quilt_blocks
+            .iter()
+            .find(|block| block.identifier() == identifier)
+            .ok_or(QuiltError::BlobNotFoundInQuilt(identifier.to_string()))
+    }
+
+    /// Returns an iterator over the identifiers of the blobs in the quilt.
+    pub fn iter(&self) -> impl Iterator<Item = &str> {
+        self.quilt_blocks.iter().map(|block| block.identifier())
+    }
+
+    /// Returns the number of blocks in the quilt.
+    pub fn len(&self) -> usize {
+        self.quilt_blocks.len()
+    }
+
+    /// Returns true if the quilt index is empty.
+    pub fn is_empty(&self) -> bool {
+        self.quilt_blocks.is_empty()
+    }
+
+    /// Populate start_indices of the blocks, since the start index is not stored in wire format.
+    pub fn populate_start_indices(&mut self, first_start: u16) {
+        if let Some(first_block) = self.quilt_blocks.first_mut() {
+            first_block.start_index = first_start;
+        }
+
+        for i in 1..self.quilt_blocks.len() {
+            let prev_end_index = self.quilt_blocks[i - 1].end_index;
+            self.quilt_blocks[i].start_index = prev_end_index;
+        }
+    }
+}
+
+/// Metadata associated with a quilt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuiltMetadataV1 {
+    /// The BlobId of the quilt blob.
+    pub quilt_blob_id: BlobId,
+    /// The blob metadata of the quilt blob.
+    pub metadata: BlobMetadata,
+    /// The index of the quilt.
+    pub index: QuiltIndexV1,
 }
 
 /// [`BlobMetadataWithId`] that has been verified with [`UnverifiedBlobMetadataWithId::verify`].
