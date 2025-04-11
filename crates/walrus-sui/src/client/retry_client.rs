@@ -351,7 +351,12 @@ impl<T> FailoverWrapper<T> {
 
     /// Executes an operation on the current inner instance, falling back to the next one
     /// if it fails.
-    async fn with_failover<F, Fut, R>(&self, operation: F) -> Result<R, RetriableClientError>
+    async fn with_failover<F, Fut, R>(
+        &self,
+        operation: F,
+        metrics: Option<Arc<SuiClientMetricSet>>,
+        method: &str,
+    ) -> Result<R, RetriableClientError>
     where
         F: for<'a> Fn(Arc<T>) -> Fut,
         Fut: Future<Output = Result<R, RetriableClientError>>,
@@ -361,6 +366,10 @@ impl<T> FailoverWrapper<T> {
             .current_index
             .load(std::sync::atomic::Ordering::Relaxed);
         let mut current_index = start_index;
+
+        let mut retry_guard = metrics
+            .as_ref()
+            .map(|m| RetryCountGuard::new(m.clone(), format!("{method}_with_failover").as_str()));
 
         for i in 0..self.max_retries {
             let instance = self.get_client(current_index).await;
@@ -385,6 +394,10 @@ impl<T> FailoverWrapper<T> {
                     operation(instance).await
                 }
             };
+
+            if let Some(retry_guard) = retry_guard.as_mut() {
+                retry_guard.record_result(result.as_ref());
+            }
 
             match result {
                 Ok(result) => {
@@ -1398,7 +1411,9 @@ impl RetriableRpcClient {
             })
         };
 
-        self.client.with_failover(request).await
+        self.client
+            .with_failover(request, self.metrics.clone(), "get_checkpoint_summary")
+            .await
     }
 
     /// Gets the full checkpoint data for the given sequence number from the primary client.
@@ -1424,7 +1439,9 @@ impl RetriableRpcClient {
             })
         };
 
-        self.client.with_failover(request).await
+        self.client
+            .with_failover(request, self.metrics.clone(), "get_full_checkpoint")
+            .await
     }
 
     /// Gets the full checkpoint data for the given sequence number.
@@ -1571,7 +1588,13 @@ impl RetriableRpcClient {
             })
         };
 
-        self.client.with_failover(request).await
+        self.client
+            .with_failover(
+                request,
+                self.metrics.clone(),
+                "get_latest_checkpoint_summary",
+            )
+            .await
     }
 
     /// Gets the object with the given ID.
@@ -1588,7 +1611,9 @@ impl RetriableRpcClient {
             })
         };
 
-        self.client.with_failover(request).await
+        self.client
+            .with_failover(request, self.metrics.clone(), "get_object")
+            .await
     }
 }
 
@@ -1780,12 +1805,16 @@ mod tests {
 
         // Execute operation that should failover from first to second client.
         let result = wrapper
-            .with_failover(|client| {
-                Box::pin(async move {
-                    let client = client.as_ref();
-                    client.operation().await
-                })
-            })
+            .with_failover(
+                |client| {
+                    Box::pin(async move {
+                        let client = client.as_ref();
+                        client.operation().await
+                    })
+                },
+                None,
+                "operation",
+            )
             .await;
 
         assert!(matches!(result, Ok(ref s) if s == "success"));
@@ -1814,12 +1843,16 @@ mod tests {
 
         // Execute operation that should try both clients and fail.
         let result = wrapper
-            .with_failover(|client| {
-                Box::pin(async move {
-                    let client = client.as_ref();
-                    client.operation().await
-                })
-            })
+            .with_failover(
+                |client| {
+                    Box::pin(async move {
+                        let client = client.as_ref();
+                        client.operation().await
+                    })
+                },
+                None,
+                "operation",
+            )
             .await;
 
         // Verify result is error.
