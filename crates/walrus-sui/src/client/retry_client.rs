@@ -307,6 +307,7 @@ pub struct FailoverWrapper<T> {
 impl<T> FailoverWrapper<T> {
     /// The default maximum number of retries.
     const DEFAULT_MAX_RETRIES: usize = 3;
+    const DEFAULT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
     /// Creates a new failover wrapper.
     pub fn new(instances: Vec<(T, String)>) -> anyhow::Result<Self> {
@@ -408,12 +409,16 @@ impl<T> FailoverWrapper<T> {
                 Err(error) => {
                     last_error = Some(error);
                     if i < self.max_retries - 1 {
-                        tracing::warn!(
+                        tracing::event!(
+                            // A custom target for filtering.
+                            target: "walrus_sui::client::retry_client::failover",
+                            tracing::Level::DEBUG,
                             ?last_error,
                             current_client = self.get_name(current_index),
                             next_client = self.get_name(current_index + 1),
-                            "Failed to execute operation on client, retrying with next client",
+                            "Failed to execute operation on client, retrying with next client"
                         );
+                        tokio::time::sleep(Self::DEFAULT_RETRY_DELAY).await;
                         current_index += 1;
                     }
                 }
