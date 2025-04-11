@@ -254,7 +254,7 @@ jobs:
         with:
           message: >
             **Warning:** This PR touches the `mainnet-contracts` directory. This should only be
-            done if the Testnet contracts are updated.
+            done if the Mainnet contracts are updated.
 
             cc @karlwuest @mlegner
 
