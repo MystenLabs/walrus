@@ -307,7 +307,7 @@ pub struct FailoverWrapper<T> {
 impl<T> FailoverWrapper<T> {
     /// The default maximum number of retries.
     const DEFAULT_MAX_RETRIES: usize = 3;
-    const DEFAULT_RETRY_DELAY: Duration = Duration::from_millis(500);
+    const DEFAULT_RETRY_DELAY: Duration = Duration::from_millis(100);
 
     /// Creates a new failover wrapper.
     pub fn new(instances: Vec<(T, String)>) -> anyhow::Result<Self> {
@@ -418,6 +418,7 @@ impl<T> FailoverWrapper<T> {
                             next_client = self.get_name(current_index + 1),
                             "Failed to execute operation on client, retrying with next client"
                         );
+                        // Sleep for a short duration to avoid aggressive retries.
                         tokio::time::sleep(Self::DEFAULT_RETRY_DELAY).await;
                         current_index += 1;
                     }
