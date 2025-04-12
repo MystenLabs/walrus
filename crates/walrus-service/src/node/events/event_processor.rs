@@ -1330,7 +1330,6 @@ mod tests {
             false,
         )?;
         let rest_url = "http://localhost:8080";
-        let client = sui_rpc_api::Client::new(rest_url)?;
         let fallible = FallibleRpcClient::new(rest_url.to_string())?;
         let retry_client = RetriableRpcClient::new(
             vec![(fallible, rest_url.to_string())],

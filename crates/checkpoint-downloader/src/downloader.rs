@@ -502,7 +502,6 @@ mod tests {
     use std::time::Duration;
 
     use rocksdb::Options;
-    use sui_rpc_api::Client;
     use typed_store::{
         rocks,
         rocks::{errors::typed_store_err_from_rocks_err, MetricConf, ReadWriteOptions},
@@ -516,7 +515,6 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
         let rest_url = "http://localhost:9000";
-        let client = Client::new(rest_url)?;
         let fallible = FallibleRpcClient::new(rest_url.to_string())?;
         let retriable_client = RetriableRpcClient::new(
             vec![(fallible, rest_url.to_string())],

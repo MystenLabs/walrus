@@ -9,7 +9,6 @@ use std::{
     collections::BTreeMap,
     fmt::Debug,
     future::Future,
-    mem,
     str::FromStr,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -1202,19 +1201,47 @@ impl From<tonic::Status> for RetriableClientError {
 }
 
 impl RetriableClientError {
-    fn is_eligible_for_fallback(&self, next_checkpoint: u64, window_size: u64) -> bool {
+    /// The time window during which failures are counted.
+    const FAILURE_WINDOW: Duration = Duration::from_secs(300);
+    /// The maximum number of failures allowed.
+    const MAX_FAILURES: usize = 100;
+
+    /// Returns `true` if the error is eligible for fallback.
+    ///
+    /// For pruned checkpoints (indicated by a `NotFound` error and sequence number <= height),
+    /// we will fallback immediately. For missing events, we will also fallback immediately.
+    /// For all other errors, we will fallback if the failure window has been exceeded.
+    fn is_eligible_for_fallback(
+        &self,
+        next_checkpoint: u64,
+        last_success: Instant,
+        num_failures: usize,
+    ) -> bool {
         match self {
-            Self::RpcError(rpc_error) if rpc_error.status.code() == tonic::Code::NotFound => {
-                rpc_error.status.checkpoint_height().is_some_and(|height| {
-                    if next_checkpoint <= height {
-                        true
-                    } else {
-                        height + window_size >= next_checkpoint
-                    }
-                })
+            Self::RpcError(rpc_error)
+                if rpc_error.status.code() == tonic::Code::NotFound
+                    && rpc_error
+                        .status
+                        .checkpoint_height()
+                        .is_some_and(|height| next_checkpoint <= height) =>
+            {
+                true
             }
-            _ => true,
+            Self::RpcError(rpc_error)
+                if rpc_error.status.code() == tonic::Code::Internal
+                    && rpc_error.status.message().contains("missing event") =>
+            {
+                true
+            }
+            _ => self.is_failure_window_exceeded(last_success, num_failures),
         }
+    }
+
+    /// Returns `true` if the failure window has been exceeded. Failure window is exceeded if
+    /// the number of failures exceeds `MAX_FAILURES` and if the last successful RPC call was
+    /// more than `FAILURE_WINDOW` minutes ago.
+    fn is_failure_window_exceeded(&self, last_success: Instant, num_failures: usize) -> bool {
+        last_success.elapsed() > Self::FAILURE_WINDOW && num_failures > Self::MAX_FAILURES
     }
 }
 
@@ -1270,7 +1297,7 @@ pub struct FallibleRpcClient {
 }
 
 impl FallibleRpcClient {
-    /// The time window for which failures are counted.
+    /// The time window during which failures are counted.
     const FAILURE_WINDOW: Duration = Duration::from_secs(600);
     /// The maximum number of failures allowed.
     const MAX_FAILURES: usize = 100;
@@ -1309,14 +1336,20 @@ impl FallibleRpcClient {
         let Ok(inner_result) = result else {
             self.num_failures.fetch_add(1, Ordering::Relaxed);
             let last_success = self.last_success.load(Ordering::Relaxed);
+            // The two conditions together mean that the client has been failing for more than 10
+            // minutes and has had more than 100 failures. Given we request checkpoint data at 4.2
+            // checkpoints per second, this means that we would have requested ~2400 checkpoints in
+            // the last 10 minutes. So this is a good proxy for the client being stuck in a failed
+            // state.
             if last_success.elapsed() > Self::FAILURE_WINDOW
                 && self.num_failures.load(Ordering::Relaxed) > Self::MAX_FAILURES
             {
-                mem::drop(client);
+                tracing::info!("rpc client is stuck in a failed state, recreating client");
+                drop(client);
                 let mut client = self.client.write().await;
                 *client = Arc::new(RpcClient::new(self.rpc_url.clone())?);
             }
-            return Err(tonic::Status::deadline_exceeded("request timed out"));
+            return result;
         };
 
         self.last_success.store(Instant::now(), Ordering::Relaxed);
@@ -1329,6 +1362,7 @@ impl std::fmt::Debug for FallibleRpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FallibleRpcClient")
             .field("rpc_url", &self.rpc_url)
+            .field("last_success", &self.last_success.load(Ordering::Relaxed))
             .field("num_failures", &self.num_failures.load(Ordering::Relaxed))
             .finish()
     }
@@ -1341,20 +1375,21 @@ impl std::fmt::Debug for FallibleRpcClient {
 pub struct RetriableRpcClient {
     client: Arc<FailoverWrapper<FallibleRpcClient>>,
     request_timeout: Duration,
-    main_backoff_config: ExponentialBackoffConfig,
+    backoff_config: ExponentialBackoffConfig,
     fallback_client: Option<FallbackClient>,
-    quick_retry_config: ExponentialBackoffConfig,
     metrics: Option<Arc<SuiClientMetricSet>>,
-    last_height_update: Arc<AtomicInstant>,
+    last_success: Arc<AtomicInstant>,
+    num_failures: Arc<AtomicUsize>,
 }
 
 impl std::fmt::Debug for RetriableRpcClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RetriableRpcClient")
-            .field("main_backoff_config", &self.main_backoff_config)
+            .field("backoff_config", &self.backoff_config)
             // Skip detailed client debug info since it's not typically useful
             .field("client", &"FailoverWrapper<FallibleRpcClient>")
             .field("fallback_client", &"CheckpointDownloadClient")
+            .field("num_failures", &self.num_failures.load(Ordering::Relaxed))
             .finish()
     }
 }
@@ -1378,29 +1413,12 @@ impl RetriableRpcClient {
         Ok(Self {
             client,
             request_timeout,
-            main_backoff_config: backoff_config,
+            backoff_config,
             fallback_client,
-            quick_retry_config: fallback_config
-                .map(|config| config.quick_retry_config)
-                .unwrap_or_else(|| {
-                    ExponentialBackoffConfig::new(
-                        Duration::from_millis(100),
-                        Duration::from_millis(300),
-                        Some(5),
-                    )
-                }),
             metrics: None,
-            last_height_update: Arc::new(AtomicInstant::new(Instant::now())),
+            last_success: Arc::new(AtomicInstant::new(Instant::now())),
+            num_failures: Arc::new(AtomicUsize::new(0)),
         })
-    }
-
-    /// Gets a default backoff strategy based on whether a fallback client is configured.
-    fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
-        if self.fallback_client.is_some() {
-            self.get_quick_strategy()
-        } else {
-            self.get_extended_strategy()
-        }
     }
 
     /// Gets an extended retry strategy, seeded from the internal RNG.
@@ -1408,18 +1426,8 @@ impl RetriableRpcClient {
     /// by the fallback client or when the fallback client is not configured.
     ///
     /// This strategy is also used for all fallback client operations.
-    fn get_extended_strategy(&self) -> ExponentialBackoff<StdRng> {
-        self.main_backoff_config
-            .get_strategy(ThreadRng::default().gen())
-    }
-
-    /// Gets a quick retry strategy, seeded from the internal RNG.
-    ///
-    /// This strategy is used for primary client operations that are supported
-    /// by the fallback client
-    fn get_quick_strategy(&self) -> ExponentialBackoff<StdRng> {
-        self.quick_retry_config
-            .get_strategy(ThreadRng::default().gen())
+    fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
+        self.backoff_config.get_strategy(ThreadRng::default().gen())
     }
 
     /// Gets the checkpoint summary for the given sequence number from the primary client.
@@ -1434,9 +1442,8 @@ impl RetriableRpcClient {
         ) -> Result<CertifiedCheckpointSummary, RetriableClientError> {
             client
                 .call(
-                    |c| {
-                        let c = c.clone();
-                        async move { c.get_checkpoint_summary(sequence_number).await }
+                    |rpc_client| {
+                        async move { rpc_client.get_checkpoint_summary(sequence_number).await }
                     },
                     request_timeout,
                 )
@@ -1508,12 +1515,13 @@ impl RetriableRpcClient {
                         start_time.elapsed(),
                     )
                 });
-                self.update_last_height();
+                self.reset_fullnode_failure_metrics();
                 return Ok(checkpoint);
             }
             Err(error) => error,
         };
 
+        self.num_failures.fetch_add(1, Ordering::Relaxed);
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
             self.metrics.as_ref().inspect(|metrics| {
@@ -1527,7 +1535,11 @@ impl RetriableRpcClient {
             return Err(error);
         };
 
-        if !error.is_eligible_for_fallback(sequence_number, self.get_window_size()) {
+        if !error.is_eligible_for_fallback(
+            sequence_number,
+            self.last_success.load(Ordering::Relaxed),
+            self.num_failures.load(Ordering::Relaxed),
+        ) {
             tracing::debug!(
                 "primary client error while fetching checkpoint is not eligible for fallback"
             );
@@ -1566,7 +1578,7 @@ impl RetriableRpcClient {
     ) -> Result<CheckpointData, RetriableClientError> {
         tracing::debug!(sequence_number, "fetching checkpoint from fallback client");
         return retry_rpc_errors(
-            self.get_extended_strategy(),
+            self.get_strategy(),
             || async {
                 fallback
                     .get_full_checkpoint(sequence_number)
@@ -1632,7 +1644,7 @@ impl RetriableRpcClient {
 
         let request = |client: Arc<FallibleRpcClient>| {
             let inner_request = retry_rpc_errors(
-                self.get_extended_strategy(),
+                self.get_strategy(),
                 move || make_request(client.clone(), self.request_timeout),
                 self.metrics.clone(),
                 "get_latest_checkpoint_summary",
@@ -1661,7 +1673,7 @@ impl RetriableRpcClient {
 
         let request = |client: Arc<FallibleRpcClient>| {
             let inner_request = retry_rpc_errors(
-                self.get_extended_strategy(),
+                self.get_strategy(),
                 move || make_request(client.clone(), id, self.request_timeout),
                 self.metrics.clone(),
                 "get_object",
@@ -1672,37 +1684,10 @@ impl RetriableRpcClient {
         self.client.with_failover(request).await
     }
 
-    /// Updates the last known height update time
-    fn update_last_height(&self) {
-        self.last_height_update
-            .store(Instant::now(), Ordering::Relaxed);
-    }
-
-    /// Gets the exponential window size based on time since last height update
-    fn get_window_size(&self) -> u64 {
-        let time_since_last_height = self.last_height_update.load(Ordering::Relaxed).elapsed();
-        let seconds_since_last_height = time_since_last_height.as_secs();
-
-        // For the first minute, disable fallback
-        if seconds_since_last_height < 60 {
-            return 0;
-        }
-
-        // After first minute, start exponential growth
-        // Subtract 60 to start counting from when exponential growth begins
-        let seconds_since_growth_start = seconds_since_last_height - 60;
-
-        // Base window size of 50 checkpoints (10 seconds worth at ~5 checkpoints/second)
-        let base_window = 50;
-
-        // Exponential growth after first minute (assuming 5 checkpoints/second), this gives us:
-        // 50 checkpoints (10s worth) in 120 seconds
-        // and 500 checkpoints (100s worth) in 240 seconds and 5000 checkpoints (1000s worth) in 360 seconds
-        // which means we grow exponentially to catch up within 360 seconds ~ 6 minutes
-        let exponential_factor = 10u64.pow((seconds_since_growth_start / 60) as u32);
-
-        // Cap at 10 million checkpoints
-        (base_window * exponential_factor).min(10_000_000)
+    /// Resets the last known height update time
+    fn reset_fullnode_failure_metrics(&self) {
+        self.last_success.store(Instant::now(), Ordering::Relaxed);
+        self.num_failures.store(0, Ordering::Relaxed);
     }
 }
 
