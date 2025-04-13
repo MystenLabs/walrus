@@ -841,10 +841,16 @@ impl EventProcessor {
 
     /// Opens the stores for the event processor.
     pub fn open_stores(database: &Arc<RocksDB>) -> Result<EventProcessorStores, anyhow::Error> {
+        let default_rw_opts = ReadWriteOptions::default();
+        tracing::info!(
+            "open checkpoint_store, walrus_package_store, \
+            committee_store with default_rw_opts: {:?}",
+            default_rw_opts
+        );
         let checkpoint_store = DBMap::reopen(
             database,
             Some(constants::CHECKPOINT_STORE),
-            &ReadWriteOptions::default(),
+            &default_rw_opts,
             false,
         )?;
         let walrus_package_store = DBMap::reopen(
@@ -856,19 +862,24 @@ impl EventProcessor {
         let committee_store = DBMap::reopen(
             database,
             Some(constants::COMMITTEE_STORE),
-            &ReadWriteOptions::default(),
+            &default_rw_opts,
             false,
         )?;
+        let event_store_opts = ReadWriteOptions::default().set_ignore_range_deletions(true);
+        tracing::info!(
+            "open event_store and init_state with event_store_opts: {:?}",
+            event_store_opts
+        );
         let event_store = DBMap::reopen(
             database,
             Some(constants::EVENT_STORE),
-            &ReadWriteOptions::default().set_ignore_range_deletions(true),
+            &event_store_opts,
             false,
         )?;
         let init_state = DBMap::reopen(
             database,
             Some(constants::INIT_STATE),
-            &ReadWriteOptions::default().set_ignore_range_deletions(true),
+            &event_store_opts,
             false,
         )?;
 
