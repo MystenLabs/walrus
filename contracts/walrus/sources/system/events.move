@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// Module to emit events. Used to allow filtering all events in the
-/// rust client (as work-around for the lack of composable event filters).
+/// Rust client (as work-around for the lack of composable event filters).
 module walrus::events;
 
 use sui::event;

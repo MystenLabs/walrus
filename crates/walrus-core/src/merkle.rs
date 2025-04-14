@@ -22,7 +22,7 @@ const EMPTY_NODE: [u8; DIGEST_LEN] = [0; DIGEST_LEN];
 #[error("index {0} is too large")]
 pub struct LeafIndexOutOfBounds(usize);
 
-/// A node in the Merkle tree
+/// A node in the Merkle tree.
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum Node {
     /// A node with an empty subtree.
