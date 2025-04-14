@@ -891,8 +891,7 @@ impl NodeHealthOutput {
                     {event_heading}
                     Events persisted: {persisted}
                     Events pending: {pending}{highest_finished_event_index_output}
-                    Latest checkpoint sequence number: {latest_checkpoint_sequence_number_output}
-                    Estimated checkpoint lag: {checkpoint_lag}
+                    {checkpoint_info}
 
                     {shard_heading}
                     Owned shards: {owned}
@@ -916,21 +915,26 @@ impl NodeHealthOutput {
                         .map_or("".to_string(), |index| format!(
                             "\nHighest finished event index: {index}"
                         )),
-                    latest_checkpoint_sequence_number_output = health_info
-                        .latest_checkpoint_sequence_number
-                        .map_or("n/a".to_string(), |seq_num|
-                            format!("{seq_num}")
-                        ),
-                    checkpoint_lag =
-                        match (latest_seq, health_info.latest_checkpoint_sequence_number) {
-                            (Some(latest_seq), Some(checkpoint_seq)) => {
-                                if latest_seq >= checkpoint_seq {
-                                    format!("{}", latest_seq - checkpoint_seq)
-                                } else {
-                                    "up-to-date".to_string()
-                                }
-                            }
-                            _ => "n/a".to_string(),
+                    checkpoint_info = match (
+                        latest_seq,
+                        health_info.latest_checkpoint_sequence_number,
+                    ) {
+                        (Some(latest_seq), Some(checkpoint_seq)) => {
+                            let lag = if latest_seq >= checkpoint_seq {
+                                format!("{}", latest_seq - checkpoint_seq)
+                            } else {
+                                "up-to-date".to_string()
+                            };
+                            format!(
+                                "\nLatest checkpoint sequence number: {}\
+                                \nEstimated checkpoint lag: {}",
+                                checkpoint_seq, lag
+                            )
+                        },
+                        (Some(latest_seq), None) => {
+                            format!("\nLatest sui checkpoint: {}", latest_seq)
+                        },
+                        _ => "".to_string(),
                     },
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,

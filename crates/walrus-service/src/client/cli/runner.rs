@@ -758,8 +758,11 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
-        let latest_seq =
-            get_latest_checkpoint_sequence_number(rpc_url.as_ref(), &self.wallet).await;
+        let latest_seq = if detail {
+            get_latest_checkpoint_sequence_number(rpc_url.as_ref(), &self.wallet).await
+        } else {
+            None
+        };
 
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
