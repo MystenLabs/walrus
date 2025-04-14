@@ -579,6 +579,11 @@ impl SuiReadClient {
             })
     }
 
+    /// Get the reference gas price for the current epoch.
+    pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
+        Ok(self.sui_client.get_reference_gas_price().await?)
+    }
+
     /// Get the [`StorageNodeCap`] object associated with the address.
     ///
     /// Returns an error if there is more than one [`StorageNodeCap`] object associated with the

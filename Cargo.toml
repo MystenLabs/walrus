@@ -27,6 +27,7 @@ version = "1.22.0"
 anyhow = "1.0.97"
 async-channel = "2.3.1"
 async-trait = "0.1.88"
+atomic-time = "0.1.5"
 axum = { version = "0.8", default-features = false, features = ["http2", "tokio"] }
 axum-extra = { version = "0.10" }
 axum-server = { version = "0.7.2", default-features = false }
