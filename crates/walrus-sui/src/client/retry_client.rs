@@ -356,15 +356,16 @@ impl<T> FailoverWrapper<T> {
 
     /// Executes an operation on the current inner instance, falling back to the next one
     /// if it fails.
-    async fn with_failover<F, Fut, R>(
+    async fn with_failover<E, F, Fut, R>(
         &self,
         operation: F,
         metrics: Option<Arc<SuiClientMetricSet>>,
         method: &str,
-    ) -> Result<R, RetriableClientError>
+    ) -> Result<R, E>
     where
         F: for<'a> Fn(Arc<T>) -> Fut,
-        Fut: Future<Output = Result<R, RetriableClientError>>,
+        Fut: Future<Output = Result<R, E>>,
+        E: RetriableRpcError + ToErrorType + From<tonic::Status>,
     {
         let mut last_error = None;
         let start_index = self
@@ -387,9 +388,9 @@ impl<T> FailoverWrapper<T> {
                         inject_error = should_inject_error(current_index);
                     });
                     if inject_error {
-                        Err(RetriableClientError::RpcError(
-                            tonic::Status::internal("injected error for testing").into(),
-                        ))
+                        Err(E::from(tonic::Status::internal(
+                            "injected error for testing",
+                        )))
                     } else {
                         operation(instance).await
                     }
