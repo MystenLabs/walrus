@@ -758,30 +758,8 @@ impl ClientCommandRunner {
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
 
-        let client_url = if let Some(url) = rpc_url.as_ref() {
-            Some(url.clone())
-        } else if let Ok(wallet) = &self.wallet {
-            wallet
-                .config
-                .get_active_env()
-                .ok()
-                .map(|env| env.rpc.clone())
-        } else {
-            None
-        };
-        let latest_seq = if let Some(url) = client_url {
-            let rpc_client_result = sui_rpc_api::Client::new(url);
-            if let Ok(rpc_client) = rpc_client_result {
-                match rpc_client.get_latest_checkpoint().await {
-                    Ok(checkpoint) => Some(checkpoint.sequence_number),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let latest_seq =
+            get_latest_checkpoint_sequence_number(rpc_url.as_ref(), &self.wallet).await;
 
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
@@ -1359,4 +1337,41 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
+}
+
+/// Get the latest checkpoint sequence number from the Sui RPC node.
+async fn get_latest_checkpoint_sequence_number(
+    rpc_url: Option<&String>,
+    wallet: &Result<WalletContext, anyhow::Error>,
+) -> Option<u64> {
+    let client_url = if let Some(url) = rpc_url {
+        Some(url.clone())
+    } else if let Ok(wallet) = wallet {
+        wallet
+            .config
+            .get_active_env()
+            .ok()
+            .map(|env| env.rpc.clone())
+    } else {
+        None
+    };
+
+    if let Some(url) = client_url {
+        let rpc_client_result = sui_rpc_api::Client::new(url);
+        if let Ok(rpc_client) = rpc_client_result {
+            match rpc_client.get_latest_checkpoint().await {
+                Ok(checkpoint) => Some(checkpoint.sequence_number),
+                Err(e) => {
+                    println!("Failed to get latest checkpoint: {e}");
+                    None
+                }
+            }
+        } else {
+            println!("Failed to create RPC client.");
+            None
+        }
+    } else {
+        println!("Failed to get full node RPC URL.");
+        None
+    }
 }

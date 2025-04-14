@@ -893,7 +893,6 @@ impl NodeHealthOutput {
                     Events pending: {pending}{highest_finished_event_index_output}
                     Latest checkpoint sequence number: {latest_checkpoint_sequence_number_output}
                     Estimated checkpoint lag: {checkpoint_lag}
-                    Latest checkpoint on Sui: {latest_checkpoint_on_sui}
 
                     {shard_heading}
                     Owned shards: {owned}
@@ -932,11 +931,6 @@ impl NodeHealthOutput {
                                 }
                             }
                             _ => "n/a".to_string(),
-                    },
-                    latest_checkpoint_on_sui = if let Some(latest_seq) = latest_seq {
-                        format!("{}", latest_seq)
-                    } else {
-                        "n/a".to_string()
                     },
                     shard_heading = "Shard Summary".bold().walrus_teal(),
                     owned = health_info.shard_summary.owned,
