@@ -757,6 +757,32 @@ impl ClientCommandRunner {
         sort: SortBy<HealthSortBy>,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
+
+        let client_url = if let Some(url) = rpc_url.as_ref() {
+            Some(url.clone())
+        } else if let Ok(wallet) = &self.wallet {
+            wallet
+                .config
+                .get_active_env()
+                .ok()
+                .map(|env| env.rpc.clone())
+        } else {
+            None
+        };
+        let latest_seq = if let Some(url) = client_url {
+            let rpc_client_result = sui_rpc_api::Client::new(url);
+            if let Ok(rpc_client) = rpc_client_result {
+                match rpc_client.get_latest_checkpoint().await {
+                    Ok(checkpoint) => Some(checkpoint.sequence_number),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -772,20 +798,6 @@ impl ClientCommandRunner {
             )),
             None,
         )?;
-
-        let latest_seq = if let Some(url) = rpc_url {
-            let rpc_client_result = sui_rpc_api::Client::new(url);
-            if let Ok(rpc_client) = rpc_client_result {
-                match rpc_client.get_latest_checkpoint().await {
-                    Ok(checkpoint) => Some(checkpoint.sequence_number),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
 
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
