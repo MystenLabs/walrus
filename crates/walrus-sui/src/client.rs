@@ -2236,7 +2236,7 @@ impl SuiContractClientInner {
         method: &str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         // Get the current gas price from the network
-        let gas_price = self.wallet.get_reference_gas_price().await?;
+        let gas_price = self.read_client.get_reference_gas_price().await?;
         let wallet_address = self.wallet.active_address()?;
 
         tracing::debug!(?programmable_transaction, "sending PTB");
