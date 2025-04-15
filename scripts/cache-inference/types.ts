@@ -4,10 +4,6 @@ export type Network = "mainnet" | "testnet";
 export type AggregatorData = {
     cache?: {
         hasCache: boolean;
-        headers: {
-            key: string;
-            value: string | null;
-        }[];
         // TODO
         speedup?: any
     }
@@ -22,3 +18,13 @@ export type NetworkData = {
 
 export type Operators = Record<Network, NetworkData>
 
+export type AggregatorDataVerbose = AggregatorData & {
+    cache?: {
+        headers?: Record<string, [string, string]>;
+    };
+};
+
+export type NetworkDataVerbose = {
+    aggregators?: Record<string, AggregatorDataVerbose>;
+    publishers?: Record<string, PublisherData>;
+};
