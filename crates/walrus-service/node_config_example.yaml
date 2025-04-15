@@ -91,6 +91,7 @@ blob_recovery:
   sliver_request_timeout_secs: 300
   invalidity_sync_timeout_secs: 300
   node_connect_timeout_secs: 1
+  experimental_sliver_recovery_additional_symbols: 0
 tls:
   disable_tls: false
   certificate_path: null

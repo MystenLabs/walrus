@@ -866,7 +866,7 @@ impl StorageNodeHandleBuilder {
         });
 
         // Create the node's config using the previously generated keypair and address.
-        let config = StorageNodeConfig {
+        let mut config = StorageNodeConfig {
             name: self.name.unwrap_or_else(|| "node".to_string()),
             storage_path: temp_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
@@ -885,6 +885,10 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: self.storage_node_capability.clone().map(|cap| cap.id),
             ..storage_node_config().inner
         };
+
+        if cfg!(msim) {
+            randomize_sliver_recovery_additional_symbols(&mut config);
+        }
 
         let cancel_token = CancellationToken::new();
 
@@ -1008,7 +1012,7 @@ impl StorageNodeHandleBuilder {
             .expect("test config must be provided to spawn a storage node");
 
         // Builds the storage node config used to run the node.
-        let storage_node_config = StorageNodeConfig {
+        let mut storage_node_config = StorageNodeConfig {
             storage_path: storage_dir.path().to_path_buf(),
             protocol_key_pair: node_info.key_pair.into(),
             next_protocol_key_pair: None,
@@ -1048,6 +1052,8 @@ impl StorageNodeHandleBuilder {
             storage_node_cap: node_capability.map(|cap| cap.id),
             ..storage_node_config().inner
         };
+
+        randomize_sliver_recovery_additional_symbols(&mut storage_node_config);
 
         let cancel_token = CancellationToken::new();
         let node_config_arc = Arc::new(RwLock::new(storage_node_config.clone()));
@@ -1112,6 +1118,22 @@ impl Default for StorageNodeHandleBuilder {
             enable_node_config_synchronizer: false,
         }
     }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+fn randomize_sliver_recovery_additional_symbols(config: &mut StorageNodeConfig) {
+    use rand::Rng;
+
+    let mut rng = rand::thread_rng();
+    let additional_symbols = rng.gen_range(0..=50);
+    tracing::info!(
+        "randomizing sliver recovery additional symbols to {}",
+        additional_symbols
+    );
+    config
+        .blob_recovery
+        .committee_service_config
+        .experimental_sliver_recovery_additional_symbols = additional_symbols;
 }
 
 /// Waits until the node is ready by querying the node's health info endpoint using the node

@@ -241,8 +241,24 @@ where
         additional_symbols: usize,
     ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
         let mut committee_listener = self.shared.subscribe_to_committee_changes();
+
+        // Total symbols required to decode the sliver.
+        let total_symbols_required = self.total_symbols_required(additional_symbols);
+
+        // Total symbols to request from other storage nodes initially.
+        let total_symbols_to_request = std::cmp::min(
+            total_symbols_required
+                + self
+                    .shared
+                    .config
+                    .experimental_sliver_recovery_additional_symbols,
+            self.metadata.n_shards().get().into(),
+        );
+
+        // Track the collection of recovery symbols.
         let mut symbol_tracker = SymbolTracker::new(
-            self.total_symbols_required(additional_symbols),
+            total_symbols_required,
+            total_symbols_to_request,
             self.target_index,
             self.target_sliver_type,
         );
@@ -431,13 +447,16 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
                 self.tracker.extend_collected(symbols);
             }
 
+            // If we have collected enough symbols to decode the sliver, we can stop.
+            if self.tracker.is_done() {
+                break;
+            }
+
             // The request submitted with some or all of the requested symbols, or it failed
             // completely. In both cases, we need to replenish the requests as the number requested
             // is potentially not equal to the number returned.
             self.refill_pending_requests();
         }
-
-        debug_assert!(self.pending_requests.is_empty());
 
         if self.tracker.is_done() {
             Ok(self.tracker.collected_count())
@@ -564,7 +583,12 @@ struct SymbolTracker {
     // conversions to `SymbolId`.
     collected: HashMap<SliverIndex, GeneralRecoverySymbol>,
     symbols_in_progress_count: usize,
-    symbols_still_required_count: usize,
+    /// The number of symbols to request initially. This number is at least as large as
+    /// `symbols_required_to_decode_count`, with additional symbols to request to account for
+    /// potential errors in the symbols received.
+    symbols_desired_to_request_count: usize,
+    /// The number of symbols required to decode the target sliver.
+    symbols_required_to_decode_count: usize,
     target_index: SliverIndex,
     target_sliver_type: SliverType,
 }
@@ -574,11 +598,13 @@ impl SymbolTracker {
     /// the specified number of symbols.
     fn new(
         n_symbols_required: usize,
+        total_symbols_to_request: usize,
         target_index: SliverIndex,
         target_sliver_type: SliverType,
     ) -> Self {
         Self {
-            symbols_still_required_count: n_symbols_required,
+            symbols_required_to_decode_count: n_symbols_required,
+            symbols_desired_to_request_count: total_symbols_to_request,
             symbols_in_progress_count: 0,
             target_sliver_type,
             target_index,
@@ -590,7 +616,7 @@ impl SymbolTracker {
     ///
     /// This excludes the number of symbols that have been requested but are pending completion.
     fn number_of_symbols_to_request(&self) -> usize {
-        self.symbols_still_required_count
+        self.symbols_desired_to_request_count
             .saturating_sub(self.symbols_in_progress_count)
     }
 
@@ -618,14 +644,15 @@ impl SymbolTracker {
         self.collected.len()
     }
 
-    /// The total number of symbols collected.
+    /// The total number of symbols remaining to be collected until
+    /// `symbols_desired_to_request_count` is reached.
     fn remaining_count(&self) -> usize {
-        self.symbols_still_required_count
+        self.symbols_desired_to_request_count
     }
 
     /// Returns true if the sufficient symbols have been collected, false otherwise.
     fn is_done(&self) -> bool {
-        self.symbols_still_required_count == 0
+        self.collected.len() >= self.symbols_required_to_decode_count
     }
 
     /// Store the collected symbols and decrease the number of required symbols.
@@ -638,8 +665,8 @@ impl SymbolTracker {
                 // returned by storage nodes, which may be more symbols than initially requested.
                 // This can occur, for example, due to the remote node advancing an epoch and
                 // responding to the request using their new shard assignment.
-                self.symbols_still_required_count =
-                    self.symbols_still_required_count.saturating_sub(1);
+                self.symbols_desired_to_request_count =
+                    self.symbols_desired_to_request_count.saturating_sub(1);
             }
         }
     }
