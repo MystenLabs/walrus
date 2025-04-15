@@ -1344,34 +1344,34 @@ async fn get_latest_checkpoint_sequence_number(
     rpc_url: Option<&String>,
     wallet: &Result<WalletContext, anyhow::Error>,
 ) -> Option<u64> {
-    let client_url = if let Some(url) = rpc_url {
-        Some(url.clone())
+    // Early return if no URL is available
+    let url = if let Some(url) = rpc_url {
+        url.clone()
     } else if let Ok(wallet) = wallet {
-        wallet
-            .config
-            .get_active_env()
-            .ok()
-            .map(|env| env.rpc.clone())
-    } else {
-        None
-    };
-
-    if let Some(url) = client_url {
-        let rpc_client_result = sui_rpc_api::Client::new(url);
-        if let Ok(rpc_client) = rpc_client_result {
-            match rpc_client.get_latest_checkpoint().await {
-                Ok(checkpoint) => Some(checkpoint.sequence_number),
-                Err(e) => {
-                    println!("Failed to get latest checkpoint: {e}");
-                    None
-                }
+        match wallet.config.get_active_env() {
+            Ok(env) => env.rpc.clone(),
+            Err(_) => {
+                println!("Failed to get full node RPC URL.");
+                return None;
             }
-        } else {
-            println!("Failed to create RPC client.");
-            None
         }
     } else {
         println!("Failed to get full node RPC URL.");
+        return None;
+    };
+
+    // Now url is a String, not an Option<String>
+    let rpc_client_result = sui_rpc_api::Client::new(url);
+    if let Ok(rpc_client) = rpc_client_result {
+        match rpc_client.get_latest_checkpoint().await {
+            Ok(checkpoint) => Some(checkpoint.sequence_number),
+            Err(e) => {
+                println!("Failed to get latest checkpoint: {e}");
+                None
+            }
+        }
+    } else {
+        println!("Failed to create RPC client.");
         None
     }
 }
