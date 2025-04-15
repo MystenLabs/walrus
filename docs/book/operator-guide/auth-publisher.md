@@ -112,6 +112,10 @@ Specifically, the publisher will:
 - Verify the size of uploaded file;
 - Verify the uniqueness of the `jti` claim.
 
+Disabiling the parameter verification may be useful in case the source of the store requests is
+trusted, but the publisher mayy be contacted by untrusted sources. In that case, the authentication
+of the JWT is necessary, but not the verification of the upload parameters.
+
 ### Replay-suppression configuration
 
 As mentioned above, the publisher supports replay suppression to avoid the malicious reuse of JWT
