@@ -580,9 +580,6 @@ pub struct CommitteeServiceConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "node_connect_timeout_secs")]
     pub node_connect_timeout: Duration,
-    /// Use the experimental batch recovery service endpoint.
-    // TODO: Remove (WAL-594).
-    pub experimental_batch_symbol_recovery: bool,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -595,7 +592,6 @@ impl Default for CommitteeServiceConfig {
             invalidity_sync_timeout: Duration::from_secs(300),
             max_concurrent_metadata_requests: NonZeroUsize::new(1).unwrap(),
             node_connect_timeout: Duration::from_secs(1),
-            experimental_batch_symbol_recovery: true,
         }
     }
 }

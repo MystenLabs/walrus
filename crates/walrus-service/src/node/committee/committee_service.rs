@@ -41,12 +41,7 @@ use walrus_utils::metrics::Registry;
 
 use super::{
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
-    request_futures::{
-        GetAndVerifyMetadata,
-        GetInvalidBlobCertificate,
-        LegacyRecoverSliver,
-        RecoverSliver,
-    },
+    request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
     BeginCommitteeChangeError,
     CommitteeLookupService,
     CommitteeService,
@@ -515,27 +510,15 @@ where
         sliver_type: SliverType,
         certified_epoch: Epoch,
     ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
-        if self.inner.config.experimental_batch_symbol_recovery {
-            RecoverSliver::new(
-                metadata,
-                sliver_id,
-                sliver_type,
-                certified_epoch,
-                &self.inner,
-            )
-            .run()
-            .await
-        } else {
-            LegacyRecoverSliver::new(
-                metadata,
-                sliver_id,
-                sliver_type,
-                certified_epoch,
-                &self.inner,
-            )
-            .run()
-            .await
-        }
+        RecoverSliver::new(
+            metadata,
+            sliver_id,
+            sliver_type,
+            certified_epoch,
+            &self.inner,
+        )
+        .run()
+        .await
     }
 
     #[tracing::instrument(name = "get_invalid_blob_certificate committee", skip_all)]

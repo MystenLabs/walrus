@@ -53,6 +53,7 @@ use super::{DefaultRecoverySymbol, NodeServiceFactory};
 #[derive(Debug, Clone)]
 pub(crate) enum Request {
     GetVerifiedMetadata(BlobId),
+    #[allow(unused)]
     GetVerifiedRecoverySymbol {
         sliver_type: SliverType,
         metadata: Arc<VerifiedBlobMetadataWithId>,
