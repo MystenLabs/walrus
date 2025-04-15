@@ -4,12 +4,16 @@ export type Network = "mainnet" | "testnet";
 export type AggregatorData = {
     cache?: {
         hasCache: boolean;
-        // TODO
-        speedup?: any
-    }
+        speedupMs?: number | [number, [number, number]]
+    },
+    operator?: string;
+    [key: string]: unknown;
 }
 
-export type PublisherData = Object;
+export type PublisherData = {
+    operator?: string
+    [key: string]: unknown;
+};
 
 export type NetworkData = {
     aggregators?: Record<string, AggregatorData>;
@@ -18,9 +22,13 @@ export type NetworkData = {
 
 export type Operators = Record<Network, NetworkData>
 
+type NotExisting = undefined;
+type NullHeaderValue = null;
+export type HeaderValue = string | NotExisting | NullHeaderValue
+
 export type AggregatorDataVerbose = AggregatorData & {
     cache?: {
-        headers?: Record<string, [string, string]>;
+        headers?: Record<string, [HeaderValue, HeaderValue]>;
     };
 };
 

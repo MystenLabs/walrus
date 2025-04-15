@@ -1,6 +1,6 @@
 
 import mdbookOperatorsJson from '../../docs/book/assets/operators.json';
-import { AggregatorDataVerbose, Network, Operators } from './types';
+import { AggregatorDataVerbose, HeaderValue, Network, Operators } from './types';
 
 const KnownCacheKeys = [
     "cdn-cache",
@@ -61,19 +61,19 @@ async function run(network: Network, blobId: string, threshold: number) {
             console.error(e);
             continue;
         }
-        const speedup = fetch1 - fetch2;
+        const speedupMs = fetch1 - fetch2;
 
         let output1 = headerKeyContainsCache(headers1);
         let output2 = headerKeyContainsCache(headers2);
-        const hasCache = speedup > THRESHOLD || output1.hasCache || output2.hasCache;
-        value.cache = { hasCache, speedup }
+        const hasCache = speedupMs > threshold;
+        value.cache = { hasCache, speedupMs }
         const matches1 = output1.matches;
         const matches2 = output2.matches;
 
         // Create a single key -> value1, value2 mapping
         const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
-        const merged = matches1.reduce<Record<string, [string, string]>>((acc, { key, value }) => {
-            acc[key] = [value, map2[key] ?? ""];
+        const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>((acc, { key, value }) => {
+            acc[key] = [value, map2[key] ?? undefined];
             return acc;
         }, {});
 
@@ -86,7 +86,7 @@ async function run(network: Network, blobId: string, threshold: number) {
             });
         }
 
-        aggregatorsVerbose[url] = { cache: { hasCache, headers: merged, speedup } };
+        aggregatorsVerbose[url] = { cache: { hasCache, headers: merged, speedupMs: [speedupMs, [fetch1, fetch2]] } };
     }
     let results = {
         aggregators: aggregatorsVerbose,
