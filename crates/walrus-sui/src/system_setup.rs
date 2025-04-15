@@ -238,7 +238,21 @@ pub(crate) struct PublishSystemPackageResult {
 
 /// Copy files from the `source` directory to the `destination` directory recursively.
 #[tracing::instrument(err, skip(source, destination))]
-pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> Result<()> {
+pub async fn copy_recursively(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<()> {
+    let source = source.as_ref().to_owned();
+    let destination = destination.as_ref().to_owned();
+    tokio::task::spawn_blocking(|| copy_recursively_inner_blocking(source, destination)).await?
+}
+
+/// Synchronous method to copy directories recursively. Should only be called from an async context
+/// using `tokio::task::spawn_blocking` or similar methods.
+fn copy_recursively_inner_blocking(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<()> {
     std::fs::create_dir_all(destination.as_ref())?;
     for entry in WalkDir::new(source.as_ref()) {
         let entry = entry?;
@@ -273,7 +287,7 @@ pub async fn publish_coin_and_system_package(
     gas_budget: Option<u64>,
 ) -> Result<PublishSystemPackageResult> {
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        copy_recursively(&walrus_contract_directory, &deploy_directory)?;
+        copy_recursively(&walrus_contract_directory, &deploy_directory).await?;
         deploy_directory
     } else {
         walrus_contract_directory

@@ -1582,7 +1582,7 @@ async fn test_quorum_contract_upgrade() -> TestResult {
 
     // Copy new contracts to fresh directory
     let upgrade_dir = TempDir::new()?;
-    copy_recursively(development_contract_dir()?, upgrade_dir.path())?;
+    copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
     // Copy Move.lock files of walrus contract and dependencies to new directory
     for contract in ["wal", "walrus"] {
