@@ -88,17 +88,18 @@ async function run(network: Network, blobId: string, threshold: number) {
 
         aggregatorsVerbose[url] = { cache: { hasCache, headers: merged, speedupMs: [speedupMs, [fetch1, fetch2]] } };
     }
-    let results = {
-        aggregators: aggregatorsVerbose,
-    }
-    console.log(JSON.stringify(results, null, 2));
+    // let results = {
+    //     aggregators: aggregatorsVerbose,
+    // }
+    // console.log(JSON.stringify(results, null, 2));
+    console.log(JSON.stringify(nodes, null, 2));
 }
 
 
 const THRESHOLD: number = 1000;
 // TMP
 // const BLOB_ID_MAINNET = "...blob id to test for mainnet...";
-const BLOB_ID_TESTNET = "ieK_SW6tkzrJn4kATNDLhpS8-AX4CrzinrzGdEt4Gzk";
+const BLOB_ID_TESTNET = "...blob id to test for testnet...";
 
-// run("mainnet", BLOB_ID_MAINNET);
+// run("mainnet", BLOB_ID_MAINNET, THRESHOLD);
 run("testnet", BLOB_ID_TESTNET, THRESHOLD);
