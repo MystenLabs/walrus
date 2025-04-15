@@ -85,6 +85,19 @@ pub(crate) async fn compile_package(
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
 ) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
+    tokio::task::spawn_blocking(|| {
+        compile_package_inner_blocking(package_path, build_config, chain_id)
+    })
+    .await?
+}
+
+/// Synchronous method to compile the package. Should only be called from an async context
+/// using `tokio::task::spawn_blocking` or similar methods.
+fn compile_package_inner_blocking(
+    package_path: PathBuf,
+    build_config: MoveBuildConfig,
+    chain_id: Option<String>,
+) -> Result<(PackageDependencies, CompiledPackage, MoveBuildConfig)> {
     let build_config = resolve_lock_file_path(build_config, &package_path)?;
 
     // Set the package ID to zero.
