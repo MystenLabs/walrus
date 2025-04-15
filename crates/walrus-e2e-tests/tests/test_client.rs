@@ -1561,7 +1561,7 @@ async fn test_post_store_action(
 
 // Tests upgrading the walrus contracts.
 #[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
+#[tokio::test]
 async fn test_quorum_contract_upgrade() -> TestResult {
     telemetry_subscribers::init_for_testing();
     let deploy_dir = TempDir::new()?;
