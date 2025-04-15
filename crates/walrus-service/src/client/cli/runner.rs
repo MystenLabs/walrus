@@ -757,6 +757,10 @@ impl ClientCommandRunner {
         sort: SortBy<HealthSortBy>,
     ) -> Result<()> {
         node_selection.exactly_one_is_set()?;
+
+        let latest_seq =
+            get_latest_checkpoint_sequence_number(rpc_url.as_ref(), &self.wallet).await;
+
         let config = self.config?;
         let sui_read_client = get_sui_read_client_from_rpc_node_or_wallet(
             &config,
@@ -772,20 +776,6 @@ impl ClientCommandRunner {
             )),
             None,
         )?;
-
-        let latest_seq = if let Some(url) = rpc_url {
-            let rpc_client_result = sui_rpc_api::Client::new(url);
-            if let Ok(rpc_client) = rpc_client_result {
-                match rpc_client.get_latest_checkpoint().await {
-                    Ok(checkpoint) => Some(checkpoint.sequence_number),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
 
         ServiceHealthInfoOutput::new_for_nodes(
             node_selection.get_nodes(&sui_read_client).await?,
@@ -1347,4 +1337,41 @@ pub fn ask_for_confirmation() -> Result<bool> {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input)?;
     Ok(input.trim().to_lowercase().starts_with('y'))
+}
+
+/// Get the latest checkpoint sequence number from the Sui RPC node.
+async fn get_latest_checkpoint_sequence_number(
+    rpc_url: Option<&String>,
+    wallet: &Result<WalletContext, anyhow::Error>,
+) -> Option<u64> {
+    // Early return if no URL is available
+    let url = if let Some(url) = rpc_url {
+        url.clone()
+    } else if let Ok(wallet) = wallet {
+        match wallet.config.get_active_env() {
+            Ok(env) => env.rpc.clone(),
+            Err(_) => {
+                println!("Failed to get full node RPC URL.");
+                return None;
+            }
+        }
+    } else {
+        println!("Failed to get full node RPC URL.");
+        return None;
+    };
+
+    // Now url is a String, not an Option<String>
+    let rpc_client_result = sui_rpc_api::Client::new(url);
+    if let Ok(rpc_client) = rpc_client_result {
+        match rpc_client.get_latest_checkpoint().await {
+            Ok(checkpoint) => Some(checkpoint.sequence_number),
+            Err(e) => {
+                println!("Failed to get latest checkpoint: {e}");
+                None
+            }
+        }
+    } else {
+        println!("Failed to create RPC client.");
+        None
+    }
 }
