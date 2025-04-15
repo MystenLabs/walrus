@@ -124,4 +124,4 @@ configuration:
 
 ### Advanced publisher uses
 
-The setup and use of an "authenticated publisher" is covered in a [separate section](./auth-publisher).
+The setup and use of an "authenticated publisher" is covered in a [separate section](./auth-publisher.md).
