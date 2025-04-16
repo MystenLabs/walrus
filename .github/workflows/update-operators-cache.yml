@@ -11,13 +11,10 @@ on:
         description: 'Testnet blob ID'
         required: true
         type: string
-  push:
-    branches:
-      - nt/aggregator-cache-inference
 
 env:
-  DEFAULT_MAINNET_BLOB_ID: "V5zqvv2gHLH419LELyroRn2W92UxLZyW2eQ17iPKk68"
-  DEFAULT_TESTNET_BLOB_ID: "3SNryj20poLbT2Ui9l3MUePVp4UXfuQt0xeA4Gs2A5Y"
+  DEFAULT_MAINNET_BLOB_ID: "liXPmZh6qzjM8MU6aNz6an8LZCnwjXeYboLSKXIrKjs"
+  DEFAULT_TESTNET_BLOB_ID: "BLD3QhGHlBNrNRiPd6eo9gWHLb5RuGk2iioQEP5VPfM"
 
 jobs:
   update-cache:
