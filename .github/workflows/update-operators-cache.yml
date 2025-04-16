@@ -33,7 +33,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install
+        run: cd scripts/cache-inference && npm install
 
       - name: Run cache inference
         run: |
