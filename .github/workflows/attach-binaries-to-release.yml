@@ -11,9 +11,6 @@ on:
         type: string
         required: true
 
-permissions:
-  contents: write
-
 concurrency: ${{ github.workflow }}-${{ inputs.walrus_tag || github.ref }}
 
 env:
