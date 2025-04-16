@@ -16,8 +16,8 @@ on:
       - nt/aggregator-cache-inference
 
 env:
-  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || "MK-QFrjIEOwXhps-q382SRrg-ccY8FFstMKvd6Lc3NY" }}
-  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || "AQ7nOPPDxm7YfCMT-5IxczaE2gd4M-aoYxM2J3rE4Eo" }}
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || 'MK-QFrjIEOwXhps-q382SRrg-ccY8FFstMKvd6Lc3NY' }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'AQ7nOPPDxm7YfCMT-5IxczaE2gd4M-aoYxM2J3rE4Eo' }}
 
 jobs:
   update-cache:
