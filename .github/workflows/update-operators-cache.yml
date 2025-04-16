@@ -11,9 +11,8 @@ on:
         description: 'Testnet blob ID'
         required: true
         type: string
-  push:
-    branches:
-      - nt/aggregator-cache-inference
+  # schedule:
+  #   - cron: '0 11 * * 1'  # Every Monday at 11:00 UTC
 
 env:
   MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || '6SCk-C85lApQY_3bGwJMpVve5ASWiIhxWplg22fKHvo' }}
