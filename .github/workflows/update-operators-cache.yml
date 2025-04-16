@@ -16,8 +16,8 @@ on:
       - nt/aggregator-cache-inference
 
 env:
-  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || 'MK-QFrjIEOwXhps-q382SRrg-ccY8FFstMKvd6Lc3NY' }}
-  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'AQ7nOPPDxm7YfCMT-5IxczaE2gd4M-aoYxM2J3rE4Eo' }}
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || '6SCk-C85lApQY_3bGwJMpVve5ASWiIhxWplg22fKHvo' }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'AYTUffH740r9eHKRgICusBEw-M6DucKqIBAHctZDCC8' }}
 
 jobs:
   update-cache:
@@ -49,7 +49,7 @@ jobs:
           body: |
             This PR updates the operators.json file with new cache measurements.
 
-            Mainnet blob ID: $MAINNET_BLOB_ID
-            Testnet blob ID: $TESTNET_BLOB_ID
+            Mainnet blob ID: ${{ env.MAINNET_BLOB_ID }}
+            Testnet blob ID: ${{ env.TESTNET_BLOB_ID }}
           branch: "ci/update-operators-cache"
           base: "main"
