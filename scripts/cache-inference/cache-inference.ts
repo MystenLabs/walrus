@@ -11,9 +11,13 @@ const KnownCacheKeys = [
     "x-cache-status"
 ];
 
+type HeaderMatch = {
+    key: string;
+    value: string | null
+};
 type HasCacheOutput = {
     hasCache: boolean;
-    matches: { key: string, value: string | null }[];
+    matches: HeaderMatch[];
 };
 
 function headerKeyContainsCache(headers: Headers): HasCacheOutput {
@@ -25,6 +29,12 @@ function headerKeyContainsCache(headers: Headers): HasCacheOutput {
         hasCache: matches.length > 0,
         matches
     };
+}
+
+function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
+    return matches.some(({key, value}) => {
+        return value?.toLowerCase().includes("hit");
+    });
 }
 
 async function run(network: Network, blobId: string, threshold: number) {
@@ -65,11 +75,17 @@ async function run(network: Network, blobId: string, threshold: number) {
 
         let output1 = headerKeyContainsCache(headers1);
         let output2 = headerKeyContainsCache(headers2);
-        const hasCache = speedupMs > threshold;
-        value.cache = { hasCache, speedupMs }
         const matches1 = output1.matches;
         const matches2 = output2.matches;
-
+        // Update value.cache in the existing operators
+        if (headersHaveCacheHit(matches1)) { // Try identifying cache-hit on the first request
+            console.warn(`Error measuring cache speedup for ${blobUrl}:`);
+            console.warn(`First fetch is a cache-hit: ${JSON.stringify(matches1)}`);
+            value.cache = { hasCache: true };
+        } else {
+            value.cache = { hasCache: speedupMs > threshold || headersHaveCacheHit(matches2), speedupMs }
+        }
+        const hasCache = value.cache.hasCache;
         // Create a single key -> value1, value2 mapping
         const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
         const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>((acc, { key, value }) => {
