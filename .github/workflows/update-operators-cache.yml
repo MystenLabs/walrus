@@ -16,8 +16,10 @@ on:
       - nt/aggregator-cache-inference
 
 env:
-  DEFAULT_MAINNET_BLOB_ID: "liXPmZh6qzjM8MU6aNz6an8LZCnwjXeYboLSKXIrKjs"
-  DEFAULT_TESTNET_BLOB_ID: "BLD3QhGHlBNrNRiPd6eo9gWHLb5RuGk2iioQEP5VPfM"
+  DEFAULT_MAINNET_BLOB_ID: "MK-QFrjIEOwXhps-q382SRrg-ccY8FFstMKvd6Lc3NY"
+  DEFAULT_TESTNET_BLOB_ID: "AQ7nOPPDxm7YfCMT-5IxczaE2gd4M-aoYxM2J3rE4Eo"
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || env.DEFAULT_MAINNET_BLOB_ID }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || env.DEFAULT_TESTNET_BLOB_ID }}
 
 jobs:
   update-cache:
@@ -37,7 +39,7 @@ jobs:
 
       - name: Run cache inference
         run: |
-          npx ts-node scripts/cache-inference/cache-inference.ts ${{ github.event.inputs.mainnet-blob-id || env.DEFAULT_MAINNET_BLOB_ID }} ${{ github.event.inputs.testnet-blob-id || env.DEFAULT_TESTNET_BLOB_ID }} > docs/book/assets/new-operators.json
+          npx ts-node scripts/cache-inference/cache-inference.ts $MAINNET_BLOB_ID $TESTNET_BLOB_ID > docs/book/assets/new-operators.json
           mv docs/book/assets/new-operators.json docs/book/assets/operators.json
 
       - name: Create Pull Request
@@ -49,7 +51,7 @@ jobs:
           body: |
             This PR updates the operators.json file with new cache measurements.
 
-            Mainnet blob ID: ${{ github.event.inputs.mainnet-blob-id || env.DEFAULT_MAINNET_BLOB_ID }}
-            Testnet blob ID: ${{ github.event.inputs.testnet-blob-id || env.DEFAULT_TESTNET_BLOB_ID }}
-          branch: "test/update-operators-cache"
+            Mainnet blob ID: $MAINNET_BLOB_ID
+            Testnet blob ID: $TESTNET_BLOB_ID
+          branch: "ci/update-operators-cache"
           base: "main"

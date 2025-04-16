@@ -34,12 +34,16 @@ function headerKeyContainsCache(headers: Headers): HasCacheOutput {
 }
 
 function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
-    return matches.some(({key: _, value}) => {
+    return matches.some(({ key: _, value }) => {
         return value?.toLowerCase().includes("hit");
     });
 }
 
-async function updateAggregatorCacheInfo(aggregators: Record<string, AggregatorData>, blobId: string, threshold: number) {
+async function updateAggregatorCacheInfo(
+    aggregators: Record<string, AggregatorData>,
+    blobId: string,
+    threshold: number,
+) {
 
     // Used for debugging purposes
     const aggregatorsVerbose: Record<string, AggregatorDataVerbose> = {};
@@ -77,17 +81,22 @@ async function updateAggregatorCacheInfo(aggregators: Record<string, AggregatorD
         if (headersHaveCacheHit(matches1)) { // Try identifying cache-hit on the first request
             console.warn(`Error measuring cache speedup for ${blobUrl}:`);
             console.warn(`First fetch is a cache-hit: ${JSON.stringify(matches1)}`);
-            value.cache = { hasCache: true };
+            value.cache = { hasCache: true, speedupMs: value.cache?.speedupMs };
         } else {
-            value.cache = { hasCache: speedupMs > threshold || headersHaveCacheHit(matches2), speedupMs }
+            value.cache = {
+                hasCache: speedupMs > threshold || headersHaveCacheHit(matches2),
+                speedupMs
+            };
         }
         const hasCache = value.cache.hasCache;
         // Create a single key -> value1, value2 mapping
         const map2 = Object.fromEntries(matches2.map(({ key, value }) => [key, value]));
-        const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>((acc, { key, value }) => {
-            acc[key] = [value, map2[key] ?? undefined];
-            return acc;
-        }, {});
+        const merged = matches1.reduce<Record<string, [HeaderValue, HeaderValue]>>(
+            (acc, { key, value }) => {
+                acc[key] = [value, map2[key] ?? undefined];
+                return acc;
+            }, {}
+        );
 
         const missing = Object.keys(merged).filter((key) => !KnownCacheKeys.includes(key));
 
@@ -98,7 +107,13 @@ async function updateAggregatorCacheInfo(aggregators: Record<string, AggregatorD
             });
         }
 
-        aggregatorsVerbose[url] = { cache: { hasCache, headers: merged, speedupMs: [speedupMs, [fetch1, fetch2]] } };
+        aggregatorsVerbose[url] = {
+            cache: {
+                hasCache,
+                headers: merged,
+                speedupMs: [speedupMs, [fetch1, fetch2]]
+            }
+        };
     }
     // let results = {
     //     aggregators: aggregatorsVerbose,
@@ -119,7 +134,7 @@ const [BLOB_ID_MAINNET, BLOB_ID_TESTNET] = args;
 
 async function run() {
     const nodes: Operators = mdbookOperatorsJson;
-    // await updateAggregatorCacheInfo(nodes["mainnet"], BLOB_ID_MAINNET, THRESHOLD);
+    await updateAggregatorCacheInfo(nodes.mainnet.aggregators, BLOB_ID_MAINNET, THRESHOLD);
     await updateAggregatorCacheInfo(nodes.testnet.aggregators, BLOB_ID_TESTNET, THRESHOLD);
     console.log(JSON.stringify(nodes, null, 2))
 }
