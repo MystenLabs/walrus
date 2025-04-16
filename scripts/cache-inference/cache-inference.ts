@@ -1,6 +1,8 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
 
 import mdbookOperatorsJson from '../../docs/book/assets/operators.json';
-import { AggregatorDataVerbose, HeaderValue, Network, Operators } from './types';
+import { AggregatorData, AggregatorDataVerbose, HeaderValue, Operators } from './types';
 
 const KnownCacheKeys = [
     "cdn-cache",
@@ -32,20 +34,14 @@ function headerKeyContainsCache(headers: Headers): HasCacheOutput {
 }
 
 function headersHaveCacheHit(matches: HeaderMatch[]): boolean {
-    return matches.some(({key, value}) => {
+    return matches.some(({key: _, value}) => {
         return value?.toLowerCase().includes("hit");
     });
 }
 
-async function run(network: Network, blobId: string, threshold: number) {
-    const nodes: Operators = mdbookOperatorsJson;
-    const aggregators = nodes[network].aggregators;
+async function updateAggregatorCacheInfo(aggregators: Record<string, AggregatorData>, blobId: string, threshold: number) {
 
-    if (!aggregators) {
-        console.error(`Expected ${network} aggregators`);
-        throw new Error(`Expected ${network} aggregators`);
-    }
-
+    // Used for debugging purposes
     const aggregatorsVerbose: Record<string, AggregatorDataVerbose> = {};
     for (const [url, value] of Object.entries(aggregators)) {
         const blobUrl = new URL(`v1/blobs/${blobId}`, url);
@@ -108,14 +104,25 @@ async function run(network: Network, blobId: string, threshold: number) {
     //     aggregators: aggregatorsVerbose,
     // }
     // console.log(JSON.stringify(results, null, 2));
-    console.log(JSON.stringify(nodes, null, 2));
 }
 
-
 const THRESHOLD: number = 1000;
-// TMP
-// const BLOB_ID_MAINNET = "...blob id to test for mainnet...";
-const BLOB_ID_TESTNET = "...blob id to test for testnet...";
 
-// run("mainnet", BLOB_ID_MAINNET, THRESHOLD);
-run("testnet", BLOB_ID_TESTNET, THRESHOLD);
+// Get command line arguments
+const args = process.argv.slice(2);
+if (args.length !== 2) {
+    console.error('Usage: ts-node cache-inference.ts <mainnet-blob-id> <testnet-blob-id>');
+    process.exit(1);
+}
+
+const [BLOB_ID_MAINNET, BLOB_ID_TESTNET] = args;
+
+async function run() {
+    const nodes: Operators = mdbookOperatorsJson;
+    // await updateAggregatorCacheInfo(nodes["mainnet"], BLOB_ID_MAINNET, THRESHOLD);
+    await updateAggregatorCacheInfo(nodes.testnet.aggregators, BLOB_ID_TESTNET, THRESHOLD);
+    console.log(JSON.stringify(nodes, null, 2))
+}
+
+// Run for both networks
+run()

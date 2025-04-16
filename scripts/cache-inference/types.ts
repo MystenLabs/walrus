@@ -1,3 +1,5 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
 
 export type Network = "mainnet" | "testnet";
 
@@ -16,7 +18,7 @@ export type PublisherData = {
 };
 
 export type NetworkData = {
-    aggregators?: Record<string, AggregatorData>;
+    aggregators: Record<string, AggregatorData>;
     publishers?: Record<string, PublisherData>;
 };
 
