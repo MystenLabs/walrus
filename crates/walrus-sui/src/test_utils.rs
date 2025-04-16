@@ -12,6 +12,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 #[cfg(msim)]
@@ -50,7 +51,7 @@ use crate::{
         NetworkAddress,
         StorageNode,
     },
-    utils::{create_wallet, request_sui_from_faucet, SuiNetwork},
+    utils::create_wallet,
 };
 
 /// Default gas budget for some transactions in tests and benchmarks.
@@ -345,22 +346,18 @@ pub mod using_tokio {
     }
 }
 
-/// Creates a wallet for testing funded with 2 coins by the faucet of the provided network.
-pub async fn wallet_for_testing_from_faucet(
-    network: &SuiNetwork,
-) -> anyhow::Result<WithTempDir<WalletContext>> {
-    let mut wallet = temp_dir_wallet(network.env())?;
-    let address = wallet.as_mut().active_address()?;
-    let sui_client = wallet.as_ref().get_client().await?;
-    request_sui_from_faucet(address, network, &sui_client).await?;
-    request_sui_from_faucet(address, network, &sui_client).await?;
-    Ok(wallet)
-}
-
 /// Creates a wallet for testing in a temporary directory.
-pub fn temp_dir_wallet(env: SuiEnv) -> anyhow::Result<WithTempDir<WalletContext>> {
+pub fn temp_dir_wallet(
+    request_timeout: Option<Duration>,
+    env: SuiEnv,
+) -> anyhow::Result<WithTempDir<WalletContext>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
-    let wallet = create_wallet(&temp_dir.path().join("wallet_config.yaml"), env, None)?;
+    let wallet = create_wallet(
+        &temp_dir.path().join("wallet_config.yaml"),
+        env,
+        None,
+        request_timeout,
+    )?;
 
     Ok(WithTempDir {
         inner: wallet,
@@ -487,6 +484,7 @@ pub async fn wallet_for_testing(
     let mut wallet = create_wallet(
         &temp_dir.path().join("wallet_config.yaml"),
         funding_wallet.config.get_active_env()?.to_owned(),
+        None,
         None,
     )?;
 

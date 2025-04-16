@@ -589,6 +589,7 @@ async fn backup_fetcher(
         RetriableSuiClient::new_for_rpc(
             &backup_config.sui.rpc,
             backup_config.sui.backoff_config.clone(),
+            None,
         )
         .await
         .context("[backup_fetcher] cannot create RetriableSuiClient")?,

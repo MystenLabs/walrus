@@ -71,6 +71,9 @@ impl LoadGenerator {
         let sui_client = RetriableSuiClient::new_for_rpc(
             network.env().rpc.clone(),
             ExponentialBackoffConfig::default(),
+            client_config
+                .communication_config
+                .sui_client_request_timeout,
         )
         .await?;
 

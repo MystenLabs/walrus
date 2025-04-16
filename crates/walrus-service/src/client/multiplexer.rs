@@ -372,6 +372,7 @@ impl<'a> SubClientLoader<'a> {
                 &wallet_config_path,
                 self.sui_env.clone(),
                 Some(&keystore_filename),
+                self.config.communication_config.sui_client_request_timeout,
             )
         }
     }

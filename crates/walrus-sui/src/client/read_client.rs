@@ -346,7 +346,7 @@ impl SuiReadClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client = RetriableSuiClient::new_for_rpc(rpc_address, backoff_config).await?;
+        let client = RetriableSuiClient::new_for_rpc(rpc_address, backoff_config, None).await?;
         Self::new(client, contract_config).await
     }
 

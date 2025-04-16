@@ -679,7 +679,8 @@ impl ShardStorage {
 
         let shard_status = self.status()?;
         assert!(
-            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover
+            shard_status == ShardStatus::ActiveSync || shard_status == ShardStatus::ActiveRecover,
+            "unexpected shard status at the beginning of a shard sync: {shard_status}"
         );
 
         match self.get_last_sync_status(&shard_status)? {

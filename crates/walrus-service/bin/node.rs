@@ -904,6 +904,7 @@ mod commands {
                     .clone()
                     .and_then(|args| args.to_config()),
                 additional_rpc_endpoints,
+                request_timeout: None,
             }),
             tls: TlsConfig {
                 certificate_path,

@@ -42,7 +42,7 @@ use walrus_core::{
 
 use crate::{
     client::{SuiClientResult, SuiContractClient},
-    config::load_wallet_context_from_path,
+    config::load_wallet_context_from_path_with_request_timeout,
     contracts::AssociatedContractStruct,
 };
 
@@ -307,6 +307,7 @@ pub fn create_wallet(
     config_path: &Path,
     sui_env: SuiEnv,
     keystore_filename: Option<&str>,
+    request_timeout: Option<Duration>,
 ) -> Result<WalletContext> {
     let keystore_path = config_path
         .parent()
@@ -328,7 +329,7 @@ pub fn create_wallet(
     }
     .persisted(config_path)
     .save()?;
-    load_wallet_context_from_path(Some(config_path))
+    load_wallet_context_from_path_with_request_timeout(Some(config_path), request_timeout)
 }
 
 /// Sends a request to the faucet to request coins for `address`.

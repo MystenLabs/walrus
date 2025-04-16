@@ -121,7 +121,7 @@ struct StressArgs {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let _ = tracing_subscriber::fmt::try_init();
-    let mut config: ClientConfig =
+    let mut client_config: ClientConfig =
         load_from_yaml(args.config_path).context("Failed to load client config")?;
 
     // Start the metrics server.
@@ -138,19 +138,19 @@ async fn main() -> anyhow::Result<()> {
             "overriding wallet configuration from '{}'",
             wallet_path.display()
         );
-        config.wallet_config = Some(WalletConfig::from_path(wallet_path));
+        client_config.wallet_config = Some(WalletConfig::from_path(wallet_path));
     }
 
     match args.command {
         Commands::Stress(stress_args) => {
-            run_stress(config, metrics, args.sui_network, stress_args).await
+            run_stress(client_config, metrics, args.sui_network, stress_args).await
         }
-        Commands::Staking => run_staking(config, metrics).await,
+        Commands::Staking => run_staking(client_config, metrics).await,
     }
 }
 
 async fn run_stress(
-    config: ClientConfig,
+    client_config: ClientConfig,
     metrics: Arc<ClientMetrics>,
     sui_network: SuiNetwork,
     args: StressArgs,
@@ -159,9 +159,14 @@ async fn run_stress(
 
     // Start the write transaction generator.
     let gas_refill_period = Duration::from_millis(args.gas_refill_period_millis.get());
-    let wallet = WalletConfig::load_wallet_context(config.wallet_config.as_ref())
-        .context("Failed to load wallet context")?;
-    let contract_client = config.new_contract_client(wallet, None).await?;
+    let wallet = WalletConfig::load_wallet_context_with_request_timeout(
+        client_config.wallet_config.as_ref(),
+        client_config
+            .communication_config
+            .sui_client_request_timeout,
+    )
+    .context("Failed to load wallet context")?;
+    let contract_client = client_config.new_contract_client(wallet, None).await?;
 
     let wal_balance = contract_client.balance(CoinType::Wal).await?;
     let sui_balance = contract_client.balance(CoinType::Sui).await?;
@@ -182,7 +187,7 @@ async fn run_stress(
     let mut load_generator = LoadGenerator::new(
         n_clients,
         blob_config,
-        config,
+        client_config,
         sui_network,
         gas_refill_period,
         metrics,
@@ -207,8 +212,11 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
     tracing::info!("Starting the staking stress runner.");
     // Start the re-staking machine.
     let restaking_period = Duration::from_secs(15);
-    let wallet = WalletConfig::load_wallet_context(config.wallet_config.as_ref())
-        .context("Failed to load wallet context")?;
+    let wallet = WalletConfig::load_wallet_context_with_request_timeout(
+        config.wallet_config.as_ref(),
+        config.communication_config.sui_client_request_timeout,
+    )
+    .context("Failed to load wallet context")?;
     let contract_client: SuiContractClient = config.new_contract_client(wallet, None).await?;
 
     // The Staked Wal at any given time.

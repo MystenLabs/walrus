@@ -12169,6 +12169,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
+ "humantime",
  "indicatif",
  "mysten-metrics",
  "prometheus",
