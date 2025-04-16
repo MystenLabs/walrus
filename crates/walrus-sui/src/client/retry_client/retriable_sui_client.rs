@@ -190,7 +190,11 @@ impl RetriableSuiClient {
             .get_coins_stream_retry(address, coin_type)
             .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
             .take_while(|coin: &Coin| {
-                let ready = future::ready(total < amount);
+                let ready = if amount == 0 && total == 0 {
+                    future::ready(true)
+                } else {
+                    future::ready(total < amount)
+                };
                 total += coin.balance as u128;
                 ready
             })
@@ -625,17 +629,16 @@ impl RetriableSuiClient {
         Ok(pkg_id)
     }
 
-    /// Checks if the Walrus subsidies object exist on chain and returns the subsidies package ID.
-    pub(crate) async fn get_subsidies_package_id_from_subsidies_object(
+    /// Checks if the Walrus subsidies object exist on chain and returns the subsidies object.
+    pub(crate) async fn get_subsidies_object(
         &self,
         subsidies_object_id: ObjectID,
-    ) -> SuiClientResult<ObjectID> {
+    ) -> SuiClientResult<Subsidies> {
         let subsidies_object = self
             .get_sui_object::<Subsidies>(subsidies_object_id)
             .await?;
 
-        let pkg_id = subsidies_object.package_id;
-        Ok(pkg_id)
+        Ok(subsidies_object)
     }
 
     /// Returns the package ID from the type of the given object.
@@ -660,6 +663,25 @@ impl RetriableSuiClient {
                 tracing::debug!(%error, %object_id, "unable to get the package ID from the object");
             })?;
         Ok(pkg_id)
+    }
+
+    /// Returns whether the `register_blob` function exists in the subsidies package.
+    pub(crate) async fn has_register_blob_in_subsidies(
+        &self,
+        subsidies_package_id: ObjectID,
+    ) -> SuiClientResult<bool> {
+        let normalized_move_modules = self
+            .get_normalized_move_modules_by_package(subsidies_package_id)
+            .await?;
+
+        let register_blob_function = normalized_move_modules
+            .get("subsidies")
+            .and_then(|module| module.exposed_functions.get("register_blob"));
+
+        match register_blob_function {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
     }
 
     /// Gets the type origin map for a given package.

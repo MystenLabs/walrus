@@ -297,6 +297,8 @@ pub struct SuiReadClient {
     staking_obj_initial_version: OnceCell<SequenceNumber>,
     subsidies: Arc<RwLock<Option<Subsidies>>>,
     wal_type: String,
+    buyer_subsidy_rate: u16,
+    has_register_blob_in_subsidies: bool,
 }
 
 const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
@@ -315,12 +317,16 @@ impl SuiReadClient {
             .type_origin_map_for_package(walrus_package_id)
             .await?;
         let wal_type = sui_client.wal_type_from_package(walrus_package_id).await?;
+        let mut buyer_subsidy_rate = 0;
+        let mut has_register_blob_in_subsidies = false;
         let subsidies = if let Some(subsidies_object_id) = contract_config.subsidies_object {
-            let subsidies_package_id = sui_client
-                .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
+            let subsidies_object = sui_client.get_subsidies_object(subsidies_object_id).await?;
+            has_register_blob_in_subsidies = sui_client
+                .has_register_blob_in_subsidies(subsidies_object_id)
                 .await?;
+            buyer_subsidy_rate = subsidies_object.buyer_subsidy_rate;
             Some(Subsidies {
-                package_id: subsidies_package_id,
+                package_id: subsidies_object.package_id,
                 object_id: subsidies_object_id,
                 subsidies_obj_initial_version: OnceCell::new(),
             })
@@ -337,6 +343,8 @@ impl SuiReadClient {
             staking_obj_initial_version: OnceCell::new(),
             subsidies: Arc::new(RwLock::new(subsidies)),
             wal_type,
+            buyer_subsidy_rate,
+            has_register_blob_in_subsidies,
         })
     }
 
@@ -485,6 +493,19 @@ impl SuiReadClient {
             .expect("lock should not be poisoned")
             .as_ref()
             .map(|s| s.object_id)
+    }
+
+    /// Returns the buyer subsidy rate.
+    /// A 100% buyer subsidy rate means that the buyer pays 0 WAL for reserving space.
+    /// If the subsidy contract has a register_blob function,
+    /// then the buyer will pay 0 WAL for both reserving space and registering the blob.
+    pub fn get_buyer_subsidy_rate(&self) -> u16 {
+        self.buyer_subsidy_rate
+    }
+
+    /// Returns whether the subsidy contract has a custom register blob function.
+    pub fn has_register_blob_in_subsidies(&self) -> bool {
+        self.has_register_blob_in_subsidies
     }
 
     /// Returns the contract config.
@@ -772,8 +793,9 @@ impl SuiReadClient {
     pub async fn set_subsidies_object(&self, subsidies_object_id: ObjectID) -> SuiClientResult<()> {
         let subsidies_package_id = self
             .sui_client
-            .get_subsidies_package_id_from_subsidies_object(subsidies_object_id)
-            .await?;
+            .get_subsidies_object(subsidies_object_id)
+            .await?
+            .package_id;
         *self.subsidies_mut() = Some(Subsidies {
             package_id: subsidies_package_id,
             object_id: subsidies_object_id,
@@ -1131,8 +1153,9 @@ impl ReadClient for SuiReadClient {
         if let Some(subsidies) = subsidies {
             let new_package_id = self
                 .sui_client
-                .get_subsidies_package_id_from_subsidies_object(subsidies.object_id)
-                .await?;
+                .get_subsidies_object(subsidies.object_id)
+                .await?
+                .package_id;
 
             // Update the package_id if it has changed
             if new_package_id != subsidies.package_id {

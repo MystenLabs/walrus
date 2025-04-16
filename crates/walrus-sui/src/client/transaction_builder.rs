@@ -65,6 +65,7 @@ const CLOCK_OBJECT_ARG: ObjectArg = ObjectArg::SharedObject {
 /// This number is chosen just below the maximum number of commands in a PTB (1024).
 // NB: this should be kept in sync with the maximum number of commands in the Sui `ProtocolConfig`.
 pub const MAX_BURNS_PER_PTB: usize = 1000;
+const MAX_BUYER_SUBSIDY_RATE: u16 = 10000; // 100% subsidy
 
 #[derive(Debug, Clone, Copy)]
 /// A wrapper around an [`Argument`] or an [`ObjectID`] for use in [`WalrusPtbBuilder`].
@@ -147,6 +148,11 @@ impl WalrusPtbBuilder {
         }
     }
 
+    /// The client has walrus credits if the buyer_subsidy_rate of the subsidy object is 100%.
+    fn has_walrus_credit(&self) -> bool {
+        self.read_client.get_buyer_subsidy_rate() == MAX_BUYER_SUBSIDY_RATE
+    }
+
     /// Fills up the WAL coin argument of the PTB to at least `min_balance`.
     ///
     /// This function merges additional coins if necessary and is a no-op if the current available
@@ -158,10 +164,11 @@ impl WalrusPtbBuilder {
     /// Returns a [`SuiClientError::NoCompatibleWalCoins`] if no WAL coins with sufficient balance
     /// can be found.
     pub async fn fill_wal_balance(&mut self, min_balance: u64) -> SuiClientResult<()> {
-        if min_balance <= self.tx_wal_balance {
+        if min_balance <= self.tx_wal_balance && !self.has_walrus_credit() {
             return Ok(());
         }
         let additional_balance = min_balance - self.tx_wal_balance;
+
         let mut coins = self
             .read_client
             .get_coins_with_total_balance(
@@ -203,6 +210,9 @@ impl WalrusPtbBuilder {
     }
 
     fn reduce_wal_balance(&mut self, amount: u64) -> SuiClientResult<()> {
+        if self.has_walrus_credit() {
+            return Ok(());
+        }
         if amount > self.tx_wal_balance {
             return Err(SuiClientError::Internal(anyhow::anyhow!(
                 "trying to reduce WAL balance below 0"
@@ -282,9 +292,12 @@ impl WalrusPtbBuilder {
         epochs_ahead: EpochCount,
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<Argument> {
-        let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
-            .await?;
+        let price = if self.has_walrus_credit() {
+            0
+        } else {
+            self.storage_price_for_encoded_length(encoded_size, epochs_ahead)
+                .await?
+        };
         self.fill_wal_balance(price).await?;
         let reserve_arguments = vec![
             self.subsidies_arg(Mutability::Mutable).await?,
@@ -324,7 +337,7 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
-    pub async fn register_blob(
+    pub async fn register_blob_without_subsidies(
         &mut self,
         storage_resource: ArgumentOrOwnedObject,
         blob_metadata: BlobObjectMetadata,
@@ -350,6 +363,49 @@ impl WalrusPtbBuilder {
         ];
         let result_arg =
             self.walrus_move_call(contracts::system::register_blob, register_arguments)?;
+
+        self.reduce_wal_balance(price)?;
+        self.mark_arg_as_consumed(&storage_resource_arg);
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `register_blob` to the `pt_builder` and returns the result [`Argument`].
+    pub async fn register_blob_with_subsidies(
+        &mut self,
+        storage_resource: ArgumentOrOwnedObject,
+        blob_metadata: BlobObjectMetadata,
+        persistence: BlobPersistence,
+        subsidies_package_id: ObjectID,
+    ) -> SuiClientResult<Argument> {
+        let price = if self.has_walrus_credit() {
+            0
+        } else {
+            self.write_price_for_encoded_length(blob_metadata.encoded_size)
+                .await?
+        };
+        self.fill_wal_balance(price).await?;
+
+        let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
+
+        let register_arguments = vec![
+            self.subsidies_arg(Mutability::Mutable).await?,
+            self.system_arg(Mutability::Mutable).await?,
+            storage_resource_arg,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(persistence.is_deletable())?,
+            self.wal_coin_arg()?,
+        ];
+        let result_arg = self.move_call(
+            subsidies_package_id,
+            contracts::subsidies::register_blob,
+            register_arguments,
+        )?;
+
         self.reduce_wal_balance(price)?;
         self.mark_arg_as_consumed(&storage_resource_arg);
         self.add_result_to_be_consumed(result_arg);
@@ -646,9 +702,12 @@ impl WalrusPtbBuilder {
         encoded_size: u64,
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<()> {
-        let price = self
-            .storage_price_for_encoded_length(encoded_size, epochs_ahead)
-            .await?;
+        let price = if self.has_walrus_credit() {
+            0
+        } else {
+            self.storage_price_for_encoded_length(encoded_size, epochs_ahead)
+                .await?
+        };
 
         self.fill_wal_balance(price).await?;
 
