@@ -11,6 +11,9 @@ on:
         description: 'Testnet blob ID'
         required: true
         type: string
+  push:
+    branches:
+      - nt/aggregator-cache-inference
 
 env:
   DEFAULT_MAINNET_BLOB_ID: "liXPmZh6qzjM8MU6aNz6an8LZCnwjXeYboLSKXIrKjs"
