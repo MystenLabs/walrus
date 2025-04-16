@@ -2327,6 +2327,7 @@ pub mod test_cluster {
 
             let test_nodes_config = self.test_nodes_config.unwrap_or_else(|| TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
+                // TODO(WAL-405): change default to checkpoint-based event processor
                 use_legacy_event_processor: true,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
