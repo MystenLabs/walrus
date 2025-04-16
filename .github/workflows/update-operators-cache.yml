@@ -16,10 +16,8 @@ on:
       - nt/aggregator-cache-inference
 
 env:
-  DEFAULT_MAINNET_BLOB_ID: "MK-QFrjIEOwXhps-q382SRrg-ccY8FFstMKvd6Lc3NY"
-  DEFAULT_TESTNET_BLOB_ID: "AQ7nOPPDxm7YfCMT-5IxczaE2gd4M-aoYxM2J3rE4Eo"
-  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || env.DEFAULT_MAINNET_BLOB_ID }}
-  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || env.DEFAULT_TESTNET_BLOB_ID }}
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || "MK-QFrjIEOwXhps-q382SRrg-ccY8FFstMKvd6Lc3NY" }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || "AQ7nOPPDxm7YfCMT-5IxczaE2gd4M-aoYxM2J3rE4Eo" }}
 
 jobs:
   update-cache:
