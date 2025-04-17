@@ -917,30 +917,35 @@ impl StorageNode {
                     if let Some(epoch_at_start) = maybe_epoch_at_start {
                         if let EventStreamElement::ContractEvent(ref event) = stream_element.element
                         {
-                            // Update initial latest event epoch. This is the first event the node
-                            // processes.
-                            self.inner
-                                .latest_event_epoch
-                                .store(event.event_epoch(), Ordering::SeqCst);
+                            // For blob extension events, the epoch is the event's original
+                            // certified epoch, and not the current epoch. Skip node lagging check
+                            // for blob extension events.
+                            if !event.is_blob_extension() {
+                                // Update initial latest event epoch. This is the first event the
+                                // node processes.
+                                self.inner
+                                    .latest_event_epoch
+                                    .store(event.event_epoch(), Ordering::SeqCst);
 
-                            tracing::debug!(
-                                "checking the first contract event if we're severely lagging"
-                            );
+                                tracing::debug!(
+                                    "checking the first contract event if we're severely lagging"
+                                );
 
-                            // Clear the starting epoch, so that we never make this check again.
-                            maybe_epoch_at_start = None;
+                                // Clear the starting epoch, so that we never make this check again.
+                                maybe_epoch_at_start = None;
 
-                            // Checks if the node is severely lagging behind.
-                            if node_status != NodeStatus::RecoveryCatchUp
-                                && event.event_epoch() + 1 < epoch_at_start
-                            {
-                                tracing::warn!(
+                                // Checks if the node is severely lagging behind.
+                                if node_status != NodeStatus::RecoveryCatchUp
+                                    && event.event_epoch() + 1 < epoch_at_start
+                                {
+                                    tracing::warn!(
                                     "the current epoch ({}) is far ahead of the event epoch ({}); \
                                 node entering recovery mode",
                                     epoch_at_start,
                                     event.event_epoch()
                                 );
-                                self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                                    self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                                }
                             }
                         }
                     }
@@ -1139,10 +1144,13 @@ impl StorageNode {
         let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
 
         if !self.inner.is_blob_certified(&event.blob_id)?
+            // For blob extension events, the original blob certified event should already recover
+            // the entire blob, and we can skip the recovery.
+            || event.is_extension
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
             || self
                 .inner
-                .is_stored_at_all_shards_at_epoch(&event.blob_id, event.epoch)
+                .is_stored_at_all_shards_at_epoch(&event.blob_id, self.inner.current_event_epoch())
                 .await?
         {
             event_handle.mark_as_complete();
@@ -6004,6 +6012,53 @@ mod tests {
             .inner
             .is_blob_registered(blob_details.blob_id())?);
 
+        Ok(())
+    }
+
+    // Tests that blob extension is correctly handled after multiple epochs.
+    #[tokio::test]
+    async fn extend_blob_after_multiple_epochs() -> TestResult {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let (cluster, events, _blob_detail) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
+
+        let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
+
+        tracing::info!("blob to be extended: {:?}", blob_details.blob_id());
+        let object_id = ObjectID::random();
+        events.send(
+            BlobRegistered {
+                end_epoch: 10,
+                object_id,
+                ..BlobRegistered::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+        events.send(
+            BlobCertified {
+                end_epoch: 10,
+                object_id,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+
+        // Advance to multiple epochs before extending the blob.
+        advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
+
+        events.send(
+            BlobCertified {
+                end_epoch: 20,
+                is_extension: true,
+                object_id,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+
+        wait_until_events_processed(&cluster.nodes[0], 9).await?;
         Ok(())
     }
 }
