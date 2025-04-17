@@ -917,30 +917,35 @@ impl StorageNode {
                     if let Some(epoch_at_start) = maybe_epoch_at_start {
                         if let EventStreamElement::ContractEvent(ref event) = stream_element.element
                         {
-                            // Update initial latest event epoch. This is the first event the node
-                            // processes.
-                            self.inner
-                                .latest_event_epoch
-                                .store(event.event_epoch(), Ordering::SeqCst);
+                            // For blob extension events, the epoch is the event's original
+                            // certified epoch, and not the current epoch. Skip node lagging check
+                            // for blob extension events.
+                            if !event.is_blob_extension() {
+                                // Update initial latest event epoch. This is the first event the
+                                // node processes.
+                                self.inner
+                                    .latest_event_epoch
+                                    .store(event.event_epoch(), Ordering::SeqCst);
 
-                            tracing::debug!(
-                                "checking the first contract event if we're severely lagging"
-                            );
+                                tracing::debug!(
+                                    "checking the first contract event if we're severely lagging"
+                                );
 
-                            // Clear the starting epoch, so that we never make this check again.
-                            maybe_epoch_at_start = None;
+                                // Clear the starting epoch, so that we never make this check again.
+                                maybe_epoch_at_start = None;
 
-                            // Checks if the node is severely lagging behind.
-                            if node_status != NodeStatus::RecoveryCatchUp
-                                && event.event_epoch() + 1 < epoch_at_start
-                            {
-                                tracing::warn!(
+                                // Checks if the node is severely lagging behind.
+                                if node_status != NodeStatus::RecoveryCatchUp
+                                    && event.event_epoch() + 1 < epoch_at_start
+                                {
+                                    tracing::warn!(
                                     "the current epoch ({}) is far ahead of the event epoch ({}); \
                                 node entering recovery mode",
                                     epoch_at_start,
                                     event.event_epoch()
                                 );
-                                self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                                    self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+                                }
                             }
                         }
                     }
@@ -1139,6 +1144,9 @@ impl StorageNode {
         let histogram_set = self.inner.metrics.recover_blob_duration_seconds.clone();
 
         if !self.inner.is_blob_certified(&event.blob_id)?
+            // For blob extension events, the original blob certified event should already recover
+            // the entire blob, and we can skip the recovery.
+            || event.is_extension
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
             || self
                 .inner

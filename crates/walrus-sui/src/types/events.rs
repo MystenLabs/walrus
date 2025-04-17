@@ -350,6 +350,14 @@ impl BlobEvent {
             BlobEvent::DenyListBlobDeleted(_) => "DenyListBlobDeleted",
         }
     }
+
+    /// Returns true if the event is a blob extension.
+    pub fn is_blob_extension(&self) -> bool {
+        match self {
+            BlobEvent::Certified(event) => event.is_extension,
+            _ => false,
+        }
+    }
 }
 
 impl TryFrom<SuiEvent> for BlobEvent {
@@ -843,6 +851,16 @@ impl ContractEvent {
             ContractEvent::EpochChangeEvent(event) => event.event_epoch(),
             ContractEvent::PackageEvent(event) => event.event_epoch(),
             ContractEvent::DenyListEvent(event) => event.event_epoch(),
+        }
+    }
+
+    /// Returns true if the event is a blob extension.
+    pub fn is_blob_extension(&self) -> bool {
+        match self {
+            ContractEvent::BlobEvent(event) => event.is_blob_extension(),
+            ContractEvent::EpochChangeEvent(_) => false,
+            ContractEvent::PackageEvent(_) => false,
+            ContractEvent::DenyListEvent(_) => false,
         }
     }
 }

@@ -163,12 +163,12 @@ pub mod simtest_utils {
         Ok(())
     }
 
-    /// Probabilstically extend one of the blobs from blobs_written.
+    /// Probabilistically extend one of the blobs from blobs_written.
     async fn maybe_extend_blob(
         client: &WithTempDir<Client<SuiContractClient>>,
         blobs_written: &HashSet<ObjectID>,
     ) {
-        // Probabilstically extend one of the blobs from blobs_written.
+        // Probabilistically extend one of the blobs from blobs_written.
         if rand::thread_rng().gen_bool(0.1) {
             let blob_obj_id = blobs_written
                 .iter()
