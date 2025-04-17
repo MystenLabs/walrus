@@ -42,7 +42,7 @@ use walrus_core::{
 
 use crate::{
     client::{SuiClientResult, SuiContractClient},
-    config::load_wallet_context_from_path_with_request_timeout,
+    config::load_wallet_context_from_path,
     contracts::AssociatedContractStruct,
 };
 
@@ -303,6 +303,9 @@ impl std::fmt::Display for SuiNetwork {
 ///
 /// The keystore will be stored in the same directory as the wallet config and named
 /// `keystore_filename` (if provided) and `sui.keystore` otherwise.  Returns the created Wallet.
+///
+/// `request_time` is a configuration that is set in the wallet, and automatically populated to
+/// the SuiClient created from the wallet.
 pub fn create_wallet(
     config_path: &Path,
     sui_env: SuiEnv,
@@ -329,7 +332,7 @@ pub fn create_wallet(
     }
     .persisted(config_path)
     .save()?;
-    load_wallet_context_from_path_with_request_timeout(Some(config_path), request_timeout)
+    load_wallet_context_from_path(Some(config_path), request_timeout)
 }
 
 /// Sends a request to the faucet to request coins for `address`.

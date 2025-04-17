@@ -365,7 +365,7 @@ pub async fn deploy_walrus_contract(
             "Loading existing admin wallet from path: {}",
             admin_wallet_path.display()
         );
-        load_wallet_context_from_path(Some(&admin_wallet_path))?
+        load_wallet_context_from_path(Some(&admin_wallet_path), None)?
     } else {
         tracing::debug!("Creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
@@ -515,7 +515,7 @@ pub async fn create_client_config(
     exchange_objects: Vec<ObjectID>,
     sui_amount: u64,
     wallet_name: &str,
-    client_config_request_timeout: Option<Duration>,
+    sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<client::ClientConfig> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -526,7 +526,7 @@ pub async fn create_client_config(
         &sui_client_wallet_path,
         sui_network.env(),
         Some(&format!("{}.keystore", wallet_name)),
-        client_config_request_timeout,
+        sui_client_request_timeout,
     )?;
 
     let client_address = sui_client_wallet_context.active_address()?;
@@ -567,7 +567,7 @@ pub async fn create_client_config(
         exchange_objects,
         wallet_config: Some(WalletConfig::from_path(wallet_path)),
         communication_config: ClientCommunicationConfig {
-            sui_client_request_timeout: client_config_request_timeout,
+            sui_client_request_timeout,
             ..Default::default()
         },
         refresh_config: Default::default(),
@@ -615,6 +615,7 @@ pub async fn create_storage_node_configs(
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
     sui_amount: u64,
+    sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     tracing::debug!(
         ?working_dir,
@@ -721,7 +722,7 @@ pub async fn create_storage_node_configs(
             gas_budget: None,
             rpc_fallback_config: rpc_fallback_config.clone(),
             additional_rpc_endpoints: vec![],
-            request_timeout: None,
+            request_timeout: sui_client_request_timeout,
         });
 
         let storage_path = set_db_path

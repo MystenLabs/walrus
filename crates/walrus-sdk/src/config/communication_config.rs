@@ -57,7 +57,8 @@ pub struct ClientCommunicationConfig {
     pub max_total_blob_size: usize,
     /// The configuration for the backoff after committee change is detected.
     pub committee_change_backoff: ExponentialBackoffConfig,
-    /// The request timeout for the Sui client.
+    /// The request timeout for the SuiClient communicating with Sui network.
+    /// If not set, the default timeout in SuiClient will be used.
     #[serde(rename = "sui_client_request_timeout_millis")]
     #[serde_as(as = "Option<DurationMilliSeconds>")]
     pub sui_client_request_timeout: Option<Duration>,

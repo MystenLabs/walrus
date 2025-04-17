@@ -167,7 +167,7 @@ impl ClientConfig {
         &self,
         gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
-        let wallet = WalletConfig::load_wallet_context_with_request_timeout(
+        let wallet = WalletConfig::load_wallet_context(
             self.wallet_config.as_ref(),
             self.communication_config.sui_client_request_timeout,
         )

@@ -45,21 +45,17 @@ pub enum WalletConfig {
 
 /// Helper function to load the wallet context from the given optional wallet path with a custom
 /// request timeout.
-pub fn load_wallet_context_from_path_with_request_timeout(
+///
+/// Request timeout is in effect when interacting with Sui via the WalletContext, or the SuiClient
+/// created from the wallet.
+pub fn load_wallet_context_from_path(
     wallet_path: Option<impl AsRef<Path>>,
     request_timeout: Option<Duration>,
 ) -> Result<WalletContext> {
-    WalletConfig::load_wallet_context_with_request_timeout(
+    WalletConfig::load_wallet_context(
         wallet_path.map(WalletConfig::from_path).as_ref(),
         request_timeout,
     )
-}
-
-/// Helper function to load the wallet context from the given optional wallet path.
-pub fn load_wallet_context_from_path(
-    wallet_path: Option<impl AsRef<Path>>,
-) -> Result<WalletContext> {
-    WalletConfig::load_wallet_context(wallet_path.map(WalletConfig::from_path).as_ref())
 }
 
 impl WalletConfig {
@@ -93,12 +89,6 @@ impl WalletConfig {
     }
 
     /// Loads the wallet context from the given optional wallet config (optional path and optional
-    /// Sui env).
-    pub fn load_wallet_context(wallet_config: Option<&WalletConfig>) -> Result<WalletContext> {
-        Self::load_wallet_context_with_request_timeout(wallet_config, None)
-    }
-
-    /// Loads the wallet context from the given optional wallet config (optional path and optional
     /// Sui env), with an optional request timeout. If the request timeout is not provided, the
     /// default timeout (60 seconds) will be used.
     ///
@@ -106,7 +96,7 @@ impl WalletConfig {
     /// then from the standard Sui configuration directory.
     // NB: When making changes to the logic, make sure to update the argument docs in
     // `crates/walrus-service/bin/client.rs`.
-    pub fn load_wallet_context_with_request_timeout(
+    pub fn load_wallet_context(
         wallet_config: Option<&WalletConfig>,
         request_timeout: Option<Duration>,
     ) -> Result<WalletContext> {
