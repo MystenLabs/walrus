@@ -1790,7 +1790,6 @@ impl StorageNodeInner {
                 .to_vec());
         }
 
-        tracing::error!("unknown epoch {} when checking shard assignment", epoch);
         anyhow::bail!("unknown epoch {} when checking shard assignment", epoch);
     }
 
@@ -6026,7 +6025,7 @@ mod tests {
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
 
-        println!("blob to be extended: {:?}", blob_details.blob_id());
+        tracing::info!("blob to be extended: {:?}", blob_details.blob_id());
         let object_id = ObjectID::random();
         events.send(
             BlobRegistered {
