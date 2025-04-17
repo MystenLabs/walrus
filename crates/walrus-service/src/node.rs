@@ -705,7 +705,10 @@ impl StorageNode {
             },
             result = self.process_events() => match result {
                 Ok(()) => unreachable!("process_events should never return successfully"),
-                Err(err) => return Err(err),
+                Err(err) => {
+                    tracing::error!("event processing terminated with an error: {:?}", err);
+                    return Err(err);
+                }
             },
             _ = cancel_token.cancelled() => {
                 self.inner.shut_down();
@@ -882,28 +885,6 @@ impl StorageNode {
             });
 
             let task = async {
-                let node_status = self.inner.storage.node_status()?;
-                let span = tracing::info_span!(
-                    parent: &Span::current(),
-                    "blob_store receive",
-                    "otel.kind" = "CONSUMER",
-                    "otel.status_code" = field::Empty,
-                    "otel.status_message" = field::Empty,
-                    "messaging.operation.type" = "receive",
-                    "messaging.system" = "sui",
-                    "messaging.destination.name" = "blob_store",
-                    "messaging.client.id" = %self.inner.public_key(),
-                    "walrus.event.index" = element_index,
-                    "walrus.event.tx_digest" = ?stream_element.element.event_id()
-                        .map(|c| c.tx_digest),
-                    "walrus.event.checkpoint_seq" = ?stream_element.checkpoint_event_position
-                        .checkpoint_sequence_number,
-                    "walrus.event.kind" = stream_element.element.label(),
-                    "walrus.blob_id" = ?stream_element.element.blob_id(),
-                    "walrus.node_status" = %node_status,
-                    "error.type" = field::Empty,
-                );
-
                 fail_point_arg!("event_processing_epoch_check", |epoch: Epoch| {
                     tracing::info!("updating epoch check to {:?}", epoch);
                     maybe_epoch_at_start = Some(epoch);
@@ -914,64 +895,12 @@ impl StorageNode {
                 ensure!(should_write || should_process, "event stream out of sync");
 
                 if should_process {
-                    if let Some(epoch_at_start) = maybe_epoch_at_start {
-                        if let EventStreamElement::ContractEvent(ref event) = stream_element.element
-                        {
-                            // For blob extension events, the epoch is the event's original
-                            // certified epoch, and not the current epoch. Skip node lagging check
-                            // for blob extension events.
-                            if !event.is_blob_extension() {
-                                // Update initial latest event epoch. This is the first event the
-                                // node processes.
-                                self.inner
-                                    .latest_event_epoch
-                                    .store(event.event_epoch(), Ordering::SeqCst);
-
-                                tracing::debug!(
-                                    "checking the first contract event if we're severely lagging"
-                                );
-
-                                // Clear the starting epoch, so that we never make this check again.
-                                maybe_epoch_at_start = None;
-
-                                // Checks if the node is severely lagging behind.
-                                if node_status != NodeStatus::RecoveryCatchUp
-                                    && event.event_epoch() + 1 < epoch_at_start
-                                {
-                                    tracing::warn!(
-                                    "the current epoch ({}) is far ahead of the event epoch ({}); \
-                                node entering recovery mode",
-                                    epoch_at_start,
-                                    event.event_epoch()
-                                );
-                                    self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
-                                }
-                            }
-                        }
-                    }
-
-                    // Ignore the error here since this is a best effort operation, and we don't
-                    // want any error from it to stop the node.
-                    if let Err(error) = self.maybe_record_event_source(
+                    self.process_event(
+                        stream_element.clone(),
                         element_index,
-                        &stream_element.checkpoint_event_position,
-                    ) {
-                        tracing::warn!(?error, "Failed to record event source");
-                    }
-
-                    let event_handle = EventHandle::new(
-                        element_index,
-                        stream_element.element.event_id(),
-                        self.inner.clone(),
-                    );
-                    self.process_event(event_handle, stream_element.clone())
-                        .inspect_err(|err| {
-                            let span = tracing::Span::current();
-                            span.record("otel.status_code", "error");
-                            span.record("otel.status_message", field::display(err));
-                        })
-                        .instrument(span)
-                        .await?;
+                        &mut maybe_epoch_at_start,
+                    )
+                    .await?;
                 }
 
                 if should_write {
@@ -989,12 +918,119 @@ impl StorageNode {
         bail!("event stream for blob events stopped")
     }
 
+    /// Process an event.
+    ///
+    /// When `maybe_epoch_at_start` is provided, it indicates the node has not processed any events
+    /// yet, and this function needs to check if the node is severely lagging behind.
     #[tracing::instrument(skip_all)]
     async fn process_event(
+        &self,
+        stream_element: PositionedStreamEvent,
+        element_index: u64,
+        maybe_epoch_at_start: &mut Option<Epoch>,
+    ) -> anyhow::Result<()> {
+        mysten_metrics::monitored_scope("ProcessEvent");
+        let node_status = self.inner.storage.node_status()?;
+        let span = tracing::info_span!(
+            parent: &Span::current(),
+            "blob_store receive",
+            "otel.kind" = "CONSUMER",
+            "otel.status_code" = field::Empty,
+            "otel.status_message" = field::Empty,
+            "messaging.operation.type" = "receive",
+            "messaging.system" = "sui",
+            "messaging.destination.name" = "blob_store",
+            "messaging.client.id" = %self.inner.public_key(),
+            "walrus.event.index" = element_index,
+            "walrus.event.tx_digest" = ?stream_element.element.event_id()
+                .map(|c| c.tx_digest),
+            "walrus.event.checkpoint_seq" = ?stream_element.checkpoint_event_position
+                .checkpoint_sequence_number,
+            "walrus.event.kind" = stream_element.element.label(),
+            "walrus.blob_id" = ?stream_element.element.blob_id(),
+            "walrus.node_status" = %node_status,
+            "error.type" = field::Empty,
+        );
+
+        if maybe_epoch_at_start.is_some() {
+            if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
+                self.check_if_node_lagging(event, node_status, maybe_epoch_at_start)?;
+            }
+        }
+
+        // Ignore the error here since this is a best effort operation, and we don't
+        // want any error from it to stop the node.
+        if let Err(error) =
+            self.maybe_record_event_source(element_index, &stream_element.checkpoint_event_position)
+        {
+            tracing::warn!(?error, "Failed to record event source");
+        }
+
+        let event_handle = EventHandle::new(
+            element_index,
+            stream_element.element.event_id(),
+            self.inner.clone(),
+        );
+        self.process_event_impl(event_handle, stream_element.clone())
+            .inspect_err(|err| {
+                let span = tracing::Span::current();
+                span.record("otel.status_code", "error");
+                span.record("otel.status_message", field::display(err));
+            })
+            .instrument(span)
+            .await
+    }
+
+    /// Checks if the node is severely lagging behind.
+    fn check_if_node_lagging(
+        &self,
+        event: &ContractEvent,
+        node_status: NodeStatus,
+        maybe_epoch_at_start: &mut Option<Epoch>,
+    ) -> anyhow::Result<()> {
+        let Some(epoch_at_start) = *maybe_epoch_at_start else {
+            return Ok(());
+        };
+
+        // For blob extension events, the epoch is the event's original
+        // certified epoch, and not the current epoch. Skip node lagging check
+        // for blob extension events.
+        if event.is_blob_extension() {
+            return Ok(());
+        }
+
+        // Update initial latest event epoch. This is the first event the
+        // node processes.
+        self.inner
+            .latest_event_epoch
+            .store(event.event_epoch(), Ordering::SeqCst);
+
+        tracing::debug!("checking the first contract event if we're severely lagging");
+
+        // Clear the starting epoch, so that we won't make this check again in the current run.
+        *maybe_epoch_at_start = None;
+
+        // Checks if the node is severely lagging behind.
+        if node_status != NodeStatus::RecoveryCatchUp && event.event_epoch() + 1 < epoch_at_start {
+            tracing::warn!(
+                "the current epoch ({}) is far ahead of the event epoch ({}); \
+                                node entering recovery mode",
+                epoch_at_start,
+                event.event_epoch()
+            );
+            self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+        }
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn process_event_impl(
         &self,
         event_handle: EventHandle,
         stream_element: PositionedStreamEvent,
     ) -> anyhow::Result<()> {
+        mysten_metrics::monitored_scope("ProcessEvent::Impl");
         let _timer_guard = walrus_utils::with_label!(
             self.inner.metrics.event_process_duration_seconds,
             stream_element.element.label()
@@ -1031,22 +1067,27 @@ impl StorageNode {
         event_handle: EventHandle,
         blob_event: BlobEvent,
     ) -> anyhow::Result<()> {
+        mysten_metrics::monitored_scope("ProcessEvent::BlobEvent");
         self.inner
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
         tracing::debug!(?blob_event, "{} event received", blob_event.name());
         match blob_event {
             BlobEvent::Registered(_) => {
+                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Registered");
                 event_handle.mark_as_complete();
             }
             BlobEvent::Certified(event) => {
+                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Certified");
                 self.process_blob_certified_event(event_handle, event)
                     .await?;
             }
             BlobEvent::Deleted(event) => {
+                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::Deleted");
                 self.process_blob_deleted_event(event_handle, event).await?;
             }
             BlobEvent::InvalidBlobID(event) => {
+                mysten_metrics::monitored_scope("ProcessEvent::BlobEvent::InvalidBlobID");
                 self.process_blob_invalid_event(event_handle, event).await?;
             }
             BlobEvent::DenyListBlobDeleted(_) => {
@@ -1066,6 +1107,7 @@ impl StorageNode {
         event_handle: EventHandle,
         epoch_change_event: EpochChangeEvent,
     ) -> anyhow::Result<()> {
+        mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent");
         tracing::info!(
             ?epoch_change_event,
             "{} event received",
@@ -1073,6 +1115,9 @@ impl StorageNode {
         );
         match epoch_change_event {
             EpochChangeEvent::EpochParametersSelected(event) => {
+                mysten_metrics::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::EpochParametersSelected",
+                );
                 self.epoch_change_driver
                     .cancel_scheduled_voting_end(event.next_epoch);
                 self.epoch_change_driver.schedule_initiate_epoch_change(
@@ -1081,18 +1126,24 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::EpochChangeStart(event) => {
+                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeStart");
                 fail_point_async!("epoch_change_start_entry");
                 self.process_epoch_change_start_event(event_handle, &event)
                     .await?;
             }
             EpochChangeEvent::EpochChangeDone(event) => {
+                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::EpochChangeDone");
                 self.process_epoch_change_done_event(&event).await?;
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardsReceived(_) => {
+                mysten_metrics::monitored_scope("ProcessEvent::EpochChangeEvent::ShardsReceived");
                 event_handle.mark_as_complete();
             }
             EpochChangeEvent::ShardRecoveryStart(_) => {
+                mysten_metrics::monitored_scope(
+                    "ProcessEvent::EpochChangeEvent::ShardRecoveryStart",
+                );
                 event_handle.mark_as_complete();
             }
         }
@@ -1105,6 +1156,7 @@ impl StorageNode {
         event_handle: EventHandle,
         package_event: PackageEvent,
     ) -> anyhow::Result<()> {
+        mysten_metrics::monitored_scope("ProcessEvent::PackageEvent");
         tracing::info!(?package_event, "{} event received", package_event.name());
         match package_event {
             PackageEvent::ContractUpgraded(_event) => {
