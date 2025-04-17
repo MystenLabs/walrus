@@ -1142,7 +1142,7 @@ impl StorageNode {
             || self.inner.storage.node_status()? == NodeStatus::RecoveryCatchUp
             || self
                 .inner
-                .is_stored_at_all_shards_at_epoch(&event.blob_id, event.epoch)
+                .is_stored_at_all_shards_at_epoch(&event.blob_id, self.inner.current_event_epoch())
                 .await?
         {
             event_handle.mark_as_complete();
@@ -1781,6 +1781,8 @@ impl StorageNodeInner {
                 .shards_for_node_public_key(self.public_key())
                 .to_vec());
         }
+
+        tracing::error!("unknown epoch {} when checking shard assignment", epoch);
 
         anyhow::bail!("unknown epoch {} when checking shard assignment", epoch);
     }
@@ -6004,6 +6006,50 @@ mod tests {
             .inner
             .is_blob_registered(blob_details.blob_id())?);
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn extend_blob_after_multiple_epochs() -> TestResult {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let (cluster, events, _blob_detail) =
+            cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
+
+        let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
+        println!("blob_details: {:?}", blob_details.blob_id());
+        let object_id = ObjectID::random();
+        events.send(
+            BlobRegistered {
+                end_epoch: 10,
+                object_id,
+                ..BlobRegistered::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+        events.send(
+            BlobCertified {
+                end_epoch: 10,
+                object_id,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+
+        advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
+
+        events.send(
+            BlobCertified {
+                end_epoch: 20,
+                is_extension: true,
+                object_id,
+                ..BlobCertified::for_testing(*blob_details.blob_id())
+            }
+            .into(),
+        )?;
+
+        wait_until_events_processed(&cluster.nodes[0], 9).await?;
         Ok(())
     }
 }

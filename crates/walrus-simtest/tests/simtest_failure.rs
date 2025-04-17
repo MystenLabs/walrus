@@ -78,11 +78,17 @@ mod tests {
 
         // Run workload and wait until a crash is triggered.
         let mut data_length = 31415;
+        let mut blobs_written = HashSet::new();
         loop {
             // TODO(#995): use stress client for better coverage of the workload.
-            simtest_utils::write_read_and_check_random_blob(&client, data_length, false)
-                .await
-                .expect("workload should not fail");
+            simtest_utils::write_read_and_check_random_blob(
+                &client,
+                data_length,
+                false,
+                &mut blobs_written,
+            )
+            .await
+            .expect("workload should not fail");
 
             data_length += 1024;
             if fail_triggered.load(std::sync::atomic::Ordering::SeqCst) {
@@ -92,11 +98,17 @@ mod tests {
 
         // Continue running the workload for another 60 seconds.
         let _ = tokio::time::timeout(Duration::from_secs(60), async {
+            let mut blobs_written = HashSet::new();
             loop {
                 // TODO(#995): use stress client for better coverage of the workload.
-                simtest_utils::write_read_and_check_random_blob(&client, data_length, false)
-                    .await
-                    .expect("workload should not fail");
+                simtest_utils::write_read_and_check_random_blob(
+                    &client,
+                    data_length,
+                    false,
+                    &mut blobs_written,
+                )
+                .await
+                .expect("workload should not fail");
 
                 data_length += 1024;
             }
@@ -383,6 +395,7 @@ mod tests {
         // stopped the workload once started crashing the node.
         let mut data_length = 64;
         let workload_start_time = Instant::now();
+        let mut blobs_written = HashSet::new();
         loop {
             if workload_start_time.elapsed() > Duration::from_secs(20) {
                 tracing::info!("generated 60s of data; stopping workload");
@@ -395,6 +408,7 @@ mod tests {
                 client_clone.as_ref(),
                 data_length,
                 true,
+                &mut blobs_written,
             )
             .await
             .expect("workload should not fail");

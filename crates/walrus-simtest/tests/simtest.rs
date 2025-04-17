@@ -7,6 +7,7 @@
 #[cfg(msim)]
 mod tests {
     use std::{
+        collections::HashSet,
         sync::{atomic::AtomicBool, Arc},
         time::Duration,
     };
@@ -73,7 +74,8 @@ mod tests {
             .await
             .unwrap();
 
-        simtest_utils::write_read_and_check_random_blob(&client, 31415, false)
+        let mut blobs_written = HashSet::new();
+        simtest_utils::write_read_and_check_random_blob(&client, 31415, false, &mut blobs_written)
             .await
             .expect("workload should not fail");
 
@@ -214,7 +216,6 @@ mod tests {
         sui_simulator::task::kill_current_node(Some(crash_duration));
     }
 
-    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
         register_fail_point("fail_point_direct_shard_sync_recovery", move || {

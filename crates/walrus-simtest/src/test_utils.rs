@@ -6,13 +6,13 @@
 /// and consistency verification.
 pub mod simtest_utils {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, HashSet},
         sync::{atomic::AtomicBool, Arc, Mutex},
         time::Duration,
     };
 
     use anyhow::Context;
-    use rand::Rng;
+    use rand::{seq::IteratorRandom, Rng};
     use sui_types::base_types::ObjectID;
     use tokio::task::JoinHandle;
     use walrus_core::{
@@ -49,6 +49,7 @@ pub mod simtest_utils {
         client: &WithTempDir<Client<SuiContractClient>>,
         data_length: usize,
         write_only: bool,
+        blobs_written: &mut HashSet<ObjectID>,
     ) -> anyhow::Result<()> {
         // Get a random epoch length for the blob to be stored.
         let epoch_ahead = rand::thread_rng().gen_range(1..=5);
@@ -96,9 +97,26 @@ pub mod simtest_utils {
             blob_confirmation.blob_id
         );
 
+        blobs_written.insert(blob_confirmation.id);
+
         if write_only {
             tracing::info!("write-only mode, skipping read verification");
             return Ok(());
+        }
+
+        // Probabilstically extend one of the blobs from blobs_written.
+        if rand::thread_rng().gen_bool(0.1) {
+            let blob_obj_id = blobs_written
+                .iter()
+                .choose(&mut rand::thread_rng())
+                .unwrap();
+            let result = client
+                .as_ref()
+                .sui_client()
+                .extend_blob(*blob_obj_id, 5)
+                .await;
+            // TODO(zhewu): account for already expired blobs.
+            tracing::info!("extend blob {:?} result: {:?}", blob_obj_id, result);
         }
 
         tracing::info!("attempting to read blob using primary slivers");
@@ -167,13 +185,19 @@ pub mod simtest_utils {
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut data_length = 64;
+            let mut blobs_written = HashSet::new();
             loop {
                 tracing::info!("writing data with size {data_length}");
 
                 // TODO(#995): use stress client for better coverage of the workload.
-                write_read_and_check_random_blob(client_clone.as_ref(), data_length, write_only)
-                    .await
-                    .expect("workload should not fail");
+                write_read_and_check_random_blob(
+                    client_clone.as_ref(),
+                    data_length,
+                    write_only,
+                    &mut blobs_written,
+                )
+                .await
+                .expect("workload should not fail");
 
                 tracing::info!("finished writing data with size {data_length}");
 
