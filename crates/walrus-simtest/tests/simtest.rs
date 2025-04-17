@@ -216,6 +216,7 @@ mod tests {
         sui_simulator::task::kill_current_node(Some(crash_duration));
     }
 
+    #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_new_node_joining_cluster() {
         register_fail_point("fail_point_direct_shard_sync_recovery", move || {

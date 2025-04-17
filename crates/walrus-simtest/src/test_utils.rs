@@ -104,21 +104,6 @@ pub mod simtest_utils {
             return Ok(());
         }
 
-        // Probabilstically extend one of the blobs from blobs_written.
-        if rand::thread_rng().gen_bool(0.1) {
-            let blob_obj_id = blobs_written
-                .iter()
-                .choose(&mut rand::thread_rng())
-                .unwrap();
-            let result = client
-                .as_ref()
-                .sui_client()
-                .extend_blob(*blob_obj_id, 5)
-                .await;
-            // TODO(zhewu): account for already expired blobs.
-            tracing::info!("extend blob {:?} result: {:?}", blob_obj_id, result);
-        }
-
         tracing::info!("attempting to read blob using primary slivers");
         let mut read_blob_result = client
             .as_ref()
@@ -178,6 +163,27 @@ pub mod simtest_utils {
         Ok(())
     }
 
+    /// Probabilstically extend one of the blobs from blobs_written.
+    async fn maybe_extend_blob(
+        client: &WithTempDir<Client<SuiContractClient>>,
+        blobs_written: &HashSet<ObjectID>,
+    ) {
+        // Probabilstically extend one of the blobs from blobs_written.
+        if rand::thread_rng().gen_bool(0.1) {
+            let blob_obj_id = blobs_written
+                .iter()
+                .choose(&mut rand::thread_rng())
+                .unwrap();
+            let result = client
+                .as_ref()
+                .sui_client()
+                .extend_blob(*blob_obj_id, 5)
+                .await;
+            // TODO(zhewu): account for already expired blobs.
+            tracing::info!("extend blob {:?} result: {:?}", blob_obj_id, result);
+        }
+    }
+
     /// Starts a background workload that writes and reads random blobs.
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<Client<SuiContractClient>>>,
@@ -198,6 +204,8 @@ pub mod simtest_utils {
                 )
                 .await
                 .expect("workload should not fail");
+
+                maybe_extend_blob(client_clone.as_ref(), &blobs_written).await;
 
                 tracing::info!("finished writing data with size {data_length}");
 

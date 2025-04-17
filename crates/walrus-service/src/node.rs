@@ -1783,7 +1783,6 @@ impl StorageNodeInner {
         }
 
         tracing::error!("unknown epoch {} when checking shard assignment", epoch);
-
         anyhow::bail!("unknown epoch {} when checking shard assignment", epoch);
     }
 
@@ -6009,6 +6008,7 @@ mod tests {
         Ok(())
     }
 
+    // Tests that blob extension is correctly handled after multiple epochs.
     #[tokio::test]
     async fn extend_blob_after_multiple_epochs() -> TestResult {
         let _ = tracing_subscriber::fmt::try_init();
@@ -6017,7 +6017,8 @@ mod tests {
             cluster_with_initial_epoch_and_certified_blob(&[&[0, 1, 2, 3]], &[], 1, None).await?;
 
         let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
-        println!("blob_details: {:?}", blob_details.blob_id());
+
+        println!("blob to be extended: {:?}", blob_details.blob_id());
         let object_id = ObjectID::random();
         events.send(
             BlobRegistered {
@@ -6037,6 +6038,7 @@ mod tests {
             .into(),
         )?;
 
+        // Advance to multiple epochs before extending the blob.
         advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
 
         events.send(
