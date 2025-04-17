@@ -1,5 +1,5 @@
 name: Attach Walrus binaries to a release
-run-name: Attach Walrus binaries to a ${{ github.event.inputs.walrus_tag || github.ref }} release
+run-name: Attach Walrus binaries to a ${{ github.event.inputs.walrus_tag || github.ref_name }} release
 
 on:
   release:
@@ -14,7 +14,7 @@ on:
 concurrency: ${{ github.workflow }}-${{ inputs.walrus_tag || github.ref }}
 
 env:
-  TAG_NAME: "${{ github.event.inputs.walrus_tag || github.ref }}"
+  TAG_NAME: "${{ github.event.inputs.walrus_tag || github.ref_name }}"
   BINARY_LIST_FILE: "./binary-build-list.json"
   CARGO_TERM_COLOR: always
   # Disable incremental compilation.
@@ -53,7 +53,7 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Clean up and validate ${{ env.TAG_NAME }} tag name
+      - name: Clean up and validate tag name
         shell: bash
         run: |
           export walrus_tag=$(echo ${{ env.TAG_NAME }} | sed s/'refs\/tags\/'//)
