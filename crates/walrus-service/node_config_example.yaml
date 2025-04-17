@@ -80,6 +80,7 @@ sui:
     max_retries: 5
   gas_budget: null
   rpc_fallback_config: null
+  request_timeout: null
 blob_recovery:
   max_concurrent_blob_syncs: 100
   max_concurrent_sliver_syncs: 2000

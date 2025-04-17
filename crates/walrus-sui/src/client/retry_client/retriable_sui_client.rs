@@ -4,7 +4,7 @@
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
 
 use futures::{
     future::{self},
@@ -108,8 +108,15 @@ impl RetriableSuiClient {
     pub async fn new_for_rpc<S: AsRef<str>>(
         rpc_address: S,
         backoff_config: ExponentialBackoffConfig,
+        request_timeout: Option<Duration>,
     ) -> SuiClientResult<Self> {
-        let client = SuiClientBuilder::default().build(rpc_address).await?;
+        let mut client_builder = SuiClientBuilder::default();
+
+        if let Some(request_timeout) = request_timeout {
+            client_builder = client_builder.request_timeout(request_timeout);
+        }
+
+        let client = client_builder.build(rpc_address).await?;
         Ok(Self::new(client, backoff_config))
     }
 

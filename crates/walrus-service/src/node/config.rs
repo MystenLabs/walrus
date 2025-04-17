@@ -1070,6 +1070,7 @@ mod tests {
                 gas_budget: None,
                 rpc_fallback_config: None,
                 additional_rpc_endpoints: Default::default(),
+                request_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),
