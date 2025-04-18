@@ -148,3 +148,6 @@ balance_check:
 thread_pool:
   max_concurrent_tasks: null
   max_blocking_io_threads: 1024
+consistency_check:
+  enable_consistency_check: true
+  enable_sliver_data_existence_check: false
