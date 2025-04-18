@@ -40,7 +40,7 @@ use walrus_sui::types::{
     move_structs::{NodeMetadata, VotingParams},
 };
 
-use super::storage::DatabaseConfig;
+use super::{consistency_check::StorageNodeConsistencyCheckConfig, storage::DatabaseConfig};
 use crate::{
     common::{config::SuiConfig, utils},
     node::events::EventProcessorConfig,
@@ -171,6 +171,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the blocking thread pool.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub thread_pool: ThreadPoolConfig,
+    /// Configuration for the consistency check.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub consistency_check: StorageNodeConsistencyCheckConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -209,6 +212,7 @@ impl Default for StorageNodeConfig {
             num_uncertified_blob_threshold: None,
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            consistency_check: Default::default(),
         }
     }
 }

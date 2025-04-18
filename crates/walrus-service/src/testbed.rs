@@ -49,10 +49,13 @@ use crate::{
     backup::BackupConfig,
     client::{self},
     common::config::{SuiConfig, SuiReaderConfig},
-    node::config::{
-        PathOrInPlace,
-        StorageNodeConfig,
-        defaults::{self, REST_API_PORT},
+    node::{
+        config::{
+            PathOrInPlace,
+            StorageNodeConfig,
+            defaults::{self, REST_API_PORT},
+        },
+        consistency_check::StorageNodeConsistencyCheckConfig,
     },
 };
 
@@ -783,6 +786,10 @@ pub async fn create_storage_node_configs(
             num_uncertified_blob_threshold: Some(10),
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            consistency_check: StorageNodeConsistencyCheckConfig {
+                enable_consistency_check: true,
+                enable_sliver_data_existence_check: true,
+            },
         });
     }
 

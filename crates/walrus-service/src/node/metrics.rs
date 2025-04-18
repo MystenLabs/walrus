@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
+    GaugeVec,
     Histogram,
     HistogramVec,
     IntCounter,
@@ -151,6 +152,13 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]
         per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
+        #[help = "The ratio of fully stored blobs during the blob info consistency check."]
+        blob_data_consistency_fully_stored_ratio: GaugeVec["epoch"],
+
+        #[help = "The number of errors occurred when checking the existence of the blobs during \
+        the blob info consistency check."]
+        blob_data_consistency_check_existence_error: IntCounterVec["epoch"],
 
         #[help = "Status metric indicating the node's ID"]
         node_id: IntGaugeVec["walrus_node_id"],

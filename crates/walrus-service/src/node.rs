@@ -16,6 +16,7 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
+use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
 use events::{CheckpointEventPosition, event_blob_writer::EventBlobWriter};
@@ -166,6 +167,7 @@ use crate::{
 
 pub mod committee;
 pub mod config;
+pub mod consistency_check;
 pub mod contract_service;
 pub mod dbtool;
 pub mod events;
@@ -176,7 +178,6 @@ pub(crate) mod metrics;
 
 mod blob_retirement_notifier;
 mod blob_sync;
-mod consistency_check;
 mod epoch_change_driver;
 mod node_recovery;
 mod recovery_symbol_service;
@@ -517,6 +518,7 @@ pub struct StorageNodeInner {
     thread_pool: BoundedThreadPool,
     registry: Registry,
     latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
+    consistency_check_config: StorageNodeConsistencyCheckConfig,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -629,6 +631,7 @@ impl StorageNode {
             encoding_config,
             registry: registry.clone(),
             latest_event_epoch: AtomicU32::new(0),
+            consistency_check_config: config.consistency_check.clone(),
         });
 
         blocklist.start_refresh_task();
@@ -1329,17 +1332,20 @@ impl StorageNode {
             .wait_until_previous_task_done()
             .await;
 
-        if let Err(err) = consistency_check::schedule_background_consistency_check(
-            self.inner.clone(),
-            event.epoch,
-        )
-        .await
-        {
-            tracing::warn!(
-                ?err,
-                epoch = %event.epoch,
-                "failed to schedule background blob info consistency check"
-            );
+        if self.inner.consistency_check_config.enable_consistency_check {
+            if let Err(err) = consistency_check::schedule_background_consistency_check(
+                self.inner.clone(),
+                self.blob_sync_handler.clone(),
+                event.epoch,
+            )
+            .await
+            {
+                tracing::warn!(
+                    ?err,
+                    epoch = %event.epoch,
+                    "failed to schedule background blob info consistency check"
+                );
+            }
         }
 
         // During epoch change, we need to lock the read access to shard map until all the new
