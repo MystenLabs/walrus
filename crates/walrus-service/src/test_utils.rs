@@ -2745,6 +2745,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             num_uncertified_blob_threshold: Some(3),
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            // Turn on all consistency checks in integration tests.
             consistency_check: StorageNodeConsistencyCheckConfig {
                 enable_consistency_check: true,
                 enable_sliver_data_existence_check: true,

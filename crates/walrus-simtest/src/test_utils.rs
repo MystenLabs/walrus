@@ -309,7 +309,7 @@ pub mod simtest_utils {
 
             let existence_check_map = self.blob_existence_check_map.lock().unwrap();
             for (epoch, node_existence_check_map) in existence_check_map.iter() {
-                // Ensure that for the same epoch, all nodes have the same blob existence check.
+                // 100% of blobs are fully stored all the time.
                 for (node_id, existence_check) in node_existence_check_map.iter() {
                     tracing::info!(
                         "blob sliver data existence check: node {node_id} has existence check \

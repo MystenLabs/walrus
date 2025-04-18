@@ -48,16 +48,22 @@ impl Default for StorageNodeConsistencyCheckConfig {
     }
 }
 
+/// Helper struct to store the result of the blob consistency check.
 struct BlobConsistencyCheckResult {
+    /// The hash of the blob list.
     blob_list_digest: u64,
+    /// The number of fully synced blobs scanned. This does not include blobs that are certified
+    /// but not yet fully synced locally.
     total_synced_scanned: u64,
+    /// Among blobs that are fully synced, the number of blobs that are fully stored.
     total_fully_stored: u64,
+    /// The number of errors when checking the existence of the sliver data.
     existence_check_error: u64,
 }
 
 /// Schedule a background task to compute the hash of the list of certified blobs at the
-/// beginning of the epoch. This is used to detect inconsistencies in the blob info table
-/// between the nodes.
+/// beginning of the epoch, and conduct blob sliver data existence check. This is used to detect
+/// inconsistencies in the blob info table between the nodes.
 pub(super) async fn schedule_background_consistency_check(
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
@@ -80,9 +86,13 @@ pub(super) async fn schedule_background_consistency_check(
         let per_object_blob_info_iterator = node
             .storage
             .certified_per_object_blob_info_iter_before_epoch(epoch);
+
+        // Unblock event processing.
         let _ = tx.send(());
 
-        let blobs_being_synced = blob_sync_handler.blob_sync_in_progress();
+        // Get the list of blobs that are being synced at the moment. We will skip the existence
+        // check for these blobs since they are not yet fully synced locally.
+        let blobs_not_yet_fully_synced = blob_sync_handler.blob_sync_in_progress();
 
         // Right now, the computing the two digests are sequential, given that scanning blob info
         // table is quick. We may consider parallelizing them in the future.
@@ -90,8 +100,9 @@ pub(super) async fn schedule_background_consistency_check(
             node.clone(),
             blob_info_iterator,
             epoch,
-            &blobs_being_synced,
+            &blobs_not_yet_fully_synced,
         );
+
         compose_certified_object_blob_list_digest(
             node.clone(),
             per_object_blob_info_iterator,
@@ -112,7 +123,7 @@ fn get_epoch_bucket(epoch: Epoch) -> String {
 }
 
 fn handle_existence_check_result(
-    result: Result<bool, anyhow::Error>,
+    result: Result<bool, anyhow::Error>, // True means blobs are fully stored.
     total_fully_stored: &mut u64,
     existence_check_error: &mut u64,
     blob_id: &BlobId,
@@ -127,18 +138,20 @@ fn handle_existence_check_result(
     }
 }
 
-/// Compose the digest of the blob list returned by the iterator.
+/// Compose the digest of the blob list returned by the iterator, and check the existence of the
+/// sliver data of the blobs that are fully synced.
+///
 /// `scan_counter` keeps track of the number of blobs scanned.
 fn compose_blob_list_digest_and_check_sliver_data_existence(
     node: &StorageNodeInner,
     blob_info_iter: BlobInfoIterator<'_>,
     epoch: Epoch,
     scan_counter: &IntCounterVec,
-    blobs_being_synced: &HashSet<BlobId>,
+    blobs_not_yet_fully_synced: &HashSet<BlobId>,
 ) -> Result<BlobConsistencyCheckResult, TypedStoreError> {
+    // Create a new tokio runtime for the async task to check blob existence.
     #[cfg(not(msim))]
     let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
         .build()
         .expect("failed to create tokio runtime");
 
@@ -158,26 +171,40 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
             Ok(blob_info) => {
                 hasher.write(blob_info.0.as_ref());
 
-                if enable_sliver_data_existence_check && !blobs_being_synced.contains(&blob_info.0)
+                if enable_sliver_data_existence_check
+                    && !blobs_not_yet_fully_synced.contains(&blob_info.0)
                 {
                     total_synced_scanned += 1;
 
-                    #[cfg(msim)]
+                    #[cfg(not(msim))]
                     {
                         handle_existence_check_result(
-                            futures::executor::block_on(
-                                node.is_stored_at_all_shards_at_latest_epoch(&blob_info.0),
-                            ),
+                            // Note that we are running the async function in a new reusable Runtime
+                            // created at the beginning of the task. Note that performance of this
+                            // task is not a concern, and we should limit the resource this task
+                            // can use.
+                            //
+                            // TODO(zhewu): ideally, we should create iterators over the sliver
+                            // column families, and perform sequential scan along with
+                            // BlobInfoIterator to conduct more efficient existence check. This
+                            // requires the SafeIterator to support seek() functionality first.
+                            rt.block_on(node.is_stored_at_all_shards_at_latest_epoch(&blob_info.0)),
                             &mut total_fully_stored,
                             &mut existence_check_error,
                             &blob_info.0,
                         );
                     }
 
-                    #[cfg(not(msim))]
+                    // Unfortunately, msim does not support tokio::Runtime::block_on, so we need to
+                    // use less ideal method to execute the async function that checks blob
+                    // data existence. Note that simtest is mostly for correctness verification, so
+                    // the performance is not a concern.
+                    #[cfg(msim)]
                     {
                         handle_existence_check_result(
-                            rt.block_on(node.is_stored_at_all_shards_at_latest_epoch(&blob_info.0)),
+                            futures::executor::block_on(
+                                node.is_stored_at_all_shards_at_latest_epoch(&blob_info.0),
+                            ),
                             &mut total_fully_stored,
                             &mut existence_check_error,
                             &blob_info.0,
@@ -203,12 +230,13 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
     })
 }
 
-/// Compose the digest of the certified blob list.
+/// Compose the digest of the certified blob list, and check the existence of the sliver data of
+/// the blobs that are fully synced.
 fn certified_blob_consistency_check(
     node: Arc<StorageNodeInner>,
     blob_info_iter: BlobInfoIterator<'_>,
     epoch: Epoch,
-    blobs_being_synced: &HashSet<BlobId>,
+    blobs_not_yet_fully_synced: &HashSet<BlobId>,
 ) {
     let _scope = mysten_metrics::monitored_scope(
         "EpochChange::background_certified_blob_info_consistency_check",
@@ -220,7 +248,7 @@ fn certified_blob_consistency_check(
         blob_info_iter,
         epoch,
         &node.metrics.blob_info_consistency_check_certified_scanned,
-        blobs_being_synced,
+        blobs_not_yet_fully_synced,
     ) {
         Ok(BlobConsistencyCheckResult {
             blob_list_digest,
@@ -233,6 +261,7 @@ fn certified_blob_consistency_check(
                 ?total_fully_stored,
                 ?existence_check_error,
             "background blob info consistency check finished");
+
             walrus_utils::with_label!(node.metrics.blob_info_consistency_check, epoch_bucket)
                 .set(blob_list_digest as i64);
 
