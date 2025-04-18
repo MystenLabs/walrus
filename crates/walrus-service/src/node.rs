@@ -954,7 +954,11 @@ impl StorageNode {
 
         if maybe_epoch_at_start.is_some() {
             if let EventStreamElement::ContractEvent(ref event) = stream_element.element {
-                self.check_if_node_lagging(event, node_status, maybe_epoch_at_start)?;
+                self.check_if_node_lagging_and_enter_recovery_mode(
+                    event,
+                    node_status,
+                    maybe_epoch_at_start,
+                )?;
             }
         }
 
@@ -982,7 +986,10 @@ impl StorageNode {
     }
 
     /// Checks if the node is severely lagging behind.
-    fn check_if_node_lagging(
+    ///
+    /// If so, the node will enter RecoveryCatchUp mode, and try to catch up with events until
+    /// the latest epoch as fast as possible.
+    fn check_if_node_lagging_and_enter_recovery_mode(
         &self,
         event: &ContractEvent,
         node_status: NodeStatus,
