@@ -18,6 +18,7 @@ use typed_store::TypedStoreError;
 use walrus_core::{BlobId, Epoch};
 
 use super::{
+    NodeStatus,
     StorageNodeInner,
     blob_sync::BlobSyncHandler,
     storage::blob_info::{
@@ -69,6 +70,7 @@ pub(super) async fn schedule_background_consistency_check(
     blob_sync_handler: Arc<BlobSyncHandler>,
     epoch: Epoch,
 ) -> Result<()> {
+    let node_status = node.storage.node_status()?;
     let node = node.clone();
     let blob_sync_handler = blob_sync_handler.clone();
     let (tx, rx) = oneshot::channel();
@@ -100,6 +102,7 @@ pub(super) async fn schedule_background_consistency_check(
             node.clone(),
             blob_info_iterator,
             epoch,
+            node_status,
             &blobs_not_yet_fully_synced,
         );
 
@@ -146,8 +149,9 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
     node: &StorageNodeInner,
     blob_info_iter: BlobInfoIterator<'_>,
     epoch: Epoch,
-    scan_counter: &IntCounterVec,
+    node_status: NodeStatus,
     blobs_not_yet_fully_synced: &HashSet<BlobId>,
+    scan_counter: &IntCounterVec,
 ) -> Result<BlobConsistencyCheckResult, TypedStoreError> {
     // Create a new tokio runtime for the async task to check blob existence.
     #[cfg(not(msim))]
@@ -156,9 +160,13 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
         .expect("failed to create tokio runtime");
 
     let epoch_bucket = get_epoch_bucket(epoch);
+
+    // For data existence check, we should only check it if the node is in Active state. Otherwise,
+    // the node may not be fully synced with the latest epoch.
     let enable_sliver_data_existence_check = node
         .consistency_check_config
-        .enable_sliver_data_existence_check;
+        .enable_sliver_data_existence_check
+        && node_status == NodeStatus::Active;
 
     // xxhash is not a cryptographic hash function, but it is fast, has good collision
     // resistance, and is consistent across all platforms.
@@ -236,6 +244,7 @@ fn certified_blob_consistency_check(
     node: Arc<StorageNodeInner>,
     blob_info_iter: BlobInfoIterator<'_>,
     epoch: Epoch,
+    node_status: NodeStatus,
     blobs_not_yet_fully_synced: &HashSet<BlobId>,
 ) {
     let _scope = mysten_metrics::monitored_scope(
@@ -247,8 +256,9 @@ fn certified_blob_consistency_check(
         node.as_ref(),
         blob_info_iter,
         epoch,
-        &node.metrics.blob_info_consistency_check_certified_scanned,
+        node_status,
         blobs_not_yet_fully_synced,
+        &node.metrics.blob_info_consistency_check_certified_scanned,
     ) {
         Ok(BlobConsistencyCheckResult {
             blob_list_digest,
