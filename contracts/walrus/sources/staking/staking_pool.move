@@ -447,6 +447,11 @@ public(package) fun advance_epoch(
 /// `advance_epoch` function in case the pool is in the committee and receives the
 /// rewards. And may be called in user-facing functions to update the pool state,
 /// if the pool is not in the committee.
+///
+/// # Aborts
+///
+/// Aborts if the `pre_active_withdrawals` field is not set, which indicates
+/// an unexpected or invalid pool state.
 public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusContext) {
     let current_epoch = wctx.epoch();
 
@@ -467,7 +472,10 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     // flush it one by one, recalculating the exchange rate and pool share amount
     // for each early withdrawal epoch.
     let mut pre_active_shares_withdraw = 0;
-    let mut pre_active_withdrawals = pool.pre_active_withdrawals.unwrap();
+
+    let mut pre_active_withdrawals = pool.pre_active_withdrawals
+    .expect("pre_active_withdrawals must be set");
+
     pre_active_withdrawals.keys().do!(|epoch| if (epoch <= current_epoch) {
         let (_, epoch_value) = pre_active_withdrawals.remove(&epoch);
         // recall that pre_active_withdrawals contains stakes that were
@@ -486,7 +494,7 @@ public(package) fun process_pending_stake(pool: &mut StakingPool, wctx: &WalrusC
     let pending_withdrawal = exchange_rate.convert_to_wal_amount(
         shares_withdraw + pre_active_shares_withdraw,
     );
-
+  
     // Sanity check that the amount is not higher than the pool balance.
     assert!(pool.wal_balance >= pending_withdrawal, ECalculationError);
     pool.wal_balance = pool.wal_balance - pending_withdrawal;
@@ -614,11 +622,18 @@ public(package) fun exchange_rate_at_epoch(pool: &StakingPool, mut epoch: u32): 
 /// Should be the main function to calculate the active stake for the pool at
 /// the given epoch, due to the complexity of the pending stake and withdrawal
 /// requests, and lack of immediate updates.
+///
+/// # Aborts
+///
+/// Aborts if `pre_active_withdrawals` is not set, which indicates an invalid pool state.
 public(package) fun wal_balance_at_epoch(pool: &StakingPool, epoch: u32): u64 {
     let exchange_rate = pool_exchange_rate::new(pool.wal_balance, pool.num_shares);
 
     let mut pre_active_shares_withdraw = 0;
-    let pre_active_withdrawals = pool.pre_active_withdrawals.unwrap();
+
+    let pre_active_withdrawals = pool.pre_active_withdrawals
+    .expect("pre_active_withdrawals must be set");
+
     pre_active_withdrawals.keys().do_ref!(|old_epoch| if (*old_epoch <= epoch) {
         let wal_value = pre_active_withdrawals.get(old_epoch);
         // recall that pre_active_withdrawals contains stakes that were
@@ -718,8 +733,13 @@ public(package) fun is_withdrawing(pool: &StakingPool): bool {
 }
 
 /// Returns `true` if the pool is empty.
+///
+/// # Aborts
+///
+/// Aborts if `pending_stake` is not set, which indicates an invalid pool state.
 public(package) fun is_empty(pool: &StakingPool): bool {
-    let pending_stake = pool.pending_stake.unwrap();
+    let pending_stake = option::borrow(pool.pending_stake)
+    .expect("pending_stake must be set");
     let non_empty = pending_stake.keys().count!(|epoch| pending_stake[epoch] != 0);
 
     pool.rewards_pool.value() == 0 &&

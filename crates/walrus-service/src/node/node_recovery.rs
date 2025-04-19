@@ -32,12 +32,22 @@ impl NodeRecoveryHandler {
     /// Starts the node recovery process to recover blobs that are certified before the given epoch.
     /// For blobs that are certified after `certified_before_epoch`, the event processing is in
     /// charge of making sure the blob is stored at all shards.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the task handle mutex is poisoned or if a recovery task is already running.
     pub async fn start_node_recovery(
         &self,
         certified_before_epoch: Epoch,
     ) -> Result<(), TypedStoreError> {
-        let mut locked_task_handle = self.task_handle.lock().unwrap();
-        assert!(locked_task_handle.is_none());
+        let mut locked_task_handle = self
+            .task_handle
+            .lock()
+            .expect("Task handle mutex should not be poisoned");
+        assert!(
+            locked_task_handle.is_none(),
+            "Node recovery task is already running"
+        );
 
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();

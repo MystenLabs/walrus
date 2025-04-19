@@ -24,8 +24,14 @@ const BLOB_SIZES: [(u64, &str); 6] = [
     (1 << 30, "1GiB"),
 ];
 
+/// Creates a new encoding config with `N_SHARDS` primary shards.
+///
+/// # Panics
+///
+/// Panics if creating a `NonZeroU16` from `N_SHARDS` fails,
+/// which is guaranteed not to happen.
 fn encoding_config() -> RaptorQEncodingConfig {
-    RaptorQEncodingConfig::new(NonZeroU16::new(N_SHARDS).unwrap())
+    RaptorQEncodingConfig::new(NonZeroU16::new(N_SHARDS).expect("N_SHARDS must be non-zero"))
 }
 
 fn blob_encoding(c: &mut Criterion) {
@@ -34,12 +40,14 @@ fn blob_encoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
-        let blob = random_data(blob_size.try_into().unwrap());
+        let blob = random_data(blob_size.try_into().expect("blob size fits in usize"));
         group.throughput(criterion::Throughput::Bytes(blob_size));
 
         group.bench_with_input(BenchmarkId::new("encode", size_str), &(blob), |b, blob| {
             b.iter(|| {
-                let encoder = config.get_blob_encoder(blob).unwrap();
+                let encoder = config
+                    .get_blob_encoder(blob)
+                    .expect("Failed to create encoder");
                 let _sliver_pairs = encoder.encode();
             });
         });
@@ -49,7 +57,9 @@ fn blob_encoding(c: &mut Criterion) {
             &(blob),
             |b, blob| {
                 b.iter(|| {
-                    let encoder = config.get_blob_encoder(blob).unwrap();
+                    let encoder = config
+                        .get_blob_encoder(blob)
+                        .expect("Failed to create encoder with metadata");
                     let (_sliver_pairs, _metadata) = encoder.encode_with_metadata();
                 });
             },
@@ -65,9 +75,11 @@ fn blob_decoding(c: &mut Criterion) {
     group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
 
     for (blob_size, size_str) in BLOB_SIZES {
-        let blob = random_data(blob_size.try_into().unwrap());
+        let blob = random_data(blob_size.try_into().expect("blob size fits in usize"));
         group.throughput(criterion::Throughput::Bytes(blob_size));
-        let encoder = config.get_blob_encoder(&blob).unwrap();
+        let encoder = config
+            .get_blob_encoder(&blob)
+            .expect("Failed to create encoder");
         let (sliver_pairs, metadata) = encoder.encode_with_metadata();
         let primary_slivers_for_decoding: Vec<_> = random_subset(
             sliver_pairs.into_iter().map(|p| p.primary),
@@ -83,8 +95,12 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
-                        let decoded_blob = decoder.decode(slivers).unwrap();
+                        let mut decoder = config
+                            .get_blob_decoder::<Primary>(*blob_size)
+                            .expect("Failed to create decoder");
+                        let decoded_blob = decoder
+                            .decode(slivers)
+                            .expect("Failed to decode blob");
                         assert_eq!(blob.len(), decoded_blob.len());
                         assert_eq!(blob, decoded_blob);
                     },
@@ -100,11 +116,13 @@ fn blob_decoding(c: &mut Criterion) {
                 b.iter_batched(
                     || slivers.clone(),
                     |slivers| {
-                        let mut decoder = config.get_blob_decoder::<Primary>(*blob_size).unwrap();
+                        let mut decoder = config
+                            .get_blob_decoder::<Primary>(*blob_size)
+                            .expect("Failed to create decoder");
                         let (decoded_blob, _metadata) = decoder
                             .decode_and_verify(blob_id, slivers)
-                            .unwrap()
-                            .unwrap();
+                            .expect("Failed to decode and verify blob")
+                            .expect("No metadata returned during decode and verify");
                         assert_eq!(blob.len(), decoded_blob.len());
                         assert_eq!(blob, decoded_blob);
                     },

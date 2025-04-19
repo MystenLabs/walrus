@@ -24,14 +24,19 @@ pub(crate) static WALRUS_PROXY_PROM_REGISTRY: Lazy<Registry> = Lazy::new(Registr
 pub fn walrus_proxy_prom_registry() -> &'static Registry {
     &WALRUS_PROXY_PROM_REGISTRY
 }
-/// macro to register metrics into the walrus proxy (local) default registry
+/// Macro to register metrics into the Walrus proxy (local) default registry.
+///
+/// # Panics
+///
+/// This macro will panic if the metric cannot be registered.
+/// This usually indicates a programming error or conflicting metric registration.
 #[macro_export]
 macro_rules! register_metric {
     ($metric:expr) => {{
         let m = $metric;
         $crate::metrics::walrus_proxy_prom_registry()
             .register(Box::new(m.clone()))
-            .unwrap();
+            .expect("Failed to register metric");
         m
     }};
 }
@@ -42,7 +47,7 @@ const POD_LIVENESS_ROUTE: &str = "/liveness";
 
 type HealthCheckMetrics = Arc<RwLock<HealthCheck>>;
 
-/// Do not access struct members without using HealthCheckMetrics to arc+mutex
+/// Do not access struct members without using HealthCheckMetrics (Arc + RwLock)
 #[derive(Debug)]
 struct HealthCheck {
     // eg; consumer_operations_submitted{...}
@@ -59,16 +64,23 @@ impl HealthCheck {
     }
 }
 
-/// a simple uptime metric
+/// A simple uptime metric.
+///
+/// # Panics
+///
+/// This function will panic if metric registration fails.
+/// It also spawns a background task to increment the uptime counter every second.
 fn uptime_metric(registry: &Registry) {
-    // Define the uptime counter
+    // Define the uptime counter.
     let opts = Opts::new("uptime_seconds", "Uptime in seconds");
-    let uptime_counter = IntCounter::with_opts(opts).unwrap();
+    let uptime_counter =
+        IntCounter::with_opts(opts).expect("Failed to create uptime_seconds counter");
 
     // Register the counter with the registry
-    registry.register(Box::new(uptime_counter.clone())).unwrap();
+    registry
+        .register(Box::new(uptime_counter.clone()))
+        .expect("Failed to register uptime_seconds counter");
 
-    // Spawn a background task to increment the uptime counter every second
     tokio::spawn(async move {
         loop {
             uptime_counter.inc();
@@ -77,8 +89,12 @@ fn uptime_metric(registry: &Registry) {
     });
 }
 
-/// Creates a new http server that has as a sole purpose to expose
-/// and endpoint that prometheus agent can use to poll for the metrics.
+/// Creates a new HTTP server with endpoints exposed to Prometheus.
+///
+/// # Panics
+///
+/// This function will panic if the TCP listener cannot be converted to async mode,
+/// or if the Axum server fails to start.
 pub fn start_prometheus_server(listener: TcpListener) {
     let registry = walrus_proxy_prom_registry();
 
@@ -103,9 +119,14 @@ pub fn start_prometheus_server(listener: TcpListener) {
         );
 
     tokio::spawn(async move {
-        listener.set_nonblocking(true).unwrap();
-        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-        axum::serve(listener, app).await.unwrap();
+        listener
+            .set_nonblocking(true)
+            .expect("Failed to set listener to non-blocking mode");
+        let listener = tokio::net::TcpListener::from_std(listener)
+            .expect("Failed to convert std listener to tokio listener");
+        axum::serve(listener, app)
+            .await
+            .expect("Axum server failed");
     });
 }
 
