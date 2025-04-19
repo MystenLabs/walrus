@@ -81,9 +81,9 @@ Stay tuned for more updates on how Walrus will revolutionize data storage in the
 ## What can developers build?
 
 As part of this developer preview, we provide a binary client (currently macOS, ubuntu) that can be
-operated from the [command line interface](https://docs.walrus.site/usage/client-cli.html), a [JSON
-API](https://docs.walrus.site/usage/json-api.html), and an [HTTP
-API](https://docs.walrus.site/usage/web-api.html). We also offer the community an aggregator and
+operated from the [command line interface](https://docs.wal.app/usage/client-cli.html), a [JSON
+API](https://docs.wal.app/usage/json-api.html), and an [HTTP
+API](https://docs.wal.app/usage/web-api.html). We also offer the community an aggregator and
 publisher service and a Devnet deployment of 10 storage nodes operated by Mysten Labs.
 
 We hope developers will experiment with building applications that leverage the Walrus Decentralized
@@ -122,7 +122,7 @@ We are excited to see what else the web3 developer community can imagine!
 ## Getting Started
 
 For this developer preview the public Walrus Devnet is openly available to all developers. Developer
-documentation is available at <https://docs.walrus.site>.
+documentation is available at <https://docs.wal.app>.
 
 SUI Testnet token is the main currency for interacting with Walrus. Developers pay for Walrus Devnet
 storage using SUI Testnet tokens which can be acquired at the [Sui Testnet Discord
@@ -130,6 +130,6 @@ faucet](https://discord.com/channels/916379725201563759/1037811694564560966).
 
 ## One more thing …
 
-The [Walrus Sites website](https://walrus.site), the [Walrus docs](https://docs.walrus.site), and
-[this very blog](https://blog.walrus.site) are hosted on Walrus. To learn more about Walrus Sites
-and how you can deploy your own, [click here](https://docs.walrus.site/walrus-sites/intro.html).
+The [Walrus Sites website](https://wal.app), the [Walrus docs](https://docs.wal.app), and
+[this very blog](https://blog.wal.app) are hosted on Walrus. To learn more about Walrus Sites
+and how you can deploy your own, [click here](https://docs.wal.app/walrus-sites/intro.html).
