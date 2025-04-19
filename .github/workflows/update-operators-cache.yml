@@ -1,0 +1,54 @@
+name: Update Operators Cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      mainnet-blob-id:
+        description: 'Mainnet blob ID'
+        required: true
+        type: string
+      testnet-blob-id:
+        description: 'Testnet blob ID'
+        required: true
+        type: string
+  # schedule:
+  #   - cron: '0 11 * * 1'  # Every Monday at 11:00 UTC
+
+env:
+  MAINNET_BLOB_ID: ${{ github.event.inputs.mainnet-blob-id || '6SCk-C85lApQY_3bGwJMpVve5ASWiIhxWplg22fKHvo' }}
+  TESTNET_BLOB_ID: ${{ github.event.inputs.testnet-blob-id || 'AYTUffH740r9eHKRgICusBEw-M6DucKqIBAHctZDCC8' }}
+
+jobs:
+  update-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd scripts/cache-inference && npm install
+
+      - name: Run cache inference
+        run: |
+          npx ts-node scripts/cache-inference/cache-inference.ts $MAINNET_BLOB_ID $TESTNET_BLOB_ID > docs/book/assets/new-operators.json
+          mv docs/book/assets/new-operators.json docs/book/assets/operators.json
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "Update operators.json with new cache measurements"
+          title: "chore: Update operators.json with new cache measurements"
+          body: |
+            This PR updates the operators.json file with new cache measurements.
+
+            Mainnet blob ID: ${{ env.MAINNET_BLOB_ID }}
+            Testnet blob ID: ${{ env.TESTNET_BLOB_ID }}
+          branch: "ci/update-operators-cache"
+          base: "main"
