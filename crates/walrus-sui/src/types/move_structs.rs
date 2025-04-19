@@ -19,6 +19,7 @@ use sui_types::{
     collection_types::{Entry, VecMap},
     messages_checkpoint::CheckpointSequenceNumber,
 };
+#[cfg(feature = "utoipa")]
 use utoipa::openapi::schema;
 use walrus_core::{
     messages::BlobPersistenceType,
@@ -100,6 +101,7 @@ where
     serializer.collect_str(blob_id)
 }
 
+#[cfg(feature = "utoipa")]
 fn object_id_schema() -> schema::Ref {
     schema::Ref::new("#/components/schemas/ObjectID")
 }

@@ -35,6 +35,8 @@ use sui_sdk::{
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
+        SuiTransactionBlockResponseQuery,
+        TransactionBlocksPage,
     },
     wallet_context::WalletContext,
     SuiClient,
@@ -273,6 +275,32 @@ impl RetriableSuiClient {
             },
             self.metrics.clone(),
             "get_balance",
+        )
+        .await
+    }
+
+    /// Return a paginated response with all transaction blocks information, or an error upon
+    /// failure.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::query_transaction_blocks`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn query_transaction_blocks(
+        &self,
+        query: SuiTransactionBlockResponseQuery,
+        cursor: Option<TransactionDigest>,
+        limit: Option<usize>,
+        descending_order: bool,
+    ) -> SuiRpcResult<TransactionBlocksPage> {
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .query_transaction_blocks(query.clone(), cursor, limit, descending_order)
+                    .await
+            },
+            self.metrics.clone(),
+            "query_transaction_blocks",
         )
         .await
     }

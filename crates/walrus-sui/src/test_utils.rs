@@ -8,13 +8,15 @@ pub mod system_setup;
 #[cfg(not(msim))]
 use std::sync::mpsc;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     fmt::{self, Debug, Formatter},
     path::PathBuf,
     sync::Arc,
     time::Duration,
 };
 
+use anyhow::anyhow;
+use serde::Serialize;
 #[cfg(msim)]
 use sui_config::local_ip_utils;
 use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
@@ -22,6 +24,7 @@ use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
 use sui_simulator::runtime::NodeHandle;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
+    crypto::ToFromBytes,
     digests::TransactionDigest,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
@@ -35,7 +38,17 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use walrus_core::{
     keys::{NetworkKeyPair, ProtocolKeyPair},
+    messages::{
+        BlobPersistenceType,
+        Confirmation,
+        ConfirmationCertificate,
+        InvalidBlobCertificate,
+        InvalidBlobIdMsg,
+        ProtocolMessage,
+        ProtocolMessageCertificate,
+    },
     BlobId,
+    Epoch,
     DEFAULT_ENCODING,
 };
 use walrus_test_utils::WithTempDir;
@@ -47,6 +60,7 @@ use crate::{
         BlobCertified,
         BlobDeleted,
         BlobRegistered,
+        Committee,
         InvalidBlobId,
         NetworkAddress,
         StorageNode,
@@ -56,7 +70,7 @@ use crate::{
 
 /// Default gas budget for some transactions in tests and benchmarks.
 const DEFAULT_GAS_BUDGET: u64 = 500_000_000;
-const DEFAULT_FUNDING_PER_COIN: u64 = 10_000_000_000;
+const DEFAULT_FUNDING_PER_COIN: u64 = 1_000_000_000_000;
 
 /// Returns a random `EventID` for testing.
 pub fn event_id_for_testing() -> EventID {
@@ -194,6 +208,25 @@ impl TestClusterHandle {
     /// Returns the test cluster reference.
     pub fn cluster(&self) -> &LocalOrExternalTestCluster {
         &self.cluster
+    }
+
+    /// Funds the provided addresses with `amount` Sui, or with a default amount
+    /// if no amount is provided.
+    pub async fn fund_addresses_with_sui(
+        &self,
+        addresses: Vec<SuiAddress>,
+        amount: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let path_guard = self.wallet_path.lock().await;
+        // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+        // This prevents tasks from being spawned in the current runtime that are expected by
+        // the wallet to continue running.
+        let mut cluster_wallet = load_wallet_context_from_path(Some(path_guard.as_path()), None)?;
+
+        fund_addresses(&mut cluster_wallet, addresses, amount).await?;
+
+        drop(path_guard);
+        Ok(())
     }
 }
 
@@ -423,7 +456,7 @@ pub async fn create_and_fund_wallets_on_cluster(
         wallets.push(wallet);
     }
 
-    fund_addresses(&mut cluster_wallet, addresses).await?;
+    fund_addresses(&mut cluster_wallet, addresses, None).await?;
 
     drop(path_guard);
     Ok(wallets)
@@ -489,7 +522,7 @@ pub async fn wallet_for_testing(
     )?;
 
     if funded {
-        fund_addresses(funding_wallet, vec![wallet.active_address()?]).await?;
+        fund_addresses(funding_wallet, vec![wallet.active_address()?], None).await?;
     }
 
     Ok(WithTempDir {
@@ -498,10 +531,12 @@ pub async fn wallet_for_testing(
     })
 }
 
-/// Funds the `recipients` with gas objects with [`DEFAULT_FUNDING_PER_COIN`] SUI each.
+/// Funds the `recipients` with gas objects with `amount` or with [`DEFAULT_FUNDING_PER_COIN`]
+/// SUI each if no amount is provided.
 async fn fund_addresses(
     funding_wallet: &mut WalletContext,
     recipients: Vec<SuiAddress>,
+    amount: Option<u64>,
 ) -> anyhow::Result<()> {
     let sender = funding_wallet.active_address()?;
 
@@ -513,7 +548,8 @@ async fn fund_addresses(
 
     let mut ptb = ProgrammableTransactionBuilder::new();
 
-    let amounts = vec![DEFAULT_FUNDING_PER_COIN; recipients.len()];
+    let amount = amount.unwrap_or(DEFAULT_FUNDING_PER_COIN);
+    let amounts = vec![amount; recipients.len()];
     ptb.pay_sui(recipients, amounts)?;
 
     let transaction = TransactionData::new_programmable(
@@ -599,5 +635,82 @@ pub fn new_move_storage_node_for_testing() -> StorageNode {
         network_public_key: NetworkKeyPair::generate().public().clone(),
         metadata: ObjectID::random(),
         shard_ids: vec![],
+    }
+}
+
+/// A sorted list of BLS keys for a walrus committee that can be used
+/// to certify protocol messages for testing the contracts without
+/// running a full walrus system.
+#[derive(Debug)]
+pub struct TestNodeKeys {
+    sorted_keys: Vec<ProtocolKeyPair>,
+}
+
+impl TestNodeKeys {
+    /// Creates a new set of sorted keys for committee members.
+    pub fn new(keys: Vec<ProtocolKeyPair>, committee: &Committee) -> anyhow::Result<Self> {
+        let mut key_map: HashMap<_, _> = keys
+            .into_iter()
+            .map(|key| (key.public().as_bytes().to_owned(), key))
+            .collect();
+        let sorted_keys = committee
+            .members()
+            .iter()
+            .map(|member| {
+                key_map
+                    .remove(member.public_key.as_bytes())
+                    .ok_or_else(|| anyhow!("no private key provided for committee member"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { sorted_keys })
+    }
+
+    fn certificate_for_signers<T, M>(
+        &self,
+        message: &T,
+        signers: &[u16],
+    ) -> anyhow::Result<ProtocolMessageCertificate<T>>
+    where
+        T: AsRef<ProtocolMessage<M>> + Serialize,
+    {
+        let signed_messages = signers
+            .iter()
+            .map(|index| self.sorted_keys[*index as usize].sign_message(message));
+        let certificate = ProtocolMessageCertificate::from_signed_messages_and_indices(
+            signed_messages,
+            signers.into(),
+        )?;
+        Ok(certificate)
+    }
+
+    /// Returns a storage confirmation certificate on the provided `blob_id` and `epoch` from
+    /// the test committee, signed by the nodes with indices in `signers`.
+    ///
+    /// The blob is certified as permanent.
+    pub fn blob_certificate_for_signers(
+        &self,
+        signers: &[u16],
+        blob_id: BlobId,
+        epoch: Epoch,
+    ) -> anyhow::Result<ConfirmationCertificate> {
+        let confirmation = Confirmation::new(epoch, blob_id, BlobPersistenceType::Permanent);
+        self.certificate_for_signers(&confirmation, signers)
+    }
+
+    /// Returns a certificate from the test committee that marks `blob_id` as invalid, signed
+    /// by the nodes with indices in `signers`.
+    pub fn invalid_blob_certificate_for_signers(
+        &self,
+        signers: &[u16],
+        blob_id: BlobId,
+        epoch: Epoch,
+    ) -> anyhow::Result<InvalidBlobCertificate> {
+        let invalid_blob_id_msg = InvalidBlobIdMsg::new(epoch, blob_id);
+        self.certificate_for_signers(&invalid_blob_id_msg, signers)
+    }
+
+    /// Returns the key pairs.
+    pub fn keys(&self) -> &[ProtocolKeyPair] {
+        &self.sorted_keys
     }
 }
