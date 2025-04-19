@@ -34,7 +34,6 @@ use walrus::{
 const MIN_STAKE: u64 = 0;
 
 // TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
-//
 /// Temporary upper limit for the number of storage nodes.
 const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 111;
 
