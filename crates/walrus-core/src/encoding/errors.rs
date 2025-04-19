@@ -1,9 +1,12 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use alloc::string::String;
 use core::num::NonZeroU16;
 
 use thiserror::Error;
+
+use crate::SliverIndex;
 
 /// Error indicating that the data is too large to be encoded/decoded.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
@@ -144,4 +147,45 @@ pub enum SymbolVerificationError {
     /// as it is not one of the symbols along the identified sliver's axis.
     #[error("the symbol is not one of the symbols along the identified sliver's axis")]
     SymbolNotUsable,
+}
+
+/// Errors that may be encountered while interacting with quilt.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum QuiltError {
+    /// The quilt version is not supported.
+    // #[error("invalid quilt version, expected {0:?}, got {1:?}")]
+    // InvalidQuiltVersion(QuiltVersion, QuiltVersion),
+    /// The blob is not found in the quilt.
+    #[error("the blob is not found in the quilt: {0}")]
+    BlobNotFoundInQuilt(String),
+    /// The blob is not aligned with the quilt.
+    #[error("the blob is not aligned with the quilt")]
+    InvalidFormatNotAligned,
+    /// Failed to extract the quilt index size.
+    #[error("failed to extract the quilt index size")]
+    FailedToExtractQuiltIndexSize,
+    /// Failed to decode the quilt index.
+    #[error("failed to decode the quilt index: {0}")]
+    QuiltIndexDerSerError(String),
+    /// Missing sliver.
+    #[error("missing sliver: {0}")]
+    MissingSliver(SliverIndex),
+    /// Missing sliver range.
+    #[error("missing sliver range: {0}..{1}")]
+    MissingSliverRange(SliverIndex, SliverIndex),
+    /// [`QuiltIndexV1`][crate::metadata::QuiltIndexV1] is missing.
+    #[error("quilt index is missing")]
+    MissingQuiltIndex,
+    /// Too many blobs to fit in the quilt.
+    #[error("too many blobs to fit in the quilt: {0} > max number of blobs: {1}")]
+    TooManyBlobs(usize, usize),
+    /// The quilt is too large.
+    #[error("the quilt is too large: {0}")]
+    QuiltOversize(String),
+    /// Index is out of bounds.
+    #[error("index is out of bounds: {0} > max index: {1}")]
+    IndexOutOfBounds(usize, usize),
+    /// Other error.
+    #[error("other error: {0}")]
+    Other(String),
 }
