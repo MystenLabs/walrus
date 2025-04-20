@@ -506,7 +506,7 @@ mod tests {
         rocks,
         rocks::{errors::typed_store_err_from_rocks_err, MetricConf, ReadWriteOptions},
     };
-    use walrus_sui::client::retry_client::{FailoverClient, FallibleRpcClient};
+    use walrus_sui::client::retry_client::retriable_rpc_client::LazyFallibleRpcClientBuilder;
     use walrus_utils::{backoff::ExponentialBackoffConfig, tests::global_test_lock};
 
     use super::*;
@@ -515,16 +515,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_parallel_fetcher() -> Result<()> {
         let rest_url = "http://localhost:9000";
-        let fallible = FallibleRpcClient::new(rest_url.to_string())?;
         let retriable_client = RetriableRpcClient::new(
-            vec![FailoverClient {
-                client: Arc::new(fallible),
-                name: rest_url.to_string(),
+            vec![LazyFallibleRpcClientBuilder::Url {
+                rpc_url: rest_url.to_string(),
+                ensure_experimental_rest_endpoint: false,
             }],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        )?;
+        )
+        .await?;
         let parallel_config = ParallelDownloaderConfig {
             min_retries: 10,
             initial_delay: Duration::from_millis(250),

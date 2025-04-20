@@ -459,7 +459,6 @@ mod commands {
         NodeRegistrationParamsForThirdPartyRegistration,
         ServiceRole,
     };
-    use sui_sdk::SuiClientBuilder;
     #[cfg(not(msim))]
     use tokio::task::JoinSet;
     use walrus_core::{
@@ -480,7 +479,7 @@ mod commands {
     use walrus_sui::{
         client::{
             contract_config::ContractConfig,
-            retry_client::RetriableSuiClient,
+            retry_client::{retriable_sui_client::LazySuiClientBuilder, RetriableSuiClient},
             ReadClient as _,
             SuiReadClient,
         },
@@ -959,15 +958,11 @@ mod commands {
             db_config: DatabaseConfig::default(),
         };
 
-        // Create SuiClientSet
-        let sui_client = SuiClientBuilder::default()
-            .build(&sui_rpc_url)
-            .await
-            .context("Failed to create Sui client")?;
-
-        let retriable_sui_client =
-            RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
-
+        let retriable_sui_client = RetriableSuiClient::new(
+            vec![LazySuiClientBuilder::new(sui_rpc_url, None)],
+            ExponentialBackoffConfig::default(),
+        )
+        .await?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
         let sui_read_client =
             SuiReadClient::new(retriable_sui_client.clone(), &contract_config).await?;

@@ -5,6 +5,7 @@
 
 use std::{
     future::Future,
+    iter::once,
     num::{NonZero, NonZeroU16},
     pin::Pin,
     sync::{
@@ -27,6 +28,7 @@ use futures::{
     StreamExt,
     TryFutureExt as _,
 };
+use indexmap::IndexSet;
 use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
@@ -397,9 +399,12 @@ impl StorageNodeBuilder {
                     sui_config.event_polling_interval,
                 ))
             } else {
-                let rpc_addresses = std::iter::once(sui_config.rpc.clone())
-                    .chain(sui_config.additional_rpc_endpoints.clone())
-                    .collect();
+                let rpc_addresses = once(&sui_config.rpc)
+                    .chain(sui_config.additional_rpc_endpoints.iter())
+                    .cloned()
+                    .collect::<IndexSet<String>>()
+                    .into_iter()
+                    .collect::<Vec<_>>();
                 let processor_config = EventProcessorRuntimeConfig {
                     rpc_addresses,
                     event_polling_interval: sui_config.event_polling_interval,

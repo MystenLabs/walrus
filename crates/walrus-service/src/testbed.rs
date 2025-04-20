@@ -48,7 +48,7 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 use crate::{
     backup::BackupConfig,
     client::{self},
-    common::config::SuiConfig,
+    common::config::{SuiConfig, SuiReaderConfig},
     node::config::{
         defaults::{self, REST_API_PORT},
         PathOrInPlace,
@@ -581,18 +581,21 @@ pub async fn create_backup_config(
     system_ctx: &SystemContext,
     working_dir: &Path,
     database_url: &str,
-    rpc: String,
+    mut rpc_urls: Vec<String>,
     rpc_fallback_config: Option<RpcFallbackConfig>,
 ) -> anyhow::Result<BackupConfig> {
+    if rpc_urls.is_empty() {
+        return Err(anyhow!("No RPC URLs provided"));
+    }
     Ok(BackupConfig::new_with_defaults(
         working_dir.join("backup"),
-        crate::common::config::SuiReaderConfig {
-            rpc,
+        SuiReaderConfig {
+            rpc: rpc_urls.remove(0),
+            additional_rpc_endpoints: rpc_urls,
             contract_config: system_ctx.contract_config(),
             backoff_config: ExponentialBackoffConfig::default(),
             event_polling_interval: defaults::polling_interval(),
             rpc_fallback_config,
-            additional_rpc_endpoints: vec![],
             request_timeout: None,
         },
         database_url.to_string(),

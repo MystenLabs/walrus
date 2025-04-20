@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use async_trait::async_trait;
 use bincode::Options as _;
 use checkpoint_downloader::ParallelCheckpointDownloader;
@@ -33,10 +33,7 @@ use sui_package_resolver::{
     PackageStoreWithLruCache,
     Resolver,
 };
-use sui_sdk::{
-    rpc_types::{SuiEvent, SuiObjectDataOptions, SuiTransactionBlockResponseOptions},
-    SuiClientBuilder,
-};
+use sui_sdk::rpc_types::{SuiEvent, SuiObjectDataOptions, SuiTransactionBlockResponseOptions};
 use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
     base_types::ObjectID,
@@ -64,7 +61,12 @@ use typed_store::{
 use walrus_core::{ensure, BlobId};
 use walrus_sui::{
     client::{
-        retry_client::{FailoverClient, FallibleRpcClient, RetriableRpcClient, RetriableSuiClient},
+        retry_client::{
+            retriable_rpc_client::LazyFallibleRpcClientBuilder,
+            retriable_sui_client::LazySuiClientBuilder,
+            RetriableRpcClient,
+            RetriableSuiClient,
+        },
         rpc_config::RpcFallbackConfig,
     },
     types::ContractEvent,
@@ -74,7 +76,6 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 use crate::{
     node::{
         events::{
-            ensure_experimental_rest_endpoint_exists,
             event_blob::EventBlob,
             CheckpointEventPosition,
             EventProcessorConfig,
@@ -661,14 +662,17 @@ impl EventProcessor {
         }
         let current_lag = latest_checkpoint.sequence_number - current_checkpoint;
 
-        let url = runtime_config.rpc_addresses[0].clone();
-        let sui_client = SuiClientBuilder::default()
-            .request_timeout(config.checkpoint_request_timeout)
-            .build(&url)
-            .await
-            .context(format!("cannot connect to Sui RPC node at {url}"))?;
-        let retriable_sui_client =
-            RetriableSuiClient::new(sui_client.clone(), ExponentialBackoffConfig::default());
+        let retriable_sui_client = RetriableSuiClient::new(
+            runtime_config
+                .rpc_addresses
+                .iter()
+                .map(|rpc_url| {
+                    LazySuiClientBuilder::new(rpc_url, Some(config.checkpoint_request_timeout))
+                })
+                .collect(),
+            ExponentialBackoffConfig::default(),
+        )
+        .await?;
         if current_lag > config.event_stream_catchup_min_checkpoint_lag {
             let clients = SuiClientSet {
                 sui_client: retriable_sui_client.clone(),
@@ -719,40 +723,21 @@ impl EventProcessor {
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
-        let clients = rest_urls
+        let lazy_client_builders = rest_urls
             .iter()
-            .map(
-                |rest_url| -> Result<(FallibleRpcClient, String), anyhow::Error> {
-                    let fallible = FallibleRpcClient::new(rest_url.clone())?;
-                    Ok((fallible, rest_url.clone()))
-                },
-            )
-            .collect::<Result<Vec<_>, _>>()?;
-
-        // Validate each client and filter out invalid ones.
-        let mut valid_clients = Vec::new();
-        for (client, rest_url) in clients {
-            match ensure_experimental_rest_endpoint_exists(client.inner().await).await {
-                Ok(()) => valid_clients.push(FailoverClient {
-                    client: Arc::new(client),
-                    name: rest_url,
-                }),
-                Err(e) => {
-                    tracing::warn!("Client validation failed for {:?}: {:?}", rest_url, e);
-                }
-            }
-        }
-
-        if valid_clients.is_empty() {
-            anyhow::bail!("No valid clients found after validation");
-        }
+            .map(|url| LazyFallibleRpcClientBuilder::Url {
+                rpc_url: url.clone(),
+                ensure_experimental_rest_endpoint: true,
+            })
+            .collect::<Vec<_>>();
 
         RetriableRpcClient::new(
-            valid_clients,
+            lazy_client_builders,
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
         )
+        .await
     }
 
     /// Initializes the database for the event processor.
@@ -1100,7 +1085,6 @@ impl EventProcessor {
                 } else {
                     let committee_info = clients
                         .sui_client
-                        .governance_api()
                         .get_committee_info(Some(BigInt::from(checkpoint_summary.epoch)))
                         .await?;
                     Committee::new(
@@ -1263,11 +1247,7 @@ mod tests {
     use sui_types::messages_checkpoint::CheckpointSequenceNumber;
     use tokio::sync::Mutex;
     use walrus_core::BlobId;
-    use walrus_sui::{
-        client::retry_client::FailoverClient,
-        test_utils::EventForTesting,
-        types::BlobCertified,
-    };
+    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
     use walrus_utils::tests::global_test_lock;
 
     use super::*;
@@ -1349,16 +1329,16 @@ mod tests {
             false,
         )?;
         let rest_url = "http://localhost:8080";
-        let fallible = FallibleRpcClient::new(rest_url.to_string())?;
         let retry_client = RetriableRpcClient::new(
-            vec![FailoverClient {
-                client: Arc::new(fallible),
-                name: rest_url.to_string(),
+            vec![LazyFallibleRpcClientBuilder::Url {
+                rpc_url: rest_url.to_string(),
+                ensure_experimental_rest_endpoint: false,
             }],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
-        )?;
+        )
+        .await?;
         let package_store =
             LocalDBPackageStore::new(walrus_package_store.clone(), retry_client.clone());
         let checkpoint_downloader = ParallelCheckpointDownloader::new(

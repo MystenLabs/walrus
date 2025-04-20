@@ -68,8 +68,8 @@ impl LoadGenerator {
 
         // Set up read clients
         let (read_client_pool_tx, read_client_pool) = mpsc::channel(n_clients);
-        let sui_client = RetriableSuiClient::new_for_rpc(
-            network.env().rpc.clone(),
+        let sui_client = RetriableSuiClient::new_for_rpc_urls(
+            &[network.env().rpc.clone()],
             ExponentialBackoffConfig::default(),
             client_config
                 .communication_config

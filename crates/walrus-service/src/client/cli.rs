@@ -123,8 +123,8 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
     let sui_client = match rpc_url {
         Some(url) => {
             tracing::info!("using explicitly set RPC URL {url}");
-            RetriableSuiClient::new_for_rpc(
-                &url,
+            RetriableSuiClient::new_for_rpc_urls(
+                &[&url],
                 backoff_config,
                 config.communication_config.sui_client_request_timeout,
             )
@@ -141,8 +141,8 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
             Err(e) => {
                 if allow_fallback_to_default {
                     tracing::info!("using default RPC URL '{DEFAULT_RPC_URL}'");
-                    RetriableSuiClient::new_for_rpc(
-                        DEFAULT_RPC_URL,
+                    RetriableSuiClient::new_for_rpc_urls(
+                        &[DEFAULT_RPC_URL],
                         backoff_config,
                         config.communication_config.sui_client_request_timeout,
                     )

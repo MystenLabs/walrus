@@ -103,8 +103,8 @@ pub async fn get_walrus_nodes(
         None,
     );
     let backoff_config = ExponentialBackoffConfig::default();
-    let c: walrus_sui::client::SuiReadClient = walrus_sui::client::SuiReadClient::new_for_rpc(
-        rpc_address,
+    let c: walrus_sui::client::SuiReadClient = walrus_sui::client::SuiReadClient::new_for_rpc_urls(
+        &[rpc_address],
         &contract_config,
         backoff_config,
     )

@@ -161,8 +161,11 @@ pub(crate) async fn publish_package(
     gas_budget: Option<u64>,
 ) -> Result<SuiTransactionBlockResponse> {
     let sender = wallet.active_address()?;
-    let client = wallet.get_client().await?;
-    let chain_id = client.read_api().get_chain_identifier().await.ok();
+    let retry_client =
+        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
+            .await?;
+
+    let chain_id = retry_client.get_chain_identifier().await.ok();
 
     let (dependencies, compiled_package, build_config) =
         compile_package(package_path, build_config, chain_id).await?;
@@ -170,7 +173,11 @@ pub(crate) async fn publish_package(
     let compiled_modules = compiled_package.get_package_bytes(false);
 
     // Publish the package
-    let transaction_kind = client
+    // TODO: WAL-778 support `publish_tx_kind` with failover mechanics.
+    #[allow(deprecated)]
+    let transaction_kind = retry_client
+        .get_current_client()
+        .await
         .transaction_builder()
         .publish_tx_kind(
             sender,
@@ -182,22 +189,24 @@ pub(crate) async fn publish_package(
     let gas_budget = if let Some(gas_budget) = gas_budget {
         gas_budget
     } else {
-        let retry_client = RetriableSuiClient::new(client.clone(), Default::default());
         let gas_price = retry_client.get_reference_gas_price().await?;
         retry_client
             .estimate_gas_budget(sender, transaction_kind.clone(), gas_price)
             .await?
     };
 
-    let gas_coins = client
-        .coin_read_api()
+    let gas_coins = retry_client
         .select_coins(sender, None, gas_budget as u128, vec![])
         .await?
         .into_iter()
         .map(|coin| coin.coin_object_id)
         .collect::<Vec<_>>();
 
-    let transaction = client
+    // TODO: WAL-778 support `tx_data` with failover mechanics.
+    #[allow(deprecated)]
+    let transaction = retry_client
+        .get_current_client()
+        .await
         .transaction_builder()
         .tx_data(
             sender,
@@ -448,7 +457,9 @@ pub async fn create_system_and_staking_objects(
     let ptb = pt_builder.finish();
     let address = wallet.active_address()?;
 
-    let retry_client = RetriableSuiClient::new(wallet.get_client().await?, Default::default());
+    let retry_client =
+        RetriableSuiClient::new(vec![wallet.get_client().await?.into()], Default::default())
+            .await?;
     let gas_price = retry_client.get_reference_gas_price().await?;
 
     let gas_budget = if let Some(gas_budget) = gas_budget {

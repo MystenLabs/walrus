@@ -99,6 +99,7 @@ impl RetriableRpcError for RetriableClientError {
             Self::RetryableTimeoutError => true,
             Self::NonRetryableTimeoutError => false,
             Self::FallbackError(fallback_error) => fallback_error.is_retriable_rpc_error(),
+            Self::FailoverError(_) => false,
             Self::Other(_) => false,
         }
     }

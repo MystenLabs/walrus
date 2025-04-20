@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Walrus client, server, and associated utilities.
+#![recursion_limit = "256"]
 
 #[cfg(any(feature = "client", feature = "backup"))]
 pub mod client;

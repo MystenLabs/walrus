@@ -156,25 +156,27 @@ where
     })
 }
 
-pub(crate) async fn handle_pagination<F, T, C, Fut>(
+pub(crate) async fn handle_pagination<F, T, C, Fut, ErrorT>(
     closure: F,
-) -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
+) -> Result<impl Iterator<Item = T>, ErrorT>
 where
     F: FnMut(Option<C>) -> Fut,
     T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>,
+    Fut: Future<Output = Result<Page<T, C>, ErrorT>>,
+    ErrorT: std::error::Error,
 {
     handle_pagination_with_cursor(closure, None).await
 }
 
-pub(crate) async fn handle_pagination_with_cursor<F, T, C, Fut>(
+pub(crate) async fn handle_pagination_with_cursor<F, T, C, Fut, ErrorT>(
     mut closure: F,
     mut cursor: Option<C>,
-) -> Result<impl Iterator<Item = T>, sui_sdk::error::Error>
+) -> Result<impl Iterator<Item = T>, ErrorT>
 where
     F: FnMut(Option<C>) -> Fut,
     T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, sui_sdk::error::Error>>,
+    Fut: Future<Output = Result<Page<T, C>, ErrorT>>,
+    ErrorT: std::error::Error,
 {
     let mut cont = true;
     let mut iterators = vec![];

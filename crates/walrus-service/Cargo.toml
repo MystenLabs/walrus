@@ -98,6 +98,7 @@ home.workspace = true
 hostname.workspace = true
 http-body = "1.0.1"
 humantime.workspace = true
+indexmap.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
 integer-encoding.workspace = true
