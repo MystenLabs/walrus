@@ -47,8 +47,9 @@ jobs:
         run: ./taplo format --check
 
       - name: Check for leftover crumbs
-        run: test "$(git grep crumb! | grep -v -e '^crates/walrus-utils/src/lib.rs' -e '.github/workflows/lint.yml' | wc -l)"
-          -eq 0
+        run: |
+          count_of_crumbs="$(git grep crumb! | grep -Ev -e '^crates/walrus-utils/src/lib.rs' -e '^\.github/workflows/lint.yml' | wc -l)"
+          test "$count_of_crumbs" -eq 0
 
       - name: Install yamlfmt
         run: |
