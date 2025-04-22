@@ -1646,10 +1646,24 @@ impl SuiContractClientInner {
         );
 
         let mut pt_builder = self.transaction_builder()?;
-        for blob_metadata in blob_metadata_list.into_iter() {
-            let storage_arg =
-                reserve_space_fn(&mut pt_builder, blob_metadata.encoded_size, epochs_ahead).await?;
 
+        // Reserve enough space for all blobs
+        let mut main_storage_arg_size = blob_metadata_list
+            .iter()
+            .fold(0, |acc, metadata| acc + metadata.encoded_size);
+        let main_storage_arg =
+            reserve_space_fn(&mut pt_builder, main_storage_arg_size, epochs_ahead).await?;
+
+        for blob_metadata in blob_metadata_list.into_iter() {
+            // Split off a storage resource, unless the remainder is equal to the required size.
+            let storage_arg = if main_storage_arg_size != blob_metadata.encoded_size {
+                main_storage_arg_size -= blob_metadata.encoded_size;
+                pt_builder
+                    .split_storage_by_size(main_storage_arg.into(), main_storage_arg_size)
+                    .await?
+            } else {
+                main_storage_arg
+            };
             pt_builder
                 .register_blob(storage_arg.into(), blob_metadata, persistence)
                 .await?;
