@@ -186,7 +186,8 @@ pub trait ReadClient: Send + Sync {
         blob_object_id: &ObjectID,
     ) -> impl Future<Output = SuiClientResult<Option<BlobAttribute>>> + Send;
 
-    /// Returns the blob object and its associated metadata.
+    /// Returns the blob object and its associated attributes given the object ID of either
+    /// a blob object or a shared blob.
     fn get_blob_by_object_id(
         &self,
         blob_id: &ObjectID,

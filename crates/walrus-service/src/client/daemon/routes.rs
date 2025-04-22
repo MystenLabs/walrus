@@ -140,10 +140,10 @@ fn populate_response_headers(
 
 /// Retrieve a Walrus blob with its associated attribute.
 ///
-/// First retrieves the blob metadata from Sui using the provided blob object ID, then uses the
-/// blob_id from that metadata to fetch the actual blob data via the get_blob function. The response
-/// includes the binary data along with any attribute headers from the metadata that are present in
-/// the configured allowed_headers set.
+/// First retrieves the blob metadata from Sui using the provided object ID (either of the blob
+/// object or a shared blob), then uses the blob_id from that metadata to fetch the actual blob
+/// data via the get_blob function. The response includes the binary data along with any attribute
+/// headers from the metadata that are present in the configured allowed_headers set.
 #[tracing::instrument(level = Level::ERROR, skip_all, fields(%blob_object_id))]
 #[utoipa::path(
     get,
