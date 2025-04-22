@@ -303,11 +303,12 @@ impl RetriableSuiClient {
             } else {
                 // We already have too many objects in the set, but we don't have enough total
                 // value. Try to replace the minimum with the current coin.
-                let min_bal_coin = selected_coins
+                let min_balance = selected_coins
                     .peek()
-                    .expect("since we have >= MAX_GAS_PAYMENT_OBJECTS, the root must exist");
+                    .expect("since we have >= MAX_GAS_PAYMENT_OBJECTS, the root must exist")
+                    .0
+                    .balance() as u128;
 
-                let min_balance = min_bal_coin.0.balance() as u128;
                 if coin_balance >= min_balance {
                     // Replace the minimum.
                     total_selected += coin_balance - min_balance;
