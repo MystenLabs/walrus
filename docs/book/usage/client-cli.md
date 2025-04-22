@@ -16,6 +16,9 @@ If you have multiple *contexts* in your configuration file (as in the default on
 [setup page](./setup.md#configuration)), you can specify the context for each command through the
 `--context` option.
 
+You can generate a bash/zsh/fish completion script with `walrus completion` and place it in the appropriate
+directory like `~/.local/share/bash-completion/completions`.
+
 ## Walrus system information
 
 Information about the Walrus system is available through the `walrus info` command. It provides an

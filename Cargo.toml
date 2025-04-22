@@ -39,6 +39,7 @@ bytes = { version = "1.10.1", default-features = false, features = ["serde"] }
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "0.4"
 clap = { version = "4.5.37", features = ["derive"] }
+clap_complete = "4.5.47"
 colored = "2.2.0"
 criterion = "0.5.1"
 diesel = { version = "2.2", features = ["chrono", "postgres", "uuid"] }

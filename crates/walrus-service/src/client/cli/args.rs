@@ -154,6 +154,13 @@ pub enum Commands {
         #[arg(verbatim_doc_comment)]
         command_string: Option<String>,
     },
+    /// Generate autocompletion script
+    #[clap(name = "completion")]
+    Completion {
+        /// Shell type to generate completion script for the specified shell.
+        #[arg(long)]
+        shell: Option<String>,
+    },
     /// Commands to run the binary in CLI mode.
     #[command(flatten)]
     #[serde(untagged)]
@@ -543,7 +550,7 @@ pub enum CliCommands {
     },
     /// Administration subcommands for storage node operators.
     NodeAdmin {
-        #[arg(long, global = true)]
+        #[arg(long, global = true, required = false)]
         /// The ID of the node for which the operation should be performed.
         node_id: ObjectID,
         /// The specific node admin command to run.
