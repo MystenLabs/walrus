@@ -186,6 +186,8 @@ mod storage;
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
 
+mod checkpoint;
+
 // The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
