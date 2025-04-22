@@ -331,7 +331,8 @@ good job of inferring content types for media. However, the aggregator on purpos
 sniffing from inferring dangerous executable types such as JavaScript or style sheet types.</p>
 </div>
 </div>
-<p>Blobs may also be read by using the object ID of a Sui blob object. For example the following
+<p>Blobs may also be read by using the object ID of a Sui blob object or a shared blob.
+For example the following
 cURL command downloads the blob corresponding to a Sui blob with a specific object ID:</p>
 <pre><code class="language-sh">curl "$AGGREGATOR/v1/blobs/by-object-id/&lt;object-id&gt;" -o &lt;some file name&gt;
 </code></pre>
