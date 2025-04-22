@@ -262,6 +262,7 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         epochs,
         deletable,
         send_object_to,
+        share,
     }): Query<PublisherQuery>,
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
@@ -274,7 +275,13 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
     }
 
     let post_store_action = if let Some(address) = send_object_to {
+        if share {
+            return StoreBlobError::BadRequest("cannot specify both `send_object_to` and `share`")
+                .into_response();
+        }
         PostStoreAction::TransferTo(address)
+    } else if share {
+        PostStoreAction::Share
     } else {
         client.default_post_store_action()
     };
@@ -361,6 +368,10 @@ pub(crate) enum StoreBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
+    #[error("invalid request: {0}")]
+    #[rest_api_error(reason = "BAD_REQUEST", status = ApiStatusCode::FailedPrecondition)]
+    BadRequest(&'static str),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -416,6 +427,9 @@ pub struct PublisherQuery {
     /// this Sui address.
     #[param(value_type = Option<SuiAddressSchema>)]
     pub send_object_to: Option<SuiAddress>,
+    /// If true, the publisher will share the blob. Cannot be true if `send_object_to` is specified.
+    #[serde(default)]
+    pub share: bool,
 }
 
 pub(super) fn default_epochs() -> EpochCount {

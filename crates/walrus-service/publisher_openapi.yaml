@@ -53,6 +53,12 @@ paths:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/SuiAddress'
+      - name: share
+        in: query
+        description: If true, the publisher will share the blob. Cannot be true if `send_object_to` is specified.
+        required: false
+        schema:
+          type: boolean
       requestBody:
         description: Binary data of the unencoded blob to be stored.
         content:
@@ -68,7 +74,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/BlobStoreResult'
         '400':
-          description: The request is malformed
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '413':
           description: The blob is too large
         '451':
