@@ -4,7 +4,15 @@
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
-use std::{collections::BTreeMap, fmt, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap},
+    fmt,
+    pin::pin,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Context;
 use futures::{Stream, StreamExt, future, stream};
@@ -69,6 +77,10 @@ use crate::{
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
 const MAX_GAS_BUDGET: u64 = 50_000_000_000;
+/// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
+/// configuration
+/// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
+const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
 
 /// [`LazySuiClientBuilder`] has enough information to create a [`SuiClient`], when its
 /// [`LazyClientBuilder`] trait implementation is used.
@@ -269,22 +281,73 @@ impl RetriableSuiClient {
         amount: u128,
         exclude: Vec<ObjectID>,
     ) -> SuiClientResult<Vec<Coin>> {
-        let mut total = 0u128;
-        let coins = self
-            .get_coins_stream_retry(address, coin_type)
-            .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
-            .take_while(|coin: &Coin| {
-                let ready = future::ready(total < amount);
-                total += coin.balance as u128;
-                ready
-            })
-            .collect::<Vec<_>>()
-            .await;
+        let mut coins_stream = pin!(
+            self.get_coins_stream_retry(address, coin_type)
+                .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
+        );
 
-        if total < amount {
-            return Err(sui_sdk::error::Error::InsufficientFund { address, amount }.into());
+        // Use a binary heap to keep track of the coins with the largest balances.
+        // `Reverse` turns the max heap into a min heap.
+        let mut selected_coins =
+            BinaryHeap::<Reverse<OrderedCoin>>::with_capacity(MAX_GAS_PAYMENT_OBJECTS);
+        let mut total_selected = 0u128;
+        let mut total_available = 0u128;
+
+        while let Some(coin) = coins_stream.as_mut().next().await {
+            let coin_balance = coin.balance as u128;
+            total_available += coin_balance;
+
+            if selected_coins.len() < MAX_GAS_PAYMENT_OBJECTS {
+                total_selected += coin_balance;
+                selected_coins.push(Reverse(coin.into()));
+            } else {
+                // We already have too many objects in the set, but we don't have enough total
+                // value. Try to replace the minimum with the current coin.
+                let min_bal_coin = selected_coins
+                    .peek()
+                    .expect("since we have >= MAX_GAS_PAYMENT_OBJECTS, the root must exist");
+
+                let min_balance = min_bal_coin.0.balance() as u128;
+                if coin_balance >= min_balance {
+                    // Replace the minimum.
+                    total_selected += coin_balance - min_balance;
+                    selected_coins.pop();
+                    selected_coins.push(Reverse(coin.into()));
+                }
+            }
+
+            if total_selected >= amount {
+                break;
+            }
         }
-        Ok(coins)
+
+        debug_assert!(
+            selected_coins.len() <= MAX_GAS_PAYMENT_OBJECTS,
+            "selected coins should be less than or equal to the max gas payment objects",
+        );
+
+        match (total_selected >= amount, total_available >= amount) {
+            (false, enough_avail) => {
+                if enough_avail {
+                    tracing::error!(
+                        requested_amount = amount,
+                        max_available_with_256_coins = total_selected,
+                        total_available,
+                        "there is enough balance to cover the requested amount, but cannot be \
+                        achieved with less than 256 coins; consider merging the coins in the \
+                        wallet and retrying",
+                    );
+                }
+                return Err(sui_sdk::error::Error::InsufficientFund { address, amount }.into());
+            }
+            (true, false) => unreachable!("total_available is always greater than total_selected"),
+            (true, true) => (),
+        }
+
+        Ok(selected_coins
+            .into_iter()
+            .map(|rev_coin| rev_coin.0.into())
+            .collect())
     }
 
     /// Returns a stream of coins for the given address.
@@ -1084,4 +1147,38 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
+}
+
+/// A representation of Coin with an `Ord` implementation, allowing for sorting by balance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OrderedCoin(pub Coin);
+
+impl From<Coin> for OrderedCoin {
+    fn from(coin: Coin) -> Self {
+        OrderedCoin(coin)
+    }
+}
+
+impl From<OrderedCoin> for Coin {
+    fn from(val: OrderedCoin) -> Self {
+        val.0
+    }
+}
+
+impl PartialOrd for OrderedCoin {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedCoin {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.balance.cmp(&other.0.balance)
+    }
+}
+
+impl OrderedCoin {
+    fn balance(&self) -> u64 {
+        self.0.balance
+    }
 }
