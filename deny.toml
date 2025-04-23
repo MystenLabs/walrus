@@ -20,8 +20,6 @@ ignore = [
   "RUSTSEC-2025-0012",
   # Crash due to uncontrolled recursion in `protobuf` crate.
   "RUSTSEC-2024-0437",
-  # Potential double-free in crossbeam.
-  "RUSTSEC-2025-0024",
 ]
 
 
@@ -102,6 +100,8 @@ unknown-git = "deny"
 allow-git = [
   "https://github.com/asonnino/prometheus-parser",
   "https://github.com/bmwill/axum-server",
+  "https://github.com/bmwill/tonic-rustls",
+  "https://github.com/hyperium/tonic",
   "https://github.com/mystenmark/async-task",
   "https://github.com/zhiburt/tabled",
 ]

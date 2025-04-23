@@ -24,6 +24,7 @@ use sui_sdk::{
         SuiCommittee,
         SuiEvent,
         SuiMoveNormalizedModule,
+        SuiMoveNormalizedStructType,
         SuiMoveNormalizedType,
         SuiObjectDataOptions,
         SuiObjectResponse,
@@ -908,22 +909,28 @@ impl RetriableSuiClient {
                 None
             }
         });
-        let Some(SuiMoveNormalizedType::Struct { type_arguments, .. }) = principal_field_type
+        let Some(SuiMoveNormalizedType::Struct {
+            inner: principal_field_type_inner,
+        }) = principal_field_type
         else {
             return Err(SuiClientError::WalTypeNotFound(package_id));
         };
-        let wal_type = type_arguments
+        let wal_type = principal_field_type_inner
+            .type_arguments
             .first()
             .ok_or_else(|| SuiClientError::WalTypeNotFound(package_id))?;
         let SuiMoveNormalizedType::Struct {
-            address,
-            module,
-            name,
-            ..
+            inner: wal_type_inner,
         } = wal_type
         else {
             return Err(SuiClientError::WalTypeNotFound(package_id));
         };
+        let SuiMoveNormalizedStructType {
+            address,
+            module,
+            name,
+            ..
+        } = wal_type_inner.as_ref();
         ensure!(
             module == "wal" && name == "WAL",
             SuiClientError::WalTypeNotFound(package_id)
