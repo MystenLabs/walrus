@@ -135,7 +135,7 @@ configuration:
     newly-created blob object to the main wallet, such that all these objects are kept there.
     This behavior can be changed by setting the `--burn-after-store` flag, and the blob object
     is then immediately deleted.
-  - However, note that this flag _does not affect_ the use of the `send_object_to` query parameter:
+  - However, note that this flag *does not affect* the use of the `send_object_to` query parameter:
     Regardless of this flag's status, the publisher will send created objects to the address in
     the `send_object_to` query parameter, if it is specified in the PUT request.
 
