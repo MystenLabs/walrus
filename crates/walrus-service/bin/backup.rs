@@ -16,8 +16,8 @@ use walrus_service::{
         start_backup_orchestrator,
     },
     common::utils::MetricsAndLoggingRuntime,
-    utils::load_from_yaml,
 };
+use walrus_utils::load_from_yaml;
 
 /// Manage and run Walrus backup nodes
 #[derive(Parser)]

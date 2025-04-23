@@ -18,16 +18,14 @@ use generator::blob::WriteBlobConfig;
 use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
 use walrus_sdk::client::metrics::ClientMetrics;
-use walrus_service::{
-    client::{ClientConfig, Refiller},
-    utils::load_from_yaml,
-};
+use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
     client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
     config::WalletConfig,
     types::StorageNode,
     utils::SuiNetwork,
 };
+use walrus_utils::load_from_yaml;
 
 use crate::generator::LoadGenerator;
 

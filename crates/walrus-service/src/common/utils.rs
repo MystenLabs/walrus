@@ -50,7 +50,6 @@ use typed_store::DBMetrics;
 use uuid::Uuid;
 use walrus_core::{BlobId, PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
-pub use walrus_sdk::utils::load_from_yaml;
 use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,

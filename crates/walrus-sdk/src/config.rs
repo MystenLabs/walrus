@@ -103,7 +103,7 @@ impl ClientConfig {
         context: Option<&str>,
     ) -> anyhow::Result<(Self, Option<String>)> {
         let path = path.as_ref();
-        match crate::utils::load_from_yaml(path)? {
+        match walrus_utils::load_from_yaml(path)? {
             MultiClientConfig::SingletonConfig(config) => {
                 if let Some(context) = context {
                     bail!(

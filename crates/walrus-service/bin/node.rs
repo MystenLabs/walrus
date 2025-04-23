@@ -49,7 +49,6 @@ use walrus_service::{
         MAX_NODE_NAME_LENGTH,
         MetricPushRuntime,
         MetricsAndLoggingRuntime,
-        load_from_yaml,
         version,
         wait_until_terminated,
     },
@@ -59,6 +58,7 @@ use walrus_sui::{
     types::move_structs::VotingParams,
     utils::SuiNetwork,
 };
+use walrus_utils::load_from_yaml;
 
 const VERSION: &str = version!();
 

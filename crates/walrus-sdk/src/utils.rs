@@ -6,32 +6,14 @@ use std::{
     fmt::{self, Debug, Display},
     future::Future,
     hash::Hash,
-    path::Path,
     time::Duration,
 };
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use futures::{StreamExt, stream::FuturesUnordered};
 use indicatif::{ProgressBar, ProgressStyle};
-use serde::de::DeserializeOwned;
 use tokio::time;
 use tracing::Level;
-
-// TODO: WAL-764 Move this to walrus-utils.
-/// Load the config from a YAML file located at the provided path.
-pub fn load_from_yaml<P: AsRef<Path>, T: DeserializeOwned>(path: P) -> anyhow::Result<T> {
-    let path = path.as_ref();
-    tracing::debug!(path = %path.display(), "[load_from_yaml] reading from file");
-
-    let reader = std::fs::File::open(path).with_context(|| {
-        format!(
-            "[load_from_yaml] unable to load config from {}",
-            path.display()
-        )
-    })?;
-
-    Ok(serde_yaml::from_reader(reader)?)
-}
 
 /// A trait representing a result that has a weight.
 pub trait WeightedResult {

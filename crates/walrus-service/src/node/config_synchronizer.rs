@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use sui_types::base_types::ObjectID;
 use tokio::fs;
 use tracing;
+use walrus_utils::load_from_yaml;
 
 use super::{
     SyncNodeConfigError,
@@ -16,7 +17,6 @@ use super::{
     config::{StorageNodeConfig, TlsConfig},
     contract_service::SystemContractService,
 };
-use crate::utils::load_from_yaml;
 
 /// Trait for loading config from some source.
 #[async_trait]

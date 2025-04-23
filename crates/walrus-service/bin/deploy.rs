@@ -278,13 +278,13 @@ mod commands {
             create_storage_node_configs,
             deploy_walrus_contract,
         },
-        utils::{self, load_from_yaml},
+        utils,
     };
     use walrus_sui::{
         client::{SuiContractClient, UpgradeType, contract_config::ContractConfig},
         config::load_wallet_context_from_path,
     };
-    use walrus_utils::backoff::ExponentialBackoffConfig;
+    use walrus_utils::{backoff::ExponentialBackoffConfig, load_from_yaml};
 
     use super::*;
 
