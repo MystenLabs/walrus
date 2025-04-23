@@ -43,7 +43,7 @@ use walrus_sui::types::{
 use super::storage::DatabaseConfig;
 use crate::{
     common::{config::SuiConfig, utils},
-    node::events::EventProcessorConfig,
+    node::{checkpoint::CheckpointConfig, events::EventProcessorConfig},
 };
 
 /// Configuration for the config synchronizer.
@@ -171,6 +171,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the blocking thread pool.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub thread_pool: ThreadPoolConfig,
+    /// Configuration for the checkpointing task.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub checkpoint_config: CheckpointConfig,
 }
 
 impl Default for StorageNodeConfig {
@@ -209,6 +212,7 @@ impl Default for StorageNodeConfig {
             num_uncertified_blob_threshold: None,
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            checkpoint_config: Default::default(),
         }
     }
 }

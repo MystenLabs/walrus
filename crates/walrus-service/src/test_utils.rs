@@ -2743,6 +2743,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             num_uncertified_blob_threshold: Some(3),
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            checkpoint_config: Default::default(),
         },
         temp_dir,
     }

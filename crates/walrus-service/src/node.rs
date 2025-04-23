@@ -157,6 +157,7 @@ use self::{
 };
 use crate::{
     common::{config::SuiConfig, utils::should_reposition_cursor},
+    node::checkpoint::CheckpointManager,
     utils::ShardDiffCalculator,
 };
 
@@ -516,6 +517,7 @@ pub struct StorageNodeInner {
     thread_pool: BoundedThreadPool,
     registry: Registry,
     latest_event_epoch: AtomicU32, // The epoch of the latest event processed by the node.
+    checkpoint_manager: Option<Arc<CheckpointManager>>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -623,6 +625,7 @@ impl StorageNode {
             encoding_config,
             registry: registry.clone(),
             latest_event_epoch: AtomicU32::new(0),
+            checkpoint_manager: None,
         });
 
         blocklist.start_refresh_task();

@@ -770,6 +770,7 @@ pub async fn create_storage_node_configs(
             num_uncertified_blob_threshold: Some(10),
             balance_check: Default::default(),
             thread_pool: Default::default(),
+            checkpoint_config: Default::default(),
         });
     }
 

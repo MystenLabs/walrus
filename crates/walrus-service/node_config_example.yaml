@@ -147,3 +147,11 @@ balance_check:
 thread_pool:
   max_concurrent_tasks: null
   max_blocking_io_threads: 1024
+checkpoint_config:
+  checkpoint_dir: null
+  max_backups: 5
+  checkpoint_interval:
+  - 86400
+  - 0
+  sync: true
+  max_background_operations: 2
