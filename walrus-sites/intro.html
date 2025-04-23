@@ -231,7 +231,7 @@
 <h1 id="introduction-to-walrus-sites"><a class="header" href="#introduction-to-walrus-sites">Introduction to Walrus Sites</a></h1>
 <p><em>Walrus Sites</em> are "web"-sites that use Sui and Walrus as their underlying technology. They are a
 prime example of how Walrus can be used to build new and exciting decentralized applications. Anyone
-can build and deploy a Walrus Site and make it accessible to the world! Funnily, this documentation
+can build and deploy a Walrus Site and make it accessible to the world! Interestingly, this documentation
 is itself available as a Walrus Site at <a href="https://docs.wal.app/walrus-sites/intro.html">https://docs.wal.app/walrus-sites/intro.html</a> (if you
 aren't there already).</p>
 <p>At a high level, here are some of the most exciting features:</p>
@@ -246,13 +246,13 @@ Sui's flexible programming model. This means, among other things, that Walrus Si
 the <a href="https://suins.io/">SuiNS</a> naming system to have human-readable names. No more messing around
 with DNS!</li>
 <li>Thanks to Walrus's decentralization and extremely high data availability, there is no risk of
-having your site wiped for no reason.</li>
-<li>Since they live on Walrus, these sites cannot have a backend in the traditional sense, and can be
-therefore considered "static" sites. However, the developer can integrate with Sui-compatible
+having your site wiped for any reason.</li>
+<li>Since they live on Walrus, these sites cannot have a backend in the traditional sense, and can
+therefore be considered "static" sites. However, the developer can integrate with Sui-compatible
 wallets and harness Sui's programmability to add backend functionality to Walrus Sites!</li>
 </ul>
 <h2 id="show-me"><a class="header" href="#show-me">Show me</a></h2>
-<p>To give you a very high-level intuition of how Walrus Sites work, let's look at an example: A simple
+<p>To give you a very high-level view of how Walrus Sites work, let's look at an example: A simple
 NFT collection on Sui that has a frontend dApp to mint the NFTs hosted on Walrus Sites, and in
 which <em>each NFT</em> has a <em>specific, personalized Walrus Site</em>.</p>
 <p>You can check out the mint page at <a href="https://flatland.wal.app/">https://flatland.wal.app/</a>. This site is served to your
@@ -263,7 +263,7 @@ portal is to retrieve the metadata (from Sui) and the resource files (from Walru
 the site.</p>
 <p>If you have a Sui wallet with some SUI, you can try and "mint a new Flatlander" from the site. This
 creates an NFT from the collection and shows you two links: one to the explorer, and one to the
-"Flatlander site". This latter site is a special Walrus Site page that exists only for that NFT,
+"Flatlander site". This latter site is a special Walrus Sites page that exists only for that NFT,
 and has special characteristics (the background color, the image, ...) that are based on the
 contents of the NFT.</p>
 <p>The URL to this per-NFT site looks something like this:
@@ -271,7 +271,7 @@ contents of the NFT.</p>
 You'll notice that the domain remains <code>wal.app</code>, but the path is a long and random-looking
 string. This string is actually the <a href="https://simple.wikipedia.org/wiki/Hexadecimal">hexadecimal</a>
 encoding of the object ID of the NFT, which is <a href="https://suiscan.xyz/mainnet/object/0x811285f7bbbaad302e23a3467ed8b8e56324ab31294c27d7392dac649b215716">0x811285f7b...</a>. This path is unique to
-each NFT and is used to fetch the metadata and resource files for its' corresponding page. The page
+each NFT and is used to fetch the metadata and resource files for its corresponding page. The page
 is then rendered based on the characteristics of the NFT.</p>
 <p>In summary:</p>
 <ul>
