@@ -3,8 +3,8 @@
 Published on: 2024-10-17
 
 ```admonish warning
-This blog post is shown in its original form. It may contain information that is no longer accurate
-and broken links.
+This blog post is shown in its original form and may contain information that is no longer accurate.
+Some broken links may have been updated or removed.
 ```
 
 Today, a community of operators launches the first public Walrus Testnet.
@@ -88,7 +88,7 @@ storage node committee changes: better shard allocation mechanisms upon changes 
 stake; efficient ways to sync state between storage nodes; as well as better ways for storage nodes
 to follow Sui event streams.
 
-- Explore the [Walrus staking dApp](https://stake.walrus.site).
+- Explore the Walrus staking dApp.
 - Look at recent activity on the [Walrus Explorer](https://walruscan.com/testnet/home).
 
 ## New Move contracts & documentation

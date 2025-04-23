@@ -226,6 +226,9 @@ struct GenerateDryRunConfigsArgs {
     /// Any extra client wallets to generate. Each will get 1 Million WAL and some Sui.
     #[arg(long)]
     extra_client_wallets: Option<String>,
+    /// The request timeout for the client config.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    sui_client_request_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone, clap::Args)]
@@ -444,6 +447,7 @@ mod commands {
             admin_wallet_path,
             sui_amount,
             extra_client_wallets,
+            sui_client_request_timeout,
         }: GenerateDryRunConfigsArgs,
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
@@ -469,8 +473,9 @@ mod commands {
         let admin_wallet_path = admin_wallet_path.or(Some(
             working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
         ));
-        let admin_wallet = load_wallet_context_from_path(admin_wallet_path)
-            .context("unable to load admin wallet")?;
+        let admin_wallet =
+            load_wallet_context_from_path(admin_wallet_path, sui_client_request_timeout)
+                .context("unable to load admin wallet")?;
         let mut admin_contract_client = testbed_config
             .system_ctx
             .new_contract_client(admin_wallet, ExponentialBackoffConfig::default(), None)
@@ -483,6 +488,7 @@ mod commands {
             &mut admin_contract_client,
             sui_amount,
             extra_client_wallets,
+            sui_client_request_timeout,
         )
         .await?;
 
@@ -521,6 +527,7 @@ mod commands {
             use_legacy_event_provider,
             disable_event_blob_writer,
             sui_amount,
+            sui_client_request_timeout,
         )
         .await?;
 
@@ -552,7 +559,8 @@ mod commands {
     ) -> anyhow::Result<()> {
         utils::init_tracing_subscriber()?;
 
-        let wallet = load_wallet_context_from_path(wallet_path).context("unable to load wallet")?;
+        let wallet =
+            load_wallet_context_from_path(wallet_path, None).context("unable to load wallet")?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
 
         let contract_client =
@@ -575,6 +583,7 @@ mod commands {
         admin_contract_client: &mut SuiContractClient,
         sui_amount: u64,
         extra_client_wallets: Option<String>,
+        sui_client_request_timeout: Option<Duration>,
     ) -> anyhow::Result<()> {
         // The "sui_client" wallet is always created, and we add on any extra client wallets as
         // requested.
@@ -607,6 +616,7 @@ mod commands {
                 testbed_config.exchange_object.into_iter().collect(),
                 sui_amount,
                 &sui_wallet_name,
+                sui_client_request_timeout,
             )
             .await?;
             let serialized_client_config = serde_yaml::to_string(&client_config)

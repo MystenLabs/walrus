@@ -3,15 +3,27 @@
 
 //! Utilities to publish the walrus contracts and deploy a system object for testing.
 
-use std::{collections::HashMap, num::NonZeroU16, path::PathBuf, str::FromStr, time::Duration};
+use std::{
+    collections::HashMap,
+    num::NonZeroU16,
+    path::PathBuf,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::Result;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use serde::{Deserialize, Serialize};
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
-use walrus_core::{keys::ProtocolKeyPair, EpochCount};
+use walrus_core::{
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    EpochCount,
+};
+use walrus_test_utils::WithTempDir;
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
+use super::{new_wallet_on_sui_test_cluster, TestClusterHandle, TestNodeKeys};
 use crate::{
     client::{
         contract_config::ContractConfig,
@@ -25,6 +37,8 @@ use crate::{
 };
 
 const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
+const ONE_WAL: u64 = 1_000_000_000;
+const MEGA_WAL: u64 = 1_000_000 * ONE_WAL;
 
 /// Provides the path of the latest development contracts directory.
 pub fn development_contract_dir() -> anyhow::Result<PathBuf> {
@@ -297,4 +311,133 @@ pub async fn end_epoch_zero(contract_client: &SuiContractClient) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Initializes the walrus contract and a wallet for testing and contract benchmarking.
+///
+/// Returns the cluster, system context, and wallet as well as the [`TestNodeKeys`] for
+/// the nodes in the committee to allow signing of certificates. All nodes in the committee
+/// have equal stake. Note that depending on `n_nodes` this does not necessarily imply that
+/// they have equal weight in the committee.
+pub async fn initialize_contract_and_wallet_for_testing(
+    epoch_duration: Duration,
+    with_subsidies: bool,
+    n_nodes: usize,
+) -> anyhow::Result<(
+    Arc<tokio::sync::Mutex<TestClusterHandle>>,
+    WithTempDir<SuiContractClient>,
+    SystemContext,
+    TestNodeKeys,
+)> {
+    #[cfg(not(msim))]
+    let sui_cluster = super::using_tokio::global_sui_test_cluster();
+    #[cfg(msim)]
+    let sui_cluster = super::using_msim::global_sui_test_cluster().await;
+
+    // Get a wallet on the global sui test cluster
+    let admin_wallet = new_wallet_on_sui_test_cluster(sui_cluster.clone()).await?;
+
+    let bls_keys: Vec<_> = (0..n_nodes).map(|_| ProtocolKeyPair::generate()).collect();
+
+    let result = admin_wallet
+        .and_then_async(|admin_wallet| {
+            publish_with_default_system_with_epoch_duration(
+                admin_wallet,
+                &bls_keys,
+                epoch_duration,
+                with_subsidies,
+            )
+        })
+        .await?;
+    let system_context = result.inner.0.clone();
+    let admin_contract_client = result.map(|(_, client)| client);
+    let committee = admin_contract_client
+        .as_ref()
+        .read_client()
+        .current_committee()
+        .await?;
+    let test_node_keys = TestNodeKeys::new(bls_keys, &committee)?;
+    Ok((
+        sui_cluster,
+        admin_contract_client,
+        system_context,
+        test_node_keys,
+    ))
+}
+
+/// Publishes the package for testing `sui-walrus`. Enrolls nodes with keys
+/// `bls_keys` and equal stake.
+///
+/// Returns the system context and the contract client with the admin wallet that
+/// also holds the node caps for all nodes.
+async fn publish_with_default_system_with_epoch_duration(
+    mut admin_wallet: WalletContext,
+    bls_keys: &[ProtocolKeyPair],
+    epoch_duration: Duration,
+    with_subsidies: bool,
+) -> anyhow::Result<(SystemContext, SuiContractClient)> {
+    let system_context = create_and_init_system_for_test(
+        &mut admin_wallet,
+        NonZeroU16::new(1000).expect("1000 is not 0"),
+        Duration::from_secs(0),
+        epoch_duration,
+        None,
+        with_subsidies,
+        None,
+        None,
+    )
+    .await?;
+
+    tracing::info!(?system_context, "created system");
+
+    // Set up node params.
+    // Pk corresponding to secret key scalar(117)
+    let storage_node_params: Vec<_> = bls_keys
+        .iter()
+        .map(|protocol_keypair| {
+            let network_key_pair = NetworkKeyPair::generate();
+            NodeRegistrationParams::new_for_test(
+                protocol_keypair.public(),
+                network_key_pair.public(),
+            )
+        })
+        .collect();
+
+    // Create admin contract client
+    let contract_client = system_context
+        .new_contract_client(admin_wallet, Default::default(), None)
+        .await?;
+
+    // We only care about gas cost, so the actual subsidy rate can be zero to make it cheap to fund.
+    let subsidy_rate = 0;
+
+    if let Some(subsidies_pkg_id) = system_context.subsidies_pkg_id {
+        let (subsidies_object_id, _admin_cap_id) = contract_client
+            .create_and_fund_subsidies(subsidies_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
+            .await?;
+
+        contract_client
+            .read_client()
+            .set_subsidies_object(subsidies_object_id)
+            .await?;
+    }
+
+    // use the same contract client for all nodes
+    let node_contract_clients: Vec<_> = bls_keys.iter().map(|_| &contract_client).collect();
+    let amounts_to_stake: Vec<_> = bls_keys.iter().map(|_| ONE_WAL).collect();
+
+    register_committee_and_stake(
+        &contract_client,
+        &storage_node_params,
+        bls_keys,
+        &node_contract_clients,
+        &amounts_to_stake,
+        Some(1), // we're using the same contract client, no point waiting for the lock
+    )
+    .await?;
+
+    // call vote end
+    end_epoch_zero(&contract_client).await?;
+
+    Ok((system_context, contract_client))
 }

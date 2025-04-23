@@ -36,4 +36,5 @@ echo "Generating dry run configs"
   --extra-client-wallets stress,staking \
   --admin-wallet-path /opt/walrus/outputs/sui_admin.yaml \
   --sui-amount 1000000000000 \
+  --sui-client-request-timeout 90s \
   || die "Failed to generate dry-run configs"

@@ -663,6 +663,7 @@ impl EventProcessor {
 
         let url = runtime_config.rpc_addresses[0].clone();
         let sui_client = SuiClientBuilder::default()
+            .request_timeout(config.checkpoint_request_timeout)
             .build(&url)
             .await
             .context(format!("cannot connect to Sui RPC node at {url}"))?;

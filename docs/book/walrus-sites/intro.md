@@ -2,7 +2,7 @@
 
 *Walrus Sites* are "web"-sites that use Sui and Walrus as their underlying technology. They are a
 prime example of how Walrus can be used to build new and exciting decentralized applications. Anyone
-can build and deploy a Walrus Site and make it accessible to the world! Funnily, this documentation
+can build and deploy a Walrus Site and make it accessible to the world! Interestingly, this documentation
 is itself available as a Walrus Site at <https://docs.wal.app/walrus-sites/intro.html> (if you
 aren't there already).
 
@@ -18,14 +18,14 @@ At a high level, here are some of the most exciting features:
   the [SuiNS](https://suins.io/) naming system to have human-readable names. No more messing around
   with DNS!
 - Thanks to Walrus's decentralization and extremely high data availability, there is no risk of
-  having your site wiped for no reason.
-- Since they live on Walrus, these sites cannot have a backend in the traditional sense, and can be
-  therefore considered "static" sites. However, the developer can integrate with Sui-compatible
+  having your site wiped for any reason.
+- Since they live on Walrus, these sites cannot have a backend in the traditional sense, and can
+  therefore be considered "static" sites. However, the developer can integrate with Sui-compatible
   wallets and harness Sui's programmability to add backend functionality to Walrus Sites!
 
 ## Show me
 
-To give you a very high-level intuition of how Walrus Sites work, let's look at an example: A simple
+To give you a very high-level view of how Walrus Sites work, let's look at an example: A simple
 NFT collection on Sui that has a frontend dApp to mint the NFTs hosted on Walrus Sites, and in
 which *each NFT* has a *specific, personalized Walrus Site*.
 
@@ -38,7 +38,7 @@ the site.
 
 If you have a Sui wallet with some SUI, you can try and "mint a new Flatlander" from the site. This
 creates an NFT from the collection and shows you two links: one to the explorer, and one to the
-"Flatlander site". This latter site is a special Walrus Site page that exists only for that NFT,
+"Flatlander site". This latter site is a special Walrus Sites page that exists only for that NFT,
 and has special characteristics (the background color, the image, ...) that are based on the
 contents of the NFT.
 
@@ -47,7 +47,7 @@ The URL to this per-NFT site looks something like this:
 You'll notice that the domain remains `wal.app`, but the path is a long and random-looking
 string. This string is actually the [hexadecimal](https://simple.wikipedia.org/wiki/Hexadecimal)
 encoding of the object ID of the NFT, which is [0x811285f7b...][flatlander]. This path is unique to
-each NFT and is used to fetch the metadata and resource files for its' corresponding page. The page
+each NFT and is used to fetch the metadata and resource files for its corresponding page. The page
 is then rendered based on the characteristics of the NFT.
 
 In summary:

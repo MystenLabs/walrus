@@ -25,6 +25,7 @@ use walrus_core::{
     EpochCount,
     ShardIndex,
 };
+use walrus_sdk::config::ClientCommunicationConfig;
 use walrus_sui::{
     client::{rpc_config::RpcFallbackConfig, SuiContractClient},
     config::{load_wallet_context_from_path, WalletConfig},
@@ -364,13 +365,14 @@ pub async fn deploy_walrus_contract(
             "Loading existing admin wallet from path: {}",
             admin_wallet_path.display()
         );
-        load_wallet_context_from_path(Some(&admin_wallet_path))?
+        load_wallet_context_from_path(Some(&admin_wallet_path), None)?
     } else {
         tracing::debug!("Creating new admin wallet in working directory");
         let mut admin_wallet = create_wallet(
             &working_dir.join(format!("{ADMIN_CONFIG_PREFIX}.yaml")),
             sui_network.env(),
             Some(&format!("{ADMIN_CONFIG_PREFIX}.keystore")),
+            None,
         )?;
 
         // Print the wallet address.
@@ -513,6 +515,7 @@ pub async fn create_client_config(
     exchange_objects: Vec<ObjectID>,
     sui_amount: u64,
     wallet_name: &str,
+    sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<client::ClientConfig> {
     // Create the working directory if it does not exist
     fs::create_dir_all(working_dir).expect("Failed to create working directory");
@@ -523,6 +526,7 @@ pub async fn create_client_config(
         &sui_client_wallet_path,
         sui_network.env(),
         Some(&format!("{}.keystore", wallet_name)),
+        sui_client_request_timeout,
     )?;
 
     let client_address = sui_client_wallet_context.active_address()?;
@@ -562,7 +566,10 @@ pub async fn create_client_config(
         contract_config,
         exchange_objects,
         wallet_config: Some(WalletConfig::from_path(wallet_path)),
-        communication_config: Default::default(),
+        communication_config: ClientCommunicationConfig {
+            sui_client_request_timeout,
+            ..Default::default()
+        },
         refresh_config: Default::default(),
     };
 
@@ -586,6 +593,7 @@ pub async fn create_backup_config(
             event_polling_interval: defaults::polling_interval(),
             rpc_fallback_config,
             additional_rpc_endpoints: vec![],
+            request_timeout: None,
         },
         database_url.to_string(),
     ))
@@ -607,6 +615,7 @@ pub async fn create_storage_node_configs(
     use_legacy_event_provider: bool,
     disable_event_blob_writer: bool,
     sui_amount: u64,
+    sui_client_request_timeout: Option<Duration>,
 ) -> anyhow::Result<Vec<StorageNodeConfig>> {
     tracing::debug!(
         ?working_dir,
@@ -713,6 +722,7 @@ pub async fn create_storage_node_configs(
             gas_budget: None,
             rpc_fallback_config: rpc_fallback_config.clone(),
             additional_rpc_endpoints: vec![],
+            request_timeout: sui_client_request_timeout,
         });
 
         let storage_path = set_db_path
@@ -857,6 +867,7 @@ async fn create_storage_node_wallets(
                 &wallet_path,
                 sui_network.env(),
                 Some(&format!("{}.keystore", name)),
+                None,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;

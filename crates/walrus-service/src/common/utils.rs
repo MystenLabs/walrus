@@ -525,7 +525,7 @@ pub async fn generate_sui_wallet(
         "generating Sui wallet for {sui_network} at '{}'",
         path.display()
     );
-    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None)?;
+    let mut wallet = walrus_sui::utils::create_wallet(path, sui_network.env(), None, None)?;
     let wallet_address = wallet.active_address()?;
     tracing::info!("generated a new Sui wallet; address: {wallet_address}");
 

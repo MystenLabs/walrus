@@ -303,10 +303,14 @@ impl std::fmt::Display for SuiNetwork {
 ///
 /// The keystore will be stored in the same directory as the wallet config and named
 /// `keystore_filename` (if provided) and `sui.keystore` otherwise.  Returns the created Wallet.
+///
+/// `request_time` is a configuration that is set in the wallet, and automatically populated to
+/// the SuiClient created from the wallet.
 pub fn create_wallet(
     config_path: &Path,
     sui_env: SuiEnv,
     keystore_filename: Option<&str>,
+    request_timeout: Option<Duration>,
 ) -> Result<WalletContext> {
     let keystore_path = config_path
         .parent()
@@ -328,7 +332,7 @@ pub fn create_wallet(
     }
     .persisted(config_path)
     .save()?;
-    load_wallet_context_from_path(Some(config_path))
+    load_wallet_context_from_path(Some(config_path), request_timeout)
 }
 
 /// Sends a request to the faucet to request coins for `address`.
@@ -416,13 +420,6 @@ pub async fn get_sui_from_wallet_or_faucet(
         .coin_read_api()
         .get_balance(sender, None)
         .await?;
-    tracing::debug!(
-        address = %address,
-        sui_amount = %sui_amount,
-        balance = %balance.total_balance,
-        min_balance = %min_balance,
-        "funding address with SUI"
-    );
     if balance.total_balance >= u128::from(min_balance) {
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_sui(address, Some(sui_amount));

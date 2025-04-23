@@ -4,5 +4,6 @@ This part of the Walrus documentation is used to publish news and updates about 
 development!
 
 ```admonish warning
-Older blog posts may contain information that is no longer accurate and broken links.
+We generally keep older blog posts unchanged besides possibly fixing typos and updating or removing
+broken links. As a result they may contain information that is no longer accurate.
 ```

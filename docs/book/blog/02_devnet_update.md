@@ -3,8 +3,8 @@
 Published on: 2024-08-12
 
 ```admonish warning
-This blog post is shown in its original form. It may contain information that is no longer accurate
-and broken links.
+This blog post is shown in its original form and may contain information that is no longer accurate.
+Some broken links may have been updated or removed.
 ```
 
 We have redeployed the Walrus Devnet to incorporate various improvements to the Walrus storage nodes

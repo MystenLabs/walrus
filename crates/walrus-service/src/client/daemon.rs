@@ -67,11 +67,14 @@ mod openapi;
 mod routes;
 
 pub trait WalrusReadClient {
+    /// Reads a blob from Walrus.
     fn read_blob(
         &self,
         blob_id: &BlobId,
     ) -> impl std::future::Future<Output = ClientResult<Vec<u8>>> + Send;
 
+    /// Returns the blob object and its associated attributes given the object ID of either
+    /// a blob object or a shared blob.
     fn get_blob_by_object_id(
         &self,
         blob_object_id: &ObjectID,

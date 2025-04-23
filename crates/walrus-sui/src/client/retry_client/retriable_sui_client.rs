@@ -4,7 +4,7 @@
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
 //! Wraps the [`SuiClient`] to introduce retries.
-use std::{collections::BTreeMap, str::FromStr, sync::Arc};
+use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
 
 use futures::{
     future::{self},
@@ -35,6 +35,8 @@ use sui_sdk::{
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
+        SuiTransactionBlockResponseQuery,
+        TransactionBlocksPage,
     },
     wallet_context::WalletContext,
     SuiClient,
@@ -108,8 +110,15 @@ impl RetriableSuiClient {
     pub async fn new_for_rpc<S: AsRef<str>>(
         rpc_address: S,
         backoff_config: ExponentialBackoffConfig,
+        request_timeout: Option<Duration>,
     ) -> SuiClientResult<Self> {
-        let client = SuiClientBuilder::default().build(rpc_address).await?;
+        let mut client_builder = SuiClientBuilder::default();
+
+        if let Some(request_timeout) = request_timeout {
+            client_builder = client_builder.request_timeout(request_timeout);
+        }
+
+        let client = client_builder.build(rpc_address).await?;
         Ok(Self::new(client, backoff_config))
     }
 
@@ -266,6 +275,32 @@ impl RetriableSuiClient {
             },
             self.metrics.clone(),
             "get_balance",
+        )
+        .await
+    }
+
+    /// Return a paginated response with all transaction blocks information, or an error upon
+    /// failure.
+    ///
+    /// Calls [`sui_sdk::apis::ReadApi::query_transaction_blocks`] internally.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    pub async fn query_transaction_blocks(
+        &self,
+        query: SuiTransactionBlockResponseQuery,
+        cursor: Option<TransactionDigest>,
+        limit: Option<usize>,
+        descending_order: bool,
+    ) -> SuiRpcResult<TransactionBlocksPage> {
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.sui_client
+                    .read_api()
+                    .query_transaction_blocks(query.clone(), cursor, limit, descending_order)
+                    .await
+            },
+            self.metrics.clone(),
+            "query_transaction_blocks",
         )
         .await
     }

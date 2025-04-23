@@ -1044,6 +1044,7 @@ impl StorageNodeHandleBuilder {
                     .skip(1)
                     .map(|url| url.clone())
                     .collect::<Vec<String>>(),
+                request_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),

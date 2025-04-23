@@ -34,7 +34,12 @@ mod sync_shard;
 pub use sync_shard::{SignedSyncShardRequest, SyncShardMsg, SyncShardRequest, SyncShardResponse};
 
 mod certificate;
-pub use certificate::{CertificateError, ConfirmationCertificate, InvalidBlobCertificate};
+pub use certificate::{
+    CertificateError,
+    ConfirmationCertificate,
+    InvalidBlobCertificate,
+    ProtocolMessageCertificate,
+};
 
 use crate::{ensure, wrapped_uint, Epoch, PublicKey};
 

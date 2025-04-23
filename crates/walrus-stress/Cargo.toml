@@ -9,6 +9,7 @@ license.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 futures.workspace = true
+humantime.workspace = true
 indicatif.workspace = true
 mysten-metrics.workspace = true
 prometheus.workspace = true

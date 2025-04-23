@@ -547,9 +547,12 @@ mod commands {
                 &metrics_runtime.registry,
                 &config.contract_config.system_object,
                 &config.contract_config.staking_object,
-                WalletConfig::load_wallet_context(Some(&config.wallet_config))
-                    .and_then(|mut wallet| wallet.active_address())
-                    .ok(),
+                WalletConfig::load_wallet_context(
+                    Some(&config.wallet_config),
+                    config.request_timeout,
+                )
+                .and_then(|mut wallet| wallet.active_address())
+                .ok(),
             );
         }
 
@@ -843,7 +846,7 @@ mod commands {
                 "getting Sui RPC URL from wallet at '{}'",
                 wallet_config.display()
             );
-            let wallet_context = load_wallet_context_from_path(Some(&wallet_config))
+            let wallet_context = load_wallet_context_from_path(Some(&wallet_config), None)
                 .context("Reading Sui wallet failed")?;
             wallet_context
                 .config
@@ -904,6 +907,7 @@ mod commands {
                     .clone()
                     .and_then(|args| args.to_config()),
                 additional_rpc_endpoints,
+                request_timeout: None,
             }),
             tls: TlsConfig {
                 certificate_path,

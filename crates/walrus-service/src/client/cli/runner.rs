@@ -152,7 +152,13 @@ impl ClientCommandRunner {
                 .as_ref()
                 .ok()
                 .and_then(|config: &ClientConfig| config.wallet_config.clone()));
-        let wallet = WalletConfig::load_wallet_context(wallet_config.as_ref());
+        let wallet = WalletConfig::load_wallet_context(
+            wallet_config.as_ref(),
+            config
+                .as_ref()
+                .ok()
+                .and_then(|config| config.communication_config.sui_client_request_timeout),
+        );
 
         Self {
             wallet,

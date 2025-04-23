@@ -167,8 +167,11 @@ impl ClientConfig {
         &self,
         gas_budget: Option<u64>,
     ) -> anyhow::Result<SuiContractClient> {
-        let wallet = WalletConfig::load_wallet_context(self.wallet_config.as_ref())
-            .context("new_contract_client_with_wallet_in_config")?;
+        let wallet = WalletConfig::load_wallet_context(
+            self.wallet_config.as_ref(),
+            self.communication_config.sui_client_request_timeout,
+        )
+        .context("new_contract_client_with_wallet_in_config")?;
         Ok(self.new_contract_client(wallet, gas_budget).await?)
     }
 

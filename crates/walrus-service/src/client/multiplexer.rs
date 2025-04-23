@@ -365,13 +365,17 @@ impl<'a> SubClientLoader<'a> {
 
         if wallet_config_path.exists() {
             tracing::debug!(?wallet_config_path, "loading sub-wallet from file");
-            load_wallet_context_from_path(Some(&wallet_config_path))
+            load_wallet_context_from_path(
+                Some(&wallet_config_path),
+                self.config.communication_config.sui_client_request_timeout,
+            )
         } else {
             tracing::debug!(?wallet_config_path, "creating new sub-wallet");
             create_wallet(
                 &wallet_config_path,
                 self.sui_env.clone(),
                 Some(&keystore_filename),
+                self.config.communication_config.sui_client_request_timeout,
             )
         }
     }

@@ -187,10 +187,10 @@ impl NodeRegistrationParams {
             network_address: NetworkAddress("127.0.0.1:8080".to_owned()),
             public_key: protocol_public_key.clone(),
             network_public_key: network_public_key.clone(),
-            commission_rate: 0,
+            commission_rate: 50_00, // 50%
             storage_price: 5,
             write_price: 1,
-            node_capacity: 1_000_000_000_000,
+            node_capacity: 1_000_000_000_000_000,
             metadata: NodeMetadata::default(),
         }
     }

@@ -52,6 +52,9 @@ pub struct SuiConfig {
     /// Additional RPC endpoints to use for the event processor.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_rpc_endpoints: Vec<String>,
+    /// The request timeout for communicating with Sui network.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub request_timeout: Option<Duration>,
 }
 
 impl SuiConfig {
@@ -72,7 +75,7 @@ impl SuiConfig {
     ) -> Result<SuiContractClient, SuiClientError> {
         if let Some(metrics) = metrics {
             SuiContractClient::new_from_wallet_with_metrics(
-                WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
+                WalletConfig::load_wallet_context(Some(&self.wallet_config), self.request_timeout)?,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
@@ -81,7 +84,7 @@ impl SuiConfig {
             .await
         } else {
             SuiContractClient::new(
-                WalletConfig::load_wallet_context(Some(&self.wallet_config))?,
+                WalletConfig::load_wallet_context(Some(&self.wallet_config), self.request_timeout)?,
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
@@ -100,6 +103,7 @@ impl From<&SuiConfig> for SuiReaderConfig {
             backoff_config: config.backoff_config.clone(),
             rpc_fallback_config: config.rpc_fallback_config.clone(),
             additional_rpc_endpoints: config.additional_rpc_endpoints.clone(),
+            request_timeout: config.request_timeout,
         }
     }
 }
@@ -131,6 +135,9 @@ pub struct SuiReaderConfig {
     /// Additional RPC endpoints to use for the event processor.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_rpc_endpoints: Vec<String>,
+    /// The request timeout for communicating with Sui network.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub request_timeout: Option<Duration>,
 }
 
 impl SuiReaderConfig {
