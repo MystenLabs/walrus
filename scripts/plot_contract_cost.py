@@ -1,6 +1,11 @@
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+This script provides simple plots for the output of the `gas_cost_bench` benchmarks of the
+`walrus-sui` crate.
+"""
+
 import argparse
 import pandas as pd
 import seaborn as sns

@@ -25,6 +25,8 @@ use walrus_sui::{
     test_utils::system_setup::initialize_contract_and_wallet_for_testing,
 };
 
+const MEGA_SUI: u64 = 1_000_000_000_000_000; // 1M Sui
+
 #[derive(Debug, Clone)]
 struct InputRange {
     range: Range<u32>,
@@ -130,10 +132,7 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
     sui_cluster_handle
         .lock()
         .await
-        .fund_addresses_with_sui(
-            vec![walrus_client.as_ref().address()],
-            Some(1_000_000_000_000_000),
-        )
+        .fund_addresses_with_sui(vec![walrus_client.as_ref().address()], Some(MEGA_SUI))
         .await?;
     let contract_config = walrus_client.as_ref().read_client().contract_config();
     tracing::info!(?contract_config, "walrus client config");
@@ -210,12 +209,12 @@ fn prepare_blob_metadata() -> BlobObjectMetadata {
         .unwrap();
 
     #[rustfmt::skip]
-        let root_hash = Node::from([
-            1, 2, 3, 4, 5, 6, 7, 8,
-            1, 2, 3, 4, 5, 6, 7, 8,
-            1, 2, 3, 4, 5, 6, 7, 8,
-            1, 2, 3, 4, 5, 6, 7, 8,
-        ]);
+    let root_hash = Node::from([
+        1, 2, 3, 4, 5, 6, 7, 8,
+        1, 2, 3, 4, 5, 6, 7, 8,
+        1, 2, 3, 4, 5, 6, 7, 8,
+        1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
 
     let blob_id = BlobId::from_metadata(root_hash.clone(), encoding_type, size);
     BlobObjectMetadata {
@@ -245,7 +244,7 @@ fn write_data_entry(
         gas_cost_summary.storage_cost,
         gas_cost_summary.storage_rebate,
     );
-    out_file.write(out.as_bytes())?;
+    out_file.write_all(out.as_bytes())?;
     Ok(())
 }
 

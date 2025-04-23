@@ -37,6 +37,8 @@ use crate::{
 };
 
 const DEFAULT_MAX_EPOCHS_AHEAD: EpochCount = 104;
+const ONE_WAL: u64 = 1_000_000_000;
+const MEGA_WAL: u64 = 1_000_000 * ONE_WAL;
 
 /// Provides the path of the latest development contracts directory.
 pub fn development_contract_dir() -> anyhow::Result<PathBuf> {
@@ -411,12 +413,7 @@ async fn publish_with_default_system_with_epoch_duration(
 
     if let Some(subsidies_pkg_id) = system_context.subsidies_pkg_id {
         let (subsidies_object_id, _admin_cap_id) = contract_client
-            .create_and_fund_subsidies(
-                subsidies_pkg_id,
-                subsidy_rate,
-                subsidy_rate,
-                1_000_000_000_000_000, // 1M WAL
-            )
+            .create_and_fund_subsidies(subsidies_pkg_id, subsidy_rate, subsidy_rate, MEGA_WAL)
             .await?;
 
         contract_client
@@ -427,7 +424,7 @@ async fn publish_with_default_system_with_epoch_duration(
 
     // use the same contract client for all nodes
     let node_contract_clients: Vec<_> = bls_keys.iter().map(|_| &contract_client).collect();
-    let amounts_to_stake: Vec<_> = bls_keys.iter().map(|_| 1_000_000_000).collect();
+    let amounts_to_stake: Vec<_> = bls_keys.iter().map(|_| ONE_WAL).collect();
 
     register_committee_and_stake(
         &contract_client,
