@@ -156,7 +156,7 @@ Note that it is currently not possible to use an external cluster with `cargo ne
 
 We would like to cover as much code as possible with tests. Ideally you would add unit tests for all
 code you contribute. To analyze test coverage, we use
-[Tarpaulin](https://crates.io/crates/tarpaulin). You can install and run the tool as follows:
+[Tarpaulin](https://crates.io/crates/cargo-tarpaulin). You can install and run the tool as follows:
 
 ```sh
 cargo install cargo-tarpaulin
