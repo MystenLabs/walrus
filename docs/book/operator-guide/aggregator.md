@@ -93,12 +93,28 @@ We list here a few important details on how the publisher deals with funds and o
 As mentioned above, the publisher uses sub-wallets to allow storing blobs in parallel. By default,
 the publisher uses 8 sub-wallets, meaning it can handle 8 blob store HTTP requests concurrently.
 
+In order to operate a high performance and concurrency publisher the following options may be of
+interest.
+
+- The `--n-clients <NUM>` option creates a number of separate wallets used to perform concurrent
+  Sui chain operations. Increase this to allow more parallel uploads. Note that a higher number
+  will require more SUI and WAL coins initially too, to be distributed to more wallets.
+
+- The `--max-concurrent-requests <NUM>` determines how many concurrent requests can be handled
+  including Sui operations (limited by number of clients) but also uploads. After this is exceeded
+  more requests are queued up to the `--max-buffer-size <NUM>`, after which requests are rejected
+  with a HTTP 429 code.
+
 ### SUI coin management in sub-wallets
 
 Each of the sub-wallets requires funds to interact with the chain and purchase storage. For this
 reason, a background process checks periodically if the sub-wallets have enough funds. In steady
 state, each of the sub-wallets will have a balance of 0.5-1.0 SUI and WAL. The amount and triggers
 for coin refills can be configured through CLI arguments.
+
+To tweak how refills are handled you may use the `--refill-interval <REFILL_INTERVAL>`,
+`--gas-refill-amount <GAS_REFILL_AMOUNT>`, `--wal-refill-amount <WAL_REFILL_AMOUNT>` and
+`--sub-wallets-min-balance <SUB_WALLETS_MIN_BALANCE>` arguments.
 
 ### Lifecycle of created `Blob` on-chain objects
 
@@ -115,12 +131,13 @@ configuration:
   then the `Blob` object is transferred to the
   specified address. This is a way for clients to get back the created object for their data.
 - If the `send_object_to` query parameter is not specified, two cases are possible:
-  - If the publisher was run with the `--keep` flag, then the sub-wallet transfers the
+  - By default the sub-wallet transfers the
     newly-created blob object to the main wallet, such that all these objects are kept there.
-  - If the `--keep` flag was omitted, then the sub-wallet *immediately burns* the `Blob` object.
-    Since no one has requested the object, and the availability of the data on Walrus is independent
-    of the existence of such object, it is safe to do so. This is to avoid cluttering the sub-wallet
-    with many blob objects.
+    This behavior can be changed by setting the `--burn-after-store` flag, and the blob object
+    is then immediately deleted.
+  - However, note that this flag _does not affect_ the use of the `send_object_to` query parameter:
+    Regardless of this flag's status, the publisher will send created objects to the address in
+    the `send_object_to` query parameter, if it is specified in the PUT request.
 
 ### Advanced publisher uses
 
