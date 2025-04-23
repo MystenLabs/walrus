@@ -43,6 +43,7 @@ use super::{
     SuiReadClient,
 };
 use crate::{
+    client::retry_client::retriable_sui_client::RetriableSuiClientTrait,
     contracts::{self, FunctionTag},
     types::{
         move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},

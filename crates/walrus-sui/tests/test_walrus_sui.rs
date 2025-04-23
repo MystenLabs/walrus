@@ -19,6 +19,7 @@ use walrus_core::{
 };
 use walrus_sui::{
     client::{
+        retry_client::retriable_sui_client::RetriableSuiClientTrait,
         BlobObjectMetadata,
         BlobPersistence,
         CoinType,

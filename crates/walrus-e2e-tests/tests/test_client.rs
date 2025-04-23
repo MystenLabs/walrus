@@ -58,6 +58,7 @@ use walrus_service::test_utils::{
 };
 use walrus_sui::{
     client::{
+        retry_client::retriable_sui_client::RetriableSuiClientTrait,
         BlobPersistence,
         ExpirySelectionPolicy,
         PostStoreAction,

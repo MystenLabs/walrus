@@ -31,6 +31,7 @@ pub mod fallible;
 pub mod retriable_rpc_client;
 pub mod retriable_rpc_error;
 pub mod retriable_sui_client;
+// pub mod mock_retriable_sui_client;
 mod retry_count_guard;
 
 /// The gas overhead to add to the gas budget to ensure that the transaction will succeed.

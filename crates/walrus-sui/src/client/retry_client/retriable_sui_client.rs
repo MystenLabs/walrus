@@ -7,7 +7,7 @@
 use std::{collections::BTreeMap, str::FromStr, sync::Arc, time::Duration};
 
 use futures::{
-    future::{self},
+    future::{self, Future},
     stream,
     Stream,
     StreamExt,
@@ -63,9 +63,196 @@ use crate::{
     types::move_structs::{Key, Subsidies, SuiDynamicField, SystemObjectForDeserialization},
     utils::get_sui_object_from_object_response,
 };
+// use mockall::*;
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
 const MAX_GAS_BUDGET: u64 = 50_000_000_000;
+
+/// Trait defining the interface for a Sui client that supports retrying RPC calls with backoff
+/// in case of network errors.
+pub trait RetriableSuiClientTrait: Send + Sync {
+    /// Returns the inner backoff configuration.
+    fn backoff_config(&self) -> &ExponentialBackoffConfig;
+
+    /// Return a list of coins for the given address, or an error upon failure.
+    fn select_coins(
+        &self,
+        address: SuiAddress,
+        coin_type: Option<String>,
+        amount: u128,
+        exclude: Vec<ObjectID>,
+    ) -> impl Future<Output = SuiRpcResult<Vec<Coin>>> + Send;
+
+    /// Returns the balance for the given coin type owned by address.
+    fn get_balance(
+        &self,
+        owner: SuiAddress,
+        coin_type: Option<String>,
+    ) -> impl Future<Output = SuiRpcResult<Balance>> + Send;
+
+    /// Return a paginated response with the objects owned by the given address.
+    fn get_owned_objects(
+        &self,
+        address: SuiAddress,
+        query: Option<SuiObjectResponseQuery>,
+        cursor: Option<ObjectID>,
+        limit: Option<usize>,
+    ) -> impl Future<Output = SuiRpcResult<ObjectsPage>> + Send;
+
+    /// Returns a SuiObjectResponse based on the provided ObjectID and options.
+    fn get_object_with_options(
+        &self,
+        object_id: ObjectID,
+        options: SuiObjectDataOptions,
+    ) -> impl Future<Output = SuiRpcResult<SuiObjectResponse>> + Send;
+
+    /// Returns a SuiTransactionBlockResponse based on the provided TransactionDigest.
+    fn get_transaction_with_options(
+        &self,
+        digest: TransactionDigest,
+        options: SuiTransactionBlockResponseOptions,
+    ) -> impl Future<Output = SuiRpcResult<SuiTransactionBlockResponse>> + Send;
+
+    /// Return a list of SuiObjectResponse from the given vector of ObjectIDs.
+    fn multi_get_object_with_options(
+        &self,
+        object_ids: Vec<ObjectID>,
+        options: SuiObjectDataOptions,
+    ) -> impl Future<Output = SuiRpcResult<Vec<SuiObjectResponse>>> + Send;
+
+    /// Returns a map consisting of the move package name and the normalized module.
+    fn get_normalized_move_modules_by_package(
+        &self,
+        package_id: ObjectID,
+    ) -> impl Future<Output = SuiRpcResult<BTreeMap<String, SuiMoveNormalizedModule>>> + Send;
+
+    /// Returns the committee information for the given epoch.
+    fn get_committee_info(
+        &self,
+        epoch: Option<BigInt<u64>>,
+    ) -> impl Future<Output = SuiRpcResult<SuiCommittee>> + Send;
+
+    /// Returns the reference gas price.
+    fn get_reference_gas_price(&self) -> impl Future<Output = SuiRpcResult<u64>> + Send;
+
+    /// Executes a transaction dry run.
+    fn dry_run_transaction_block(
+        &self,
+        transaction: TransactionData,
+    ) -> impl Future<Output = SuiRpcResult<DryRunTransactionBlockResponse>> + Send;
+
+    /// Returns a reference to the EventApi.
+    fn event_api(&self) -> &EventApi;
+
+    /// Returns a reference to the GovernanceApi.
+    fn governance_api(&self) -> &GovernanceApi;
+
+    /// Returns a SuiObjectResponse based on the provided ObjectID.
+    fn get_sui_object<U>(&self, object_id: ObjectID) -> impl Future<Output = SuiClientResult<U>>
+    where
+        U: AssociatedContractStruct;
+
+    /// Returns the chain identifier.
+    fn get_chain_identifier(&self) -> impl Future<Output = SuiRpcResult<String>> + Send;
+
+    /// Returns a list of objects for the given object IDs.
+    fn get_sui_objects<U>(
+        &self,
+        object_ids: &[ObjectID],
+    ) -> impl Future<Output = SuiClientResult<Vec<U>>>
+    where
+        U: AssociatedContractStruct;
+
+    /// Gets an extended field from an object.
+    fn get_extended_field<V>(
+        &self,
+        object_id: ObjectID,
+        type_origin_map: &TypeOriginMap,
+    ) -> impl Future<Output = SuiClientResult<V>>
+    where
+        V: DeserializeOwned + Send;
+
+    /// Gets a dynamic field object.
+    fn get_dynamic_field_object<K, V>(
+        &self,
+        parent: ObjectID,
+        key_type: TypeTag,
+        key: K,
+    ) -> impl Future<Output = SuiClientResult<V>>
+    where
+        V: AssociatedContractStruct,
+        K: DeserializeOwned + Serialize;
+
+    /// Gets a dynamic field from an object.
+    fn get_dynamic_field<K, V>(
+        &self,
+        parent: ObjectID,
+        key_type: TypeTag,
+        key: K,
+    ) -> impl Future<Output = SuiClientResult<V>>
+    where
+        K: DeserializeOwned + Serialize,
+        V: DeserializeOwned;
+
+    /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
+    fn get_system_package_id_from_system_object(
+        &self,
+        system_object_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<ObjectID>> + Send;
+
+    /// Checks if the Walrus subsidies object exist on chain and returns the subsidies object.
+    fn get_subsidies_object(
+        &self,
+        subsidies_object_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<Subsidies>> + Send;
+
+    /// Returns the package ID from the type of the given object.
+    ///
+    /// Note: This returns the package address from the object type, not the newest package ID.
+    fn get_package_id_from_object(
+        &self,
+        object_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<ObjectID>> + Send;
+
+    /// Returns whether the `register_blob` function exists in the subsidies package.
+    fn has_register_blob_in_subsidies(
+        &self,
+        subsidies_package_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<bool>> + Send;
+
+    /// Gets the type origin map for a given package.
+    fn type_origin_map_for_package(
+        &self,
+        package_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<TypeOriginMap>> + Send;
+
+    /// Retrieves the WAL type from the walrus package by getting the type tag of the `Balance`
+    /// in the `StakedWal` Move struct.
+    fn wal_type_from_package(
+        &self,
+        package_id: ObjectID,
+    ) -> impl Future<Output = SuiClientResult<String>> + Send;
+
+    /// Calls a dry run with the transaction data to estimate the gas budget.
+    ///
+    /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
+    fn estimate_gas_budget(
+        &self,
+        signer: SuiAddress,
+        kind: TransactionKind,
+        gas_price: u64,
+    ) -> impl Future<Output = SuiClientResult<u64>> + Send;
+
+    /// Executes a transaction.
+    fn execute_transaction(
+        &self,
+        transaction: Transaction,
+        method: &str,
+    ) -> impl Future<Output = anyhow::Result<SuiTransactionBlockResponse>> + Send;
+
+    /// Gets a backoff strategy, seeded from the internal RNG.
+    fn get_strategy(&self) -> ExponentialBackoff<StdRng>;
+}
 
 /// A [`SuiClient`] that retries RPC calls with backoff in case of network errors.
 ///
@@ -99,11 +286,6 @@ impl RetriableSuiClient {
     pub fn with_metrics(mut self, metrics: Option<Arc<SuiClientMetricSet>>) -> Self {
         self.metrics = metrics;
         self
-    }
-
-    /// Returns a reference to the inner backoff configuration.
-    pub fn backoff_config(&self) -> &ExponentialBackoffConfig {
-        &self.backoff_config
     }
 
     /// Creates a new retriable client from an RCP address.
@@ -147,31 +329,6 @@ impl RetriableSuiClient {
     ) -> SuiClientResult<Self> {
         let client = Self::new_from_wallet(wallet, backoff_config).await?;
         Ok(client.with_metrics(Some(metrics)))
-    }
-    // Reimplementation of the `SuiClient` methods.
-
-    /// Return a list of coins for the given address, or an error upon failure.
-    ///
-    /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
-    /// addition of retries on network errors.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn select_coins(
-        &self,
-        address: SuiAddress,
-        coin_type: Option<String>,
-        amount: u128,
-        exclude: Vec<ObjectID>,
-    ) -> SuiRpcResult<Vec<Coin>> {
-        retry_rpc_errors(
-            self.get_strategy(),
-            || async {
-                self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
-                    .await
-            },
-            self.metrics.clone(),
-            "select_coins",
-        )
-        .await
     }
 
     /// Returns a list of coins for the given address, or an error upon failure.
@@ -259,12 +416,40 @@ impl RetriableSuiClient {
             },
         )
     }
+}
+
+impl RetriableSuiClientTrait for RetriableSuiClient {
+    // Reimplementation of the `SuiClient` methods.
+
+    /// Return a list of coins for the given address, or an error upon failure.
+    ///
+    /// Reimplements the functionality of [`sui_sdk::apis::CoinReadApi::select_coins`] with the
+    /// addition of retries on network errors.
+    #[tracing::instrument(level = Level::DEBUG, skip_all)]
+    async fn select_coins(
+        &self,
+        address: SuiAddress,
+        coin_type: Option<String>,
+        amount: u128,
+        exclude: Vec<ObjectID>,
+    ) -> SuiRpcResult<Vec<Coin>> {
+        retry_rpc_errors(
+            self.get_strategy(),
+            || async {
+                self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
+                    .await
+            },
+            self.metrics.clone(),
+            "select_coins",
+        )
+        .await
+    }
 
     /// Returns the balance for the given coin type owned by address.
     ///
     /// Calls [`sui_sdk::apis::CoinReadApi::get_balance`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_balance(
+    async fn get_balance(
         &self,
         owner: SuiAddress,
         coin_type: Option<String>,
@@ -313,7 +498,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_owned_objects`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_owned_objects(
+    async fn get_owned_objects(
         &self,
         address: SuiAddress,
         query: Option<SuiObjectResponseQuery>,
@@ -338,7 +523,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_object_with_options(
+    async fn get_object_with_options(
         &self,
         object_id: ObjectID,
         options: SuiObjectDataOptions,
@@ -360,7 +545,7 @@ impl RetriableSuiClient {
     /// Returns a [`SuiTransactionBlockResponse`] based on the provided [`TransactionDigest`].
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_transaction_with_options`] internally.
-    pub async fn get_transaction_with_options(
+    async fn get_transaction_with_options(
         &self,
         digest: TransactionDigest,
         options: SuiTransactionBlockResponseOptions,
@@ -383,7 +568,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn multi_get_object_with_options(
+    async fn multi_get_object_with_options(
         &self,
         object_ids: Vec<ObjectID>,
         options: SuiObjectDataOptions,
@@ -406,7 +591,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_normalized_move_modules_by_package`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_normalized_move_modules_by_package(
+    async fn get_normalized_move_modules_by_package(
         &self,
         package_id: ObjectID,
     ) -> SuiRpcResult<BTreeMap<String, SuiMoveNormalizedModule>> {
@@ -427,10 +612,7 @@ impl RetriableSuiClient {
     /// Returns the committee information for the given epoch.
     ///
     /// Calls [`sui_sdk::apis::GovernanceApi::get_committee_info`] internally.
-    pub async fn get_committee_info(
-        &self,
-        epoch: Option<BigInt<u64>>,
-    ) -> SuiRpcResult<SuiCommittee> {
+    async fn get_committee_info(&self, epoch: Option<BigInt<u64>>) -> SuiRpcResult<SuiCommittee> {
         retry_rpc_errors(
             self.get_strategy(),
             || async {
@@ -448,7 +630,7 @@ impl RetriableSuiClient {
     /// Returns the reference gas price.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_reference_gas_price`] internally.
-    pub async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
+    async fn get_reference_gas_price(&self) -> SuiRpcResult<u64> {
         retry_rpc_errors(
             self.get_strategy(),
             || async { self.sui_client.read_api().get_reference_gas_price().await },
@@ -461,7 +643,7 @@ impl RetriableSuiClient {
     /// Executes a transaction dry run.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::dry_run_transaction_block`] internally.
-    pub async fn dry_run_transaction_block(
+    async fn dry_run_transaction_block(
         &self,
         transaction: TransactionData,
     ) -> SuiRpcResult<DryRunTransactionBlockResponse> {
@@ -483,7 +665,7 @@ impl RetriableSuiClient {
     ///
     /// Internally calls the [`SuiClient::event_api`] function. Note that no retries are
     /// implemented for this function.
-    pub fn event_api(&self) -> &EventApi {
+    fn event_api(&self) -> &EventApi {
         self.sui_client.event_api()
     }
 
@@ -491,7 +673,7 @@ impl RetriableSuiClient {
     ///
     /// Internally calls the [`SuiClient::governance_api`] function. Note that no retries are
     /// implemented for this function.
-    pub fn governance_api(&self) -> &GovernanceApi {
+    fn governance_api(&self) -> &GovernanceApi {
         self.sui_client.governance_api()
     }
 
@@ -499,7 +681,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
+    async fn get_sui_object<U>(&self, object_id: ObjectID) -> SuiClientResult<U>
     where
         U: AssociatedContractStruct,
     {
@@ -524,7 +706,7 @@ impl RetriableSuiClient {
     /// Returns the chain identifier.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_chain_identifier`] internally.
-    pub async fn get_chain_identifier(&self) -> SuiRpcResult<String> {
+    async fn get_chain_identifier(&self) -> SuiRpcResult<String> {
         retry_rpc_errors(
             self.get_strategy(),
             || async { self.sui_client.read_api().get_chain_identifier().await },
@@ -537,10 +719,7 @@ impl RetriableSuiClient {
     // Other wrapper methods.
 
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub(crate) async fn get_sui_objects<U>(
-        &self,
-        object_ids: &[ObjectID],
-    ) -> SuiClientResult<Vec<U>>
+    async fn get_sui_objects<U>(&self, object_ids: &[ObjectID]) -> SuiClientResult<Vec<U>>
     where
         U: AssociatedContractStruct,
     {
@@ -561,7 +740,7 @@ impl RetriableSuiClient {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    pub(crate) async fn get_extended_field<V>(
+    async fn get_extended_field<V>(
         &self,
         object_id: ObjectID,
         type_origin_map: &TypeOriginMap,
@@ -576,7 +755,7 @@ impl RetriableSuiClient {
     }
 
     #[allow(unused)]
-    pub(crate) async fn get_dynamic_field_object<K, V>(
+    async fn get_dynamic_field_object<K, V>(
         &self,
         parent: ObjectID,
         key_type: TypeTag,
@@ -595,7 +774,7 @@ impl RetriableSuiClient {
         Ok(inner)
     }
 
-    pub(crate) async fn get_dynamic_field<K, V>(
+    async fn get_dynamic_field<K, V>(
         &self,
         parent: ObjectID,
         key_type: TypeTag,
@@ -617,7 +796,7 @@ impl RetriableSuiClient {
     }
 
     /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
-    pub(crate) async fn get_system_package_id_from_system_object(
+    async fn get_system_package_id_from_system_object(
         &self,
         system_object_id: ObjectID,
     ) -> SuiClientResult<ObjectID> {
@@ -630,7 +809,7 @@ impl RetriableSuiClient {
     }
 
     /// Checks if the Walrus subsidies object exist on chain and returns the subsidies object.
-    pub(crate) async fn get_subsidies_object(
+    async fn get_subsidies_object(
         &self,
         subsidies_object_id: ObjectID,
     ) -> SuiClientResult<Subsidies> {
@@ -644,10 +823,7 @@ impl RetriableSuiClient {
     /// Returns the package ID from the type of the given object.
     ///
     /// Note: This returns the package address from the object type, not the newest package ID.
-    pub async fn get_package_id_from_object(
-        &self,
-        object_id: ObjectID,
-    ) -> SuiClientResult<ObjectID> {
+    async fn get_package_id_from_object(&self, object_id: ObjectID) -> SuiClientResult<ObjectID> {
         let response = self
             .get_object_with_options(
                 object_id,
@@ -666,7 +842,7 @@ impl RetriableSuiClient {
     }
 
     /// Returns whether the `register_blob` function exists in the subsidies package.
-    pub(crate) async fn has_register_blob_in_subsidies(
+    async fn has_register_blob_in_subsidies(
         &self,
         subsidies_package_id: ObjectID,
     ) -> SuiClientResult<bool> {
@@ -685,7 +861,7 @@ impl RetriableSuiClient {
     }
 
     /// Gets the type origin map for a given package.
-    pub(crate) async fn type_origin_map_for_package(
+    async fn type_origin_map_for_package(
         &self,
         package_id: ObjectID,
     ) -> SuiClientResult<TypeOriginMap> {
@@ -710,10 +886,7 @@ impl RetriableSuiClient {
     /// Retrieves the WAL type from the walrus package by getting the type tag of the `Balance`
     /// in the `StakedWal` Move struct.
     #[tracing::instrument(err, skip(self))]
-    pub(crate) async fn wal_type_from_package(
-        &self,
-        package_id: ObjectID,
-    ) -> SuiClientResult<String> {
+    async fn wal_type_from_package(&self, package_id: ObjectID) -> SuiClientResult<String> {
         let normalized_move_modules = self
             .get_normalized_move_modules_by_package(package_id)
             .await?;
@@ -760,7 +933,7 @@ impl RetriableSuiClient {
     /// Calls a dry run with the transaction data to estimate the gas budget.
     ///
     /// This performs the same calculation as the Sui CLI and the TypeScript SDK.
-    pub(crate) async fn estimate_gas_budget(
+    async fn estimate_gas_budget(
         &self,
         signer: SuiAddress,
         kind: TransactionKind,
@@ -788,7 +961,7 @@ impl RetriableSuiClient {
 
     /// Executes a transaction.
     #[tracing::instrument(err, skip(self))]
-    pub(crate) async fn execute_transaction(
+    async fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &str,
@@ -825,5 +998,10 @@ impl RetriableSuiClient {
     /// Gets a backoff strategy, seeded from the internal RNG.
     fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
         self.backoff_config.get_strategy(ThreadRng::default().gen())
+    }
+
+    /// Returns a reference to the inner backoff configuration.
+    fn backoff_config(&self) -> &ExponentialBackoffConfig {
+        &self.backoff_config
     }
 }

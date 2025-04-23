@@ -64,7 +64,13 @@ use typed_store::{
 use walrus_core::{ensure, BlobId};
 use walrus_sui::{
     client::{
-        retry_client::{FailoverClient, FallibleRpcClient, RetriableRpcClient, RetriableSuiClient},
+        retry_client::{
+            retriable_sui_client::RetriableSuiClientTrait,
+            FailoverClient,
+            FallibleRpcClient,
+            RetriableRpcClient,
+            RetriableSuiClient,
+        },
         rpc_config::RpcFallbackConfig,
     },
     types::ContractEvent,

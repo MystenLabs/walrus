@@ -44,7 +44,11 @@ use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{
     contract_config::ContractConfig,
-    retry_client::{RetriableSuiClient, MULTI_GET_OBJ_LIMIT},
+    retry_client::{
+        retriable_sui_client::RetriableSuiClientTrait,
+        RetriableSuiClient,
+        MULTI_GET_OBJ_LIMIT,
+    },
     SuiClientError,
     SuiClientResult,
 };

@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context, Result};
 use contract_config::ContractConfig;
 use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
-use retry_client::RetriableSuiClient;
+use retry_client::{retriable_sui_client::RetriableSuiClientTrait, RetriableSuiClient};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
