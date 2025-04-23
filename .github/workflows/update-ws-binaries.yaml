@@ -47,15 +47,10 @@ jobs:
           done
           done
 
-      # TODO: Remove this step once the site-builder supports supports storing multiple blobs
-      # simultaneously.
-      - name: Store blobs on Walrus
-        run: walrus store ${{ env.BUILD_DIR }}/* --epochs ${{ env.EPOCHS }}
-
       - name: Update Walrus Site
         run: >
           site-builder
           update --list-directory ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_BIN }}
           --epochs ${{ env.EPOCHS }}
           --permanent
-          --force
+          --check-extend
