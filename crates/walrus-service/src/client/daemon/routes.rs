@@ -17,7 +17,8 @@ use axum_extra::{
 };
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
@@ -237,7 +238,7 @@ impl From<ClientError> for GetBlobError {
 ///
 /// Store a (potentially deletable) blob on Walrus for 1 or more epochs. The associated on-Sui
 /// object can be sent to a specified Sui address.
-#[tracing::instrument(level = Level::ERROR, skip_all, fields(%epochs))]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(epochs=%query.epochs))]
 #[utoipa::path(
     put,
     path = BLOB_PUT_ENDPOINT,
@@ -255,13 +256,7 @@ impl From<ClientError> for GetBlobError {
 )]
 pub(super) async fn put_blob<T: WalrusWriteClient>(
     State(client): State<Arc<T>>,
-    Query(PublisherQuery {
-        encoding_type,
-        epochs,
-        deletable,
-        send_object_to,
-        share,
-    }): Query<PublisherQuery>,
+    Query(query): Query<PublisherQuery>,
     bearer_header: Option<TypedHeader<Authorization<Bearer>>>,
     blob: Bytes,
 ) -> Response {
@@ -272,27 +267,15 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         }
     }
 
-    let post_store_action = if let Some(address) = send_object_to {
-        if share {
-            return StoreBlobError::BadRequest("cannot specify both `send_object_to` and `share`")
-                .into_response();
-        }
-        PostStoreAction::TransferTo(address)
-    } else if share {
-        PostStoreAction::Share
-    } else {
-        client.default_post_store_action()
-    };
-    tracing::debug!(?post_store_action, "starting to store received blob");
-
+    tracing::debug!("starting to store received blob");
     match client
         .write_blob(
             &blob[..],
-            encoding_type,
-            epochs,
-            StoreWhen::NotStoredIgnoreResources,
-            BlobPersistence::from_deletable(deletable),
-            post_store_action,
+            query.encoding_type,
+            query.epochs,
+            query.store_when(),
+            query.blob_persistence(),
+            query.post_store_action(client.default_post_store_action()),
         )
         .await
     {
@@ -366,10 +349,6 @@ pub(crate) enum StoreBlobError {
     #[rest_api_error(reason = "FORBIDDEN_BLOB", status = ApiStatusCode::UnavailableForLegalReasons)]
     Blocked,
 
-    #[error("invalid request: {0}")]
-    #[rest_api_error(reason = "BAD_REQUEST", status = ApiStatusCode::FailedPrecondition)]
-    BadRequest(&'static str),
-
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] anyhow::Error),
@@ -406,8 +385,22 @@ pub(super) async fn status() -> Response {
     "OK".into_response()
 }
 
+/// The exclusive option to share the blob or to send it to an address.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SendOrShare {
+    /// Send the blob to the specified Sui address.
+    #[schema(value_type = SuiAddressSchema)]
+    SendObjectTo(SuiAddress),
+    /// Turn the created blob into a shared blob.
+    Share(#[serde_as(as = "DisplayFromStr")] bool),
+}
+
 /// The query parameters for a publisher.
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Deserialize, Serialize, IntoParams, PartialEq, Eq)]
+#[into_params(parameter_in = Query, style = Form)]
+#[serde(deny_unknown_fields)]
 pub struct PublisherQuery {
     /// The encoding type to use for the blob.
     #[serde(default)]
@@ -420,16 +413,221 @@ pub struct PublisherQuery {
     /// If true, the publisher creates a deletable blob instead of a permanent one.
     #[serde(default)]
     pub deletable: bool,
+    /// If true, the publisher will always store the blob, creating a new Blob object.
+    ///
+    /// The blob will be stored even if the blob is already certified on Walrus for the specified
+    /// number of epochs.
     #[serde(default)]
-    /// If specified, the publisher will send the Blob object resulting from the store operation to
-    /// this Sui address.
-    #[param(value_type = Option<SuiAddressSchema>)]
-    pub send_object_to: Option<SuiAddress>,
-    /// If true, the publisher will share the blob. Cannot be true if `send_object_to` is specified.
-    #[serde(default)]
-    pub share: bool,
+    pub force: bool,
+
+    #[serde(flatten, default)]
+    #[param(inline)]
+    send_or_share: Option<SendOrShare>,
 }
 
 pub(super) fn default_epochs() -> EpochCount {
     1
+}
+
+impl Default for PublisherQuery {
+    fn default() -> Self {
+        PublisherQuery {
+            encoding_type: None,
+            epochs: default_epochs(),
+            deletable: false,
+            force: false,
+            send_or_share: None,
+        }
+    }
+}
+
+impl PublisherQuery {
+    /// Returns the [`StoreWhen`] value based on the query parameters.
+    ///
+    /// The publisher always ignores existing resources.
+    fn store_when(&self) -> StoreWhen {
+        if self.force {
+            StoreWhen::AlwaysIgnoreResources
+        } else {
+            StoreWhen::NotStoredIgnoreResources
+        }
+    }
+
+    /// Returns the [`BlobPersistence`] value based on the query parameters.
+    fn blob_persistence(&self) -> BlobPersistence {
+        BlobPersistence::from_deletable(self.deletable)
+    }
+
+    /// Returns the [`PostStoreAction`] value based on the query parameters.
+    ///
+    /// Assumes that the `validate` method has been called, i.e., that only one of `send_object_to`
+    /// and `share` is set. Otherwise, the `send_object_to` value is used.
+    fn post_store_action(&self, default_action: PostStoreAction) -> PostStoreAction {
+        if let Some(send_or_share) = &self.send_or_share {
+            match send_or_share {
+                SendOrShare::SendObjectTo(address) => PostStoreAction::TransferTo(*address),
+                SendOrShare::Share(share) => {
+                    if *share {
+                        PostStoreAction::Share
+                    } else {
+                        default_action
+                    }
+                }
+            }
+        } else {
+            default_action
+        }
+    }
+
+    /// Returns the value for the `send_or_share` field.
+    pub fn send_or_share(&self) -> Option<SendOrShare> {
+        self.send_or_share.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::Uri;
+    use serde_test::{Token, assert_de_tokens};
+    use walrus_test_utils::param_test;
+
+    use super::*;
+    const ADDRESS: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";
+
+    #[test]
+    fn test_deserialization_publisher_query_empty() {
+        let publisher_query = PublisherQuery::default();
+
+        assert_de_tokens(
+            &publisher_query,
+            &[
+                Token::Struct {
+                    name: "PublisherQuery",
+                    len: 4,
+                },
+                Token::Str("encoding_type"),
+                Token::None,
+                Token::Str("epochs"),
+                Token::U32(1),
+                Token::Str("deletable"),
+                Token::Bool(false),
+                Token::Str("force"),
+                Token::Bool(false),
+                Token::StructEnd,
+            ],
+        );
+    }
+
+    #[test]
+    fn test_deserialization_publisher_query_share() {
+        let publisher_query = PublisherQuery {
+            send_or_share: Some(SendOrShare::Share(true)),
+            ..Default::default()
+        };
+        let tokens = [
+            Token::Struct {
+                name: "PublisherQuery",
+                len: 1,
+            },
+            Token::Str("share"),
+            Token::Str("true"),
+            Token::StructEnd,
+        ];
+
+        assert_de_tokens(&publisher_query, &tokens);
+    }
+
+    #[test]
+    fn test_deserialization_publisher_query_send() {
+        let publisher_query = PublisherQuery {
+            send_or_share: Some(SendOrShare::SendObjectTo(
+                SuiAddress::from_str(ADDRESS).expect("valid address"),
+            )),
+            ..Default::default()
+        };
+        let tokens = [
+            Token::Struct {
+                name: "PublisherQuery",
+                len: 1,
+            },
+            Token::Str("send_object_to"),
+            Token::Str(ADDRESS),
+            Token::StructEnd,
+        ];
+
+        assert_de_tokens(&publisher_query, &tokens);
+    }
+
+    param_test! {
+        test_parse_publisher_query: [
+            many_epochs: (
+                "epochs=11",
+                Some(
+                    PublisherQuery {
+                        epochs: 11,
+                        ..Default::default()
+            })),
+            send_to: (
+                &format!("send_object_to={ADDRESS}"),
+                Some(
+                    PublisherQuery {
+                        send_or_share: Some(
+                            SendOrShare::SendObjectTo(
+                                SuiAddress::from_str(ADDRESS).expect("valid address")
+                                )),
+                        ..Default::default()
+            })),
+            force: (
+                "force=true",
+                Some(
+                    PublisherQuery {
+                        force: true,
+                        ..Default::default()
+            })),
+            share: (
+                "share=true",
+                Some(
+                    PublisherQuery {
+                        send_or_share: Some(SendOrShare::Share(true)),
+                            ..Default::default()
+            })),
+            dont_share: (
+                "share=false",
+                Some(
+                    PublisherQuery {
+                        send_or_share: Some(SendOrShare::Share(false)),
+                            ..Default::default()
+            })),
+            conflicting_share: (
+                &format!("share=true&send_object_to={ADDRESS}"),
+                None
+            ),
+            conflicting_send: (
+                &format!("send_object_to={ADDRESS}&share=true"),
+                None
+            ),
+            conflicting_double_share: (
+                "share=false&share=true",
+                None
+            )
+        ]
+    }
+    fn test_parse_publisher_query(query_str: &str, expected: Option<PublisherQuery>) {
+        let uri_str = format!("http://localhost/test?{}", query_str);
+        let uri: Uri = uri_str.parse().expect("the uri is valid");
+
+        let result = Query::<PublisherQuery>::try_from_uri(&uri);
+        match result {
+            Ok(Query(publisher_query)) => assert_eq!(
+                publisher_query,
+                expected.expect("result is ok => expected result is some")
+            ),
+            Err(_) => {
+                assert!(
+                    expected.is_none(),
+                    "result is err => expected result is none"
+                )
+            }
+        }
+    }
 }
