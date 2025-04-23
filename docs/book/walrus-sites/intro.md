@@ -11,7 +11,7 @@ At a high level, here are some of the most exciting features:
 - Publishing a site does not require managing servers or complex configurations; just provide the
   source files (produced by your favorite web framework), publish them to Walrus Sites using the
   [site-builder tool](./overview.md#the-site-builder), and you are done!
-- Sites can be linked to or from ordinary Sui objects. This feature enables, for example, creating an
+- Sites can be linked to from ordinary Sui objects. This feature enables, for example, creating an
   NFT collection in which *every single NFT* has a *personalized website dedicated to it*.
 - Walrus Sites are owned by addresses on Sui and can be exchanged, shared, and updated thanks to
   Sui's flexible programming model. This means, among other things, that Walrus Sites can leverage
