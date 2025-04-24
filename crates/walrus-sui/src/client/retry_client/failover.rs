@@ -14,7 +14,7 @@ use crate::client::{SuiClientError, SuiClientMetricSet};
 /// A trait that defines the implementation of a thunk to build (or re-use) a client lazily.
 pub trait LazyClientBuilder<C> {
     /// The maximum number of allowable retries (by way of failing over) for this client.
-    const DEFAULT_MAX_RETRIES: usize;
+    const DEFAULT_MAX_TRIES: usize;
     /// Should lazily create a new client instance.
     fn lazy_build_client(&self) -> impl Future<Output = Result<Arc<C>, FailoverError>>;
     /// Should return the RPC URL of the client, if one exists.
@@ -100,7 +100,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
             return Err(anyhow::anyhow!("No clients available"));
         }
 
-        let max_tries = BuilderT::DEFAULT_MAX_RETRIES.min(lazy_client_builders.len());
+        let max_tries = BuilderT::DEFAULT_MAX_TRIES.min(lazy_client_builders.len());
 
         // Precondition check (a bit redundant, but just for extra safety) to ensure we have more
         // clients than we allow failovers. Note that if this condition changes, `fetch_next_client`
@@ -292,7 +292,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                                 last_error = ?error,
                                 failed_rpc_url,
                                 ?fetch_client_error,
-                                "Failed to execute operation on client, retrying with next client"
+                                "Failed to fetch_next_client, failing rpc"
                             );
                             return Err(error);
                         }
@@ -330,7 +330,7 @@ mod tests {
     }
 
     impl LazyClientBuilder<MockClient> for Arc<MockClient> {
-        const DEFAULT_MAX_RETRIES: usize = 1;
+        const DEFAULT_MAX_TRIES: usize = 2;
         async fn lazy_build_client(&self) -> Result<Arc<MockClient>, FailoverError> {
             Ok(self.clone())
         }

@@ -101,7 +101,7 @@ pub enum LazyFallibleRpcClientBuilder {
 }
 
 impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
-    const DEFAULT_MAX_RETRIES: usize = 3;
+    const DEFAULT_MAX_TRIES: usize = 3;
 
     async fn lazy_build_client(&self) -> Result<Arc<FallibleRpcClient>, FailoverError> {
         match self {
