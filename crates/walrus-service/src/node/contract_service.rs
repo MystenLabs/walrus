@@ -19,6 +19,7 @@ use tracing::Instrument as _;
 use walrus_core::{messages::InvalidBlobCertificate, Epoch, PublicKey};
 use walrus_sui::{
     client::{
+        retry_client::retriable_sui_client::RetriableSuiClientTrait,
         BlobObjectMetadata,
         CoinType,
         FixedSystemParameters,

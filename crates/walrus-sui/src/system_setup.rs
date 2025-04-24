@@ -42,7 +42,7 @@ use walkdir::WalkDir;
 use walrus_core::{ensure, EpochCount};
 
 use crate::{
-    client::retry_client::RetriableSuiClient,
+    client::retry_client::{retriable_sui_client::RetriableSuiClientTrait, RetriableSuiClient},
     contracts::{self, StructTag},
     utils::{get_created_sui_object_ids_by_type, resolve_lock_file_path},
 };
