@@ -8,7 +8,13 @@
 > clarity or fix a critical issue. If you are unsure whether your change is substantial enough,
 > consider opening an issue first to discuss it.
 
+If you want to make a substantial contribution, please first make sure a corresponding issue exists.
+Then contact the Walrus maintainers through that issue to check if anyone is already working on this
+and to discuss details and design choices before starting the actual implementation.
+
 ## GitHub flow
+
+Before contributing, please read the [important note above](#important-note).
 
 We generally follow the [GitHub flow](https://docs.github.com/en/get-started/quickstart/github-flow)
 in our project. In a nutshell, this requires the following steps to contribute:
@@ -103,21 +109,11 @@ The majority of our code is covered by automatic unit and integration tests whic
 through `cargo test` or `cargo nextest run` (requires [nextest](https://nexte.st/)).
 
 Integration and end-to-end tests are excluded by default when running `cargo nextest` as they depend
-on additional packages and take longer to run. These tests can either be run with the newest
-contract version (including breaking changes that are incompatible with Testnet) or they can be run
-with the contracts as deployed on Testnet, for which the contracts are located in
-`testnet-contracts`.
-
-For the first option, you can run these tests as follows:
+on additional packages and take longer to run. These tests can either be run as follows:
 
 ```sh
-cargo nextest run --run-ignored ignored-only
-```
-
-For the second option, simply run:
-
-```sh
-cargo nextest run --run-ignored ignored-only
+cargo nextest run --run-ignored ignored-only # run *only* ignored tests
+cargo nextest run --run-ignored all # run *all* tests
 ```
 
 ### External test cluster
@@ -155,19 +151,9 @@ Note that it is currently not possible to use an external cluster with `cargo ne
 ### Test coverage
 
 We would like to cover as much code as possible with tests. Ideally you would add unit tests for all
-code you contribute. To analyze test coverage, we use
-[Tarpaulin](https://crates.io/crates/cargo-tarpaulin). You can install and run the tool as follows:
+code you contribute.
 
-```sh
-cargo install cargo-tarpaulin
-cargo tarpaulin --out html
-```
-
-This creates a file `tarpaulin-report.html`, which shows you coverage statistics as well as which
-individual lines are or aren't covered by tests. Other valid output formats are `json`, `stdout`,
-`xml`, and `lcov`.
-
-The configuration file for Tarpaulin is [.tarpaulin.toml](./.tarpaulin.toml).
+<!-- TODO(WAL-299) Add info about tarpaulin again as soon as the setup is fixed. -->
 
 ### Running a local Walrus testbed
 
