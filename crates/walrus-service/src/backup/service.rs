@@ -43,7 +43,10 @@ use super::{
 };
 use crate::{
     backup::metrics::{BackupDbMetricSet, BackupFetcherMetricSet, BackupOrchestratorMetricSet},
-    common::utils::{self, version, MetricsAndLoggingRuntime},
+    common::{
+        config::combine_rpc_urls,
+        utils::{self, version, MetricsAndLoggingRuntime},
+    },
     node::{
         events::{
             event_processor::EventProcessor,
@@ -586,8 +589,11 @@ async fn backup_fetcher(
             .await
             .context("[backup_fetcher] connecting to postgres")?;
     let sui_read_client = SuiReadClient::new(
-        RetriableSuiClient::new_for_rpc(
-            &backup_config.sui.rpc,
+        RetriableSuiClient::new_for_rpc_urls(
+            &combine_rpc_urls(
+                &backup_config.sui.rpc,
+                &backup_config.sui.additional_rpc_endpoints,
+            ),
             backup_config.sui.backoff_config.clone(),
             None,
         )

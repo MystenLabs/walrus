@@ -156,7 +156,10 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{config::SuiConfig, utils::should_reposition_cursor},
+    common::{
+        config::{combine_rpc_urls, SuiConfig},
+        utils::should_reposition_cursor,
+    },
     utils::ShardDiffCalculator,
 };
 
@@ -397,9 +400,8 @@ impl StorageNodeBuilder {
                     sui_config.event_polling_interval,
                 ))
             } else {
-                let rpc_addresses = std::iter::once(sui_config.rpc.clone())
-                    .chain(sui_config.additional_rpc_endpoints.clone())
-                    .collect();
+                let rpc_addresses =
+                    combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
                 let processor_config = EventProcessorRuntimeConfig {
                     rpc_addresses,
                     event_polling_interval: sui_config.event_polling_interval,

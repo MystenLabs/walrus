@@ -51,6 +51,11 @@ impl FallibleRpcClient {
         self.client.read().await.clone()
     }
 
+    /// Returns the RPC URL.
+    pub fn get_rpc_url(&self) -> &str {
+        &self.rpc_url
+    }
+
     /// Calls the underlying RPC client with the given function.
     pub async fn call<F, Fut, T>(&self, f: F, timeout: Duration) -> Result<T, tonic::Status>
     where

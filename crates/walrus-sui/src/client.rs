@@ -2197,7 +2197,7 @@ impl SuiContractClientInner {
     pub async fn sign_and_send_ptb(
         &mut self,
         programmable_transaction: ProgrammableTransaction,
-        method: &str,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         self.sign_and_send_ptb_inner(programmable_transaction, 0, 0, method)
             .await
@@ -2212,7 +2212,7 @@ impl SuiContractClientInner {
         &mut self,
         programmable_transaction: ProgrammableTransaction,
         additional_gas_coin_balance: u64,
-        method: &str,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         self.sign_and_send_ptb_inner(
             programmable_transaction,
@@ -2231,7 +2231,7 @@ impl SuiContractClientInner {
         &mut self,
         programmable_transaction: ProgrammableTransaction,
         minimum_gas_coin_balance: u64,
-        method: &str,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         self.sign_and_send_ptb_inner(
             programmable_transaction,
@@ -2247,7 +2247,7 @@ impl SuiContractClientInner {
         programmable_transaction: ProgrammableTransaction,
         additional_gas_coin_balance: u64,
         minimum_gas_coin_balance: u64,
-        method: &str,
+        method: &'static str,
     ) -> SuiClientResult<SuiTransactionBlockResponse> {
         // Get the current gas price from the network
         let gas_price = self.read_client.get_reference_gas_price().await?;

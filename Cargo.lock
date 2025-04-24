@@ -11931,6 +11931,7 @@ dependencies = [
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -12121,6 +12122,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "humantime",
+ "indexmap 2.8.0",
  "indicatif",
  "indoc",
  "integer-encoding 4.0.2",

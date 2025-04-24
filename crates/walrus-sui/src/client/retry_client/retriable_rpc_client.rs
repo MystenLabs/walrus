@@ -20,7 +20,7 @@ use rand::{
     rngs::{StdRng, ThreadRng},
     Rng as _,
 };
-use sui_rpc_api::client::ResponseExt;
+use sui_rpc_api::{client::ResponseExt, Client};
 use sui_types::{
     base_types::ObjectID,
     full_checkpoint_content::CheckpointData,
@@ -32,16 +32,122 @@ use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
 
 use self::fallback_client::FallbackClient;
 pub use self::fallback_client::FallbackError;
-use super::{retry_rpc_errors, FailoverClient, FailoverWrapper, FallibleRpcClient};
+use super::{
+    failover::{FailoverError, LazyClientBuilder},
+    retry_rpc_errors,
+    FailoverWrapper,
+    FallibleRpcClient,
+};
 use crate::client::{rpc_config::RpcFallbackConfig, SuiClientMetricSet};
 pub mod fallback_client;
+
+/// Checks if the full node provides the required REST endpoint for event processing.
+pub(crate) async fn check_experimental_rest_endpoint_exists(
+    client: Arc<Client>,
+) -> anyhow::Result<bool> {
+    // TODO: https://github.com/MystenLabs/walrus/issues/1049
+    // TODO: Use utils::retry once it is outside walrus-service such that it doesn't trigger
+    // cyclic dependency errors
+    let latest_checkpoint = client.get_latest_checkpoint().await?;
+    let mut total_remaining_attempts = 5;
+    while let Err(e) = client
+        .get_full_checkpoint(latest_checkpoint.sequence_number)
+        .await
+    {
+        total_remaining_attempts -= 1;
+        if total_remaining_attempts == 0 {
+            tracing::error!(
+                error = ?e,
+                "failed to get full checkpoint after {} attempts. \
+                REST endpoint may not be available.",
+                5
+            );
+            return Ok(false);
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+    Ok(true)
+}
+
+/// Ensures that the full node provides the required REST endpoint for event processing.
+pub(crate) async fn ensure_experimental_rest_endpoint_exists(
+    client: Arc<Client>,
+) -> anyhow::Result<()> {
+    if !check_experimental_rest_endpoint_exists(client.clone()).await? {
+        anyhow::bail!(
+            "the configured full node *does not* provide the required REST endpoint for event \
+            processing; make sure to configure a full node in the node's configuration file, which \
+            provides the necessary endpoint"
+        );
+    } else {
+        tracing::info!(
+            "the configured full node provides the required REST endpoint for event processing"
+        );
+    }
+    Ok(())
+}
+/// A builder for creating a [`FallibleRpcClient`] lazily. For use in failover.
+#[derive(Debug)]
+pub enum LazyFallibleRpcClientBuilder {
+    /// The URL of the RPC server.
+    Url {
+        /// The URL of the RPC server.
+        rpc_url: String,
+        /// Whether to run a check to see if the endpoint exists.
+        ensure_experimental_rest_endpoint: bool,
+    },
+    /// A pre-existing client.
+    Client(Arc<FallibleRpcClient>),
+}
+
+impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
+    const DEFAULT_MAX_RETRIES: usize = 3;
+
+    async fn lazy_build_client(&self) -> Result<Arc<FallibleRpcClient>, FailoverError> {
+        match self {
+            Self::Url {
+                rpc_url,
+                ensure_experimental_rest_endpoint,
+            } => {
+                let client = FallibleRpcClient::new(rpc_url.to_owned())
+                    .map(Arc::new)
+                    .map_err(|e| FailoverError::FailedToGetClient(e.to_string()))?;
+                if *ensure_experimental_rest_endpoint {
+                    ensure_experimental_rest_endpoint_exists(client.inner().await)
+                        .await
+                        .map_err(|e| {
+                            FailoverError::FailedToGetClient(format!(
+                                "Client validation failed for {:?}: {:?}",
+                                rpc_url, e
+                            ))
+                        })?;
+                }
+                Ok(client)
+            }
+            Self::Client(client) => Ok(client.clone()),
+        }
+    }
+
+    fn get_rpc_url(&self) -> Option<&str> {
+        match self {
+            Self::Url { rpc_url, .. } => Some(rpc_url.as_str()),
+            Self::Client(client) => Some(client.get_rpc_url()),
+        }
+    }
+}
+
+impl From<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
+    fn from(client: FallibleRpcClient) -> Self {
+        Self::Client(Arc::new(client))
+    }
+}
 
 /// A [`sui_rpc_api::Client`] that retries RPC calls with backoff in case of network errors.
 /// RpcClient is used primarily for retrieving checkpoint data from the Sui RPC server while
 /// SuiClient is used for all other RPC calls.
 #[derive(Clone)]
 pub struct RetriableRpcClient {
-    client: Arc<FailoverWrapper<FallibleRpcClient>>,
+    client: Arc<FailoverWrapper<FallibleRpcClient, LazyFallibleRpcClientBuilder>>,
     request_timeout: Duration,
     backoff_config: ExponentialBackoffConfig,
     fallback_client: Option<FallbackClient>,
@@ -66,8 +172,8 @@ impl RetriableRpcClient {
     // TODO(WAL-718): The timeout should ideally be set directly on the tonic client.
 
     /// Creates a new retriable client.
-    pub fn new(
-        clients: Vec<FailoverClient<FallibleRpcClient>>,
+    pub async fn new(
+        lazy_client_builders: Vec<LazyFallibleRpcClientBuilder>,
         request_timeout: Duration,
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
@@ -77,9 +183,8 @@ impl RetriableRpcClient {
             FallbackClient::new(url, request_timeout)
         });
 
-        let client = Arc::new(FailoverWrapper::new(clients)?);
         Ok(Self {
-            client,
+            client: Arc::new(FailoverWrapper::new(lazy_client_builders).await?),
             request_timeout,
             backoff_config,
             fallback_client,
@@ -119,12 +224,12 @@ impl RetriableRpcClient {
                 .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
         }
 
-        let request = |client: Arc<FallibleRpcClient>| {
+        let request = |client: Arc<FallibleRpcClient>, method| {
             let inner_request = retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), sequence_number, self.request_timeout),
                 self.metrics.clone(),
-                "get_checkpoint_summary",
+                method,
             );
             Box::pin(inner_request)
         };
@@ -151,12 +256,12 @@ impl RetriableRpcClient {
             .map_err(|status| CheckpointRpcError::from((status, sequence_number)).into())
         }
 
-        let request = |client: Arc<FallibleRpcClient>| {
+        let request = |client: Arc<FallibleRpcClient>, method| {
             let inner_request = retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), sequence_number, self.request_timeout),
                 self.metrics.clone(),
-                "get_full_checkpoint",
+                method,
             );
             Box::pin(inner_request)
         };
@@ -179,14 +284,14 @@ impl RetriableRpcClient {
         let start_time = Instant::now();
         let error = match self.get_full_checkpoint_from_primary(sequence_number).await {
             Ok(checkpoint) => {
-                self.metrics.as_ref().inspect(|metrics| {
+                if let Some(metrics) = self.metrics.as_ref() {
                     metrics.record_rpc_latency(
                         "get_full_checkpoint",
-                        self.client.get_current_client_name(),
+                        &self.client.get_current_rpc_url().await,
                         "success",
                         start_time.elapsed(),
-                    )
-                });
+                    );
+                }
                 self.reset_fullnode_failure_metrics();
                 return Ok(checkpoint);
             }
@@ -196,14 +301,14 @@ impl RetriableRpcClient {
         self.num_failures.fetch_add(1, Ordering::Relaxed);
         tracing::debug!(?error, "primary client error while fetching checkpoint");
         let Some(ref fallback) = self.fallback_client else {
-            self.metrics.as_ref().inspect(|metrics| {
+            if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
                     "get_full_checkpoint",
-                    self.client.get_current_client_name(),
+                    &self.client.get_current_rpc_url().await,
                     "failure",
                     start_time.elapsed(),
                 )
-            });
+            }
             return Err(error);
         };
 
@@ -215,14 +320,14 @@ impl RetriableRpcClient {
             tracing::debug!(
                 "primary client error while fetching checkpoint is not eligible for fallback"
             );
-            self.metrics.as_ref().inspect(|metrics| {
+            if let Some(metrics) = self.metrics.as_ref() {
                 metrics.record_rpc_latency(
                     "get_full_checkpoint",
-                    self.client.get_current_client_name(),
+                    &self.client.get_current_rpc_url().await,
                     "failure",
                     start_time.elapsed(),
-                )
-            });
+                );
+            }
             return Err(error);
         }
 
@@ -231,13 +336,13 @@ impl RetriableRpcClient {
             .get_full_checkpoint_from_fallback_with_retries(fallback, sequence_number)
             .await;
 
-        self.metrics.as_ref().inspect(|metrics| {
+        if let Some(metrics) = self.metrics.as_ref() {
             metrics.record_fallback_metrics(
                 "get_full_checkpoint",
                 &result,
                 fallback_start_time.elapsed(),
             )
-        });
+        }
 
         result
     }
@@ -314,12 +419,12 @@ impl RetriableRpcClient {
                 .map_err(RetriableClientError::from)
         }
 
-        let request = |client: Arc<FallibleRpcClient>| {
+        let request = |client: Arc<FallibleRpcClient>, method| {
             let inner_request = retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), self.request_timeout),
                 self.metrics.clone(),
-                "get_latest_checkpoint_summary",
+                method,
             );
             Box::pin(inner_request)
         };
@@ -349,12 +454,12 @@ impl RetriableRpcClient {
                 .map_err(RetriableClientError::from)
         }
 
-        let request = |client: Arc<FallibleRpcClient>| {
+        let request = |client: Arc<FallibleRpcClient>, method| {
             let inner_request = retry_rpc_errors(
                 self.get_strategy(),
                 move || make_request(client.clone(), id, self.request_timeout),
                 self.metrics.clone(),
-                "get_object",
+                method,
             );
             Box::pin(inner_request)
         };
@@ -389,6 +494,10 @@ pub enum RetriableClientError {
     /// Error from the fallback client.
     #[error("fallback error: {0}")]
     FallbackError(#[from] FallbackError),
+
+    /// Error from the failover client.
+    #[error("failover error: {0}")]
+    FailoverError(#[from] FailoverError),
 
     /// Generic error
     #[error("client error: {0}")]

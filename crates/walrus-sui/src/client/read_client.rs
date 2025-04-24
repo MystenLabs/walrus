@@ -342,12 +342,13 @@ impl SuiReadClient {
 
     /// Constructs a new `SuiReadClient` around a [`RetriableSuiClient`] constructed for the
     /// provided fullnode's RPC address.
-    pub async fn new_for_rpc<S: AsRef<str>>(
-        rpc_address: S,
+    pub async fn new_for_rpc_urls<S: AsRef<str>>(
+        rpc_addresses: &[S],
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client = RetriableSuiClient::new_for_rpc(rpc_address, backoff_config, None).await?;
+        let client =
+            RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None).await?;
         Self::new(client, contract_config).await
     }
 
@@ -573,17 +574,20 @@ impl SuiReadClient {
             .select_coins(owner_address, coin_type_option, min_balance.into(), exclude)
             .await
             .map_err(|err| match err {
-                sui_sdk::error::Error::InsufficientFund { address: _, amount } => match coin_type {
+                SuiClientError::SuiSdkError(sui_sdk::error::Error::InsufficientFund {
+                    address: _,
+                    amount,
+                }) => match coin_type {
                     CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
                     CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
                 },
-                err => SuiClientError::from(err),
+                err => err,
             })
     }
 
     /// Get the reference gas price for the current epoch.
     pub async fn get_reference_gas_price(&self) -> SuiClientResult<u64> {
-        Ok(self.sui_client.get_reference_gas_price().await?)
+        self.sui_client.get_reference_gas_price().await
     }
 
     /// Get the [`StorageNodeCap`] object associated with the address.
@@ -912,7 +916,14 @@ impl ReadClient for SuiReadClient {
     ) -> SuiClientResult<impl Stream<Item = ContractEvent>> {
         let (tx_event, rx_event) = mpsc::channel::<ContractEvent>(EVENT_CHANNEL_CAPACITY);
 
-        let event_api = self.sui_client.event_api().clone();
+        // Note: this code does not handle failing over in the event of an RPC connection error.
+        #[allow(deprecated)]
+        let event_api = self
+            .sui_client
+            .get_current_client()
+            .await
+            .event_api()
+            .clone();
 
         let event_filter = EventFilter::MoveEventModule {
             package: *self
@@ -937,7 +948,6 @@ impl ReadClient for SuiReadClient {
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {
         self.sui_client
-            .event_api()
             .get_events(event_id.tx_digest)
             .await?
             .into_iter()

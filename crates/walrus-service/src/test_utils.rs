@@ -72,9 +72,7 @@ use walrus_test_utils::WithTempDir;
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
-use crate::common::config::SuiConfig;
-#[cfg(msim)]
-use crate::node::ConfigLoader;
+use crate::common::config::{combine_rpc_urls, SuiConfig};
 use crate::node::{
     committee::{
         BeginCommitteeChangeError,
@@ -100,6 +98,8 @@ use crate::node::{
     Storage,
     StorageNode,
 };
+#[cfg(msim)]
+use crate::node::{events::event_processor::EventProcessorRuntimeConfig, ConfigLoader};
 
 /// Default buyer subsidy rate (5%)
 const DEFAULT_BUYER_SUBSIDY_RATE: u16 = 500;
@@ -260,7 +260,6 @@ impl StorageNodeHandleTrait for StorageNodeHandle {
     ) -> anyhow::Result<Self> {
         builder.build().await
     }
-
     // StorageNodeHandle is only used in integration test without crash and recovery. No need to
     // use distinct IP.
     fn use_distinct_ip() -> bool {
@@ -485,20 +484,19 @@ impl SimStorageNodeHandle {
                 Duration::from_millis(100),
             ))
         } else {
-            let processor_config =
-                crate::node::events::event_processor::EventProcessorRuntimeConfig {
-                    rpc_addresses: std::iter::once(&sui_config.rpc)
-                        .chain(sui_config.additional_rpc_endpoints.iter())
-                        .cloned()
-                        .collect(),
-                    event_polling_interval: Duration::from_millis(100),
-                    db_path: nondeterministic!(tempfile::tempdir()
-                        .expect("temporary directory creation must succeed")
-                        .path()
-                        .to_path_buf()),
-                    rpc_fallback_config: None,
-                    db_config: DatabaseConfig::default(),
-                };
+            let processor_config = EventProcessorRuntimeConfig {
+                rpc_addresses: combine_rpc_urls(
+                    &sui_config.rpc,
+                    &sui_config.additional_rpc_endpoints,
+                ),
+                event_polling_interval: Duration::from_millis(100),
+                db_path: nondeterministic!(tempfile::tempdir()
+                    .expect("temporary directory creation must succeed")
+                    .path()
+                    .to_path_buf()),
+                rpc_fallback_config: None,
+                db_config: DatabaseConfig::default(),
+            };
             let system_config = crate::node::events::event_processor::SystemConfig {
                 system_object_id: sui_config.contract_config.system_object,
                 staking_object_id: sui_config.contract_config.staking_object,
@@ -998,7 +996,7 @@ impl StorageNodeHandleBuilder {
     pub async fn start_node(
         self,
         system_context: SystemContext,
-        sui_rpc_urls: Vec<String>,
+        mut sui_rpc_urls: Vec<String>,
         storage_dir: TempDir,
         start_node: bool,
         disable_event_blob_writer: bool,
@@ -1010,6 +1008,11 @@ impl StorageNodeHandleBuilder {
         let node_info = self
             .test_config
             .expect("test config must be provided to spawn a storage node");
+
+        anyhow::ensure!(
+            !sui_rpc_urls.is_empty(),
+            "At least one Sui RPC URLs must be provided"
+        );
 
         // Builds the storage node config used to run the node.
         let mut storage_node_config = StorageNodeConfig {
@@ -1024,10 +1027,7 @@ impl StorageNodeHandleBuilder {
             use_legacy_event_provider: false,
             disable_event_blob_writer,
             sui: Some(SuiConfig {
-                rpc: sui_rpc_urls
-                    .first()
-                    .expect("SUI RPC URL must be provided in integration test")
-                    .to_string(),
+                rpc: sui_rpc_urls.remove(0),
                 contract_config: ContractConfig::new(
                     system_context.system_object,
                     system_context.staking_object,
@@ -1039,11 +1039,7 @@ impl StorageNodeHandleBuilder {
                 backoff_config: ExponentialBackoffConfig::default(),
                 gas_budget: None,
                 rpc_fallback_config: None,
-                additional_rpc_endpoints: sui_rpc_urls
-                    .iter()
-                    .skip(1)
-                    .map(|url| url.clone())
-                    .collect::<Vec<String>>(),
+                additional_rpc_endpoints: sui_rpc_urls,
                 request_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {

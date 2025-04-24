@@ -32,6 +32,7 @@ walrus-sdk = { workspace = true, features = ["test-utils"] }
 walrus-service = { workspace = true, features = ["test-utils"] }
 walrus-sui.workspace = true
 walrus-test-utils.workspace = true
+walrus-utils.workspace = true
 
 [lints]
 workspace = true
