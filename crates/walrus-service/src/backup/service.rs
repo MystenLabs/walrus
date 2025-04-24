@@ -95,7 +95,7 @@ async fn stream_events(
     {
         backup_orchestrator_metric_set.sui_events_seen.inc();
         match &element {
-            EventStreamElement::ContractEvent(ref contract_event) => {
+            EventStreamElement::ContractEvent(contract_event) => {
                 record_event(
                     &mut pg_connection,
                     &element,

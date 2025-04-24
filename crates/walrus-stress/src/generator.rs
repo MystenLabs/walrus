@@ -337,7 +337,7 @@ impl LoadGenerator {
         epochs_to_store: EpochCount,
     ) -> ClientResult<BlobId> {
         let mut retry_strategy =
-            ExponentialBackoffConfig::default().get_strategy(thread_rng().gen());
+            ExponentialBackoffConfig::default().get_strategy(thread_rng().r#gen());
         let mut attempt = 0;
 
         loop {

@@ -200,7 +200,8 @@ impl RetriableRpcClient {
     ///
     /// This strategy is also used for all fallback client operations.
     fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
-        self.backoff_config.get_strategy(ThreadRng::default().gen())
+        self.backoff_config
+            .get_strategy(ThreadRng::default().r#gen())
     }
 
     /// Gets the checkpoint summary for the given sequence number from the primary client.

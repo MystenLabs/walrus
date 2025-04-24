@@ -389,7 +389,7 @@ impl<T: EpochOperation> ScheduledEpochOperation<T> {
             contract_service,
             time_fn,
             max_jitter: std::cmp::min(MAX_SCHEDULE_JITTER, epoch_duration / 10),
-            rng: StdRng::seed_from_u64(rng.gen()),
+            rng: StdRng::seed_from_u64(rng.r#gen()),
         }
     }
 

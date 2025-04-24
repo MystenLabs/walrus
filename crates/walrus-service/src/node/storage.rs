@@ -969,7 +969,7 @@ pub(crate) mod tests {
 
             // Set correct registered event.
             let BlobInfo::V1(BlobInfoV1::Valid(ValidBlobInfoV1 {
-                permanent_total: Some(PermanentBlobInfoV1 { ref mut event, .. }),
+                permanent_total: Some(PermanentBlobInfoV1 { event, .. }),
                 ..
             })) = &mut state1
             else {

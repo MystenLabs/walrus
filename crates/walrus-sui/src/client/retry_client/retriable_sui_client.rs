@@ -210,7 +210,7 @@ impl RetriableSuiClient {
         wallet: &WalletContext,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let strategy = backoff_config.get_strategy(ThreadRng::default().gen());
+        let strategy = backoff_config.get_strategy(ThreadRng::default().r#gen());
         let client = retry_rpc_errors(
             strategy,
             || async { wallet.get_client().await },
@@ -908,9 +908,7 @@ impl RetriableSuiClient {
                 None
             }
         });
-        let Some(SuiMoveNormalizedType::Struct {
-            ref type_arguments, ..
-        }) = principal_field_type
+        let Some(SuiMoveNormalizedType::Struct { type_arguments, .. }) = principal_field_type
         else {
             return Err(SuiClientError::WalTypeNotFound(package_id));
         };
@@ -1013,7 +1011,8 @@ impl RetriableSuiClient {
 
     /// Gets a backoff strategy, seeded from the internal RNG.
     fn get_strategy(&self) -> ExponentialBackoff<StdRng> {
-        self.backoff_config.get_strategy(ThreadRng::default().gen())
+        self.backoff_config
+            .get_strategy(ThreadRng::default().r#gen())
     }
 
     /// Returns the events for the given transaction digest.
