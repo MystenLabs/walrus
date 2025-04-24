@@ -2383,11 +2383,29 @@ LimitNOFILE=65536
 <h3 id="number-of-sub-wallets-and-upload-concurrency"><a class="header" href="#number-of-sub-wallets-and-upload-concurrency">Number of sub-wallets and upload concurrency</a></h3>
 <p>As mentioned above, the publisher uses sub-wallets to allow storing blobs in parallel. By default,
 the publisher uses 8 sub-wallets, meaning it can handle 8 blob store HTTP requests concurrently.</p>
+<p>In order to operate a high performance and concurrency publisher the following options may be of
+interest.</p>
+<ul>
+<li>
+<p>The <code>--n-clients &lt;NUM&gt;</code> option creates a number of separate wallets used to perform concurrent
+Sui chain operations. Increase this to allow more parallel uploads. Note that a higher number
+will require more SUI and WAL coins initially too, to be distributed to more wallets.</p>
+</li>
+<li>
+<p>The <code>--max-concurrent-requests &lt;NUM&gt;</code> determines how many concurrent requests can be handled
+including Sui operations (limited by number of clients) but also uploads. After this is exceeded
+more requests are queued up to the <code>--max-buffer-size &lt;NUM&gt;</code>, after which requests are rejected
+with a HTTP 429 code.</p>
+</li>
+</ul>
 <h3 id="sui-coin-management-in-sub-wallets"><a class="header" href="#sui-coin-management-in-sub-wallets">SUI coin management in sub-wallets</a></h3>
 <p>Each of the sub-wallets requires funds to interact with the chain and purchase storage. For this
 reason, a background process checks periodically if the sub-wallets have enough funds. In steady
 state, each of the sub-wallets will have a balance of 0.5-1.0 SUI and WAL. The amount and triggers
 for coin refills can be configured through CLI arguments.</p>
+<p>To tweak how refills are handled you may use the <code>--refill-interval &lt;REFILL_INTERVAL&gt;</code>,
+<code>--gas-refill-amount &lt;GAS_REFILL_AMOUNT&gt;</code>, <code>--wal-refill-amount &lt;WAL_REFILL_AMOUNT&gt;</code> and
+<code>--sub-wallets-min-balance &lt;SUB_WALLETS_MIN_BALANCE&gt;</code> arguments.</p>
 <h3 id="lifecycle-of-created-blob-on-chain-objects"><a class="header" href="#lifecycle-of-created-blob-on-chain-objects">Lifecycle of created <code>Blob</code> on-chain objects</a></h3>
 <p>Each store operation in Walrus creates a <code>Blob</code> object on Sui. This blob object represents the
 (partial) ownership over the associated data, and allows certain data management operations (e.g.,
@@ -2402,12 +2420,13 @@ then the <code>Blob</code> object is transferred to the
 specified address. This is a way for clients to get back the created object for their data.</li>
 <li>If the <code>send_object_to</code> query parameter is not specified, two cases are possible:
 <ul>
-<li>If the publisher was run with the <code>--keep</code> flag, then the sub-wallet transfers the
-newly-created blob object to the main wallet, such that all these objects are kept there.</li>
-<li>If the <code>--keep</code> flag was omitted, then the sub-wallet <em>immediately burns</em> the <code>Blob</code> object.
-Since no one has requested the object, and the availability of the data on Walrus is independent
-of the existence of such object, it is safe to do so. This is to avoid cluttering the sub-wallet
-with many blob objects.</li>
+<li>By default the sub-wallet transfers the
+newly-created blob object to the main wallet, such that all these objects are kept there.
+This behavior can be changed by setting the <code>--burn-after-store</code> flag, and the blob object
+is then immediately deleted.</li>
+<li>However, note that this flag <em>does not affect</em> the use of the <code>send_object_to</code> query parameter:
+Regardless of this flag's status, the publisher will send created objects to the address in
+the <code>send_object_to</code> query parameter, if it is specified in the PUT request.</li>
 </ul>
 </li>
 </ul>
