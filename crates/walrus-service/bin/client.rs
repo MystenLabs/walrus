@@ -6,6 +6,7 @@
 use std::process::ExitCode;
 
 use anyhow::Result;
+use chrono::{DateTime, Duration, Utc};
 use clap::Parser;
 use serde::Deserialize;
 use walrus_service::{
@@ -16,6 +17,18 @@ use walrus_sui::client::retry_client::RetriableRpcError;
 
 /// The version of the Walrus client.
 pub const VERSION: &str = walrus_service::utils::version!();
+
+/// The build time of the Walrus client.
+pub const BUILD_TIME: DateTime<Utc> = {
+    let Ok(timestamp) = i64::from_str_radix(env!("BUILD_TIME"), 10) else {
+        panic!("BUILD_TIME should be set to a valid UNIX timestamp by the build script");
+    };
+    if let Some(build_time) = DateTime::from_timestamp(timestamp, 0) {
+        build_time
+    } else {
+        panic!("BUILD_TIME should be set to a valid UNIX timestamp by the build script");
+    }
+};
 
 /// The command-line arguments for the Walrus client.
 #[derive(Parser, Debug, Clone, Deserialize)]
@@ -35,6 +48,14 @@ pub struct ClientArgs {
 
 fn client() -> Result<()> {
     let subscriber_guard = utils::init_scoped_tracing_subscriber()?;
+
+    if Utc::now() > BUILD_TIME + Duration::days(30) {
+        tracing::warn!(
+            "This build of the Walrus client is older than 30 days. \
+            Please update to the latest version."
+        );
+    }
+
     let mut app = ClientArgs::parse().inner;
     app.extract_json_command()?;
 
