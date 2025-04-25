@@ -2230,7 +2230,7 @@ pub mod test_cluster {
     use futures::future;
     use tokio::sync::Mutex as TokioMutex;
     use walrus_sdk::{
-        client::{self, ClientCommunicationConfig, ClientConfig},
+        client::{self, Client, ClientCommunicationConfig, ClientConfig},
         sui::{
             client::{SuiContractClient, SuiReadClient},
             test_utils::{
@@ -2566,8 +2566,12 @@ pub mod test_cluster {
             };
 
             let client = admin_contract_client
-                .and_then_async(|contract_client| {
-                    client::Client::new_contract_client_with_refresher(config, contract_client)
+                .and_then_async(|contract_client| async move {
+                    let committees_handle = config
+                        .refresh_config
+                        .build_refresher_and_run(contract_client.read_client().clone())
+                        .await?;
+                    Client::new(config, committees_handle, contract_client).await
                 })
                 .await?;
 

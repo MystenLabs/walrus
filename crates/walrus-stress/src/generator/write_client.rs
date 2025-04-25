@@ -156,8 +156,7 @@ impl WriteClient {
             .as_ref()
             .encoding_config()
             .get_for_type(DEFAULT_ENCODING)
-            .encode_with_metadata(blob)
-            .map_err(ClientError::other)?;
+            .encode_with_metadata(blob)?;
 
         let mut metadata = metadata.metadata().to_owned();
         let n_members = self
@@ -254,7 +253,7 @@ async fn new_client(
 
     let client = sui_contract_client
         .and_then_async(|contract_client| {
-            Client::new_contract_client(config.clone(), refresher_handle, contract_client)
+            Client::new(config.clone(), refresher_handle, contract_client)
         })
         .await?;
     Ok(client)

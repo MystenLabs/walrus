@@ -3,9 +3,19 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
-use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
+use walrus_core::{
+    BlobId,
+    EncodingType,
+    Epoch,
+    SliverPairIndex,
+    SliverType,
+    encoding::{DataTooLargeError, DecodingVerificationError},
+    messages::CertificateError,
+};
 use walrus_storage_node_client::error::{ClientBuildError, NodeError};
 use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
+
+use crate::client::refresh::RefresherCommunicationError;
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.
@@ -45,88 +55,7 @@ pub type ClientResult<T> = Result<T, ClientError>;
 /// Error raised by a client interacting with the storage system.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
-pub struct ClientError {
-    /// The inner kind of the error.
-    #[from]
-    kind: ClientErrorKind,
-}
-
-impl ClientError {
-    /// Returns the corresponding [`ClientErrorKind`] for this object.
-    pub fn kind(&self) -> &ClientErrorKind {
-        &self.kind
-    }
-
-    /// Converts an error to a [`ClientError`] with `kind` [`ClientErrorKind::Other`].
-    pub fn other<E>(err: E) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
-        ClientError {
-            kind: ClientErrorKind::Other(err.into()),
-        }
-    }
-
-    /// Constructs a [`ClientError`] with `kind` [`ClientErrorKind::StoreBlobInternal`].
-    pub fn store_blob_internal(err: String) -> Self {
-        ClientError {
-            kind: ClientErrorKind::StoreBlobInternal(err),
-        }
-    }
-
-    /// Whether the error is an out-of-gas error.
-    pub fn is_out_of_coin_error(&self) -> bool {
-        matches!(
-            &self.kind,
-            ClientErrorKind::NoCompatiblePaymentCoin | ClientErrorKind::NoCompatibleGasCoins(_)
-        )
-    }
-
-    /// Returns `true` if the error is a `NoValidStatusReceived` error.
-    pub fn is_no_valid_status_received(&self) -> bool {
-        matches!(&self.kind, ClientErrorKind::NoValidStatusReceived)
-    }
-
-    /// Returns `true` if the error may have been caused by epoch change.
-    pub fn may_be_caused_by_epoch_change(&self) -> bool {
-        matches!(
-            &self.kind,
-            // Cannot get confirmations.
-            ClientErrorKind::NotEnoughConfirmations(_, _)
-                // Cannot certify the blob on chain.
-                | ClientErrorKind::CertificationFailed(_)
-                // Cannot get the correct read epoch during epoch change.
-                | ClientErrorKind::BehindCurrentEpoch { .. }
-                // Cannot get metadata because we are behind by several epochs.
-                | ClientErrorKind::NoMetadataReceived
-                // Cannot get slivers because we are behind by several epochs.
-                | ClientErrorKind::NotEnoughSlivers
-                // The client was notified that the committee has changed.
-                | ClientErrorKind::CommitteeChangeNotified
-        )
-    }
-}
-
-impl From<SuiClientError> for ClientError {
-    fn from(value: SuiClientError) -> Self {
-        let kind = match value {
-            SuiClientError::NoCompatibleWalCoins => ClientErrorKind::NoCompatiblePaymentCoin,
-            SuiClientError::NoCompatibleGasCoins(desired_amount) => {
-                ClientErrorKind::NoCompatibleGasCoins(desired_amount)
-            }
-            SuiClientError::StakeBelowThreshold(amount) => {
-                ClientErrorKind::StakeBelowThreshold(amount)
-            }
-            error => ClientErrorKind::Other(error.into()),
-        };
-        Self { kind }
-    }
-}
-
-/// Inner error type, raised when the client operation fails.
-#[derive(Debug, thiserror::Error)]
-#[error(transparent)]
-pub enum ClientErrorKind {
+pub enum ClientError {
     /// The certification of the blob failed.
     #[error("blob certification failed: {0}")]
     CertificationFailed(SuiClientError),
@@ -146,7 +75,7 @@ pub enum ClientErrorKind {
     BlobIdDoesNotExist,
     /// The client could not retrieve the metadata from the storage nodes.
     ///
-    /// This error differs from the [`ClientErrorKind::BlobIdDoesNotExist`] version in the fact that
+    /// This error differs from the [`ClientError::BlobIdDoesNotExist`] version in the fact that
     /// other errors occurred, and the client cannot confirm that the blob does not exist.
     #[error("could not retrieve the metadata from the storage nodes")]
     NoMetadataReceived,
@@ -203,4 +132,86 @@ pub enum ClientErrorKind {
     /// An internal error occurred while storing a blob, usually indicating a bug.
     #[error("store blob internal error: {0}")]
     StoreBlobInternal(String),
+}
+
+impl From<anyhow::Error> for ClientError {
+    fn from(err: anyhow::Error) -> Self {
+        ClientError::Other(err.into())
+    }
+}
+
+impl From<RefresherCommunicationError> for ClientError {
+    fn from(err: RefresherCommunicationError) -> Self {
+        ClientError::Other(err.into())
+    }
+}
+
+impl From<CertificateError> for ClientError {
+    fn from(err: CertificateError) -> Self {
+        ClientError::Other(err.into())
+    }
+}
+
+impl From<DataTooLargeError> for ClientError {
+    fn from(err: DataTooLargeError) -> Self {
+        ClientError::Other(err.into())
+    }
+}
+
+impl From<DecodingVerificationError> for ClientError {
+    fn from(err: DecodingVerificationError) -> Self {
+        ClientError::Other(err.into())
+    }
+}
+
+impl ClientError {
+    /// Constructs a [`ClientError`] with `kind` [`ClientError::StoreBlobInternal`].
+    pub fn store_blob_internal(err: String) -> Self {
+        ClientError::StoreBlobInternal(err)
+    }
+
+    /// Whether the error is an out-of-gas error.
+    pub fn is_out_of_coin_error(&self) -> bool {
+        matches!(
+            self,
+            ClientError::NoCompatiblePaymentCoin | ClientError::NoCompatibleGasCoins(_)
+        )
+    }
+
+    /// Returns `true` if the error is a `NoValidStatusReceived` error.
+    pub fn is_no_valid_status_received(&self) -> bool {
+        matches!(self, ClientError::NoValidStatusReceived)
+    }
+
+    /// Returns `true` if the error may have been caused by epoch change.
+    pub fn may_be_caused_by_epoch_change(&self) -> bool {
+        matches!(
+            self,
+            // Cannot get confirmations.
+            ClientError::NotEnoughConfirmations(_, _)
+                // Cannot certify the blob on chain.
+                | ClientError::CertificationFailed(_)
+                // Cannot get the correct read epoch during epoch change.
+                | ClientError::BehindCurrentEpoch { .. }
+                // Cannot get metadata because we are behind by several epochs.
+                | ClientError::NoMetadataReceived
+                // Cannot get slivers because we are behind by several epochs.
+                | ClientError::NotEnoughSlivers
+                // The client was notified that the committee has changed.
+                | ClientError::CommitteeChangeNotified
+        )
+    }
+}
+
+impl From<SuiClientError> for ClientError {
+    fn from(value: SuiClientError) -> Self {
+        match value {
+            SuiClientError::NoCompatibleWalCoins => ClientError::NoCompatiblePaymentCoin,
+            SuiClientError::NoCompatibleGasCoins(desired_amount) => {
+                ClientError::NoCompatibleGasCoins(desired_amount)
+            }
+            SuiClientError::StakeBelowThreshold(amount) => ClientError::StakeBelowThreshold(amount),
+            error => ClientError::Other(error.into()),
+        }
+    }
 }

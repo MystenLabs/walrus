@@ -25,11 +25,7 @@ use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_proc_macros::RestApiError;
-use walrus_sdk::{
-    client::responses::BlobStoreResult,
-    error::{ClientError, ClientErrorKind},
-    store_when::StoreWhen,
-};
+use walrus_sdk::{client::responses::BlobStoreResult, error::ClientError, store_when::StoreWhen};
 use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
     ObjectIdSchema,
@@ -226,9 +222,9 @@ pub(crate) enum GetBlobError {
 
 impl From<ClientError> for GetBlobError {
     fn from(error: ClientError) -> Self {
-        match error.kind() {
-            ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
-            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+        match error {
+            ClientError::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientError::BlobIdBlocked(_) => Self::Blocked,
             _ => anyhow::anyhow!(error).into(),
         }
     }
@@ -356,9 +352,9 @@ pub(crate) enum StoreBlobError {
 
 impl From<ClientError> for StoreBlobError {
     fn from(error: ClientError) -> Self {
-        match error.kind() {
-            ClientErrorKind::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
-            ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
+        match error {
+            ClientError::NotEnoughConfirmations(_, _) => Self::NotEnoughConfirmations,
+            ClientError::BlobIdBlocked(_) => Self::Blocked,
             _ => Self::Internal(anyhow!(error)),
         }
     }
