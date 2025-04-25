@@ -47,7 +47,8 @@ pub const TESTNET_RPC: &str = "https://fullnode.testnet.sui.io:443";
 /// Default RPC URL to connect to if none is specified explicitly or in the wallet config.
 pub const DEFAULT_RPC_URL: &str = TESTNET_RPC;
 
-/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to Sui.
+/// Creates a [`Client`] based on the provided [`ClientConfig`] with read-only access to
+/// Sui.
 ///
 /// The RPC URL is set based on the `rpc_url` parameter (if `Some`), the `wallet` (if `Ok`) or the
 /// default [`DEFAULT_RPC_URL`] if `allow_fallback_to_default` is true.
@@ -79,8 +80,8 @@ pub async fn get_read_client(
     }
 }
 
-/// Creates a [`Client<SuiContractClient>`] based on the provided [`ClientConfig`] with write access
-/// to Sui.
+/// Creates a [`Client<SuiContractClient>`] based on the provided [`ClientConfig`] with
+/// write access to Sui.
 pub async fn get_contract_client(
     config: ClientConfig,
     wallet: Result<WalletContext>,

@@ -12076,9 +12076,9 @@ dependencies = [
  "tracing-subscriber",
  "walrus-core",
  "walrus-proc-macros",
- "walrus-rest-client",
  "walrus-sdk",
  "walrus-service",
+ "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
@@ -12165,44 +12165,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "walrus-rest-client"
-version = "1.25.0"
-dependencies = [
- "axum 0.8.1",
- "axum-server 0.7.2",
- "bcs",
- "bytes",
- "fastcrypto",
- "futures",
- "http 1.3.1",
- "mime",
- "opentelemetry",
- "p256",
- "pin-project",
- "prometheus",
- "rand 0.8.5",
- "rcgen",
- "reqwest",
- "rustls 0.23.26",
- "rustls-native-certs 0.8.1",
- "serde",
- "serde_json",
- "serde_with",
- "sui-simulator",
- "sui-types",
- "thiserror 2.0.12",
- "tokio",
- "tower 0.5.2",
- "tracing",
- "tracing-opentelemetry",
- "utoipa",
- "walrus-core",
- "walrus-test-utils",
- "walrus-utils",
- "x509-cert",
-]
-
-[[package]]
 name = "walrus-sdk"
 version = "1.25.0"
 dependencies = [
@@ -12235,7 +12197,7 @@ dependencies = [
  "tracing",
  "utoipa",
  "walrus-core",
- "walrus-rest-client",
+ "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
@@ -12337,8 +12299,8 @@ dependencies = [
  "uuid",
  "walrus-core",
  "walrus-proc-macros",
- "walrus-rest-client",
  "walrus-sdk",
+ "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
  "walrus-utils",
@@ -12362,11 +12324,49 @@ dependencies = [
  "tracing",
  "walrus-core",
  "walrus-proc-macros",
- "walrus-rest-client",
  "walrus-sdk",
  "walrus-service",
+ "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
+]
+
+[[package]]
+name = "walrus-storage-node-client"
+version = "1.25.0"
+dependencies = [
+ "axum 0.8.1",
+ "axum-server 0.7.2",
+ "bcs",
+ "bytes",
+ "fastcrypto",
+ "futures",
+ "http 1.3.1",
+ "mime",
+ "opentelemetry",
+ "p256",
+ "pin-project",
+ "prometheus",
+ "rand 0.8.5",
+ "rcgen",
+ "reqwest",
+ "rustls 0.23.26",
+ "rustls-native-certs 0.8.1",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sui-simulator",
+ "sui-types",
+ "thiserror 2.0.12",
+ "tokio",
+ "tower 0.5.2",
+ "tracing",
+ "tracing-opentelemetry",
+ "utoipa",
+ "walrus-core",
+ "walrus-test-utils",
+ "walrus-utils",
+ "x509-cert",
 ]
 
 [[package]]

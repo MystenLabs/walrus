@@ -17,7 +17,6 @@ mod tests {
     use sui_macros::{clear_fail_point, register_fail_point_async, register_fail_point_if};
     use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
@@ -27,6 +26,7 @@ mod tests {
         BlobInfoConsistencyCheck,
         CRASH_NODE_FAIL_POINTS,
     };
+    use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
 
     const FAILURE_TRIGGER_PROBABILITY: f64 = 0.01;

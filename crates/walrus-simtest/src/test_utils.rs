@@ -20,12 +20,12 @@ pub mod simtest_utils {
         Epoch,
         encoding::{Primary, Secondary},
     };
-    use walrus_rest_client::api::ServiceHealthInfo;
     use walrus_sdk::{
         client::{Client, responses::BlobStoreResult},
         store_when::StoreWhen,
     };
     use walrus_service::test_utils::SimStorageNodeHandle;
+    use walrus_storage_node_client::api::ServiceHealthInfo;
     use walrus_sui::client::{BlobPersistence, PostStoreAction, SuiContractClient};
     use walrus_test_utils::WithTempDir;
 
@@ -310,7 +310,7 @@ pub mod simtest_utils {
         node: &SimStorageNodeHandle,
         timeout: Duration,
     ) -> anyhow::Result<ServiceHealthInfo> {
-        let client = walrus_rest_client::client::Client::builder()
+        let client = walrus_storage_node_client::StorageNodeClient::builder()
             .authenticate_with_public_key(node.network_public_key.clone())
             // Disable proxy and root certs from the OS for tests.
             .no_proxy()
@@ -350,7 +350,7 @@ pub mod simtest_utils {
             nodes
                 .iter()
                 .map(|node_handle| async {
-                    let client = walrus_rest_client::client::Client::builder()
+                    let client = walrus_storage_node_client::StorageNodeClient::builder()
                         .authenticate_with_public_key(node_handle.network_public_key.clone())
                         // Disable proxy and root certs from the OS for tests.
                         .no_proxy()

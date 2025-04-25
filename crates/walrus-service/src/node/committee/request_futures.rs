@@ -47,8 +47,8 @@ use walrus_core::{
     messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::client::RecoverySymbolsFilter;
 use walrus_sdk::active_committees::CommitteeTracker;
+use walrus_storage_node_client::RecoverySymbolsFilter;
 use walrus_sui::types::Committee;
 use walrus_utils::{backoff::ExponentialBackoffState, metrics::OwnedGaugeGuard};
 

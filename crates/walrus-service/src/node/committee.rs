@@ -21,8 +21,8 @@ use walrus_core::{
     messages::InvalidBlobCertificate,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::error::ClientBuildError;
 use walrus_sdk::active_committees::ActiveCommittees;
+use walrus_storage_node_client::error::ClientBuildError;
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
     types::{Committee, StorageNode},

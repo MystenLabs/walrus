@@ -25,12 +25,12 @@ use tracing::Level;
 use utoipa::IntoParams;
 use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_proc_macros::RestApiError;
-use walrus_rest_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sdk::{
     client::responses::BlobStoreResult,
     error::{ClientError, ClientErrorKind},
     store_when::StoreWhen,
 };
+use walrus_storage_node_client::api::errors::DAEMON_ERROR_DOMAIN as ERROR_DOMAIN;
 use walrus_sui::{
     ObjectIdSchema,
     SuiAddressSchema,

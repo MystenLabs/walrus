@@ -406,7 +406,8 @@ fn create_self_signed_certificate(
     key_pair: &NetworkKeyPair,
     public_server_name: String,
 ) -> CertifiedKey {
-    let generated_server_name = walrus_rest_client::server_name_from_public_key(key_pair.public());
+    let generated_server_name =
+        walrus_storage_node_client::server_name_from_public_key(key_pair.public());
     let pkcs8_key_pair = to_pkcs8_key_pair(key_pair);
 
     let mut params =
@@ -471,7 +472,10 @@ mod tests {
         },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
     };
-    use walrus_rest_client::{
+    use walrus_storage_node_client::{
+        RecoverySymbolsFilter,
+        StorageNodeClient,
+        StorageNodeClientBuilder,
         api::{
             BlobStatus,
             DeletableCounts,
@@ -479,7 +483,6 @@ mod tests {
             ShardStatusSummary,
             StoredOnNodeStatus,
         },
-        client::{Client, ClientBuilder, RecoverySymbolsFilter},
     };
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
@@ -532,12 +535,13 @@ mod tests {
         fn metadata_status(
             &self,
             blob_id: &BlobId,
-        ) -> Result<walrus_rest_client::api::StoredOnNodeStatus, RetrieveMetadataError> {
+        ) -> Result<walrus_storage_node_client::api::StoredOnNodeStatus, RetrieveMetadataError>
+        {
             if blob_id.0[0] == 0 {
                 // A blob ID starting with 0 triggers a valid response.
-                Ok(walrus_rest_client::api::StoredOnNodeStatus::Stored)
+                Ok(walrus_storage_node_client::api::StoredOnNodeStatus::Stored)
             } else {
-                Ok(walrus_rest_client::api::StoredOnNodeStatus::Nonexistent)
+                Ok(walrus_storage_node_client::api::StoredOnNodeStatus::Nonexistent)
             }
         }
 
@@ -689,7 +693,7 @@ mod tests {
                 epoch: 0,
                 public_key: ProtocolKeyPair::generate().as_ref().public().clone(),
                 node_status: "Active".to_string(),
-                event_progress: walrus_rest_client::api::EventProgress::default(),
+                event_progress: walrus_storage_node_client::api::EventProgress::default(),
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
                 latest_checkpoint_sequence_number: None,
@@ -733,15 +737,17 @@ mod tests {
         (config, handle)
     }
 
-    fn default_client_builder() -> ClientBuilder {
-        Client::builder().no_proxy().tls_built_in_root_certs(false)
+    fn default_storage_node_client_builder() -> StorageNodeClientBuilder {
+        StorageNodeClient::builder()
+            .no_proxy()
+            .tls_built_in_root_certs(false)
     }
 
-    fn storage_node_client(config: &StorageNodeConfig) -> Client {
+    fn storage_node_client(config: &StorageNodeConfig) -> StorageNodeClient {
         let network_address = config.rest_api_address;
         let network_public_key = config.network_key_pair.get().unwrap().public().clone();
 
-        default_client_builder()
+        default_storage_node_client_builder()
             .authenticate_with_public_key(network_public_key)
             .build(&network_address.to_string())
             .expect("must be able to construct client in tests")
@@ -1098,11 +1104,11 @@ mod tests {
     }
 
     mod tls {
-        use walrus_rest_client::error::NodeError;
+        use walrus_storage_node_client::error::NodeError;
 
         use super::*;
 
-        async fn try_tls_request(client: Client) -> Result<(), NodeError> {
+        async fn try_tls_request(client: StorageNodeClient) -> Result<(), NodeError> {
             client.get_server_health_info(false).await.map(|_| ())
         }
 
@@ -1218,7 +1224,7 @@ mod tests {
             configure_certificates_from_disk(certified_key_pair, &mut config)?;
             start_rest_api_with_config(config.as_ref()).await;
 
-            let client = default_client_builder()
+            let client = default_storage_node_client_builder()
                 .add_root_certificate(issuer_cert.der())
                 .authenticate_with_public_key(network_key_pair.public().clone())
                 .build(&rest_api_address.to_string())
@@ -1244,7 +1250,7 @@ mod tests {
             configure_certificates_from_disk(certified_key_pair, &mut config)?;
             start_rest_api_with_config(config.as_ref()).await;
 
-            let client = default_client_builder()
+            let client = default_storage_node_client_builder()
                 .add_root_certificate(issuer_cert.der())
                 .authenticate_with_public_key(other_network_public_key)
                 .build(&rest_api_address.to_string())

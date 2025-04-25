@@ -23,7 +23,6 @@ mod tests {
     use sui_simulator::configs::{env_config, uniform_latency_ms};
     use tokio::sync::RwLock;
     use walrus_proc_macros::walrus_simtest;
-    use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
@@ -33,6 +32,7 @@ mod tests {
         BlobInfoConsistencyCheck,
         CRASH_NODE_FAIL_POINTS,
     };
+    use walrus_storage_node_client::api::ShardStatus;
     use walrus_sui::client::ReadClient;
 
     /// Returns a simulator configuration that adds random network latency between nodes.

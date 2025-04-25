@@ -35,7 +35,6 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_proc_macros::walrus_simtest;
-use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
     client::{Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi, responses::BlobStoreResult},
     error::{
@@ -56,6 +55,7 @@ use walrus_service::test_utils::{
     TestNodesConfig,
     test_cluster::{self, FROST_PER_NODE_WEIGHT},
 };
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{
         BlobPersistence,

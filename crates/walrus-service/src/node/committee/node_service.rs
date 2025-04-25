@@ -6,8 +6,8 @@
 //! [`tower::Service`] trait implementation on the defined [`Request`] and [`Response`] types.
 //!
 //! It also defines [`RemoteStorageNode`] which implements the trait for
-//! [`walrus_rest_client::client::Client`], and implements the trait for [`LocalStorageNode`], an
-//! alias to [`Arc<StorageNodeInner>`][StorageNodeInner].
+//! [`walrus_storage_node_client::client::Client`], and implements the trait for
+//! [`LocalStorageNode`], an alias to [`Arc<StorageNodeInner>`][StorageNodeInner].
 //!
 //! The use of [`tower::Service`] will allow us to add layers to monitor a given node's
 //! communication with all others, to monitor and disable nodes which fail frequently, and to later
@@ -40,9 +40,11 @@ use walrus_core::{
     messages::InvalidBlobIdAttestation,
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_rest_client::{
-    client::{Client, RecoverySymbolsFilter},
-    error::{ClientBuildError, NodeError},
+use walrus_storage_node_client::{
+    ClientBuildError,
+    NodeError,
+    RecoverySymbolsFilter,
+    StorageNodeClient,
 };
 use walrus_sui::types::StorageNode as SuiStorageNode;
 use walrus_utils::metrics::Registry;
@@ -170,10 +172,10 @@ where
 {
 }
 
-/// A [`NodeService`] that is reachable via a [`walrus_rest_client::client::Client`].
+/// A [`NodeService`] that is reachable via a [`walrus_storage_node_client::client::Client`].
 #[derive(Clone, Debug)]
 pub(crate) struct RemoteStorageNode {
-    client: Client,
+    client: StorageNodeClient,
     encoding_config: Arc<EncodingConfig>,
 }
 
@@ -356,7 +358,7 @@ impl NodeServiceFactory for DefaultNodeServiceFactory {
         member: &SuiStorageNode,
         encoding_config: &Arc<EncodingConfig>,
     ) -> Result<Self::Service, ClientBuildError> {
-        let mut builder = walrus_rest_client::client::Client::builder()
+        let mut builder = walrus_storage_node_client::StorageNodeClient::builder()
             .authenticate_with_public_key(member.network_public_key.clone());
 
         if self.disable_loading_native_certs {

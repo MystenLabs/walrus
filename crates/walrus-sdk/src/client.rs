@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client for the Walrus service.
+//! Low-level client for use when communicating directly with Walrus nodes.
 
 use std::{
     collections::HashMap,
@@ -42,7 +42,7 @@ use walrus_core::{
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_rest_client::{api::BlobStatus, error::NodeError};
+use walrus_storage_node_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
     client::{
         BlobPersistence,
@@ -150,7 +150,7 @@ impl Client<()> {
         })
     }
 
-    /// Converts `self` to a [`Client::<T>`] by adding the `sui_client`.
+    /// Converts `self` to a [`Client<C>`] by adding the `sui_client`.
     pub async fn with_client<C>(self, sui_client: C) -> Client<C> {
         let Self {
             config,

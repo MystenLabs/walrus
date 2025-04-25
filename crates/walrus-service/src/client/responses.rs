@@ -36,7 +36,6 @@ use walrus_core::{
     },
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
-use walrus_rest_client::api::{BlobStatus, ServiceHealthInfo};
 use walrus_sdk::{
     client::NodeCommunicationFactory,
     sui::{
@@ -51,6 +50,7 @@ use walrus_sdk::{
         utils::{BYTES_PER_UNIT_SIZE, price_for_encoded_length, storage_units_from_size},
     },
 };
+use walrus_storage_node_client::api::{BlobStatus, ServiceHealthInfo};
 
 use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};

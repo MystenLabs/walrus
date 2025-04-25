@@ -56,7 +56,7 @@ use crate::{
 };
 
 mod builder;
-pub use builder::ClientBuilder;
+pub use builder::StorageNodeClientBuilder;
 
 mod middleware;
 
@@ -234,7 +234,7 @@ impl UrlEndpoints {
     }
 }
 
-/// Filter for [`Client::list_recovery_symbols()`] endpoint.
+/// Filter for [`StorageNodeClient::list_recovery_symbols()`] endpoint.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecoverySymbolsFilter {
@@ -246,7 +246,7 @@ pub struct RecoverySymbolsFilter {
     id_spec: SymbolIdFilter,
 }
 
-/// Filter for [`Client::list_recovery_symbols()`] endpoint.
+/// Filter for [`StorageNodeClient::list_recovery_symbols()`] endpoint.
 #[derive(Debug, Clone, Serialize)]
 pub enum SymbolIdFilter {
     /// Limit the results to the specified symbols.
@@ -338,7 +338,7 @@ where
 
 /// A client for communicating with a StorageNode.
 #[derive(Debug, Clone)]
-pub struct Client {
+pub struct StorageNodeClient {
     inner: HttpMiddleware<ReqwestClient>,
     endpoints: UrlEndpoints,
 
@@ -349,10 +349,10 @@ pub struct Client {
     client_clone: ReqwestClient,
 }
 
-impl Client {
-    /// Returns a new [`ClientBuilder`] that can be used to construct a client.
-    pub fn builder() -> ClientBuilder {
-        ClientBuilder::default()
+impl StorageNodeClient {
+    /// Returns a new [`StorageNodeClientBuilder`] that can be used to construct a client.
+    pub fn builder() -> StorageNodeClientBuilder {
+        StorageNodeClientBuilder::default()
     }
 
     /// Creates a new client for the storage node.
@@ -366,7 +366,7 @@ impl Client {
     pub fn for_storage_node(
         address: &str,
         public_key: &NetworkPublicKey,
-    ) -> Result<Client, ClientBuildError> {
+    ) -> Result<StorageNodeClient, ClientBuildError> {
         Self::builder()
             .authenticate_with_public_key(public_key.clone())
             .build(address)
