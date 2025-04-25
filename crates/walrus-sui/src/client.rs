@@ -40,7 +40,7 @@ use sui_types::{
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
-use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
+use transaction_builder::{ArgumentOrOwnedObject, MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
     BlobId,
     EncodingType,
@@ -1487,15 +1487,34 @@ impl SuiContractClientInner {
             tracing::debug!("no blobs to register");
             return Ok(vec![]);
         }
+        let subsidies_package_id = self.read_client.get_subsidies_package_id();
 
         let expected_num_blobs = blob_metadata_and_storage.len();
         tracing::debug!(num_blobs = expected_num_blobs, "starting to register blobs");
         let mut pt_builder = self.transaction_builder()?;
         // Build a ptb to include all register blob commands for all blobs.
         for (blob_metadata, storage) in blob_metadata_and_storage.into_iter() {
-            pt_builder
-                .register_blob(storage.id.into(), blob_metadata, persistence)
-                .await?;
+            match subsidies_package_id {
+                Some(pkg_id) => {
+                    pt_builder
+                        .register_blob_with_subsidies(
+                            storage.id.into(),
+                            blob_metadata,
+                            persistence,
+                            pkg_id,
+                        )
+                        .await?;
+                }
+                None => {
+                    pt_builder
+                        .register_blob_without_subsidies(
+                            storage.id.into(),
+                            blob_metadata,
+                            persistence,
+                        )
+                        .await?;
+                }
+            };
         }
         let (ptb, _sui_cost) = pt_builder.finish().await?;
         let res = self.sign_and_send_ptb(ptb, "register_blobs").await?;
@@ -1527,48 +1546,52 @@ impl SuiContractClientInner {
         persistence: BlobPersistence,
     ) -> SuiClientResult<Vec<Blob>> {
         let subsidies_package_id = self.read_client.get_subsidies_package_id();
-        match subsidies_package_id {
-            Some(pkg_id) => {
-                match self
-                    .reserve_and_register_blobs_with_subsidies(
-                        epochs_ahead,
-                        blob_metadata_list.clone(),
-                        persistence,
-                        pkg_id,
-                    )
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
-                        SystemError::EWrongVersion(_),
-                    ))) => {
-                        tracing::warn!(
-                            "Walrus package version mismatch in subsidies call, \
-                            falling back to direct contract call"
-                        );
-                        self.reserve_and_register_blobs_without_subsidies(
-                            epochs_ahead,
-                            blob_metadata_list.clone(),
-                            persistence,
-                        )
-                        .await
-                    }
-                    Err(e) => Err(e),
-                }
-            }
+        // If no subsidies package, use the direct method
+        let pkg_id = match subsidies_package_id {
             None => {
-                self.reserve_and_register_blobs_without_subsidies(
+                return self
+                    .reserve_wo_subsidies_and_register_blobs_wo_subsidies(
+                        epochs_ahead,
+                        blob_metadata_list,
+                        persistence,
+                    )
+                    .await;
+            }
+            Some(id) => id,
+        };
+
+        let result = self
+            .reserve_w_subsidies_and_register_blobs_w_subsidies(
+                epochs_ahead,
+                blob_metadata_list.clone(),
+                persistence,
+                pkg_id,
+            )
+            .await;
+
+        // Handle version mismatch by falling back to direct call
+        match result {
+            Ok(result) => Ok(result),
+            Err(SuiClientError::TransactionExecutionError(MoveExecutionError::System(
+                SystemError::EWrongVersion(_),
+            ))) => {
+                tracing::warn!(
+                    "Walrus package version mismatch in subsidies call,
+                    falling back to direct contract call"
+                );
+                self.reserve_wo_subsidies_and_register_blobs_wo_subsidies(
                     epochs_ahead,
                     blob_metadata_list,
                     persistence,
                 )
                 .await
             }
+            Err(e) => Err(e),
         }
     }
 
     /// reserve and register blobs with subsidies
-    pub async fn reserve_and_register_blobs_with_subsidies(
+    pub async fn reserve_w_subsidies_and_register_blobs_w_subsidies(
         &mut self,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
@@ -1587,12 +1610,23 @@ impl SuiContractClientInner {
                         .await
                 }) as BoxFuture<'_, SuiClientResult<Argument>>
             },
+            |builder, storage_resource, blob_metadata, persistence| {
+                Box::pin(async move {
+                    builder
+                        .register_blob_with_subsidies(
+                            storage_resource,
+                            blob_metadata,
+                            persistence,
+                            subsidies_package_id,
+                        )
+                        .await
+                }) as BoxFuture<'_, SuiClientResult<Argument>>
+            },
         )
         .await
     }
 
-    /// reserve and register blobs without subsidies
-    pub async fn reserve_and_register_blobs_without_subsidies(
+    pub async fn reserve_wo_subsidies_and_register_blobs_wo_subsidies(
         &mut self,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
@@ -1610,17 +1644,29 @@ impl SuiContractClientInner {
                         .await
                 }) as BoxFuture<'_, SuiClientResult<Argument>>
             },
+            |builder, storage_resource, blob_metadata, persistence| {
+                Box::pin(async move {
+                    builder
+                        .register_blob_without_subsidies(
+                            storage_resource,
+                            blob_metadata,
+                            persistence,
+                        )
+                        .await
+                }) as BoxFuture<'_, SuiClientResult<Argument>>
+            },
         )
         .await
     }
 
     /// Common implementation for reserving and registering blobs
-    async fn reserve_and_register_blobs_impl<F>(
+    async fn reserve_and_register_blobs_impl<F, G>(
         &mut self,
         epochs_ahead: EpochCount,
         blob_metadata_list: Vec<BlobObjectMetadata>,
         persistence: BlobPersistence,
         reserve_space_fn: F,
+        register_blob_fn: G,
     ) -> SuiClientResult<Vec<Blob>>
     where
         F: for<'a> Fn(
@@ -1628,6 +1674,13 @@ impl SuiContractClientInner {
                 u64,
                 EpochCount,
             ) -> BoxFuture<'a, SuiClientResult<Argument>>
+            + Send,
+        G: for<'b> Fn(
+                &'b mut WalrusPtbBuilder,
+                ArgumentOrOwnedObject,
+                BlobObjectMetadata,
+                BlobPersistence,
+            ) -> BoxFuture<'b, SuiClientResult<Argument>>
             + Send,
     {
         if blob_metadata_list.is_empty() {
@@ -1660,9 +1713,13 @@ impl SuiContractClientInner {
             } else {
                 main_storage_arg
             };
-            pt_builder
-                .register_blob(storage_arg.into(), blob_metadata, persistence)
-                .await?;
+            register_blob_fn(
+                &mut pt_builder,
+                ArgumentOrOwnedObject::from(storage_arg),
+                blob_metadata.clone(),
+                persistence,
+            )
+            .await?;
         }
 
         let (ptb, _sui_cost) = pt_builder.finish().await?;
