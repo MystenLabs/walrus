@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result};
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, stream::FuturesUnordered};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::de::DeserializeOwned;
 use tokio::time;

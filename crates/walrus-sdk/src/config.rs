@@ -7,18 +7,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
     client::{
-        contract_config::ContractConfig,
-        retry_client::RetriableSuiClient,
         SuiClientError,
         SuiContractClient,
         SuiReadClient,
+        contract_config::ContractConfig,
+        retry_client::RetriableSuiClient,
     },
     config::WalletConfig,
 };
@@ -201,7 +201,7 @@ pub enum MultiClientConfig {
 #[cfg(test)]
 mod tests {
     use indoc::indoc;
-    use rand::{rngs::StdRng, SeedableRng as _};
+    use rand::{SeedableRng as _, rngs::StdRng};
     use tempfile::TempDir;
     use walrus_sui::client::contract_config::ContractConfig;
     use walrus_test_utils::Result as TestResult;

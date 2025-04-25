@@ -3,13 +3,13 @@
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use axum::{extract::DefaultBodyLimit, middleware, routing::post, Extension, Router};
+use axum::{Extension, Router, extract::DefaultBodyLimit, middleware, routing::post};
 use tokio::signal;
 use tower::ServiceBuilder;
 use tower_http::{
+    LatencyUnit,
     timeout::TimeoutLayer,
     trace::{DefaultOnFailure, DefaultOnResponse, TraceLayer},
-    LatencyUnit,
 };
 use tracing::Level;
 

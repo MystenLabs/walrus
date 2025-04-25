@@ -8,7 +8,7 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{atomic::AtomicBool, Arc},
+        sync::{Arc, atomic::AtomicBool},
         time::Duration,
     };
 
@@ -26,7 +26,7 @@ mod tests {
     use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
+        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
         self,

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use axum::{body::Body, extract::Query, http::Response};
-use axum_extra::headers::{authorization::Bearer, Authorization};
+use axum_extra::headers::{Authorization, authorization::Bearer};
 use chrono::DateTime;
 use jsonwebtoken::{
-    decode,
-    errors::{Error as JwtError, ErrorKind as JwtErrorKind},
     DecodingKey,
     Validation,
+    decode,
+    errors::{Error as JwtError, ErrorKind as JwtErrorKind},
 };
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::SuiAddress;
@@ -389,11 +389,11 @@ mod tests {
     use std::sync::Arc;
 
     use axum::{
+        Router,
         http::{Request, StatusCode},
         routing::get,
-        Router,
     };
-    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
     use rand::distributions::{Alphanumeric, DistString};
     use ring::signature::{self, Ed25519KeyPair, KeyPair};
     use sui_types::base_types::SUI_ADDRESS_LENGTH;

@@ -8,41 +8,44 @@ use std::path::PathBuf;
 use anyhow::Result;
 use bincode::Options;
 use clap::Subcommand;
-use rocksdb::{Options as RocksdbOptions, ReadOptions, DB};
+use rocksdb::{DB, Options as RocksdbOptions, ReadOptions};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
 use walrus_core::{
-    metadata::{BlobMetadata, BlobMetadataApi},
     BlobId,
     Epoch,
     ShardIndex,
+    metadata::{BlobMetadata, BlobMetadataApi},
 };
 
 use crate::node::{
+    DatabaseConfig,
     events::{
+        InitState,
+        PositionedStreamEvent,
         event_blob_writer::{
-            attested_cf_name,
-            certified_cf_name,
-            failed_to_attest_cf_name,
-            pending_cf_name,
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
             FailedToAttestEventBlobMetadata,
             PendingEventBlobMetadata,
+            attested_cf_name,
+            certified_cf_name,
+            failed_to_attest_cf_name,
+            pending_cf_name,
         },
         event_processor::constants::{self as event_processor_constants},
-        InitState,
-        PositionedStreamEvent,
     },
     storage::{
+        PrimarySliverData,
+        SecondarySliverData,
         blob_info::{
-            blob_info_cf_options,
-            per_object_blob_info_cf_options,
             BlobInfo,
             CertifiedBlobInfoApi,
             PerObjectBlobInfo,
+            blob_info_cf_options,
+            per_object_blob_info_cf_options,
         },
         constants::{
             aggregate_blob_info_cf_name,
@@ -54,10 +57,7 @@ use crate::node::{
         metadata_options,
         primary_slivers_column_family_options,
         secondary_slivers_column_family_options,
-        PrimarySliverData,
-        SecondarySliverData,
     },
-    DatabaseConfig,
 };
 
 /// Database inspection and maintenance tools.

@@ -4,7 +4,7 @@
 //! Active Committees.
 use std::{cmp::Ordering, collections::HashSet, mem, num::NonZeroU16, sync::Arc};
 
-use walrus_core::{ensure, Epoch, NetworkPublicKey};
+use walrus_core::{Epoch, NetworkPublicKey, ensure};
 use walrus_sui::{
     client::CommitteesAndState,
     types::{Committee, NetworkAddress},

@@ -9,18 +9,18 @@
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{atomic::AtomicBool, Arc, Mutex},
+        sync::{Arc, Mutex, atomic::AtomicBool},
         time::{Duration, Instant},
     };
 
-    use rand::{thread_rng, Rng, SeedableRng};
+    use rand::{Rng, SeedableRng, thread_rng};
     use sui_macros::{clear_fail_point, register_fail_point_async};
     use sui_protocol_config::ProtocolConfig;
     use walrus_proc_macros::walrus_simtest;
     use walrus_rest_client::api::ShardStatus;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
+        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
         self,

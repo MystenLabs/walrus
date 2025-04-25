@@ -19,7 +19,7 @@ use tokio::{
     sync::oneshot::{self, Receiver as OneshotReceiver},
     time::Instant,
 };
-use tower::{limit::ConcurrencyLimit, Service};
+use tower::{Service, limit::ConcurrencyLimit};
 use tracing::span::Span;
 use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
 

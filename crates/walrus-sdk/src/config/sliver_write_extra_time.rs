@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds};
+use serde_with::{DurationMilliSeconds, serde_as};
 
 /// The additional time allowed to sliver writes, to allow for more nodes to receive them.
 #[serde_as]

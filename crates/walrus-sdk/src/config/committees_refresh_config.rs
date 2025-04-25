@@ -5,8 +5,8 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationSeconds};
-use tokio::sync::{mpsc, Notify};
+use serde_with::{DurationSeconds, serde_as};
+use tokio::sync::{Notify, mpsc};
 use walrus_sui::client::ReadClient;
 
 use crate::client::refresh::{CommitteesRefresher, CommitteesRefresherHandle};

@@ -15,7 +15,7 @@ use std::{
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use generator::blob::WriteBlobConfig;
-use rand::{seq::SliceRandom, RngCore};
+use rand::{RngCore, seq::SliceRandom};
 use sui_types::base_types::ObjectID;
 use walrus_sdk::client::metrics::ClientMetrics;
 use walrus_service::{
@@ -23,7 +23,7 @@ use walrus_service::{
     utils::load_from_yaml,
 };
 use walrus_sui::{
-    client::{CoinType, ReadClient, SuiContractClient, MIN_STAKING_THRESHOLD},
+    client::{CoinType, MIN_STAKING_THRESHOLD, ReadClient, SuiContractClient},
     config::WalletConfig,
     types::StorageNode,
     utils::SuiNetwork,

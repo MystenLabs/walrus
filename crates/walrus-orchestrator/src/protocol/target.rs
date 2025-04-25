@@ -12,7 +12,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use walrus_core::ShardIndex;
 
-use super::{ProtocolCommands, ProtocolMetrics, ProtocolParameters, BINARY_PATH};
+use super::{BINARY_PATH, ProtocolCommands, ProtocolMetrics, ProtocolParameters};
 use crate::{benchmark::BenchmarkParameters, client::Instance};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

@@ -12,8 +12,6 @@ use fastcrypto::hash::{Blake2b256, HashFunction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    errors::{SliverRecoveryError, SliverVerificationError},
-    symbols,
     DecodingSymbol,
     EncodingAxis,
     EncodingConfig,
@@ -26,15 +24,17 @@ use super::{
     Secondary,
     SliverRecoveryOrVerificationError,
     Symbols,
+    errors::{SliverRecoveryError, SliverVerificationError},
+    symbols,
 };
 use crate::{
-    ensure,
-    inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
-    merkle::{MerkleAuth, MerkleProof, MerkleTree, Node, DIGEST_LEN},
-    metadata::{BlobMetadata, BlobMetadataApi as _, SliverPairMetadata},
-    utils,
     SliverIndex,
     SliverPairIndex,
+    ensure,
+    inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
+    merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},
+    metadata::{BlobMetadata, BlobMetadataApi as _, SliverPairMetadata},
+    utils,
 };
 
 /// A primary sliver resulting from an encoding of a blob.
@@ -480,13 +480,13 @@ impl SliverPair {
 #[cfg(test)]
 mod tests {
     use fastcrypto::hash::Blake2b256;
-    use walrus_test_utils::{param_test, random_subset, Result};
+    use walrus_test_utils::{Result, param_test, random_subset};
 
     use super::*;
     use crate::{
+        EncodingType,
         encoding::{DecodingSymbol, InvalidDataSizeError, RaptorQEncodingConfig},
         test_utils,
-        EncodingType,
     };
 
     fn create_config_and_encode_pairs_and_get_metadata(
@@ -811,11 +811,13 @@ mod tests {
         }));
 
         // Check that the reconstructed slivers match the original pairs.
-        assert!(pairs
-            .iter()
-            .enumerate()
-            .all(|(index, pair)| pair.primary == primary_slivers[index]
-                && pair.secondary == secondary_slivers[index]));
+        assert!(
+            pairs
+                .iter()
+                .enumerate()
+                .all(|(index, pair)| pair.primary == primary_slivers[index]
+                    && pair.secondary == secondary_slivers[index])
+        );
     }
 
     param_test! {
@@ -841,10 +843,12 @@ mod tests {
             MerkleTree::<Blake2b256>::build(sliver.recovery_symbols(&config).unwrap().to_symbols());
         for index in 0..n_shards {
             let shard_pair_index = SliverPairIndex(index);
-            assert!(sliver
-                .recovery_symbol_for_sliver(shard_pair_index, &config)
-                .unwrap()
-                .verify_proof(&merkle_tree.root(), index.into()));
+            assert!(
+                sliver
+                    .recovery_symbol_for_sliver(shard_pair_index, &config)
+                    .unwrap()
+                    .verify_proof(&merkle_tree.root(), index.into())
+            );
         }
     }
 }

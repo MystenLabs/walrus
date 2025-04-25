@@ -6,7 +6,7 @@ use anyhow::Error;
 use axum::{
     body::{Body, Bytes},
     extract::{Extension, FromRequest},
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode, header},
     middleware::Next,
     response::Response,
 };
@@ -19,7 +19,7 @@ use fastcrypto::{
 };
 use hyper::header::CONTENT_ENCODING;
 use once_cell::sync::Lazy;
-use prometheus::{proto::MetricFamily, CounterVec, Opts};
+use prometheus::{CounterVec, Opts, proto::MetricFamily};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use uuid::Uuid;
@@ -31,25 +31,29 @@ use crate::{
 };
 
 static MIDDLEWARE_OPS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "middleware_operations",
-            "Operations counters and status for axum middleware.",
-        ),
-        &["operation", "status"]
+    register_metric!(
+        CounterVec::new(
+            Opts::new(
+                "middleware_operations",
+                "Operations counters and status for axum middleware.",
+            ),
+            &["operation", "status"]
+        )
+        .unwrap()
     )
-    .unwrap())
 });
 
 static MIDDLEWARE_HEADERS: Lazy<CounterVec> = Lazy::new(|| {
-    register_metric!(CounterVec::new(
-        Opts::new(
-            "middleware_headers",
-            "Operations counters and status for axum middleware.",
-        ),
-        &["header", "value"]
+    register_metric!(
+        CounterVec::new(
+            Opts::new(
+                "middleware_headers",
+                "Operations counters and status for axum middleware.",
+            ),
+            &["header", "value"]
+        )
+        .unwrap()
     )
-    .unwrap())
 });
 
 /// we expect walrus-node to send us an http header content-length encoding.

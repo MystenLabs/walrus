@@ -9,13 +9,13 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use bincode::Options as _;
 use checkpoint_downloader::ParallelCheckpointDownloader;
@@ -27,15 +27,16 @@ use move_core_types::{
 use prometheus::{IntCounter, IntCounterVec, IntGauge};
 use rocksdb::Options;
 use sui_package_resolver::{
-    error::Error as PackageResolverError,
     Package,
     PackageStore,
     PackageStoreWithLruCache,
     Resolver,
+    error::Error as PackageResolverError,
 };
 use sui_sdk::rpc_types::{SuiEvent, SuiObjectDataOptions, SuiTransactionBlockResponseOptions};
 use sui_storage::verify_checkpoint_with_committee;
 use sui_types::{
+    SYSTEM_PACKAGE_ADDRESSES,
     base_types::ObjectID,
     committee::Committee,
     effects::TransactionEffectsAPI,
@@ -44,7 +45,6 @@ use sui_types::{
     messages_checkpoint::{TrustedCheckpoint, VerifiedCheckpoint},
     object::{Data, Object},
     sui_serde::BigInt,
-    SYSTEM_PACKAGE_ADDRESSES,
 };
 use tokio::{
     select,
@@ -53,19 +53,19 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use typed_store::{
-    rocks,
-    rocks::{errors::typed_store_err_from_rocks_err, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks,
+    rocks::{DBMap, MetricConf, ReadWriteOptions, RocksDB, errors::typed_store_err_from_rocks_err},
 };
-use walrus_core::{ensure, BlobId};
+use walrus_core::{BlobId, ensure};
 use walrus_sui::{
     client::{
         retry_client::{
-            retriable_rpc_client::LazyFallibleRpcClientBuilder,
-            retriable_sui_client::LazySuiClientBuilder,
             RetriableRpcClient,
             RetriableSuiClient,
+            retriable_rpc_client::LazyFallibleRpcClientBuilder,
+            retriable_sui_client::LazySuiClientBuilder,
         },
         rpc_config::RpcFallbackConfig,
     },
@@ -75,16 +75,16 @@ use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 use crate::{
     node::{
+        DatabaseConfig,
         events::{
-            event_blob::EventBlob,
             CheckpointEventPosition,
             EventProcessorConfig,
             IndexedStreamEvent,
             InitState,
             PositionedStreamEvent,
             StreamEventWithInitState,
+            event_blob::EventBlob,
         },
-        DatabaseConfig,
     },
     utils::collect_event_blobs_for_catchup,
 };

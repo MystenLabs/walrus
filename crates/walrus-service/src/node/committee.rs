@@ -7,11 +7,6 @@ use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use walrus_core::{
-    encoding::EncodingConfig,
-    keys::ProtocolKeyPair,
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
@@ -20,6 +15,11 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    encoding::EncodingConfig,
+    keys::ProtocolKeyPair,
+    merkle::MerkleProof,
+    messages::InvalidBlobCertificate,
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_rest_client::error::ClientBuildError;
 use walrus_sdk::active_committees::ActiveCommittees;

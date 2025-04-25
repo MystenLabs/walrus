@@ -20,7 +20,7 @@ use walrus_sdk::{
     blocklist::Blocklist,
     client::Client,
     config::ClientConfig,
-    sui::client::{retry_client::RetriableSuiClient, SuiContractClient, SuiReadClient},
+    sui::client::{SuiContractClient, SuiReadClient, retry_client::RetriableSuiClient},
 };
 
 mod args;

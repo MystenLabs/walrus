@@ -14,12 +14,12 @@ use tokio_util::sync::CancellationToken;
 use walrus_utils::metrics::Registry;
 
 use crate::{
-    common::config::{combine_rpc_urls, SuiReaderConfig},
+    common::config::{SuiReaderConfig, combine_rpc_urls},
     node::{
-        events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
-        system_events::{EventManager, SuiSystemEventProvider},
         DatabaseConfig,
         EventProcessorConfig,
+        events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
+        system_events::{EventManager, SuiSystemEventProvider},
     },
 };
 

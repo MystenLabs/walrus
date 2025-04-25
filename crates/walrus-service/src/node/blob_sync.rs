@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     ops::Not,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 use futures::{
-    future::{self, try_join_all},
-    stream,
     FutureExt as _,
     StreamExt,
     TryFutureExt,
+    future::{self, try_join_all},
+    stream,
 };
 use mysten_metrics::{GaugeGuard, GaugeGuardFutureExt};
 use rayon::prelude::*;
@@ -23,25 +23,25 @@ use tokio::{
 };
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
-use tracing::{field, Instrument as _, Span};
+use tracing::{Instrument as _, Span, field};
 use typed_store::TypedStoreError;
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof,
     ShardIndex,
+    encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_utils::metrics::TaskMonitorFamily;
 
 use super::{
+    StorageNodeInner,
     committee::CommitteeService,
     contract_service::SystemContractService,
     metrics::{self, NodeMetricSet, STATUS_IN_PROGRESS, STATUS_QUEUED},
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
-    StorageNodeInner,
 };
 use crate::common::utils::FutureHelpers as _;
 

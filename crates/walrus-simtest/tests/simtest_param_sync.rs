@@ -17,12 +17,12 @@ mod tests {
     use walrus_service::{
         client::ClientCommunicationConfig,
         node::config::{CommissionRateData, PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet},
-        test_utils::{test_cluster, SimStorageNodeHandle, TestNodesConfig},
+        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
     use walrus_sui::{
         client::SuiContractClient,
-        types::{move_structs::VotingParams, NetworkAddress, NodeMetadata},
+        types::{NetworkAddress, NodeMetadata, move_structs::VotingParams},
     };
     use walrus_test_utils::async_param_test;
 
@@ -342,10 +342,12 @@ mod tests {
             .await
             .expect("Should get committees");
 
-        assert!(committees
-            .current_committee()
-            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
-            .is_some());
+        assert!(
+            committees
+                .current_committee()
+                .find_by_public_key(&walrus_cluster.nodes[5].public_key)
+                .is_some()
+        );
 
         // Check that the new params are updated on-chain.
         let pool = client_arc
@@ -514,10 +516,12 @@ mod tests {
             .await
             .expect("Should get committees");
 
-        assert!(committees
-            .current_committee()
-            .find_by_public_key(&walrus_cluster.nodes[5].public_key)
-            .is_none());
+        assert!(
+            committees
+                .current_committee()
+                .find_by_public_key(&walrus_cluster.nodes[5].public_key)
+                .is_none()
+        );
 
         let config = Arc::new(RwLock::new(
             walrus_cluster.nodes[5].storage_node_config.clone(),

@@ -1,5 +1,4 @@
-# TODO: WAL-795 Upgrade style_edition to 2024
-style_edition = "2021"
+style_edition = "2024"
 
 # Note that the following flags are still in the nightly version of rustfmt, and must be manually
 # supplied to your IDE. Generally the simplest way to do this is to add them to your `rust-analyzer`

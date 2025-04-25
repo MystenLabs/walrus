@@ -8,26 +8,26 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
-use rand::{rngs::StdRng, SeedableRng};
+use anyhow::{Result, anyhow};
+use rand::{SeedableRng, rngs::StdRng};
 use sui_rpc_api::client::ResponseExt;
 use sui_types::messages_checkpoint::{CheckpointSequenceNumber, TrustedCheckpoint};
 use tokio::{
-    sync::{mpsc, RwLock},
+    sync::{RwLock, mpsc},
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use typed_store::{rocks::DBMap, Map};
+use typed_store::{Map, rocks::DBMap};
 use walrus_sui::client::retry_client::{RetriableClientError, RetriableRpcClient};
 #[cfg(not(test))]
 use walrus_utils::backoff::ExponentialBackoff;
 use walrus_utils::metrics::Registry;
 
 use crate::{
+    ParallelDownloaderConfig,
     config::{AdaptiveDownloaderConfig, PoolMonitorConfig},
     metrics::AdaptiveDownloaderMetrics,
     types::{CheckpointEntry, PoolMonitorChannels, WorkerMessage},
-    ParallelDownloaderConfig,
 };
 
 /// Parallel checkpoint downloader that fetches checkpoints in parallel.
@@ -504,7 +504,7 @@ mod tests {
     use rocksdb::Options;
     use typed_store::{
         rocks,
-        rocks::{errors::typed_store_err_from_rocks_err, MetricConf, ReadWriteOptions},
+        rocks::{MetricConf, ReadWriteOptions, errors::typed_store_err_from_rocks_err},
     };
     use walrus_sui::client::retry_client::retriable_rpc_client::LazyFallibleRpcClientBuilder;
     use walrus_utils::{backoff::ExponentialBackoffConfig, tests::global_test_lock};

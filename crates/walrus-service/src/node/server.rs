@@ -5,18 +5,18 @@
 
 use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use axum::{
+    Router,
     extract::DefaultBodyLimit,
     middleware,
     routing::{get, post, put},
-    Router,
 };
-use axum_server::{tls_rustls::RustlsConfig, Handle};
+use axum_server::{Handle, tls_rustls::RustlsConfig};
 use fastcrypto::{secp256r1::Secp256r1PrivateKey, traits::ToFromBytes};
-use futures::{future::Either, FutureExt};
+use futures::{FutureExt, future::Either};
 use openapi::RestApiDoc;
-use p256::{elliptic_curve::pkcs8::EncodePrivateKey as _, SecretKey};
+use p256::{SecretKey, elliptic_curve::pkcs8::EncodePrivateKey as _};
 use rcgen::{CertificateParams, CertifiedKey, DnType, KeyPair as RcGenKeyPair};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -32,7 +32,7 @@ use walrus_core::{encoding, keys::NetworkKeyPair};
 use walrus_utils::metrics::Registry;
 
 use self::telemetry::MetricsMiddlewareState;
-use super::config::{defaults, Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig};
+use super::config::{Http2Config, PathOrInPlace, StorageNodeConfig, TlsConfig, defaults};
 use crate::{
     common::telemetry::{self, MakeHttpSpan},
     node::ServiceState,
@@ -445,6 +445,15 @@ mod tests {
     use tokio::{task::JoinHandle, time::Duration};
     use tokio_util::sync::CancellationToken;
     use walrus_core::{
+        BlobId,
+        InconsistencyProof,
+        PublicKey,
+        RecoverySymbol,
+        Sliver,
+        SliverIndex,
+        SliverPairIndex,
+        SliverType,
+        SymbolId,
         encoding::{EncodingAxis, GeneralRecoverySymbol, Primary, Secondary},
         inconsistency::{
             InconsistencyProof as InconsistencyProofInner,
@@ -461,15 +470,6 @@ mod tests {
             SyncShardResponse,
         },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-        BlobId,
-        InconsistencyProof,
-        PublicKey,
-        RecoverySymbol,
-        Sliver,
-        SliverIndex,
-        SliverPairIndex,
-        SliverType,
-        SymbolId,
     };
     use walrus_rest_client::{
         api::{
@@ -482,13 +482,11 @@ mod tests {
         client::{Client, ClientBuilder, RecoverySymbolsFilter},
     };
     use walrus_sui::test_utils::event_id_for_testing;
-    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
     use super::*;
     use crate::{
         node::{
-            config::StorageNodeConfig,
-            errors::ListSymbolsError,
             BlobStatusError,
             ComputeStorageConfirmationError,
             InconsistencyProofError,
@@ -498,6 +496,8 @@ mod tests {
             StoreMetadataError,
             StoreSliverError,
             SyncShardServiceError,
+            config::StorageNodeConfig,
+            errors::ListSymbolsError,
         },
         test_utils,
     };

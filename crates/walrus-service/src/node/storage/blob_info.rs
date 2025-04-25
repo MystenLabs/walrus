@@ -12,13 +12,13 @@ use std::{
 
 use enum_dispatch::enum_dispatch;
 use rocksdb::{MergeOperands, Options};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
 use tracing::Level;
 use typed_store::{
-    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
 use walrus_rest_client::api::{BlobStatus, DeletableCounts};
@@ -26,7 +26,7 @@ use walrus_sui::types::{BlobCertified, BlobDeleted, BlobEvent, BlobRegistered, I
 
 use self::per_object_blob_info::PerObjectBlobInfoMergeOperand;
 pub(crate) use self::per_object_blob_info::{PerObjectBlobInfo, PerObjectBlobInfoApi};
-use super::{constants::*, database_config::DatabaseTableOptions, DatabaseConfig};
+use super::{DatabaseConfig, constants::*, database_config::DatabaseTableOptions};
 
 pub type BlobInfoIterator<'a> = BlobInfoIter<
     BlobId,
@@ -1090,7 +1090,7 @@ impl Mergeable for BlobInfoV1 {
                 return Self::Invalid {
                     epoch,
                     event: status_event,
-                }
+                };
             }
             (
                 Self::Valid(ValidBlobInfoV1 {

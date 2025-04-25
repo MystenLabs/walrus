@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use reqwest::ClientBuilder;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds};
+use serde_with::{DurationMilliSeconds, serde_as};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 /// Configuration for the parameters of the `reqwest` client.

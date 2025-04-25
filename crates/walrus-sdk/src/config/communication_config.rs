@@ -7,10 +7,10 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds};
+use serde_with::{DurationMilliSeconds, serde_as};
 use walrus_core::{
-    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
     EncodingType,
+    encoding::{EncodingConfig, EncodingConfigTrait as _, Primary},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 

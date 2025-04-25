@@ -8,7 +8,7 @@ use alloc::{format, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
 
 use super::{Intent, InvalidIntent, MessageVerificationError, ProtocolMessage, SignedMessage};
-use crate::{messages::IntentType, BlobId, Epoch, PublicKey, SuiObjectId};
+use crate::{BlobId, Epoch, PublicKey, SuiObjectId, messages::IntentType};
 
 /// Confirmation from a storage node that it has stored the sliver pairs for a given blob.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

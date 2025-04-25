@@ -11,7 +11,7 @@ async fn nodes_drive_epoch_change() -> walrus_test_utils::Result {
 
     use tokio::time;
     use walrus_core::Epoch;
-    use walrus_service::test_utils::{test_cluster, StorageNodeHandleTrait, TestNodesConfig};
+    use walrus_service::test_utils::{StorageNodeHandleTrait, TestNodesConfig, test_cluster};
 
     telemetry_subscribers::init_for_testing();
     let epoch_duration = Duration::from_secs(5);

@@ -6,11 +6,11 @@ use std::{
     collections::{HashMap, VecDeque},
     pin::Pin,
     sync::{Arc, Mutex as SyncMutex, Weak},
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
 };
 
-use ::futures::{stream, FutureExt as _, StreamExt as _};
-use futures::{future::BoxFuture, stream::FuturesUnordered, Stream as _, TryFutureExt as _};
+use ::futures::{FutureExt as _, StreamExt as _, stream};
+use futures::{Stream as _, TryFutureExt as _, future::BoxFuture, stream::FuturesUnordered};
 use rand::{rngs::StdRng, seq::SliceRandom as _};
 use tokio::{
     sync::watch,
@@ -19,6 +19,16 @@ use tokio::{
 use tower::ServiceExt as _;
 use tracing::Instrument as _;
 use walrus_core::{
+    BlobId,
+    Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
+    RecoverySymbol,
+    ShardIndex,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
+    SymbolId,
     bft,
     encoding::{
         self,
@@ -35,16 +45,6 @@ use walrus_core::{
     merkle::MerkleProof,
     messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    RecoverySymbol,
-    ShardIndex,
-    Sliver,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
-    SymbolId,
 };
 use walrus_rest_client::client::RecoverySymbolsFilter;
 use walrus_sdk::active_committees::CommitteeTracker;

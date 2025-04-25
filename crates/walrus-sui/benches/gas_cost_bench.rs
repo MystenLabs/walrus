@@ -14,11 +14,11 @@ use sui_sdk::rpc_types::{
 };
 use sui_types::gas::GasCostSummary;
 use walrus_core::{
+    BlobId,
+    EncodingType,
     encoding::{EncodingConfig, EncodingConfigTrait},
     ensure,
     merkle::Node,
-    BlobId,
-    EncodingType,
 };
 use walrus_sui::{
     client::{BlobObjectMetadata, BlobPersistence, PostStoreAction, SuiContractClient},
@@ -60,13 +60,10 @@ impl FromStr for InputRange {
 
 impl InputRange {
     fn iter<'a>(&'a self) -> impl Iterator<Item = u32> + 'a {
-        self.range.clone().step_by(self.step.clone()).map(|val| {
-            if self.exp {
-                2u32.pow(val)
-            } else {
-                val
-            }
-        })
+        self.range
+            .clone()
+            .step_by(self.step.clone())
+            .map(|val| if self.exp { 2u32.pow(val) } else { val })
     }
 }
 

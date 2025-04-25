@@ -5,14 +5,14 @@
 
 use std::process::ExitCode;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Duration, Utc};
 use clap::{CommandFactory, Parser, ValueEnum as _};
 use clap_complete::Shell;
 use itertools::Itertools;
 use serde::Deserialize;
 use walrus_service::{
-    client::cli::{error, App, ClientCommandRunner, Commands},
+    client::cli::{App, ClientCommandRunner, Commands, error},
     utils::{self, MetricsAndLoggingRuntime},
 };
 use walrus_sui::client::retry_client::RetriableRpcError;

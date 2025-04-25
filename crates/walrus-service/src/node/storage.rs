@@ -3,7 +3,7 @@
 
 use core::fmt::{self, Display};
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::Debug,
     ops::Bound::{Excluded, Included},
     path::Path,
@@ -22,16 +22,16 @@ use sui_sdk::types::event::EventID;
 use sui_types::base_types::ObjectID;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use typed_store::{
-    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks::{self, DBBatch, DBMap, MetricConf, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{
-    messages::{SyncShardRequest, SyncShardResponse},
-    metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     ShardIndex,
+    messages::{SyncShardRequest, SyncShardResponse},
+    metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::types::BlobEvent;
 use walrus_utils::metrics::Registry;
@@ -66,15 +66,15 @@ mod metrics;
 mod shard;
 
 pub(crate) use shard::{
+    PrimarySliverData,
+    SecondarySliverData,
+    ShardStatus,
+    ShardStorage,
     pending_recover_slivers_column_family_options,
     primary_slivers_column_family_options,
     secondary_slivers_column_family_options,
     shard_status_column_family_options,
     shard_sync_progress_column_family_options,
-    PrimarySliverData,
-    SecondarySliverData,
-    ShardStatus,
-    ShardStorage,
 };
 
 pub(crate) fn metadata_options(db_config: &DatabaseConfig) -> Options {
@@ -773,17 +773,17 @@ pub(crate) mod tests {
     use tempfile::TempDir;
     use tokio::runtime::Runtime;
     use walrus_core::{
-        encoding::{EncodingAxis, SliverData},
         Sliver,
         SliverIndex,
         SliverType,
         SuiObjectId,
+        encoding::{EncodingAxis, SliverData},
     };
     use walrus_sui::{
-        test_utils::{event_id_for_testing, EventForTesting},
+        test_utils::{EventForTesting, event_id_for_testing},
         types::{BlobCertified, BlobRegistered},
     };
-    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
     use super::*;
     use crate::test_utils::empty_storage_with_shards;
@@ -1309,11 +1309,10 @@ pub(crate) mod tests {
             .inner
             .database
             .create_cf(&pending_recover_cfs_name, &pending_recover_cfs)?;
-        assert!(!ShardStorage::existing_cf_shards_ids(
-            storage.temp_dir.path(),
-            &Options::default()
-        )
-        .contains(&test_shard_index));
+        assert!(
+            !ShardStorage::existing_cf_shards_ids(storage.temp_dir.path(), &Options::default())
+                .contains(&test_shard_index)
+        );
 
         // Create the column family for the secondary sliver. When restarting the storage, the shard
         // should now be detected as existing.

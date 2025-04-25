@@ -5,8 +5,8 @@
 
 #[cfg(msim)]
 use std::sync::{
-    atomic::{AtomicU32, Ordering},
     Arc,
+    atomic::{AtomicU32, Ordering},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -19,25 +19,25 @@ use indicatif::MultiProgress;
 use rand::random;
 #[cfg(msim)]
 use sui_macros::{clear_fail_point, register_fail_point_if};
-use sui_types::base_types::{SuiAddress, SUI_ADDRESS_LENGTH};
+use sui_types::base_types::{SUI_ADDRESS_LENGTH, SuiAddress};
 use tempfile::TempDir;
 use tokio_stream::StreamExt;
 use walrus_core::{
-    encoding::{EncodingConfigTrait as _, Primary},
-    merkle::Node,
-    messages::BlobPersistenceType,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
+    DEFAULT_ENCODING,
     EncodingType,
     EpochCount,
     ShardIndex,
     SliverPairIndex,
-    DEFAULT_ENCODING,
+    encoding::{EncodingConfigTrait as _, Primary},
+    merkle::Node,
+    messages::BlobPersistenceType,
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_rest_client::api::BlobStatus;
 use walrus_sdk::{
-    client::{responses::BlobStoreResult, Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi},
+    client::{Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi, responses::BlobStoreResult},
     error::{
         ClientError,
         ClientErrorKind::{
@@ -51,10 +51,10 @@ use walrus_sdk::{
     store_when::StoreWhen,
 };
 use walrus_service::test_utils::{
-    test_cluster::{self, FROST_PER_NODE_WEIGHT},
+    DEFAULT_SUBSIDY_FUNDS,
     StorageNodeHandleTrait,
     TestNodesConfig,
-    DEFAULT_SUBSIDY_FUNDS,
+    test_cluster::{self, FROST_PER_NODE_WEIGHT},
 };
 use walrus_sui::{
     client::{
@@ -69,14 +69,14 @@ use walrus_sui::{
     system_setup::copy_recursively,
     test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
     types::{
-        move_errors::{MoveExecutionError, RawMoveError},
-        move_structs::{BlobAttribute, SharedBlob, Subsidies},
         Blob,
         BlobEvent,
         ContractEvent,
+        move_errors::{MoveExecutionError, RawMoveError},
+        move_structs::{BlobAttribute, SharedBlob, Subsidies},
     },
 };
-use walrus_test_utils::{assert_unordered_eq, async_param_test, Result as TestResult, WithTempDir};
+use walrus_test_utils::{Result as TestResult, WithTempDir, assert_unordered_eq, async_param_test};
 
 async_param_test! {
     #[ignore = "ignore E2E tests by default"]

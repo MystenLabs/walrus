@@ -6,7 +6,7 @@
 use std::{fs, future::Future, path::Path};
 
 use anyhow::ensure;
-use rand::{rngs::StdRng, seq::SliceRandom, RngCore, SeedableRng};
+use rand::{RngCore, SeedableRng, rngs::StdRng, seq::SliceRandom};
 use tempfile::TempDir;
 
 /// A result type useful in tests, that wraps any error implementation.

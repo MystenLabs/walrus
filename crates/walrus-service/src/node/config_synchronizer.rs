@@ -3,7 +3,7 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sui_types::base_types::ObjectID;
@@ -11,10 +11,10 @@ use tokio::fs;
 use tracing;
 
 use super::{
+    SyncNodeConfigError,
     committee::CommitteeService,
     config::{StorageNodeConfig, TlsConfig},
     contract_service::SystemContractService,
-    SyncNodeConfigError,
 };
 use crate::utils::load_from_yaml;
 
@@ -193,7 +193,7 @@ mod tests {
     use serde_yaml;
     use tempfile::TempDir;
     use walrus_core::keys::{NetworkKeyPair, ProtocolKeyPair};
-    use walrus_sui::types::{move_structs::VotingParams, NetworkAddress};
+    use walrus_sui::types::{NetworkAddress, move_structs::VotingParams};
 
     use super::*;
     use crate::node::config::{PathOrInPlace, StorageNodeConfig, SyncedNodeConfigSet};

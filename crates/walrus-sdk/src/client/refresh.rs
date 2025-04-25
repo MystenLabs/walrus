@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::sync::{Notify, mpsc, oneshot};
 use walrus_sui::{client::ReadClient, types::move_structs::EpochState};
 
 use super::resource::PriceComputation;

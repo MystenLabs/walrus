@@ -10,12 +10,12 @@ use sui_types::base_types::SuiAddress;
 use tokio_stream::StreamExt;
 use walrus_core::{
     self,
-    encoding::{EncodingConfig, EncodingConfigTrait as _},
-    keys::{NetworkKeyPair, ProtocolKeyPair},
-    merkle::Node,
     BlobId,
     EncodingType,
     ShardIndex,
+    encoding::{EncodingConfig, EncodingConfigTrait as _},
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    merkle::Node,
 };
 use walrus_sui::{
     client::{
@@ -27,15 +27,15 @@ use walrus_sui::{
         SuiContractClient,
     },
     test_utils::{
-        new_contract_client_on_sui_test_cluster,
-        system_setup::{initialize_contract_and_wallet_for_testing, SystemContext},
         TestClusterHandle,
         TestNodeKeys,
+        new_contract_client_on_sui_test_cluster,
+        system_setup::{SystemContext, initialize_contract_and_wallet_for_testing},
     },
     types::{BlobEvent, ContractEvent, EpochChangeEvent, NodeRegistrationParams},
     utils,
 };
-use walrus_test_utils::{async_param_test, WithTempDir};
+use walrus_test_utils::{WithTempDir, async_param_test};
 
 async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
     Arc<tokio::sync::Mutex<TestClusterHandle>>,

@@ -6,42 +6,42 @@
 use std::{collections::HashSet, fmt::Debug, net::SocketAddr, sync::Arc};
 
 use axum::{
+    BoxError,
+    Router,
     body::HttpBody,
     error_handling::HandleErrorLayer,
     extract::{DefaultBodyLimit, Query, Request, State},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, put},
-    BoxError,
-    Router,
 };
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 pub use routes::PublisherQuery;
 use routes::{
-    daemon_cors_layer,
     BLOB_GET_ENDPOINT,
     BLOB_OBJECT_GET_ENDPOINT,
     BLOB_PUT_ENDPOINT,
     STATUS_ENDPOINT,
+    daemon_cors_layer,
 };
 use sui_types::base_types::ObjectID;
 use tower::{
+    ServiceBuilder,
     buffer::BufferLayer,
     limit::ConcurrencyLimitLayer,
-    load_shed::{error::Overloaded, LoadShedLayer},
-    ServiceBuilder,
+    load_shed::{LoadShedLayer, error::Overloaded},
 };
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
-use walrus_core::{encoding::Primary, BlobId, EncodingType, EpochCount, DEFAULT_ENCODING};
+use walrus_core::{BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, encoding::Primary};
 use walrus_sdk::{
-    client::{responses::BlobStoreResult, Client},
+    client::{Client, responses::BlobStoreResult},
     error::ClientResult,
     store_when::StoreWhen,
 };
@@ -57,7 +57,7 @@ use crate::{
         config::AuthConfig,
         daemon::auth::verify_jwt_claim,
     },
-    common::telemetry::{metrics_middleware, MakeHttpSpan, MetricsMiddlewareState},
+    common::telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
 };
 
 pub mod auth;

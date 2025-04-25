@@ -11,7 +11,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use walrus_core::BlobId;

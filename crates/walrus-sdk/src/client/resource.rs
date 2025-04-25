@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 use tracing::Level;
 use utoipa::ToSchema;
 use walrus_core::{
-    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
     BlobId,
     Epoch,
     EpochCount,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_sui::{
     client::{BlobPersistence, ExpirySelectionPolicy, SuiContractClient},

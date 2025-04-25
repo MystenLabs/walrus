@@ -10,27 +10,27 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    encoding::{EncodingConfig, EncodingConfigTrait},
-    ensure,
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
+    encoding::{EncodingConfig, EncodingConfigTrait},
+    ensure,
 };
 use walrus_sui::{
     client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
-    types::{move_structs::Authorized, StorageNode},
+    types::{StorageNode, move_structs::Authorized},
     utils::SuiNetwork,
 };
 
-use super::{parse_blob_id, read_blob_from_file, BlobIdDecimal, HumanReadableBytes};
+use super::{BlobIdDecimal, HumanReadableBytes, parse_blob_id, read_blob_from_file};
 use crate::client::{config::AuthConfig, daemon::CacheConfig};
 
 /// The command-line arguments for the Walrus client.
@@ -1384,7 +1384,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 

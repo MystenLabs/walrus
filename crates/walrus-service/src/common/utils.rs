@@ -14,11 +14,11 @@ use std::{
     pin::Pin,
     str::FromStr,
     sync::Arc,
-    task::{ready, Context, Poll},
+    task::{Context, Poll, ready},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use fastcrypto::{
     encoding::Base64,
     secp256r1::Secp256r1KeyPair,
@@ -27,7 +27,7 @@ use fastcrypto::{
 use futures::future::FusedFuture;
 use pin_project::pin_project;
 use prometheus::{Encoder, HistogramVec};
-use serde::{de::Error, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error};
 use serde_json;
 use sui_types::base_types::{ObjectID, SuiAddress};
 use telemetry_subscribers::{TelemetryGuards, TracingHandle};
@@ -40,11 +40,11 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::DefaultGuard;
 use tracing_subscriber::{
+    EnvFilter,
+    Layer,
     filter::Filtered,
     layer::{Layered, SubscriberExt as _},
     util::SubscriberInitExt,
-    EnvFilter,
-    Layer,
 };
 use typed_store::DBMetrics;
 use uuid::Uuid;
@@ -52,7 +52,7 @@ use walrus_core::{BlobId, PublicKey, ShardIndex};
 use walrus_sdk::active_committees::ActiveCommittees;
 pub use walrus_sdk::utils::load_from_yaml;
 use walrus_sui::{
-    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 use walrus_utils::metrics::Registry;

@@ -24,7 +24,7 @@ use walrus_service::{
     utils::version,
 };
 use walrus_sui::{
-    client::{rpc_config::RpcFallbackConfigArgs, UpgradeType},
+    client::{UpgradeType, rpc_config::RpcFallbackConfigArgs},
     utils::SuiNetwork,
 };
 
@@ -271,17 +271,17 @@ mod commands {
     use walrus_service::{
         client::cli::HumanReadableFrost,
         testbed::{
+            DeployTestbedContractParameters,
+            TestbedConfig,
             create_backup_config,
             create_client_config,
             create_storage_node_configs,
             deploy_walrus_contract,
-            DeployTestbedContractParameters,
-            TestbedConfig,
         },
         utils::{self, load_from_yaml},
     };
     use walrus_sui::{
-        client::{contract_config::ContractConfig, SuiContractClient, UpgradeType},
+        client::{SuiContractClient, UpgradeType, contract_config::ContractConfig},
         config::load_wallet_context_from_path,
     };
     use walrus_utils::backoff::ExponentialBackoffConfig;

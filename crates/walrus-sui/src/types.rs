@@ -49,13 +49,13 @@ pub mod move_errors;
 
 use serde::{Deserialize, Serialize};
 use walrus_core::{
-    bft,
-    ensure,
-    messages::ProofOfPossession,
     Epoch,
     NetworkPublicKey,
     PublicKey,
     ShardIndex,
+    bft,
+    ensure,
+    messages::ProofOfPossession,
 };
 
 /// The zero-th Epoch is special in that it's the genesis epoch.

@@ -8,46 +8,55 @@ use std::{
     num::{NonZero, NonZeroU16},
     pin::Pin,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use blob_retirement_notifier::BlobRetirementNotifier;
 use committee::{BeginCommitteeChangeError, EndCommitteeChangeError};
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
-use events::{event_blob_writer::EventBlobWriter, CheckpointEventPosition};
+use events::{CheckpointEventPosition, event_blob_writer::EventBlobWriter};
 use fastcrypto::traits::KeyPair;
 use futures::{
-    stream::{self, FuturesOrdered},
     FutureExt as _,
     Stream,
     StreamExt,
     TryFutureExt as _,
+    stream::{self, FuturesOrdered},
 };
 use itertools::Either;
 use node_recovery::NodeRecoveryHandler;
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-use storage::{blob_info::PerObjectBlobInfoApi, StorageShardLock};
 pub use storage::{DatabaseConfig, NodeStatus, Storage};
+use storage::{StorageShardLock, blob_info::PerObjectBlobInfoApi};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
 use sui_macros::{fail_point_arg, fail_point_async};
 use sui_types::{base_types::ObjectID, event::EventID};
-use system_events::{CompletableHandle, EventHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS};
+use system_events::{CompletableHandle, EVENT_ID_FOR_CHECKPOINT_EVENTS, EventHandle};
 use thread_pool::{BoundedThreadPool, ThreadPoolBuilder};
 use tokio::{select, sync::watch, time::Instant};
 use tokio_metrics::TaskMonitor;
 use tokio_util::sync::CancellationToken;
 use tower::{Service, ServiceExt};
-use tracing::{field, Instrument as _, Span};
-use typed_store::{rocks::MetricConf, TypedStoreError};
+use tracing::{Instrument as _, Span, field};
+use typed_store::{TypedStoreError, rocks::MetricConf};
 use walrus_core::{
+    BlobId,
+    Epoch,
+    InconsistencyProof,
+    PublicKey,
+    ShardIndex,
+    Sliver,
+    SliverPairIndex,
+    SliverType,
+    SymbolId,
     encoding::{
         EncodingAxis,
         EncodingConfig,
@@ -75,15 +84,6 @@ use walrus_core::{
         UnverifiedBlobMetadataWithId,
         VerifiedBlobMetadataWithId,
     },
-    BlobId,
-    Epoch,
-    InconsistencyProof,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverPairIndex,
-    SliverType,
-    SymbolId,
 };
 use walrus_rest_client::{
     api::{
@@ -110,9 +110,9 @@ use walrus_sdk::{
             EpochChangeDone,
             EpochChangeEvent,
             EpochChangeStart,
+            GENESIS_EPOCH,
             InvalidBlobId,
             PackageEvent,
-            GENESIS_EPOCH,
         },
     },
 };
@@ -139,25 +139,25 @@ use self::{
         SyncShardServiceError,
     },
     events::{
-        event_blob_writer::EventBlobWriterFactory,
-        event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
         EventProcessorConfig,
         EventStreamCursor,
         EventStreamElement,
         PositionedStreamEvent,
+        event_blob_writer::EventBlobWriterFactory,
+        event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
     },
-    metrics::{NodeMetricSet, TelemetryLabel as _, STATUS_PENDING, STATUS_PERSISTED},
+    metrics::{NodeMetricSet, STATUS_PENDING, STATUS_PERSISTED, TelemetryLabel as _},
     shard_sync::ShardSyncHandler,
     storage::{
-        blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
         ShardStatus,
         ShardStorage,
+        blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
     },
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
     common::{
-        config::{combine_rpc_urls, SuiConfig},
+        config::{SuiConfig, combine_rpc_urls},
         utils::should_reposition_cursor,
     },
     utils::ShardDiffCalculator,
@@ -2768,26 +2768,26 @@ mod tests {
     use config::ShardSyncConfig;
     use contract_service::MockSystemContractService;
     use storage::{
-        tests::{populated_storage, WhichSlivers, BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX},
         ShardStatus,
+        tests::{BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX, WhichSlivers, populated_storage},
     };
     use sui_types::base_types::ObjectID;
     use system_events::SystemEventProvider;
-    use tokio::sync::{broadcast::Sender, Mutex};
+    use tokio::sync::{Mutex, broadcast::Sender};
     use walrus_core::{
+        DEFAULT_ENCODING,
         encoding::{EncodingConfigTrait as _, Primary, Secondary, SliverData, SliverPair},
         messages::{SyncShardMsg, SyncShardRequest},
         test_utils::generate_config_metadata_and_valid_recovery_symbols,
-        DEFAULT_ENCODING,
     };
     use walrus_proc_macros::walrus_simtest;
     use walrus_rest_client::{api::errors::STORAGE_NODE_ERROR_DOMAIN, client::Client};
     use walrus_sui::{
         client::FixedSystemParameters,
-        test_utils::{event_id_for_testing, EventForTesting},
-        types::{move_structs::EpochState, BlobRegistered, StorageNodeCap},
+        test_utils::{EventForTesting, event_id_for_testing},
+        types::{BlobRegistered, StorageNodeCap, move_structs::EpochState},
     };
-    use walrus_test_utils::{async_param_test, Result as TestResult, WithTempDir};
+    use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
     use super::*;
     use crate::test_utils::{StorageNodeHandle, StorageNodeHandleTrait, TestCluster};
@@ -4380,11 +4380,13 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(cluster.nodes[0]
-            .storage_node
-            .compute_storage_confirmation(blob.blob_id(), &BlobPersistenceType::Permanent)
-            .await
-            .is_ok());
+        assert!(
+            cluster.nodes[0]
+                .storage_node
+                .compute_storage_confirmation(blob.blob_id(), &BlobPersistenceType::Permanent)
+                .await
+                .is_ok()
+        );
 
         Ok(())
     }
@@ -4460,14 +4462,18 @@ mod tests {
                 // If the blob is in the skip list, it should not be present in the destination
                 // shard storage.
                 if skip_blob_indices.contains(&i) {
-                    assert!(shard_storage_dst
-                        .get_sliver(&blob_id, SliverType::Primary)
-                        .unwrap()
-                        .is_none());
-                    assert!(shard_storage_dst
-                        .get_sliver(&blob_id, SliverType::Secondary)
-                        .unwrap()
-                        .is_none());
+                    assert!(
+                        shard_storage_dst
+                            .get_sliver(&blob_id, SliverType::Primary)
+                            .unwrap()
+                            .is_none()
+                    );
+                    assert!(
+                        shard_storage_dst
+                            .get_sliver(&blob_id, SliverType::Secondary)
+                            .unwrap()
+                            .is_none()
+                    );
                     return Ok(());
                 }
 
@@ -5634,8 +5640,8 @@ mod tests {
         // Tests that blob metadata sync can be cancelled when the blob is expired, deleted, or
         //invalidated.
         #[walrus_simtest]
-        async fn shard_recovery_cancel_metadata_sync_when_blob_expired_deleted_invalidated(
-        ) -> TestResult {
+        async fn shard_recovery_cancel_metadata_sync_when_blob_expired_deleted_invalidated()
+        -> TestResult {
             register_fail_point_if("get_metadata_return_unavailable", move || true);
 
             // The test creates 3 blobs:
@@ -5795,13 +5801,14 @@ mod tests {
             ShardStatus::Active
         );
 
-        assert!(node
-            .as_ref()
-            .inner
-            .storage
-            .shard_storage(ShardIndex(1))
-            .await
-            .is_none());
+        assert!(
+            node.as_ref()
+                .inner
+                .storage
+                .shard_storage(ShardIndex(1))
+                .await
+                .is_none()
+        );
 
         assert_eq!(
             node.as_ref()
@@ -6063,15 +6070,19 @@ mod tests {
 
         advance_cluster_to_epoch(&cluster, &[&events], 5).await?;
 
-        assert!(cluster.nodes[0]
-            .storage_node
-            .inner
-            .is_blob_certified(blob_details.blob_id())?);
+        assert!(
+            cluster.nodes[0]
+                .storage_node
+                .inner
+                .is_blob_certified(blob_details.blob_id())?
+        );
 
-        assert!(cluster.nodes[0]
-            .storage_node
-            .inner
-            .is_blob_registered(blob_details.blob_id())?);
+        assert!(
+            cluster.nodes[0]
+                .storage_node
+                .inner
+                .is_blob_registered(blob_details.blob_id())?
+        );
 
         Ok(())
     }

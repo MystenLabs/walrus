@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use prometheus::{core::Collector, proto::MetricFamily, IntGauge};
+use prometheus::{IntGauge, core::Collector, proto::MetricFamily};
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 mod tokio;
@@ -29,9 +29,7 @@ pub enum RegistrationError {
     /// This could also be raised if a collector was registered directly on the inner
     /// [`prometheus::Registry`]. To avoid this, ensure that all registrations go through a clone
     /// of a single registry.
-    #[error(
-        "at least one metric in the collector has already been registered, ensure no overlaps"
-    )]
+    #[error("at least one metric in the collector has already been registered, ensure no overlaps")]
     MetricsOverlap,
 
     /// Errors raised by the inner [`prometheus::Registry::register`].
