@@ -34,10 +34,16 @@ def plot_metric_per_blob(df, metric, title, output_dir, label):
     plt.close()
 
 
-def main(csv_path, output_dir):
+def main(csv_path, output_dir, gas_price):
     # Load and clean the CSV
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
+
+    # Adjust cost based on the provided gas_price
+    if gas_price is not None:
+        df["computation_cost"] = df["computation_cost"] * gas_price / df["gas_price"]
+        df["gas_used"] = df["computation_cost"] + df["storage_cost"]
+        df["net_gas_used"] = df["gas_used"] - df["storage_rebate"]
 
     # Normalize values
     df["computation_cost_per_blob"] = df["computation_cost"] / df["n_blobs"]
@@ -66,6 +72,13 @@ def main(csv_path, output_dir):
             output_dir,
             label,
         )
+        plot_metric_per_blob(
+            sub_df,
+            "computation_cost",
+            f"{label} - Total Computation Cost",
+            output_dir,
+            label,
+        )
 
     print(f"Plots saved in: {output_dir}/")
 
@@ -81,5 +94,10 @@ if __name__ == "__main__":
         default="plots",
         help="Directory to save plots (default: ./plots)",
     )
+    parser.add_argument(
+        "--gas-price",
+        type=int,
+        help="Set the gas price to use for computation to reflect mainnet cost",
+    )
     args = parser.parse_args()
-    main(args.csv_path, args.output_dir)
+    main(args.csv_path, args.output_dir, args.gas_price)

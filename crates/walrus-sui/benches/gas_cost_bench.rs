@@ -8,6 +8,7 @@ use std::{io::Write, num::NonZeroU16, ops::Range, path::PathBuf, str::FromStr, t
 use anyhow::{anyhow, bail};
 use clap::Parser;
 use sui_sdk::rpc_types::{
+    SuiTransactionBlockDataAPI,
     SuiTransactionBlockEffectsAPI,
     SuiTransactionBlockResponseOptions,
     SuiTransactionBlockResponseQuery,
@@ -67,6 +68,12 @@ impl InputRange {
     }
 }
 
+#[derive(Debug)]
+struct GasCostSummaryWithPrice {
+    pub summary: GasCostSummary,
+    pub price: u64,
+}
+
 #[derive(clap::Parser, Debug)]
 #[command(rename_all = "kebab-case")]
 struct Args {
@@ -105,7 +112,7 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
     let mut out_file = std::fs::File::create(args.out)?;
     out_file.write(
         format!(
-            "{},{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{}\n",
             "label",
             "epochs",
             "n_blobs",
@@ -113,7 +120,8 @@ async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
             "net_gas_used",
             "computation_cost",
             "storage_cost",
-            "storage_rebate"
+            "storage_rebate",
+            "gas_price",
         )
         .as_bytes(),
     )?;
@@ -228,18 +236,19 @@ fn write_data_entry(
     transaction_type: &str,
     epochs_ahead: u32,
     blobs_per_call: u32,
-    gas_cost_summary: GasCostSummary,
+    gas_cost_summary: GasCostSummaryWithPrice,
 ) -> anyhow::Result<()> {
     let out = format!(
-        "{},{},{},{},{},{},{},{}\n",
+        "{},{},{},{},{},{},{},{},{}\n",
         transaction_type,
         epochs_ahead,
         blobs_per_call,
-        gas_cost_summary.gas_used(),
-        gas_cost_summary.net_gas_usage(),
-        gas_cost_summary.computation_cost,
-        gas_cost_summary.storage_cost,
-        gas_cost_summary.storage_rebate,
+        gas_cost_summary.summary.gas_used(),
+        gas_cost_summary.summary.net_gas_usage(),
+        gas_cost_summary.summary.computation_cost,
+        gas_cost_summary.summary.storage_cost,
+        gas_cost_summary.summary.storage_rebate,
+        gas_cost_summary.price,
     );
     out_file.write_all(out.as_bytes())?;
     Ok(())
@@ -247,11 +256,15 @@ fn write_data_entry(
 
 async fn gas_cost_summary_for_last_tx(
     walrus_client: &SuiContractClient,
-) -> anyhow::Result<GasCostSummary> {
+) -> anyhow::Result<GasCostSummaryWithPrice> {
     let address = walrus_client.address();
     let query = SuiTransactionBlockResponseQuery::new(
         Some(sui_sdk::rpc_types::TransactionFilter::FromAddress(address)),
-        Some(SuiTransactionBlockResponseOptions::new().with_effects()),
+        Some(
+            SuiTransactionBlockResponseOptions::new()
+                .with_effects()
+                .with_input(),
+        ),
     );
     let transaction = walrus_client
         .sui_client()
@@ -261,7 +274,21 @@ async fn gas_cost_summary_for_last_tx(
         .into_iter()
         .next()
         .ok_or_else(|| anyhow!("no transaction received from RPC"))?;
-    Ok(transaction.effects.unwrap().gas_cost_summary().to_owned())
+    let gas_price = transaction
+        .transaction
+        .ok_or_else(|| anyhow!("transaction block response does not contain input"))?
+        .data
+        .gas_data()
+        .price;
+    let gas_cost_summary = transaction
+        .effects
+        .ok_or_else(|| anyhow!("transaction block response does not contain effects"))?
+        .gas_cost_summary()
+        .to_owned();
+    Ok(GasCostSummaryWithPrice {
+        summary: gas_cost_summary,
+        price: gas_price,
+    })
 }
 
 #[tokio::main]
