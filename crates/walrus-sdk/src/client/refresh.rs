@@ -12,7 +12,10 @@ use std::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use tokio::sync::{Notify, mpsc, oneshot};
-use walrus_sui::{client::ReadClient, types::move_structs::EpochState};
+use walrus_sui::{
+    client::{ReadClient, SuiReadClient},
+    types::move_structs::EpochState,
+};
 
 use super::resource::PriceComputation;
 use crate::{active_committees::ActiveCommittees, config::CommitteesRefreshConfig};
@@ -52,8 +55,7 @@ impl CommitteesRequest {
 
 /// An actor that caches the active committees and the price computation data, and refreshes them
 /// periodically or on demand.
-#[derive(Debug)]
-pub struct CommitteesRefresher<T> {
+pub struct CommitteesRefresher {
     last_refresh: Instant,
     last_committees: Arc<ActiveCommittees>,
     last_price_computation: PriceComputation,
@@ -63,23 +65,39 @@ pub struct CommitteesRefresher<T> {
     // NOTE: `epoch_duration` is set at creation, and never refreshed, since it cannot be changed.
     epoch_duration: Duration,
     notify: Arc<Notify>,
-    sui_client: T,
+    sui_read_client: SuiReadClient,
     req_rx: mpsc::Receiver<CommitteesRequest>,
     config: CommitteesRefreshConfig,
 }
 
-impl<T: ReadClient> CommitteesRefresher<T> {
+impl std::fmt::Debug for CommitteesRefresher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommitteesRefresher")
+            .field("last_refresh", &self.last_refresh)
+            .field("last_committees", &self.last_committees)
+            .field("last_price_computation", &self.last_price_computation)
+            .field("epoch_state", &self.epoch_state)
+            .field("epoch_duration", &self.epoch_duration)
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
+impl CommitteesRefresher {
     /// Creates a new refresher cache.
     pub async fn new(
         config: CommitteesRefreshConfig,
-        sui_client: T,
+        sui_read_client: SuiReadClient,
         req_rx: mpsc::Receiver<CommitteesRequest>,
         notify: Arc<Notify>,
     ) -> Result<Self> {
         let (committees, last_price_computation, epoch_state) =
-            Self::get_latest(&sui_client).await?;
+            Self::get_latest(&sui_read_client).await?;
         // Get the epoch duration, this time only only.
-        let epoch_duration = sui_client.fixed_system_parameters().await?.epoch_duration;
+        let epoch_duration = sui_read_client
+            .fixed_system_parameters()
+            .await?
+            .epoch_duration;
 
         Ok(Self {
             config,
@@ -89,7 +107,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
             epoch_duration,
             last_price_computation,
             notify,
-            sui_client,
+            sui_read_client,
             req_rx,
         })
     }
@@ -180,7 +198,7 @@ impl<T: ReadClient> CommitteesRefresher<T> {
     async fn refresh(&mut self) -> Result<()> {
         tracing::debug!("getting the latest active committee and price computation from chain");
         let (committees, price_computation, epoch_state) =
-            Self::get_latest(&self.sui_client).await?;
+            Self::get_latest(&self.sui_read_client).await?;
 
         // First update, then notify if needed.
         let are_different =
@@ -202,14 +220,15 @@ impl<T: ReadClient> CommitteesRefresher<T> {
 
     /// Gets the latest active committees, price computation, and epoch state from the Sui client.
     async fn get_latest(
-        sui_client: &T,
+        sui_read_client: &SuiReadClient,
     ) -> Result<(ActiveCommittees, PriceComputation, EpochState)> {
-        let committees_and_state = sui_client.get_committees_and_state().await?;
+        let committees_and_state = sui_read_client.get_committees_and_state().await?;
         let epoch_state = committees_and_state.epoch_state.clone();
         let committees = ActiveCommittees::from_committees_and_state(committees_and_state);
 
-        let (storage_price, write_price) =
-            sui_client.storage_and_write_price_per_unit_size().await?;
+        let (storage_price, write_price) = sui_read_client
+            .storage_and_write_price_per_unit_size()
+            .await?;
         let price_computation = PriceComputation::new(storage_price, write_price);
         Ok((committees, price_computation, epoch_state))
     }

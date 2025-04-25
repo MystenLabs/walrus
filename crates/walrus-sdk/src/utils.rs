@@ -1,6 +1,8 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+//! Utility functions for the Walrus SDK.
+
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Display},

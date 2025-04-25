@@ -23,7 +23,7 @@ use super::{NodeCommunication, NodeReadCommunication, NodeWriteCommunication};
 use crate::{
     active_committees::ActiveCommittees,
     config::ClientCommunicationConfig,
-    error::{ClientError, ClientErrorKind, ClientResult},
+    error::{ClientError, ClientResult},
 };
 
 /// Factory to create objects amenable to communication with storage nodes.
@@ -47,9 +47,7 @@ impl NodeCommunicationFactory {
         let native_certs = if !config.disable_native_certs {
             let CertificateResult { certs, errors, .. } = rustls_native_certs::load_native_certs();
             if certs.is_empty() {
-                return Err(ClientError::from(ClientErrorKind::FailedToLoadCerts(
-                    errors,
-                )));
+                return Err(ClientError::FailedToLoadCerts(errors));
             };
             if !errors.is_empty() {
                 tracing::warn!(
@@ -98,7 +96,7 @@ impl NodeCommunicationFactory {
     ///
     /// # Errors
     ///
-    /// Returns a [`ClientError`] with [`ClientErrorKind::BehindCurrentEpoch`] if the certified
+    /// Returns a [`ClientError`] with [`ClientError::BehindCurrentEpoch`] if the certified
     /// epoch is greater than the current committee epoch.
     pub(crate) fn node_read_communications<'a>(
         &'a self,
@@ -114,7 +112,7 @@ impl NodeCommunicationFactory {
         );
 
         let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
-            ClientErrorKind::BehindCurrentEpoch {
+            ClientError::BehindCurrentEpoch {
                 client_epoch: committees.epoch(),
                 certified_epoch,
             }
@@ -246,9 +244,9 @@ impl NodeCommunicationFactory {
     ///
     /// # Errors
     ///
-    /// Returns a [`ClientError`] with [`ClientErrorKind::Other`] if the threshold function is not
+    /// Returns a [`ClientError`] with [`ClientError::Other`] if the threshold function is not
     /// fulfilled after considering all storage nodes. Returns a [`ClientError`] with
-    /// [`ClientErrorKind::BehindCurrentEpoch`] if the certified epoch is greater than the current
+    /// [`ClientError::BehindCurrentEpoch`] if the certified epoch is greater than the current
     /// committee epoch.
     fn node_read_communications_threshold<'a>(
         &'a self,
@@ -257,7 +255,7 @@ impl NodeCommunicationFactory {
         threshold_fn: impl Fn(usize) -> bool,
     ) -> ClientResult<Vec<NodeReadCommunication<'a>>> {
         let read_committee = committees.read_committee(certified_epoch).ok_or_else(|| {
-            ClientErrorKind::BehindCurrentEpoch {
+            ClientError::BehindCurrentEpoch {
                 client_epoch: committees.epoch(),
                 certified_epoch,
             }
@@ -276,10 +274,7 @@ impl NodeCommunicationFactory {
                 break Ok(comms);
             }
             let Some(index) = random_indices.next() else {
-                break Err(ClientErrorKind::Other(
-                    anyhow!("unable to create sufficient NodeCommunications").into(),
-                )
-                .into());
+                break Err(anyhow!("unable to create sufficient NodeCommunications").into());
             };
             weight += read_members[index].shard_ids.len();
 
@@ -298,7 +293,7 @@ fn node_communications<'a, W>(
     constructor: impl Fn(usize) -> Result<Option<NodeCommunication<'a, W>>, ClientBuildError>,
 ) -> ClientResult<Vec<NodeCommunication<'a, W>>> {
     if committee.n_members() == 0 {
-        return Err(ClientError::from(ClientErrorKind::EmptyCommittee));
+        return Err(ClientError::EmptyCommittee);
     }
 
     let mut comms: Vec<_> = (0..committee.n_members())
@@ -309,9 +304,7 @@ fn node_communications<'a, W>(
         let Some((_, Err(sample_error))) = comms.pop() else {
             unreachable!("`all()` guarantees at least 1 result and all results are errors");
         };
-        return Err(ClientError::from(ClientErrorKind::AllConnectionsFailed(
-            sample_error,
-        )));
+        return Err(ClientError::AllConnectionsFailed(sample_error));
     }
 
     let mut comms: Vec<_> = comms

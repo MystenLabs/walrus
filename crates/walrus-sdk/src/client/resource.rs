@@ -26,7 +26,7 @@ use super::{
 };
 use crate::{
     client::WalrusStoreBlobApi,
-    error::{ClientError, ClientErrorKind, ClientResult},
+    error::{ClientError, ClientResult},
     store_when::StoreWhen,
 };
 
@@ -313,18 +313,15 @@ impl<'a> ResourceManager<'a> {
         persistence: BlobPersistence,
         store_when: StoreWhen,
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
-        let encoded_lengths: Result<Vec<_>, _> =
-            metadata_list
-                .iter()
-                .map(|m| {
-                    m.metadata().encoded_size().ok_or_else(|| {
-                        ClientError::other(ClientErrorKind::Other(
+        let encoded_lengths: Result<Vec<_>, ClientError> = metadata_list
+            .iter()
+            .map(|m| {
+                m.metadata().encoded_size().ok_or_else(|| {
                     anyhow!("the provided metadata is invalid: could not compute the encoded size")
-                        .into(),
-                ))
-                    })
+                        .into()
                 })
-                .collect();
+            })
+            .collect();
 
         if store_when.is_ignore_resources() {
             tracing::debug!(
