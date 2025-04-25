@@ -536,18 +536,16 @@ impl<'a> ResourceManager<'a> {
                 .collect();
 
             blob_processing_items.sort_by(|(_, size_a), (_, size_b)| size_b.cmp(size_a));
-            available_resources.sort_by(|a, b| {
-                match a.storage_size.cmp(&b.storage_size) {
-                    std::cmp::Ordering::Equal => a.end_epoch.cmp(&b.end_epoch),
-                    other => other,
-                }
+            available_resources.sort_by(|a, b| match a.storage_size.cmp(&b.storage_size) {
+                std::cmp::Ordering::Equal => a.end_epoch.cmp(&b.end_epoch),
+                other => other,
             });
 
             for (metadata, encoded_length) in blob_processing_items {
                 let best_resource_idx = available_resources
                     .iter()
                     .position(|storage| storage.storage_size >= encoded_length);
-                
+
                 if let Some(idx) = best_resource_idx {
                     let storage_resource = available_resources.swap_remove(idx);
 
