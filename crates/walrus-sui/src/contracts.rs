@@ -420,6 +420,7 @@ pub mod subsidies {
     contract_ident!(fn subsidies::set_system_subsidy_rate);
     contract_ident!(fn subsidies::extend_blob);
     contract_ident!(fn subsidies::reserve_space);
+    contract_ident!(fn subsidies::register_blob);
 }
 
 /// Module for tags corresponding to the Move module `dynamic_field` from the `sui` package.

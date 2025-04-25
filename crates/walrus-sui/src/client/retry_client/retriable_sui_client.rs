@@ -274,7 +274,11 @@ impl RetriableSuiClient {
             .get_coins_stream_retry(address, coin_type)
             .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
             .take_while(|coin: &Coin| {
-                let ready = future::ready(total < amount);
+                let ready = if amount == 0 && total == 0 {
+                    future::ready(true)
+                } else {
+                    future::ready(total < amount)
+                };
                 total += coin.balance as u128;
                 ready
             })
@@ -827,16 +831,15 @@ impl RetriableSuiClient {
     }
 
     /// Checks if the Walrus subsidies object exist on chain and returns the subsidies package ID.
-    pub(crate) async fn get_subsidies_package_id_from_subsidies_object(
+    pub(crate) async fn get_subsidies_object(
         &self,
         subsidies_object_id: ObjectID,
-    ) -> SuiClientResult<ObjectID> {
+    ) -> SuiClientResult<Subsidies> {
         let subsidies_object = self
             .get_sui_object::<Subsidies>(subsidies_object_id)
             .await?;
 
-        let pkg_id = subsidies_object.package_id;
-        Ok(pkg_id)
+        Ok(subsidies_object)
     }
 
     /// Returns the package ID from the type of the given object.
