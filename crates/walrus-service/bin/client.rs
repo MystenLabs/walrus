@@ -92,7 +92,7 @@ fn client() -> Result<()> {
             let sh = if let Some(shell) = shell {
                 Shell::from_str(&shell, true).map_err(|e| {
                     let possible_shells: String = Shell::value_variants()
-                        .into_iter()
+                        .iter()
                         .map(|s| s.to_string())
                         .join(",");
 
@@ -107,7 +107,7 @@ fn client() -> Result<()> {
                 env!("CARGO_BIN_NAME"),
                 &mut std::io::stdout(),
             );
-            return Ok(());
+            Ok(())
         }
         Commands::Json { .. } => unreachable!("we have extracted the json command above"),
     }
