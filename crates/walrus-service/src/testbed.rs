@@ -280,12 +280,12 @@ pub async fn deploy_walrus_contract(
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
-    // 1000 WAL for subsidies that will be used to fund the subsidy pool
-    const SUBSIDIES_AMOUNT: u64 = 1000 * 1_000_000_000;
-    // 5% buyer subsidy rate
-    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 500;
-    // 10% system subsidy rate
-    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 1000;
+    // 10M WAL for subsidies that will be used to fund the subsidy pool
+    const SUBSIDIES_AMOUNT: u64 = 10_000_000 * 1_000_000_000;
+    // 80% buyer subsidy rate
+    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 8000;
+    // 80% system subsidy rate
+    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 8000;
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();

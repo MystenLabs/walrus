@@ -98,7 +98,10 @@ jobs:
     name: Check license headers
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - run: cargo install licensesnip
+      - name: Install licensesnip
+        uses: taiki-e/install-action@970d55e3ce02a46d60ffae7b4fab3dedace6e769 # pin@v2.49.13
+        with:
+          tool: licensesnip@1.7.0
       - run: licensesnip check
 
   check-all:
