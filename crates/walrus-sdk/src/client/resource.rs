@@ -519,9 +519,6 @@ impl<'a> ResourceManager<'a> {
             }
         }
 
-        // TODO(joy): Currently select is done one at a time for each blob using `excluded`
-        // to filter, this might not be efficient if the list is too long, consider better
-        // storage selection strategy (WAL-363).
         // TODO(giac): consider splitting the storage before reusing it (WAL-208).
         if !blob_processing_items.is_empty() {
             let all_storage_resources = self
@@ -536,10 +533,6 @@ impl<'a> ResourceManager<'a> {
                 .collect();
 
             blob_processing_items.sort_by(|(_, size_a), (_, size_b)| size_b.cmp(size_a));
-            available_resources.sort_by(|a, b| match a.storage_size.cmp(&b.storage_size) {
-                std::cmp::Ordering::Equal => a.end_epoch.cmp(&b.end_epoch),
-                other => other,
-            });
 
             for (metadata, encoded_length) in blob_processing_items {
                 let best_resource_idx = available_resources
