@@ -155,7 +155,6 @@ pub enum Commands {
         command_string: Option<String>,
     },
     /// Generate autocompletion script
-    #[clap(name = "completion")]
     Completion {
         /// Shell type to generate completion script for the specified shell.
         #[arg(long)]

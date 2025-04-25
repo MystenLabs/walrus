@@ -5,7 +5,6 @@
 
 use std::process::ExitCode;
 
-
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use clap::{CommandFactory, Parser, ValueEnum as _};
