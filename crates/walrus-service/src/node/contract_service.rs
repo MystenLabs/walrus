@@ -145,7 +145,7 @@ pub struct SuiSystemContractServiceBuilder {
 impl Default for SuiSystemContractServiceBuilder {
     fn default() -> Self {
         Self {
-            seed: rand::thread_rng().gen(),
+            seed: rand::thread_rng().r#gen(),
             balance_check_frequency: defaults::BALANCE_CHECK_FREQUENCY,
             balance_check_warning_threshold: defaults::BALANCE_CHECK_WARNING_THRESHOLD_MIST,
             metrics_registry: None,
@@ -456,7 +456,7 @@ impl SystemContractService for SuiSystemContractService {
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
-            self.rng.lock().unwrap().gen(),
+            self.rng.lock().unwrap().r#gen(),
         );
         backoff::retry(backoff, || async {
             self.contract_tx_client
@@ -480,7 +480,7 @@ impl SystemContractService for SuiSystemContractService {
             MIN_BACKOFF,
             MAX_BACKOFF,
             None,
-            self.rng.lock().unwrap().gen(),
+            self.rng.lock().unwrap().r#gen(),
         );
 
         backoff::retry(backoff, || async {

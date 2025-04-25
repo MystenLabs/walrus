@@ -66,7 +66,7 @@ impl Default for NodeCommitteeServiceBuilder {
     fn default() -> Self {
         Self {
             local_identity: None,
-            rng: StdRng::seed_from_u64(rand::thread_rng().gen()),
+            rng: StdRng::seed_from_u64(rand::thread_rng().r#gen()),
             config: CommitteeServiceConfig::default(),
             registry: None,
         }

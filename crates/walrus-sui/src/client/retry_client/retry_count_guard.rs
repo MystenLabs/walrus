@@ -40,6 +40,13 @@ impl RetryCountGuard {
 impl Drop for RetryCountGuard {
     fn drop(&mut self) {
         if self.count > 1 {
+            #[cfg(msim)]
+            tracing::debug!(
+                "RPC call {} failed {} times, status: {}",
+                self.method,
+                self.count,
+                self.status
+            );
             self.metrics
                 .record_rpc_retry_count(self.method.as_str(), self.count, &self.status);
         }

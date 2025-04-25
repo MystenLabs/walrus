@@ -156,7 +156,10 @@ use self::{
     system_events::{EventManager, SuiSystemEventProvider},
 };
 use crate::{
-    common::{config::SuiConfig, utils::should_reposition_cursor},
+    common::{
+        config::{combine_rpc_urls, SuiConfig},
+        utils::should_reposition_cursor,
+    },
     node::checkpoint::CheckpointManager,
     utils::ShardDiffCalculator,
 };
@@ -401,9 +404,8 @@ impl StorageNodeBuilder {
                     sui_config.event_polling_interval,
                 ))
             } else {
-                let rpc_addresses = std::iter::once(sui_config.rpc.clone())
-                    .chain(sui_config.additional_rpc_endpoints.clone())
-                    .collect();
+                let rpc_addresses =
+                    combine_rpc_urls(&sui_config.rpc, &sui_config.additional_rpc_endpoints);
                 let processor_config = EventProcessorRuntimeConfig {
                     rpc_addresses,
                     event_polling_interval: sui_config.event_polling_interval,
@@ -654,7 +656,7 @@ impl StorageNode {
         let epoch_change_driver = EpochChangeDriver::new(
             system_parameters,
             contract_service.clone(),
-            StdRng::seed_from_u64(thread_rng().gen()),
+            StdRng::seed_from_u64(thread_rng().r#gen()),
         );
 
         let start_epoch_change_finisher = StartEpochChangeFinisher::new(inner.clone());

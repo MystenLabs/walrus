@@ -99,6 +99,7 @@ home.workspace = true
 hostname.workspace = true
 http-body = "1.0.1"
 humantime.workspace = true
+indexmap.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
 integer-encoding.workspace = true
@@ -174,6 +175,9 @@ walrus-core = { workspace = true, features = ["test-utils"] }
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
 walrus-test-utils.workspace = true
 walrus-utils = { workspace = true, features = ["test-utils"] }
+
+[build-dependencies]
+chrono.workspace = true
 
 [lints]
 workspace = true

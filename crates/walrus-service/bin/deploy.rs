@@ -497,7 +497,7 @@ mod commands {
                 &testbed_config.system_ctx,
                 working_dir.as_path(),
                 database_url.as_str(),
-                testbed_config.sui_network.env().rpc,
+                vec![testbed_config.sui_network.env().rpc],
                 rpc_fallback_config_args
                     .as_ref()
                     .and_then(|args| args.to_config()),

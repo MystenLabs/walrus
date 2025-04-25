@@ -19,7 +19,7 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Mysten Labs <build@mystenlabs.com>"]
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 version = "1.23.0"
 
@@ -55,6 +55,7 @@ hostname = "0.4.1"
 http-body-util = "0.1.1"
 humantime = "2.2.0"
 hyper = "1"
+indexmap = "2.8.0"
 indicatif = "0.17.11"
 indoc = "2.0.6"
 integer-encoding = "4.0.2"
@@ -146,6 +147,9 @@ panic = 'abort'
 
 [profile.dev]
 panic = 'abort'
+
+[profile.test]
+opt-level = 1
 
 [profile.simulator]
 debug = true

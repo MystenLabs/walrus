@@ -29,8 +29,8 @@ pub enum FallbackError {
 /// A client for downloading checkpoint data from a remote server.
 #[derive(Clone, Debug)]
 pub(crate) struct FallbackClient {
-    pub(crate) client: reqwest::Client,
-    pub(crate) base_url: Url,
+    client: reqwest::Client,
+    base_url: Url,
 }
 
 impl FallbackClient {

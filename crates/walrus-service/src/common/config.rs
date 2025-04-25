@@ -3,8 +3,9 @@
 
 //! Common configuration module.
 
-use std::{sync::Arc, time::Duration};
+use std::{iter::once, sync::Arc, time::Duration};
 
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DurationMilliSeconds};
 use walrus_sui::{
@@ -57,11 +58,21 @@ pub struct SuiConfig {
     pub request_timeout: Option<Duration>,
 }
 
+/// Combines the main RPC URL with additional RPC endpoints, ensuring uniqueness of each URL string.
+pub fn combine_rpc_urls(rpc: &str, additional_rpc_endpoints: &[String]) -> Vec<String> {
+    once(rpc.to_string())
+        .chain(additional_rpc_endpoints.iter().cloned())
+        .collect::<IndexSet<String>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+}
+
 impl SuiConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new_for_rpc(
-            &self.rpc,
+        let combined_rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
+        SuiReadClient::new_for_rpc_urls(
+            &combined_rpc_urls,
             &self.contract_config,
             self.backoff_config.clone(),
         )
@@ -108,7 +119,7 @@ impl From<&SuiConfig> for SuiReaderConfig {
     }
 }
 
-/// Backup-specific configuration for Sui.
+/// Reader-specific configuration for Sui.
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SuiReaderConfig {
@@ -132,7 +143,7 @@ pub struct SuiReaderConfig {
     /// The URL of the checkpoint download fallback endpoint.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub rpc_fallback_config: Option<RpcFallbackConfig>,
-    /// Additional RPC endpoints to use for the event processor.
+    /// Additional RPC endpoints to use for failover.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub additional_rpc_endpoints: Vec<String>,
     /// The request timeout for communicating with Sui network.
@@ -143,8 +154,9 @@ pub struct SuiReaderConfig {
 impl SuiReaderConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
-        SuiReadClient::new_for_rpc(
-            &self.rpc,
+        let combined_rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
+        SuiReadClient::new_for_rpc_urls(
+            &combined_rpc_urls,
             &self.contract_config,
             self.backoff_config.clone(),
         )
@@ -176,5 +188,27 @@ pub mod defaults {
         // The `cfg!(test)` check is there to allow serializing the full configuration, specifically
         // to generate the example configuration files.
         !cfg!(test) && t.is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_combine_rpc_urls() {
+        let rpc = "http://localhost:1".to_string();
+        let rpc_urls = vec![
+            "http://localhost:2".to_string(),
+            "http://localhost:2".to_string(),
+            "http://localhost:3".to_string(),
+            "http://localhost:1".to_string(),
+            "http://localhost:3".to_string(),
+        ];
+
+        // Check that the duplicates are removed and the order is preserved.
+        let combined = super::combine_rpc_urls(&rpc, &rpc_urls);
+        assert_eq!(combined.len(), 3);
+        assert_eq!(combined[0], "http://localhost:1");
+        assert_eq!(combined[1], "http://localhost:2");
+        assert_eq!(combined[2], "http://localhost:3");
     }
 }

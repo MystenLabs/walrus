@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use walrus_utils::metrics::Registry;
 
 use crate::{
-    common::config::SuiReaderConfig,
+    common::config::{combine_rpc_urls, SuiReaderConfig},
     node::{
         events::event_processor::{EventProcessor, EventProcessorRuntimeConfig, SystemConfig},
         system_events::{EventManager, SuiSystemEventProvider},
@@ -40,9 +40,10 @@ impl EventProcessorRuntime {
         db_config: &DatabaseConfig,
     ) -> anyhow::Result<Arc<EventProcessor>> {
         let runtime_config = EventProcessorRuntimeConfig {
-            rpc_addresses: std::iter::once(sui_reader_config.rpc.clone())
-                .chain(sui_reader_config.additional_rpc_endpoints.clone())
-                .collect(),
+            rpc_addresses: combine_rpc_urls(
+                &sui_reader_config.rpc,
+                &sui_reader_config.additional_rpc_endpoints,
+            ),
             event_polling_interval: sui_reader_config.event_polling_interval,
             db_path: db_path.join("events"),
             rpc_fallback_config: sui_reader_config.rpc_fallback_config.clone(),
