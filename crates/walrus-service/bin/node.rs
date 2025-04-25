@@ -8,6 +8,7 @@ use std::{
     fs,
     io::{self, Write},
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -18,8 +19,11 @@ use clap::{Parser, Subcommand, ValueEnum as _};
 use commands::generate_or_convert_key;
 use config::PathOrInPlace;
 use fs::File;
+use serde::{Deserialize, Serialize};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::{UnixListener, UnixStream},
     runtime::{self, Runtime},
     sync::oneshot,
     task::JoinHandle,
@@ -52,6 +56,7 @@ use walrus_service::{
         MetricsAndLoggingRuntime,
         MAX_NODE_NAME_LENGTH,
     },
+    CheckpointManager,
     SyncNodeConfigError,
 };
 use walrus_sui::{
@@ -62,12 +67,29 @@ use walrus_sui::{
 
 const VERSION: &str = version!();
 
+// Define a constant for the admin socket path
+const ADMIN_SOCKET_PATH: &str = "/var/run/walrus/admin.sock";
+
+/// Standard response format for admin commands
+#[derive(Serialize, Deserialize)]
+struct AdminCommandResponse {
+    success: bool,
+    message: String,
+}
+
 /// Manage and run a Walrus storage node.
 #[derive(Debug, Parser)]
 #[command(rename_all = "kebab-case", name = env!("CARGO_BIN_NAME"), version = VERSION)]
 struct Args {
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Arguments for the admin socket.
+#[derive(Debug, Clone)]
+struct AdminArgs {
+    /// Checkpoint manager.
+    checkpoint_manager: Option<Arc<CheckpointManager>>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -152,6 +174,42 @@ enum Commands {
     /// Hidden command for emergency use only.
     #[command(hide = true)]
     Catchup(CatchupArgs),
+
+    /// Admin commands for managing a running node.
+    Admin {
+        /// Admin subcommand to execute
+        #[command(subcommand)]
+        command: AdminCommands,
+    },
+}
+
+/// Admin subcommands for remote node management
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+enum AdminCommands {
+    /// Checkpoint management
+    Checkpoint {
+        #[command(subcommand)]
+        command: CheckpointCommands,
+    },
+}
+
+/// Commands for checkpoint management.
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
+#[command(rename_all = "kebab-case")]
+enum CheckpointCommands {
+    /// Create a new checkpoint at the specified path.
+    Create {
+        /// The path where the checkpoint will be created.
+        #[arg(long)]
+        #[serde(default)]
+        path: Option<PathBuf>,
+    },
+
+    /// List existing checkpoints.
+    List,
+
+    /// Cancel an ongoing checkpoint creation.
+    Cancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -447,6 +505,8 @@ fn main() -> anyhow::Result<()> {
         Commands::DbTool { command } => command.execute()?,
 
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
+
+        Commands::Admin { command } => commands::handle_admin_command(command)?,
     }
     Ok(())
 }
@@ -621,7 +681,7 @@ mod commands {
         cancel_token: CancellationToken,
     ) -> anyhow::Result<()> {
         let monitor_runtime = Runtime::new()?;
-        monitor_runtime.block_on(async {
+        monitor_runtime.block_on(async move {
             tokio::spawn(async move {
                 let mut set = JoinSet::new();
                 set.spawn_blocking(move || node_runtime.join());
@@ -1122,6 +1182,46 @@ mod commands {
         ))?;
         Ok(())
     }
+
+    /// Handle admin commands from command line.
+    #[tokio::main]
+    pub(crate) async fn handle_admin_command(command: AdminCommands) -> anyhow::Result<()> {
+        let socket_path = PathBuf::from(ADMIN_SOCKET_PATH);
+
+        // Connect to the socket.
+        let socket = UnixStream::connect(&socket_path)
+            .await
+            .context("Failed to connect to admin socket")?;
+        let (reader, mut writer) = tokio::io::split(socket);
+
+        // Serialize and send the AdminCommands directly
+        let cmd_json = serde_json::to_string(&command)?;
+        writer.write_all(cmd_json.as_bytes()).await?;
+        writer.write_all(b"\n").await?;
+
+        // Wait for response.
+        let mut buf_reader = BufReader::new(reader);
+        let mut response = String::new();
+        buf_reader.read_line(&mut response).await?;
+
+        // Parse and print response.
+        match serde_json::from_str::<AdminCommandResponse>(&response) {
+            Ok(resp) => {
+                if resp.success {
+                    println!("{}", resp.message);
+                } else {
+                    eprintln!("Error: {}", resp.message);
+                    std::process::exit(1);
+                }
+            }
+            Err(_) => {
+                eprintln!("Error: Invalid response format");
+                std::process::exit(1);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Creates a [`SuiContractClient`] from the Sui config in the provided storage node config.
@@ -1141,6 +1241,7 @@ struct StorageNodeRuntime {
     metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
+    admin_socket_handle: Option<JoinHandle<()>>,
 }
 
 impl StorageNodeRuntime {
@@ -1187,6 +1288,7 @@ impl StorageNodeRuntime {
             result
         });
 
+        let checkpoint_manager = walrus_node.checkpoint_manager();
         let rest_api = RestApiServer::new(
             walrus_node,
             cancel_token.child_token(),
@@ -1195,6 +1297,7 @@ impl StorageNodeRuntime {
         );
         let mut rest_api_address = node_config.rest_api_address;
         rest_api_address.set_ip(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+        let admin_cancel_token = cancel_token.child_token();
         let rest_api_handle = tokio::spawn(async move {
             let result = rest_api
                 .run()
@@ -1210,9 +1313,13 @@ impl StorageNodeRuntime {
         });
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
+        let admin_socket_handle =
+            Self::start_admin_socket(AdminArgs { checkpoint_manager }, admin_cancel_token)?;
+
         Ok(Self {
             walrus_node_handle,
             rest_api_handle,
+            admin_socket_handle,
             metrics_runtime,
             runtime,
         })
@@ -1223,11 +1330,137 @@ impl StorageNodeRuntime {
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
         let _ = self.runtime.block_on(&mut self.walrus_node_handle)?;
-        // Shutdown the metrics runtime
+
+        if let Some(ref mut handle) = self.admin_socket_handle {
+            tracing::debug!("waiting for admin socket to shutdown...");
+            let _ = self.runtime.block_on(handle);
+        }
+
         if let Some(runtime) = self.metrics_runtime.runtime.take() {
             runtime.shutdown_background();
         }
         Ok(())
+    }
+
+    fn start_admin_socket(
+        admin_args: AdminArgs,
+        cancel_token: CancellationToken,
+    ) -> anyhow::Result<Option<JoinHandle<()>>> {
+        if admin_args.checkpoint_manager.is_none() {
+            return Ok(None);
+        }
+
+        let socket_path = PathBuf::from(ADMIN_SOCKET_PATH);
+
+        if let Some(parent) = socket_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let _ = std::fs::remove_file(&socket_path);
+
+        let listener = UnixListener::bind(&socket_path)?;
+
+        // Set the permissions to 600 to ensure only the owner can access the socket.
+        std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
+
+        let handle = tokio::spawn(async move {
+            tracing::info!("Admin socket listening on {}", socket_path.display());
+
+            loop {
+                tokio::select! {
+                    result = listener.accept() => {
+                        if let Ok((stream, _)) = result {
+                            let args = admin_args.clone();
+                            tokio::spawn(async move {
+                                handle_connection(stream, args).await;
+                            });
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+
+            let _ = std::fs::remove_file(socket_path);
+            tracing::info!("Admin socket stopped");
+        });
+
+        Ok(Some(handle))
+    }
+}
+
+/// Handle checkpoint commands from admin socket
+async fn handle_checkpoint_command(
+    command: CheckpointCommands,
+    manager: &Arc<CheckpointManager>,
+) -> Result<String, String> {
+    match command {
+        CheckpointCommands::Create { path } => {
+            match manager
+                .schedule_and_wait_for_checkpoint_creation(path.as_deref())
+                .await
+            {
+                Ok(_) => Ok("Checkpoint created successfully".to_string()),
+                Err(e) => Err(format!("Failed to create checkpoint: {:?}", e)),
+            }
+        }
+        CheckpointCommands::List => {
+            // List operation not yet implemented.
+            Ok("Checkpoint listing not implemented yet".to_string())
+        }
+        CheckpointCommands::Cancel => {
+            let result = manager.cancel_checkpoint_creation().await;
+            match result {
+                Ok(true) => Ok("Checkpoint creation cancelled".to_string()),
+                Ok(false) => Ok("No backup was in progress".to_string()),
+                Err(e) => Err(format!("Failed to cancel checkpoint creation: {}", e)),
+            }
+        }
+    }
+}
+
+/// Handles a connection to the admin socket.
+async fn handle_connection(stream: UnixStream, args: AdminArgs) {
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut reader = BufReader::new(reader);
+    let mut line = String::new();
+
+    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+        // Parse the command as AdminCommands.
+        let response = if let Some(manager) = args.checkpoint_manager.as_ref() {
+            match serde_json::from_str::<AdminCommands>(&line) {
+                Ok(AdminCommands::Checkpoint { command }) => {
+                    // Handle checkpoint commands
+                    match handle_checkpoint_command(command, manager).await {
+                        Ok(message) => AdminCommandResponse {
+                            success: true,
+                            message,
+                        },
+                        Err(error) => AdminCommandResponse {
+                            success: false,
+                            message: error,
+                        },
+                    }
+                }
+                Err(e) => AdminCommandResponse {
+                    success: false,
+                    message: format!("Failed to parse command: {}", e),
+                },
+            }
+        } else {
+            AdminCommandResponse {
+                success: false,
+                message: "Checkpoint manager is not initialized".into(),
+            }
+        };
+
+        // Serialize and send response
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = writer.write_all((json + "\n").as_bytes()).await;
+        }
+
+        line.clear();
     }
 }
 

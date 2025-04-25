@@ -150,9 +150,8 @@ thread_pool:
   max_blocking_io_threads: 1024
 checkpoint_config:
   checkpoint_dir: null
-  max_backups: 5
-  checkpoint_interval:
-  - 86400
-  - 0
+  max_backups: 3
+  checkpoint_interval_secs: 86400
   sync: true
   max_background_operations: 2
+  periodic_backups: false

@@ -2,15 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    future::Future,
     path::{Path, PathBuf},
-    pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
     time::{Duration as StdDuration, Instant},
 };
 
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use rocksdb::{
     backup::{BackupEngine, BackupEngineOptions, RestoreOptions},
     Env,
@@ -30,21 +27,24 @@ pub struct CheckpointConfig {
     /// Maximum number of backups to keep.
     pub max_backups: usize,
     /// How often to create backups (in seconds).
-    pub checkpoint_interval: Duration,
+    pub checkpoint_interval_secs: u64,
     /// Whether to sync files to disk after each backup.
     pub sync: bool,
     /// Number of background operations for backup/restore.
     pub max_background_operations: i32,
+    /// Whether to schedule a background task to create backups.
+    pub periodic_backups: bool,
 }
 
 impl Default for CheckpointConfig {
     fn default() -> Self {
         Self {
             checkpoint_dir: None,
-            max_backups: 5,
-            checkpoint_interval: Duration::days(1),
+            max_backups: 3,
+            checkpoint_interval_secs: 86400, // 1 day.
             sync: true,
             max_background_operations: 2,
+            periodic_backups: false,
         }
     }
 }
@@ -52,19 +52,32 @@ impl Default for CheckpointConfig {
 /// Status of a delayed task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskStatus {
+    /// No task is currently running.
     Idle,
+    /// The task is scheduled to run at a specific time.
     Scheduled,
-    Running,
+    /// The task is running, the value is the start time.
+    Running(tokio::time::Instant),
+    /// The task completed successfully.
     Success,
+    /// The task failed with an error message.
     Failed(String),
+    /// The task was cancelled.
     Cancelled,
+    /// The task panicked.
     TaskError(String),
+    /// The task timed out.
     Timeout,
 }
 
+/// The result of a task.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskResult<E> {
+    /// The task completed successfully.
     Success,
+    /// The task failed with an error message.
     Failed(E),
+    /// The task panicked.
     TaskError(String),
 }
 
@@ -78,10 +91,10 @@ pub struct DelayedTask {
 impl DelayedTask {
     /// Create a new delayed task to run at the given time.
     pub fn new<F, E>(
-        target_time: time::Instant, 
-        timeout_duration: StdDuration, 
-        task_fn: F, 
-        response: tokio::sync::oneshot::Sender<TaskResult<E>>
+        target_time: time::Instant,
+        timeout_duration: StdDuration,
+        task_fn: F,
+        response: tokio::sync::oneshot::Sender<TaskResult<E>>,
     ) -> Self
     where
         F: FnOnce() -> Result<(), E> + Send + 'static,
@@ -106,7 +119,6 @@ impl DelayedTask {
 
     /// Executes the timer task logic without spawning the task itself.
     async fn execute_timer_task<F, E>(
-
         start_time: tokio::time::Instant,
         timeout_duration: StdDuration,
         task_fn: F,
@@ -120,11 +132,11 @@ impl DelayedTask {
 
         {
             let mut status_guard = status.lock().expect("Failed to lock status");
-            *status_guard = TaskStatus::Running;
+            *status_guard = TaskStatus::Running(start_time);
         }
 
         // Execute the task in a blocking thread.
-        let worker_task = tokio::task::spawn_blocking(move || task_fn());
+        let worker_task = tokio::task::spawn_blocking(task_fn);
 
         // Wait for cancel, completion, or timeout.
         tokio::select! {
@@ -143,7 +155,9 @@ impl DelayedTask {
                     Err(e) => {
                         let mut status_guard = status.lock().expect("Failed to lock status");
                         *status_guard = TaskStatus::TaskError(format!("Task panicked: {}", e));
-                        let _ = response.send(TaskResult::TaskError(format!("Task panicked: {}", e)));
+                        let _ = response.send(
+                            TaskResult::TaskError(format!("Task panicked: {}", e))
+                        );
                     }
                 };
             }
@@ -163,124 +177,172 @@ impl DelayedTask {
         }
     }
 
+    /// Get the status of the task.
     pub fn get_status(&self) -> TaskStatus {
         let state = self.status.lock().unwrap();
         state.clone()
     }
 }
 
-/// Define the request enum
+/// This enum defines the requests that can be sent to the checkpoint manager.
+#[derive(Debug)]
 pub enum CheckpointRequest {
+    /// Create a backup.
     CreateBackup {
+        /// The response channel.
         response: tokio::sync::oneshot::Sender<TaskResult<CheckpointError>>,
+        /// The directory to create the backup in.
+        checkpoint_dir: PathBuf,
     },
+    /// Get the status of the current task.
     GetStatus {
+        /// The response channel.
         response: tokio::sync::oneshot::Sender<TaskStatus>,
     },
+    /// Cancel the current task.
     CancelBackup {
+        /// The response channel.
         response: tokio::sync::oneshot::Sender<bool>, // true if canceled
     },
-}
-
-struct CheckpointTaskState {
-    pub task: DelayedTask,
-    pub timer: tokio::time::Instant,
 }
 
 /// Manages the creation/cleanup of checkpoints.
 #[derive(Debug)]
 pub struct CheckpointManager {
-    /// Checkpoint configuration.
-    config: CheckpointConfig,
-    /// Loop task handle.
+    /// Handle for the execution loop.
     loop_handle: Option<JoinHandle<Result<(), CheckpointError>>>,
+    /// Handle for the scheduled loop.
+    schedule_loop_handle: Option<JoinHandle<Result<(), CheckpointError>>>,
     /// Cancellation token for shutdown.
     cancel_token: CancellationToken,
-    /// Database reference.
-    db: Arc<RocksDB>,
     /// Command channel.
     command_tx: tokio::sync::mpsc::Sender<CheckpointRequest>,
+    config: CheckpointConfig,
 }
 
 impl CheckpointManager {
     /// Initial delay before first checkpoint creation, to avoid resource contention.
-    const CHECKPOINT_CREATION_INITIAL_DELAY: Duration = Duration::minutes(15);
+    const CHECKPOINT_CREATION_INITIAL_DELAY: time::Duration = time::Duration::from_secs(15 * 60);
+    /// Delay between checkpoint creation retries.
+    const CHECKPOINT_CREATION_RETRY_DELAY: time::Duration = time::Duration::from_secs(300);
+    /// Default timeout for tasks.
     const DEFAULT_TASK_TIMEOUT: StdDuration = time::Duration::from_secs(60 * 60);
 
+    /// Create a new checkpoint manager.
     pub async fn new(
         db: Arc<RocksDB>,
         config: CheckpointConfig,
         shutdown_token: CancellationToken,
     ) -> Result<Self, CheckpointError> {
         if let Some(checkpoint_dir) = config.checkpoint_dir.as_ref() {
-            match checkpoint_dir.try_exists() {
-                Ok(true) => (),
-                Ok(false) => {
-                    std::fs::create_dir_all(checkpoint_dir)
-                        .map_err(|e| CheckpointError::Other(e.into()))?;
-                }
-                Err(e) => return Err(CheckpointError::Other(e.into())),
-            }
+            Self::ensure_checkpoint_dir(checkpoint_dir)?;
         }
 
         let db_clone = db.clone();
         let config_clone = config.clone();
         let shutdown_token_clone = shutdown_token.clone();
-        
+
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(100);
 
         let loop_handle: JoinHandle<Result<(), CheckpointError>> = tokio::spawn(async move {
-            Self::schedule_loop(
-                db_clone, 
-                config_clone, 
-                shutdown_token_clone,
-                command_rx,
-            ).await?;
+            Self::execution_loop(db_clone, config_clone, shutdown_token_clone, command_rx).await?;
             Ok(())
         });
 
+        let config_clone = config.clone();
+        let schedule_loop_handle = config.periodic_backups.then(|| {
+            let shutdown_token_clone = shutdown_token.clone();
+            let command_tx_clone = command_tx.clone();
+
+            tokio::spawn(async move {
+                Self::schedule_loop(config_clone, shutdown_token_clone, command_tx_clone).await?;
+                Ok(())
+            })
+        });
+
         Ok(Self {
-            config,
             loop_handle: Some(loop_handle),
+            schedule_loop_handle,
             cancel_token: shutdown_token,
-            db,
             command_tx,
+            config,
         })
     }
 
+    /// Schedule a checkpoint creation and wait for it to complete.
+    pub async fn schedule_and_wait_for_checkpoint_creation(
+        &self,
+        checkpoint_dir: Option<&Path>,
+    ) -> Result<(), CheckpointError> {
+        // Resolve checkpoint directory with simple conditional logic
+        let checkpoint_path = if let Some(dir) = checkpoint_dir {
+            dir.to_path_buf()
+        } else if let Some(config_dir) = self.config.checkpoint_dir.as_ref() {
+            config_dir.clone()
+        } else {
+            return Err(CheckpointError::Other(anyhow::anyhow!(
+                "No checkpoint directory specified, either provide one explicitly or configure \
+                it in CheckpointConfig"
+            )));
+        };
+
+        // Ensure the directory exists
+        Self::ensure_checkpoint_dir(&checkpoint_path)?;
+
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+        self.command_tx
+            .send(CheckpointRequest::CreateBackup {
+                response: response_tx,
+                checkpoint_dir: checkpoint_path,
+            })
+            .await
+            .map_err(|e| CheckpointError::Other(e.into()))?;
+
+        let result = response_rx.await;
+        match result {
+            Ok(TaskResult::Success) => Ok(()),
+            Ok(TaskResult::Failed(e)) => Err(e),
+            Ok(TaskResult::TaskError(e)) => Err(CheckpointError::Other(anyhow::anyhow!(e))),
+            Err(e) => Err(CheckpointError::Other(e.into())),
+        }
+    }
+
+    /// Get the status of the current checkpoint creation task.
+    pub async fn get_status(&self) -> anyhow::Result<TaskStatus> {
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+        self.command_tx
+            .send(CheckpointRequest::GetStatus {
+                response: response_tx,
+            })
+            .await
+            .map_err(|e| CheckpointError::Other(e.into()))?;
+        let result = response_rx.await?;
+        Ok(result)
+    }
+
+    /// Cancel the current checkpoint creation task, if any.
+    pub async fn cancel_checkpoint_creation(&self) -> Result<bool, CheckpointError> {
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+        self.command_tx
+            .send(CheckpointRequest::CancelBackup {
+                response: response_tx,
+            })
+            .await
+            .map_err(|e| CheckpointError::Other(e.into()))?;
+        let result = response_rx
+            .await
+            .map_err(|e| CheckpointError::Other(e.into()))?;
+        Ok(result)
+    }
+
     /// Starts the background periodic checkpoint creation task.
-    pub async fn schedule_loop(
+    async fn execution_loop(
         db: Arc<RocksDB>,
         config: CheckpointConfig,
         cancel_token: CancellationToken,
         mut command_rx: tokio::sync::mpsc::Receiver<CheckpointRequest>,
     ) -> Result<(), CheckpointError> {
-        tracing::info!("checkpoint manager scheduled loop started.");
-        let Some(checkpoint_dir) = config.checkpoint_dir.as_ref() else {
-            return Err(CheckpointError::Other(anyhow::anyhow!(
-                "Checkpoint directory not set"
-            )));
-        };
-
-        // Try to calculate the first checkpoint time in a loop until successful.
-        let next_checkpoint_time = loop {
-            match Self::calculate_first_checkpoint_time(checkpoint_dir, config.checkpoint_interval)
-                .await
-            {
-                Ok(time) => break time,
-                Err(e) => {
-                    tracing::error!(?e, "Failed to calculate first checkpoint time, retrying...");
-                    // Wait 10 minutes before retrying.
-                    time::sleep(time::Duration::from_secs(600)).await;
-                }
-            }
-        };
-        tracing::info!(
-            "checkpoint manager next checkpoint time: {:?}",
-            next_checkpoint_time
-        );
-
-        let mut current_task: Option<Arc<CheckpointTaskState>> = None;
+        let mut current_task: Option<Arc<DelayedTask>> = None;
 
         loop {
             tokio::select! {
@@ -288,38 +350,50 @@ impl CheckpointManager {
                     tracing::info!("checkpoint manager loop cancelled");
                     break;
                 }
-                
+
                 Some(cmd) = command_rx.recv() => {
                     match cmd {
-                        CheckpointRequest::CreateBackup { response } => {
-                            if current_task.as_ref().map_or(false, |task| task.task.get_status() == TaskStatus::Running) {
-                                let _ = response.send(TaskResult::Failed(CheckpointError::BackupInProgress));
+                        CheckpointRequest::CreateBackup { response, checkpoint_dir } => {
+                            if current_task.as_ref().is_some_and(|task| {
+                                matches!(task.get_status(), TaskStatus::Running(_))
+                            }) {
+                                let _ = response.send(
+                                    TaskResult::Failed(CheckpointError::BackupInProgress)
+                                );
                             } else {
-                                current_task.take().unwrap();
                                 let db_clone = db.clone();
                                 let config_clone = config.clone();
-                                current_task = Some(Arc::new(CheckpointTaskState {
-                                    task: DelayedTask::new(
-                                        time::Instant::now(),
-                                        Self::DEFAULT_TASK_TIMEOUT,
-                                        move || {
-                                            Self::create_backup_impl(&db_clone, &config_clone)
-                                        },
-                                        response,
-                                    ),
-                                    timer: time::Instant::now(),
-                                }));
+                                current_task = Some(Arc::new(DelayedTask::new(
+                                    time::Instant::now(),
+                                    Self::DEFAULT_TASK_TIMEOUT,
+                                    move || {
+                                        let result = Self::create_backup_impl(
+                                            &db_clone, &checkpoint_dir, config_clone.sync
+                                        );
+                                        match &result {
+                                            Ok(_) => {
+                                                Self::purge_old_backups(
+                                                    &checkpoint_dir, config.max_backups
+                                                );
+                                            },
+                                            Err(e) =>
+                                                tracing::error!(?e, "Failed to create backup"),
+                                        }
+                                        result
+                                    },
+                                    response,
+                                )));
                             }
                         },
                         CheckpointRequest::GetStatus { response } => {
                             let status = current_task.as_ref().map_or(TaskStatus::Idle, |task| {
-                                task.task.get_status()
+                                task.get_status()
                             });
                             let _ = response.send(status);
                         },
                         CheckpointRequest::CancelBackup { response } => {
-                            if let Some(task) = current_task.as_ref() { 
-                                task.task.cancel().await;
+                            if let Some(task) = current_task.as_ref() {
+                                task.cancel().await;
                                 let _ = response.send(true);
                             } else {
                                 let _ = response.send(false);
@@ -333,34 +407,108 @@ impl CheckpointManager {
         Ok(())
     }
 
+    async fn schedule_loop(
+        config: CheckpointConfig,
+        cancel_token: CancellationToken,
+        command_tx: tokio::sync::mpsc::Sender<CheckpointRequest>,
+    ) -> Result<(), CheckpointError> {
+        tracing::info!("checkpoint manager scheduled loop started.");
+        let Some(checkpoint_dir) = config.checkpoint_dir.as_ref() else {
+            return Err(CheckpointError::Other(anyhow::anyhow!(
+                "Checkpoint directory not set"
+            )));
+        };
+
+        time::sleep(Self::CHECKPOINT_CREATION_INITIAL_DELAY).await;
+
+        // Try to calculate the first checkpoint time in a loop until successful.
+        let mut next_checkpoint_time = loop {
+            match Self::calculate_first_checkpoint_time(
+                checkpoint_dir,
+                config.checkpoint_interval_secs,
+            )
+            .await
+            {
+                Ok(time) => break time,
+                Err(e) => {
+                    tracing::error!(?e, "Failed to calculate first checkpoint time, retrying...");
+                    // Wait 10 minutes before retrying.
+                    time::sleep(time::Duration::from_secs(600)).await;
+                }
+            }
+        };
+
+        loop {
+            tracing::info!("Next checkpoint scheduled at: {:?}", next_checkpoint_time);
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    tracing::info!("checkpoint scheduler cancelled");
+                    break;
+                }
+                _ = time::sleep_until(next_checkpoint_time) => {
+                    // Time to create a backup
+                    let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+
+                    // Send backup request to execution loop
+                    if let Err(e) = command_tx.send(CheckpointRequest::CreateBackup {
+                        response: response_tx,
+                        checkpoint_dir: checkpoint_dir.to_path_buf(),
+                    }).await {
+                        tracing::error!(?e, "Failed to send backup request");
+                        next_checkpoint_time = time::Instant::now() +
+                            Self::CHECKPOINT_CREATION_RETRY_DELAY;
+                        continue;
+                    }
+
+                    // Wait for execution result
+                    let result = match response_rx.await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            tracing::error!(?e, "Failed to receive backup result");
+                            // Assume failure and retry soon
+                            next_checkpoint_time = time::Instant::now() +
+                                StdDuration::from_secs(300); // 5 minutes
+                            continue;
+                        }
+                    };
+
+                    // Calculate next backup time based on result
+                    next_checkpoint_time = Self::get_next_checkpoint_time(
+                        config.checkpoint_interval_secs,
+                        &result
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Get the next checkpoint time based on the result of the previous checkpoint task.
     fn get_next_checkpoint_time(
-        checkpoint_interval: Duration,
+        checkpoint_interval_secs: u64,
         result: &TaskResult<CheckpointError>,
     ) -> time::Instant {
         if let TaskResult::Success = result {
-            time::Instant::now() + StdDuration::from_secs(checkpoint_interval.num_seconds() as u64)
+            time::Instant::now() + StdDuration::from_secs(checkpoint_interval_secs)
         } else {
-            time::Instant::now()
-                + StdDuration::from_secs(
-                    Self::CHECKPOINT_CREATION_INITIAL_DELAY.num_seconds() as u64
-                )
+            time::Instant::now() + Self::CHECKPOINT_CREATION_RETRY_DELAY
         }
     }
 
     /// Calculate the first checkpoint time.
     async fn calculate_first_checkpoint_time(
         checkpoint_dir: &Path,
-        checkpoint_interval: Duration,
+        checkpoint_interval_secs: u64,
     ) -> Result<time::Instant, CheckpointError> {
         let latest_timestamp = Self::get_latest_backup_timestamp(checkpoint_dir)?;
         let now = Utc::now().timestamp();
-
-        let earliest = now + Self::CHECKPOINT_CREATION_INITIAL_DELAY.num_seconds();
+        let interval_secs = i64::try_from(checkpoint_interval_secs)
+            .map_err(|e| CheckpointError::Other(e.into()))?;
         let next_ts = if let Some(last_ts) = latest_timestamp {
-            std::cmp::max(last_ts + checkpoint_interval.num_seconds(), earliest)
+            std::cmp::max(last_ts + interval_secs, now)
         } else {
-            earliest
+            now
         };
 
         let seconds_from_now = next_ts - now;
@@ -407,22 +555,27 @@ impl CheckpointManager {
             checkpoint_dir: Some(checkpoint_dir.to_path_buf()),
             ..Default::default()
         };
-        Self::create_backup_impl(&db, &config)
+        Self::create_backup_impl(&db, checkpoint_dir, config.sync)
     }
 
-    /// Delete old backups to maintain the max_backups limit (synchronous version)
-    fn purge_old_backups(checkpoint_dir: &Path, max_backups: usize) -> Result<(), CheckpointError> {
+    /// Delete old backups to maintain the max_backups limit.
+    fn purge_old_backups(checkpoint_dir: &Path, max_backups: usize) {
         if max_backups == 0 {
-            return Ok(());
+            return;
         }
 
-        let mut engine = Self::create_backup_engine(checkpoint_dir)?;
-        engine
+        let Ok(mut engine) = Self::create_backup_engine(checkpoint_dir) else {
+            tracing::error!("Failed to create backup engine");
+            return;
+        };
+        let result = engine
             .purge_old_backups(max_backups)
-            .map_err(|e| CheckpointError::Other(anyhow::anyhow!("Purge error: {}", e)))?;
+            .map_err(|e| CheckpointError::Other(anyhow::anyhow!("Purge error: {}", e)));
 
-        tracing::info!("purged old backups, keeping {} most recent", max_backups);
-        Ok(())
+        match result {
+            Ok(_) => tracing::info!("purged old backups, keeping {} most recent", max_backups),
+            Err(e) => tracing::error!(?e, "Failed to purge old backups"),
+        }
     }
 
     /// Restore from the most recent backup.
@@ -448,10 +601,10 @@ impl CheckpointManager {
 
     fn create_backup_impl(
         db: &Arc<RocksDB>,
-        config: &CheckpointConfig,
+        checkpoint_dir: &Path,
+        flush_before_backup: bool,
     ) -> Result<(), CheckpointError> {
-        let checkpoint_dir = config.checkpoint_dir.as_ref().unwrap();
-        let mut engine = Self::create_backup_engine(&checkpoint_dir)?;
+        let mut engine = Self::create_backup_engine(checkpoint_dir)?;
 
         let start_time = Instant::now();
         tracing::info!(
@@ -461,7 +614,7 @@ impl CheckpointManager {
 
         let db_ref = &db.underlying;
         let backup_result = engine
-            .create_new_backup_flush(db_ref, config.sync)
+            .create_new_backup_flush(db_ref, flush_before_backup)
             .map_err(|e| CheckpointError::Other(anyhow::anyhow!("Backup error: {}", e)));
 
         let duration = start_time.elapsed();
@@ -484,6 +637,40 @@ impl CheckpointManager {
             }
         }
     }
+
+    /// Create the checkpoint directory if it doesn't exist
+    fn ensure_checkpoint_dir(checkpoint_dir: &Path) -> Result<(), CheckpointError> {
+        match checkpoint_dir.try_exists() {
+            Ok(true) => Ok(()),
+            Ok(false) => std::fs::create_dir_all(checkpoint_dir)
+                .map_err(|e| CheckpointError::Other(e.into())),
+            Err(e) => Err(CheckpointError::Other(e.into())),
+        }
+    }
+
+    /// Cancel checkpoint manager.
+    pub fn cancel(&self) {
+        self.cancel_token.cancel();
+    }
+
+    /// Join the background tasks and clean up resources.
+    pub async fn join(&mut self) -> Result<(), CheckpointError> {
+        if let Some(handle) = self.loop_handle.take() {
+            if let Err(e) = handle.await {
+                tracing::warn!(?e, "Error joining execution loop");
+                return Err(CheckpointError::Other(e.into()));
+            }
+        }
+
+        if let Some(handle) = self.schedule_loop_handle.take() {
+            if let Err(e) = handle.await {
+                tracing::warn!(?e, "Error joining schedule loop");
+                return Err(CheckpointError::Other(e.into()));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -504,32 +691,28 @@ mod tests {
     const BLOB_FILE_SIZE: u64 = 1024 * 1024;
 
     /// Generates key/value pairs with random sizes:
-    /// - Half with values of random size between 1 and median_size bytes
-    /// - Half with values of random size between (median_size+1) and (median_size*2) bytes
+    /// - Half with values of random size between 1 and median_size bytes.
+    /// - Half with values of random size between (median_size+1) and (median_size*2) bytes.
     pub fn generate_test_data(num_keys: usize, median_size: usize) -> HashMap<Vec<u8>, Vec<u8>> {
         let mut data = HashMap::new();
         let mut rng = rand::thread_rng();
 
-        // Number of small and large values (half each)
+        // Number of small and large values (half each).
         let small_count = num_keys / 2;
         let large_count = num_keys - small_count;
 
-        // Generate small values (up to median_size bytes)
         for i in 0..small_count {
             let key = format!("small_key_{:03}", i).into_bytes();
 
-            // Random size between 1 and median_size (inclusive)
             let small_size = rng.gen_range(1..=median_size);
             let value = vec![b's'; small_size];
 
             data.insert(key, value);
         }
 
-        // Generate large values (more than median_size bytes)
         for i in 0..large_count {
             let key = format!("large_key_{:03}", i).into_bytes();
 
-            // Random size between (median_size+1) and (median_size*2) inclusive
             let size = rng.gen_range(median_size + 1..=median_size * 2);
             let value = vec![b'l'; size];
 
@@ -580,14 +763,24 @@ mod tests {
                 db_map.insert(key, value)?;
             }
 
-            // Create backup.
-            CheckpointManager::create_backup(db, checkpoint_dir.path()).await?;
+            let checkpoint_manager = CheckpointManager::new(
+                db,
+                CheckpointConfig {
+                    checkpoint_dir: Some(checkpoint_dir.path().to_path_buf()),
+                    ..Default::default()
+                },
+                CancellationToken::new(),
+            )
+            .await?;
+
+            checkpoint_manager
+                .schedule_and_wait_for_checkpoint_creation(Some(checkpoint_dir.path()))
+                .await?;
         }
 
-        // Verify backup files exist
         assert!(
             fs::read_dir(&checkpoint_dir)?.count() > 0,
-            "Backup directory should not be empty"
+            "backup directory should not be empty"
         );
 
         // Restore from backup to a new location.
@@ -602,7 +795,6 @@ mod tests {
             // Create column family options from the config
             let default_cf_opts = cf_options_with_blobs();
 
-            // Open the restored database with properly configured options
             let db = rocks::open_cf_opts(
                 restore_dir.path(),
                 Some(db_opts),
@@ -610,7 +802,6 @@ mod tests {
                 &[("default", default_cf_opts)],
             )?;
 
-            // Access the data through a DBMap
             let db_map = DBMap::<Vec<u8>, Vec<u8>>::reopen(
                 &db,
                 Some("default"),
@@ -618,13 +809,12 @@ mod tests {
                 false,
             )?;
 
-            // Check if all data is restored correctly
-
+            // Check if all data is restored correctly.
             for (key, expected_value) in &test_data {
-                let value = db_map.get(key)?.expect("Key should exist in restored DB");
+                let value = db_map.get(key)?.expect("key should exist in restored DB");
                 assert_eq!(
                     &value, expected_value,
-                    "Restored value should match original"
+                    "restored value should match original"
                 );
             }
         }

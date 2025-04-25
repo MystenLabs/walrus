@@ -161,6 +161,9 @@ use crate::{
     utils::ShardDiffCalculator,
 };
 
+/// Checkpoint manager.
+pub(crate) mod checkpoint;
+
 pub mod committee;
 pub mod config;
 pub mod contract_service;
@@ -186,8 +189,6 @@ mod storage;
 
 mod config_synchronizer;
 pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfigLoader};
-
-mod checkpoint;
 
 // The number of events are predonimently by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
@@ -598,6 +599,12 @@ impl StorageNode {
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
+        let checkpoint_manager = CheckpointManager::new(
+            storage.get_db(),
+            config.checkpoint_config.clone(),
+            CancellationToken::new(),
+        )
+        .await?;
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -625,7 +632,7 @@ impl StorageNode {
             encoding_config,
             registry: registry.clone(),
             latest_event_epoch: AtomicU32::new(0),
-            checkpoint_manager: None,
+            checkpoint_manager: Some(Arc::new(checkpoint_manager)),
         });
 
         blocklist.start_refresh_task();
@@ -747,6 +754,11 @@ impl StorageNode {
         }
 
         Ok(())
+    }
+
+    /// Returns the checkpoint manager for the node.
+    pub fn checkpoint_manager(&self) -> Option<Arc<CheckpointManager>> {
+        self.inner.checkpoint_manager.clone()
     }
 
     /// Returns the shards which the node currently manages in its storage.
