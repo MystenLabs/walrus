@@ -7,7 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
 use tokio::sync::{Notify, mpsc};
-use walrus_sui::client::ReadClient;
+use walrus_sui::client::SuiReadClient;
 
 use crate::client::refresh::{CommitteesRefresher, CommitteesRefresherHandle};
 
@@ -45,9 +45,10 @@ impl CommitteesRefreshConfig {
     /// returns the [`CommitteesRefresherHandle`].
     pub async fn build_refresher_and_run(
         &self,
-        sui_client: impl ReadClient + 'static,
+        sui_read_client: SuiReadClient,
     ) -> Result<CommitteesRefresherHandle> {
-        let (mut refresher, handle) = build_refresher_and_handle(sui_client, self.clone()).await?;
+        let (mut refresher, handle) =
+            build_refresher_and_handle(sui_read_client, self.clone()).await?;
 
         tokio::spawn(async move {
             refresher.run().await;
@@ -58,18 +59,15 @@ impl CommitteesRefreshConfig {
 }
 
 async fn build_refresher_and_handle(
-    sui_client: impl ReadClient,
+    sui_read_client: SuiReadClient,
     committees_refresh_config: CommitteesRefreshConfig,
-) -> Result<(
-    CommitteesRefresher<impl ReadClient>,
-    CommitteesRefresherHandle,
-)> {
+) -> Result<(CommitteesRefresher, CommitteesRefresherHandle)> {
     let notify = Arc::new(Notify::new());
     let (req_tx, req_rx) = mpsc::channel(committees_refresh_config.refresher_channel_size);
 
     let refresher = CommitteesRefresher::new(
         committees_refresh_config,
-        sui_client,
+        sui_read_client,
         req_rx,
         notify.clone(),
     )

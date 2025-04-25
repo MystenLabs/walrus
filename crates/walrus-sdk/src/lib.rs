@@ -9,7 +9,6 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod store_when;
-/// Utilities for the Walrus SDK.
 pub mod utils;
 
 pub use sui_types::event::EventID;
