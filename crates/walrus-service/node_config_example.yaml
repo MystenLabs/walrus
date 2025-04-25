@@ -155,3 +155,4 @@ checkpoint_config:
   sync: true
   max_background_operations: 2
   periodic_backups: false
+admin_socket_path: null

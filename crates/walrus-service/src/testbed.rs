@@ -784,6 +784,7 @@ pub async fn create_storage_node_configs(
             balance_check: Default::default(),
             thread_pool: Default::default(),
             checkpoint_config: Default::default(),
+            admin_socket_path: None,
         });
     }
 

@@ -210,7 +210,7 @@ pub enum CheckpointRequest {
 #[derive(Debug)]
 pub struct CheckpointManager {
     /// Handle for the execution loop.
-    loop_handle: Option<JoinHandle<Result<(), CheckpointError>>>,
+    execution_loop: Option<JoinHandle<Result<(), CheckpointError>>>,
     /// Handle for the scheduled loop.
     schedule_loop_handle: Option<JoinHandle<Result<(), CheckpointError>>>,
     /// Cancellation token for shutdown.
@@ -229,41 +229,38 @@ impl CheckpointManager {
     const DEFAULT_TASK_TIMEOUT: StdDuration = time::Duration::from_secs(60 * 60);
 
     /// Create a new checkpoint manager.
-    pub async fn new(
-        db: Arc<RocksDB>,
-        config: CheckpointConfig,
-        shutdown_token: CancellationToken,
-    ) -> Result<Self, CheckpointError> {
+    pub async fn new(db: Arc<RocksDB>, config: CheckpointConfig) -> Result<Self, CheckpointError> {
         if let Some(checkpoint_dir) = config.checkpoint_dir.as_ref() {
             Self::ensure_checkpoint_dir(checkpoint_dir)?;
         }
 
+        let cancel_token = CancellationToken::new();
         let db_clone = db.clone();
         let config_clone = config.clone();
-        let shutdown_token_clone = shutdown_token.clone();
+        let cancel_token_clone = cancel_token.clone();
 
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(100);
 
-        let loop_handle: JoinHandle<Result<(), CheckpointError>> = tokio::spawn(async move {
-            Self::execution_loop(db_clone, config_clone, shutdown_token_clone, command_rx).await?;
+        let execution_loop: JoinHandle<Result<(), CheckpointError>> = tokio::spawn(async move {
+            Self::execution_loop(db_clone, config_clone, cancel_token_clone, command_rx).await?;
             Ok(())
         });
 
         let config_clone = config.clone();
         let schedule_loop_handle = config.periodic_backups.then(|| {
-            let shutdown_token_clone = shutdown_token.clone();
+            let cancel_token_clone = cancel_token.clone();
             let command_tx_clone = command_tx.clone();
 
             tokio::spawn(async move {
-                Self::schedule_loop(config_clone, shutdown_token_clone, command_tx_clone).await?;
+                Self::schedule_loop(config_clone, cancel_token_clone, command_tx_clone).await?;
                 Ok(())
             })
         });
 
         Ok(Self {
-            loop_handle: Some(loop_handle),
+            execution_loop: Some(execution_loop),
             schedule_loop_handle,
-            cancel_token: shutdown_token,
+            cancel_token,
             command_tx,
             config,
         })
@@ -655,7 +652,7 @@ impl CheckpointManager {
 
     /// Join the background tasks and clean up resources.
     pub async fn join(&mut self) -> Result<(), CheckpointError> {
-        if let Some(handle) = self.loop_handle.take() {
+        if let Some(handle) = self.execution_loop.take() {
             if let Err(e) = handle.await {
                 tracing::warn!(?e, "Error joining execution loop");
                 return Err(CheckpointError::Other(e.into()));
@@ -670,6 +667,11 @@ impl CheckpointManager {
         }
 
         Ok(())
+    }
+
+    /// Shutdown the background tasks.
+    pub fn shutdown(&self) {
+        self.cancel_token.cancel();
     }
 }
 
@@ -769,7 +771,6 @@ mod tests {
                     checkpoint_dir: Some(checkpoint_dir.path().to_path_buf()),
                     ..Default::default()
                 },
-                CancellationToken::new(),
             )
             .await?;
 

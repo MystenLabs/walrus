@@ -2741,6 +2741,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             checkpoint_config: Default::default(),
+            admin_socket_path: None,
         },
         temp_dir,
     }

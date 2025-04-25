@@ -601,12 +601,19 @@ impl StorageNode {
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
-        let checkpoint_manager = CheckpointManager::new(
+        // Initialize checkpoint manager
+        let checkpoint_manager = match CheckpointManager::new(
             storage.get_db(),
             config.checkpoint_config.clone(),
-            CancellationToken::new(),
         )
-        .await?;
+        .await
+        {
+            Ok(manager) => Some(Arc::new(manager)),
+            Err(e) => {
+                tracing::warn!(?e, "Failed to initialize checkpoint manager");
+                None
+            }
+        };
         let inner = Arc::new(StorageNodeInner {
             protocol_key_pair: config
                 .protocol_key_pair
@@ -634,7 +641,7 @@ impl StorageNode {
             encoding_config,
             registry: registry.clone(),
             latest_event_epoch: AtomicU32::new(0),
-            checkpoint_manager: Some(Arc::new(checkpoint_manager)),
+            checkpoint_manager,
         });
 
         blocklist.start_refresh_task();
@@ -725,6 +732,9 @@ impl StorageNode {
                 }
             },
             _ = cancel_token.cancelled() => {
+                if let Some(checkpoint_manager) = self.checkpoint_manager() {
+                    checkpoint_manager.shutdown();
+                }
                 self.inner.shut_down();
                 self.blob_sync_handler.cancel_all().await?;
             },

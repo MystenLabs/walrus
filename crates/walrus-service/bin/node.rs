@@ -67,16 +67,6 @@ use walrus_sui::{
 
 const VERSION: &str = version!();
 
-// Define a constant for the admin socket path
-const ADMIN_SOCKET_PATH: &str = "/var/run/walrus/admin.sock";
-
-/// Standard response format for admin commands
-#[derive(Serialize, Deserialize)]
-struct AdminCommandResponse {
-    success: bool,
-    message: String,
-}
-
 /// Manage and run a Walrus storage node.
 #[derive(Debug, Parser)]
 #[command(rename_all = "kebab-case", name = env!("CARGO_BIN_NAME"), version = VERSION)]
@@ -85,11 +75,13 @@ struct Args {
     command: Commands,
 }
 
-/// Arguments for the admin socket.
+/// A wrapper around the necessary components required by the admin commands.
 #[derive(Debug, Clone)]
 struct AdminArgs {
     /// Checkpoint manager.
     checkpoint_manager: Option<Arc<CheckpointManager>>,
+    /// Admin socket path.
+    admin_socket_path: Option<PathBuf>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -177,20 +169,33 @@ enum Commands {
 
     /// Admin commands for managing a running node.
     Admin {
-        /// Admin subcommand to execute
+        /// Admin subcommand to execute.
         #[command(subcommand)]
         command: AdminCommands,
+        /// Path to the admin socket.
+        #[arg(long)]
+        socket_path: PathBuf,
     },
 }
 
-/// Admin subcommands for remote node management
+/// Admin subcommands for remote node management.
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 enum AdminCommands {
-    /// Checkpoint management
+    /// Checkpoint management.
     Checkpoint {
+        /// Subcommand to execute.
         #[command(subcommand)]
         command: CheckpointCommands,
     },
+}
+
+/// Standard response format for admin commands.
+#[derive(Serialize, Deserialize)]
+struct AdminCommandResponse {
+    /// Whether the command was successful.
+    success: bool,
+    /// A message describing the command.
+    message: String,
 }
 
 /// Commands for checkpoint management.
@@ -506,7 +511,10 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Catchup(catchup_args) => commands::catchup(catchup_args)?,
 
-        Commands::Admin { command } => commands::handle_admin_command(command)?,
+        Commands::Admin {
+            command,
+            socket_path,
+        } => commands::handle_admin_command(command, socket_path)?,
     }
     Ok(())
 }
@@ -1178,18 +1186,20 @@ mod commands {
         Ok(())
     }
 
-    /// Handle admin commands from command line.
+    /// Handle admin commands.
     #[tokio::main]
-    pub(crate) async fn handle_admin_command(command: AdminCommands) -> anyhow::Result<()> {
-        let socket_path = PathBuf::from(ADMIN_SOCKET_PATH);
-
+    pub(crate) async fn handle_admin_command(
+        command: AdminCommands,
+        socket_path: PathBuf,
+    ) -> anyhow::Result<()> {
         // Connect to the socket.
-        let socket = UnixStream::connect(&socket_path)
-            .await
-            .context("Failed to connect to admin socket")?;
+        let socket = UnixStream::connect(&socket_path).await.context(format!(
+            "failed to connect to admin socket at '{}'",
+            socket_path.display()
+        ))?;
         let (reader, mut writer) = tokio::io::split(socket);
 
-        // Serialize and send the AdminCommands directly
+        // Serialize and send the AdminCommands.
         let cmd_json = serde_json::to_string(&command)?;
         writer.write_all(cmd_json.as_bytes()).await?;
         writer.write_all(b"\n").await?;
@@ -1236,6 +1246,7 @@ struct StorageNodeRuntime {
     metrics_runtime: MetricsAndLoggingRuntime,
     // INV: Runtime must be dropped last
     runtime: Runtime,
+    /// Path to the admin socket.
     admin_socket_handle: Option<JoinHandle<()>>,
 }
 
@@ -1308,8 +1319,13 @@ impl StorageNodeRuntime {
         });
         tracing::info!("started REST API on {}", node_config.rest_api_address);
 
-        let admin_socket_handle =
-            Self::start_admin_socket(AdminArgs { checkpoint_manager }, admin_cancel_token)?;
+        let admin_socket_handle = Self::start_admin_socket(
+            AdminArgs {
+                checkpoint_manager,
+                admin_socket_path: node_config.admin_socket_path.clone(),
+            },
+            admin_cancel_token,
+        )?;
 
         Ok(Self {
             walrus_node_handle,
@@ -1325,15 +1341,15 @@ impl StorageNodeRuntime {
         let _ = self.runtime.block_on(&mut self.rest_api_handle)?;
         tracing::debug!("waiting for the storage node to shutdown...");
         let _ = self.runtime.block_on(&mut self.walrus_node_handle)?;
-
-        if let Some(ref mut handle) = self.admin_socket_handle {
-            tracing::debug!("waiting for admin socket to shutdown...");
-            let _ = self.runtime.block_on(handle);
+        if let Some(handle) = self.admin_socket_handle.take() {
+            handle.abort();
         }
 
+        // Shutdown the metrics runtime.
         if let Some(runtime) = self.metrics_runtime.runtime.take() {
             runtime.shutdown_background();
         }
+
         Ok(())
     }
 
@@ -1342,10 +1358,13 @@ impl StorageNodeRuntime {
         cancel_token: CancellationToken,
     ) -> anyhow::Result<Option<JoinHandle<()>>> {
         if admin_args.checkpoint_manager.is_none() {
+            tracing::warn!("checkpoint manager is not initialized, skipping admin socket");
             return Ok(None);
         }
-
-        let socket_path = PathBuf::from(ADMIN_SOCKET_PATH);
+        let Some(socket_path) = admin_args.admin_socket_path.clone() else {
+            tracing::warn!("admin socket path is not specified, skipping admin socket");
+            return Ok(None);
+        };
 
         if let Some(parent) = socket_path.parent() {
             std::fs::create_dir_all(parent)?;

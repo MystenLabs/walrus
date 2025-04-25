@@ -174,6 +174,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the checkpointing task.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub checkpoint_config: CheckpointConfig,
+    /// Admin socket path.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub admin_socket_path: Option<PathBuf>,
 }
 
 impl Default for StorageNodeConfig {
@@ -213,6 +216,7 @@ impl Default for StorageNodeConfig {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             checkpoint_config: Default::default(),
+            admin_socket_path: None,
         }
     }
 }
