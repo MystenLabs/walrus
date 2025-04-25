@@ -721,6 +721,7 @@ pub async fn collect_event_blobs_for_catchup(
     recovery_path: &Path,
     metrics: Option<&EventProcessorMetrics>,
 ) -> Result<Vec<BlobId>> {
+    use walrus_sdk::client::Client;
     use walrus_sui::client::contract_config::ContractConfig;
 
     let contract_config = ContractConfig::new(system_object_id, staking_object_id);
@@ -733,9 +734,11 @@ pub async fn collect_event_blobs_for_catchup(
         refresh_config: Default::default(),
     };
 
-    let walrus_client =
-        walrus_sdk::client::Client::new_read_client_with_refresher(config, sui_read_client.clone())
-            .await?;
+    let committees_handle = config
+        .refresh_config
+        .build_refresher_and_run(sui_read_client.clone())
+        .await?;
+    let walrus_client = Client::new(config, committees_handle, sui_read_client.clone()).await?;
 
     let blob_downloader = EventBlobDownloader::new(walrus_client, sui_read_client);
     let blob_ids = blob_downloader

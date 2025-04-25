@@ -38,7 +38,7 @@ use walrus_core::{
 use walrus_sdk::{
     client::{Client, NodeCommunicationFactory, resource::RegisterBlobOp},
     config::load_configuration,
-    error::ClientErrorKind,
+    error::ClientError,
     store_when::StoreWhen,
     sui::{
         client::{
@@ -532,10 +532,10 @@ impl ClientCommandRunner {
         encoding_type: Option<EncodingType>,
     ) -> Result<()> {
         epoch_arg.exactly_one_is_some()?;
-        if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
-            anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(
-                encoding_type.expect("just checked that option is Some")
-            ));
+        if let Some(encoding) = encoding_type {
+            if !encoding.is_supported() {
+                anyhow::bail!(ClientError::UnsupportedEncodingType(encoding));
+            }
         }
 
         let client = get_contract_client(self.config?, self.wallet, self.gas_budget, &None).await?;
@@ -659,7 +659,7 @@ impl ClientCommandRunner {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let client = Client::new(config, refresher_handle).await?;
+        let client = Client::new(config, refresher_handle, ()).await?;
 
         let file = file_or_blob_id.file.clone();
         let blob_id =

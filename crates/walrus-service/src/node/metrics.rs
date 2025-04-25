@@ -10,7 +10,7 @@ use prometheus::{
     IntGaugeVec,
     core::{AtomicU64, GenericGauge, GenericGaugeVec},
 };
-use walrus_sdk::error::ClientErrorKind;
+use walrus_sdk::error::ClientError;
 use walrus_sui::types::{
     BlobCertified,
     BlobEvent,
@@ -269,28 +269,28 @@ impl TelemetryLabel for BlobCertified {
     }
 }
 
-impl TelemetryLabel for ClientErrorKind {
+impl TelemetryLabel for ClientError {
     fn label(&self) -> &'static str {
         match self {
-            ClientErrorKind::CertificationFailed(_) => "certification-failed",
-            ClientErrorKind::NotEnoughConfirmations(_, _) => "not-enough-confirmations",
-            ClientErrorKind::NotEnoughSlivers => "not-enough-slivers",
-            ClientErrorKind::BlobIdDoesNotExist => "blob-id-does-not-exist",
-            ClientErrorKind::NoMetadataReceived => "no-metadata-received",
-            ClientErrorKind::NoValidStatusReceived => "no-valid-status-received",
-            ClientErrorKind::InvalidConfig => "invalid-config",
-            ClientErrorKind::BlobIdBlocked(_) => "blob-id-blocked",
-            ClientErrorKind::NoCompatiblePaymentCoin => "no-compatible-payment-coin",
-            ClientErrorKind::NoCompatibleGasCoins(_) => "no-compatible-gas-coins",
-            ClientErrorKind::AllConnectionsFailed(_) => "all-connections-failed",
-            ClientErrorKind::BehindCurrentEpoch { .. } => "behind-current-epoch",
-            ClientErrorKind::UnsupportedEncodingType(_) => "unsupported-encoding-type",
-            ClientErrorKind::CommitteeChangeNotified => "committee-change-notified",
-            ClientErrorKind::EmptyCommittee => "empty-committee",
-            ClientErrorKind::StakeBelowThreshold(_) => "stake-below-threshold",
-            ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
-            ClientErrorKind::Other(_) => "unknown",
-            ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
+            ClientError::CertificationFailed(_) => "certification-failed",
+            ClientError::NotEnoughConfirmations(_, _) => "not-enough-confirmations",
+            ClientError::NotEnoughSlivers => "not-enough-slivers",
+            ClientError::BlobIdDoesNotExist => "blob-id-does-not-exist",
+            ClientError::NoMetadataReceived => "no-metadata-received",
+            ClientError::NoValidStatusReceived => "no-valid-status-received",
+            ClientError::InvalidConfig => "invalid-config",
+            ClientError::BlobIdBlocked(_) => "blob-id-blocked",
+            ClientError::NoCompatiblePaymentCoin => "no-compatible-payment-coin",
+            ClientError::NoCompatibleGasCoins(_) => "no-compatible-gas-coins",
+            ClientError::AllConnectionsFailed(_) => "all-connections-failed",
+            ClientError::BehindCurrentEpoch { .. } => "behind-current-epoch",
+            ClientError::UnsupportedEncodingType(_) => "unsupported-encoding-type",
+            ClientError::CommitteeChangeNotified => "committee-change-notified",
+            ClientError::EmptyCommittee => "empty-committee",
+            ClientError::StakeBelowThreshold(_) => "stake-below-threshold",
+            ClientError::FailedToLoadCerts(_) => "failed-to-load-certs",
+            ClientError::Other(_) => "unknown",
+            ClientError::StoreBlobInternal(_) => "store-blob-internal",
         }
     }
 }

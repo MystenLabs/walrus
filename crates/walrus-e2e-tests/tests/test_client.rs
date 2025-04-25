@@ -37,15 +37,12 @@ use walrus_core::{
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
     client::{Blocklist, Client, WalrusStoreBlob, WalrusStoreBlobApi, responses::BlobStoreResult},
-    error::{
-        ClientError,
-        ClientErrorKind::{
-            self,
-            NoMetadataReceived,
-            NoValidStatusReceived,
-            NotEnoughConfirmations,
-            NotEnoughSlivers,
-        },
+    error::ClientError::{
+        self,
+        NoMetadataReceived,
+        NoValidStatusReceived,
+        NotEnoughConfirmations,
+        NotEnoughSlivers,
     },
     store_when::StoreWhen,
 };
@@ -191,7 +188,7 @@ async_param_test! {
 async fn test_store_and_read_blob_with_crash_failures(
     failed_shards_write: &[usize],
     failed_shards_read: &[usize],
-    expected_errors: &[ClientErrorKind],
+    expected_errors: &[ClientError],
 ) {
     telemetry_subscribers::init_for_testing();
     let result =
@@ -204,12 +201,11 @@ async fn test_store_and_read_blob_with_crash_failures(
             Ok(client_err) => {
                 if !expected_errs
                     .iter()
-                    .any(|expected_err| error_kind_matches(client_err.kind(), expected_err))
+                    .any(|expected_err| error_kind_matches(&client_err, expected_err))
                 {
                     panic!(
                         "client error mismatch; expected=({:?}); actual=({:?});",
-                        expected_errs,
-                        client_err.kind()
+                        expected_errs, client_err
                     )
                 }
             }
@@ -375,17 +371,17 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
     Ok(())
 }
 
-fn error_kind_matches(actual: &ClientErrorKind, expected: &ClientErrorKind) -> bool {
+fn error_kind_matches(actual: &ClientError, expected: &ClientError) -> bool {
     match (actual, expected) {
         (
-            ClientErrorKind::NotEnoughConfirmations(act_a, act_b),
-            ClientErrorKind::NotEnoughConfirmations(exp_a, exp_b),
+            ClientError::NotEnoughConfirmations(act_a, act_b),
+            ClientError::NotEnoughConfirmations(exp_a, exp_b),
         ) => act_a == exp_a && act_b == exp_b,
-        (ClientErrorKind::NotEnoughSlivers, ClientErrorKind::NotEnoughSlivers) => true,
-        (ClientErrorKind::BlobIdDoesNotExist, ClientErrorKind::BlobIdDoesNotExist) => true,
-        (ClientErrorKind::NoMetadataReceived, ClientErrorKind::NoMetadataReceived) => true,
-        (ClientErrorKind::NoValidStatusReceived, ClientErrorKind::NoValidStatusReceived) => true,
-        (ClientErrorKind::Other(_), ClientErrorKind::Other(_)) => true,
+        (ClientError::NotEnoughSlivers, ClientError::NotEnoughSlivers) => true,
+        (ClientError::BlobIdDoesNotExist, ClientError::BlobIdDoesNotExist) => true,
+        (ClientError::NoMetadataReceived, ClientError::NoMetadataReceived) => true,
+        (ClientError::NoValidStatusReceived, ClientError::NoValidStatusReceived) => true,
+        (ClientError::Other(_), ClientError::Other(_)) => true,
         (_, _) => false,
     }
 }
@@ -928,8 +924,8 @@ async fn test_storage_nodes_delete_data_for_deleted_blobs() -> TestResult {
         .read_blob::<Primary>(&blob_id.expect("blob id should be present"))
         .await;
     assert!(matches!(
-        read_result.unwrap_err().kind(),
-        ClientErrorKind::BlobIdDoesNotExist,
+        read_result.unwrap_err(),
+        ClientError::BlobIdDoesNotExist,
     ));
 
     Ok(())
@@ -1005,7 +1001,7 @@ async fn test_blocklist() -> TestResult {
     let error = blob_read_result.expect_err("result must be an error");
 
     assert!(
-        matches!(error.kind(), ClientErrorKind::BlobIdBlocked(_)),
+        matches!(error, ClientError::BlobIdBlocked(_)),
         "unexpected error {:?}",
         error
     );

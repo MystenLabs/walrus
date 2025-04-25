@@ -77,7 +77,7 @@ impl ClientMultiplexer {
             .refresh_config
             .build_refresher_and_run(sui_read_client.clone())
             .await?;
-        let read_client = Client::new_read_client(
+        let read_client = Client::new(
             config.clone(),
             refresh_handle.clone(),
             sui_read_client.clone(),
@@ -345,9 +345,7 @@ impl<'a> SubClientLoader<'a> {
         // Merge existing coins to avoid fragmentation.
         sui_client.merge_coins().await?;
 
-        let client =
-            Client::new_contract_client(self.config.clone(), refresh_handle, sui_client).await?;
-        Ok(client)
+        Ok(Client::new(self.config.clone(), refresh_handle, sui_client).await?)
     }
 
     /// Creates or loads a new wallet to use with the multiplexer.
