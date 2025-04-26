@@ -20,23 +20,18 @@ use std::{
 use anyhow::Context;
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::{future, stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, future, stream::FuturesUnordered};
 use sui_macros::nondeterministic;
 use sui_types::base_types::ObjectID;
 use tempfile::TempDir;
 #[cfg(msim)]
 use tokio::sync::RwLock;
 use tokio::{task::JoinHandle, time::Duration};
-use tokio_stream::{wrappers::BroadcastStream, Stream};
+use tokio_stream::{Stream, wrappers::BroadcastStream};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
-use typed_store::{rocks::MetricConf, Map};
+use typed_store::{Map, rocks::MetricConf};
 use walrus_core::{
-    encoding::EncodingConfig,
-    keys::{NetworkKeyPair, ProtocolKeyPair},
-    merkle::MerkleProof,
-    messages::InvalidBlobCertificate,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
@@ -46,34 +41,44 @@ use walrus_core::{
     Sliver,
     SliverPairIndex,
     SliverType,
+    encoding::EncodingConfig,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
+    merkle::MerkleProof,
+    messages::InvalidBlobCertificate,
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_rest_client::client::Client;
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::{
     client::{
-        retry_client::RetriableRpcClient,
         BlobObjectMetadata,
         FixedSystemParameters,
         SuiClientError,
+        retry_client::RetriableRpcClient,
     },
     test_utils::system_setup::SystemContext,
     types::{
-        move_structs::{EpochState, EventBlob, NodeMetadata, VotingParams},
         Committee,
         ContractEvent,
+        GENESIS_EPOCH,
         NetworkAddress,
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,
-        GENESIS_EPOCH,
+        move_structs::{EpochState, EventBlob, NodeMetadata, VotingParams},
     },
 };
 use walrus_test_utils::WithTempDir;
 use walrus_utils::{backoff::ExponentialBackoffConfig, metrics::Registry};
 
 #[cfg(msim)]
-use crate::common::config::{combine_rpc_urls, SuiConfig};
+use crate::common::config::{SuiConfig, combine_rpc_urls};
+#[cfg(msim)]
+use crate::node::{ConfigLoader, events::event_processor::EventProcessorRuntimeConfig};
 use crate::node::{
+    DatabaseConfig,
+    Storage,
+    StorageNode,
     committee::{
         BeginCommitteeChangeError,
         CommitteeLookupService,
@@ -86,20 +91,15 @@ use crate::node::{
     contract_service::SystemContractService,
     errors::{SyncNodeConfigError, SyncShardClientError},
     events::{
-        event_processor::EventProcessor,
         CheckpointEventPosition,
         EventStreamCursor,
         InitState,
         PositionedStreamEvent,
+        event_processor::EventProcessor,
     },
     server::{RestApiConfig, RestApiServer},
     system_events::{EventManager, EventRetentionManager, SystemEventProvider},
-    DatabaseConfig,
-    Storage,
-    StorageNode,
 };
-#[cfg(msim)]
-use crate::node::{events::event_processor::EventProcessorRuntimeConfig, ConfigLoader};
 
 /// Default buyer subsidy rate (5%)
 const DEFAULT_BUYER_SUBSIDY_RATE: u16 = 500;
@@ -490,10 +490,12 @@ impl SimStorageNodeHandle {
                     &sui_config.additional_rpc_endpoints,
                 ),
                 event_polling_interval: Duration::from_millis(100),
-                db_path: nondeterministic!(tempfile::tempdir()
-                    .expect("temporary directory creation must succeed")
-                    .path()
-                    .to_path_buf()),
+                db_path: nondeterministic!(
+                    tempfile::tempdir()
+                        .expect("temporary directory creation must succeed")
+                        .path()
+                        .to_path_buf()
+                ),
                 rpc_fallback_config: None,
                 db_config: DatabaseConfig::default(),
             };
@@ -2232,12 +2234,12 @@ pub mod test_cluster {
             client::{SuiContractClient, SuiReadClient},
             test_utils::{
                 self,
+                TestClusterHandle,
                 system_setup::{
                     create_and_init_system_for_test,
                     end_epoch_zero,
                     register_committee_and_stake,
                 },
-                TestClusterHandle,
             },
             types::move_structs::Authorized,
         },
@@ -2248,8 +2250,8 @@ pub mod test_cluster {
         committee::DefaultNodeServiceFactory,
         contract_service::SuiSystemContractService,
         events::{
-            event_processor::{EventProcessorRuntimeConfig, SystemConfig},
             EventProcessorConfig,
+            event_processor::{EventProcessorRuntimeConfig, SystemConfig},
         },
     };
 
@@ -2653,10 +2655,12 @@ pub mod test_cluster {
             let processor_config = EventProcessorRuntimeConfig {
                 rpc_addresses: rpc_urls.to_vec(),
                 event_polling_interval: Duration::from_millis(100),
-                db_path: nondeterministic!(tempfile::tempdir()
-                    .expect("temporary directory creation must succeed")
-                    .path()
-                    .to_path_buf()),
+                db_path: nondeterministic!(
+                    tempfile::tempdir()
+                        .expect("temporary directory creation must succeed")
+                        .path()
+                        .to_path_buf()
+                ),
                 rpc_fallback_config: None,
                 db_config: DatabaseConfig::default(),
             };

@@ -7,13 +7,15 @@
 use std::{collections::BTreeMap, fmt, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::Context;
-use futures::{future, stream, Stream, StreamExt};
+use futures::{Stream, StreamExt, future, stream};
 use rand::{
-    rngs::{StdRng, ThreadRng},
     Rng as _,
+    rngs::{StdRng, ThreadRng},
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use sui_sdk::{
+    SuiClient,
+    SuiClientBuilder,
     rpc_types::{
         Balance,
         Coin,
@@ -34,31 +36,29 @@ use sui_sdk::{
         TransactionBlocksPage,
     },
     wallet_context::WalletContext,
-    SuiClient,
-    SuiClientBuilder,
 };
 #[cfg(msim)]
 use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
+    TypeTag,
     base_types::{ObjectID, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
     quorum_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
-    TypeTag,
 };
 use tracing::Level;
 use walrus_core::ensure;
 use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
 
 use super::{
-    failover::{FailoverError, LazyClientBuilder},
-    retry_rpc_errors,
     FailoverWrapper,
-    SuiClientError,
-    SuiClientResult,
     GAS_SAFE_OVERHEAD,
     MULTI_GET_OBJ_LIMIT,
+    SuiClientError,
+    SuiClientResult,
+    failover::{FailoverError, LazyClientBuilder},
+    retry_rpc_errors,
 };
 use crate::{
     client::SuiClientMetricSet,

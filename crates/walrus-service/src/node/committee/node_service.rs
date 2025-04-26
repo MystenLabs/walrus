@@ -23,13 +23,9 @@ use std::{
     time::Duration,
 };
 
-use futures::{future::BoxFuture, FutureExt};
+use futures::{FutureExt, future::BoxFuture};
 use tower::Service;
 use walrus_core::{
-    encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
-    keys::ProtocolKeyPair,
-    messages::InvalidBlobIdAttestation,
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     InconsistencyProof as InconsistencyProofEnum,
@@ -39,6 +35,10 @@ use walrus_core::{
     SliverIndex,
     SliverPairIndex,
     SliverType,
+    encoding::{EncodingConfig, GeneralRecoverySymbol, Primary, Secondary},
+    keys::ProtocolKeyPair,
+    messages::InvalidBlobIdAttestation,
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_rest_client::{
     client::{Client, RecoverySymbolsFilter},

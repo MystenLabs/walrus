@@ -33,10 +33,13 @@ use sui_types::{
 use test_cluster::{FullNodeHandle, TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 #[cfg(msim)]
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    Epoch,
     keys::{NetworkKeyPair, ProtocolKeyPair},
     messages::{
         BlobPersistenceType,
@@ -47,9 +50,6 @@ use walrus_core::{
         ProtocolMessage,
         ProtocolMessageCertificate,
     },
-    BlobId,
-    Epoch,
-    DEFAULT_ENCODING,
 };
 use walrus_test_utils::WithTempDir;
 

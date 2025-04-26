@@ -4,20 +4,20 @@
 use std::{num::NonZeroU16, sync::Arc};
 
 use anyhow::Result;
-use futures::{future::Either, stream::FuturesUnordered, Future, StreamExt};
+use futures::{Future, StreamExt, future::Either, stream::FuturesUnordered};
 use rand::rngs::StdRng;
 use tokio::sync::Semaphore;
 use tracing::{Level, Span};
 use walrus_core::{
-    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
-    messages::{BlobPersistenceType, SignedStorageConfirmation},
-    metadata::VerifiedBlobMetadataWithId,
     BlobId,
     Epoch,
     PublicKey,
     ShardIndex,
     Sliver,
     SliverPairIndex,
+    encoding::{EncodingAxis, EncodingConfig, SliverData, SliverPair},
+    messages::{BlobPersistenceType, SignedStorageConfirmation},
+    metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_rest_client::{
     api::{BlobStatus, StoredOnNodeStatus},
@@ -30,7 +30,7 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 use crate::{
     config::RequestRateConfig,
     error::{SliverStoreError, StoreError},
-    utils::{string_prefix, WeightedResult},
+    utils::{WeightedResult, string_prefix},
 };
 
 /// Below this threshold, the `NodeCommunication` client will not check if the sliver is present on
@@ -467,7 +467,8 @@ impl NodeWriteCommunication<'_> {
             );
         } else if sliver.len() < SLIVER_CHECK_THRESHOLD {
             print_debug(
-                "the sliver is sufficiently small not to require a status check; storing the sliver"
+                "the sliver is sufficiently small not to require a status check; \
+                storing the sliver",
             );
         } else if self.get_sliver_status::<A>(blob_id, pair_index).await?
             == StoredOnNodeStatus::Nonexistent

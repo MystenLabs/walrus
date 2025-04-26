@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
-    core::{AtomicU64, GenericGauge, GenericGaugeVec},
     Histogram,
     HistogramVec,
     IntCounter,
     IntCounterVec,
     IntGauge,
     IntGaugeVec,
+    core::{AtomicU64, GenericGauge, GenericGaugeVec},
 };
 use walrus_sdk::error::ClientErrorKind;
 use walrus_sui::types::{

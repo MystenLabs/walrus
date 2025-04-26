@@ -5,7 +5,7 @@
 
 use walrus_core::{BlobId, EncodingType, Epoch, SliverPairIndex, SliverType};
 use walrus_rest_client::error::{ClientBuildError, NodeError};
-use walrus_sui::client::{SuiClientError, MIN_STAKING_THRESHOLD};
+use walrus_sui::client::{MIN_STAKING_THRESHOLD, SuiClientError};
 
 /// Storing the metadata and the set of sliver pairs onto the storage node, and retrieving the
 /// storage confirmation, failed.

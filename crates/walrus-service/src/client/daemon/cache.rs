@@ -16,7 +16,7 @@
 //! element is not inserted.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     fmt::{Debug, Display},
     hash::Hash,
     time::Duration,
@@ -24,7 +24,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationSeconds};
+use serde_with::{DurationSeconds, serde_as};
 use tokio::sync::{mpsc, oneshot};
 
 use super::auth::PublisherAuthError;

@@ -7,5 +7,5 @@ mod walrus;
 // Re-export for easier access
 pub use crate::providers::walrus::{
     provider::WalrusNodeProvider,
-    query::{get_walrus_nodes, NodeInfo},
+    query::{NodeInfo, get_walrus_nodes},
 };

@@ -4,16 +4,16 @@
 use std::{panic::Location, time::Duration};
 
 use anyhow::Result;
-use diesel::{sql_types::Bytea, QueryableByName};
-use diesel_async::{scoped_futures::ScopedFutureExt, RunQueryDsl};
-use object_store::{gcp::GoogleCloudStorageBuilder, local::LocalFileSystem, ObjectStore};
+use diesel::{QueryableByName, sql_types::Bytea};
+use diesel_async::{RunQueryDsl, scoped_futures::ScopedFutureExt};
+use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem};
 use walrus_core::BlobId;
 
 use super::{
+    BACKUP_BLOB_ARCHIVE_SUBDIR,
     config::BackupConfig,
     metrics::BackupGarbageCollectorMetricSet,
-    service::{establish_connection_async, retry_serializable_query, VERSION},
-    BACKUP_BLOB_ARCHIVE_SUBDIR,
+    service::{VERSION, establish_connection_async, retry_serializable_query},
 };
 use crate::common::utils::{self, MetricsAndLoggingRuntime};
 

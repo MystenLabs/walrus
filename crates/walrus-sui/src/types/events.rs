@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
-use walrus_core::{ensure, BlobId, EncodingType, Epoch, ShardIndex};
+use walrus_core::{BlobId, EncodingType, Epoch, ShardIndex, ensure};
 
 use crate::contracts::{self, AssociatedSuiEvent, MoveConversionError, StructTag};
 

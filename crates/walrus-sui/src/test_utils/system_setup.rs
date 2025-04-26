@@ -13,24 +13,24 @@ use std::{
 };
 
 use anyhow::Result;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use serde::{Deserialize, Serialize};
 use sui_sdk::{types::base_types::ObjectID, wallet_context::WalletContext};
 use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_test_utils::WithTempDir;
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
-use super::{new_wallet_on_sui_test_cluster, TestClusterHandle, TestNodeKeys};
+use super::{TestClusterHandle, TestNodeKeys, new_wallet_on_sui_test_cluster};
 use crate::{
     client::{
-        contract_config::ContractConfig,
         ReadClient,
         SuiClientError,
         SuiClientResult,
         SuiContractClient,
+        contract_config::ContractConfig,
     },
     system_setup::{self, InitSystemParams, PublishSystemPackageResult},
     types::{NodeRegistrationParams, StorageNodeCap},

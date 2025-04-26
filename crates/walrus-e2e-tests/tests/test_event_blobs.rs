@@ -6,10 +6,10 @@ use std::time::Duration;
 
 use anyhow::Context;
 use walrus_core::{
-    encoding::{Primary, Secondary},
     BlobId,
+    encoding::{Primary, Secondary},
 };
-use walrus_service::test_utils::{test_cluster, TestNodesConfig};
+use walrus_service::test_utils::{TestNodesConfig, test_cluster};
 use walrus_sui::client::ReadClient;
 
 #[tokio::test]

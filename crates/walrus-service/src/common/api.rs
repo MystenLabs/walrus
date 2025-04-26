@@ -12,22 +12,22 @@ use std::{
 };
 
 use axum::{
-    response::{IntoResponse, Response},
     Json,
+    response::{IntoResponse, Response},
 };
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use utoipa::{
+    ToSchema,
     openapi::{
-        schema,
         ContentBuilder,
         RefOr,
         Response as OpenApiResponse,
         ResponseBuilder,
         ResponsesBuilder,
+        schema,
     },
-    ToSchema,
 };
 use walrus_core::BlobId;
 use walrus_rest_client::api::errors::{ErrorInfo, Status, StatusCode as ApiStatusCode};

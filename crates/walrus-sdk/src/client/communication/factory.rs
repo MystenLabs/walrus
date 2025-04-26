@@ -4,7 +4,7 @@
 //! Create the vectors of node communications objects.
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     sync::{Arc, Mutex},
 };
 
@@ -14,7 +14,7 @@ use reqwest::Client as ReqwestClient;
 use rustls::pki_types::CertificateDer;
 use rustls_native_certs::CertificateResult;
 use tokio::sync::Semaphore;
-use walrus_core::{encoding::EncodingConfig, Epoch, NetworkPublicKey};
+use walrus_core::{Epoch, NetworkPublicKey, encoding::EncodingConfig};
 use walrus_rest_client::{
     client::{Client as StorageNodeClient, ClientBuilder as StorageNodeClientBuilder},
     error::ClientBuildError,

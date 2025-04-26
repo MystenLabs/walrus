@@ -7,15 +7,15 @@ use std::{iter::once, sync::Arc, time::Duration};
 
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds};
+use serde_with::{DurationMilliSeconds, serde_as};
 use walrus_sui::{
     client::{
-        contract_config::ContractConfig,
-        rpc_config::RpcFallbackConfig,
         SuiClientError,
         SuiClientMetricSet,
         SuiContractClient,
         SuiReadClient,
+        contract_config::ContractConfig,
+        rpc_config::RpcFallbackConfig,
     },
     config::WalletConfig,
 };

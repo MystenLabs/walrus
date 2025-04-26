@@ -10,8 +10,8 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::FromStr as _,
     sync::{
-        atomic::{AtomicU64 as StdAtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64 as StdAtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -21,32 +21,32 @@ use axum::{
     extract::{ConnectInfo, MatchedPath, State},
     http::{
         self,
-        header::{self, AsHeaderName},
-        uri::Scheme,
         Request,
         Version,
+        header::{self, AsHeaderName},
+        uri::Scheme,
     },
     middleware,
 };
 use opentelemetry::propagation::Extractor;
 use prometheus::{
-    core::{AtomicU64, Collector, GenericGauge},
     Histogram,
     HistogramVec,
     IntGauge,
     IntGaugeVec,
     Opts,
+    core::{AtomicU64, Collector, GenericGauge},
 };
 use reqwest::Method;
 use tokio::time::Instant;
 use tokio_metrics::TaskMonitor;
 use tower_http::trace::{MakeSpan, OnResponse};
-use tracing::{field, Span};
+use tracing::{Span, field};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use walrus_core::Epoch;
 use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_utils::{
-    http::{http_body::Frame, BodyVisitor, VisitBody},
+    http::{BodyVisitor, VisitBody, http_body::Frame},
     metrics::{Registry, TaskMonitorFamily},
 };
 

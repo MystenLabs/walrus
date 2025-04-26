@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
 use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
@@ -21,35 +21,35 @@ use retry_client::RetriableSuiClient;
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
-        get_new_package_obj_from_response,
         Coin,
         SuiExecutionStatus,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
+        get_new_package_obj_from_response,
     },
     types::base_types::{ObjectID, ObjectRef},
     wallet_context::WalletContext,
 };
 use sui_types::{
+    TypeTag,
     base_types::SuiAddress,
     event::EventID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{Argument, ProgrammableTransaction, TransactionData, TransactionKind},
-    TypeTag,
 };
 use tokio::sync::Mutex;
 use tokio_stream::Stream;
 use tracing::Level;
-use transaction_builder::{WalrusPtbBuilder, MAX_BURNS_PER_PTB};
+use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
-    ensure,
-    merkle::Node as MerkleNode,
-    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
-    metadata::{BlobMetadataApi as _, BlobMetadataWithId},
     BlobId,
     EncodingType,
     Epoch,
     EpochCount,
+    ensure,
+    merkle::Node as MerkleNode,
+    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
+    metadata::{BlobMetadataApi as _, BlobMetadataWithId},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -57,6 +57,14 @@ use crate::{
     contracts,
     system_setup::compile_package,
     types::{
+        BlobEvent,
+        Committee,
+        ContractEvent,
+        NodeRegistrationParams,
+        NodeUpdateParams,
+        StakedWal,
+        StorageNodeCap,
+        StorageResource,
         move_errors::{BlobError, MoveExecutionError, StakingError, SubsidiesError, SystemError},
         move_structs::{
             Authorized,
@@ -68,14 +76,6 @@ use crate::{
             SharedBlob,
             StorageNode,
         },
-        BlobEvent,
-        Committee,
-        ContractEvent,
-        NodeRegistrationParams,
-        NodeUpdateParams,
-        StakedWal,
-        StorageNodeCap,
-        StorageResource,
     },
     utils::get_created_sui_object_ids_by_type,
 };
@@ -361,11 +361,7 @@ impl PostStoreAction {
     ///
     /// If `share` is true, returns [`Self::Share`], otherwise returns [`Self::Keep`].
     pub fn from_share(share: bool) -> Self {
-        if share {
-            Self::Share
-        } else {
-            Self::Keep
-        }
+        if share { Self::Share } else { Self::Keep }
     }
 }
 

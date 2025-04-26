@@ -7,30 +7,30 @@ use std::{
 };
 
 use indicatif::MultiProgress;
-use rand::{rngs::StdRng, thread_rng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng, thread_rng};
 use sui_sdk::{types::base_types::SuiAddress, wallet_context::WalletContext};
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    EpochCount,
+    SliverPairIndex,
     encoding::EncodingConfigTrait as _,
     merkle::Node,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    EpochCount,
-    SliverPairIndex,
-    DEFAULT_ENCODING,
 };
 use walrus_sdk::{
-    client::{metrics::ClientMetrics, refresh::CommitteesRefresherHandle, Client},
+    client::{Client, metrics::ClientMetrics, refresh::CommitteesRefresherHandle},
     error::ClientError,
     store_when::StoreWhen,
 };
 use walrus_service::client::{ClientConfig, Refiller};
 use walrus_sui::{
     client::{
-        retry_client::RetriableSuiClient,
         BlobPersistence,
         PostStoreAction,
         ReadClient,
         SuiContractClient,
+        retry_client::RetriableSuiClient,
     },
     test_utils::temp_dir_wallet,
     utils::SuiNetwork,

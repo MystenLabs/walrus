@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
     Mutex,
+    atomic::{AtomicU64, Ordering},
 };
 
 use rocksdb::{MergeOperands, Options};
@@ -12,15 +12,15 @@ use serde::{Deserialize, Serialize};
 use sui_types::event::EventID;
 use tracing::Level;
 use typed_store::{
-    rocks::{DBMap, ReadWriteOptions, RocksDB},
     Map,
     TypedStoreError,
+    rocks::{DBMap, ReadWriteOptions, RocksDB},
 };
 
 use super::{
+    DatabaseConfig,
     constants::{event_cursor_cf_name, event_cursor_key},
     event_sequencer::EventSequencer,
-    DatabaseConfig,
 };
 
 type ProgressMergeOperand = (EventID, u64);

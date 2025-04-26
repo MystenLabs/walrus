@@ -20,7 +20,7 @@ use core::{
     str::FromStr,
 };
 
-use base64::{display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{Engine, display::Base64Display, engine::general_purpose::URL_SAFE_NO_PAD};
 use by_axis::{Axis, ByAxis, WrongAxisError};
 use encoding::{
     EncodingAxis,

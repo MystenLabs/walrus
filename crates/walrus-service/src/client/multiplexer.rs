@@ -6,8 +6,8 @@
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -20,10 +20,10 @@ use sui_types::base_types::ObjectID;
 use walrus_core::{BlobId, EncodingType, EpochCount};
 use walrus_sdk::{
     client::{
+        Client,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
         responses::BlobStoreResult,
-        Client,
     },
     config::ClientConfig,
     error::ClientResult,
@@ -31,11 +31,11 @@ use walrus_sdk::{
 };
 use walrus_sui::{
     client::{
-        retry_client::RetriableSuiClient,
         BlobPersistence,
         PostStoreAction,
         SuiContractClient,
         SuiReadClient,
+        retry_client::RetriableSuiClient,
     },
     config::load_wallet_context_from_path,
     types::move_structs::BlobWithAttribute,

@@ -38,6 +38,7 @@ repos:
     rev: 0.18.2
     hooks:
       - id: cargo-deny
+        args: ["--all-features", "check", "--hide-inclusion-graph"]
   - repo: local
     hooks:
       - id: taplo-format

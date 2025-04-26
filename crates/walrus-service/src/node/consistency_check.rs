@@ -16,13 +16,13 @@ use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
 use super::{
+    StorageNodeInner,
     storage::blob_info::{
         BlobInfoIter,
         BlobInfoIterator,
         CertifiedBlobInfoApi,
         PerObjectBlobInfoIterator,
     },
-    StorageNodeInner,
 };
 
 /// Schedule a background task to compute the hash of the list of certified blobs at the

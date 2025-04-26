@@ -10,24 +10,24 @@ use std::{
 
 use blob::WriteBlobConfig;
 use futures::future::try_join_all;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{
-    sync::mpsc::{self, error::TryRecvError, Receiver, Sender},
+    sync::mpsc::{self, Receiver, Sender, error::TryRecvError},
     time::{Interval, MissedTickBehavior},
 };
-use walrus_core::{encoding::Primary, BlobId, EpochCount};
+use walrus_core::{BlobId, EpochCount, encoding::Primary};
 use walrus_sdk::{
     client::{
-        metrics::{self, ClientMetrics},
         Client,
+        metrics::{self, ClientMetrics},
     },
     config::ClientConfig,
     error::ClientResult,
 };
 use walrus_service::client::{RefillHandles, Refiller};
 use walrus_sui::{
-    client::{retry_client::RetriableSuiClient, SuiReadClient},
+    client::{SuiReadClient, retry_client::RetriableSuiClient},
     utils::SuiNetwork,
 };
 

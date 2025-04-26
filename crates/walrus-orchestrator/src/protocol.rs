@@ -7,7 +7,7 @@ use std::{
 };
 
 use eyre::Context;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{benchmark::BenchmarkParameters, client::Instance};
 

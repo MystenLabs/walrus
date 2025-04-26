@@ -5,17 +5,17 @@
 //! See the [`crate::derive_rest_api_error`] for more details.
 
 use darling::{
-    ast::{self, Data, Style},
-    util::{Flag, Ignored, SpannedValue},
     Error,
     FromDeriveInput,
     FromMeta,
     FromVariant,
     Result,
+    ast::{self, Data, Style},
+    util::{Flag, Ignored, SpannedValue},
 };
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, ToTokens};
-use syn::{spanned::Spanned as _, Attribute, DeriveInput, Ident};
+use quote::{ToTokens, format_ident, quote};
+use syn::{Attribute, DeriveInput, Ident, spanned::Spanned as _};
 
 /// Derive the `RestApiError` trait and associated traits.
 pub(super) fn derive(item: proc_macro::TokenStream) -> proc_macro::TokenStream {

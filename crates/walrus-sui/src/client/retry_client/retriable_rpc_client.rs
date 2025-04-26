@@ -8,8 +8,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -17,10 +17,10 @@ use std::{
 use atomic_time::AtomicInstant;
 use mysten_metrics::monitored_scope;
 use rand::{
-    rngs::{StdRng, ThreadRng},
     Rng as _,
+    rngs::{StdRng, ThreadRng},
 };
-use sui_rpc_api::{client::ResponseExt, Client};
+use sui_rpc_api::{Client, client::ResponseExt};
 use sui_types::{
     base_types::ObjectID,
     full_checkpoint_content::CheckpointData,
@@ -33,12 +33,12 @@ use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
 use self::fallback_client::FallbackClient;
 pub use self::fallback_client::FallbackError;
 use super::{
-    failover::{FailoverError, LazyClientBuilder},
-    retry_rpc_errors,
     FailoverWrapper,
     FallibleRpcClient,
+    failover::{FailoverError, LazyClientBuilder},
+    retry_rpc_errors,
 };
-use crate::client::{rpc_config::RpcFallbackConfig, SuiClientMetricSet};
+use crate::client::{SuiClientMetricSet, rpc_config::RpcFallbackConfig};
 pub mod fallback_client;
 
 /// Checks if the full node provides the required REST endpoint for event processing.

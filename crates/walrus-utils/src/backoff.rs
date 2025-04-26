@@ -3,9 +3,9 @@
 
 use std::{future::Future, num::Saturating, time::Duration};
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DurationMilliSeconds};
+use serde_with::{DurationMilliSeconds, serde_as};
 
 /// Wrapper for the configuration for the exponential backoff strategy.
 #[serde_as]

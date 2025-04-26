@@ -82,7 +82,7 @@ impl AuthConfig {
 
 #[cfg(test)]
 mod tests {
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 

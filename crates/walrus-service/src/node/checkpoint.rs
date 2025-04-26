@@ -9,8 +9,8 @@ use std::{
 
 use chrono::Utc;
 use rocksdb::{
-    backup::{BackupEngine, BackupEngineOptions, RestoreOptions},
     Env,
+    backup::{BackupEngine, BackupEngineOptions, RestoreOptions},
 };
 use serde::{Deserialize, Serialize};
 use tokio::{task::JoinHandle, time};
@@ -688,8 +688,8 @@ mod tests {
     use rocksdb::Options;
     use tempfile::tempdir;
     use typed_store::{
-        rocks::{self, DBMap, MetricConf, ReadWriteOptions},
         Map,
+        rocks::{self, DBMap, MetricConf, ReadWriteOptions},
     };
 
     use super::*;

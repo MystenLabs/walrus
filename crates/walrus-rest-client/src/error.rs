@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use walrus_core::Epoch;
 
 use crate::{
-    api::errors::{Status, STORAGE_NODE_ERROR_DOMAIN},
+    api::errors::{STORAGE_NODE_ERROR_DOMAIN, Status},
     tls::VerifierBuildError,
 };
 

@@ -14,25 +14,24 @@ use std::{
 use fastcrypto::traits::ToFromBytes;
 use sui_sdk::rpc_types::SuiObjectDataOptions;
 use sui_types::{
-    base_types::{ObjectID, ObjectType, SuiAddress},
-    programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
     Identifier,
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
+    base_types::{ObjectID, ObjectType, SuiAddress},
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::{Argument, Command, ObjectArg, ProgrammableTransaction},
 };
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use walrus_core::{
-    ensure,
-    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
     Epoch,
     EpochCount,
     NetworkPublicKey,
+    ensure,
+    messages::{ConfirmationCertificate, InvalidBlobCertificate, ProofOfPossession},
 };
 
 use super::{
-    read_client::Mutability,
     BlobObjectMetadata,
     BlobPersistence,
     CoinType,
@@ -41,16 +40,17 @@ use super::{
     SuiClientError,
     SuiClientResult,
     SuiReadClient,
+    read_client::Mutability,
 };
 use crate::{
     contracts::{self, FunctionTag},
     types::{
-        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
         NetworkAddress,
         NodeRegistrationParams,
         NodeUpdateParams,
         SystemObject,
         UpdatePublicKeyParams,
+        move_structs::{Authorized, BlobAttribute, NodeMetadata, WalExchange},
     },
     utils::{price_for_encoded_length, write_price_for_encoded_length},
 };

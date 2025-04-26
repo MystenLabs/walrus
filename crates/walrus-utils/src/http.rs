@@ -111,8 +111,8 @@ mod tests {
     use std::{
         collections::VecDeque,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc,
+            atomic::{AtomicBool, Ordering},
         },
     };
 

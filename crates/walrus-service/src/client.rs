@@ -8,12 +8,12 @@ pub mod responses;
 
 pub(crate) mod config;
 pub use walrus_sdk::{
-    config::{default_configuration_paths, ClientCommunicationConfig, ClientConfig},
+    config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
     utils::string_prefix,
 };
 
 mod daemon;
-pub use daemon::{auth::Claim, ClientDaemon, PublisherQuery, WalrusWriteClient};
+pub use daemon::{ClientDaemon, PublisherQuery, WalrusWriteClient, auth::Claim};
 
 mod refill;
 pub use refill::{RefillHandles, Refiller};

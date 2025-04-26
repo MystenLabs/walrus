@@ -13,35 +13,35 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, ensure, Context};
+use anyhow::{Context, anyhow, ensure};
 use futures::future::join_all;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use serde_with::base64::Base64;
 use sui_sdk::wallet_context::WalletContext;
 use sui_types::base_types::ObjectID;
 use walrus_core::{
-    keys::{NetworkKeyPair, ProtocolKeyPair},
     EpochCount,
     ShardIndex,
+    keys::{NetworkKeyPair, ProtocolKeyPair},
 };
 use walrus_sdk::config::ClientCommunicationConfig;
 use walrus_sui::{
-    client::{rpc_config::RpcFallbackConfig, SuiContractClient},
-    config::{load_wallet_context_from_path, WalletConfig},
+    client::{SuiContractClient, rpc_config::RpcFallbackConfig},
+    config::{WalletConfig, load_wallet_context_from_path},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
+        SystemContext,
         create_and_init_system,
         end_epoch_zero,
         register_committee_and_stake,
-        SystemContext,
     },
     types::{
-        move_structs::{NodeMetadata, VotingParams},
         NetworkAddress,
         NodeRegistrationParams,
+        move_structs::{NodeMetadata, VotingParams},
     },
-    utils::{create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet, SuiNetwork},
+    utils::{SuiNetwork, create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet},
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
@@ -50,9 +50,9 @@ use crate::{
     client::{self},
     common::config::{SuiConfig, SuiReaderConfig},
     node::config::{
-        defaults::{self, REST_API_PORT},
         PathOrInPlace,
         StorageNodeConfig,
+        defaults::{self, REST_API_PORT},
     },
 };
 
@@ -280,12 +280,12 @@ pub async fn deploy_walrus_contract(
     }: DeployTestbedContractParameters<'_>,
 ) -> anyhow::Result<TestbedConfig> {
     const WAL_AMOUNT_EXCHANGE: u64 = 10_000_000 * 1_000_000_000;
-    // 1000 WAL for subsidies that will be used to fund the subsidy pool
-    const SUBSIDIES_AMOUNT: u64 = 1000 * 1_000_000_000;
-    // 5% buyer subsidy rate
-    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 500;
-    // 10% system subsidy rate
-    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 1000;
+    // 10M WAL for subsidies that will be used to fund the subsidy pool
+    const SUBSIDIES_AMOUNT: u64 = 10_000_000 * 1_000_000_000;
+    // 80% buyer subsidy rate
+    const INITIAL_BUYER_SUBSIDY_RATE: u16 = 8000;
+    // 80% system subsidy rate
+    const INITIAL_SYSTEM_SUBSIDY_RATE: u16 = 8000;
     // Check whether the testbed collocates the storage nodes on the same machine
     // (that is, local testbed).
     let hosts_set = hosts.iter().collect::<HashSet<_>>();

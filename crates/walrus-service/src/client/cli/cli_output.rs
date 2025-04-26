@@ -7,7 +7,7 @@ use anyhow::Result;
 use colored::Colorize;
 use indoc::printdoc;
 use itertools::Itertools as _;
-use prettytable::{format, row, Table};
+use prettytable::{Table, format, row};
 use serde::Serialize;
 use walrus_core::{BlobId, ShardIndex};
 use walrus_rest_client::api::{BlobStatus, DeletableCounts, EventProgress};
@@ -22,14 +22,14 @@ use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
-        error,
-        success,
-        thousands_separator,
-        warning,
         HumanReadableBytes,
         HumanReadableFrost,
         HumanReadableMist,
         WalrusColors,
+        error,
+        success,
+        thousands_separator,
+        warning,
     },
     responses::{
         BlobIdConversionOutput,

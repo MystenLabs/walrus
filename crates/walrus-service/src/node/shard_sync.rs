@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     sync::Arc,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, stream::FuturesUnordered};
 #[cfg(msim)]
 use sui_macros::{fail_point_arg, fail_point_if};
 use tokio::{
@@ -18,12 +18,12 @@ use walrus_rest_client::error::ServiceError;
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
+    NodeStatus,
+    StorageNodeInner,
     blob_retirement_notifier::ExecutionResultWithRetirementCheck,
     config::ShardSyncConfig,
     errors::SyncShardClientError,
-    storage::{blob_info::BlobInfo, ShardStatus, ShardStorage},
-    NodeStatus,
-    StorageNodeInner,
+    storage::{ShardStatus, ShardStorage, blob_info::BlobInfo},
 };
 use crate::node::{errors::ShardNotAssigned, storage::blob_info::CertifiedBlobInfoApi};
 
@@ -708,16 +708,20 @@ mod tests {
             .await
             .expect("Failed to restart syncs");
         assert_eq!(shard_sync_handler.current_sync_task_count().await, 2);
-        assert!(shard_sync_handler
-            .shard_sync_in_progress
-            .lock()
-            .await
-            .contains_key(&ShardIndex(0)));
-        assert!(shard_sync_handler
-            .shard_sync_in_progress
-            .lock()
-            .await
-            .contains_key(&ShardIndex(2)));
+        assert!(
+            shard_sync_handler
+                .shard_sync_in_progress
+                .lock()
+                .await
+                .contains_key(&ShardIndex(0))
+        );
+        assert!(
+            shard_sync_handler
+                .shard_sync_in_progress
+                .lock()
+                .await
+                .contains_key(&ShardIndex(2))
+        );
     }
 
     #[tokio::test(start_paused = false)]

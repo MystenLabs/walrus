@@ -12,18 +12,18 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use move_core_types::language_storage::StructTag as MoveStructTag;
-use move_package::{source_package::layout::SourcePackageLayout, BuildConfig as MoveBuildConfig};
+use move_package::{BuildConfig as MoveBuildConfig, source_package::layout::SourcePackageLayout};
 use serde::{Deserialize, Serialize};
-use sui_config::{sui_config_dir, Config, SUI_KEYSTORE_FILENAME};
+use sui_config::{Config, SUI_KEYSTORE_FILENAME, sui_config_dir};
 use sui_keys::keystore::{AccountKeystore, FileBasedKeystore, Keystore};
 use sui_sdk::{
+    SuiClient,
     rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
     wallet_context::WalletContext,
-    SuiClient,
 };
 use sui_types::{
     base_types::SuiAddress,
@@ -32,12 +32,12 @@ use sui_types::{
     transaction::TransactionData,
 };
 use walrus_core::{
-    encoding::encoded_blob_length_for_n_shards,
-    keys::ProtocolKeyPair,
-    messages::{ProofOfPossessionMsg, SignedMessage},
     EncodingType,
     Epoch,
     EpochCount,
+    encoding::encoded_blob_length_for_n_shards,
+    keys::ProtocolKeyPair,
+    messages::{ProofOfPossessionMsg, SignedMessage},
 };
 
 use crate::{

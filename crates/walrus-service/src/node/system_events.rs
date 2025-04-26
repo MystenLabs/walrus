@@ -11,20 +11,20 @@ use futures::StreamExt;
 use futures_util::stream;
 use sui_types::{digests::TransactionDigest, event::EventID};
 use tokio::time::MissedTickBehavior;
-use tokio_stream::{wrappers::IntervalStream, Stream};
+use tokio_stream::{Stream, wrappers::IntervalStream};
 use tracing::Level;
 use walrus_sui::client::{ReadClient, SuiReadClient};
 
-use super::{StorageNodeInner, STATUS_PENDING, STATUS_PERSISTED};
+use super::{STATUS_PENDING, STATUS_PERSISTED, StorageNodeInner};
 use crate::{
     common::config::SuiConfig,
     node::{
         events::{
-            event_processor::EventProcessor,
             CheckpointEventPosition,
             EventStreamCursor,
             InitState,
             PositionedStreamEvent,
+            event_processor::EventProcessor,
         },
         metrics::STATUS_HIGHEST_FINISHED,
         storage::EventProgress,
@@ -216,7 +216,7 @@ pub trait SystemEventProvider: std::fmt::Debug + Sync + Send {
     /// time initialization of storage node, the event stream is requested to start from event
     /// cursor 0.
     async fn init_state(&self, from: EventStreamCursor)
-        -> Result<Option<InitState>, anyhow::Error>;
+    -> Result<Option<InitState>, anyhow::Error>;
 
     /// Return a reference to this provider as a [`EventProcessor`].
     fn as_event_processor(&self) -> Option<&EventProcessor>;

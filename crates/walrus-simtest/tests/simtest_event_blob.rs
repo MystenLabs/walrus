@@ -19,10 +19,10 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_sdk::{client::Client, config::ClientCommunicationConfig};
     use walrus_service::test_utils::{
-        test_cluster,
         SimStorageNodeHandle,
         TestCluster,
         TestNodesConfig,
+        test_cluster,
     };
     use walrus_simtest::test_utils::{simtest_utils, simtest_utils::BlobInfoConsistencyCheck};
     use walrus_sui::{

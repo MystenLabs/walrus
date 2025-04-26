@@ -17,12 +17,18 @@ pub use communication::NodeCommunicationFactory;
 use futures::{Future, FutureExt};
 use indicatif::{HumanDuration, MultiProgress};
 use metrics::ClientMetrics;
-use rand::{rngs::ThreadRng, RngCore as _};
+use rand::{RngCore as _, rngs::ThreadRng};
 use rayon::{iter::IntoParallelIterator, prelude::*};
 use sui_types::base_types::ObjectID;
 use tokio::{sync::Semaphore, time::Duration};
 use tracing::{Instrument as _, Level};
 use walrus_core::{
+    BlobId,
+    EncodingType,
+    Epoch,
+    EpochCount,
+    ShardIndex,
+    Sliver,
     bft,
     encoding::{
         BlobDecoderEnum,
@@ -35,12 +41,6 @@ use walrus_core::{
     ensure,
     messages::{BlobPersistenceType, ConfirmationCertificate, SignedStorageConfirmation},
     metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    ShardIndex,
-    Sliver,
 };
 use walrus_rest_client::{api::BlobStatus, error::NodeError};
 use walrus_sui::{
@@ -53,13 +53,13 @@ use walrus_sui::{
         ReadClient,
         SuiContractClient,
     },
-    types::{move_structs::BlobWithAttribute, Blob, BlobEvent, StakedWal},
+    types::{Blob, BlobEvent, StakedWal, move_structs::BlobWithAttribute},
 };
 use walrus_utils::{backoff::BackoffStrategy, metrics::Registry};
 
 use self::{
     communication::NodeResult,
-    refresh::{are_current_previous_different, CommitteesRefresherHandle, RequestKind},
+    refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
     resource::{PriceComputation, RegisterBlobOp, ResourceManager, StoreOp},
     responses::{BlobStoreResult, BlobStoreResultWithPath},
 };
@@ -69,11 +69,11 @@ use crate::{
     config::CommunicationLimits,
     error::{ClientError, ClientErrorKind, ClientResult},
     store_when::StoreWhen,
-    utils::{styled_progress_bar, styled_spinner, WeightedResult},
+    utils::{WeightedResult, styled_progress_bar, styled_spinner},
 };
 pub use crate::{
     blocklist::Blocklist,
-    config::{default_configuration_paths, ClientCommunicationConfig, ClientConfig},
+    config::{ClientCommunicationConfig, ClientConfig, default_configuration_paths},
 };
 
 pub mod client_types;
@@ -1692,7 +1692,7 @@ impl<T> Client<T> {
                 Err(client_error)
                     if matches!(client_error.kind(), &ClientErrorKind::BlobIdDoesNotExist) =>
                 {
-                    return Err(client_error)
+                    return Err(client_error);
                 }
                 Err(_) => (),
             };

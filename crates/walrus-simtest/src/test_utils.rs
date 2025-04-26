@@ -7,22 +7,22 @@
 pub mod simtest_utils {
     use std::{
         collections::{HashMap, HashSet},
-        sync::{atomic::AtomicBool, Arc, Mutex},
+        sync::{Arc, Mutex, atomic::AtomicBool},
         time::Duration,
     };
 
     use anyhow::Context;
-    use rand::{seq::IteratorRandom, Rng};
+    use rand::{Rng, seq::IteratorRandom};
     use sui_types::base_types::ObjectID;
     use tokio::task::JoinHandle;
     use walrus_core::{
-        encoding::{Primary, Secondary},
-        Epoch,
         DEFAULT_ENCODING,
+        Epoch,
+        encoding::{Primary, Secondary},
     };
     use walrus_rest_client::api::ServiceHealthInfo;
     use walrus_sdk::{
-        client::{responses::BlobStoreResult, Client},
+        client::{Client, responses::BlobStoreResult},
         store_when::StoreWhen,
     };
     use walrus_service::test_utils::SimStorageNodeHandle;

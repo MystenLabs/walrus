@@ -7,11 +7,11 @@ use std::{fmt::Display, num::NonZeroU16};
 
 use fastcrypto::traits::ToFromBytes;
 use serde::{
-    de::{DeserializeOwned, Error},
     Deserialize,
     Deserializer,
     Serialize,
     Serializer,
+    de::{DeserializeOwned, Error},
 };
 pub use sui_types::base_types::ObjectID;
 use sui_types::{
@@ -22,13 +22,13 @@ use sui_types::{
 #[cfg(feature = "utoipa")]
 use utoipa::openapi::schema;
 use walrus_core::{
-    messages::BlobPersistenceType,
     BlobId,
     EncodingType,
     Epoch,
     NetworkPublicKey,
     PublicKey,
     ShardIndex,
+    messages::BlobPersistenceType,
 };
 
 use super::NetworkAddress;

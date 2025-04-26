@@ -13,7 +13,7 @@ use anyhow::{Context, Error};
 use serde::{Deserialize, Serialize};
 use sui_types::base_types::ObjectID;
 use walrus_sui::{
-    client::{contract_config::ContractConfig, CommitteesAndState, ReadClient},
+    client::{CommitteesAndState, ReadClient, contract_config::ContractConfig},
     types::Committee,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;

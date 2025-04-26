@@ -8,12 +8,23 @@ use std::sync::Arc;
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
 use middleware::{HttpClientMetrics, HttpMiddleware, UrlTemplate};
-use reqwest::{header::HeaderValue, Client as ReqwestClient, Method, Request, Response, Url};
-use serde::{de::DeserializeOwned, Serialize, Serializer};
+use reqwest::{Client as ReqwestClient, Method, Request, Response, Url, header::HeaderValue};
+use serde::{Serialize, Serializer, de::DeserializeOwned};
 use sui_types::base_types::ObjectID;
 use tower::ServiceExt;
 use tracing::Level;
 use walrus_core::{
+    BlobId,
+    Epoch,
+    InconsistencyProof as InconsistencyProofEnum,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
+    Sliver,
+    SliverIndex,
+    SliverPairIndex,
+    SliverType,
+    SymbolId,
     encoding::{
         EncodingAxis,
         EncodingConfig,
@@ -36,17 +47,6 @@ use walrus_core::{
         SyncShardResponse,
     },
     metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
-    BlobId,
-    Epoch,
-    InconsistencyProof as InconsistencyProofEnum,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
-    Sliver,
-    SliverIndex,
-    SliverPairIndex,
-    SliverType,
-    SymbolId,
 };
 
 use crate::{
@@ -968,8 +968,8 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    use walrus_core::{encoding::Primary, test_utils, SuiObjectId};
-    use walrus_test_utils::{param_test, Result as TestResult};
+    use walrus_core::{SuiObjectId, encoding::Primary, test_utils};
+    use walrus_test_utils::{Result as TestResult, param_test};
 
     use super::*;
 

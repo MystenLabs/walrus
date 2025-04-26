@@ -5,15 +5,15 @@ use std::{collections::HashSet, str::FromStr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use axum::{
+    Json,
     body::Bytes,
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    Json,
 };
 use axum_extra::{
-    headers::{authorization::Bearer, Authorization},
     TypedHeader,
+    headers::{Authorization, authorization::Bearer},
 };
 use jsonwebtoken::{DecodingKey, Validation};
 use reqwest::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, X_CONTENT_TYPE_OPTIONS};
@@ -31,17 +31,17 @@ use walrus_sdk::{
     store_when::StoreWhen,
 };
 use walrus_sui::{
-    client::BlobPersistence,
-    types::move_structs::{BlobAttribute, BlobWithAttribute},
     ObjectIdSchema,
     SuiAddressSchema,
+    client::BlobPersistence,
+    types::move_structs::{BlobAttribute, BlobWithAttribute},
 };
 
 use super::{WalrusReadClient, WalrusWriteClient};
 use crate::{
     client::daemon::{
-        auth::{Claim, PublisherAuthError},
         PostStoreAction,
+        auth::{Claim, PublisherAuthError},
     },
     common::api::{Binary, BlobIdString, RestApiError},
 };
@@ -209,9 +209,7 @@ pub(super) async fn get_blob_by_object_id<T: WalrusReadClient>(
 #[rest_api_error(domain = ERROR_DOMAIN)]
 pub(crate) enum GetBlobError {
     /// The requested blob has not yet been stored on Walrus.
-    #[error(
-        "the requested blob ID does not exist on Walrus, ensure that it was entered correctly"
-    )]
+    #[error("the requested blob ID does not exist on Walrus, ensure that it was entered correctly")]
     #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
     BlobNotFound,
 

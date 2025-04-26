@@ -10,36 +10,36 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::account_address::AccountAddress;
 use move_package::BuildConfig as MoveBuildConfig;
 use sui_move_build::{
+    BuildConfig,
+    CompiledPackage,
+    PackageDependencies,
     build_from_resolution_graph,
     check_invalid_dependencies,
     check_unpublished_dependencies,
     gather_published_ids,
-    BuildConfig,
-    CompiledPackage,
-    PackageDependencies,
 };
 use sui_sdk::{
     rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
     types::{
+        Identifier,
         base_types::ObjectID,
         programmable_transaction_builder::ProgrammableTransactionBuilder,
         transaction::TransactionData,
-        Identifier,
     },
     wallet_context::WalletContext,
 };
 use sui_types::{
-    transaction::{ObjectArg, TransactionKind},
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     SUI_FRAMEWORK_ADDRESS,
+    transaction::{ObjectArg, TransactionKind},
 };
 use walkdir::WalkDir;
-use walrus_core::{ensure, EpochCount};
+use walrus_core::{EpochCount, ensure};
 
 use crate::{
     client::retry_client::RetriableSuiClient,

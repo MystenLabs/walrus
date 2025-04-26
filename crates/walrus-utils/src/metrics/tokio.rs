@@ -333,7 +333,7 @@ fn to_label_pair(name: &str, value: &str) -> LabelPair {
 
 #[cfg(test)]
 mod test {
-    use prometheus::{proto::Counter, Registry};
+    use prometheus::{Registry, proto::Counter};
 
     use super::*;
 

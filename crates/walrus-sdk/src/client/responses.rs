@@ -6,11 +6,11 @@
 use std::{fmt::Display, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
+use serde_with::{DisplayFromStr, serde_as};
 use sui_types::{base_types::ObjectID, event::EventID};
 use utoipa::ToSchema;
 use walrus_core::{BlobId, Epoch};
-use walrus_sui::{types::move_structs::Blob, EventIdSchema, ObjectIdSchema};
+use walrus_sui::{EventIdSchema, ObjectIdSchema, types::move_structs::Blob};
 
 use super::resource::RegisterBlobOp;
 

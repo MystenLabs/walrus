@@ -85,6 +85,7 @@ bytes = { workspace = true, optional = true }
 checkpoint-downloader = { workspace = true, optional = true }
 chrono.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 colored = { workspace = true, optional = true }
 diesel = { workspace = true, optional = true }
 diesel-async = { workspace = true, optional = true }

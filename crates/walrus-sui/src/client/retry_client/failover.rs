@@ -8,7 +8,7 @@ use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Du
 use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 
-use super::{retry_count_guard::RetryCountGuard, RetriableClientError, ToErrorType};
+use super::{RetriableClientError, ToErrorType, retry_count_guard::RetryCountGuard};
 use crate::client::{SuiClientError, SuiClientMetricSet};
 
 /// A trait that defines the implementation of a thunk to build (or re-use) a client lazily.
@@ -307,12 +307,12 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{atomic::AtomicUsize, Arc};
+    use std::sync::{Arc, atomic::AtomicUsize};
 
     use super::{FailoverError, FailoverWrapper, LazyClientBuilder, MakeRetriableError};
     use crate::client::{
-        retry_client::{CheckpointRpcError, RetriableClientError, RetriableRpcError},
         SuiClientError,
+        retry_client::{CheckpointRpcError, RetriableClientError, RetriableRpcError},
     };
 
     #[test]

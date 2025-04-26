@@ -14,49 +14,49 @@ use std::{
 use anyhow::{Context, Result};
 use byteorder::{BigEndian, WriteBytesExt};
 use futures_util::future::try_join_all;
-use prometheus::{register_int_gauge_with_registry, IntGauge};
-use rand::{thread_rng, Rng};
+use prometheus::{IntGauge, register_int_gauge_with_registry};
+use rand::{Rng, thread_rng};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use typed_store::{
-    rocks,
-    rocks::{errors::typed_store_err_from_rocks_err, DBBatch, DBMap, MetricConf, ReadWriteOptions},
     Map,
+    rocks,
+    rocks::{DBBatch, DBMap, MetricConf, ReadWriteOptions, errors::typed_store_err_from_rocks_err},
 };
 use walrus_core::{
+    BlobId,
+    DEFAULT_ENCODING,
+    Epoch,
+    Sliver,
     encoding::EncodingConfigTrait as _,
     ensure,
     metadata::VerifiedBlobMetadataWithId,
-    BlobId,
-    Epoch,
-    Sliver,
-    DEFAULT_ENCODING,
 };
 use walrus_sui::{
     client::SuiClientError,
     types::{
-        move_errors::{MoveExecutionError, SystemStateInnerError},
-        move_structs::EventBlob as SuiEventBlob,
         BlobEvent,
         ContractEvent,
         EpochChangeEvent,
+        move_errors::{MoveExecutionError, SystemStateInnerError},
+        move_structs::EventBlob as SuiEventBlob,
     },
 };
 use walrus_utils::metrics::Registry;
 
 use crate::node::{
+    DatabaseConfig,
+    StorageNodeInner,
     errors::StoreSliverError,
     events::{
-        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
         EventStreamCursor,
         EventStreamElement,
         IndexedStreamEvent,
         InitState,
         PositionedStreamEvent,
+        event_blob::{BlobEntry, EntryEncoding, EventBlob, SerializedEventID},
     },
-    DatabaseConfig,
-    StorageNodeInner,
 };
 
 /// The column family name for certified event blobs.
@@ -1631,13 +1631,13 @@ mod tests {
 
     use crate::{
         node::{
+            DatabaseConfig,
             events::{
-                event_blob::EventBlob,
-                event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
                 CheckpointEventPosition,
                 PositionedStreamEvent,
+                event_blob::EventBlob,
+                event_blob_writer::{EventBlobWriter, EventBlobWriterFactory},
             },
-            DatabaseConfig,
         },
         test_utils::StorageNodeHandle,
     };

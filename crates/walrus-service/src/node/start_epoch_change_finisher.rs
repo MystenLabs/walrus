@@ -13,7 +13,7 @@ use walrus_sdk::active_committees::ActiveCommittees;
 use walrus_sui::types::EpochChangeStart;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
-use super::{system_events::EventHandle, StorageNodeInner};
+use super::{StorageNodeInner, system_events::EventHandle};
 use crate::node::system_events::CompletableHandle;
 
 #[derive(Debug, Clone)]

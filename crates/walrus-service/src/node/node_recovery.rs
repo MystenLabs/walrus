@@ -8,8 +8,8 @@ use sui_macros::fail_point_async;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
-use super::{blob_sync::BlobSyncHandler, StorageNodeInner};
-use crate::node::{storage::blob_info::CertifiedBlobInfoApi, NodeStatus};
+use super::{StorageNodeInner, blob_sync::BlobSyncHandler};
+use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {

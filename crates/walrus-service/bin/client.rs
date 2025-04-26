@@ -5,12 +5,14 @@
 
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Duration, Utc};
-use clap::Parser;
+use clap::{CommandFactory, Parser, ValueEnum as _};
+use clap_complete::Shell;
+use itertools::Itertools;
 use serde::Deserialize;
 use walrus_service::{
-    client::cli::{error, App, ClientCommandRunner, Commands},
+    client::cli::{App, ClientCommandRunner, Commands, error},
     utils::{self, MetricsAndLoggingRuntime},
 };
 use walrus_sui::client::retry_client::RetriableRpcError;
@@ -85,6 +87,27 @@ fn client() -> Result<()> {
             tracing::debug!(%metrics_address, "started metrics and logging on separate runtime");
 
             runner.run_daemon_app(command, runtime)
+        }
+        Commands::Completion { shell } => {
+            let sh = if let Some(shell) = shell {
+                Shell::from_str(&shell, true).map_err(|e| {
+                    let possible_shells: String = Shell::value_variants()
+                        .iter()
+                        .map(|s| s.to_string())
+                        .join(",");
+
+                    anyhow!("{e}. Possible values: {}", possible_shells)
+                })
+            } else {
+                Shell::from_env().ok_or(anyhow!("Could not auto-detect shell"))
+            }?;
+            clap_complete::generate(
+                sh,
+                &mut App::command(),
+                env!("CARGO_BIN_NAME"),
+                &mut std::io::stdout(),
+            );
+            Ok(())
         }
         Commands::Json { .. } => unreachable!("we have extracted the json command above"),
     }

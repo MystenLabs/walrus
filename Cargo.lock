@@ -1914,7 +1914,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "checkpoint-downloader"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2018,6 +2018,15 @@ dependencies = [
  "clap_lex",
  "strsim 0.11.1",
  "terminal_size",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.5.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c06f5378ea264ad4f82bbc826628b5aad714a75abf6ece087e923010eb937fb6"
+dependencies = [
+ "clap",
 ]
 
 [[package]]
@@ -11991,7 +12000,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-core"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -12015,7 +12024,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-e2e-tests"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -12046,7 +12055,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-orchestrator"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "aws-config",
  "aws-runtime",
@@ -12076,7 +12085,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proc-macros"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "darling 0.20.11",
  "proc-macro2",
@@ -12087,7 +12096,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-proxy"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "axum 0.8.3",
@@ -12126,7 +12135,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-rest-client"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "axum 0.8.3",
  "axum-server 0.7.2",
@@ -12164,7 +12173,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sdk"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -12203,7 +12212,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-service"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12217,6 +12226,7 @@ dependencies = [
  "checkpoint-downloader",
  "chrono",
  "clap",
+ "clap_complete",
  "colored",
  "diesel",
  "diesel-async",
@@ -12304,7 +12314,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-simtest"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "futures",
@@ -12329,7 +12339,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-stress"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -12354,7 +12364,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-sui"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -12405,7 +12415,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-test-utils"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "rand 0.8.5",
@@ -12415,7 +12425,7 @@ dependencies = [
 
 [[package]]
 name = "walrus-utils"
-version = "1.23.0"
+version = "1.24.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -12428,6 +12438,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "serde_yaml 0.9.34+deprecated",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",

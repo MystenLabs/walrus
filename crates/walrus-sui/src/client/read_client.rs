@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use sui_sdk::{
     apis::EventApi,
@@ -29,28 +29,35 @@ use sui_sdk::{
     types::base_types::ObjectID,
 };
 use sui_types::{
+    Identifier,
+    TypeTag,
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
     object::Owner,
     transaction::ObjectArg,
-    Identifier,
-    TypeTag,
 };
-use tokio::sync::{mpsc, OnceCell};
-use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio::sync::{OnceCell, mpsc};
+use tokio_stream::{Stream, wrappers::ReceiverStream};
 use tracing::Instrument as _;
-use walrus_core::{ensure, Epoch};
+use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{
-    contract_config::ContractConfig,
-    retry_client::{RetriableSuiClient, MULTI_GET_OBJ_LIMIT},
     SuiClientError,
     SuiClientResult,
+    contract_config::ContractConfig,
+    retry_client::{MULTI_GET_OBJ_LIMIT, RetriableSuiClient},
 };
 use crate::{
     contracts::{self, AssociatedContractStruct, TypeOriginMap},
     types::{
+        BlobEvent,
+        Committee,
+        ContractEvent,
+        StakingObject,
+        StorageNode,
+        StorageNodeCap,
+        SystemObject,
         move_structs::{
             Blob,
             BlobAttribute,
@@ -67,13 +74,6 @@ use crate::{
             SystemStateInnerV1Enum,
             SystemStateInnerV1Testnet,
         },
-        BlobEvent,
-        Committee,
-        ContractEvent,
-        StakingObject,
-        StorageNode,
-        StorageNodeCap,
-        SystemObject,
     },
     utils::{get_sui_object_from_object_response, handle_pagination},
 };

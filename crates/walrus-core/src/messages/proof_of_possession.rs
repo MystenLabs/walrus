@@ -4,7 +4,7 @@
 use serde::Serialize;
 
 use super::{Intent, InvalidIntent, ProtocolMessage, SignedMessage};
-use crate::{messages::IntentType, Epoch, PublicKey};
+use crate::{Epoch, PublicKey, messages::IntentType};
 
 /// The message body for a `ProofOfPossessionMsg`,
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
