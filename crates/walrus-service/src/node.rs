@@ -601,7 +601,6 @@ impl StorageNode {
             .metrics_registry(registry.clone())
             .build_bounded();
         let blocklist: Arc<Blocklist> = Arc::new(Blocklist::new(&config.blocklist_path)?);
-        // Initialize checkpoint manager
         let checkpoint_manager = match CheckpointManager::new(
             storage.get_db(),
             config.checkpoint_config.clone(),

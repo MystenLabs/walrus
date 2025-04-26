@@ -202,12 +202,16 @@ struct AdminCommandResponse {
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize)]
 #[command(rename_all = "kebab-case")]
 enum CheckpointCommands {
-    /// Create a new checkpoint at the specified path.
+    /// Create a new checkpoint.
     Create {
-        /// The path where the checkpoint will be created.
+        /// The path where the checkpoint will be created. If not specified, the checkpoint will be
+        /// created in the `checkpoint_dir` specified in [`StorageNodeConfig::checkpoint_config`].
         #[arg(long)]
         #[serde(default)]
         path: Option<PathBuf>,
+        /// The delay before creating the checkpoint.
+        #[arg(long)]
+        delay_secs: Option<u64>,
     },
 
     /// List existing checkpoints.
@@ -1404,15 +1408,18 @@ impl StorageNodeRuntime {
     }
 }
 
-/// Handle checkpoint commands from admin socket
+/// Handle checkpoint commands from admin socket.
 async fn handle_checkpoint_command(
     command: CheckpointCommands,
     manager: &Arc<CheckpointManager>,
 ) -> Result<String, String> {
     match command {
-        CheckpointCommands::Create { path } => {
+        CheckpointCommands::Create { path, delay_secs } => {
             match manager
-                .schedule_and_wait_for_checkpoint_creation(path.as_deref())
+                .schedule_and_wait_for_checkpoint_creation(
+                    path.as_deref(),
+                    delay_secs.map(std::time::Duration::from_secs),
+                )
                 .await
             {
                 Ok(_) => Ok("Checkpoint created successfully".to_string()),
@@ -1441,11 +1448,9 @@ async fn handle_connection(stream: UnixStream, args: AdminArgs) {
     let mut line = String::new();
 
     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-        // Parse the command as AdminCommands.
         let response = if let Some(manager) = args.checkpoint_manager.as_ref() {
             match serde_json::from_str::<AdminCommands>(&line) {
                 Ok(AdminCommands::Checkpoint { command }) => {
-                    // Handle checkpoint commands
                     match handle_checkpoint_command(command, manager).await {
                         Ok(message) => AdminCommandResponse {
                             success: true,

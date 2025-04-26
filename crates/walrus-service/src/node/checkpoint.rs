@@ -28,7 +28,7 @@ pub struct CheckpointConfig {
     pub max_backups: usize,
     /// How often to create backups (in seconds).
     pub checkpoint_interval_secs: u64,
-    /// Whether to sync files to disk after each backup.
+    /// Whether to sync files to disk before each backup.
     pub sync: bool,
     /// Number of background operations for backup/restore.
     pub max_background_operations: i32,
@@ -193,6 +193,8 @@ pub enum CheckpointRequest {
         response: tokio::sync::oneshot::Sender<TaskResult<CheckpointError>>,
         /// The directory to create the backup in.
         checkpoint_dir: PathBuf,
+        /// Delay before creating the backup.
+        delay: Option<time::Duration>,
     },
     /// Get the status of the current task.
     GetStatus {
@@ -202,7 +204,8 @@ pub enum CheckpointRequest {
     /// Cancel the current task.
     CancelBackup {
         /// The response channel.
-        response: tokio::sync::oneshot::Sender<bool>, // true if canceled
+        /// returns true if the backup was canceled.
+        response: tokio::sync::oneshot::Sender<bool>,
     },
 }
 
@@ -217,6 +220,7 @@ pub struct CheckpointManager {
     cancel_token: CancellationToken,
     /// Command channel.
     command_tx: tokio::sync::mpsc::Sender<CheckpointRequest>,
+    /// The configuration.
     config: CheckpointConfig,
 }
 
@@ -231,7 +235,7 @@ impl CheckpointManager {
     /// Create a new checkpoint manager.
     pub async fn new(db: Arc<RocksDB>, config: CheckpointConfig) -> Result<Self, CheckpointError> {
         if let Some(checkpoint_dir) = config.checkpoint_dir.as_ref() {
-            Self::ensure_checkpoint_dir(checkpoint_dir)?;
+            Self::ensure_checkpoint_dir_exists(checkpoint_dir)?;
         }
 
         let cancel_token = CancellationToken::new();
@@ -270,8 +274,8 @@ impl CheckpointManager {
     pub async fn schedule_and_wait_for_checkpoint_creation(
         &self,
         checkpoint_dir: Option<&Path>,
+        delay: Option<time::Duration>,
     ) -> Result<(), CheckpointError> {
-        // Resolve checkpoint directory with simple conditional logic
         let checkpoint_path = if let Some(dir) = checkpoint_dir {
             dir.to_path_buf()
         } else if let Some(config_dir) = self.config.checkpoint_dir.as_ref() {
@@ -283,14 +287,14 @@ impl CheckpointManager {
             )));
         };
 
-        // Ensure the directory exists
-        Self::ensure_checkpoint_dir(&checkpoint_path)?;
+        Self::ensure_checkpoint_dir_exists(&checkpoint_path)?;
 
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         self.command_tx
             .send(CheckpointRequest::CreateBackup {
                 response: response_tx,
                 checkpoint_dir: checkpoint_path,
+                delay,
             })
             .await
             .map_err(|e| CheckpointError::Other(e.into()))?;
@@ -350,7 +354,7 @@ impl CheckpointManager {
 
                 Some(cmd) = command_rx.recv() => {
                     match cmd {
-                        CheckpointRequest::CreateBackup { response, checkpoint_dir } => {
+                        CheckpointRequest::CreateBackup { response, checkpoint_dir, delay } => {
                             if current_task.as_ref().is_some_and(|task| {
                                 matches!(task.get_status(), TaskStatus::Running(_))
                             }) {
@@ -361,7 +365,7 @@ impl CheckpointManager {
                                 let db_clone = db.clone();
                                 let config_clone = config.clone();
                                 current_task = Some(Arc::new(DelayedTask::new(
-                                    time::Instant::now(),
+                                    time::Instant::now() + delay.unwrap_or_default(),
                                     Self::DEFAULT_TASK_TIMEOUT,
                                     move || {
                                         let result = Self::create_backup_impl(
@@ -450,6 +454,7 @@ impl CheckpointManager {
                     if let Err(e) = command_tx.send(CheckpointRequest::CreateBackup {
                         response: response_tx,
                         checkpoint_dir: checkpoint_dir.to_path_buf(),
+                        delay: None,
                     }).await {
                         tracing::error!(?e, "Failed to send backup request");
                         next_checkpoint_time = time::Instant::now() +
@@ -635,8 +640,8 @@ impl CheckpointManager {
         }
     }
 
-    /// Create the checkpoint directory if it doesn't exist
-    fn ensure_checkpoint_dir(checkpoint_dir: &Path) -> Result<(), CheckpointError> {
+    /// Create the checkpoint directory if it doesn't exist.
+    fn ensure_checkpoint_dir_exists(checkpoint_dir: &Path) -> Result<(), CheckpointError> {
         match checkpoint_dir.try_exists() {
             Ok(true) => Ok(()),
             Ok(false) => std::fs::create_dir_all(checkpoint_dir)
@@ -775,7 +780,7 @@ mod tests {
             .await?;
 
             checkpoint_manager
-                .schedule_and_wait_for_checkpoint_creation(Some(checkpoint_dir.path()))
+                .schedule_and_wait_for_checkpoint_creation(Some(checkpoint_dir.path()), None)
                 .await?;
         }
 
