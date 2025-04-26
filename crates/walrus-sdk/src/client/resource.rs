@@ -539,8 +539,19 @@ impl<'a> ResourceManager<'a> {
                     .iter()
                     .position(|storage| storage.storage_size >= encoded_length);
 
-                if let Some(idx) = best_resource_idx {
-                    let storage_resource = available_resources.swap_remove(idx);
+                let best_resource_idx = available_resources
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, storage)| storage.storage_size >= encoded_length)
+                    .min_by(|(_, storage_a), (_, storage_b)| {
+                        match storage_a.storage_size.cmp(&storage_b.storage_size) {
+                            std::cmp::Ordering::Equal => {
+                                storage_a.end_epoch.cmp(&storage_b.end_epoch)
+                            }
+                            ordering => ordering,
+                        }
+                    })
+                    .map(|(idx, _)| idx);
 
                     tracing::debug!(
                         blob_id=%metadata.blob_id(),
