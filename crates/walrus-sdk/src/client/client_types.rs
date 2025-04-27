@@ -25,7 +25,7 @@ use super::{
 };
 
 /// The log level for all WalrusStoreBlob spans.
-pub(crate) const BLOB_SPAN_LEVEL: Level = Level::INFO;
+pub(crate) const BLOB_SPAN_LEVEL: Level = Level::DEBUG;
 
 /// API for a blob that is being stored to Walrus.
 #[enum_dispatch]
@@ -1370,7 +1370,6 @@ impl<'a, T: Debug + Clone + Send + Sync> WalrusStoreBlobApi<'a, T> for BlobWithC
             ));
         };
 
-        // TODO: update the certified at epoch to the result.
         let store_result = BlobStoreResult::NewlyCreated {
             blob_object: blob.clone(),
             resource_operation: operation.clone(),

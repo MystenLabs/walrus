@@ -360,13 +360,6 @@ impl<'a> ResourceManager<'a> {
         blobs.iter().for_each(|b| {
             debug_assert!(b.is_with_status());
         });
-        tracing::debug!(
-            num_blobs = ?blobs.len(),
-            persistence = ?persistence,
-            store_when = ?store_when,
-            epochs_ahead = ?epochs_ahead,
-            "registering or reusing resources for the blobs"
-        );
 
         let encoded_lengths: Result<Vec<_>, _> = blobs
             .iter()
