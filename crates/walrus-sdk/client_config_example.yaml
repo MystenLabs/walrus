@@ -35,6 +35,7 @@ communication_config:
     max_backoff_millis: 5000
     max_retries: 5
   sui_client_request_timeout_millis: null
+  read_blob_certification_wait_time_secs: 30
 refresh_config:
   refresh_grace_period_secs: 10
   max_auto_refresh_interval_secs: 30

@@ -259,16 +259,38 @@ impl<T: ReadClient> Client<T> {
 
         let certified_epoch = if committees.is_change_in_progress() {
             tracing::info!("epoch change in progress, reading from initial certified epoch");
-            let blob_status = match blob_status {
+
+            let start_time = Instant::now();
+            let timeout_duration = Duration::from_secs(
+                self.config
+                    .communication_config
+                    .read_blob_certification_wait_time,
+            );
+            let poll_interval = Duration::from_millis(500);
+
+            let mut status = match blob_status {
                 Some(status) => status,
                 None => {
                     self.get_blob_status_with_retries(blob_id, &self.sui_client)
                         .await?
                 }
             };
-            blob_status
-                .initial_certified_epoch()
-                .ok_or_else(|| ClientError::from(ClientErrorKind::BlobIdDoesNotExist))?
+
+            while status.initial_certified_epoch().is_none()
+                && start_time.elapsed() < timeout_duration
+            {
+                tokio::time::sleep(poll_interval).await;
+                status = self
+                    .get_verified_blob_status(blob_id, &self.sui_client, Duration::from_secs(10))
+                    .await?;
+            }
+
+            match status.initial_certified_epoch() {
+                Some(epoch) => epoch,
+                None => {
+                    return Err(ClientError::from(ClientErrorKind::BlobIdDoesNotExist));
+                }
+            }
         } else {
             // We are not during epoch change, we can read from the current epoch directly.
             committees.epoch()
