@@ -276,7 +276,8 @@ impl<T: ReadClient> Client<T> {
                 }
             };
 
-            while status.initial_certified_epoch().is_none()
+            while status.is_registered()
+                && status.initial_certified_epoch().is_none()
                 && start_time.elapsed() < timeout_duration
             {
                 tokio::time::sleep(poll_interval).await;
