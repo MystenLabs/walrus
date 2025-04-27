@@ -277,6 +277,15 @@ pub(crate) mod default {
     }
 
     pub fn default_read_blob_certification_wait_time_secs() -> u64 {
-        30
+        {
+            #[cfg(test)]
+            {
+                30
+            }
+            #[cfg(not(test))]
+            {
+                0
+            }
+        }
     }
 }
