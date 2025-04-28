@@ -189,8 +189,9 @@ pub enum SuiClientError {
     StakeBelowThreshold(u64),
     /// The required coin balance cannot be achieved with the maximum number of coins allowed.
     #[error(
-        "the required coin balance for coins of type {0} cannot be achieved with the maximum \
-        number of coins allowed ({MAX_GAS_PAYMENT_OBJECTS}); consider merging the coins in the wallet and retrying"
+        "there is enough balance to cover the requested amount of type {0}, but cannot be achieved \
+        with less than the maximum number of coins allowed ({MAX_GAS_PAYMENT_OBJECTS}); consider \
+        merging the coins in the wallet and retrying"
     )]
     InsufficientFundsWithMaxCoins(String),
 }

@@ -24,6 +24,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use sui_sdk::{
     SuiClient,
     SuiClientBuilder,
+    error::Error as SuiSdkError,
     rpc_types::{
         Balance,
         Coin,
@@ -261,8 +262,14 @@ impl RetriableSuiClient {
         retry_rpc_errors(
             self.get_strategy(),
             || async {
-                self.select_coins_inner(address, coin_type.clone(), amount, exclude.clone())
-                    .await
+                self.select_coins_with_limit(
+                    address,
+                    coin_type.clone(),
+                    amount,
+                    exclude.clone(),
+                    MAX_GAS_PAYMENT_OBJECTS,
+                )
+                .await
             },
             self.metrics.clone(),
             "select_coins",
@@ -273,84 +280,97 @@ impl RetriableSuiClient {
     /// Returns a list of coins for the given address, or an error upon failure.
     ///
     /// This is a reimplementation of the [`sui_sdk::apis::CoinReadApi::select_coins`] method, but
-    /// using [`get_coins_stream_retry`] to handle retriable failures.
-    async fn select_coins_inner(
+    /// using `get_coins_stream_retry` to handle retriable failures.
+    ///
+    /// If the `max_num_coins` is reached, but the total balance of the selected coins is less than
+    /// the requested amount, the function will return an error.
+    pub async fn select_coins_with_limit(
         &self,
         address: SuiAddress,
         coin_type: Option<String>,
         amount: u128,
         exclude: Vec<ObjectID>,
+        max_num_coins: usize,
     ) -> SuiClientResult<Vec<Coin>> {
         let mut coins_stream = pin!(
             self.get_coins_stream_retry(address, coin_type.clone())
                 .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
         );
 
-        // Use a binary heap to keep track of the coins with the largest balances.
-        // `Reverse` turns the max heap into a min heap.
-        let mut selected_coins =
-            BinaryHeap::<Reverse<OrderedCoin>>::with_capacity(MAX_GAS_PAYMENT_OBJECTS);
+        let mut selected_coins = Vec::with_capacity(max_num_coins);
         let mut total_selected = 0u128;
-        let mut total_available = 0u128;
 
         while let Some(coin) = coins_stream.as_mut().next().await {
-            let coin_balance = coin.balance as u128;
-            total_available += coin_balance;
-
-            if selected_coins.len() < MAX_GAS_PAYMENT_OBJECTS {
-                total_selected += coin_balance;
-                selected_coins.push(Reverse(coin.into()));
-            } else {
-                // We already have too many objects in the set, but we don't have enough total
-                // value. Try to replace the minimum with the current coin.
-                let min_balance = selected_coins
-                    .peek()
-                    .expect("since we have >= MAX_GAS_PAYMENT_OBJECTS, the root must exist")
-                    .0
-                    .balance() as u128;
-
-                if coin_balance > min_balance {
-                    // Replace the minimum.
-                    total_selected += coin_balance - min_balance;
-                    selected_coins.pop();
-                    selected_coins.push(Reverse(coin.into()));
-                }
-            }
+            total_selected += u128::from(coin.balance);
+            selected_coins.push(coin);
 
             if total_selected >= amount {
+                return Ok(selected_coins);
+            }
+            if selected_coins.len() >= max_num_coins {
                 break;
             }
         }
 
-        debug_assert!(
-            selected_coins.len() <= MAX_GAS_PAYMENT_OBJECTS,
-            "selected coins should be less than or equal to the max gas payment objects",
-        );
-
-        match (total_selected >= amount, total_available >= amount) {
-            (false, enough_avail) => {
-                if enough_avail {
-                    tracing::error!(
-                        requested_amount = amount,
-                        max_available_with_256_coins = total_selected,
-                        total_available,
-                        "there is enough balance to cover the requested amount, but cannot be \
-                        achieved with less than 256 coins; consider merging the coins in the \
-                        wallet and retrying",
-                    );
-                }
-                return Err(SuiClientError::InsufficientFundsWithMaxCoins(
-                    coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
-                ));
-            }
-            (true, false) => unreachable!("total_available is always greater than total_selected"),
-            (true, true) => (),
+        // Check if the loop above ended because we don't have any more coins. Also, check if we
+        // can add more coins by peeking from the stream. If not, we have exactly
+        // MAX_GAS_PAYMENT_OBJECTS coins in the wallet, but not enough value.
+        let mut peekable = pin!(coins_stream.as_mut().peekable());
+        if selected_coins.len() < max_num_coins || peekable.as_mut().peek().await.is_none() {
+            return Err(SuiSdkError::InsufficientFund { address, amount }.into());
         }
 
-        Ok(selected_coins
+        // The wallet has more coins.
+        // Use a binary heap to keep track of the coins with the largest balances.
+        let mut selected_coins_heap = selected_coins
             .into_iter()
-            .map(|rev_coin| rev_coin.0.into())
-            .collect())
+            .map(|coin| Reverse(OrderedCoin::from(coin)))
+            .collect::<BinaryHeap<_>>();
+
+        let mut total_available = total_selected;
+
+        while let Some(coin) = peekable.as_mut().next().await {
+            let coin_balance = u128::from(coin.balance);
+            total_available += coin_balance;
+            let min_balance: u128 = selected_coins_heap
+                .peek()
+                .expect("since we have >= max_num_coins, the root must exist")
+                .0
+                .balance()
+                .into();
+
+            if coin_balance > min_balance {
+                // Replace the minimum.
+                total_selected += coin_balance - min_balance;
+                selected_coins_heap.pop();
+                selected_coins_heap.push(Reverse(coin.into()));
+            }
+
+            if total_selected >= amount {
+                return Ok(selected_coins_heap
+                    .into_iter()
+                    .map(|rev_coin| rev_coin.0.into())
+                    .collect());
+            }
+        }
+
+        debug_assert!(
+            selected_coins_heap.len() == max_num_coins,
+            "selected coins should be or equal to the max gas payment objects",
+        );
+        debug_assert!(
+            total_selected < amount,
+            "total selected should be less than the requested amount, otherwise it would have \
+            exited above",
+        );
+
+        if total_available >= amount {
+            Err(SuiClientError::InsufficientFundsWithMaxCoins(
+                coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
+            ))
+        } else {
+            Err(SuiSdkError::InsufficientFund { address, amount }.into())
+        }
     }
 
     /// Returns a stream of coins for the given address.

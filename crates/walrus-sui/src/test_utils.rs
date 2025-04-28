@@ -533,7 +533,7 @@ pub async fn wallet_for_testing(
 
 /// Funds the `recipients` with gas objects with `amount` or with [`DEFAULT_FUNDING_PER_COIN`]
 /// SUI each if no amount is provided.
-async fn fund_addresses(
+pub(crate) async fn fund_addresses(
     funding_wallet: &mut WalletContext,
     recipients: Vec<SuiAddress>,
     amount: Option<u64>,
