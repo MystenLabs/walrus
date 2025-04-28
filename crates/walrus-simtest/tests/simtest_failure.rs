@@ -25,7 +25,7 @@ mod tests {
     use walrus_simtest::test_utils::simtest_utils::{
         self,
         BlobInfoConsistencyCheck,
-        DB_FAIL_POINTS,
+        CRASH_NODE_FAIL_POINTS,
     };
     use walrus_sui::client::ReadClient;
 
@@ -68,7 +68,7 @@ mod tests {
         do_not_fail_nodes.insert(sui_cluster.lock().await.sim_node_handle().id());
 
         let fail_triggered_clone = fail_triggered.clone();
-        sui_macros::register_fail_points(DB_FAIL_POINTS, move || {
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             handle_failpoint_and_crash_node_once(
                 do_not_fail_nodes.clone(),
                 fail_triggered_clone.clone(),
@@ -196,7 +196,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: true,
+                use_legacy_event_processor: false,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
                 enable_node_config_synchronizer: false,
@@ -229,8 +229,7 @@ mod tests {
             .expect("node id should be set");
         let fail_triggered_clone = fail_triggered.clone();
 
-        // Trigger node crash during some DB access.
-        sui_macros::register_fail_points(DB_FAIL_POINTS, move || {
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             crash_target_node(
                 target_fail_node_id,
                 fail_triggered_clone.clone(),
@@ -352,7 +351,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(10))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![2, 2, 3, 3, 3],
-                use_legacy_event_processor: true,
+                use_legacy_event_processor: false,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
                 enable_node_config_synchronizer: false,
@@ -422,8 +421,7 @@ mod tests {
         let next_fail_triggered_clone = next_fail_triggered.clone();
         let crash_end_time = Instant::now() + Duration::from_secs(2 * 60);
 
-        // Trigger node crash during some DB access.
-        sui_macros::register_fail_points(DB_FAIL_POINTS, move || {
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             repeatedly_crash_target_node(
                 target_fail_node_id,
                 next_fail_triggered_clone.clone(),

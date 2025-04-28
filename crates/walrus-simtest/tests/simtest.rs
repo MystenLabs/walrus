@@ -31,7 +31,7 @@ mod tests {
     use walrus_simtest::test_utils::simtest_utils::{
         self,
         BlobInfoConsistencyCheck,
-        DB_FAIL_POINTS,
+        CRASH_NODE_FAIL_POINTS,
     };
     use walrus_sui::client::ReadClient;
 
@@ -121,7 +121,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: node_weights.clone(),
-                use_legacy_event_processor: true,
+                use_legacy_event_processor: false,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
                 enable_node_config_synchronizer: false,
@@ -287,7 +287,8 @@ mod tests {
                 .node_id
                 .expect("node id should be set");
             let fail_triggered_clone = fail_triggered.clone();
-            register_fail_points(DB_FAIL_POINTS, move || {
+
+            register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
                 crash_target_node(
                     target_fail_node_id,
                     fail_triggered_clone.clone(),
@@ -394,7 +395,7 @@ mod tests {
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(TestNodesConfig {
                 node_weights: vec![1, 2, 3, 3, 4],
-                use_legacy_event_processor: true,
+                use_legacy_event_processor: false,
                 disable_event_blob_writer: false,
                 blocklist_dir: None,
                 enable_node_config_synchronizer: false,
@@ -433,8 +434,7 @@ mod tests {
             .expect("node id should be set");
         let fail_triggered_clone = fail_triggered.clone();
 
-        // Trigger node crash during some DB access.
-        register_fail_points(DB_FAIL_POINTS, move || {
+        register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
             crash_target_node(
                 target_fail_node_id,
                 fail_triggered_clone.clone(),
