@@ -154,6 +154,10 @@ where
                 );
                 return None;
             };
+            let Some(client) = check_ready(client) else {
+                tracing::trace!("skipping unready client");
+                return None;
+            };
 
             let request = async move {
                 client
@@ -600,6 +604,10 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
                 tracing::trace!("symbols in batch were all collected, skipping");
                 continue;
             }
+            let Some(client) = check_ready(client) else {
+                tracing::trace!("skipping unready client");
+                continue;
+            };
 
             let filter = if symbols_to_request.len() == node_info.shard_ids.len() {
                 RecoverySymbolsFilter::recovers(self.target_index(), self.target_sliver_type())
@@ -1156,9 +1164,14 @@ where
                 );
                 continue;
             };
+            let Some(client) = check_ready(client) else {
+                tracing::trace!("skipping unready client");
+                continue;
+            };
 
             let weight =
                 u16::try_from(node_info.shard_ids.len()).expect("shard weight fits within u16");
+
             let request = client
                 .oneshot(Request::SubmitProofForInvalidBlobAttestation {
                     blob_id: self.blob_id,
@@ -1282,4 +1295,21 @@ fn log_and_discard_timeout_or_error<T>(
         Err(error) => tracing::debug!(%error),
     }
     None
+}
+
+fn check_ready<T: NodeService>(mut client: T) -> Option<T> {
+    match client.ready().now_or_never() {
+        None => {
+            tracing::trace!("client is not ready, skipping the node");
+            None
+        }
+        Some(Err(error)) => {
+            tracing::warn!(
+                ?error,
+                "encountered an error while checking a remote node for readiness",
+            );
+            None
+        }
+        Some(Ok(_)) => Some(client),
+    }
 }

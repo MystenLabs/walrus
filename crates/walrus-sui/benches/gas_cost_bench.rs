@@ -110,7 +110,7 @@ struct Args {
 
 async fn gas_cost_for_contract_calls(args: Args) -> anyhow::Result<()> {
     let mut out_file = std::fs::File::create(args.out)?;
-    out_file.write(
+    out_file.write_all(
         format!(
             "{},{},{},{},{},{},{},{},{}\n",
             "label",
