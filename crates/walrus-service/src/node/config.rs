@@ -673,6 +673,8 @@ pub mod defaults {
     pub const BALANCE_CHECK_FREQUENCY: Duration = Duration::from_secs(60 * 60);
     /// SUI MIST threshold under which balance checks log a warning.
     pub const BALANCE_CHECK_WARNING_THRESHOLD_MIST: u64 = 5_000_000_000;
+    /// The default number of max concurrent streams for the rest API.
+    pub const REST_HTTP2_MAX_CONCURRENT_STREAMS: u32 = 1000;
 
     /// Returns the default metrics port.
     pub fn metrics_port() -> u16 {
@@ -977,7 +979,7 @@ pub struct Http2Config {
 impl Default for Http2Config {
     fn default() -> Self {
         Self {
-            http2_max_concurrent_streams: 1000,
+            http2_max_concurrent_streams: defaults::REST_HTTP2_MAX_CONCURRENT_STREAMS,
             http2_max_pending_accept_reset_streams: 100,
             http2_initial_stream_window_size: None,
             http2_initial_connection_window_size: None,
