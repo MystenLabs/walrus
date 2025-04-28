@@ -4,6 +4,7 @@
 use std::{
     cmp,
     collections::{HashMap, VecDeque},
+    num::NonZero,
     pin::Pin,
     sync::{Arc, Mutex as SyncMutex, Weak},
     task::{Context, Poll, ready},
@@ -181,7 +182,8 @@ enum RecoveryStateLabel {
     Init,
     CollectingSymbols,
     Backoff,
-    TailRequest,
+    /// The tail number of remaining requests, min 1, max 5.
+    TailRequest(NonZero<u8>),
     BuildingSliver,
 }
 
@@ -191,7 +193,7 @@ impl AsRef<str> for RecoveryStateLabel {
             Self::Init => "init",
             Self::CollectingSymbols => "collecting-symbols",
             Self::Backoff => "backoff",
-            Self::TailRequest => "tail-request",
+            Self::TailRequest(_) => "tail-request",
             Self::BuildingSliver => "building-sliver",
         }
     }
@@ -215,7 +217,8 @@ impl RecoverSliverStats {
             RecoveryStateLabel::Init,
             OwnedGaugeGuard::acquire(walrus_utils::with_label!(
                 metrics.recovery_future_state,
-                RecoveryStateLabel::Init
+                RecoveryStateLabel::Init,
+                ""
             )),
         );
 
@@ -232,11 +235,12 @@ impl RecoverSliverStats {
             return;
         }
 
-        let guard = OwnedGaugeGuard::acquire(walrus_utils::with_label!(
-            self.metrics.recovery_future_state,
-            state
-        ));
-        self.current_state = (state, guard);
+        let metric = if let RecoveryStateLabel::TailRequest(i) = state {
+            walrus_utils::with_label!(self.metrics.recovery_future_state, state, &i.to_string())
+        } else {
+            walrus_utils::with_label!(self.metrics.recovery_future_state, state, "")
+        };
+        self.current_state = (state, OwnedGaugeGuard::acquire(metric));
     }
 }
 
@@ -632,7 +636,9 @@ impl<'a, T: NodeService> CollectRecoverySymbols<'a, T> {
 
         match self.pending_requests.len() {
             0 => (),
-            1 => self.stats.record_state(RecoveryStateLabel::TailRequest),
+            i @ 1..=5 => self.stats.record_state(RecoveryStateLabel::TailRequest(
+                NonZero::new(i as u8).expect("zero is handled above"),
+            )),
             _ => self
                 .stats
                 .record_state(RecoveryStateLabel::CollectingSymbols),

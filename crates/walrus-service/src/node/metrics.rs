@@ -191,7 +191,7 @@ walrus_utils::metrics::define_metric_set! {
         },
 
         #[help = "The number of recovery futures in a given recovery state."]
-        recovery_future_state: IntGaugeVec["recovery_state"],
+        recovery_future_state: IntGaugeVec["recovery_state", "tail_count"],
     }
 }
 
