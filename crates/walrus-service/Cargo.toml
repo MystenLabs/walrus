@@ -144,7 +144,7 @@ telemetry-subscribers.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
-tokio-metrics = "0.4.0"
+tokio-metrics = "0.4.1"
 tokio-stream = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tower = { workspace = true, features = ["buffer", "limit", "load-shed", "util"] }
