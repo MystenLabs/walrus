@@ -17,7 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
 use futures::future::BoxFuture;
 use move_package::BuildConfig as MoveBuildConfig;
-use retry_client::RetriableSuiClient;
+use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
 use sui_package_management::LockCommand;
 use sui_sdk::{
     rpc_types::{
@@ -187,6 +187,12 @@ pub enum SuiClientError {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
+    /// The required coin balance cannot be achieved with the maximum number of coins allowed.
+    #[error(
+        "the required coin balance for coins of type {0} cannot be achieved with the maximum \
+        number of coins allowed ({MAX_GAS_PAYMENT_OBJECTS}); consider merging the coins in the wallet and retrying"
+    )]
+    InsufficientFundsWithMaxCoins(String),
 }
 
 impl SuiClientError {

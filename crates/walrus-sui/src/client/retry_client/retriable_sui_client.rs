@@ -80,7 +80,7 @@ const MAX_GAS_BUDGET: u64 = 50_000_000_000;
 /// The maximum number of gas payment objects allowed in a transaction by the Sui protocol
 /// configuration
 /// [here](https://github.com/MystenLabs/sui/blob/main/crates/sui-protocol-config/src/lib.rs#L2089).
-const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
+pub(crate) const MAX_GAS_PAYMENT_OBJECTS: usize = 256;
 
 /// [`LazySuiClientBuilder`] has enough information to create a [`SuiClient`], when its
 /// [`LazyClientBuilder`] trait implementation is used.
@@ -282,7 +282,7 @@ impl RetriableSuiClient {
         exclude: Vec<ObjectID>,
     ) -> SuiClientResult<Vec<Coin>> {
         let mut coins_stream = pin!(
-            self.get_coins_stream_retry(address, coin_type)
+            self.get_coins_stream_retry(address, coin_type.clone())
                 .filter(|coin: &Coin| future::ready(!exclude.contains(&coin.coin_object_id)))
         );
 
@@ -339,7 +339,9 @@ impl RetriableSuiClient {
                         wallet and retrying",
                     );
                 }
-                return Err(sui_sdk::error::Error::InsufficientFund { address, amount }.into());
+                return Err(SuiClientError::InsufficientFundsWithMaxCoins(
+                    coin_type.unwrap_or_else(|| sui_sdk::SUI_COIN_TYPE.to_string()),
+                ));
             }
             (true, false) => unreachable!("total_available is always greater than total_selected"),
             (true, true) => (),
