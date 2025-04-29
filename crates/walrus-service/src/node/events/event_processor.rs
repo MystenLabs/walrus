@@ -61,6 +61,7 @@ use typed_store::{
 use walrus_core::{BlobId, ensure};
 use walrus_sui::{
     client::{
+        SuiClientMetricSet,
         retry_client::{
             RetriableRpcClient,
             RetriableSuiClient,
@@ -606,6 +607,7 @@ impl EventProcessor {
             &runtime_config.rpc_addresses,
             config.checkpoint_request_timeout,
             runtime_config.rpc_fallback_config.as_ref(),
+            Arc::new(SuiClientMetricSet::new(registry)),
         )
         .await?;
         let database = Self::initialize_database(&runtime_config)?;
@@ -722,6 +724,7 @@ impl EventProcessor {
         rest_urls: &[String],
         request_timeout: Duration,
         rpc_fallback_config: Option<&RpcFallbackConfig>,
+        metrics: Arc<SuiClientMetricSet>,
     ) -> Result<RetriableRpcClient, anyhow::Error> {
         let lazy_client_builders = rest_urls
             .iter()
@@ -736,6 +739,7 @@ impl EventProcessor {
             request_timeout,
             ExponentialBackoffConfig::default(),
             rpc_fallback_config.cloned(),
+            Some(metrics),
         )
         .await
     }
@@ -1336,6 +1340,7 @@ mod tests {
             }],
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
+            None,
             None,
         )
         .await?;

@@ -177,6 +177,7 @@ impl RetriableRpcClient {
         request_timeout: Duration,
         backoff_config: ExponentialBackoffConfig,
         fallback_config: Option<RpcFallbackConfig>,
+        metrics: Option<Arc<SuiClientMetricSet>>,
     ) -> anyhow::Result<Self> {
         let fallback_client = fallback_config.as_ref().map(|config| {
             let url = config.checkpoint_bucket.clone();
@@ -188,7 +189,7 @@ impl RetriableRpcClient {
             request_timeout,
             backoff_config,
             fallback_client,
-            metrics: None,
+            metrics,
             last_success: Arc::new(AtomicInstant::new(Instant::now())),
             num_failures: Arc::new(AtomicUsize::new(0)),
         })

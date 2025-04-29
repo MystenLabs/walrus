@@ -523,6 +523,7 @@ mod tests {
             Duration::from_secs(5),
             ExponentialBackoffConfig::default(),
             None,
+            None,
         )
         .await?;
         let parallel_config = ParallelDownloaderConfig {
